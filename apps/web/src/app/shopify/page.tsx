@@ -30,6 +30,7 @@ import {
   List,
   LoadingBlock,
   Metric,
+  RetryIcon,
   Select,
 } from "@/components/ui";
 
@@ -370,13 +371,46 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
   }
 
-  if (!overview.connection) {
+  const connectionStatus = overview.connection?.status;
+  const canShowStoreDashboard = Boolean(overview.store);
+
+  if (!canShowStoreDashboard) {
     return (
-      <EmptyState
-        title="Shopify todavía no está conectado"
-        hint="Conecta una tienda para importar ventas, productos, stock y métricas reales. Meta Ads y Klaviyo no son necesarios para empezar."
-        action={<Link href="/integraciones">Ir a Integraciones</Link>}
-      />
+      <div className="portal-page">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-separator py-2"
+        >
+          <p className="text-sm text-muted">
+            {connectionStatus === "syncing"
+              ? "Shopify está sincronizando la tienda."
+              : connectionStatus === "error"
+                ? "La conexión Shopify necesita atención. Revísala en"
+                : connectionStatus === "connected"
+                  ? "Shopify está conectada, pero la tienda todavía se está preparando. Revísala en"
+                  : "Shopify todavía no está conectada. Completa la conexión en"}{" "}
+            {connectionStatus !== "syncing" ? (
+              <Link href="/integraciones">Integraciones</Link>
+            ) : null}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-w-0 px-2"
+            aria-label="Actualizar estado de Shopify"
+            title="Actualizar estado"
+            disabled={isRefreshing}
+            onClick={() => void reload()}
+          >
+            <RetryIcon
+              aria-hidden
+              className={`size-4${isRefreshing ? " animate-spin" : ""}`}
+            />
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -408,6 +442,9 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }
         actions={
           <div className="flex flex-wrap gap-3">
+            {overview.connection?.status === "syncing" ? (
+              <Badge tone="warn">Sincronizando...</Badge>
+            ) : null}
             <Button
               type="button"
               disabled={isRefreshing}
@@ -419,18 +456,16 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 delante, el boton sincronizaria la tienda que el backend
                 resolvio por su cuenta -- que no es ninguna de las que el
                 usuario cree estar mirando. */}
-            {isAggregate ? null : (
+            {isAggregate ||
+            (overview.connection?.status !== "connected" &&
+              overview.connection?.status !== "error") ? null : (
               <Button
                 variant="danger"
                 type="button"
-                disabled={
-                  isSyncing ||
-                  !overview.connection ||
-                  overview.connection.status === "syncing"
-                }
+                disabled={isSyncing}
                 onClick={() => void triggerSync()}
               >
-                {isSyncing || overview.connection?.status === "syncing"
+                {isSyncing
                   ? "Sincronizando..."
                   : "Sincronizar ahora"}
               </Button>
@@ -799,7 +834,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   }))}
                   xKey="date"
                   series={[
-                    { key: "Sesiones", label: "Sesiones", color: "#1d4ed8" },
+                    { key: "Sesiones", label: "Sesiones", color: "#15805d" },
                     { key: "Pedidos", label: "Pedidos", color: "#059669" },
                   ]}
                   height={220}

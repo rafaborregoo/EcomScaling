@@ -506,7 +506,18 @@ export async function listIntegrations(
         // de ella salia todo el estado del proveedor, asi que la tienda rota de
         // al lado no aparecia en ninguna parte de la interfaz.
         const connections = connectionsResult.data
-          .filter((item) => item.provider === provider.id)
+          .filter((item) => {
+            if (item.provider !== provider.id) return false;
+            // Klaviyo uses `pending:<state>` rows only as temporary PKCE
+            // storage while OAuth is in flight. A denied/abandoned attempt
+            // is not an account and must not become the provider's health or
+            // appear in the account picker.
+            return !(
+              provider.id === "klaviyo" &&
+              typeof item.provider_account_id === "string" &&
+              item.provider_account_id.startsWith("pending:")
+            );
+          })
           .map((connection) => {
             const latestSync =
               latestRunsResult.data.find(
@@ -542,10 +553,13 @@ export async function listIntegrations(
                 connectionSeverity(left.status),
           );
 
-        // El resumen del proveedor es el de su peor tienda. `connection` se
-        // mantiene para las pantallas que aun hablan de una sola conexion; es
-        // la misma fila que encabeza `connections`.
-        const worst = connections[0] ?? null;
+        // Una baja programada ya no es una tienda activa: se conserva en
+        // `connections` para que la interfaz permita restaurarla, pero no debe
+        // convertirse en el resumen operativo ni mostrar datos obsoletos como
+        // si fueran de una conexión activa.
+        const worst =
+          connections.find((connection) => connection.status !== "pending_deletion") ??
+          null;
         const noConnectionHealth = deriveIntegrationHealth({
           available: provider.available,
         });

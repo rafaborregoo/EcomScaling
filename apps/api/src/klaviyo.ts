@@ -23,6 +23,7 @@ import {
 } from "./klaviyo-permissions.js";
 import { recordAuditLog } from "./audit-log.js";
 import { emailHtmlToPlainText } from "./email-body-text.js";
+import { buildMarketingTemplateProfile } from "./marketing-template-profile.js";
 import {
   buildKlaviyoAuthorizeUrl,
   createKlaviyoCodeChallenge,
@@ -724,7 +725,7 @@ export async function listKlaviyoConversionMetrics(
 // se derivan rates y ranking de asuntos, y se calcula el periodo anterior para
 // los deltas. Es de solo lectura: no propone escrituras.
 
-type KlaviyoEmailReportRow = {
+export type KlaviyoEmailReportRow = {
   bucket_month: string;
   entity_type: "campaign" | "flow";
   entity_id: string | null;
@@ -795,7 +796,7 @@ function deriveTotals(
   };
 }
 
-function summariseKlaviyoEmailRows(rows: KlaviyoEmailReportRow[]) {
+export function summariseKlaviyoEmailRows(rows: KlaviyoEmailReportRow[]) {
   const all = zeroSums();
   const campaign = zeroSums();
   const flow = zeroSums();
@@ -858,12 +859,18 @@ function summariseKlaviyoEmailRows(rows: KlaviyoEmailReportRow[]) {
     conversions: entity.sums.conversions,
     recipients: entity.sums.recipients,
     delivered: entity.sums.delivered,
+    unsubscribes: entity.sums.unsubscribes,
+    bounced: entity.sums.bounced,
+    spam_complaints: entity.sums.spam_complaints,
     opens_unique: entity.sums.opens_unique,
     clicks_unique: entity.sums.clicks_unique,
     open_rate: ratio(entity.sums.opens_unique, entity.sums.delivered),
     click_rate: ratio(entity.sums.clicks_unique, entity.sums.delivered),
     ctor: ratio(entity.sums.clicks_unique, entity.sums.opens_unique),
     revenue_per_recipient: ratio(entity.sums.revenue, entity.sums.recipients),
+    unsub_rate: ratio(entity.sums.unsubscribes, entity.sums.delivered),
+    bounce_rate: ratio(entity.sums.bounced, entity.sums.recipients),
+    spam_rate: ratio(entity.sums.spam_complaints, entity.sums.delivered),
   });
 
   const list = [...entities.values()];
@@ -1363,6 +1370,7 @@ export async function importKlaviyoTemplate(
     typeof attributes.text === "string" && attributes.text.trim()
       ? attributes.text
       : emailHtmlToPlainText(html) || name;
+  const templateProfile = buildMarketingTemplateProfile({ html, plainText });
 
   const { data: draft, error } = await supabase
     .from("marketing_content_drafts")
@@ -1375,6 +1383,7 @@ export async function importKlaviyoTemplate(
         channel: "email_klaviyo",
         source: "klaviyo_import",
         klaviyo_template_id: templateId,
+        template_profile: templateProfile,
       },
       summary: "Plantilla importada de Klaviyo.",
       template_name: name,

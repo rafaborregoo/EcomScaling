@@ -41,7 +41,9 @@ export const toolCostSchema = z.object({
 export const provenanceSchema = z.object({
   source: z.string().min(1),
   as_of: z.string().datetime(),
-  freshness_seconds: z.number().nonnegative(),
+  // null = la consulta se ejecutó ahora, pero el conector no expone la hora
+  // de la última sincronización de esta fuente. No declarar frescura ficticia.
+  freshness_seconds: z.number().nonnegative().nullable(),
 });
 export type Provenance = z.infer<typeof provenanceSchema>;
 
@@ -117,6 +119,7 @@ const readTools = [
   "sample_rows",
   "data_coverage",
   "get_organization_profile",
+  "get_brand_profile",
   "get_strategic_plan",
   "get_current_milestone",
   "list_open_tasks",
@@ -142,19 +145,24 @@ const readTools = [
   // para responder "¿vuelven los clientes?": una llamada, una respuesta, y los
   // mismos numeros que ve el consultor en pantalla.
   "shopify_customer_health",
+  "shopify_product_repurchase_health",
   "shopify_demand_sources",
   "shopify_fulfillment_health",
+  "shopify_delivery_diagnostics",
+  "shopify_open_delivery_exceptions",
   // Embudo y margen entraron despues: se veian en pantalla y ningun agente
   // podia leerlos, asi que el copiloto no sabia responder "donde se cae la
   // conversion" ni "que me come el margen" con el numero a dos clics.
   "shopify_funnel_health",
   "shopify_margin_health",
+  "get_shopify_product_catalog",
   // Metricas del modulo de Meta. Mismo criterio que las de Shopify: tres
   // tools y no nueve funciones sueltas, cada una responde una pregunta
   // entera. Las dos viejas (meta_read_ad_accounts,
   // meta_read_campaign_insights) siguen siendo el acceso crudo a la
   // estructura; estas son las que ya vienen con el juicio calculado.
   "meta_creative_health",
+  "meta_creative_diagnostics",
   "meta_delivery_health",
   "meta_change_log",
   // El gasto agregado ya estaba via meta_read_campaign_insights; esta baja a
@@ -164,6 +172,10 @@ const readTools = [
   // llega ya convertido a texto -- el HTML de un email son 25 KB de tablas.
   "klaviyo_email_content",
   "klaviyo_measurement_health",
+  "klaviyo_performance_summary",
+  "klaviyo_entity_performance",
+  "klaviyo_deliverability_health",
+  "search_internal_email_design_playbook",
 ] as const;
 
 const proposedTools = [
@@ -196,6 +208,7 @@ const writeTools = [
 ] as const;
 
 const connectorForTool = (name: string): ToolDefinition["connector"] => {
+  if (name === "search_internal_email_design_playbook") return null;
   if (name.startsWith("shopify_")) return "shopify";
   if (name.startsWith("meta_")) return "meta";
   if (name.startsWith("klaviyo_") || name === "propose_content")
@@ -228,17 +241,27 @@ export const TOOL_DESCRIPTIONS = {
   instagram_read_media: "Lee publicaciones de Instagram sincronizadas para la organización activa, sin credenciales ni payloads crudos.",
   instagram_read_insights: "Lee métricas de publicaciones Instagram ya sincronizadas, filtradas por cuenta y periodo y sin datos crudos.",
   shopify_customer_health: "Recurrencia, valor por cliente, cohortes, LTV y churn de la tienda: responde si los clientes vuelven y cuanto vale cada uno. Los pedidos contados en unknown_orders NO son clientes nuevos, son pedidos sin el dato de Shopify. ltv es la curva a 30/60/90/180/365 dias sobre cohortes maduras: avg_contribution es MARGEN de contribucion y viene null si falta el coste de algun producto (di sin coste, no uses avg_revenue en su lugar); cohort_cac es el gasto publicitario de la ventana de captacion entre los clientes de la cohorte, y el payback es el primer hito donde avg_contribution >= cohort_cac. churn es el % de clientes que no han vuelto a comprar en 180 dias.",
+  shopify_product_repurchase_health: "Recompra observada por producto en una tienda concreta: cohortes con 90 dias completos de seguimiento, minimo 30 clientes elegibles por producto e intervalos solo con al menos 10 clientes repetidores. Nunca devuelve identificadores de cliente. El historial sincronizado puede estar incompleto; el comportamiento observado no demuestra una cadencia futura ni causalidad, asi que no recomiendes un dia exacto solo con esta señal.",
+  get_shopify_product_catalog: "Busca productos sincronizados de Shopify de la tienda activa por nombre, handle o proveedor y devuelve variantes/precios disponibles. Solo incluye datos presentes en el catálogo local: no incluye descripción extensa, imágenes ni disponibilidad en tiempo real, y no inventes los campos ausentes.",
   shopify_demand_sources: "De donde vienen los pedidos (primera visita segun Shopify), carritos abandonados y coste de cada codigo de descuento. Esta atribucion es la de Shopify y NO se suma con la de Meta o Klaviyo.",
   shopify_fulfillment_health: "Plazos de entrega y devoluciones por producto con su motivo. Si with_estimate es 0, Shopify no dio fecha prometida: ahi late_deliveries 0 no significa que todo llegara a tiempo.",
-  shopify_funnel_health: "Donde se cae la gente antes de comprar: sesiones, anadidos al carrito, checkouts iniciados y pedidos del periodo, mas la serie diaria para ver si el embudo empeora o es un dia suelto. conversion_rate_shopify es la tasa que calcula Shopify sobre sus propias sesiones. Si sessions viene a 0 o days_with_sessions es mucho menor que el periodo, la tienda no tiene permiso de analitica (read_reports) o no manda sesiones: entonces la tasa de conversion NO es baja, es desconocida, y hay que decirlo asi en vez de diagnosticar una caida.",
+  shopify_delivery_diagnostics: "Desglose read-only de fulfillments por transportista, ubicación de preparación y destino agregado (país/región), con volumen, muestra fiable desde 30 envíos, mediana/p90 de pedido a creación del fulfillment y de creación a entrega, ETA/tardanzas, pendientes vencidos y cobertura de eventos. Eventos explícitos pueden confirmar aduanas, intento, retraso o fallo comunicado; los textos originales, direcciones y tracking no se conservan ni se exponen. Cobertura incompleta no prueba ausencia de incidencias y un estado carrier no prueba culpa legal.",
+  shopify_open_delivery_exceptions: "Excepciones logísticas abiertas por envío (máximo 50) con referencia seudónima, transportista, antigüedad, motivo explícito, confianza, área probable y acción recomendada. No devuelve pedido, dirección, teléfono, email ni tracking. 'carrier_or_customs' describe el área a investigar, no demuestra culpa del transportista ni de aduanas. Los episodios se deduplican por envío/motivo y solo se cierran al sincronizar una entrega confirmada; un hito de tránsito genérico no prueba resolución.",
+  shopify_funnel_health: "Donde se cae la gente antes de comprar: sesiones, anadidos al carrito, checkouts iniciados y pedidos del periodo, mas la serie diaria para ver si el embudo empeora o es un dia suelto. conversion_rate_shopify es la tasa que calcula Shopify sobre sus propias sesiones. Compara days_with_funnel_data con requested_days: el primero cuenta fechas distintas con todos los pasos del embudo sincronizados, el segundo los dias calendario inclusivos solicitados. Si requested_days es null, sessions es 0, la cobertura es parcial, falta un evento o la lectura falla, la conversion es desconocida y no evidencia una caida. funnel_data_since solo indica el primer dia completo observado, no continuidad ni cobertura dentro del periodo.",
   shopify_margin_health: "Que se come el margen: margen bruto del periodo, los productos que mas venden con su facturacion, y lo que cuesta cada codigo de descuento. items_without_cost es el numero de lineas vendidas SIN coste cargado: si es alto, el margen esta inflado porque a esos productos se les cuenta ingreso y no coste, y hay que avisar antes de dar ninguna cifra de margen por buena. La serie diaria de ventas viene para distinguir una caida de margen de una caida de volumen.",
   meta_creative_health: "Rendimiento por creatividad de Meta y reparto del gasto por veredicto de subasta. hook_rate y hold_rate en null con has_video false significan que el anuncio NO es un video, no que el video sea malo. enough_volume false significa que no hay impresiones suficientes para publicar tasas. UNKNOWN en un ranking es que Meta no tiene volumen para juzgarlo, no un suspenso.",
-  meta_delivery_health: "Si las cifras de Meta se pueden creer: salud del pixel por evento y conjuntos en fase de aprendizaje. days_missing son dias del periodo sin ese evento; un pixel que manda visitas y dejo de mandar compras se ve vivo desde Meta y deja la optimizacion ciega.",
+  meta_creative_diagnostics: "Inspecciona un anuncio Meta concreto por ID y periodo (máximo 90 días): devuelve identidad, copies/CTA sincronizados, variantes y activos de texto disponibles, rendimiento agregado solo a nivel anuncio y serie temporal diaria. Solo atribuye el periodo a una creatividad cuando una asignación temporal cubre el periodo entero; nunca atribuye métricas a cada activo. La serie elige una fila canónica por día; reach y frequency son observaciones diarias y nunca deben sumarse entre fechas. La ventana de atribución de compras puede diferir de otros informes y la tendencia no prueba fatiga ni causalidad. Esta tool no devuelve URLs ni binarios; el runner puede adjuntar como evidencia visual una imagen estática que ya esté importada al banco privado, si se valida el scope y el MIME. El ID debe venir del rendimiento sincronizado; la tienda la fija el backend.",
+  meta_delivery_health: "Si las cifras de Meta se pueden creer: salud del pixel por evento, objetivo/evento promocionado realmente configurado por conjunto, estado de aprendizaje reportado por Meta y contexto de actividad Shopify/frescura si hay tienda seleccionada. El último evento del registro no confirma un reset de aprendizaje; la ausencia con log stale/failed/unknown tampoco prueba que no hubiera cambios. Distingue mapeo ausente, evento no observado, cero actividad con fuentes frescas y cobertura desconocida; permisos/sync antiguos invalidan los ceros. La conciliación Meta-Shopify no prueba causalidad ni exige equivalencia 1:1. No deduzcas Purchase desde un objetivo genérico ni conviertas una consulta fallida en cero.",
   meta_spend_detail: "En que campanas de Meta se va el dinero y como evoluciona el gasto dia a dia. Las compras y el valor de compra que acompanan al gasto son los que **Meta se atribuye** con su modelo (7 dias click / 1 dia view por defecto): NO son facturacion, no se suman a la de Klaviyo ni sustituyen a la de Shopify. Al hablar de ellos di 'atribuido por Meta'. Para saber cuanto cuesta de verdad traer un cliente usa cac_blended del resumen financiero, que divide el gasto entre los clientes nuevos reales de la tienda.",
   meta_change_log: "Que se toco en la cuenta de Meta y que paso en los 7 dias siguientes, sobre la misma entidad y con el dia del cambio excluido de las dos ventanas. Es coincidencia en el tiempo, NO causa demostrada: no lo presentes como una relacion probada.",
   klaviyo_email_content: "Los emails que envia esta tienda, de campana y de flujo, con su asunto, su preheader, el cuerpo en texto y sus enlaces. Los de flujo van numerados en el orden en que los recibe el suscriptor. adds_utm false significa que ese email NO etiqueta sus enlaces: su trafico llega sin atribuir, asi que su efecto no se puede medir aunque funcione. cuerpo_cortado true significa que el texto se trunco, no que el email termine ahi.",
   klaviyo_measurement_health: "Si se puede creer lo que mide el email de esta tienda: cuantos emails no llevan UTM, no tienen cuerpo o no siguen clics, mas el inventario de flujos, campanas, listas y segmentos y el estado del ultimo sync. recursos_no_traidos con valor significa que el catalogo esta INCOMPLETO: que un flujo no aparezca no prueba que no exista.",
+  klaviyo_performance_summary: "Resumen de rendimiento Klaviyo para un periodo y su periodo inmediatamente anterior, con KPIs, entidades destacadas y granularidad mensual. Es atribucion reportada por Klaviyo, no ventas incrementales; una fila mensual no equivale a un envio individual.",
+  klaviyo_entity_performance: "Rendimiento mensual de una campaña o flow Klaviyo concreto, con IDs y tienda fijados por el backend. Si no hay filas devuelve sin_datos, no ceros. El informe disponible es mensual y no permite inferir métricas por envío.",
+  klaviyo_deliverability_health: "Salud de medición y entregabilidad Klaviyo, cobertura de sync e inventario incompleto. El tracking conductual agregado solo está disponible en alcance global; para tienda concreta se marca explícitamente como no disponible y nunca se mezcla con otras tiendas.",
+  search_internal_email_design_playbook: "Busca principios privados de composición de E-NORA para inspirar un email. Devuelve como máximo cuatro resúmenes sin IDs, nombres de fichas, ejemplos literales ni HTML; adapta las ideas, no reveles el playbook.",
   get_organization_profile: "Lee el perfil operativo de la organizacion activa, sin credenciales ni secretos.",
+  get_brand_profile: "Lee la guia de marca de la organizacion y, si se selecciono una tienda, aplica sus overrides sin mezclar tiendas. Solo devuelve campos de marca; nunca el playbook interno de E-NORA.",
   get_strategic_plan: "Lee el plan estrategico activo y sus fases/hitos de la organizacion activa.",
   get_current_milestone: "Lee el hito pendiente actual del plan estrategico activo de la organizacion.",
   list_open_tasks: "Lista hasta 50 tareas pendientes o en curso de la organizacion activa, ordenadas por vencimiento.",
@@ -290,6 +313,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "instagram_read_insights",
         "describe_schema",
         "get_organization_profile",
+        "get_brand_profile",
         "get_strategic_plan",
         "get_current_milestone",
         "list_open_tasks",
@@ -299,16 +323,25 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "get_financial_settings",
         "report_confidence",
         "shopify_customer_health",
+        "shopify_product_repurchase_health",
         "shopify_demand_sources",
         "shopify_fulfillment_health",
+        "shopify_delivery_diagnostics",
+        "shopify_open_delivery_exceptions",
         "shopify_funnel_health",
         "shopify_margin_health",
+        "get_shopify_product_catalog",
         "meta_creative_health",
+        "meta_creative_diagnostics",
         "meta_delivery_health",
         "meta_change_log",
         "meta_spend_detail",
         "klaviyo_email_content",
         "klaviyo_measurement_health",
+        "klaviyo_performance_summary",
+        "klaviyo_entity_performance",
+        "klaviyo_deliverability_health",
+        "search_internal_email_design_playbook",
       ].includes(name)
         ? "implemented_partial"
         : "planned",
@@ -528,6 +561,11 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },
+  get_brand_profile: {
+    definition: getDefinition("get_brand_profile"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
   get_strategic_plan: {
     definition: getDefinition("get_strategic_plan"),
     inputSchema: emptyInputSchema,
@@ -568,6 +606,37 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },
+  shopify_product_repurchase_health: {
+    definition: getDefinition("shopify_product_repurchase_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_funnel_health: {
+    definition: getDefinition("shopify_funnel_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_margin_health: {
+    definition: getDefinition("shopify_margin_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  get_shopify_product_catalog: {
+    definition: getDefinition("get_shopify_product_catalog"),
+    inputSchema: z.object({
+      query: z.string().max(120).optional(),
+      limit: z.number().int().min(1).max(30).default(12),
+    }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
+  search_internal_email_design_playbook: {
+    definition: getDefinition("search_internal_email_design_playbook"),
+    inputSchema: z.object({
+      objective: z.string().trim().min(1).max(500),
+      audience: z.string().trim().max(200).optional(),
+    }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
   shopify_demand_sources: {
     definition: getDefinition("shopify_demand_sources"),
     inputSchema: emptyInputSchema,
@@ -576,6 +645,19 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   meta_creative_health: {
     definition: getDefinition("meta_creative_health"),
     inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  meta_creative_diagnostics: {
+    definition: getDefinition("meta_creative_diagnostics"),
+    inputSchema: z.object({
+      ad_id: z.string().uuid(),
+      period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).strict().refine((input) => {
+      const start = Date.parse(`${input.period_start}T00:00:00Z`);
+      const end = Date.parse(`${input.period_end}T00:00:00Z`);
+      return Number.isFinite(start) && Number.isFinite(end) && end >= start && end - start <= 90 * 24 * 60 * 60 * 1000 && end <= Date.now();
+    }, { message: "El periodo debe ser válido, no futuro y de máximo 90 días" }),
     outputSchema: domainReadOutputSchema,
   },
   meta_delivery_health: {
@@ -598,8 +680,44 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },
+  klaviyo_performance_summary: {
+    definition: getDefinition("klaviyo_performance_summary"),
+    inputSchema: z.object({
+      period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
+  klaviyo_entity_performance: {
+    definition: getDefinition("klaviyo_entity_performance"),
+    inputSchema: z.object({
+      period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      entity_type: z.enum(["campaign", "flow"]),
+      entity_id: z.string().uuid(),
+    }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
+  klaviyo_deliverability_health: {
+    definition: getDefinition("klaviyo_deliverability_health"),
+    inputSchema: z.object({
+      period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
   shopify_fulfillment_health: {
     definition: getDefinition("shopify_fulfillment_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_delivery_diagnostics: {
+    definition: getDefinition("shopify_delivery_diagnostics"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_open_delivery_exceptions: {
+    definition: getDefinition("shopify_open_delivery_exceptions"),
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },

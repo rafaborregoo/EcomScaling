@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveConnection } from "@/components/active-connection";
-import { type BootstrapResponse } from "@/lib/bootstrap";
+import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import { daysSince } from "@/lib/elapsed";
 import {
   AsyncState,
@@ -13,11 +14,13 @@ import {
   Button,
   ButtonLink,
   Card,
+  ConfirmDialog,
   ErrorBlock,
   IconChevronLeft,
   Link,
   List,
   ProviderIcon,
+  TrashIcon,
   toast,
 } from "@/components/ui";
 import { PROVIDER_SLUG, useIntegrations, useStoreScope } from "../../shared";
@@ -51,6 +54,8 @@ function ProviderCard({
   onDiscard,
   discarding,
   discardLabel,
+  onUnlink,
+  unlinking,
 }: {
   provider: StoreProviderView;
   storeName: string;
@@ -65,6 +70,9 @@ function ProviderCard({
   /** Texto del boton: distingue "descartar un intento" de "eliminar una
    * conexion rota" para que el owner sepa que esta tirando. */
   discardLabel?: string;
+  /** Desvincula esta cuenta de la tienda, sin revocar el OAuth de toda la org. */
+  onUnlink?: () => void;
+  unlinking: boolean;
 }) {
   const slug = PROVIDER_SLUG[provider.provider];
   const { explanation } = provider;
@@ -173,6 +181,19 @@ function ProviderCard({
             {discarding ? "Eliminando..." : (discardLabel ?? "Descartar intento")}
           </Button>
         ) : null}
+        {onUnlink ? (
+          <ConfirmDialog
+            trigger={
+              <Button variant="secondary" size="sm" disabled={unlinking}>
+                {unlinking ? "Desvinculando…" : "Desvincular de esta tienda"}
+              </Button>
+            }
+            title={`Desvincular ${provider.name} de ${storeName}`}
+            description={`Las cuentas de ${provider.name} dejarán de atribuirse a esta tienda. La conexión de ${provider.name} seguirá activa en E-NORA y podrás asignarla a otra tienda; el histórico ya sincronizado no se elimina.`}
+            confirmLabel={unlinking ? "Desvinculando…" : "Desvincular cuenta"}
+            onConfirm={() => void onUnlink()}
+          />
+        ) : null}
       </div>
     </Card>
   );
@@ -185,12 +206,13 @@ function StoreDetail({
   bootstrap: BootstrapResponse;
   connectionId: string;
 }) {
-  const { organization, payload, isLoading, error, actions, pending, actionError } =
+  const { organization, payload, isLoading, error, actions, pending, actionError, reload } =
     useIntegrations(bootstrap);
-  const { scope } = useStoreScope(organization?.id ?? null);
+  const { scope, reload: reloadScope } = useStoreScope(organization?.id ?? null);
   const { connectionId: activeConnectionId, setConnectionId } =
     useActiveConnection();
   const router = useRouter();
+  const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(null);
 
   // Reintentar, reconectar o descartar falla arriba, flotando, no en un bloque
   // rojo pegado a la ficha que sigue ahi cuando ya has resuelto lo que decia.
@@ -240,27 +262,106 @@ function StoreDetail({
       </div>
     );
   }
+  const currentStore = store;
 
   const retryable: Record<string, "shopify" | "klaviyo" | undefined> = {
     shopify: "shopify",
     klaviyo: "klaviyo",
   };
 
-  // Mismo criterio que el backend (canDiscardAuthorizationAttempt): quien pudo
-  // empezar el OAuth -- owner o manager -- puede tirarlo si se quedo a medias.
-  const canDiscard =
+  // El cliente owner/manager puede gestionar su tienda. El consultor asignado
+  // también puede hacerlo desde la cartera; el servidor vuelve a validar el
+  // permiso en la operación destructiva.
+  const canManageStore =
+    ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role) ||
+    bootstrap.memberships.some(
+      (membership) =>
+        membership.organization_id === organization?.id &&
+        ["owner", "manager"].includes(membership.role),
+    );
+  // La ruta de asignacion de cuentas requiere permiso de escritura del owner,
+  // manager o platform admin; el consultor puede ver, pero no reasignar.
+  const canManageStoreScope =
     bootstrap.profile.platform_role === "platform_admin" ||
     bootstrap.memberships.some(
       (membership) =>
         membership.organization_id === organization?.id &&
         ["owner", "manager"].includes(membership.role),
     );
+  const shopifyConnection = store.providers.find(
+    (provider) => provider.provider === "shopify",
+  )?.target;
+  const removalPending = shopifyConnection?.status === "pending_deletion";
 
   // Descartar la conexion de Shopify es descartar la tienda entera: esta
   // pagina deja de tener sujeto, asi que se vuelve a la lista.
   async function discardAndLeave(targetId: string) {
     await actions.discardAuthorizationAttempt(targetId);
     if (targetId === connectionId) router.replace("/integraciones");
+  }
+
+  async function removeStore() {
+    const removed = await actions.scheduleStoreRemoval(connectionId);
+    if (!removed) return;
+    toast.success("Tienda eliminada de E-NORA. Puedes restaurarla durante 30 días.");
+    const nextConnectionId = scope?.stores.find(
+      (item) => item.connection_id !== connectionId,
+    )?.connection_id;
+    setConnectionId(nextConnectionId ?? "");
+    router.replace("/integraciones");
+  }
+
+  async function restoreStore() {
+    const restored = await actions.restoreStoreRemoval(connectionId);
+    if (restored) toast.success("La tienda vuelve a estar activa.");
+  }
+
+  async function unlinkProviderFromStore(providerId: string) {
+    if (!organization || !currentStore.storeId) return;
+    const metaAccounts =
+      providerId === "meta_ads"
+        ? (scope?.meta_ad_accounts ?? [])
+            .filter((account) => account.store_id === currentStore.storeId)
+            .map((account) => ({ id: account.id, store_id: null }))
+        : [];
+    const klaviyoAccounts =
+      providerId === "klaviyo"
+        ? (scope?.klaviyo_accounts ?? [])
+            .filter((account) => account.store_id === currentStore.storeId)
+            .map((account) => ({ id: account.id, store_id: null }))
+        : [];
+    if (metaAccounts.length + klaviyoAccounts.length === 0) return;
+
+    setUnlinkingProvider(providerId);
+    try {
+      const response = await apiFetch(`/v1/organizations/${organization.id}/store-scope`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(metaAccounts.length ? { meta_ad_accounts: metaAccounts } : {}),
+          ...(klaviyoAccounts.length ? { klaviyo_accounts: klaviyoAccounts } : {}),
+        }),
+      });
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      const result = (await response.json()) as {
+        updated: number;
+        failed?: Array<{ message: string }>;
+      };
+      if (result.failed?.length) {
+        toast.danger(result.failed[0]?.message ?? "No se pudo desvincular la cuenta.");
+      } else {
+        toast.success(`${result.updated} cuenta${result.updated === 1 ? "" : "s"} desvinculada${result.updated === 1 ? "" : "s"} de ${currentStore.name}.`);
+      }
+      await Promise.all([reload(), reloadScope()]);
+      window.dispatchEvent(new Event("integration-status-changed"));
+    } catch {
+      toast.danger("No se pudo desvincular la cuenta. Reintenta.");
+    } finally {
+      setUnlinkingProvider(null);
+    }
   }
 
   return (
@@ -278,6 +379,36 @@ function StoreDetail({
             <ButtonLink variant="secondary" href="/shopify">
               Ver datos de la tienda
             </ButtonLink>
+            {canManageStore && !removalPending ? (
+              <ConfirmDialog
+                trigger={
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    disabled={pending === `remove-${connectionId}`}
+                  >
+                    <TrashIcon aria-hidden className="size-4" />
+                    Eliminar tienda
+                  </Button>
+                }
+                title="Eliminar esta tienda de E-NORA"
+                description="La tienda desaparecerá de E-NORA y dejará de sincronizar ahora. Sus datos se conservarán 30 días para que puedas restaurarla desde Integraciones; después se eliminarán definitivamente. Esto no desinstala E-NORA en Shopify ni desconecta cuentas de Meta o Klaviyo que puedas usar con otras tiendas."
+                confirmLabel={pending === `remove-${connectionId}` ? "Eliminando…" : "Eliminar tienda"}
+                onConfirm={() => void removeStore()}
+              />
+            ) : null}
+            {canManageStore && removalPending ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={pending === `restore-${connectionId}`}
+                onClick={() => void restoreStore()}
+              >
+                {pending === `restore-${connectionId}` ? "Restaurando…" : "Restaurar tienda"}
+              </Button>
+            ) : null}
           </div>
         }
       >
@@ -309,9 +440,24 @@ function StoreDetail({
           const rotaSinDatos =
             provider.target?.status === "error" && !provider.lastSyncAt;
           const descartable =
-            canDiscard &&
+            canManageStore &&
             (provider.attempt === "abandoned" || rotaSinDatos) &&
             provider.target;
+          const providerAccountCount =
+            provider.provider === "meta_ads"
+              ? (scope?.meta_ad_accounts ?? []).filter(
+                  (account) => account.store_id === store.storeId,
+                ).length
+              : provider.provider === "klaviyo"
+                ? (scope?.klaviyo_accounts ?? []).filter(
+                    (account) => account.store_id === store.storeId,
+                  ).length
+                : 0;
+          const canUnlink =
+            canManageStoreScope &&
+            Boolean(store.storeId) &&
+            providerAccountCount > 0 &&
+            ["meta_ads", "klaviyo"].includes(provider.provider);
           return (
             <ProviderCard
               key={provider.provider}
@@ -330,6 +476,12 @@ function StoreDetail({
                   ? () => void discardAndLeave(provider.target!.id)
                   : undefined
               }
+              onUnlink={
+                canUnlink
+                  ? () => void unlinkProviderFromStore(provider.provider)
+                  : undefined
+              }
+              unlinking={unlinkingProvider === provider.provider}
             />
           );
         })}

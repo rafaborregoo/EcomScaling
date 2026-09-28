@@ -55,7 +55,7 @@ export function MetricInsights({
   metricLabel: string;
   insights: MetricInsight[];
   /** Sin esto el panel es solo de lectura y no dibuja el boton. */
-  onCreateTask?: (task: { title: string; description: string }) => void;
+  onCreateTask?: (task: { title: string; description: string }) => void | Promise<void>;
   /** Destino semantico de la card, validado por el registro de insights. */
   href?: string;
   targetLabel?: string;
@@ -67,6 +67,8 @@ export function MetricInsights({
     title: string;
     description: string;
   } | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   if (insights.length === 0) return null;
 
@@ -118,9 +120,8 @@ export function MetricInsights({
           ) : null}
 
           {preview ? (
-            // Vista previa de la tarea, no la tarea creada: hasta que esto se
-            // conecte, es la unica forma de ver si el texto compuesto sirve.
             <div className="mt-3">
+              <Badge tone="success">Añadida a la mesa de trabajo</Badge>
               <p className="text-sm font-medium text-foreground">
                 {preview.title}
               </p>
@@ -131,10 +132,14 @@ export function MetricInsights({
                 variant="ghost"
                 size="sm"
                 className="mt-3"
-                onClick={() => setPreview(null)}
+                onClick={() => {
+                  setPreview(null);
+                  setCreateError(null);
+                }}
               >
                 Volver
               </Button>
+              <Link href="/tareas" className="ml-2 text-xs text-accent hover:underline">Abrir tareas</Link>
             </div>
           ) : (
             <>
@@ -186,18 +191,27 @@ export function MetricInsights({
                 <Button
                   size="sm"
                   className="mt-3 w-full"
-                  disabled={chosen.length === 0}
-                  onClick={() => {
+                  disabled={chosen.length === 0 || isCreating}
+                  onClick={async () => {
                     const task = composeTask(metricLabel, chosen);
-                    onCreateTask(task);
-                    setPreview(task);
+                    setIsCreating(true);
+                    setCreateError(null);
+                    try {
+                      await onCreateTask(task);
+                      setPreview(task);
+                    } catch (cause) {
+                      setCreateError(cause instanceof Error ? cause.message : "No se pudo crear la tarea.");
+                    } finally {
+                      setIsCreating(false);
+                    }
                   }}
                 >
-                  {chosen.length > 1
+                  {isCreating ? "Creando tarea…" : chosen.length > 1
                     ? `Crear una tarea con los ${chosen.length}`
                     : "Crear tarea"}
                 </Button>
               ) : null}
+              {createError ? <p role="alert" className="mt-2 text-xs text-danger">{createError}</p> : null}
             </>
           )}
         </Popover.Dialog>

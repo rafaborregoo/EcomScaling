@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { KLAVIYO_DASHBOARD_AI_AGENT } from "@/lib/dashboard-ai-agents";
 import {
   BarChart,
   Button,
@@ -92,7 +93,12 @@ type SubjectTrait = {
   better: "con" | "sin" | null;
 };
 
-type LinkClicks = { url: string; clicks: number; personas: number; mensajes: number };
+type LinkClicks = {
+  url: string;
+  clicks: number;
+  personas: number;
+  mensajes: number;
+};
 
 // El enlace entero no cabe en una celda: dominio + ruta, sin la query de UTMs.
 const linkLabel = (url: string): string => {
@@ -228,13 +234,26 @@ export function KlaviyoEmailPanel({
       <Card
         title="Klaviyo"
         description={`Lo esencial de email · últimos ${data.period.days} días.`}
-        actions={<ButtonLink href="/klaviyo" variant="secondary">Ver analítica</ButtonLink>}
+        actions={
+          <ButtonLink href="/klaviyo" variant="secondary">
+            Ver analítica
+          </ButtonLink>
+        }
       >
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric card label="Ingresos atribuidos" value={money(totals.revenue)} trend={revenueSeries} />
+          <Metric
+            card
+            label="Ingresos atribuidos"
+            value={money(totals.revenue)}
+            trend={revenueSeries}
+          />
           <Metric card label="Apertura" value={pct(totals.open_rate)} />
           <Metric card label="Clic" value={pct(totals.click_rate)} />
-          <Metric card label="Conversiones" value={totals.conversions.toLocaleString("es-ES")} />
+          <Metric
+            card
+            label="Conversiones"
+            value={totals.conversions.toLocaleString("es-ES")}
+          />
         </div>
       </Card>
     );
@@ -275,9 +294,7 @@ export function KlaviyoEmailPanel({
       key: "revenue_per_recipient",
       label: "€/dest.",
       render: (row) => (
-        <span className="tabular-nums">
-          {money(row.revenue_per_recipient)}
-        </span>
+        <span className="tabular-nums">{money(row.revenue_per_recipient)}</span>
       ),
     },
   ];
@@ -322,7 +339,9 @@ export function KlaviyoEmailPanel({
       key: "with_open_rate",
       label: "Apertura con",
       render: (row) => (
-        <span className={`tabular-nums ${row.better === "con" ? "font-medium" : ""}`}>
+        <span
+          className={`tabular-nums ${row.better === "con" ? "font-medium" : ""}`}
+        >
           {pct(row.with_open_rate)}
           <span className="text-muted"> · {row.with_emails}</span>
         </span>
@@ -332,7 +351,9 @@ export function KlaviyoEmailPanel({
       key: "without_open_rate",
       label: "Apertura sin",
       render: (row) => (
-        <span className={`tabular-nums ${row.better === "sin" ? "font-medium" : ""}`}>
+        <span
+          className={`tabular-nums ${row.better === "sin" ? "font-medium" : ""}`}
+        >
           {pct(row.without_open_rate)}
           <span className="text-muted"> · {row.without_emails}</span>
         </span>
@@ -362,9 +383,33 @@ export function KlaviyoEmailPanel({
         </span>
       ),
     },
-    { key: "clicks", label: "Clics", render: (row) => <span className="tabular-nums">{row.clicks.toLocaleString("es-ES")}</span> },
-    { key: "personas", label: "Personas", render: (row) => <span className="tabular-nums">{row.personas.toLocaleString("es-ES")}</span> },
-    { key: "mensajes", label: "Emails", render: (row) => <span className="tabular-nums">{row.mensajes.toLocaleString("es-ES")}</span> },
+    {
+      key: "clicks",
+      label: "Clics",
+      render: (row) => (
+        <span className="tabular-nums">
+          {row.clicks.toLocaleString("es-ES")}
+        </span>
+      ),
+    },
+    {
+      key: "personas",
+      label: "Personas",
+      render: (row) => (
+        <span className="tabular-nums">
+          {row.personas.toLocaleString("es-ES")}
+        </span>
+      ),
+    },
+    {
+      key: "mensajes",
+      label: "Emails",
+      render: (row) => (
+        <span className="tabular-nums">
+          {row.mensajes.toLocaleString("es-ES")}
+        </span>
+      ),
+    },
   ];
 
   const subjectsToReview = campaigns
@@ -399,10 +444,7 @@ export function KlaviyoEmailPanel({
           trend={revenueSeries}
           delta={
             previous ? (
-              <Delta
-                current={totals.revenue}
-                previous={previous.revenue}
-              />
+              <Delta current={totals.revenue} previous={previous.revenue} />
             ) : undefined
           }
         />
@@ -523,9 +565,13 @@ export function KlaviyoEmailPanel({
         />
       </div>
 
-      {data.subject_traits?.some((t) => t.with_emails + t.without_emails > 0) ? (
+      {data.subject_traits?.some(
+        (t) => t.with_emails + t.without_emails > 0,
+      ) ? (
         <div className="mt-6">
-          <p className={EYEBROW}>Qué funciona en el asunto · apertura con y sin cada rasgo</p>
+          <p className={EYEBROW}>
+            Qué funciona en el asunto · apertura con y sin cada rasgo
+          </p>
           <Table
             className="mt-2"
             ariaLabel="Apertura según rasgos del asunto"
@@ -572,17 +618,26 @@ export function KlaviyoEmailPanel({
         </>
       ) : null}
 
-      <div className="mt-6">
+      <section className="mt-8 border-t border-separator pt-6">
+        <div className="mb-4 max-w-2xl">
+          <h3 className="text-base font-semibold text-foreground">
+            Análisis de email
+          </h3>
+          <p className="mt-1 text-sm text-muted">
+            {KLAVIYO_DASHBOARD_AI_AGENT.description}
+          </p>
+        </div>
         <AiDiagnosticSection
+          bare
           organizationId={organizationId}
-          title="Análisis de email"
-          getPath="/ai/email-analyst"
-          runPath="/ai/email-analyst-run"
-          loadingLabel="Analizando el rendimiento de email..."
-          tasksLabelSingular="tarea de email"
+          title={KLAVIYO_DASHBOARD_AI_AGENT.label}
+          getPath={KLAVIYO_DASHBOARD_AI_AGENT.getPath}
+          runPath={KLAVIYO_DASHBOARD_AI_AGENT.runPath}
+          loadingLabel={KLAVIYO_DASHBOARD_AI_AGENT.loadingLabel}
+          tasksLabelSingular={KLAVIYO_DASHBOARD_AI_AGENT.tasksLabelSingular}
           variant={isConsultant ? "full" : "summary"}
         />
-      </div>
+      </section>
     </Card>
   );
 }

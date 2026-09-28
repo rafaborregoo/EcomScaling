@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   getLocalTimeZone,
   today,
@@ -12,21 +12,19 @@ import { insightAnchorId, insightSpotFor } from "@/lib/insights-registry";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { mapWithConcurrency } from "@/lib/async-concurrency";
 import { formatMoney } from "@/lib/money";
 import { displayValue } from "@/lib/display-labels";
 import {
   Accordion,
-  AlertTriangleIcon,
   AreaChart,
   Avatar,
   Badge,
   Banner,
   ButtonLink,
   Card,
-  CircleCheckIcon,
-  ClockIcon,
   CloseIcon,
   CollapsibleSection,
   DateField,
@@ -37,10 +35,8 @@ import {
   EmptyState,
   ErrorBlock,
   EYEBROW,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  InfoIcon,
   Label,
   Link,
   LoadingBlock,
@@ -49,17 +45,14 @@ import {
   Modal,
   RangeCalendar,
   MultiSparkline,
+  Select,
+  Textarea,
   Table,
   type AccordionItem,
   type TableColumnDef,
   type Tone,
 } from "@/components/ui";
-import {
-  AiDiagnosticSection,
-  findingsVerdict,
-  partitionConnectivity,
-  type AiFinding,
-} from "@/components/ai-diagnostic-section";
+import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   AREA_LABEL,
   AREA_TONE,
@@ -69,12 +62,18 @@ import {
 import { KlaviyoEmailPanel } from "@/components/klaviyo-email-panel";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { ConsultantAgenda } from "@/components/consultant-agenda";
+import { DashboardWorkbench, type WorkbenchArea } from "./dashboard-workbench";
 import { ModuleSummary } from "@/components/module-summary";
 import {
   MessageThread,
   MessageThreadsCard,
 } from "@/components/consultant-messages";
 import { useUrlSection } from "@/lib/use-url-section";
+import {
+  DECISION_AI_AGENTS,
+  META_DASHBOARD_AI_AGENT,
+  SHOPIFY_DASHBOARD_AI_AGENTS,
+} from "@/lib/dashboard-ai-agents";
 
 const DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
 
@@ -605,26 +604,12 @@ function MetaMiniCard({
   );
 }
 
-function PlanTasksMiniCard({
-  plan,
-  tasks,
-}: {
-  plan: DashboardPlan | null;
-  tasks: DashboardOperations["tasks"];
-}) {
-  const [nowMs] = useState(() => Date.now());
+function PlanTasksMiniCard({ plan }: { plan: DashboardPlan | null }) {
   const progress = planProgress(plan);
-  const open = tasks
-    .filter((task) => ["pending", "in_progress"].includes(task.status))
-    .sort((a, b) => {
-      const aDue = a.due_at ? Date.parse(a.due_at) : Number.POSITIVE_INFINITY;
-      const bDue = b.due_at ? Date.parse(b.due_at) : Number.POSITIVE_INFINITY;
-      return aDue - bDue;
-    });
 
   return (
     <Card
-      title="Camino y tareas"
+      title="Plan estratégico"
       actions={<Link href="/camino">Ver Camino</Link>}
     >
       {progress.hasPlan ? (
@@ -652,180 +637,18 @@ function PlanTasksMiniCard({
         </p>
       )}
 
-      <div className="mt-4 border-t border-separator pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className={EYEBROW}>Tareas abiertas ({open.length})</p>
-          <Link href="/tareas">Ver tareas</Link>
-        </div>
-        {open.length === 0 ? (
-          <p className="mt-2 text-xs text-muted">Sin tareas abiertas.</p>
-        ) : (
-          <ul className="mt-2 space-y-1 text-xs">
-            {open.slice(0, 4).map((task) => {
-              const overdue =
-                Boolean(task.due_at) &&
-                Date.parse(task.due_at as string) < nowMs;
-              return (
-                <li
-                  key={task.id}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span className="min-w-0 truncate">{task.title}</span>
-                  <span className={overdue ? "text-danger" : "text-muted"}>
-                    {task.due_at
-                      ? new Date(task.due_at).toLocaleDateString("es-ES")
-                      : "sin fecha"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      <p className="mt-4 border-t border-separator pt-3 text-xs text-muted">
+        El trabajo asociado al plan se gestiona en la mesa de trabajo y comparte
+        fechas con la agenda.
+      </p>
     </Card>
   );
 }
 
-// UN solo widget para toda la IA (cliente y consultor): veredicto de una linea
-// por agente, y cada uno se despliega in situ con su analisis completo. No hay
-// secciones IA sueltas debajo. Endpoints cacheados 24h -> abrir uno no relanza
-// el modelo.
-type AiAgentConfig = {
-  key: string;
-  label: string;
-  getPath: string;
-  runPath: string;
-  loadingLabel: string;
-  tasksLabelSingular: string;
-  variant: "full" | "summary" | "tasks";
-  consultantOnly: boolean;
-};
-
-const AI_AGENTS: AiAgentConfig[] = [
-  {
-    key: "monitor",
-    label: "Resumen ejecutivo",
-    getPath: "/ai/monitor",
-    runPath: "/ai/monitor-run",
-    loadingLabel:
-      "Analizando el negocio con IA... la primera vez puede tardar 1-2 minutos.",
-    tasksLabelSingular: "tarea",
-    variant: "summary",
-    consultantOnly: false,
-  },
-  {
-    key: "task-planner",
-    label: "Plan diario",
-    getPath: "/ai/task-planner",
-    runPath: "/ai/task-planner-run",
-    loadingLabel: "Priorizando el backlog con IA...",
-    tasksLabelSingular: "tarea",
-    // Este agente propone trabajo, no diagnostica: solo se pintan las tareas.
-    // El diagnostico del negocio es el "Resumen ejecutivo" (A02).
-    variant: "tasks",
-    consultantOnly: true,
-  },
-  {
-    key: "plan-week",
-    label: "Plan semanal",
-    getPath: "/ai/plan/week",
-    runPath: "/ai/plan/week/run",
-    loadingLabel: "Preparando el plan de la semana...",
-    tasksLabelSingular: "tarea",
-    variant: "tasks",
-    consultantOnly: true,
-  },
-  {
-    key: "plan-month",
-    label: "Plan mensual",
-    getPath: "/ai/plan/month",
-    runPath: "/ai/plan/month/run",
-    loadingLabel: "Preparando el plan del mes...",
-    tasksLabelSingular: "tarea",
-    variant: "tasks",
-    consultantOnly: true,
-  },
-  {
-    // A13/A14 existian en el runtime y en el orquestador, pero no en esta
-    // lista: sin entrada aqui nadie los llamaba nunca y por eso las unicas
-    // propuestas que llegaban al consultor eran las de Klaviyo (A12).
-    key: "operativa-shopify",
-    label: "Shopify",
-    getPath: "/ai/operativa-shopify",
-    runPath: "/ai/operativa-shopify-run",
-    loadingLabel: "Revisando la operativa de Shopify...",
-    tasksLabelSingular: "tarea de Shopify",
-    variant: "tasks",
-    consultantOnly: true,
-  },
-  {
-    key: "operativa-meta",
-    label: "Meta Ads",
-    getPath: "/ai/operativa-meta",
-    runPath: "/ai/operativa-meta-run",
-    loadingLabel: "Revisando la operativa de Meta Ads...",
-    tasksLabelSingular: "tarea de Meta Ads",
-    variant: "tasks",
-    consultantOnly: true,
-  },
-  {
-    key: "stock-planner",
-    label: "Stock",
-    getPath: "/ai/stock-planner",
-    runPath: "/ai/stock-planner-run",
-    loadingLabel: "Cruzando stock y ventas con IA...",
-    tasksLabelSingular: "tarea de reposición",
-    variant: "full",
-    consultantOnly: true,
-  },
-  {
-    key: "email-analyst",
-    label: "Email / Klaviyo",
-    getPath: "/ai/email-analyst",
-    runPath: "/ai/email-analyst-run",
-    loadingLabel: "Analizando el email marketing con IA...",
-    tasksLabelSingular: "tarea de email",
-    variant: "full",
-    consultantOnly: true,
-  },
-  {
-    key: "knowledge-manager",
-    label: "Conocimiento",
-    getPath: "/ai/knowledge-manager",
-    runPath: "/ai/knowledge-manager-run",
-    loadingLabel: "Revisando la base de conocimiento con IA...",
-    tasksLabelSingular: "tarea",
-    variant: "full",
-    consultantOnly: true,
-  },
-];
-
-type AgentSnapshot = {
-  key: string;
-  label: string;
-  verdict: ReturnType<typeof findingsVerdict> | null;
-  pending: number;
-};
-
-// Icono + color por tono del veredicto. Menos texto de primeras: el detalle
-// (la frase completa) queda en el `title` y al desplegar el agente.
-function verdictVisual(tone: Tone): {
-  Icon: ComponentType<{ className?: string }>;
-  color: string;
-} {
-  switch (tone) {
-    case "danger":
-      return { Icon: AlertTriangleIcon, color: "text-danger" };
-    case "warn":
-      return { Icon: AlertTriangleIcon, color: "text-warn-deep" };
-    case "success":
-      return { Icon: CircleCheckIcon, color: "text-success" };
-    default:
-      return { Icon: InfoIcon, color: "text-muted" };
-  }
-}
-
-function AiAgentsPanel({
+// Las decisiones transversales comparten un mismo espacio y cambian solo de
+// horizonte. Los especialistas de canal viven junto a sus datos (Shopify,
+// Meta y Klaviyo), no en el resumen general.
+function AiDecisionCenter({
   organizationId,
   days,
   isConsultant,
@@ -837,189 +660,168 @@ function AiAgentsPanel({
   isPlatformAdmin: boolean;
 }) {
   const { connectionId } = useActiveConnection();
-  const [snapshots, setSnapshots] = useState<AgentSnapshot[] | null>(null);
-  const [connectors, setConnectors] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  // Una sola pregunta (y cacheada) en lugar de nueve 409 seguros: con el
-  // autorun apagado ningun agente tiene nada que contar.
-  const { data: aiStatus } = useCachedQuery<{ agent_autorun?: boolean }>(
-    "/v1/ai/status",
-  );
-  const autorun = aiStatus?.agent_autorun;
+  const scope = `${organizationId}:${connectionId ?? "all"}:${days}`;
+  const [selectedAgent, setSelectedAgent] = useState({
+    scope,
+    key: "monitor",
+  });
+  const [visitedAgents, setVisitedAgents] = useState({
+    scope,
+    keys: ["monitor"],
+  });
 
-  const agents = AI_AGENTS.filter(
+  const agents = DECISION_AI_AGENTS.filter(
     (agent) => isConsultant || !agent.consultantOnly,
   );
+  const activeConfig =
+    agents.find((agent) => agent.key === selectedAgent.key) ?? agents[0];
+  const activeAgentKey =
+    selectedAgent.scope === scope ? selectedAgent.key : "monitor";
+  const visitedAgentKeys =
+    visitedAgents.scope === scope ? visitedAgents.keys : ["monitor"];
 
-  useEffect(() => {
-    // `undefined` = todavia no sabemos si esta encendido. Preguntar sin
-    // saberlo es justo el abanico que queremos evitar, asi que se espera.
-    if (autorun !== true) return;
-    let cancelled = false;
-    const params = [
-      connectionId ? `connectionId=${encodeURIComponent(connectionId)}` : null,
-      days ? `days=${days}` : null,
-    ].filter(Boolean);
-    const qs = params.length > 0 ? `?${params.join("&")}` : "";
-    const scoped = AI_AGENTS.filter(
-      (agent) => isConsultant || !agent.consultantOnly,
-    );
+  function moveBetweenTabs(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) {
+    let nextIndex: number | null = null;
+    if (["ArrowRight", "ArrowDown"].includes(event.key)) {
+      nextIndex = (currentIndex + 1) % agents.length;
+    } else if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+      nextIndex = (currentIndex - 1 + agents.length) % agents.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = agents.length - 1;
+    }
 
-    Promise.all(
-      scoped.map(async (agent) => {
-        try {
-          const res = await apiFetch(
-            `/v1/organizations/${organizationId}${agent.getPath}${qs}`,
-          );
-          if (!res.ok) return { agent, data: null };
-          return {
-            agent,
-            data: (await res.json()) as {
-              output?: { findings?: AiFinding[]; proposed_writes?: unknown[] };
-              output_status?: string;
-            },
-          };
-        } catch {
-          return { agent, data: null };
-        }
-      }),
-    ).then((results) => {
-      if (cancelled) return;
-      if (results.every((result) => result.data === null)) {
-        setError("No se pudo cargar el estado de los agentes.");
-        setSnapshots(null);
-        return;
-      }
-      const allConnectors = new Set<string>();
-      setError(null);
-      setSnapshots(
-        results.map((result) => {
-          if (!result.data) {
-            return {
-              key: result.agent.key,
-              label: result.agent.label,
-              verdict: null,
-              pending: 0,
-            };
-          }
-          const { rest, connectors: found } = partitionConnectivity(
-            result.data.output?.findings ?? [],
-          );
-          found.forEach((connector) => allConnectors.add(connector));
-          return {
-            key: result.agent.key,
-            label: result.agent.label,
-            verdict: findingsVerdict(rest),
-            pending:
-              result.data.output_status === "pending_approval"
-                ? (result.data.output?.proposed_writes ?? []).length
-                : 0,
-          };
-        }),
-      );
-      setConnectors([...allConnectors]);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [organizationId, connectionId, days, isConsultant, autorun]);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextAgent = agents[nextIndex];
+    setSelectedAgent({ scope, key: nextAgent.key });
+    setVisitedAgents((previous) => ({
+      scope,
+      keys: [
+        ...new Set([
+          ...(previous.scope === scope ? previous.keys : ["monitor"]),
+          nextAgent.key,
+        ]),
+      ],
+    }));
+    document.getElementById(`decision-tab-${nextAgent.key}`)?.focus();
+  }
 
   return (
-    <Card title="Agentes IA">
-      {autorun === false ? (
-        <EmptyState
-          title="Los agentes no se ejecutan solos"
-          hint="El autorun está apagado en este entorno. Cada agente sigue lanzándose a mano desde su botón."
-        />
-      ) : error ? (
-        <ErrorBlock>{error}</ErrorBlock>
-      ) : !snapshots ? (
-        <LoadingBlock label="Consultando agentes..." />
-      ) : (
-        <>
-          {connectors.length ? (
-            <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-              <CloseIcon aria-hidden className="size-3 text-danger" />
-              Sin conectar: {connectors.join(" · ")}
-              <Link href="/integraciones">Conectar</Link>
-            </p>
-          ) : null}
+    <div className="space-y-6">
+      <Card
+        title="Dirección y planificación"
+        description="Una misma lectura del negocio, ordenada por horizonte: situación actual, hoy, semana y mes."
+      >
+        <div
+          role="tablist"
+          aria-label="Horizonte de planificación"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          {agents.map((config, index) => {
+            const isActive = config.key === activeAgentKey;
+            const hasBeenOpened = visitedAgentKeys.includes(config.key);
+            return (
+              <button
+                id={`decision-tab-${config.key}`}
+                key={config.key}
+                type="button"
+                role="tab"
+                tabIndex={isActive ? 0 : -1}
+                aria-selected={isActive}
+                aria-controls="decision-panel"
+                onClick={() => {
+                  setSelectedAgent({ scope, key: config.key });
+                  setVisitedAgents((previous) => ({
+                    scope,
+                    keys: [
+                      ...new Set([
+                        ...(previous.scope === scope
+                          ? previous.keys
+                          : ["monitor"]),
+                        config.key,
+                      ]),
+                    ],
+                  }));
+                }}
+                onKeyDown={(event) => moveBetweenTabs(event, index)}
+                className={`group min-h-24 min-w-0 rounded-md border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:p-4 ${
+                  isActive
+                    ? "border-accent bg-accent-soft"
+                    : "border-separator bg-surface hover:border-accent hover:bg-surface-subtle"
+                }`}
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-foreground">
+                    {config.label}
+                  </span>
+                  <IconChevronRight
+                    aria-hidden
+                    className={`size-4 shrink-0 transition-transform ${
+                      isActive
+                        ? "translate-x-0.5 text-accent"
+                        : "text-muted group-hover:translate-x-0.5 group-hover:text-accent"
+                    }`}
+                  />
+                </span>
+                <span className="mt-3 block text-xs font-medium text-accent underline underline-offset-4">
+                  {isActive
+                    ? "Viendo análisis"
+                    : hasBeenOpened
+                      ? "Volver al análisis"
+                      : "Ver análisis"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-          <ul className="divide-y divide-separator">
-            {snapshots.map((snapshot) => {
-              const config = agents.find((a) => a.key === snapshot.key);
-              const isOpen = expanded === snapshot.key;
-              const visual = verdictVisual(snapshot.verdict?.tone ?? "neutral");
-              return (
-                <li key={snapshot.key} className="py-3">
-                  <button
-                    type="button"
-                    aria-expanded={isOpen}
-                    onClick={() =>
-                      setExpanded((prev) =>
-                        prev === snapshot.key ? null : snapshot.key,
-                      )
-                    }
-                    className="flex w-full items-center gap-2 text-left"
-                  >
-                    <IconChevronDown
-                      aria-hidden
-                      className={`size-3 shrink-0 text-muted transition-transform ${
-                        isOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                    <visual.Icon
-                      className={`size-4 shrink-0 ${
-                        snapshot.verdict ? visual.color : "text-muted"
-                      }`}
-                    />
-                    <span className="flex-1 truncate text-sm font-medium text-foreground">
-                      {snapshot.label}
-                    </span>
-                    {snapshot.verdict && snapshot.verdict.riskCount > 0 ? (
-                      <span
-                        className={`flex items-center gap-1 text-xs font-medium ${visual.color}`}
-                        title={snapshot.verdict.text}
-                      >
-                        <AlertTriangleIcon aria-hidden className="size-3" />
-                        {snapshot.verdict.riskCount}
-                      </span>
-                    ) : null}
-                    {snapshot.pending > 0 ? (
-                      <span
-                        className="flex items-center gap-1 text-xs font-medium text-warn-deep"
-                        title={`${snapshot.pending} propuesta(s) sin decidir`}
-                      >
-                        <ClockIcon aria-hidden className="size-3" />
-                        {snapshot.pending}
-                      </span>
-                    ) : null}
-                  </button>
-                  {isOpen && config ? (
-                    <div className="mt-3 rounded-md border border-separator bg-surface-subtle p-4">
-                      <AiDiagnosticSection
-                        bare
-                        organizationId={organizationId}
-                        title={config.label}
-                        getPath={config.getPath}
-                        runPath={config.runPath}
-                        loadingLabel={config.loadingLabel}
-                        tasksLabelSingular={config.tasksLabelSingular}
-                        days={days}
-                        variant={config.variant}
-                        showInternals={isPlatformAdmin}
-                      />
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-    </Card>
+        {activeConfig ? (
+          <section
+            id="decision-panel"
+            role="tabpanel"
+            aria-labelledby={`decision-tab-${activeConfig.key}`}
+            className="mt-6 border-t border-separator pt-5"
+          >
+            <div className="mb-4 max-w-2xl">
+              <h3 className="text-base font-semibold text-foreground">
+                {activeConfig.label}
+              </h3>
+              <p className="mt-1 text-sm text-muted">
+                {activeConfig.description}
+              </p>
+            </div>
+            {agents
+              .filter((agent) => visitedAgentKeys.includes(agent.key))
+              .map((agent) => (
+                <div
+                  key={`${scope}:${agent.key}`}
+                  hidden={agent.key !== activeAgentKey}
+                >
+                  <AiDiagnosticSection
+                    bare
+                    organizationId={organizationId}
+                    title={agent.label}
+                    getPath={agent.getPath}
+                    runPath={agent.runPath}
+                    loadingLabel={agent.loadingLabel}
+                    tasksLabelSingular={agent.tasksLabelSingular}
+                    days={days}
+                    variant={agent.variant}
+                    showInternals={isPlatformAdmin}
+                    showMeta={false}
+                  />
+                </div>
+              ))}
+          </section>
+        ) : null}
+      </Card>
+
+    </div>
   );
 }
 
@@ -1322,14 +1124,14 @@ function OrdersChartModal({
 // Un color por cliente en el sparkline grande -- se reusa como "swatch" junto
 // a su fila en la lista para poder identificar cual es cual.
 const CLIENT_COLORS = [
-  "#1d4ed8", // accent (marca)
-  "#059669",
-  "#d97706",
-  "#db2777",
-  "#7c3aed",
-  "#0891b2",
-  "#dc2626",
-  "#65a30d",
+  "var(--chart-series-1)",
+  "var(--chart-series-2)",
+  "var(--chart-series-3)",
+  "var(--chart-series-4)",
+  "var(--chart-series-5)",
+  "var(--chart-series-6)",
+  "var(--chart-series-7)",
+  "var(--chart-series-8)",
 ];
 
 // Serie diaria por cliente -> datos para <MultiSparkline>. Rellena con 0 los
@@ -2174,6 +1976,554 @@ function KlaviyoCampaignsWidget({
   );
 }
 
+type PortfolioWorkbenchTask = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  categories: string[];
+  due_at: string | null;
+  updated_at: string;
+  assigned_to: string | null;
+  assignee_name: string | null;
+  is_visible_to_client: boolean;
+  organization_id: string;
+  organization_name: string;
+  task_comments: Array<{
+    id: string;
+    body: string;
+    is_internal: boolean;
+    created_at: string;
+  }>;
+};
+
+type PortfolioWorkbenchData = {
+  organizations: Array<{ id: string; display_name: string }>;
+  tasks: PortfolioWorkbenchTask[];
+};
+
+function PortfolioWorkbench({
+  onSelectClient,
+}: {
+  onSelectClient: (organizationId: string) => void;
+}) {
+  const { data, error, isLoading, reload } =
+    useCachedQuery<PortfolioWorkbenchData>("/v1/consultant/operations");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isInternal, setIsInternal] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [nowMs] = useState(() => Date.now());
+  const [assigneeOptions, setAssigneeOptions] = useState<
+    Array<{ id: string; name: string; is_self: boolean }>
+  >([]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    organizationId: "",
+    title: "",
+    description: "",
+    category: "general",
+    priority: "medium",
+    dueDate: "",
+    visibleToClient: true,
+    assignedTo: "",
+  });
+  const tasks = (data?.tasks ?? [])
+    .filter((task) => ["pending", "in_progress"].includes(task.status))
+    .sort((a, b) => {
+      const rank: Record<string, number> = {
+        urgent: 0,
+        high: 1,
+        medium: 2,
+        low: 3,
+      };
+      const priority = (rank[a.priority] ?? 4) - (rank[b.priority] ?? 4);
+      if (priority) return priority;
+      return (
+        (a.due_at ? Date.parse(a.due_at) : Infinity) -
+        (b.due_at ? Date.parse(b.due_at) : Infinity)
+      );
+    });
+  const overdue = tasks.filter(
+    (task) => task.due_at && Date.parse(task.due_at) < nowMs,
+  ).length;
+  const completed = (data?.tasks ?? [])
+    .filter((task) => task.status === "completed")
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    .slice(0, 4);
+
+  useEffect(() => {
+    if (!draft.organizationId) {
+      return;
+    }
+    let active = true;
+    void apiFetch(`/v1/organizations/${draft.organizationId}/task-assignees`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          assignees?: Array<{ id: string; name: string; is_self: boolean }>;
+        };
+        if (!active) return;
+        const options = payload.assignees ?? [];
+        setAssigneeOptions(options);
+        setDraft((prev) => ({
+          ...prev,
+          assignedTo:
+            prev.assignedTo ||
+            options.find((option) => option.is_self)?.id ||
+            "",
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [draft.organizationId]);
+
+  async function createTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft.organizationId || !draft.title.trim()) return;
+    setPending(true);
+    setActionError(null);
+    try {
+      const dueAt = draft.dueDate
+        ? new Date(`${draft.dueDate}T12:00:00`).toISOString()
+        : null;
+      const response = await apiFetch(
+        `/v1/organizations/${draft.organizationId}/tasks`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: draft.title.trim(),
+            description: draft.description.trim() || null,
+            priority: draft.priority,
+            categories: [draft.category],
+            dueAt,
+            isVisibleToClient: draft.visibleToClient,
+            assignedTo: draft.assignedTo || undefined,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      setDraft({
+        organizationId: "",
+        title: "",
+        description: "",
+        category: "general",
+        priority: "medium",
+        dueDate: "",
+        visibleToClient: true,
+        assignedTo: "",
+      });
+      setCreateOpen(false);
+      await reload();
+    } catch (cause) {
+      setActionError(
+        cause instanceof Error ? cause.message : "No se pudo crear la tarea.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function addNote(
+    event: FormEvent<HTMLFormElement>,
+    task: PortfolioWorkbenchTask,
+  ) {
+    event.preventDefault();
+    if (!commentDraft.trim()) return;
+    setPending(true);
+    setActionError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${task.organization_id}/tasks/${task.id}/comments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: commentDraft.trim(), isInternal }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      setCommentDraft("");
+      await reload();
+    } catch (cause) {
+      setActionError(
+        cause instanceof Error ? cause.message : "No se pudo añadir la nota.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const modalId = "portfolio-workbench-create-task";
+  return (
+    <Card
+      title="Cola de trabajo de la cartera"
+      description="Acciones abiertas ordenadas por prioridad. El cliente mantiene la decisión final de completar o descartar sus tareas."
+      actions={
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          Proponer tarea
+        </Button>
+      }
+    >
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Badge tone={tasks.length ? "warn" : "success"}>
+          {tasks.length} abiertas
+        </Badge>
+        {overdue ? <Badge tone="danger">{overdue} vencidas</Badge> : null}
+        {completed.length ? (
+          <Badge tone="success">{completed.length} resultados recientes</Badge>
+        ) : null}
+        <Link
+          href="/tareas"
+          className="ml-auto text-xs text-accent hover:underline"
+        >
+          Gestión completa de tareas
+        </Link>
+      </div>
+      {actionError ? <ErrorBlock>{actionError}</ErrorBlock> : null}
+      {isLoading ? (
+        <LoadingBlock label="Cargando trabajo de cartera…" />
+      ) : error ? (
+        <div className="space-y-3">
+          <ErrorBlock>No se pudo cargar la cola de trabajo.</ErrorBlock>
+          <Button size="sm" variant="secondary" onClick={() => reload()}>
+            Reintentar
+          </Button>
+        </div>
+      ) : tasks.length === 0 ? (
+        <EmptyState
+          title="No hay tareas abiertas en la cartera"
+          hint="Propón un próximo paso desde aquí o abre una tienda para revisar sus señales."
+        />
+      ) : (
+        <ul className="divide-y divide-separator">
+          {tasks.slice(0, 8).map((task) => {
+            const expanded = selectedTask === task.id;
+            return (
+              <li key={task.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted">
+                      {task.organization_name} ·{" "}
+                      {task.categories
+                        ?.map((category) => displayValue(category))
+                        .join(" · ") || "General"}
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-1 text-left text-sm font-medium hover:underline"
+                      aria-expanded={expanded}
+                      onClick={() => setSelectedTask(expanded ? null : task.id)}
+                    >
+                      {task.title}
+                    </button>
+                    <p
+                      className={`mt-1 text-xs ${task.due_at && Date.parse(task.due_at) < nowMs ? "text-danger" : "text-muted"}`}
+                    >
+                      {task.priority} ·{" "}
+                      {task.due_at
+                        ? new Date(task.due_at).toLocaleDateString("es-ES")
+                        : "Sin fecha"}{" "}
+                      ·{" "}
+                      {task.assignee_name
+                        ? `Responsable: ${task.assignee_name}`
+                        : "Sin responsable"}{" "}
+                      ·{" "}
+                      {task.is_visible_to_client
+                        ? "Visible al cliente"
+                        : "Interna"}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => onSelectClient(task.organization_id)}
+                  >
+                    Abrir mesa del cliente
+                  </Button>
+                </div>
+                {expanded ? (
+                  <div className="mt-3 rounded-md bg-surface p-3">
+                    {task.description ? (
+                      <p className="text-xs leading-5">{task.description}</p>
+                    ) : null}
+                    <p className="mt-2 text-xs font-medium">
+                      Seguimiento compartido
+                    </p>
+                    {task.task_comments?.length ? (
+                      <ul className="mt-2 space-y-2">
+                        {task.task_comments
+                          .filter((comment) => !comment.is_internal)
+                          .slice(-3)
+                          .map((comment) => (
+                            <li key={comment.id} className="text-xs">
+                              <p>{comment.body}</p>
+                              <p className="mt-0.5 text-muted">
+                                {new Date(comment.created_at).toLocaleString(
+                                  "es-ES",
+                                )}
+                              </p>
+                            </li>
+                          ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted">
+                        No hay notas compartidas todavía.
+                      </p>
+                    )}
+                    <form
+                      className="mt-3 flex flex-col gap-2 sm:flex-row"
+                      onSubmit={(event) => void addNote(event, task)}
+                    >
+                      <input
+                        className="min-h-9 min-w-0 flex-1 rounded-md border border-separator bg-background px-3 text-sm"
+                        value={commentDraft}
+                        onChange={(event) =>
+                          setCommentDraft(event.target.value)
+                        }
+                        placeholder="Registrar avance o bloqueo…"
+                        aria-label={`Nota de trabajo para ${task.title}`}
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        type="submit"
+                        disabled={!commentDraft.trim() || pending}
+                      >
+                        Añadir nota
+                      </Button>
+                    </form>
+                    <label className="mt-2 inline-flex items-center gap-2 text-xs text-muted">
+                      <input
+                        type="checkbox"
+                        checked={isInternal}
+                        onChange={(event) =>
+                          setIsInternal(event.target.checked)
+                        }
+                      />
+                      Nota interna, no visible al cliente
+                    </label>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {tasks.length > 8 ? (
+        <p className="mt-3 text-xs text-muted">
+          Mostrando 8 de {tasks.length}.{" "}
+          <Link href="/tareas">Abrir cartera completa</Link>
+        </p>
+      ) : null}
+      {completed.length ? (
+        <details className="mt-4 border-t border-separator pt-3">
+          <summary className="cursor-pointer text-xs font-medium">
+            Resultados de clientes
+          </summary>
+          <ul className="mt-2 divide-y divide-separator">
+            {completed.map((task) => (
+              <li key={task.id} className="py-2">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-xs font-medium">
+                    {task.organization_name} · {task.title}
+                  </p>
+                  <span className="text-[11px] text-muted">
+                    {new Date(task.updated_at).toLocaleDateString("es-ES")}
+                  </span>
+                </div>
+                {task.task_comments
+                  .filter((comment) => !comment.is_internal)
+                  .slice(-1)
+                  .map((comment) => (
+                    <p key={comment.id} className="mt-1 text-xs text-muted">
+                      {comment.body}
+                    </p>
+                  ))}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      {createOpen ? (
+        <Modal isOpen onOpenChange={(open) => !open && setCreateOpen(false)}>
+          <Modal.Backdrop>
+            <Modal.Container size="md">
+              <Modal.Dialog aria-label="Proponer tarea a un cliente">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading>Proponer un próximo paso</Modal.Heading>
+                </Modal.Header>
+                <Modal.Body>
+                  <form
+                    id={modalId}
+                    className="space-y-4"
+                    onSubmit={(event) => void createTask(event)}
+                  >
+                    <label className="block space-y-1 text-sm">
+                      <span>Cliente</span>
+                      <Select
+                        value={draft.organizationId}
+                        placeholder="Selecciona una tienda"
+                        options={(data?.organizations ?? []).map((org) => ({
+                          value: org.id,
+                          label: org.display_name,
+                        }))}
+                        onChange={(value) => {
+                          setAssigneeOptions([]);
+                          setDraft((prev) => ({
+                            ...prev,
+                            organizationId: value,
+                            assignedTo: "",
+                          }));
+                        }}
+                        required
+                      />
+                    </label>
+                    <label className="block space-y-1 text-sm">
+                      <span>Próximo paso</span>
+                      <input
+                        required
+                        maxLength={255}
+                        className="min-h-10 w-full rounded-md border border-separator bg-background px-3"
+                        value={draft.title}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            title: event.target.value,
+                          }))
+                        }
+                        placeholder="Qué debe hacerse"
+                      />
+                    </label>
+                    <label className="block space-y-1 text-sm">
+                      <span>Contexto y resultado esperado</span>
+                      <Textarea
+                        rows={3}
+                        maxLength={4000}
+                        value={draft.description}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            description: event.target.value,
+                          }))
+                        }
+                        placeholder="Evidencia, criterio de éxito o bloqueo…"
+                      />
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <label className="space-y-1 text-xs">
+                        <span>Área</span>
+                        <Select
+                          value={draft.category}
+                          options={[
+                            { value: "general", label: "General" },
+                            { value: "shopify", label: "Shopify" },
+                            { value: "meta", label: "Meta Ads" },
+                            { value: "klaviyo", label: "Klaviyo" },
+                          ]}
+                          onChange={(value) =>
+                            setDraft((prev) => ({ ...prev, category: value }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs">
+                        <span>Prioridad</span>
+                        <Select
+                          value={draft.priority}
+                          options={[
+                            { value: "low", label: "Baja" },
+                            { value: "medium", label: "Normal" },
+                            { value: "high", label: "Alta" },
+                            { value: "urgent", label: "Urgente" },
+                          ]}
+                          onChange={(value) =>
+                            setDraft((prev) => ({ ...prev, priority: value }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs">
+                        <span>Fecha objetivo</span>
+                        <input
+                          type="date"
+                          className="min-h-10 w-full rounded-md border border-separator bg-background px-2 text-sm"
+                          value={draft.dueDate}
+                          onChange={(event) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              dueDate: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                    <label className="block space-y-1 text-sm">
+                      <span>Responsable</span>
+                      <Select
+                        value={draft.assignedTo}
+                        placeholder="Selecciona una persona"
+                        options={assigneeOptions.map((option) => ({
+                          value: option.id,
+                          label: option.is_self
+                            ? `${option.name} · tú`
+                            : option.name,
+                        }))}
+                        onChange={(value) =>
+                          setDraft((prev) => ({ ...prev, assignedTo: value }))
+                        }
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={draft.visibleToClient}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            visibleToClient: event.target.checked,
+                          }))
+                        }
+                      />
+                      Visible para el cliente
+                    </label>
+                  </form>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setCreateOpen(false)}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    disabled={
+                      !draft.organizationId || !draft.title.trim() || pending
+                    }
+                    onClick={() =>
+                      (
+                        document.getElementById(
+                          modalId,
+                        ) as HTMLFormElement | null
+                      )?.requestSubmit()
+                    }
+                  >
+                    {pending ? "Guardando…" : "Proponer tarea"}
+                  </Button>
+                </Modal.Footer>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+      ) : null}
+    </Card>
+  );
+}
+
 // Vista general del consultor (sin cliente activo). Por ahora: widget de
 // "Pedidos" + "Tareas que propone la IA" + "Meta Ads · cartera" + "Email ·
 // campañas por cliente".
@@ -2211,6 +2561,7 @@ function GeneralOverview({
 
   return (
     <div className="portal-page space-y-4 sm:space-y-6">
+      <PortfolioWorkbench onSelectClient={onSelectClient} />
       <RecentOrdersWidget
         initialRows={data.orders_last_24h ?? []}
         onSelectClient={onSelectClient}
@@ -2441,6 +2792,11 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     DASHBOARD_TABS,
     "todo",
   );
+  const [hasVisitedTodo, setHasVisitedTodo] = useState(activeTab === "todo");
+
+  useEffect(() => {
+    if (activeTab === "todo") setHasVisitedTodo(true);
+  }, [activeTab]);
 
   // Enlace desde la zona de IA del header: `?tab=meta#insight-roas`. La
   // pestaña se resuelve al montar y no en el estado inicial -- el servidor no
@@ -2464,6 +2820,12 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
+  const activeMembership = bootstrap.memberships.find(
+    (membership) => membership.organization_id === organization?.id,
+  );
+  const canResolveTasks =
+    bootstrap.profile.platform_role === "platform_admin" ||
+    activeMembership?.accessSource !== "consultant_assignment";
 
   // Clave null mientras no hay organizacion: `useCachedQuery` no pide nada y
   // devuelve isLoading=false, igual que hacia el `if (!organization) return`
@@ -2690,11 +3052,33 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {activeTab === "todo" ? (
+        <DashboardWorkbench
+          organizationId={organization.id}
+          area="all"
+          viewerRole={isConsultant ? "consultant" : "client"}
+          canResolveTasks={canResolveTasks}
+        />
+      ) : null}
+
+      {activeTab === "todo" ? (
         <AdaptiveFocus
           items={focusItems}
           isLoading={isLoadingOperations}
           error={operationsError}
         />
+      ) : null}
+
+      {hasVisitedTodo ? (
+        <div hidden={activeTab !== "todo"}>
+          <AiDecisionCenter
+            organizationId={organization.id}
+            days={aiDiagnosticDays}
+            isConsultant={isConsultant}
+            isPlatformAdmin={
+              bootstrap.profile.platform_role === "platform_admin"
+            }
+          />
+        </div>
       ) : null}
 
       {activeTab === "todo" ? (
@@ -2724,7 +3108,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             metaMetrics={metaMetrics}
             onOpen={() => setActiveTab("meta")}
           />
-          <PlanTasksMiniCard plan={plan} tasks={operations?.tasks ?? []} />
+          <PlanTasksMiniCard plan={plan} />
         </div>
       ) : null}
 
@@ -2743,15 +3127,6 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           </Card>
         </div>
-      ) : null}
-
-      {activeTab === "todo" ? (
-        <AiAgentsPanel
-          organizationId={organization.id}
-          days={aiDiagnosticDays}
-          isConsultant={isConsultant}
-          isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"}
-        />
       ) : null}
 
       {activeTab === "shopify" && showStoresOverview && organization ? (
@@ -2822,92 +3197,94 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   }
                 />
               ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <Metric
-                  card
-                  label="Facturación neta"
-                  value={formatMoney(metrics?.sales.net_sales ?? 0)}
-                  trend={metrics?.daily?.map((day) => day.net_sales)}
-                  trendTone={trendToneFor(
-                    metrics?.sales.net_sales ?? 0,
-                    metrics?.previous_period?.sales.net_sales,
-                  )}
-                  delta={
-                    <PeriodDeltaBadge
-                      current={metrics?.sales.net_sales ?? 0}
-                      previous={metrics?.previous_period?.sales.net_sales}
-                      label="periodo anterior"
-                    />
-                  }
-                />
-                <Metric
-                  card
-                  label="Pedidos"
-                  value={metrics?.sales.orders_count ?? 0}
-                  trend={metrics?.daily?.map((day) => day.orders_count)}
-                  trendTone={trendToneFor(
-                    metrics?.sales.orders_count ?? 0,
-                    metrics?.previous_period?.sales.orders_count,
-                  )}
-                  delta={
-                    <PeriodDeltaBadge
-                      current={metrics?.sales.orders_count ?? 0}
-                      previous={metrics?.previous_period?.sales.orders_count}
-                      label="periodo anterior"
-                    />
-                  }
-                />
-                <Metric
-                  card
-                  label="Ticket medio (AOV)"
-                  value={formatMoney(metrics?.sales.aov ?? 0)}
-                  delta={
-                    <PeriodDeltaBadge
-                      current={metrics?.sales.aov ?? 0}
-                      previous={metrics?.previous_period?.sales.aov}
-                      label="periodo anterior"
-                    />
-                  }
-                />
-                <Metric
-                  card
-                  label="Beneficio neto estimado"
-                  value={formatMoney(metrics?.financial.net_profit ?? 0)}
-                  tone={
-                    Number(metrics?.financial.net_profit ?? 0) >= 0
-                      ? "success"
-                      : "danger"
-                  }
-                  hint={`${Number(
-                    metrics?.financial.net_margin_pct ?? 0,
-                  ).toFixed(1)}% margen`}
-                  delta={
-                    <PeriodDeltaBadge
-                      current={metrics?.financial.net_profit ?? 0}
-                      previous={metrics?.previous_period?.financial.net_profit}
-                      label="periodo anterior"
-                    />
-                  }
-                />
-                <Metric
-                  card
-                  label="Break-even mensual"
-                  value={
-                    metrics?.financial.break_even_monthly_revenue != null
-                      ? formatMoney(
-                          metrics.financial.break_even_monthly_revenue,
-                        )
-                      : "n/a"
-                  }
-                />
-                <Metric
-                  card
-                  label="Gastos fijos/mes"
-                  value={formatMoney(
-                    metrics?.financial.monthly_fixed_costs ?? 0,
-                  )}
-                />
-              </div>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  <Metric
+                    card
+                    label="Facturación neta"
+                    value={formatMoney(metrics?.sales.net_sales ?? 0)}
+                    trend={metrics?.daily?.map((day) => day.net_sales)}
+                    trendTone={trendToneFor(
+                      metrics?.sales.net_sales ?? 0,
+                      metrics?.previous_period?.sales.net_sales,
+                    )}
+                    delta={
+                      <PeriodDeltaBadge
+                        current={metrics?.sales.net_sales ?? 0}
+                        previous={metrics?.previous_period?.sales.net_sales}
+                        label="periodo anterior"
+                      />
+                    }
+                  />
+                  <Metric
+                    card
+                    label="Pedidos"
+                    value={metrics?.sales.orders_count ?? 0}
+                    trend={metrics?.daily?.map((day) => day.orders_count)}
+                    trendTone={trendToneFor(
+                      metrics?.sales.orders_count ?? 0,
+                      metrics?.previous_period?.sales.orders_count,
+                    )}
+                    delta={
+                      <PeriodDeltaBadge
+                        current={metrics?.sales.orders_count ?? 0}
+                        previous={metrics?.previous_period?.sales.orders_count}
+                        label="periodo anterior"
+                      />
+                    }
+                  />
+                  <Metric
+                    card
+                    label="Ticket medio (AOV)"
+                    value={formatMoney(metrics?.sales.aov ?? 0)}
+                    delta={
+                      <PeriodDeltaBadge
+                        current={metrics?.sales.aov ?? 0}
+                        previous={metrics?.previous_period?.sales.aov}
+                        label="periodo anterior"
+                      />
+                    }
+                  />
+                  <Metric
+                    card
+                    label="Beneficio neto estimado"
+                    value={formatMoney(metrics?.financial.net_profit ?? 0)}
+                    tone={
+                      Number(metrics?.financial.net_profit ?? 0) >= 0
+                        ? "success"
+                        : "danger"
+                    }
+                    hint={`${Number(
+                      metrics?.financial.net_margin_pct ?? 0,
+                    ).toFixed(1)}% margen`}
+                    delta={
+                      <PeriodDeltaBadge
+                        current={metrics?.financial.net_profit ?? 0}
+                        previous={
+                          metrics?.previous_period?.financial.net_profit
+                        }
+                        label="periodo anterior"
+                      />
+                    }
+                  />
+                  <Metric
+                    card
+                    label="Break-even mensual"
+                    value={
+                      metrics?.financial.break_even_monthly_revenue != null
+                        ? formatMoney(
+                            metrics.financial.break_even_monthly_revenue,
+                          )
+                        : "n/a"
+                    }
+                  />
+                  <Metric
+                    card
+                    label="Gastos fijos/mes"
+                    value={formatMoney(
+                      metrics?.financial.monthly_fixed_costs ?? 0,
+                    )}
+                  />
+                </div>
               )}
 
               {metrics &&
@@ -2977,6 +3354,27 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Card>
       ) : null}
 
+      {activeTab === "shopify" && isConsultant ? (
+        <div className="space-y-6">
+          {SHOPIFY_DASHBOARD_AI_AGENTS.map((agent) => (
+            <AiDiagnosticSection
+              key={agent.key}
+              organizationId={organization.id}
+              title={agent.label}
+              getPath={agent.getPath}
+              runPath={agent.runPath}
+              loadingLabel={agent.loadingLabel}
+              tasksLabelSingular={agent.tasksLabelSingular}
+              days={aiDiagnosticDays}
+              variant={agent.variant}
+              showInternals={
+                bootstrap.profile.platform_role === "platform_admin"
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+
       {activeTab === "meta" ? (
         <Card
           title="Meta Ads"
@@ -3038,7 +3436,29 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       )?.href
                     }
                     targetLabel="ROAS"
-                    onCreateTask={() => {}}
+                    onCreateTask={async (task) => {
+                      const response = await apiFetch(
+                        `/v1/organizations/${organization.id}/tasks`,
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            title: task.title,
+                            description: task.description,
+                            priority: "medium",
+                            categories: ["meta"],
+                            isVisibleToClient: true,
+                          }),
+                        },
+                      );
+                      if (!response.ok)
+                        throw new Error(await readApiError(response));
+                      window.dispatchEvent(
+                        new CustomEvent("dashboard:workbench-refresh", {
+                          detail: { organizationId: organization.id },
+                        }),
+                      );
+                    }}
                   />
                 }
               />
@@ -3074,14 +3494,24 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Card>
       ) : null}
 
-      {/*
-        Toda la IA vive en el widget "Agentes IA" (AiAgentsPanel) de la
-        pestaña "Todo": un veredicto por agente y el analisis completo al
-        desplegar. El cliente solo ve el resumen ejecutivo (A02, variante
-        `summary`, solo lectura); el consultor ve tambien Plan de tareas
-        (A04), Stock (A06), Email y Conocimiento, cada uno con su boton de
-        aprobar propuestas. Ya no hay secciones IA sueltas aqui.
-      */}
+      {activeTab === "meta" && isConsultant ? (
+        <AiDiagnosticSection
+          organizationId={organization.id}
+          title={META_DASHBOARD_AI_AGENT.label}
+          getPath={META_DASHBOARD_AI_AGENT.getPath}
+          runPath={META_DASHBOARD_AI_AGENT.runPath}
+          loadingLabel={META_DASHBOARD_AI_AGENT.loadingLabel}
+          tasksLabelSingular={META_DASHBOARD_AI_AGENT.tasksLabelSingular}
+          days={aiDiagnosticDays}
+          variant={META_DASHBOARD_AI_AGENT.variant}
+          showInternals={bootstrap.profile.platform_role === "platform_admin"}
+        />
+      ) : null}
+
+      {/* Los diagnósticos de canal viven junto a sus métricas: Shopify y stock
+          arriba, Meta en este bloque y email dentro de KlaviyoEmailPanel. La
+          pestaña Todo conserva solo dirección, planificación y el estado
+          compacto del conocimiento. */}
 
       {activeTab === "shopify" &&
       !isConsultant &&

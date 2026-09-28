@@ -66,7 +66,7 @@ export async function listAccountActions(
   const organizationIds = ownedMemberships.map((membership) => membership.organization_id);
   const requiredShopifyScopes = parseScopes(env.SHOPIFY_SCOPES);
 
-  if (!organizationIds.length || !requiredShopifyScopes.length) {
+  if (!organizationIds.length) {
     return { ok: true as const, data: { actions: [] } };
   }
 
@@ -175,6 +175,44 @@ export async function listAccountActions(
             ) ?? "La conexion esta en error y los datos pueden estar desactualizados."
           } Reconectala desde Integraciones.`,
           cta_label: "Reconectar",
+          cta_href: `/integraciones?organizationId=${membership.organization_id}`,
+        });
+        continue;
+      }
+
+      if (
+        ["reauthorization_required", "needs_reauth"].includes(connection.status) &&
+        connection.provider !== "shopify"
+      ) {
+        membershipActions.push({
+          id: `integration_reauthorization_required:${membership.organization_id}:${connection.provider}:${connection.provider_account_id ?? "primary"}`,
+          type: "integration_reauthorization_required",
+          severity: "warning",
+          organization_id: membership.organization_id,
+          organization_name: organizationName ?? connection.provider_account_name,
+          provider: connection.provider,
+          title: `${connection.provider} necesita renovar el acceso`,
+          message: "La autorización ha caducado o ha cambiado. Renueva el acceso desde Integraciones para reanudar la sincronización.",
+          cta_label: "Revisar acceso",
+          cta_href: `/integraciones?organizationId=${membership.organization_id}`,
+        });
+        continue;
+      }
+
+      if (
+        connection.provider === "shopify" &&
+        ["reauthorization_required", "needs_reauth"].includes(connection.status)
+      ) {
+        membershipActions.push({
+          id: `shopify_reauthorization_required:${membership.organization_id}:${connection.id}`,
+          type: "shopify_reauthorization_required",
+          severity: "warning",
+          organization_id: membership.organization_id,
+          organization_name: organizationName ?? connection.provider_account_name,
+          provider: "shopify",
+          title: "Shopify necesita renovar el acceso",
+          message: "La autorización de esta tienda ha caducado o ha cambiado. Renueva el acceso desde Integraciones.",
+          cta_label: "Reautorizar",
           cta_href: `/integraciones?organizationId=${membership.organization_id}`,
         });
         continue;

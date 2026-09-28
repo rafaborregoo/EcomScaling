@@ -11,16 +11,15 @@ import {
   Banner,
   Button,
   Card,
-  CollapsibleSection,
+  ConfirmDialog,
   ErrorBlock,
   Input,
-  Label,
-  Radio,
-  RadioGroup,
+  TrashIcon,
 } from "@/components/ui";
 import {
   BackToHub,
   ConnectionFacts,
+  InfoModalButton,
   LastErrorBanner,
   ProviderStatusCard,
   Steps,
@@ -34,8 +33,16 @@ function ShopifyIntegrationPage({
 }: {
   bootstrap: BootstrapResponse;
 }) {
-  const { payload, provider, isLoading, error, actions, pending, actionError } =
-    useIntegrations(bootstrap);
+  const {
+    organization,
+    payload,
+    provider,
+    isLoading,
+    error,
+    actions,
+    pending,
+    actionError,
+  } = useIntegrations(bootstrap);
   // En Shopify una conexion ES una tienda, asi que la tienda del selector del
   // encabezado se identifica aqui directamente por id.
   const { connectionId: activeConnectionId } = useActiveConnection();
@@ -70,7 +77,21 @@ function ShopifyIntegrationPage({
 
   const configured = shopify.configuration.status === "configured";
   const canConnect = shopify.available && configured;
-  const shopifyConnections = shopify.connections ?? [];
+  // La tienda puede seguir en la respuesta de API durante los 30 días de
+  // restauración; en esta lista de conexiones activas ya debe desaparecer.
+  const shopifyConnections = (shopify.connections ?? []).filter(
+    (connection) => connection.status !== "pending_deletion",
+  );
+  const canManageConnections = bootstrap.memberships.some(
+    (membership) =>
+      membership.organization_id === organization?.id &&
+      membership.accessSource === "membership" &&
+      ["owner", "manager"].includes(membership.role),
+  );
+
+  async function removeStore(connectionId: string) {
+    await actions.scheduleStoreRemoval(connectionId);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,10 +128,10 @@ function ShopifyIntegrationPage({
           connection.provider_account_id ??
           "esta tienda";
         return (
-          <CollapsibleSection
+          <InfoModalButton
             key={connection.id}
-            className="border border-warn bg-warning-soft/30"
             title={`Permisos opcionales pendientes en ${tienda}`}
+            label={`Permisos de ${tienda}`}
           >
             <Banner tone="warn">
               <span className="font-medium">{tienda}</span> funciona, pero se
@@ -128,11 +149,14 @@ function ShopifyIntegrationPage({
                 aceptando todos los permisos.
               </span>
             </Banner>
-          </CollapsibleSection>
+          </InfoModalButton>
         );
       })}
 
-      <CollapsibleSection title="¿No recuerdas tu dominio .myshopify.com?">
+      <InfoModalButton
+        title="Encuentra el dominio interno de Shopify"
+        label="¿Dónde veo mi dominio?"
+      >
         <Card
           title="¿No recuerdas tu dominio .myshopify.com?"
           description="No es el dominio público de tu web. Es el identificador interno que Shopify asignó a la tienda y no cambia."
@@ -164,11 +188,11 @@ function ShopifyIntegrationPage({
             ]}
           />
         </Card>
-      </CollapsibleSection>
+      </InfoModalButton>
 
       <Card
         className="border border-[#168446]"
-        title={shopify.connection ? "Reconecta tu tienda" : "Conecta tu tienda"}
+        title={shopifyConnections.length > 0 ? "Añade otra tienda" : "Conecta tu tienda"}
         description="Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales."
       >
         {!shopify.available ? (
@@ -185,7 +209,11 @@ function ShopifyIntegrationPage({
           </Banner>
         ) : null}
 
-        <CollapsibleSection title="Ver qué ocurrirá al reconectar">
+        <div className="mt-4">
+          <InfoModalButton
+            title="Qué ocurre al conectar Shopify"
+            label="Ver pasos y permisos"
+          >
           <Steps
             items={[
               <>
@@ -207,36 +235,32 @@ function ShopifyIntegrationPage({
               </>,
             ]}
           />
-        </CollapsibleSection>
+          </InfoModalButton>
+        </div>
 
         {payload?.shopify_custom_app_available ? (
           <div className="mt-4">
-            <RadioGroup
-              value={appMode}
-              onChange={(value) => setAppMode(value as "custom" | "public")}
-            >
-              <Label className="text-sm font-medium">
-                App de Shopify a usar
-              </Label>
-              <div className="mt-1 flex flex-wrap gap-2">
-                <Radio value="custom">
-                  <Radio.Content>
-                    <Radio.Control>
-                      <Radio.Indicator />
-                    </Radio.Control>
-                    App personalizada heredada
-                  </Radio.Content>
-                </Radio>
-                <Radio value="public">
-                  <Radio.Content>
-                    <Radio.Control>
-                      <Radio.Indicator />
-                    </Radio.Control>
-                    App pública (recomendada)
-                  </Radio.Content>
-                </Radio>
-              </div>
-            </RadioGroup>
+            <p className="text-sm font-medium text-foreground">App de Shopify a usar</p>
+            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="App de Shopify">
+              <Button
+                type="button"
+                size="sm"
+                variant={appMode === "public" ? "primary" : "secondary"}
+                aria-pressed={appMode === "public"}
+                onClick={() => setAppMode("public")}
+              >
+                App pública (recomendada)
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={appMode === "custom" ? "primary" : "secondary"}
+                aria-pressed={appMode === "custom"}
+                onClick={() => setAppMode("custom")}
+              >
+                App personalizada heredada
+              </Button>
+            </div>
             <p className="mt-1 text-xs text-muted">
               Usa la app pública para nuevas conexiones. Elige la personalizada
               solo si esa tienda ya fue instalada con esa app heredada.
@@ -267,9 +291,7 @@ function ShopifyIntegrationPage({
           <Button type="submit" disabled={pending === "shopify" || !canConnect}>
             {pending === "shopify"
               ? "Conectando..."
-              : shopify.connection
-                ? "Reconectar Shopify"
-                : "Conectar Shopify"}
+            : "Conectar Shopify"}
           </Button>
         </form>
         {actionError ? (
@@ -290,13 +312,10 @@ function ShopifyIntegrationPage({
       />
 
       {shopifyConnections.length > 0 ? (
-        <CollapsibleSection
+        <Card
           title={`Tiendas conectadas (${shopifyConnections.length})`}
+          description="Revisa rápidamente el dominio y estado de cada conexión."
         >
-          <Card
-            title={`Tiendas conectadas (${shopifyConnections.length})`}
-            description="Comprueba aquí qué dominio corresponde a cada conexión y si alguna necesita atención."
-          >
             <div className="space-y-3">
               {shopifyConnections.map((connection) => (
                 <div
@@ -330,18 +349,45 @@ function ShopifyIntegrationPage({
                       {connection.last_error_message}
                     </p>
                   ) : null}
+                  {canManageConnections ? (
+                    <div className="mt-3 flex justify-end">
+                      <ConfirmDialog
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            disabled={pending === `remove-${connection.id}`}
+                          >
+                            <TrashIcon aria-hidden className="size-4" />
+                            Eliminar tienda
+                          </Button>
+                        }
+                        title={`Eliminar ${connection.provider_account_id ?? "esta tienda"} de E-NORA`}
+                        description={
+                          connection.status === "error" &&
+                          !connection.last_sync_at
+                            ? "Esta conexión falló antes de sincronizar datos. Se eliminará ahora de E-NORA de forma definitiva. Esto no desinstala la app de Shopify."
+                            : "La tienda dejará de sincronizar y desaparecerá de E-NORA ahora. Sus datos se conservarán 30 días para poder restaurarla; después se eliminarán definitivamente. Esto no desinstala la app de Shopify."
+                        }
+                        confirmLabel={
+                          pending === `remove-${connection.id}`
+                            ? "Eliminando…"
+                            : "Eliminar tienda"
+                        }
+                        onConfirm={() => void removeStore(connection.id)}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
-          </Card>
-        </CollapsibleSection>
+        </Card>
       ) : null}
 
-      <CollapsibleSection title="Detalles técnicos de la conexión">
-        <Card title="Detalles de la conexión">
+      <InfoModalButton title="Detalles técnicos de Shopify" label="Detalles técnicos">
           <ConnectionFacts provider={shopify} />
-        </Card>
-      </CollapsibleSection>
+      </InfoModalButton>
     </div>
   );
 }

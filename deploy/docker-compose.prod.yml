@@ -26,6 +26,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: "4000"
       REDIS_URL: redis://redis:6379
+      EMAIL_RENDER_SPOOL_DIR: /var/run/e-nora/email-render
       # AI-30: se guarda en agent_runs.deployment_version para poder atar un
       # comportamiento de produccion al codigo exacto que lo produjo. IMAGE_TAG
       # es el SHA del commit desplegado.
@@ -35,6 +36,10 @@ services:
       # variable. Si no se actualiza a mano, deployment_version miente. Por eso
       # el deploy escribe el SHA real en ./.env aunque no se use para el pull.
       GIT_SHA: ${IMAGE_TAG:-latest}
+    volumes:
+      - email-render-spool:/var/run/e-nora/email-render
+    group_add:
+      - "2000"
       # R-020: OPENAI_API_KEY y OPENAI_MODEL NO se declaran aqui a proposito.
       # `env_file: .env.production` ya las inyecta. Declararlas en `environment`
       # las romperia: `environment` tiene prioridad sobre `env_file`, y
@@ -45,6 +50,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      email-render-spool-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:4000:4000"   # solo para debug local en el VPS
 
@@ -63,6 +70,45 @@ services:
       redis:
         condition: service_healthy
 
+  email-render-spool-init:
+    image: node:24-alpine
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    command:
+      - sh
+      - -c
+      - mkdir -p /spool/queued /spool/processing /spool/completed /spool/failed && chown -R 1000:2000 /spool && chmod -R g+rwX /spool && find /spool -type d -exec chmod 2770 {} +
+    volumes:
+      - email-render-spool:/spool
+
+  email-renderer:
+    build:
+      context: ..
+      dockerfile: ops/email-renderer/Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "1000:2000"
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    shm_size: 256m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    environment:
+      EMAIL_RENDER_SPOOL: /spool
+    volumes:
+      - email-render-spool:/spool
+    depends_on:
+      email-render-spool-init:
+        condition: service_completed_successfully
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -79,5 +125,6 @@ services:
 
 volumes:
   redis-data:
+  email-render-spool:
   caddy-data:
   caddy-config:

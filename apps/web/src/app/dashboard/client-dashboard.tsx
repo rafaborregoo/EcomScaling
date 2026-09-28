@@ -4,12 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { STOCK_PLANNER_AI_AGENT } from "@/lib/dashboard-ai-agents";
 import { MessageThread } from "@/components/consultant-messages";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
 import {
-  Badge,
   Banner,
   ButtonLink,
   Card,
@@ -17,7 +17,6 @@ import {
   ErrorBlock,
   EYEBROW,
   Heading,
-  List,
   LoadingBlock,
   Metric,
 } from "@/components/ui";
@@ -26,6 +25,7 @@ import { canShowProfit, storePulse } from "./store-pulse";
 import { useUrlSection } from "@/lib/use-url-section";
 import { KlaviyoEmailPanel } from "@/components/klaviyo-email-panel";
 import { ConsultantAgenda } from "@/components/consultant-agenda";
+import { DashboardWorkbench } from "./dashboard-workbench";
 
 const CLIENT_DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
 
@@ -56,14 +56,6 @@ type ShopifySummary = {
   previous_period: { sales: { net_sales: number } } | null;
 };
 
-type ClientTask = {
-  id: string;
-  title: string;
-  status: string;
-  priority: string | null;
-  due_at: string | null;
-};
-
 type MetaSummary = {
   acquisition: {
     spend: number;
@@ -83,13 +75,8 @@ const PULSE_TONE = {
   neutral: "warn",
 } as const;
 
-// Los del enum `task_status`: 'completed', 'ignored' y 'cancelled' ya no son
-// trabajo pendiente.
-const OPEN_STATUSES = ["pending", "in_progress"];
-
 function useClientData(organizationId: string, connectionId: string | null) {
   const [metrics, setMetrics] = useState<ShopifySummary | null>(null);
-  const [tasks, setTasks] = useState<ClientTask[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,12 +85,9 @@ function useClientData(organizationId: string, connectionId: string | null) {
       ? `&connectionId=${encodeURIComponent(connectionId)}`
       : "";
     try {
-      const [metricsResponse, operationsResponse] = await Promise.all([
-        apiFetch(
-          `/v1/organizations/${organizationId}/shopify/metrics?days=30${scope}`,
-        ),
-        apiFetch(`/v1/organizations/${organizationId}/operations`),
-      ]);
+      const metricsResponse = await apiFetch(
+        `/v1/organizations/${organizationId}/shopify/metrics?days=30${scope}`,
+      );
 
       if (metricsResponse.ok) {
         setMetrics((await metricsResponse.json()) as ShopifySummary);
@@ -111,12 +95,6 @@ function useClientData(organizationId: string, connectionId: string | null) {
         setError(await readApiError(metricsResponse));
       }
 
-      if (operationsResponse.ok) {
-        const payload = (await operationsResponse.json()) as {
-          tasks?: ClientTask[];
-        };
-        setTasks(payload.tasks ?? []);
-      }
     } catch {
       setError("No se pudo cargar tu tienda. Reintenta en un momento.");
     } finally {
@@ -129,15 +107,17 @@ function useClientData(organizationId: string, connectionId: string | null) {
     void load();
   }, [load]);
 
-  return { metrics, tasks, loaded, error };
+  return { metrics, loaded, error };
 }
 
 function ClientShopifyPanel({
   metrics,
   error,
+  organizationId,
 }: {
   metrics: ShopifySummary | null;
   error: string | null;
+  organizationId: string;
 }) {
   const showProfit = metrics
     ? canShowProfit({
@@ -184,6 +164,16 @@ function ClientShopifyPanel({
           Ver análisis completo de Shopify
         </ButtonLink>
       </Card>
+      <AiDiagnosticSection
+        organizationId={organizationId}
+        title={STOCK_PLANNER_AI_AGENT.label}
+        getPath={STOCK_PLANNER_AI_AGENT.getPath}
+        runPath={STOCK_PLANNER_AI_AGENT.runPath}
+        loadingLabel={STOCK_PLANNER_AI_AGENT.loadingLabel}
+        tasksLabelSingular={STOCK_PLANNER_AI_AGENT.tasksLabelSingular}
+        variant={STOCK_PLANNER_AI_AGENT.variant}
+        days={30}
+      />
     </div>
   );
 }
@@ -226,7 +216,7 @@ function ClientMetaPanel({
   }
 
   if (error) {
-    return <div className="portal-page"><ErrorBlock>{error}</ErrorBlock></div>;
+    return <div className="portal-page space-y-5"><ErrorBlock>{error}</ErrorBlock></div>;
   }
 
   if (!metrics || metrics.acquisition.days_with_data === 0) {
@@ -277,14 +267,6 @@ function ClientMetaPanel({
  */
 const AUTONOMOUS_AGENTS = [
   {
-    title: "Tu stock",
-    getPath: "/ai/stock-planner",
-    runPath: "/ai/stock-planner-run",
-    loadingLabel: "Revisando el stock…",
-    tasksLabelSingular: "reposición",
-    variant: "full" as const,
-  },
-  {
     title: "Tu email marketing",
     getPath: "/ai/email-analyst",
     runPath: "/ai/email-analyst-run",
@@ -306,7 +288,7 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
     (membership) => membership.organization_id === organizationId,
   )?.organization;
 
-  const { metrics, tasks, loaded, error } = useClientData(
+  const { metrics, loaded, error } = useClientData(
     organizationId ?? "",
     connectionId || null,
   );
@@ -340,7 +322,7 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
   // Resumen por proveedor: el Dashboard sirve para decidir, no para duplicar
   // la analítica exhaustiva, que vive en el módulo Analítica.
   if (activeTab === "shopify") {
-    return <ClientShopifyPanel metrics={metrics} error={error} />;
+    return <ClientShopifyPanel metrics={metrics} error={error} organizationId={organizationId} />;
   }
 
   if (activeTab === "meta") {
@@ -349,7 +331,7 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
 
   if (activeTab === "klaviyo") {
     return (
-      <div className="portal-page">
+      <div className="portal-page space-y-5">
         <KlaviyoEmailPanel organizationId={organizationId} variant="client" compact />
       </div>
     );
@@ -369,7 +351,6 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
       })
     : false;
 
-  const openTasks = tasks.filter((task) => OPEN_STATUSES.includes(task.status));
   const outOfStock = metrics?.stock.out_of_stock_items ?? 0;
 
   return (
@@ -436,44 +417,7 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[60fr_40fr]">
-        <Card
-          title="Qué tienes que hacer"
-          description="Lo que está pendiente en tu tienda ahora mismo."
-          actions={
-            openTasks.length > 0 ? (
-              <Badge tone="warn">{openTasks.length}</Badge>
-            ) : undefined
-          }
-        >
-          {openTasks.length === 0 ? (
-            <EmptyState
-              title="Nada pendiente"
-              hint="Cuando haya trabajo que hacer en tu tienda, aparecerá aquí."
-            />
-          ) : (
-            <List as="ul">
-              {openTasks.slice(0, 6).map((task) => (
-                <List.Item
-                  as="li"
-                  key={task.id}
-                  className="flex flex-wrap items-center gap-3 py-3"
-                >
-                  <span className="min-w-0 flex-1 text-sm">{task.title}</span>
-                  {task.due_at ? (
-                    <span className="shrink-0 text-xs text-muted">
-                      {new Date(task.due_at).toLocaleDateString("es-ES")}
-                    </span>
-                  ) : null}
-                </List.Item>
-              ))}
-            </List>
-          )}
-          {openTasks.length > 0 ? (
-            <ButtonLink className="mt-4" href="/tareas" variant="secondary">
-              Ver tareas
-            </ButtonLink>
-          ) : null}
-        </Card>
+        <DashboardWorkbench organizationId={organizationId} area="all" viewerRole="client" canResolveTasks />
 
         {/* La bisagra del panel: quién te acompaña. */}
         {consultant ? (

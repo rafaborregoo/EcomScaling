@@ -9,10 +9,10 @@ import {
   useState,
 } from "react";
 import { useParams } from "next/navigation";
-import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { getOverlayReviewWarnings } from "../overlay-review";
 import {
   AlignCenterIcon,
   AlignLeftIcon,
@@ -72,6 +72,7 @@ type Overlay = {
   format: Format;
   ratio: Ratio;
   slides: Slide[];
+  creative_brief?: string;
 };
 
 type BankImage = {
@@ -79,6 +80,7 @@ type BankImage = {
   public_url: string;
   original_filename: string;
   status: string;
+  analysis?: { ocr_text?: string } | null;
 };
 
 type AiDraftBlock = {
@@ -216,6 +218,7 @@ function OverlayEditor() {
       setName(overlay.name);
       setFormat(overlay.format);
       setRatio(overlay.ratio);
+      setObjective(overlay.creative_brief ?? "");
       setSlides(
         (overlay.slides ?? []).map((slide) => ({
           image_id: slide.image_id ?? null,
@@ -251,6 +254,12 @@ function OverlayEditor() {
   const blocks = slide?.blocks ?? [];
   const selected = blocks.find((block) => block.id === selectedId) ?? null;
   const analyzed = bankImages.filter((image) => image.status === "analyzed");
+  const reviewWarnings = getOverlayReviewWarnings({
+    blocks,
+    format,
+    ratio,
+    sourceHasOcr: Boolean(slide?.image_id && imagesById.get(slide.image_id)?.analysis?.ocr_text?.trim()),
+  });
 
   function mutateSlides(next: Slide[]) {
     setSlides(next);
@@ -474,7 +483,7 @@ function OverlayEditor() {
       const response = await apiFetch(`${base}/overlays/${overlayId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, format, ratio, slides }),
+        body: JSON.stringify({ name, format, ratio, slides, creative_brief: objective }),
       });
       if (!response.ok) {
         setError(await readApiError(response));
@@ -674,6 +683,7 @@ function OverlayEditor() {
                     : ""
                 }`}
                 style={{
+                  zIndex: 2,
                   left: `${block.xPct}%`,
                   top: `${block.yPct}%`,
                   width: `${block.widthPct}%`,
@@ -711,13 +721,21 @@ function OverlayEditor() {
                 <div
                   aria-hidden
                   className="pointer-events-none absolute inset-x-0 top-0 h-[14%] border-b border-dashed border-white/50 bg-black/25"
+                  style={{ zIndex: 1 }}
                 />
                 <div
                   aria-hidden
                   className="pointer-events-none absolute inset-x-0 bottom-0 h-[14%] border-t border-dashed border-white/50 bg-black/25"
+                  style={{ zIndex: 1 }}
                 />
               </>
-            ) : null}
+            ) : (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-[5%] border border-dashed border-white/40"
+                style={{ zIndex: 1 }}
+              />
+            )}
           </div>
 
           {/* Tira de slides */}
@@ -856,6 +874,17 @@ function OverlayEditor() {
             px por slide.
           </p>
 
+          <Banner tone="warn" className="text-sm">
+            <div>
+              <p className="mb-1 font-medium">Revisión de legibilidad</p>
+              <ul className="list-disc space-y-1 pl-5">
+              {reviewWarnings.map((warning) => (
+                <li key={warning.code}>{warning.message}</li>
+              ))}
+              </ul>
+            </div>
+          </Banner>
+
           {exportLinks.length > 0 ? (
             <div>
               <p className={EYEBROW}>Descargar PNG</p>
@@ -935,12 +964,15 @@ function OverlayEditor() {
                   Las historias son verticales 9:16.
                 </p>
               )}
-              <Field label="Objetivo (para el borrador de IA y el caption)">
+              <Field label="Brief compartido (overlay y caption)">
                 <Textarea
                   className="mt-1 min-h-20"
-                  placeholder="Ej.: anunciar la nueva colección, tono cercano"
+                  placeholder="Objetivo, público, tono, mensaje clave, CTA y afirmaciones permitidas"
                   value={objective}
-                  onChange={(event) => setObjective(event.target.value)}
+                  onChange={(event) => {
+                    setObjective(event.target.value);
+                    setDirty(true);
+                  }}
                   maxLength={800}
                 />
               </Field>
@@ -1152,7 +1184,5 @@ function OverlayEditor() {
 }
 
 export default function OverlayEditorPage() {
-  return (
-    <PortalShell title="Editor de pieza">{() => <OverlayEditor />}</PortalShell>
-  );
+  return <OverlayEditor />;
 }

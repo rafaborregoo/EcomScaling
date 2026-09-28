@@ -52,9 +52,32 @@ const marketingItems: PortalNavItem[] = [
   },
   { href: "/marketing?section=contenido", label: "Contenido" },
   { href: "/marketing?section=crear", label: "Crear" },
-  { href: "/marketing/imagenes", label: "Banco de imÃ¡genes" },
+  { href: "/marketing/imagenes", label: "Banco de imágenes" },
+  { href: "/marketing/guia", label: "Guía de marca" },
   { href: "/marketing?section=rendimiento", label: "Rendimiento" },
 ];
+
+marketingItems.push(
+  {
+    href: "/marketing/plantillas",
+    label: "Biblioteca de plantillas",
+  },
+);
+
+const marketingNavigationOrder = [
+  "/marketing?section=plan",
+  "/marketing?section=rendimiento",
+  "/marketing?section=contenido",
+  "/marketing?section=crear",
+  "/marketing/plantillas",
+  "/marketing/imagenes",
+  "/marketing/guia",
+];
+marketingItems.sort(
+  (left, right) =>
+    marketingNavigationOrder.indexOf(left.href) -
+    marketingNavigationOrder.indexOf(right.href),
+);
 
 const knowledgeItems: PortalNavItem[] = [
   {
@@ -149,38 +172,19 @@ function sharedModules(
       ],
       items: consultant
         ? [
-            { href: "/camino", label: "Camino", group: "Estrategia" },
-            { href: "/contexto", label: "Contexto", group: "Estrategia" },
-            {
-              href: "/planificacion",
-              label: "Resumen",
-              group: "Planificación",
-            },
-            {
-              href: "/planificacion/calendario",
-              label: "Calendario",
-              group: "Planificación",
-            },
-            {
-              href: "/planificacion/recomendaciones",
-              label: "Recomendaciones IA",
-              group: "Planificación",
-            },
-            {
-              href: "/planificacion/tracking",
-              label: "Tracking",
-              group: "Planificación",
-            },
-            { href: "/tareas", label: "Tareas", group: "Ejecución" },
-            {
-              href: "/mi-trabajo",
-              label: "Mi trabajo",
-              group: "Ejecución",
-            },
+            { href: "/camino", label: "Camino" },
+            { href: "/contexto", label: "Contexto" },
+            { href: "/planificacion", label: "Resumen" },
+            { href: "/planificacion/calendario", label: "Agenda" },
+            { href: "/planificacion/recomendaciones", label: "Recomendaciones IA" },
+            { href: "/planificacion/tracking", label: "Tracking" },
+            { href: "/tareas", label: "Tareas" },
+            { href: "/mi-trabajo", label: "Mi trabajo" },
           ]
         : [
             { href: "/camino", label: "Mi camino" },
             { href: "/contexto", label: "Mi negocio" },
+            { href: "/planificacion/calendario", label: "Agenda" },
             { href: "/tareas", label: "Tareas" },
           ],
     },
@@ -289,9 +293,17 @@ const platformModules: PortalNavModule[] = [
     label: "Operación IA",
     description: "Observabilidad, auditoría y errores",
     icon: ActivityIcon,
-    matchPrefixes: ["/admin/observabilidad", "/admin/tools", "/admin/logs"],
+    matchPrefixes: [
+      "/admin/observabilidad",
+      "/admin/tools",
+      "/admin/logs",
+      "/admin/agentes",
+      "/admin/laboratorio-mailing",
+    ],
     items: [
       { href: "/admin/observabilidad", label: "Observabilidad" },
+      { href: "/admin/agentes", label: "Configuración de IA" },
+      { href: "/admin/laboratorio-mailing", label: "Laboratorio de mailing" },
       { href: "/admin/tools", label: "Tools del copiloto" },
       { href: "/admin/logs/auditoria", label: "Auditoría" },
       { href: "/admin/logs/errores-sync", label: "Errores de sync" },

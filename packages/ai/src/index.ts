@@ -28,6 +28,24 @@ import type { AgentSecurityEventSink } from "./security-events.js";
 
 export * from "./provider-capabilities.js";
 export * from "./security-events.js";
+
+export type AgentImageAttachment =
+  | { url: string; role?: string; label?: string }
+  | { base64: string; mediaType: "image/png" | "image/jpeg" | "image/webp"; role?: string; label: string };
+
+function imageLabel(image: AgentImageAttachment): string {
+  return image.label ?? ("url" in image ? image.url : "imagen adjunta");
+}
+
+export function validateAgentImageAttachments(images: AgentImageAttachment[] = []): AgentImageAttachment[] {
+  const bounded = images.slice(0, 8);
+  for (const image of bounded) {
+    if ("base64" in image && (image.base64.length === 0 || image.base64.length > 2_000_000)) {
+      throw new Error("agent_image_payload_out_of_bounds");
+    }
+  }
+  return bounded;
+}
 export * from "./tool-layer.js";
 export * from "./release-gate.js";
 export * from "./langsmith-observability.js";
@@ -177,6 +195,24 @@ export const agentInputSchema = z.object({
 
 export type AgentInput = z.infer<typeof agentInputSchema>;
 
+/** Internal platform runs are intentionally tenantless; they cannot supply an organization ID. */
+export const platformAgentInputSchema = z.object({
+  run_id: z.string().uuid(),
+  agent_code: z.string().min(1),
+  agent_version: z.string().min(1),
+  actor_user_id: z.string().uuid(),
+  trigger_type: z.enum(["chat", "call", "cron", "alert", "webhook", "manual"]),
+  objective: z.string().min(1),
+  time_range: z.object({ start: z.string(), end: z.string() }).nullable().optional(),
+  entity_ids: z.array(z.string()).nullable().optional(),
+  allowed_tools: z.array(z.string()),
+  approval_mode: z.enum(["none", "required_before_write", "required_before_publish"]),
+  scope: z.literal("platform"),
+}).strict();
+
+export type PlatformAgentInput = z.infer<typeof platformAgentInputSchema>;
+export type AgentTurnInput = AgentInput | PlatformAgentInput;
+
 // ---------------------------------------------------------------------------
 // Contrato comun de salida (seccion 3.3)
 // ---------------------------------------------------------------------------
@@ -226,6 +262,32 @@ export const agentProposedWriteSchema = z.object({
   title: z.string(),
   description: z.string(),
   priority: z.enum(["low", "medium", "high", "urgent"]),
+  // An exact active milestone may be linked after approval; unknown IDs are
+  // still revalidated against the same organization/store by the server.
+  milestone_id: z.string().uuid().nullable().optional(),
+  // Internal entity link used for deterministic A06 restock-task dedupe.
+  related_product_id: z.string().uuid().nullable().optional(),
+  effort_estimate: z.enum(["low", "medium", "high", "unknown"]).optional(),
+  financial_cost_estimate: z.object({
+    amount: z.number().finite().nonnegative(),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    basis: z.string().trim().min(1).max(240),
+  }).nullable().optional(),
+  // Structured delivery contract used by task planners. Optional for historic
+  // and non-planner outputs; callers must preserve and render these when set.
+  owner_role: z.enum(["cliente", "consultor"]).optional(),
+  completion_criteria: z.string().trim().min(1).max(500).optional(),
+  expected_metric: z.string().trim().min(1).max(240).optional(),
+  due_hint: z.string().trim().min(1).max(100).nullable().optional(),
+  // Monthly A18 initiative measure; null means the source data cannot support
+  // a baseline/target, never zero. Optional for historic and non-A18 outputs.
+  initiative_measurement: z.object({
+    metric_name: z.string().trim().min(1).max(120),
+    unit: z.string().trim().max(40).nullable(),
+    baseline: z.number().finite().nullable(),
+    target: z.number().finite().nullable(),
+    evaluation_window: z.string().trim().min(1).max(120),
+  }).optional(),
   // Por que existe esta tarea. `.default()` a proposito: las salidas ya
   // guardadas y cualquier ruta que no use structured outputs no los traen, y
   // no deben quedar invalidas por ello.
@@ -347,6 +409,40 @@ export const agentOutputJsonSchema = {
           title: { type: "string" },
           description: { type: "string" },
           priority: { type: "string", enum: priorityEnum },
+          milestone_id: { type: ["string", "null"], format: "uuid" },
+          related_product_id: { type: ["string", "null"], format: "uuid" },
+          effort_estimate: { type: "string", enum: ["low", "medium", "high", "unknown"] },
+          financial_cost_estimate: {
+            anyOf: [
+              { type: "null" },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["amount", "currency", "basis"],
+                properties: {
+                  amount: { type: "number", minimum: 0 },
+                  currency: { type: "string", pattern: "^[A-Z]{3}$" },
+                  basis: { type: "string", minLength: 1, maxLength: 240 },
+                },
+              },
+            ],
+          },
+          owner_role: { type: "string", enum: ["cliente", "consultor"] },
+          completion_criteria: { type: "string", minLength: 1, maxLength: 500 },
+          expected_metric: { type: "string", minLength: 1, maxLength: 240 },
+          due_hint: { type: ["string", "null"], minLength: 1, maxLength: 100 },
+          initiative_measurement: {
+            type: "object",
+            additionalProperties: false,
+            required: ["metric_name", "unit", "baseline", "target", "evaluation_window"],
+            properties: {
+              metric_name: { type: "string", minLength: 1, maxLength: 120 },
+              unit: { type: ["string", "null"], maxLength: 40 },
+              baseline: { type: ["number", "null"] },
+              target: { type: ["number", "null"] },
+              evaluation_window: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
           rationale: {
             type: "string",
             description:
@@ -392,6 +488,128 @@ export const agentOutputJsonSchema = {
   },
 } as const;
 
+/**
+ * A02 presenta el diagnóstico por dominio, no como answer largo + listas
+ * planas. El transform conserva la forma histórica que consumen el envelope,
+ * el historial y las rutas existentes, pero esos campos agregados no se piden
+ * al modelo ni se muestran duplicados en la UI.
+ */
+export const monitorSectionSchema = z.object({
+  key: z.enum([
+    "ventas",
+    "finanzas",
+    "stock",
+    "meta",
+    "klaviyo",
+    "operativa",
+    "integraciones",
+  ]),
+  label: z.string().min(1).max(80),
+  findings: z.array(agentFindingSchema),
+  recommendations: z.array(agentRecommendationSchema),
+});
+
+const monitorOutputBaseSchema = z.object({
+  headline: z.string().min(1).max(255),
+  sections: z.array(monitorSectionSchema).max(8),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+});
+
+export const monitorOutputSchema = monitorOutputBaseSchema.transform(
+  (output) => ({
+    ...output,
+    // Compatibilidad interna para lectores del contrato común. `answer` es el
+    // mismo titular corto, no un párrafo generado y guardado aparte.
+    answer: output.headline,
+    findings: output.sections.flatMap((section) =>
+      section.findings.map((finding) => ({
+        ...finding,
+        area: finding.area ?? section.key,
+      })),
+    ),
+    recommendations: output.sections.flatMap(
+      (section) => section.recommendations,
+    ),
+    proposed_writes: [],
+    approval_required: false,
+  }),
+);
+
+export type MonitorOutput = z.infer<typeof monitorOutputSchema>;
+
+export const monitorOutputJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["headline", "sections", "sources", "confidence", "warnings"],
+  properties: {
+    headline: {
+      type: "string",
+      description: "Titular ejecutivo, máximo una frase; no repitas un answer largo.",
+    },
+    sections: {
+      type: "array",
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "label", "findings", "recommendations"],
+        properties: {
+          key: {
+            type: "string",
+            enum: ["ventas", "finanzas", "stock", "meta", "klaviyo", "operativa", "integraciones"],
+          },
+          label: { type: "string" },
+          findings: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["title", "severity", "evidence", "area"],
+              properties: {
+                title: { type: "string" },
+                severity: { type: "string", enum: severityEnum },
+                evidence: { type: "string" },
+                area: { type: ["string", "null"] },
+              },
+            },
+          },
+          recommendations: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["action", "priority", "expected_impact", "owner"],
+              properties: {
+                action: { type: "string" },
+                priority: { type: "string", enum: priorityEnum },
+                expected_impact: { type: "string" },
+                owner: { type: "string", enum: ["cliente", "consultor"] },
+              },
+            },
+          },
+        },
+      },
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
 // ---------------------------------------------------------------------------
 // Contrato de salida A19 - arquitecto del camino
 //
@@ -418,11 +636,23 @@ export const CAMINO_HORIZON_MONTHS = {
 
 export type CaminoHorizon = keyof typeof CAMINO_HORIZON_MONTHS;
 
+export function parseCaminoDurationMonths(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 12) return value;
+  if (typeof value === "string" && /^\d{1,2}$/.test(value)) {
+    const months = Number(value);
+    return months >= 1 && months <= 12 ? months : null;
+  }
+  if (typeof value === "string" && Object.prototype.hasOwnProperty.call(CAMINO_HORIZON_MONTHS, value)) {
+    return CAMINO_HORIZON_MONTHS[value as CaminoHorizon];
+  }
+  return null;
+}
+
 export const caminoMilestoneSchema = z.object({
   name: z.string(),
   description: z.string(),
   /** Dias desde hoy hasta la fecha objetivo. El backend calcula la fecha. */
-  target_offset_days: z.number().int().min(1),
+  target_offset_days: z.number().int().min(1).max(365),
   success_metric: z.string(),
 });
 
@@ -434,17 +664,92 @@ export const caminoPhaseSchema = z.object({
   milestones: z.array(caminoMilestoneSchema),
 });
 
+export const caminoGoalSchema = z.object({
+  metric_key: z.enum([
+    "net_sales", "net_profit", "net_margin_pct", "orders_count",
+    "aov", "roas", "cac", "out_of_stock_items",
+  ]),
+  metric_label: z.string(),
+  unit: z.enum(["money", "pct", "count", "ratio"]),
+  currency_code: z.string().nullable(),
+  baseline: z.number().nullable(),
+  target: z.number().nullable(),
+  target_offset_days: z.number().int().min(1).max(365),
+  /** Filled by the server when the approved plan is created, from agent_runs.lookback_days. */
+  baseline_window_days: z.number().int().min(1).max(365).optional(),
+  baseline_observed_at: z.string().optional(),
+  target_date: z.string().optional(),
+  rationale: z.string(),
+  assumptions: z.array(z.string()).default([]),
+  confidence: z.enum(["low", "medium", "high"]),
+});
+
 export const caminoPlanOutputSchema = z.object({
   plan_name: z.string(),
+  /** Plazo solicitado, para que la UI no reutilice una propuesta de otro horizonte. */
+  horizon_months: z.number().int().min(1).max(12).optional(),
   /** Lectura honesta del punto de partida, con cifras. */
   diagnosis: z.string(),
+  /** Compatible con propuestas antiguas; el prompt versionado nuevo lo exige. */
+  goal: caminoGoalSchema.optional(),
   phases: z.array(caminoPhaseSchema),
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
 });
 
+/** Refuerza en runtime que todos los offsets respetan el horizonte solicitado. */
+export function caminoPlanSchemaForHorizon(horizonDays: number, horizonMonths?: number) {
+  const maxDays = Math.max(1, Math.min(365, Math.trunc(horizonDays)));
+  return caminoPlanOutputSchema.superRefine((proposal, ctx) => {
+    if (horizonMonths !== undefined && proposal.horizon_months !== horizonMonths) {
+      ctx.addIssue({ code: "custom", path: ["horizon_months"], message: `Debe coincidir con los ${horizonMonths} meses solicitados.` });
+    }
+    if (proposal.goal && proposal.goal.target_offset_days > maxDays) {
+      ctx.addIssue({ code: "custom", path: ["goal", "target_offset_days"], message: `Debe quedar dentro de ${maxDays} días.` });
+    }
+    proposal.phases.forEach((phase, phaseIndex) => phase.milestones.forEach((milestone, milestoneIndex) => {
+      if (milestone.target_offset_days > maxDays) {
+        ctx.addIssue({ code: "custom", path: ["phases", phaseIndex, "milestones", milestoneIndex, "target_offset_days"], message: `Debe quedar dentro de ${maxDays} días.` });
+      }
+    }));
+  });
+}
+
 export type CaminoPlanOutput = z.infer<typeof caminoPlanOutputSchema>;
+
+/** Revisión periódica de un Camino ya aprobado. Es una observación y una
+ * propuesta para revisión humana; nunca muta fases, hitos ni tareas. */
+export const caminoWeeklyReviewSchema = z.object({
+  plan_version: z.number().int().positive(),
+  period_start: z.string(),
+  period_end: z.string(),
+  executive_summary: z.string(),
+  goal_progress: z.object({
+    status: z.enum(["on_track", "at_risk", "blocked", "insufficient_data", "achieved"]),
+    observed_value: z.number().nullable(),
+    comparison_value: z.number().nullable(),
+    explanation: z.string(),
+    metric_label: z.string().optional(),
+    unit: z.enum(["money", "pct", "count", "ratio"]).optional(),
+    baseline_value: z.number().nullable().optional(),
+    expected_value: z.number().nullable().optional(),
+    target_value: z.number().nullable().optional(),
+    measurement_period: z.enum(["equivalent_monthly", "rolling_7_days", "point_in_time"]).optional(),
+    measurement_window_days: z.number().int().min(0).optional(),
+  }),
+  progress: z.array(z.object({
+    item: z.string(),
+    status: z.enum(["completed", "in_progress", "delayed", "blocked", "unchanged"]),
+    evidence: z.string(),
+  })),
+  risks: z.array(z.object({ severity: z.enum(["low", "medium", "high"]), detail: z.string(), evidence: z.string() })),
+  next_actions: z.array(z.object({ priority: z.enum(["low", "medium", "high"]), title: z.string(), rationale: z.string(), owner: z.enum(["client", "consultant", "shared", "unknown"]), due_in_days: z.number().int().min(0).max(30) })),
+  change_proposals: z.array(z.object({ change: z.enum(["add", "edit", "retire"]), target_type: z.enum(["phase", "milestone", "goal"]), target_id: z.string().nullable(), description: z.string(), reason: z.string(), evidence: z.string() })),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+});
+export type CaminoWeeklyReview = z.infer<typeof caminoWeeklyReviewSchema>;
 
 const caminoEvidenceJsonSchema = {
   type: "array",
@@ -469,13 +774,16 @@ export const caminoPlanJsonSchema = {
   additionalProperties: false,
   required: [
     "plan_name",
+    "horizon_months",
     "diagnosis",
+    "goal",
     "phases",
     "sources",
     "confidence",
     "warnings",
   ],
   properties: {
+    horizon_months: { type: "integer", minimum: 1, maximum: 12, description: "Repite exactamente la duración solicitada por el usuario, en meses." },
     plan_name: {
       type: "string",
       description:
@@ -485,6 +793,23 @@ export const caminoPlanJsonSchema = {
       type: "string",
       description:
         "De donde parte la tienda, con cifras reales. Es lo que justifica que el plan sea este y no otro.",
+    },
+    goal: {
+      type: "object",
+      additionalProperties: false,
+      required: ["metric_key", "metric_label", "unit", "currency_code", "baseline", "target", "target_offset_days", "rationale", "assumptions", "confidence"],
+      properties: {
+        metric_key: { type: "string", enum: ["net_sales", "net_profit", "net_margin_pct", "orders_count", "aov", "roas", "cac", "out_of_stock_items"] },
+        metric_label: { type: "string" },
+        unit: { type: "string", enum: ["money", "pct", "count", "ratio"] },
+        currency_code: { type: ["string", "null"], description: "Código ISO 4217 del dato monetario observado; null si no está disponible/no aplica." },
+        baseline: { type: ["number", "null"], description: "Solo baseline observado en la fuente; null si falta/está incompleto." },
+        target: { type: ["number", "null"], description: "Target realista justificado; null si no hay base suficiente para cuantificarlo." },
+        target_offset_days: { type: "integer", minimum: 1, description: "Día dentro del horizonte solicitado para alcanzar/revisar el objetivo." },
+        rationale: { type: "string" },
+        assumptions: { type: "array", items: { type: "string" } },
+        confidence: { type: "string", enum: ["low", "medium", "high"] },
+      },
     },
     phases: {
       type: "array",
@@ -728,6 +1053,7 @@ export const campaignPlanJsonSchema = {
 export const weeklyMailingEmailSchema = z.object({
   sequence_number: z.number().int().min(1),
   title: z.string(),
+  sequence_role: z.string().min(1),
   objective: z.string(),
   audience: z.string(),
   angle: z.string(),
@@ -735,13 +1061,37 @@ export const weeklyMailingEmailSchema = z.object({
   preheader_direction: z.string(),
   cta: z.string(),
   copy_brief: z.string(),
+  visual_modules: z.string().min(1),
   evidence: z.array(agentEvidenceItemSchema).default([]),
 });
 
 export const weeklyMailingPlanOutputSchema = z.object({
   plan_name: z.string(),
   diagnosis: z.string(),
+  strategy_decision: z.string().min(1),
+  alternatives_rejected: z.array(z.object({
+    alternative: z.string().min(1),
+    reason: z.string().min(1),
+  }).strict()).max(4),
+  objective_rationale: z.string().min(1),
+  audience_rationale: z.string().min(1),
+  cadence: z.object({
+    recommendation: z.string().min(1),
+    requested_schedule_assessment: z.string().min(1),
+    requires_user_approval: z.boolean(),
+  }).strict(),
+  experiment: z.object({
+    hypothesis: z.string().min(1),
+    primary_metric: z.string().min(1),
+    guardrail_metrics: z.array(z.string()).max(4),
+    design: z.string().min(1),
+    decision_rule: z.string().min(1),
+    evidence_status: z.enum(["ready", "insufficient_evidence", "not_applicable"]),
+  }).strict(),
+  success_criteria: z.array(z.string().min(1)).min(1).max(4),
+  stop_criteria: z.array(z.string().min(1)).min(1).max(4),
   sequence_rationale: z.string(),
+  visual_direction: z.string().min(1),
   emails: z.array(weeklyMailingEmailSchema).min(1).max(7),
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
@@ -758,7 +1108,16 @@ export const weeklyMailingPlanJsonSchema = {
   required: [
     "plan_name",
     "diagnosis",
+    "strategy_decision",
+    "alternatives_rejected",
+    "objective_rationale",
+    "audience_rationale",
+    "cadence",
+    "experiment",
+    "success_criteria",
+    "stop_criteria",
     "sequence_rationale",
+    "visual_direction",
     "emails",
     "sources",
     "confidence",
@@ -767,7 +1126,20 @@ export const weeklyMailingPlanJsonSchema = {
   properties: {
     plan_name: { type: "string" },
     diagnosis: { type: "string" },
+    strategy_decision: { type: "string" },
+    alternatives_rejected: {
+      type: "array",
+      maxItems: 4,
+      items: { type: "object", additionalProperties: false, required: ["alternative", "reason"], properties: { alternative: { type: "string" }, reason: { type: "string" } } },
+    },
+    objective_rationale: { type: "string" },
+    audience_rationale: { type: "string" },
+    cadence: { type: "object", additionalProperties: false, required: ["recommendation", "requested_schedule_assessment", "requires_user_approval"], properties: { recommendation: { type: "string" }, requested_schedule_assessment: { type: "string" }, requires_user_approval: { type: "boolean" } } },
+    experiment: { type: "object", additionalProperties: false, required: ["hypothesis", "primary_metric", "guardrail_metrics", "design", "decision_rule", "evidence_status"], properties: { hypothesis: { type: "string" }, primary_metric: { type: "string" }, guardrail_metrics: { type: "array", maxItems: 4, items: { type: "string" } }, design: { type: "string" }, decision_rule: { type: "string" }, evidence_status: { type: "string", enum: ["ready", "insufficient_evidence", "not_applicable"] } } },
+    success_criteria: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" } },
+    stop_criteria: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" } },
     sequence_rationale: { type: "string" },
+    visual_direction: { type: "string" },
     emails: {
       type: "array",
       minItems: 1,
@@ -778,6 +1150,7 @@ export const weeklyMailingPlanJsonSchema = {
         required: [
           "sequence_number",
           "title",
+          "sequence_role",
           "objective",
           "audience",
           "angle",
@@ -785,11 +1158,13 @@ export const weeklyMailingPlanJsonSchema = {
           "preheader_direction",
           "cta",
           "copy_brief",
+          "visual_modules",
           "evidence",
         ],
         properties: {
           sequence_number: { type: "integer", minimum: 1 },
           title: { type: "string" },
+          sequence_role: { type: "string" },
           objective: { type: "string" },
           audience: { type: "string" },
           angle: { type: "string" },
@@ -797,6 +1172,7 @@ export const weeklyMailingPlanJsonSchema = {
           preheader_direction: { type: "string" },
           cta: { type: "string" },
           copy_brief: { type: "string" },
+          visual_modules: { type: "string" },
           evidence: caminoEvidenceJsonSchema,
         },
       },
@@ -969,6 +1345,17 @@ export const chatJsonSchema = {
             enum: ["low", "medium", "high", "urgent"],
           },
           rationale: { type: "string" },
+          effort_estimate: { type: "string", enum: ["low", "medium", "high", "unknown"] },
+          financial_cost_estimate: {
+            anyOf: [
+              { type: "null" },
+              { type: "object", additionalProperties: false, required: ["amount", "currency", "basis"], properties: {
+                amount: { type: "number", minimum: 0 },
+                currency: { type: "string", pattern: "^[A-Z]{3}$" },
+                basis: { type: "string", minLength: 1, maxLength: 240 },
+              } },
+            ],
+          },
           evidence: {
             type: "array",
             items: {
@@ -1324,10 +1711,8 @@ export const instagramPostJsonSchema = {
   },
 } as const;
 
-// Banco de imágenes de Instagram: extracción de solo lectura que un agente de
-// visión hace de cada imagen importada. El resultado se convierte en markdown y
-// entra como contexto RAG (`source_type: 'instagram_image'`) para que el
-// generador de contenido lo cite al redactar posts.
+// Banco visual de activos sociales/paid: descripción de solo lectura para
+// reutilizar observaciones sin confundirlas con métricas de rendimiento.
 export const instagramImageAnalysisSchema = z.object({
   description: z.string().min(1).max(4000),
   objects: z.array(z.string().min(1).max(120)).max(40),
@@ -1340,8 +1725,11 @@ export const instagramImageAnalysisSchema = z.object({
     )
     .max(8),
   style: z.string().min(1).max(600),
+  composition: z.string().min(1).max(800),
+  aspect_ratio_estimate: z.enum(["portrait", "square", "landscape", "panoramic", "unclear"]),
   ocr_text: z.string().max(4000),
   suggested_use: z.string().min(1).max(1200),
+  inferences: z.array(z.string().min(1).max(300)).max(12),
   alt_text: z.string().min(1).max(1000),
   confidence: z.enum(["low", "medium", "high"]),
 });
@@ -1358,8 +1746,11 @@ export const instagramImageAnalysisJsonSchema = {
     "objects",
     "colors",
     "style",
+    "composition",
+    "aspect_ratio_estimate",
     "ocr_text",
     "suggested_use",
+    "inferences",
     "alt_text",
     "confidence",
   ],
@@ -1379,8 +1770,14 @@ export const instagramImageAnalysisJsonSchema = {
       },
     },
     style: { type: "string" },
+    composition: { type: "string" },
+    aspect_ratio_estimate: {
+      type: "string",
+      enum: ["portrait", "square", "landscape", "panoramic", "unclear"],
+    },
     ocr_text: { type: "string" },
     suggested_use: { type: "string" },
+    inferences: { type: "array", items: { type: "string" } },
     alt_text: { type: "string" },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
   },
@@ -1392,16 +1789,18 @@ export const instagramImageAnalysisJsonSchema = {
  */
 export function instagramImageAnalysisToMarkdown(
   analysis: InstagramImageAnalysis,
-  meta: { filename: string; url: string },
+  meta: { filename: string },
 ): string {
   const lines = [
-    `# Imagen: ${meta.filename}`,
-    "",
-    `![${analysis.alt_text}](${meta.url})`,
+    `# Activo visual: ${meta.filename}`,
     "",
     `**Descripción:** ${analysis.description}`,
     "",
     `**Estilo / registro:** ${analysis.style}`,
+    "",
+    `**Composición:** ${analysis.composition}`,
+    "",
+    `**Proporción estimada:** ${analysis.aspect_ratio_estimate}`,
     "",
     `**Objetos / elementos:** ${
       analysis.objects.length > 0 ? analysis.objects.join(", ") : "—"
@@ -1415,7 +1814,9 @@ export function instagramImageAnalysisToMarkdown(
     "",
     `**Texto en la imagen:** ${analysis.ocr_text.trim() || "—"}`,
     "",
-    `**Uso sugerido en Instagram:** ${analysis.suggested_use}`,
+    `**Uso potencial:** ${analysis.suggested_use}`,
+    "",
+    `**Inferencias (no verificadas):** ${analysis.inferences.length > 0 ? analysis.inferences.join("; ") : "—"}`,
     "",
     `**Alt text:** ${analysis.alt_text}`,
   ];
@@ -1506,6 +1907,8 @@ export const callProposedTaskSchema = z.object({
   description: z.string(),
   priority: z.enum(["low", "medium", "high", "urgent"]),
   owner: z.enum(["cliente", "consultor"]),
+  // Texto literal de plazo. Las salidas guardadas antes de AI-31 siguen siendo válidas.
+  due_hint: z.string().nullable().default(null),
 });
 
 /**
@@ -1550,11 +1953,25 @@ export const callSummaryOutputSchema = z.object({
   ),
   risks: z.array(z.string()),
   proposed_tasks: z.array(callProposedTaskSchema),
+  proposed_campaign_ideas: z.array(z.object({
+    objective: z.string().max(300),
+    audience: z.string().max(200),
+    timing_hint: z.string().max(160).nullable(),
+    evidence_quote: z.string().max(500),
+  })).max(5).default([]),
+  proposed_camino_changes: z.array(z.object({
+    change: z.string().max(400),
+    rationale: z.string().max(400),
+    evidence_quote: z.string().max(500),
+  })).max(5).default([]),
   key_quotes: z.array(z.string()),
   // Anadidos en AI-15. `.default([])` para que un resumen guardado por una
   // version anterior de A01 siga validando al releerse.
   consultant_gaps: z.array(callConsultantGapSchema).default([]),
   conversation_signals: z.array(callConversationSignalSchema).default([]),
+  // Referencias documentales usadas para metodología/priorización. No
+  // convierten ese conocimiento en hechos pronunciados durante la llamada.
+  sources: z.array(agentSourceSchema).default([]),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
 });
@@ -1571,9 +1988,12 @@ export const callSummaryJsonSchema = {
     "recommendations",
     "risks",
     "proposed_tasks",
+    "proposed_campaign_ideas",
+    "proposed_camino_changes",
     "key_quotes",
     "consultant_gaps",
     "conversation_signals",
+    "sources",
     "confidence",
     "warnings",
   ],
@@ -1620,7 +2040,7 @@ export const callSummaryJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "description", "priority", "owner"],
+        required: ["title", "description", "priority", "owner", "due_hint"],
         properties: {
           title: {
             type: "string",
@@ -1630,10 +2050,38 @@ export const callSummaryJsonSchema = {
           description: { type: "string" },
           priority: { type: "string", enum: priorityEnum },
           owner: { type: "string", enum: ["cliente", "consultor"] },
+          due_hint: {
+            type: ["string", "null"],
+            description:
+              "Plazo expresado literalmente en la llamada; null si no se dijo. No calcular fechas relativas.",
+          },
         },
       },
       description:
         "Tareas accionables y deduplicables acordadas en la llamada; se crean solo tras aprobacion.",
+    },
+    proposed_campaign_ideas: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["objective", "audience", "timing_hint", "evidence_quote"],
+        properties: {
+          objective: { type: "string", maxLength: 300 }, audience: { type: "string", maxLength: 200 },
+          timing_hint: { type: ["string", "null"], maxLength: 160 }, evidence_quote: { type: "string", maxLength: 500 },
+        },
+      },
+      description: "Ideas de campaña solo cuando se acordaron en la llamada; incluye cita textual verificable.",
+    },
+    proposed_camino_changes: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["change", "rationale", "evidence_quote"],
+        properties: { change: { type: "string", maxLength: 400 }, rationale: { type: "string", maxLength: 400 }, evidence_quote: { type: "string", maxLength: 500 } },
+      },
+      description: "Cambios acordados al Camino existente; no describas una idea exploratoria como un acuerdo.",
     },
     key_quotes: {
       type: "array",
@@ -1688,6 +2136,21 @@ export const callSummaryJsonSchema = {
       },
       description:
         "Como fue la conversacion (no que se dijo): reparto de palabra, objeciones sin respuesta, compromisos asumidos, senales de desmotivacion. Interno.",
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+      description:
+        "Documentos de conocimiento consultados para fundamentar metodología o interpretación; no son citas de la llamada.",
     },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     warnings: {
@@ -1876,7 +2339,8 @@ function unknownToolResult(
 /**
  * Contrato de salida estructurada de una vuelta de agente: el JSON Schema que
  * se envia a la API para forzar el formato y el esquema Zod con el que se valida
- * la respuesta antes de persistirla. Por defecto es el contrato generico de A02.
+ * la respuesta antes de persistirla. El contrato genérico queda como default;
+ * A02 y A19 usan variantes propias cuando la salida difiere del diagnóstico plano.
  */
 export type OutputContract<TOutput> = {
   jsonSchema: Record<string, unknown>;
@@ -2353,12 +2817,14 @@ export function checkOutputSanity(output: unknown): OutputSanityResult {
  * redactase por su cuenta, un dia dejarian de decir lo mismo.
  */
 function buildTurnUserText(
-  input: AgentInput,
+  input: AgentTurnInput,
   contextText: string,
   extraLines: Array<string | null> = [],
 ): string {
   return [
-    `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
+    "scope" in input
+      ? "Ámbito interno de plataforma E-NORA (sin datos de organizaciones cliente). Analiza solo el material adjunto."
+      : `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
     `Objetivo de la ejecucion: ${input.objective}`,
     input.time_range
       ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
@@ -2651,7 +3117,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  input: AgentInput;
+  input: AgentTurnInput;
   contextBlocks: Array<{ label: string; data: unknown }>;
   tools?: AgentToolDefinition[];
   outputContract?: OutputContract<TOutput>;
@@ -2667,9 +3133,11 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
    * Imágenes adjuntas al mensaje de usuario (visión). `url` debe ser pública y
    * de confianza -- el backend valida el origen antes de llamar aquí.
    */
-  images?: Array<{ url: string; role?: string }>;
+  images?: AgentImageAttachment[];
 }): Promise<AgentTurnResult<TOutput>> {
-  const input = agentInputSchema.parse(params.input);
+  const input = "scope" in params.input
+    ? platformAgentInputSchema.parse(params.input)
+    : agentInputSchema.parse(params.input);
   const client = new Anthropic({ apiKey: params.apiKey });
   const startedAt = Date.now();
   const tools = params.tools ?? [];
@@ -2685,12 +3153,11 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   const contextText = context.text;
   const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
 
-  const attachedImages = (params.images ?? []).slice(0, 8);
+  const attachedImages = validateAgentImageAttachments(params.images);
   const imageBlocks: Anthropic.ImageBlockParam[] = attachedImages.map(
-    (img) => ({
-      type: "image",
-      source: { type: "url", url: img.url },
-    }),
+    (img) => "url" in img
+      ? { type: "image", source: { type: "url", url: img.url } }
+      : { type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } },
   );
 
   const messages: Anthropic.MessageParam[] = [
@@ -2705,7 +3172,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
                 attachedImages
                   .map(
                     (img, index) =>
-                      `${index + 1}. [${img.role ?? "contenido"}] ${img.url}`,
+                      `${index + 1}. [${img.role ?? "contenido"}] ${imageLabel(img)}`,
                   )
                   .join("\n")
               : null,
@@ -2879,7 +3346,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  input: AgentInput;
+  input: AgentTurnInput;
   contextBlocks: Array<{ label: string; data: unknown }>;
   tools?: AgentToolDefinition[];
   outputContract?: OutputContract<TOutput>;
@@ -2891,8 +3358,12 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
    * de datos por evento. Quien llama acumula y persiste una sola vez.
    */
   onSecurityEvent?: AgentSecurityEventSink;
+  /** Bounded image inputs (e.g. private local render captures) for vision-capable models. */
+  images?: AgentImageAttachment[];
 }): Promise<AgentTurnResult<TOutput>> {
-  const input = agentInputSchema.parse(params.input);
+  const input = "scope" in params.input
+    ? platformAgentInputSchema.parse(params.input)
+    : agentInputSchema.parse(params.input);
   const client = new OpenAI({ apiKey: params.apiKey });
   const startedAt = Date.now();
   const tools = params.tools ?? [];
@@ -2908,9 +3379,22 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   const contextText = context.text;
   const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
 
+  const attachedImages = validateAgentImageAttachments(params.images);
+  const userContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
+    { type: "text", text: buildTurnUserText(input, contextText, [
+      attachedImages.length > 0
+        ? "\nImagenes adjuntas (en el mismo orden que abajo; usa la etiqueta como referencia):\n" +
+          attachedImages.map((img, index) => `${index + 1}. [${img.role ?? "contenido"}] ${imageLabel(img)}`).join("\n")
+        : null,
+    ]) },
+    ...attachedImages.map((img) => ({
+      type: "image_url" as const,
+      image_url: { url: "url" in img ? img.url : `data:${img.mediaType};base64,${img.base64}` },
+    })),
+  ];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
-    { role: "user", content: buildTurnUserText(input, contextText) },
+    { role: "user", content: userContent },
   ];
 
   const requestBase = {

@@ -13,9 +13,9 @@ name = "e-nora scale"
 # read_all_orders fuera por ahora: Shopify rechaza el deploy sin "Access
 # request" aprobada en el Partner Dashboard (historico > 60 dias). Pendiente
 # solicitarla y volver a anadirlo aqui cuando este aprobada.
-scopes = "read_products,read_inventory,read_locations,read_orders,read_returns,read_customers,read_reports,write_pixels,read_customer_events"
+scopes = "read_customer_events,read_customers,read_discounts,read_inventory,read_locations,read_marketing_events,read_orders,read_products,read_reports,read_returns,write_pixels"
 optional_scopes = [ ]
-use_legacy_install_flow = false
+use_legacy_install_flow = true
 
 [auth]
 redirect_urls = [

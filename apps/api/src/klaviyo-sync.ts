@@ -8,6 +8,7 @@ import {
   type KlaviyoResource,
 } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
+import { klaviyoReportGroupings } from "./klaviyo-report-groupings.js";
 import {
   isKlaviyoPermissionError,
   klaviyoCapability,
@@ -19,6 +20,16 @@ import {
   assertConnectionIngestible,
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
+import { readKlaviyoFlowDefinitionSummary, summarizeKlaviyoFlowDefinition } from "./klaviyo-flow-definition-summary.js";
+import {
+  classifyKlaviyoMetricName,
+  extractKlaviyoFlowMetricRefs,
+  queryKlaviyoFlowMetricVolumes,
+  readKlaviyoFlowMetricRefs,
+  readStoredKlaviyoMetricVolumeAttempts,
+  readStoredKlaviyoMetricVolumes,
+  selectKlaviyoMetricIdsForRefresh,
+} from "./klaviyo-flow-event-volume.js";
 
 type SyncMode = "initial" | "incremental";
 
@@ -465,6 +476,129 @@ export async function runKlaviyoSync(
       })),
       "account_id,external_segment_id",
     );
+
+    // A28 needs trigger/profile filters and the delay/split sequence, which
+    // the normal list endpoint deliberately omits. Enrich a small rotating
+    // batch only when a flow is new or changed; persist the redacted summary
+    // beside the ordinary flow metadata, never Klaviyo's full definition.
+    const { data: existingFlowRows, error: existingFlowRowsError } = await client
+      .from("klaviyo_flows")
+      .select("external_flow_id, raw_data")
+      .eq("account_id", accountRowStored.id);
+    const existingFlowSummaryById = new Map<string, ReturnType<typeof readKlaviyoFlowDefinitionSummary>>();
+    const existingFlowMetricRefsById = new Map<string, string[]>();
+    const flowMetricVolumesById = new Map<string, Map<string, { event_type: string; event_count: number; period_start: string; period_end: string; fetched_at: string }>>();
+    const flowMetricAttemptsById = new Map<string, Map<string, string>>();
+    const definitionAttemptedAtById = new Map<string, string>();
+    for (const existing of existingFlowRows ?? []) {
+      const externalId = text(existing.external_flow_id);
+      if (externalId) {
+        const raw = attrs({ attributes: existing.raw_data } as KlaviyoResource);
+        existingFlowSummaryById.set(externalId, readKlaviyoFlowDefinitionSummary(raw));
+        existingFlowMetricRefsById.set(externalId, readKlaviyoFlowMetricRefs(raw));
+        flowMetricVolumesById.set(externalId, new Map(readStoredKlaviyoMetricVolumes(raw).map((entry) => [entry.metric_id, {
+          event_type: entry.event_type, event_count: entry.event_count,
+          period_start: entry.period_start, period_end: entry.period_end, fetched_at: entry.fetched_at,
+        }])));
+        flowMetricAttemptsById.set(externalId, new Map(readStoredKlaviyoMetricVolumeAttempts(raw).map((entry) => [entry.metric_id, entry.attempted_at])));
+        const attemptedAt = date(raw.a28_flow_structure_attempted_at);
+        if (attemptedAt) definitionAttemptedAtById.set(externalId, attemptedAt);
+      }
+    }
+    const definitionStartedAt = new Date().toISOString();
+    const definitionAttemptedAt = new Date().toISOString();
+    const definitionRetryAfter = Date.now() - 24 * 60 * 60 * 1000;
+    let flowDefinitionErrors = 0;
+    const flowDefinitionSummaries = new Map<string, NonNullable<ReturnType<typeof summarizeKlaviyoFlowDefinition>>>();
+    const flowDefinitionMetricRefs = new Map<string, string[]>();
+    const attemptedFlowIds = new Set<string>();
+    if (!existingFlowRowsError) {
+      const definitionCandidates = flows
+        .filter((flow) => {
+          const existing = existingFlowSummaryById.get(flow.id);
+          const sourceUpdatedAt = date(attrs(flow).updated);
+          const attemptedAt = definitionAttemptedAtById.get(flow.id);
+          const coolingDown = attemptedAt !== undefined && Date.parse(attemptedAt) > definitionRetryAfter;
+          return !coolingDown && (!existing || (sourceUpdatedAt !== null && date(existing.source_updated_at) !== sourceUpdatedAt));
+        })
+        .slice(0, 6);
+      for (const flow of definitionCandidates) attemptedFlowIds.add(flow.id);
+      const enriched = await mapWithConcurrency(definitionCandidates, 2, async (flow) => {
+        try {
+          const response = await api.request<{ data?: KlaviyoResource }>(
+            `/flows/${encodeURIComponent(flow.id)}?additional-fields%5Bflow%5D=definition`,
+          );
+          const summary = summarizeKlaviyoFlowDefinition(response);
+          return summary
+            ? { externalFlowId: flow.id, summary, metricRefs: extractKlaviyoFlowMetricRefs(response) }
+            : null;
+        } catch {
+          flowDefinitionErrors += 1;
+          return null;
+        }
+      });
+      for (const item of enriched) {
+        if (!item) continue;
+        flowDefinitionSummaries.set(item.externalFlowId, item.summary);
+        flowDefinitionMetricRefs.set(item.externalFlowId, item.metricRefs);
+      }
+    }
+    await recordBlockRun("flow_definitions", definitionStartedAt, {
+      read: flowDefinitionSummaries.size,
+      ...(existingFlowRowsError
+        ? { error: "definition_cache_unavailable" }
+        : flowDefinitionErrors > 0 ? { error: `definition_fetch_failed:${flowDefinitionErrors}` } : {}),
+    });
+    // Aggregate event counts are refreshed in the existing six-hour sync, not
+    // when a user runs A28. This keeps interactive agent runs read-only and
+    // prevents repeated Klaviyo traffic during busy periods.
+    const refsByFlow = new Map(flows.map((flow) => [flow.id,
+      flowDefinitionMetricRefs.get(flow.id) ?? existingFlowMetricRefsById.get(flow.id) ?? [],
+    ]));
+    const referencedMetricIds = [...new Set([...refsByFlow.values()].flat())];
+    const volumeCacheByMetricId = new Map<string, { event_type: string; event_count: number; period_start: string; period_end: string; fetched_at: string }>();
+    const attemptByMetricId = new Map<string, string>();
+    for (const values of flowMetricVolumesById.values()) for (const [id, volume] of values) {
+      const existing = volumeCacheByMetricId.get(id);
+      if (!existing || Date.parse(volume.fetched_at) > Date.parse(existing.fetched_at)) volumeCacheByMetricId.set(id, volume);
+    }
+    for (const values of flowMetricAttemptsById.values()) for (const [id, attemptedAt] of values) {
+      if (!attemptByMetricId.has(id) || Date.parse(attemptedAt) > Date.parse(attemptByMetricId.get(id)!)) attemptByMetricId.set(id, attemptedAt);
+    }
+    const refreshIds = selectKlaviyoMetricIdsForRefresh(
+      referencedMetricIds,
+      new Map([...volumeCacheByMetricId].map(([id, volume]) => [id, volume.fetched_at])),
+      attemptByMetricId,
+    );
+    const volumeStartedAt = new Date().toISOString();
+    let volumeFailures = 0;
+    if (refreshIds.length > 0) {
+      const metricNames = new Map(metrics.map((metric) => [metric.id, classifyKlaviyoMetricName(text(attrs(metric).name))]));
+      const end = new Date();
+      const start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+      try {
+        const volumeResult = await queryKlaviyoFlowMetricVolumes(api, refreshIds, { start, end }, accountRow.timezone ?? "UTC");
+        for (const metricId of refreshIds) {
+          attemptByMetricId.set(metricId, volumeStartedAt);
+          const count = volumeResult.results.get(metricId);
+          if (count === undefined) { volumeFailures += 1; continue; }
+          volumeCacheByMetricId.set(metricId, {
+            event_type: metricNames.get(metricId) ?? "unmapped_metric",
+            event_count: count,
+            period_start: volumeResult.period_start,
+            period_end: volumeResult.period_end,
+            fetched_at: volumeStartedAt,
+          });
+        }
+      } catch {
+        volumeFailures = refreshIds.length;
+        for (const metricId of refreshIds) attemptByMetricId.set(metricId, volumeStartedAt);
+      }
+    }
+    await recordBlockRun("flow_event_volume", volumeStartedAt, {
+      read: refreshIds.length - volumeFailures,
+      ...(volumeFailures > 0 ? { error: `aggregate_fetch_failed:${volumeFailures}` } : {}),
+    });
     await upsertRows(
       client,
       "klaviyo_flows",
@@ -477,7 +611,30 @@ export async function runKlaviyoSync(
         trigger_type: text(attrs(row).trigger_type),
         created_at_external: date(attrs(row).created),
         updated_at_external: date(attrs(row).updated),
-        raw_data: attrs(row),
+        ...(existingFlowRowsError ? {} : {
+          raw_data: {
+            ...attrs(row),
+            ...((flowDefinitionSummaries.get(row.id) ?? existingFlowSummaryById.get(row.id))
+              ? { a28_flow_structure: flowDefinitionSummaries.get(row.id) ?? existingFlowSummaryById.get(row.id) }
+              : {}),
+            ...(flowDefinitionMetricRefs.has(row.id) || existingFlowMetricRefsById.has(row.id)
+              ? { a28_flow_metric_refs: flowDefinitionMetricRefs.get(row.id) ?? existingFlowMetricRefsById.get(row.id) ?? [] }
+              : {}),
+            ...((refsByFlow.get(row.id)?.length ?? 0) > 0 ? {
+              a28_flow_metric_volumes: (refsByFlow.get(row.id) ?? []).flatMap((metricId) => {
+                const volume = volumeCacheByMetricId.get(metricId);
+                return volume ? [{ metric_id: metricId, ...volume }] : [];
+              }),
+              a28_flow_metric_volume_attempts: (refsByFlow.get(row.id) ?? []).flatMap((metricId) => {
+                const attemptedAt = attemptByMetricId.get(metricId);
+                return attemptedAt ? [{ metric_id: metricId, attempted_at: attemptedAt }] : [];
+              }),
+            } : {}),
+            ...((attemptedFlowIds.has(row.id) ? definitionAttemptedAt : definitionAttemptedAtById.get(row.id))
+              ? { a28_flow_structure_attempted_at: attemptedFlowIds.has(row.id) ? definitionAttemptedAt : definitionAttemptedAtById.get(row.id) }
+              : {}),
+          },
+        }),
         last_synced_at: now,
       })),
       "account_id,external_flow_id",
@@ -1307,6 +1464,7 @@ export async function runKlaviyoReport(
     input.periodStart,
     input.periodEnd,
     input.statistics.slice().sort().join(","),
+    (input.group_by ?? []).slice().sort().join(","),
     input.filter ?? "",
   ].join(":");
   const { data: existingRun } = await client
@@ -1405,6 +1563,10 @@ export async function runKlaviyoReport(
           typeof groupings[`${entityType}_name`] === "string"
             ? groupings[`${entityType}_name`]
             : null,
+        external_message_id:
+          typeof groupings.campaign_message_id === "string"
+            ? groupings.campaign_message_id
+            : "",
         metric_id: account.conversion_metric_id,
         period_start: input.periodStart,
         period_end: input.periodEnd,
@@ -1413,6 +1575,12 @@ export async function runKlaviyoReport(
         ),
         revenue: numberValue(statistics.conversion_value ?? statistics.revenue),
         currency_code: account.currency_code,
+        variation_id:
+          typeof groupings.variation === "string" ? groupings.variation : "",
+        variation_name:
+          typeof groupings.variation_name === "string"
+            ? groupings.variation_name
+            : "",
         raw_data: { groupings, statistics },
       };
     });
@@ -1421,7 +1589,7 @@ export async function runKlaviyoReport(
         client,
         "klaviyo_report_values",
         rows,
-        "report_run_id,entity_type,external_entity_id,metric_id,period_start,period_end",
+        "report_run_id,entity_type,external_entity_id,metric_id,period_start,period_end,external_message_id,variation_id,variation_name",
       );
     }
     await client
@@ -1569,16 +1737,13 @@ const KLAVIYO_REPORT_TYPES = [
  * porque es obligatorio, y el de la campana/flujo porque es por donde
  * klaviyo_email_report enlaza con klaviyo_campaigns / klaviyo_flows.
  *
- * ponytail: `external_entity_id` sigue guardando el id de la campana/flujo, asi
- * que dos mensajes de la misma campana (un A/B) colisionan en el upsert y gana
- * el ultimo. El id del mensaje queda en raw_data.groupings. Se resuelve al
- * modelar el rendimiento por mensaje, que es lo que esta granularidad permite y
- * lo que necesita el analisis de asuntos.
+ * `external_entity_id` guarda el id de la campana/flujo y el mensaje permanece
+ * en raw_data.groupings. Las dimensiones estables variation/variation_name se
+ * persisten por separado para evitar que filas A/B se sobrescriban; el informe
+ * general excluye esas filas y una RPC acotada las expone al analisis A26.
  */
 function groupByForType(type: KlaviyoReportType): string[] {
-  return type.startsWith("campaign")
-    ? ["campaign_id", "campaign_message_id"]
-    : ["flow_id", "flow_message_id"];
+  return klaviyoReportGroupings(type);
 }
 
 function monthPeriod(reference: Date, monthsAgo: number) {

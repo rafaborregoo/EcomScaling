@@ -12,10 +12,16 @@ offer-pricing-benchmarks|operations-cx-benchmarks|product-inventory-benchmarks|\
 retention-crm-benchmarks|scalability-benchmarks|unit-economics-benchmarks)
     ;;
   # F7 (recomendacion) y F8/F9 (ejecucion y aprendizaje), migrados desde
-  # GitHub Actions el 2026-09-24 al borrarse los workflows en 2b2ab70.
+  # GitHub Actions el 2026-09-22 al borrarse los workflows en 2b2ab70.
   expected-outcome|recommendation-confidence|recommendation-communication|\
 execution-plan|readiness|hitl-approval|closure-handoff|\
 action-envelope|execution-supervision|continuous-learning)
+    ;;
+  # AI-07 memoria acumulativa (apps/worker/src/memory-ingestion-once.ts).
+  # memory-ingestion.yml se borro con el resto de workflows de GH Actions
+  # (2b2ab70, 2026-09-22) pero, a diferencia de F7/F8/F9, no se le dio
+  # reemplazo en el VPS -- se quedo parado en produccion hasta ahora.
+  memory-ingestion)
     ;;
   # Cadena nocturna F3 -> F7 en orden de fase (apps/worker/src/nightly-chain-once.ts)
   nightly-chain)

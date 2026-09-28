@@ -13,6 +13,8 @@ import {
   type CaminoPlanOutput,
 } from "@e-nora/ai";
 import { parseStrategicPlanMarkdown } from "./strategic-plan-markdown.js";
+import { isCaminoProposalActionAllowed } from "./camino-proposal-decision.js";
+import { adjustCaminoProposal } from "./camino-proposal-adjustment.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -146,6 +148,7 @@ export async function getStrategicPlan(
   authorization: string,
   context: AuthContext,
   organizationId: string,
+  connectionId?: string | null,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -154,15 +157,26 @@ export async function getStrategicPlan(
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
+  const service = createServiceClient(env);
+  let storeId: string | null = null;
+  if (connectionId) {
+    const { data: store, error: storeError } = await service.from("shopify_stores")
+      .select("id").eq("organization_id", organizationId).eq("connection_id", connectionId).eq("is_active", true).maybeSingle();
+    if (storeError) return { ok: false as const, statusCode: 503, error: "plan_store_scope_failed", detail: storeError.message };
+    if (!store) return { ok: false as const, statusCode: 404, error: "store_not_found" };
+    storeId = store.id as string;
+  }
 
   // Ultimo plan no archivado con toda su estructura; las notas internas van
   // aparte porque su RLS ya limita a consultores/admins.
-  const { data: plan, error } = await supabase
+  let planQuery = supabase
     .from("strategic_plans")
     .select(
-      "id, name, description, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, categories, source, created_by))))",
+      "id, name, description, goal, horizon_months, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, categories, source, created_by))))",
     )
-    .eq("organization_id", organizationId)
+    .eq("organization_id", organizationId);
+  planQuery = storeId ? planQuery.eq("store_id", storeId) : planQuery.is("store_id", null);
+  const { data: plan, error } = await planQuery
     .neq("status", "archived")
     .order("version", { ascending: false })
     .limit(1)
@@ -181,10 +195,154 @@ export async function getStrategicPlan(
     await attachCreatorOrigin(supabase, plan as PlanWithPhases);
   }
 
+  let weeklyReviews: Array<Record<string, unknown>> = [];
+  if (plan?.status === "active") {
+    const { data: reviews, error: reviewsError } = await supabase
+      .from("strategic_plan_weekly_reviews")
+      .select("id, period_start, period_end, status, output_id, created_at, agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
+      .eq("plan_id", plan.id)
+      .eq("status", "succeeded")
+      .order("created_at", { ascending: false })
+      .limit(8);
+    if (reviewsError) {
+      return { ok: false as const, statusCode: 503, error: "plan_reviews_load_failed", detail: reviewsError.message };
+    }
+    const normalizedReviews = (reviews ?? []).map((row) => {
+      const relation = row.agent_outputs as unknown as Record<string, unknown> | Array<Record<string, unknown>> | null;
+      const outputRow = Array.isArray(relation) ? relation[0] : relation;
+      const proposals = row.strategic_plan_change_proposals as unknown as Array<Record<string, unknown>> | null;
+      return {
+        id: row.id,
+        period_start: row.period_start,
+        period_end: row.period_end,
+        created_at: row.created_at,
+        output: outputRow?.output ?? null,
+        proposals: (proposals ?? []).map((proposal) => {
+          const events = (proposal.strategic_plan_change_proposal_events as Array<Record<string, unknown>> | null) ?? [];
+          const orderedEvents = [...events].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+          const latest = orderedEvents.at(-1) ?? null;
+          const edited = [...orderedEvents].reverse().find((event) => event.action === "edited" && event.edited_proposal)?.edited_proposal;
+          return {
+            id: proposal.id,
+            proposal_index: proposal.proposal_index,
+            proposal: proposal.proposal,
+            current_proposal: edited ?? proposal.proposal,
+            status: latest?.action ?? "pending",
+            latest_event_id: latest?.id ?? null,
+            events: orderedEvents,
+          };
+        }),
+      };
+    });
+    const actorIds = [...new Set(normalizedReviews.flatMap((review) =>
+      (review.proposals as Array<{ events: Array<Record<string, unknown>> }>).flatMap((proposal) => proposal.events.map((event) => event.actor_user_id).filter((id): id is string => typeof id === "string")),
+    ))];
+    const actorLabels = new Map<string, string>();
+    if (actorIds.length) {
+      const { data: actors } = await service.from("profiles").select("id, full_name").in("id", actorIds);
+      for (const actor of actors ?? []) actorLabels.set(actor.id as string, actor.full_name ? `Usuario · ${actor.full_name}` : "Usuario");
+    }
+    weeklyReviews = normalizedReviews.map((review) => ({
+      ...review,
+      proposals: (review.proposals as Array<{ events: Array<Record<string, unknown>> }>).map((proposal) => ({
+        ...proposal,
+        events: proposal.events.map((event) => ({
+          ...event,
+          actor_label: `${event.actor_role === "consultant" ? "Consultor" : "Cliente"}${actorLabels.get(String(event.actor_user_id))?.replace(/^Usuario/, "") ?? ""}`,
+        })),
+      })),
+    }));
+  }
+
   return {
     ok: true as const,
-    data: { organization_id: organizationId, plan: plan ?? null },
+    data: { organization_id: organizationId, plan: plan ?? null, weekly_reviews: weeklyReviews },
   };
+}
+
+export async function recordCaminoChangeProposalAction(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  planId: string,
+  proposalId: string,
+  input: {
+    action?: string;
+    reason?: string;
+    expected_last_event_id?: string | null;
+    edited_proposal?: { description?: string; reason?: string; evidence?: string; target_id?: string | null };
+  },
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  if (!input.action || !["accept", "reject", "edit", "complete"].includes(input.action)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_camino_proposal_action" };
+  }
+  const supabase = createServiceClient(env);
+  const [{ data: plan, error: planError }, { data: proposalRow, error: proposalError }] = await Promise.all([
+    supabase.from("strategic_plans").select("id, status, store_id").eq("id", planId).eq("organization_id", organizationId).maybeSingle(),
+    supabase.from("strategic_plan_change_proposals").select("id, proposal, plan_id, organization_id").eq("id", proposalId).eq("plan_id", planId).eq("organization_id", organizationId).maybeSingle(),
+  ]);
+  if (planError || proposalError) return { ok: false as const, statusCode: 503, error: "camino_proposal_decision_load_failed", detail: planError?.message ?? proposalError?.message };
+  if (!plan || !proposalRow) return { ok: false as const, statusCode: 404, error: "camino_change_proposal_not_found" };
+  if (plan.status !== "active") return { ok: false as const, statusCode: 409, error: "camino_not_active" };
+
+  const { data: previousEvents, error: eventsError } = await supabase.from("strategic_plan_change_proposal_events")
+    .select("id, action, edited_proposal").eq("proposal_id", proposalId).order("created_at", { ascending: false }).limit(1);
+  if (eventsError) return { ok: false as const, statusCode: 503, error: "camino_proposal_history_load_failed", detail: eventsError.message };
+  const previous = previousEvents?.[0] as { id: string; action: string; edited_proposal: Record<string, unknown> | null } | undefined;
+  if (!Object.prototype.hasOwnProperty.call(input, "expected_last_event_id")) {
+    return { ok: false as const, statusCode: 400, error: "camino_proposal_expected_version_required" };
+  }
+  if (input.expected_last_event_id !== undefined && (input.expected_last_event_id ?? null) !== (previous?.id ?? null)) {
+    return { ok: false as const, statusCode: 409, error: "camino_proposal_decision_stale" };
+  }
+  if (previous?.action === "completed") return { ok: false as const, statusCode: 409, error: "camino_proposal_already_completed" };
+  const previousAction = previous?.action ?? "pending";
+  const allowed = isCaminoProposalActionAllowed(input.action as "accept" | "reject" | "edit" | "complete", previousAction as "pending" | "accepted" | "edited" | "rejected" | "completed");
+  if (!allowed) return { ok: false as const, statusCode: 409, error: "camino_proposal_invalid_transition" };
+
+  const action = input.action;
+  const reason = input.reason?.trim() ?? "";
+  let editedProposal: Record<string, unknown> | null = null;
+  if (action === "reject" && reason.length < 3) return { ok: false as const, statusCode: 400, error: "camino_rejection_reason_required" };
+  if (action === "complete" && reason.length < 3) return { ok: false as const, statusCode: 400, error: "camino_completion_reason_required" };
+  if (action === "complete" && !["accepted", "edited"].includes(previous?.action ?? "")) {
+    return { ok: false as const, statusCode: 409, error: "camino_proposal_requires_acceptance" };
+  }
+  if (action === "edit") {
+    const patch = input.edited_proposal;
+    if (!patch || ![patch.description, patch.reason, patch.evidence].every((value) => typeof value === "string" && value.trim().length > 0)) {
+      return { ok: false as const, statusCode: 400, error: "camino_edited_proposal_fields_required" };
+    }
+    const original = previous?.edited_proposal ?? proposalRow.proposal as Record<string, unknown>;
+    editedProposal = {
+      ...original,
+      description: patch.description!.trim().slice(0, 2000),
+      reason: patch.reason!.trim().slice(0, 2000),
+      evidence: patch.evidence!.trim().slice(0, 2000),
+      ...(patch.target_id === undefined ? {} : { target_id: patch.target_id?.trim().slice(0, 120) ?? null }),
+    };
+  }
+  const eventAction = action === "accept" ? "accepted" : action === "reject" ? "rejected" : action === "edit" ? "edited" : "completed";
+  const { data: event, error: eventError } = await supabase.from("strategic_plan_change_proposal_events").insert({
+    proposal_id: proposalId,
+    organization_id: organizationId,
+    action: eventAction,
+    actor_user_id: context.user.id,
+    actor_role: ["platform_admin", "consultant"].includes(context.profile.platform_role) ? "consultant" : "client",
+    reason: reason || null,
+    edited_proposal: editedProposal,
+  }).select("id, action, created_at").single();
+  if (eventError || !event) return { ok: false as const, statusCode: 503, error: "camino_proposal_decision_save_failed", detail: eventError?.message };
+
+  await auditStrategicChange(supabase, organizationId, context, `strategic_plan.proposal.${eventAction}`, "strategic_plan_change_proposal", proposalId, {
+    plan_id: planId,
+    store_id: plan.store_id,
+    action: eventAction,
+    reason: reason || null,
+  });
+  return { ok: true as const, data: { id: event.id, action: event.action, created_at: event.created_at } };
 }
 
 type PlanWithPhases = {
@@ -262,8 +420,12 @@ async function attachCreatorOrigin(
 }
 
 type PlanInput = {
+  storeId?: string | null;
+  connectionId?: string | null;
   name?: string;
   description?: string | null;
+  goal?: CaminoPlanOutput["goal"];
+  horizonMonths?: number | null;
   phases?: Array<{
     name?: string;
     description?: string | null;
@@ -305,10 +467,23 @@ export async function createStrategicPlan(
 
   const supabase = createServiceClient(env);
 
-  const { data: latest, error: latestError } = await supabase
+  let storeId: string | null = null;
+  if (input.storeId || input.connectionId) {
+    let storeQuery = supabase.from("shopify_stores").select("id")
+      .eq("organization_id", organizationId).eq("is_active", true);
+    storeQuery = input.storeId ? storeQuery.eq("id", input.storeId) : storeQuery.eq("connection_id", input.connectionId!);
+    const { data: store, error: storeError } = await storeQuery.maybeSingle();
+    if (storeError) return { ok: false as const, statusCode: 503, error: "plan_store_scope_failed", detail: storeError.message };
+    if (!store) return { ok: false as const, statusCode: 404, error: "store_not_found" };
+    storeId = store.id as string;
+  }
+
+  let latestQuery = supabase
     .from("strategic_plans")
     .select("id, version, status")
-    .eq("organization_id", organizationId)
+    .eq("organization_id", organizationId);
+  latestQuery = storeId ? latestQuery.eq("store_id", storeId) : latestQuery.is("store_id", null);
+  const { data: latest, error: latestError } = await latestQuery
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -338,6 +513,9 @@ export async function createStrategicPlan(
       organization_id: organizationId,
       name: input.name.trim().slice(0, 255),
       description: input.description ?? null,
+      goal: input.goal ?? null,
+      horizon_months: input.horizonMonths ?? null,
+      store_id: storeId,
       version: (latest?.version ?? 0) + 1,
       created_by: context.user.id,
     })
@@ -2201,14 +2379,17 @@ export async function linkTaskToMilestone(
 export async function findCurrentMilestoneId(
   supabase: SupabaseClient,
   organizationId: string,
+  storeId?: string | null,
 ): Promise<string | null> {
   try {
-    const { data: plan } = await supabase
+    let planQuery = supabase
       .from("strategic_plans")
       .select("id")
       .eq("organization_id", organizationId)
-      .eq("status", "active")
-      .maybeSingle();
+      .eq("status", "active");
+    if (storeId === null) planQuery = planQuery.is("store_id", null);
+    else if (storeId) planQuery = planQuery.eq("store_id", storeId);
+    const { data: plan } = await planQuery.maybeSingle();
 
     if (!plan) return null;
 
@@ -2362,6 +2543,9 @@ export async function createMilestoneTask(
 export function caminoProposalToPlanInput(
   proposal: CaminoPlanOutput,
   acceptedAtMs: number,
+  storeId?: string | null,
+  baselineWindowDays?: number | null,
+  baselineObservedAt?: string | null,
 ): PlanInput {
   const toTargetDate = (offsetDays: number) =>
     new Date(acceptedAtMs + offsetDays * 24 * 60 * 60 * 1000)
@@ -2371,6 +2555,16 @@ export function caminoProposalToPlanInput(
   return {
     name: proposal.plan_name,
     description: proposal.diagnosis,
+    goal: proposal.goal ? {
+      ...proposal.goal,
+      ...(typeof baselineWindowDays === "number" && Number.isInteger(baselineWindowDays) && baselineWindowDays >= 1 && baselineWindowDays <= 365
+        ? { baseline_window_days: baselineWindowDays }
+        : {}),
+      ...(baselineObservedAt ? { baseline_observed_at: baselineObservedAt } : {}),
+      target_date: toTargetDate(proposal.goal.target_offset_days),
+    } : proposal.goal,
+    storeId: storeId ?? null,
+    ...(proposal.horizon_months === undefined ? {} : { horizonMonths: proposal.horizon_months }),
     phases: proposal.phases.map((phase) => ({
       name: phase.name,
       description: phase.description,
@@ -2400,6 +2594,7 @@ export async function createStrategicPlanFromProposal(
   context: AuthContext,
   organizationId: string,
   outputId: string,
+  adjustments: { horizonMonths?: unknown; goalTarget?: unknown } = {},
 ) {
   const authz = assertCanManagePlan(context, organizationId);
   if (authz.ok === false) {
@@ -2413,7 +2608,7 @@ export async function createStrategicPlanFromProposal(
   const { data: output, error: outputError } = await supabase
     .from("agent_outputs")
     .select(
-      "id, status, output, organization_id, agent_runs!inner(agent_versions!inner(agent_definitions!inner(code)))",
+      "id, status, output, organization_id, agent_runs!inner(store_id, started_at, lookback_days, agent_versions!inner(agent_definitions!inner(code)))",
     )
     .eq("id", outputId)
     .eq("organization_id", organizationId)
@@ -2437,8 +2632,8 @@ export async function createStrategicPlanFromProposal(
   }
 
   const runs = output.agent_runs as
-    | { agent_versions?: { agent_definitions?: { code?: string } } }
-    | Array<{ agent_versions?: { agent_definitions?: { code?: string } } }>
+    | { store_id?: string | null; started_at?: string | null; lookback_days?: number | null; agent_versions?: { agent_definitions?: { code?: string } } }
+    | Array<{ store_id?: string | null; started_at?: string | null; lookback_days?: number | null; agent_versions?: { agent_definitions?: { code?: string } } }>
     | null;
   const run = Array.isArray(runs) ? runs[0] : runs;
   const versions = run?.agent_versions;
@@ -2474,11 +2669,33 @@ export async function createStrategicPlanFromProposal(
     };
   }
 
+  let reviewedProposal = parsed.data;
+  if (adjustments.horizonMonths !== undefined || Object.prototype.hasOwnProperty.call(adjustments, "goalTarget")) {
+    const horizonMonths = adjustments.horizonMonths === undefined ? parsed.data.horizon_months : Number(adjustments.horizonMonths);
+    if (!Number.isInteger(horizonMonths) || (horizonMonths ?? 0) < 1 || (horizonMonths ?? 0) > 12) {
+      return { ok: false as const, statusCode: 400, error: "invalid_camino_adjusted_horizon" };
+    }
+    const goalTarget = Object.prototype.hasOwnProperty.call(adjustments, "goalTarget")
+      ? adjustments.goalTarget
+      : parsed.data.goal?.target ?? null;
+    if (goalTarget !== null && (typeof goalTarget !== "number" || !Number.isFinite(goalTarget))) {
+      return { ok: false as const, statusCode: 400, error: "invalid_camino_adjusted_goal_target" };
+    }
+    if (!parsed.data.goal && goalTarget !== null) {
+      return { ok: false as const, statusCode: 400, error: "camino_proposal_has_no_goal" };
+    }
+    reviewedProposal = adjustCaminoProposal(parsed.data, horizonMonths!, goalTarget as number | null);
+    const reviewedValidation = caminoPlanOutputSchema.safeParse(reviewedProposal);
+    if (!reviewedValidation.success) {
+      return { ok: false as const, statusCode: 422, error: "camino_adjustment_invalid", detail: reviewedValidation.error.message };
+    }
+  }
+
   const created = await createStrategicPlan(
     env,
     context,
     organizationId,
-    caminoProposalToPlanInput(parsed.data, Date.now()),
+    caminoProposalToPlanInput(reviewedProposal, Date.now(), run?.store_id ?? null, run?.lookback_days, run?.started_at),
   );
 
   if (created.ok === false) {
@@ -2495,7 +2712,7 @@ export async function createStrategicPlanFromProposal(
     organization_id: organizationId,
     decision: "approved",
     decided_by: context.user.id,
-    reason: `Camino creado como plan ${created.data.id}`,
+    reason: `Camino creado como plan ${created.data.id}; plazo=${reviewedProposal.horizon_months ?? "original"}; objetivo=${reviewedProposal.goal?.target ?? "sin target"}`,
   });
 
   await auditStrategicChange(
@@ -2512,6 +2729,8 @@ export async function createStrategicPlanFromProposal(
         (total, phase) => total + phase.milestones.length,
         0,
       ),
+      accepted_horizon_months: reviewedProposal.horizon_months ?? null,
+      accepted_goal_target: reviewedProposal.goal?.target ?? null,
     },
   );
 

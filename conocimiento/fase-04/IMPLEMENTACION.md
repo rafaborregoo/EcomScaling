@@ -294,6 +294,27 @@ fallos, salida conservadora y cleanup a cero.
 
 P12 queda `hecho`. Con P06–P12 terminados, F4 queda cerrada en esta sesión.
 
+### Fusión de runtimes P06–P12 — 2026-09-27
+
+Los siete runtimes P06–P12 (`feasibility`, `risk`, `allocation`,
+`strategic-fit`, `ranking`, `portfolio`, `decision-output`) eran el mismo
+esqueleto con otra tabla, y ninguno lee todavía datos del negocio: todos
+construyen su entrada en `UNKNOWN`. Se fusionaron en
+`apps/api/src/decision-blocks-engine.ts` (un bloque por fila de
+`DECISION_BLOCKS`, cada uno con su try/catch), un solo worker
+`decision-blocks-once.ts`, un solo paso de la cadena nocturna y
+`decision-blocks-api.ts` para las siete rutas de consultor, que no cambian.
+Contratos, tablas y paneles siguen siendo uno por bloque. Las entradas son
+idénticas a las anteriores, así que las huellas no cambian. Las referencias a
+`*-engine.ts` de P06–P12 en este documento son históricas.
+
+Corregido al fusionar: P07–P12 incluían `as_of` en la huella, de modo que la
+deduplicación por `input_fingerprint` no actuaba y cada noche se insertaba una
+fila nueva idéntica por organización. Ahora los seis contratos excluyen `as_of`
+del hash, como ya hacía P06. Las filas repetidas anteriores siguen en la base;
+la primera noche tras el despliegue escribe una fila con la huella nueva y a
+partir de ahí se reutiliza.
+
 ### Integración con el Copiloto
 
 Las salidas de F4 no se quedan únicamente en los paneles de diagnóstico. El

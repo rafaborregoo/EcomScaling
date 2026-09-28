@@ -21,11 +21,16 @@ import {
 
 type Serie = { key: string; label?: string; color?: string };
 
-// Acento de marca primero; el resto para series secundarias.
+// Los gráficos tienen paleta propia: no heredan el acento de marca (verde).
 const SERIES_COLORS = [
-  "var(--accent)",
-  "var(--color-warning)",
-  "var(--color-success)",
+  "var(--chart-series-1)",
+  "var(--chart-series-2)",
+  "var(--chart-series-3)",
+  "var(--chart-series-4)",
+  "var(--chart-series-5)",
+  "var(--chart-series-6)",
+  "var(--chart-series-7)",
+  "var(--chart-series-8)",
 ];
 
 const AXIS_TICK = { fill: "var(--color-muted)", fontSize: 11 } as const;
@@ -103,7 +108,7 @@ function withColors(series: Serie[]): Required<Serie>[] {
 type ChartData = Array<Record<string, number | string>>;
 
 const SPARK_TONE = {
-  brand: "var(--accent)",
+  brand: "var(--chart-series-1)",
   success: "var(--color-success)",
   danger: "var(--danger)",
 } as const;

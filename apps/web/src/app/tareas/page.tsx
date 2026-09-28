@@ -25,6 +25,7 @@ import {
   Button,
   Card,
   ErrorBlock,
+  Field,
   Input,
   List,
   Modal,
@@ -62,10 +63,116 @@ type Task = {
   is_visible_to_client: boolean;
   created_at: string;
   updated_at: string;
+  outcome_metric_name?: string | null;
+  outcome_before_value?: number | null;
+  outcome_after_value?: number | null;
+  outcome_unit?: string | null;
+  outcome_summary?: string | null;
+  outcome_measured_at?: string | null;
+  outcome_recorded_at?: string | null;
   task_comments: TaskComment[];
   // Fase/hito de Mi Camino al que cuelga esta tarea (misma tabla `tasks`).
   milestone: { id: string; name: string; phase_name: string | null } | null;
 };
+
+type TaskOutcomeInput = {
+  metric_name: string;
+  before_value?: number | null;
+  after_value?: number | null;
+  unit?: string;
+  summary?: string;
+  measured_at: string;
+};
+
+function TaskOutcomeDialog({
+  taskTitle,
+  mode,
+  isPending,
+  onClose,
+  onConfirm,
+  onCompleteWithoutMetric,
+}: {
+  taskTitle: string;
+  mode: "complete" | "record";
+  isPending: boolean;
+  onClose: () => void;
+  onConfirm: (outcome: TaskOutcomeInput) => void;
+  onCompleteWithoutMetric: () => void;
+}) {
+  const [metricName, setMetricName] = useState("");
+  const [beforeValue, setBeforeValue] = useState("");
+  const [afterValue, setAfterValue] = useState("");
+  const [unit, setUnit] = useState("");
+  const [summary, setSummary] = useState("");
+  const [measuredAt, setMeasuredAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const today = new Date();
+  const maxMeasuredAt = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const metric = metricName.trim();
+    const observed = afterValue.trim();
+    const note = summary.trim();
+    if (!metric || (!observed && !note)) return;
+    onConfirm({
+      metric_name: metric,
+      ...(beforeValue.trim() ? { before_value: Number(beforeValue) } : {}),
+      ...(observed ? { after_value: Number(observed) } : {}),
+      ...(unit.trim() ? { unit: unit.trim() } : {}),
+      ...(note ? { summary: note } : {}),
+      measured_at: measuredAt,
+    });
+  }
+
+  return (
+    <Modal isOpen onOpenChange={(open) => !open && !isPending && onClose()}>
+      <Modal.Backdrop>
+        <Modal.Container size="md">
+          <Modal.Dialog>
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading>{mode === "record" ? "Registrar medición posterior" : "¿Qué resultado observaste?"}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              <div className="space-y-4">
+                <p className="text-sm text-muted">{mode === "record" ? `Añade o actualiza el resultado medido de «${taskTitle}».` : `Vas a completar «${taskTitle}». Si ya mediste su resultado, guárdalo para que los próximos planes aprendan.`} Completar una tarea por sí solo no demuestra impacto.</p>
+                <form id="task-outcome-form" className="space-y-3" onSubmit={submit}>
+                  <Field label="Métrica observada">
+                    <Input value={metricName} onChange={(event) => setMetricName(event.target.value)} maxLength={120} placeholder="Ej. conversión, margen, tiempo de preparación" />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Field label="Antes">
+                      <Input type="number" step="any" value={beforeValue} onChange={(event) => setBeforeValue(event.target.value)} placeholder="Opcional" />
+                    </Field>
+                    <Field label="Después">
+                      <Input type="number" step="any" value={afterValue} onChange={(event) => setAfterValue(event.target.value)} placeholder="Opcional" />
+                    </Field>
+                    <Field label="Unidad">
+                      <Input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="%, €, días…" />
+                    </Field>
+                  </div>
+                  <Field label="Fecha de medición">
+                    <Input type="date" max={maxMeasuredAt} value={measuredAt} onChange={(event) => setMeasuredAt(event.target.value)} />
+                  </Field>
+                  <Field label="Contexto del resultado (opcional)">
+                    <Textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={1000} placeholder="Ventana comparada, fuente o limitaciones de la medición…" />
+                  </Field>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" variant="secondary" disabled={isPending} onClick={onClose}>Cancelar</Button>
+                    {mode === "complete" ? <Button type="button" variant="ghost" disabled={isPending} onClick={onCompleteWithoutMetric}>Completar sin métrica</Button> : null}
+                    <Button type="submit" disabled={isPending || !metricName.trim() || (!afterValue.trim() && !summary.trim())}>
+                    {isPending ? "Guardando…" : mode === "record" ? "Guardar medición" : "Guardar resultado y completar"}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  );
+}
 
 type Alert = {
   id: string;
@@ -270,6 +377,11 @@ function TaskDetail({
               </Button>
             </>
           ) : null}
+          {onStatusChange && task.status === "completed" ? (
+            <Button variant="ghost" size="sm" onClick={() => onStatusChange("record_outcome")}>
+              {task.outcome_metric_name ? "Actualizar medición" : "Registrar resultado"}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -277,6 +389,17 @@ function TaskDetail({
         <p className="text-[13px] leading-relaxed text-foreground">
           {task.description}
         </p>
+      ) : null}
+
+      {task.outcome_metric_name && task.outcome_measured_at ? (
+        <section className="rounded-md border border-edge bg-surface-subtle p-3" aria-label="Resultado medido de la tarea">
+          <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted">Resultado observado · no demuestra causalidad</p>
+          <p className="mt-1 text-sm font-medium text-foreground">
+            {task.outcome_metric_name}: {task.outcome_before_value == null ? "—" : task.outcome_before_value.toLocaleString("es-ES")} → {task.outcome_after_value == null ? "—" : task.outcome_after_value.toLocaleString("es-ES")} {task.outcome_unit ?? ""}
+          </p>
+          <p className="mt-0.5 text-xs text-muted">Medido el {new Date(`${task.outcome_measured_at}T12:00:00`).toLocaleDateString("es-ES")}</p>
+          {task.outcome_summary ? <p className="mt-2 text-sm text-muted">{task.outcome_summary}</p> : null}
+        </section>
       ) : null}
 
       <div className="border-t border-separator pt-3">
@@ -617,6 +740,16 @@ function TaskRow({
             {isPending ? "..." : "Completar"}
           </Button>
         ) : null}
+        {onStatusChange && task.status === "completed" ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={isPending}
+            onClick={() => onStatusChange("record_outcome")}
+          >
+            Medir
+          </Button>
+        ) : null}
         <Button size="sm" variant="ghost" onClick={onOpenDetail}>
           Detalle
         </Button>
@@ -951,6 +1084,7 @@ function ConsultantOperationsView({
   const [clientFilter, setClientFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [completionTask, setCompletionTask] = useState<{ organizationId: string; taskId: string; title: string; mode: "complete" | "record" } | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [pendingAlertId, setPendingAlertId] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
@@ -974,7 +1108,14 @@ function ConsultantOperationsView({
     organizationId: string,
     taskId: string,
     status: string,
+    outcome?: TaskOutcomeInput | null,
   ) {
+    if ((status === "completed" && outcome === undefined) || status === "record_outcome") {
+      const task = data?.tasks.find((item) => item.id === taskId && item.organization_id === organizationId);
+      setDetailTaskId(null);
+      setCompletionTask({ organizationId, taskId, title: task?.title ?? "Tarea", mode: status === "record_outcome" || task?.status === "completed" ? "record" : "complete" });
+      return;
+    }
     setPendingTaskId(taskId);
     setActionError(null);
     try {
@@ -983,14 +1124,17 @@ function ConsultantOperationsView({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
+          body: JSON.stringify({ status, ...(outcome ? { outcome } : {}) }),
         },
       );
       if (!response.ok) {
         setActionError(await readApiError(response));
         return;
       }
-      toast.success(`Tarea marcada como «${STATUS_LABELS[status] ?? status}».`);
+      toast.success(status === "completed" && outcome
+        ? "Tarea completada y resultado medido guardado."
+        : `Tarea marcada como «${STATUS_LABELS[status] ?? status}».`);
+      if (status === "completed") setCompletionTask(null);
       void load();
     } catch {
       setActionError("No se pudo actualizar la tarea por un error de red.");
@@ -1328,6 +1472,17 @@ function ConsultantOperationsView({
         </Card>
       )}
 
+      {completionTask ? (
+        <TaskOutcomeDialog
+          taskTitle={completionTask.title}
+          mode={completionTask.mode}
+          isPending={pendingTaskId === completionTask.taskId}
+          onClose={() => setCompletionTask(null)}
+          onConfirm={(outcome) => void changeTaskStatus(completionTask.organizationId, completionTask.taskId, "completed", outcome)}
+          onCompleteWithoutMetric={() => void changeTaskStatus(completionTask.organizationId, completionTask.taskId, "completed", null)}
+        />
+      ) : null}
+
       {detailTask ? (
         <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>
           <Modal.Backdrop>
@@ -1437,6 +1592,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   >({});
   const [tab, setTab] = useState<"tasks" | "alerts">("tasks");
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [completionTask, setCompletionTask] = useState<{ taskId: string; title: string; mode: "complete" | "record" } | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
   // Fases/hitos del plan para asociar la tarea nueva; se carga solo al abrir el
@@ -1530,8 +1686,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
   }
 
-  async function changeTaskStatus(taskId: string, status: string) {
+  async function changeTaskStatus(taskId: string, status: string, outcome?: TaskOutcomeInput | null) {
     if (!organization) {
+      return;
+    }
+    if ((status === "completed" && outcome === undefined) || status === "record_outcome") {
+      const task = payload?.tasks.find((item) => item.id === taskId);
+      setDetailTaskId(null);
+      setCompletionTask({ taskId, title: task?.title ?? "Tarea", mode: status === "record_outcome" || task?.status === "completed" ? "record" : "complete" });
       return;
     }
 
@@ -1543,7 +1705,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
+          body: JSON.stringify({ status, ...(outcome ? { outcome } : {}) }),
         },
       );
 
@@ -1552,7 +1714,10 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         return;
       }
 
-      toast.success(`Tarea marcada como «${STATUS_LABELS[status] ?? status}».`);
+      toast.success(status === "completed" && outcome
+        ? "Tarea completada y resultado medido guardado."
+        : `Tarea marcada como «${STATUS_LABELS[status] ?? status}».`);
+      if (status === "completed") setCompletionTask(null);
       void loadOperations();
     } catch {
       setError(
@@ -1994,6 +2159,17 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
         </div>
       )}
+
+      {completionTask ? (
+        <TaskOutcomeDialog
+          taskTitle={completionTask.title}
+          mode={completionTask.mode}
+          isPending={pendingTaskId === completionTask.taskId}
+          onClose={() => setCompletionTask(null)}
+          onConfirm={(outcome) => void changeTaskStatus(completionTask.taskId, "completed", outcome)}
+          onCompleteWithoutMetric={() => void changeTaskStatus(completionTask.taskId, "completed", null)}
+        />
+      ) : null}
 
       {detailTask ? (
         <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>

@@ -5,6 +5,7 @@ import {
   type AuthContext,
 } from "./auth-context.js";
 import { createTask } from "./operations.js";
+import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import {
   campaignPlanOutputSchema,
   type CampaignPlanOutput,
@@ -27,6 +28,12 @@ function requireMembership(context: AuthContext, organizationId: string) {
   return requireOperationalOrganization(context, organizationId);
 }
 
+function canSeeInternalCampaignPlanning(context: AuthContext) {
+  return ["platform_admin", "consultant"].includes(
+    context.profile.platform_role,
+  );
+}
+
 function taskStatusFromCampaignStatus(status: string) {
   return status === "in_progress"
     ? "in_progress"
@@ -35,6 +42,22 @@ function taskStatusFromCampaignStatus(status: string) {
       : status === "cancelled"
         ? "cancelled"
         : "pending";
+}
+
+export function parseCampaignOutcomeVerdict(input: { verdict?: unknown; reason?: unknown }) {
+  const verdict = input.verdict;
+  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  if (typeof verdict !== "string" || !["worked", "did_not_work", "mixed"].includes(verdict)) {
+    return { ok: false as const, error: "invalid_campaign_verdict" };
+  }
+  if (reason.length < 8 || reason.length > 2000) {
+    return { ok: false as const, error: "campaign_verdict_reason_required" };
+  }
+  return { ok: true as const, verdict: verdict as "worked" | "did_not_work" | "mixed", reason };
+}
+
+export function nextCampaignOutcomeSourceVersion(nowMs: number, previousVersion: number | null | undefined) {
+  return Math.max(Math.floor(nowMs / 1000), (previousVersion ?? 0) + 1);
 }
 
 async function validateStore(
@@ -62,6 +85,7 @@ export async function listCampaignPlanning(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const canSeeInternal = canSeeInternalCampaignPlanning(context);
   const store = await validateStore(env, organizationId, filters.storeId);
   if (store.ok === false) return store;
   const supabase = createServiceClient(env);
@@ -73,6 +97,8 @@ export async function listCampaignPlanning(
     .eq("organization_id", organizationId)
     .order("year", { ascending: false })
     .order("created_at", { ascending: false });
+  if (!canSeeInternal)
+    calendarsQuery = calendarsQuery.eq("is_visible_to_client", true);
   if (filters.year) calendarsQuery = calendarsQuery.eq("year", filters.year);
   if (filters.storeId)
     calendarsQuery = calendarsQuery.or(
@@ -88,16 +114,19 @@ export async function listCampaignPlanning(
       detail: calendarsError.message,
     };
   const calendarIds = (calendars ?? []).map((row) => row.id as string);
+  let itemsQuery = supabase
+    .from("campaign_calendar_items")
+    .select(
+      "id, organization_id, calendar_id, store_id, title, description, channel, item_type, starts_at, ends_at, status, is_visible_to_client, task_id, milestone_id, marketing_draft_id, meta_campaign_id, klaviyo_campaign_id, outcome_verdict, outcome_reason, outcome_decided_at, metadata, created_at, updated_at",
+    )
+    .eq("organization_id", organizationId)
+    .in("calendar_id", calendarIds)
+    .is("deleted_at", null)
+    .order("starts_at", { ascending: true });
+  if (!canSeeInternal)
+    itemsQuery = itemsQuery.eq("is_visible_to_client", true);
   const { data: items, error: itemsError } = calendarIds.length
-    ? await supabase
-        .from("campaign_calendar_items")
-        .select(
-          "id, organization_id, calendar_id, store_id, title, description, channel, item_type, starts_at, ends_at, status, is_visible_to_client, task_id, milestone_id, marketing_draft_id, meta_campaign_id, klaviyo_campaign_id, metadata, created_at, updated_at",
-        )
-        .eq("organization_id", organizationId)
-        .in("calendar_id", calendarIds)
-        .is("deleted_at", null)
-        .order("starts_at", { ascending: true })
+    ? await itemsQuery
     : { data: [], error: null };
   if (itemsError)
     return {
@@ -195,6 +224,7 @@ export async function createCampaignCalendar(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const canSeeInternal = canSeeInternalCampaignPlanning(context);
   const name = input.name?.trim();
   const year = Number(input.year);
   if (!name)
@@ -219,7 +249,9 @@ export async function createCampaignCalendar(
       name,
       year,
       description: input.description?.trim() || null,
-      is_visible_to_client: input.isVisibleToClient ?? true,
+      is_visible_to_client: canSeeInternal
+        ? (input.isVisibleToClient ?? true)
+        : true,
       created_by: context.user.id,
     })
     .select(
@@ -260,6 +292,7 @@ export async function createCampaignCalendarItem(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const canSeeInternal = canSeeInternalCampaignPlanning(context);
   const title = input.title?.trim();
   if (!input.calendarId || !title || !input.startsAt || !input.channel?.trim())
     return {
@@ -281,11 +314,11 @@ export async function createCampaignCalendarItem(
   const supabase = createServiceClient(env);
   const { data: calendar } = await supabase
     .from("campaign_calendars")
-    .select("id")
+    .select("id, is_visible_to_client")
     .eq("id", input.calendarId)
     .eq("organization_id", organizationId)
     .maybeSingle();
-  if (!calendar)
+  if (!calendar || (!canSeeInternal && !calendar.is_visible_to_client))
     return {
       ok: false as const,
       statusCode: 400,
@@ -350,7 +383,9 @@ export async function createCampaignCalendarItem(
       starts_at: new Date(startsAt).toISOString(),
       ends_at: endsAt === null ? null : new Date(endsAt).toISOString(),
       status: input.status ?? "planned",
-      is_visible_to_client: input.isVisibleToClient ?? true,
+      is_visible_to_client: canSeeInternal
+        ? (input.isVisibleToClient ?? true)
+        : true,
       marketing_draft_id: input.marketingDraftId ?? null,
       meta_campaign_id: input.metaCampaignId ?? null,
       klaviyo_campaign_id: input.klaviyoCampaignId ?? null,
@@ -378,7 +413,9 @@ export async function createCampaignCalendarItem(
             ? "klaviyo"
             : "general",
       dueAt: input.endsAt ?? input.startsAt,
-      isVisibleToClient: input.isVisibleToClient ?? true,
+      isVisibleToClient: canSeeInternal
+        ? (input.isVisibleToClient ?? true)
+        : true,
       milestoneId: input.milestoneId ?? null,
     });
     if (task.ok === false)
@@ -426,7 +463,8 @@ export async function archiveCampaignCalendarItem(
       statusCode: 400,
       error: "missing_campaign_calendar_item",
     };
-  const { data, error } = await createServiceClient(env)
+  const supabase = createServiceClient(env);
+  let archiveQuery = supabase
     .from("campaign_calendar_items")
     .update({
       deleted_at: new Date().toISOString(),
@@ -434,7 +472,10 @@ export async function archiveCampaignCalendarItem(
     })
     .eq("id", itemId)
     .eq("organization_id", organizationId)
-    .is("deleted_at", null)
+    .is("deleted_at", null);
+  if (!canSeeInternalCampaignPlanning(context))
+    archiveQuery = archiveQuery.eq("is_visible_to_client", true);
+  const { data, error } = await archiveQuery
     .select("id, deleted_at")
     .maybeSingle();
   if (error)
@@ -587,16 +628,17 @@ export async function updateCampaignCalendarItem(
       statusCode: 400,
       error: "empty_campaign_item_update",
     };
-  const { data, error } = await supabase
+  let updateQuery = supabase
     .from("campaign_calendar_items")
     .update(payload)
     .eq("id", itemId)
     .eq("organization_id", organizationId)
-    .is("deleted_at", null)
-    .select(
-      "id, organization_id, calendar_id, store_id, title, description, channel, item_type, starts_at, ends_at, status, is_visible_to_client, task_id, milestone_id, marketing_draft_id, meta_campaign_id, klaviyo_campaign_id, metadata, created_at, updated_at",
-    )
-    .maybeSingle();
+    .is("deleted_at", null);
+  if (!canSeeInternalCampaignPlanning(context))
+    updateQuery = updateQuery.eq("is_visible_to_client", true);
+  const { data, error } = await updateQuery.select(
+    "id, organization_id, calendar_id, store_id, title, description, channel, item_type, starts_at, ends_at, status, is_visible_to_client, task_id, milestone_id, marketing_draft_id, meta_campaign_id, klaviyo_campaign_id, metadata, created_at, updated_at",
+  ).maybeSingle();
   if (error)
     return {
       ok: false as const,
@@ -886,6 +928,76 @@ export async function listCampaignPlanningAttention(
     ok: true as const,
     data: { overdue, blocked, total: attentionIds.size },
   };
+}
+
+/** Veredicto explícito del consultor: se pide motivo y solo aplica a una acción ya publicada/ejecutada. */
+export async function recordCampaignOutcomeVerdict(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  itemId: string,
+  input: { verdict?: string; reason?: string },
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  if (!canSeeInternalCampaignPlanning(context)) {
+    return { ok: false as const, statusCode: 403, error: "consultant_verdict_required" };
+  }
+  const parsed = parseCampaignOutcomeVerdict(input);
+  if (parsed.ok === false) return { ok: false as const, statusCode: 400, error: parsed.error };
+  const { verdict, reason } = parsed;
+  const supabase = createServiceClient(env);
+  const { data: item, error: loadError } = await supabase.from("campaign_calendar_items")
+    .select("id, status, store_id, title, channel, starts_at, outcome_verdict, outcome_reason, outcome_decided_by, outcome_decided_at").eq("id", itemId).eq("organization_id", organizationId)
+    .is("deleted_at", null).maybeSingle();
+  if (loadError) return { ok: false as const, statusCode: 500, error: "campaign_verdict_item_load_failed", detail: loadError.message };
+  if (!item) return { ok: false as const, statusCode: 404, error: "campaign_item_not_found" };
+  if (!["published", "completed"].includes(item.status)) {
+    return { ok: false as const, statusCode: 409, error: "campaign_not_executed_yet" };
+  }
+  const { data: previousMemory, error: memoryVersionError } = await supabase.from("memory_ingestion_queue")
+    .select("source_version").eq("organization_id", organizationId)
+    .eq("source_type", "campaign_outcome_verdict").eq("source_entity_id", itemId)
+    .order("source_version", { ascending: false }).limit(1).maybeSingle();
+  if (memoryVersionError) return { ok: false as const, statusCode: 503, error: "campaign_memory_version_load_failed", detail: memoryVersionError.message };
+  const unchanged = item.outcome_verdict === verdict && item.outcome_reason === reason;
+  // Retry the outbox if a previous enqueue was unavailable; if it already
+  // exists, a repeated HTTP request is idempotent and adds no duplicate memory.
+  if (unchanged && previousMemory) {
+    return { ok: true as const, data: {
+      id: item.id, outcome_verdict: item.outcome_verdict, outcome_reason: item.outcome_reason,
+      outcome_decided_by: item.outcome_decided_by, outcome_decided_at: item.outcome_decided_at,
+    } };
+  }
+  const decidedAt = unchanged && item.outcome_decided_at
+    ? item.outcome_decided_at
+    : new Date().toISOString();
+  const { data, error } = unchanged
+    ? { data: {
+        id: item.id, outcome_verdict: item.outcome_verdict, outcome_reason: item.outcome_reason,
+        outcome_decided_by: item.outcome_decided_by, outcome_decided_at: item.outcome_decided_at,
+      }, error: null }
+    : await supabase.from("campaign_calendar_items").update({
+        outcome_verdict: verdict, outcome_reason: reason.slice(0, 2000),
+        outcome_decided_by: context.user.id, outcome_decided_at: decidedAt,
+      }).eq("id", itemId).eq("organization_id", organizationId)
+        .select("id, outcome_verdict, outcome_reason, outcome_decided_by, outcome_decided_at").single();
+  if (error) return { ok: false as const, statusCode: 500, error: "campaign_verdict_save_failed", detail: error.message };
+  await enqueueMemoryIngestion(env, {
+    organizationId,
+    storeId: item.store_id ?? null,
+    sourceType: "campaign_outcome_verdict",
+    sourceEntityType: "campaign_calendar_item",
+    sourceEntityId: itemId,
+    sourceVersion: nextCampaignOutcomeSourceVersion(Date.parse(decidedAt), previousMemory?.source_version),
+    sourceActorId: context.user.id,
+    audience: "consultant_only",
+    origin: "human_decision",
+    authority: "operational",
+    title: `Resultado de campaña: ${item.title}`,
+    content: `El consultor registró el resultado «${verdict}» para la acción de campaña «${item.title}» (${item.channel}), programada para ${item.starts_at}. Motivo indicado por el consultor: ${reason.slice(0, 2000)}`,
+  });
+  return { ok: true as const, data };
 }
 
 // --- A05: convertir la propuesta de campanas en items del calendario -------

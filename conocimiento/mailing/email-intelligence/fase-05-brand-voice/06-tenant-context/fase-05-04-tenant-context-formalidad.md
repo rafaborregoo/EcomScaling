@@ -1,0 +1,41 @@
+# Fase 5.4 — Formalidad — Tenant Context
+
+## Tipo de artefacto
+`06-tenant-context`
+
+## Objetivo
+
+Definir la información específica de cada marca necesaria para aplicar `Formalidad`.
+
+## Datos del tenant
+
+- `default_formality_level`
+- `pronoun_policy`
+- `market_formality_rules`
+- `context_overrides`
+
+---
+
+## Source of Truth
+
+Estos datos deben provenir de fuentes aprobadas de la marca.
+
+La IA no debe deducir información ausente como si fuera una regla confirmada.
+
+---
+
+## Versionado
+
+Los cambios de voz deben poder versionarse para distinguir:
+- guía actual;
+- guía anterior;
+- muestras obsoletas;
+- excepciones temporales.
+
+---
+
+## Principio maestro
+
+El RAG explica cómo funciona la voz.
+
+El Tenant Context define cómo habla esta marca concreta.

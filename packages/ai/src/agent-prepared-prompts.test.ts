@@ -18,9 +18,8 @@ test("los agentes preparados tienen prompt canónico y permanecen inactivos", ()
       "supabase/migrations/20260826120000_ai_22_prepared_agent_prompts.sql",
     ),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   for (const code of [
-    "a03_analista_adquisicion",
     "a05_estrategia_campanas",
     "a07_rendimiento_contenido",
   ]) {
@@ -39,17 +38,16 @@ test("los agentes preparados tienen prompt canónico y permanecen inactivos", ()
     "9. EXAMPLES",
   ];
   for (const code of [
-    "a03_analista_adquisicion",
     "a05_estrategia_campanas",
     "a07_rendimiento_contenido",
   ]) {
-    const promptMatch = migration.match(
-      new RegExp(
-        `\\n  '${code}_system',\\n  'v1',\\n  \\\$\\$([\\s\\S]*?)\\$\\$,`,
-      ),
-    );
-    assert.ok(promptMatch, `missing prompt body for ${code}`);
-    const promptBody = promptMatch[1];
+    const marker = `  '${code}_system',\n  'v1',\n  $$`;
+    const promptStart = migration.indexOf(marker);
+    assert.notEqual(promptStart, -1, `missing prompt body for ${code}`);
+    const bodyStart = promptStart + marker.length;
+    const bodyEnd = migration.indexOf("$$,", bodyStart);
+    assert.notEqual(bodyEnd, -1, `unterminated prompt body for ${code}`);
+    const promptBody = migration.slice(bodyStart, bodyEnd);
     assert.ok(promptBody, `empty prompt body for ${code}`);
     for (const section of sections) {
       assert.ok(promptBody.includes(section), `${code} missing ${section}`);

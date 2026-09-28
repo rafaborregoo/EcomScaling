@@ -11,6 +11,7 @@ import { useUrlSection } from "@/lib/use-url-section";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import { ModuleSummary } from "@/components/module-summary";
 import { ClientRules } from "./client-rules";
+import { MailingSection } from "./mailing-section";
 import { StoreQuestionnaire } from "./store-questionnaire";
 import {
   LoadingBlock,
@@ -34,6 +35,7 @@ import {
 const KNOWLEDGE_SECTIONS = [
   "cuestionario",
   "reglas",
+  "mailing",
   "documentos",
   "ia",
 ] as const;
@@ -324,6 +326,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         items={[
           { value: "cuestionario", label: "Cuéntanos tu tienda" },
           { value: "reglas", label: "Reglas" },
+          { value: "mailing", label: "Mailing" },
           { value: "documentos", label: `Documentos (${documents.length})` },
           { value: "ia", label: "Gestor IA" },
         ]}
@@ -340,6 +343,15 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <ClientRules
               organizationId={organizationId}
               canManage={canManageKnowledge}
+            />
+          ) : null,
+
+          mailing: organizationId ? (
+            <MailingSection
+              organizationId={organizationId}
+              canManage={canManageKnowledge}
+              documents={documents}
+              onSaved={loadDocuments}
             />
           ) : null,
 

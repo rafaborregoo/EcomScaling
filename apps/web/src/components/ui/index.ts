@@ -110,6 +110,7 @@ export {
   SettingsIcon,
   SlidersIcon,
   SparklesIcon,
+  StoreIcon,
   TasksIcon,
   TrashIcon,
   UsersIcon,

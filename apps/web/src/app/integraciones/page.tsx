@@ -65,7 +65,13 @@ const PROVIDER_ORDER = [
 /** Solo el nombre de la tienda y si necesita atencion: el detalle de sus tres
  * conexiones (cuenta, ultimo sync, error) vive en su propia ficha, un clic
  * mas alla. Esta pantalla es para conectar, no para diagnosticar. */
-function StoreRow({ store }: { store: StoreView }) {
+function StoreRow({
+  store,
+  removalPending = false,
+}: {
+  store: StoreView;
+  removalPending?: boolean;
+}) {
   return (
     <Link
       href={`/integraciones/tienda/${store.connectionId}`}
@@ -76,7 +82,9 @@ function StoreRow({ store }: { store: StoreView }) {
         {store.name}
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        {store.severity > 0 ? (
+        {removalPending ? (
+          <Badge tone="warn">Eliminación programada · restaurable</Badge>
+        ) : store.severity > 0 ? (
           <Badge tone={healthTone(store.status)}>Necesita atención</Badge>
         ) : null}
         <IconChevronRight aria-hidden className="text-muted" />
@@ -217,9 +225,11 @@ function ConnectAppsModal({ providers }: { providers: IntegrationProvider[] }) {
 function ShopifyGridCard({
   provider,
   stores,
+  pendingStores,
 }: {
   provider: IntegrationProvider | null;
   stores: StoreView[];
+  pendingStores: StoreView[];
 }) {
   return (
     <Card
@@ -259,6 +269,23 @@ function ShopifyGridCard({
           ))}
         </List>
       )}
+      {pendingStores.length > 0 ? (
+        <section className="mt-4 border-t border-separator pt-3">
+          <h3 className="text-sm font-medium text-foreground">
+            Tiendas eliminadas recientemente
+          </h3>
+          <p className="mt-1 text-xs text-muted">
+            Aún puedes restaurarlas durante 30 días.
+          </p>
+          <List as="ul" className="-mx-1 mt-2">
+            {pendingStores.map((store) => (
+              <List.Item as="li" key={store.connectionId}>
+                <StoreRow store={store} removalPending />
+              </List.Item>
+            ))}
+          </List>
+        </section>
+      ) : null}
     </Card>
   );
 }
@@ -397,7 +424,14 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
   }
 
-  const stores = buildStoreViews(payload, scope);
+  const allStores = buildStoreViews(payload, scope);
+  const pendingRemovalIds = new Set(
+    (payload.providers.find((provider) => provider.id === "shopify")?.connections ?? [])
+      .filter((connection) => connection.status === "pending_deletion")
+      .map((connection) => connection.id),
+  );
+  const stores = allStores.filter((store) => !pendingRemovalIds.has(store.connectionId));
+  const pendingStores = allStores.filter((store) => pendingRemovalIds.has(store.connectionId));
   const unassigned = unassignedConnections(payload, scope);
   const needAttention = stores.filter((store) => store.severity > 0);
   const shopify =
@@ -445,7 +479,7 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <ShopifyGridCard provider={shopify} stores={stores} />
+        <ShopifyGridCard provider={shopify} stores={stores} pendingStores={pendingStores} />
         {otherProviders.map((provider) => (
           <ProviderGridCard key={provider.id} provider={provider} />
         ))}

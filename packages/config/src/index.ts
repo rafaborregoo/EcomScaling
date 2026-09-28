@@ -9,7 +9,7 @@ import { z } from "zod";
  * el token viejo conserva los permisos que se concedieron entonces.
  */
 export const DEFAULT_KLAVIYO_SCOPES =
-  "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write";
+  "accounts:read events:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write";
 
 const apiEnvSchema = z.object({
   API_HOST: z.string().default("0.0.0.0"),
@@ -71,6 +71,9 @@ const apiEnvSchema = z.object({
   KLAVIYO_CLIENT_SECRET: z.string().min(1).optional(),
   KLAVIYO_REDIRECT_URI: z.string().url().optional(),
   KLAVIYO_SCOPES: z.string().min(1).optional(),
+  // A26 puede leer variaciones de campañas mediante la revisión beta de
+  // Klaviyo. Desactivado por defecto hasta que ese endpoint sea GA/validado.
+  KLAVIYO_VARIATION_CONTENT_BETA: z.enum(["true", "false"]).optional(),
   // Fathom API key interna para registrar webhooks cuando exista una cuenta
   // de prueba aprobada. Nunca se expone al frontend.
   FATHOM_API_KEY: z.string().min(1).optional(),
@@ -152,9 +155,6 @@ const apiEnvSchema = z.object({
   // de "Ejecutar" siguen funcionando, para poder probar un agente concreto sin
   // que el resto consuma por su cuenta.
   AI_AUTORUN_ENABLED: z.enum(["true", "false"]).optional(),
-  // Refrescos manuales ("Actualizar ahora") por organizacion y dia, sumando
-  // todos los agentes de diagnostico. Default 12.
-  AI_MANUAL_REFRESH_DAILY_CAP: z.coerce.number().int().positive().optional(),
 });
 
 const workerEnvSchema = z.object({
@@ -199,6 +199,7 @@ export type LoadedApiEnv = {
   KLAVIYO_CLIENT_SECRET?: string;
   KLAVIYO_REDIRECT_URI?: string;
   KLAVIYO_SCOPES?: string;
+  KLAVIYO_VARIATION_CONTENT_BETA?: "true" | "false";
   FATHOM_API_KEY?: string;
   FATHOM_WEBHOOK_SECRET?: string;
   STRIPE_SECRET_KEY?: string;
@@ -229,7 +230,6 @@ export type LoadedApiEnv = {
   AI_ORG_DAILY_RUN_CAP?: number;
   AI_DIAGNOSTICS_MAX_RUNS_PER_TICK?: number;
   AI_AUTORUN_ENABLED?: "true" | "false";
-  AI_MANUAL_REFRESH_DAILY_CAP?: number;
 };
 
 /**
@@ -430,6 +430,9 @@ export function loadApiEnv(
           KLAVIYO_SCOPES: env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES,
         }
       : {}),
+    ...(env.KLAVIYO_VARIATION_CONTENT_BETA
+      ? { KLAVIYO_VARIATION_CONTENT_BETA: env.KLAVIYO_VARIATION_CONTENT_BETA }
+      : {}),
     ...(env.FATHOM_API_KEY ? { FATHOM_API_KEY: env.FATHOM_API_KEY } : {}),
     ...(env.FATHOM_WEBHOOK_SECRET
       ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET }
@@ -501,9 +504,6 @@ export function loadApiEnv(
       : {}),
     ...(env.AI_AUTORUN_ENABLED
       ? { AI_AUTORUN_ENABLED: env.AI_AUTORUN_ENABLED }
-      : {}),
-    ...(env.AI_MANUAL_REFRESH_DAILY_CAP !== undefined
-      ? { AI_MANUAL_REFRESH_DAILY_CAP: env.AI_MANUAL_REFRESH_DAILY_CAP }
       : {}),
   };
 }

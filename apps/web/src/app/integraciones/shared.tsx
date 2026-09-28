@@ -16,13 +16,13 @@ import {
   Banner,
   Button,
   Card,
-  CollapsibleSection,
   IconChevronLeft,
   IntegrationActivationChecklist,
   IntegrationStatusBadge,
+  InfoIcon,
   Link,
+  Modal,
   ProviderIcon,
-  Select,
 } from "@/components/ui";
 
 // --- Tipos de la respuesta del backend ------------------------------------
@@ -199,6 +199,12 @@ export async function readErr(response: Response): Promise<string> {
   );
 }
 
+function notifyIntegrationStatusChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("integration-status-changed"));
+  }
+}
+
 export function integrationErrorMessage(
   provider: IntegrationProvider,
 ): string | null {
@@ -366,6 +372,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         return;
       }
       const data = (await response.json()) as { redirectUrl: string };
+      notifyIntegrationStatusChanged();
       window.location.assign(data.redirectUrl);
     });
   }
@@ -402,6 +409,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           return;
         }
         reload();
+        notifyIntegrationStatusChanged();
       }),
     // Descartar un intento de OAuth que nadie termino. Reusa el endpoint de
     // borrado de tienda: el backend distingue el intento (borrado inmediato,
@@ -420,6 +428,52 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         }
         reload();
       }),
+    scheduleStoreRemoval: async (connectionId: string) => {
+      if (!organizationId) return false;
+      setPending(`remove-${connectionId}`);
+      setActionError(null);
+      try {
+        const response = await apiFetch(
+          `/v1/consultant/organizations/${organizationId}/stores/${connectionId}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) {
+          setActionError(await readErr(response));
+          return false;
+        }
+        await reload();
+        notifyIntegrationStatusChanged();
+        return true;
+      } catch {
+        setActionError("No se pudo retirar la tienda. Reintenta.");
+        return false;
+      } finally {
+        setPending(null);
+      }
+    },
+    restoreStoreRemoval: async (connectionId: string) => {
+      if (!organizationId) return false;
+      setPending(`restore-${connectionId}`);
+      setActionError(null);
+      try {
+        const response = await apiFetch(
+          `/v1/consultant/organizations/${organizationId}/stores/${connectionId}/restore`,
+          { method: "POST" },
+        );
+        if (!response.ok) {
+          setActionError(await readErr(response));
+          return false;
+        }
+        await reload();
+        notifyIntegrationStatusChanged();
+        return true;
+      } catch {
+        setActionError("No se pudo restaurar la tienda. Reintenta.");
+        return false;
+      } finally {
+        setPending(null);
+      }
+    },
     retrySync: (provider: "shopify" | "klaviyo", connectionId: string) =>
       withPending(`retry-${provider}`, async () => {
         const response = await apiFetch(
@@ -431,6 +485,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           return;
         }
         reload();
+        notifyIntegrationStatusChanged();
       }),
   };
 
@@ -461,6 +516,54 @@ export function BackToHub() {
     >
       <IconChevronLeft aria-hidden /> Todas las integraciones
     </Link>
+  );
+}
+
+/** Ayuda contextual compacta para dejar visible la ficha que se está usando. */
+export function InfoModalButton({
+  title,
+  children,
+  label = "Ver información",
+}: {
+  title: string;
+  children: ReactNode;
+  label?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        aria-label={label}
+        onClick={() => setIsOpen(true)}
+      >
+        <InfoIcon aria-hidden className="size-4" />
+        {label}
+      </Button>
+      <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="sm">
+            <Modal.Dialog aria-label={title}>
+              <Modal.Header>
+                <Modal.Heading>{title}</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <div className="space-y-3 text-sm leading-6 text-muted">
+                  {children}
+                </div>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="ghost" onClick={() => setIsOpen(false)}>
+                  Cerrar
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </>
   );
 }
 
@@ -682,24 +785,29 @@ export function ConnectionPicker({
       title="Cuenta que estás configurando"
       description="Esta organización tiene varias cuentas conectadas de este proveedor. Lo que guardes abajo se aplica solo a la elegida."
     >
-      <Select
-        aria-label="Cuenta conectada"
-        value={connection?.id ?? ""}
-        onChange={onChange}
-        options={connections.map((item) => {
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Cuentas conectadas">
+        {connections.map((item) => {
           const store = storeByConnection?.get(item.id);
-          return {
-            value: item.id,
-            label: [
-              item.provider_account_name ?? item.provider_account_id ?? item.id,
-              store ? storeLabel(store) : null,
-              healthLabel(item.health.status),
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          };
+          const selected = item.id === connection?.id;
+          return (
+            <Button
+              key={item.id}
+              type="button"
+              size="sm"
+              variant={selected ? "primary" : "secondary"}
+              aria-pressed={selected}
+              onClick={() => onChange(item.id)}
+            >
+              <span className="max-w-48 truncate">
+                {item.provider_account_name ?? item.provider_account_id ?? item.id}
+              </span>
+              <span className="text-xs opacity-75">
+                {store ? storeLabel(store) : healthLabel(item.health.status)}
+              </span>
+            </Button>
+          );
         })}
-      />
+      </div>
 
       {mismatch ? (
         <Banner className="mt-3" tone="warn">
@@ -834,15 +942,12 @@ export function LastErrorBanner({
         ) : null}
       </div>
       {provider.connection?.provider_account_id ? (
-        <CollapsibleSection
-          className="mt-3 bg-transparent"
-          title="Ver detalle técnico"
-        >
+        <InfoModalButton title="Detalle técnico de la incidencia" label="Ver detalle técnico">
           <p className="break-words font-mono text-xs text-muted">{message}</p>
           <p className="mt-2 text-xs text-muted">
             Cuenta afectada: {provider.connection.provider_account_id}
           </p>
-        </CollapsibleSection>
+        </InfoModalButton>
       ) : null}
     </Banner>
   );

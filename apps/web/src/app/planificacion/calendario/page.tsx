@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
-import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { getViewAs } from "@/lib/view-as";
 import { channelStyle } from "@/components/marketing-channel";
 import {
   Badge,
@@ -41,6 +42,9 @@ type CalendarItem = {
   milestone_id?: string | null;
   blocked_reason?: string | null;
   marketing_draft_id?: string | null;
+  outcome_verdict?: "worked" | "did_not_work" | "mixed" | null;
+  outcome_reason?: string | null;
+  outcome_decided_at?: string | null;
 };
 type Planning = {
   calendars?: Array<{ id: string; name: string; year: number }>;
@@ -113,6 +117,7 @@ function ItemEditor({
   onOpenChange,
   onSaved,
   onArchive,
+  canRecordVerdict,
 }: {
   /** `null` = alta nueva. */
   item: CalendarItem | null;
@@ -126,6 +131,7 @@ function ItemEditor({
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
   onArchive: (item: CalendarItem) => Promise<void>;
+  canRecordVerdict: boolean;
 }) {
   const [title, setTitle] = useState("");
   const [channel, setChannel] = useState("Email");
@@ -134,6 +140,9 @@ function ItemEditor({
   const [milestoneId, setMilestoneId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState("worked");
+  const [verdictReason, setVerdictReason] = useState("");
+  const [savingVerdict, setSavingVerdict] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -142,8 +151,26 @@ function ItemEditor({
     setDate(item ? localDayKey(new Date(item.starts_at)) : (day ?? ""));
     setStatus(item?.status ?? "planned");
     setMilestoneId(item?.milestone_id ?? "");
+    setVerdict(item?.outcome_verdict ?? "worked");
+    setVerdictReason(item?.outcome_reason ?? "");
     setError(null);
   }, [item, day, open]);
+
+  async function saveVerdict() {
+    if (!item || !organizationId || verdictReason.trim().length < 8) return;
+    setSavingVerdict(true);
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/campaign-planning/items/${item.id}/verdict`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdict, reason: verdictReason.trim() }),
+      });
+      if (!response.ok) { setError(await readApiError(response)); return; }
+      toast.success("Aprendizaje de campaña guardado");
+      await onSaved();
+    } catch {
+      setError("No se pudo guardar el veredicto. Reintenta.");
+    } finally { setSavingVerdict(false); }
+  }
 
   async function save() {
     if (!title.trim() || !date) return;
@@ -278,6 +305,22 @@ function ItemEditor({
                     Esta acción está enlazada a un hito de Mi Camino.
                   </p>
                 ) : null}
+                {canRecordVerdict && item && ["published", "completed"].includes(status) ? (
+                  <div className="space-y-3 rounded-lg border border-separator p-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">Aprendizaje tras la ejecución</h3>
+                      <p className="mt-1 text-xs text-muted">Veredicto del consultor. No se deduce automáticamente de las métricas.</p>
+                    </div>
+                    <Field label="¿Cómo funcionó?"><Select className="mt-1" value={verdict} onChange={setVerdict} options={[
+                      { value: "worked", label: "Funcionó" },
+                      { value: "did_not_work", label: "No funcionó" },
+                      { value: "mixed", label: "Resultado mixto" },
+                    ]} /></Field>
+                    <Field label="Motivo y contexto (mínimo 8 caracteres)"><textarea className="field mt-1 min-h-20 w-full" maxLength={2000} value={verdictReason} onChange={(event) => setVerdictReason(event.target.value)} /></Field>
+                    {item.outcome_decided_at ? <p className="text-xs text-muted">Última revisión: {new Date(item.outcome_decided_at).toLocaleDateString("es-ES")}</p> : null}
+                    <Button type="button" size="sm" variant="secondary" onClick={saveVerdict} disabled={savingVerdict || verdictReason.trim().length < 8}>{savingVerdict ? "Guardando…" : item.outcome_verdict ? "Actualizar aprendizaje" : "Guardar aprendizaje"}</Button>
+                  </div>
+                ) : null}
               </div>
             </Modal.Body>
             <Modal.Footer>
@@ -345,12 +388,9 @@ function ItemChip({
   );
 }
 
-function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
+function CalendarContent({ canRecordVerdict }: { canRecordVerdict: boolean }) {
   const { organizationId } = useActiveOrganization();
   const { connectionId } = useActiveConnection();
-  const consultant = ["platform_admin", "consultant"].includes(
-    bootstrap.profile.platform_role,
-  );
   const [planning, setPlanning] = useState<Planning>({
     calendars: [],
     items: [],
@@ -510,19 +550,10 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setEditorOpen(true);
   }
 
-  if (!consultant)
-    return (
-      <Card
-        title="Calendario del consultor"
-        description="Esta agenda es una herramienta interna del consultor."
-      >
-        <ButtonLink href="/dashboard">Volver al dashboard</ButtonLink>
-      </Card>
-    );
   if (!organizationId)
     return (
       <Banner tone="warn">
-        Selecciona un cliente para abrir su calendario.
+        Selecciona una tienda en la barra superior para abrir la agenda.
       </Banner>
     );
   if (loading) return <LoadingBlock label="Cargando calendario…" />;
@@ -535,7 +566,7 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Heading>Calendario operativo</Heading>
+          <Heading>Agenda</Heading>
           <p className="mt-1 text-sm text-muted">
             Organiza acciones por día y cambia el horizonte según la
             conversación con el cliente.
@@ -733,6 +764,7 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }}
         onSaved={load}
         onArchive={archiveItem}
+        canRecordVerdict={canRecordVerdict}
       />
     </div>
   );
@@ -740,8 +772,8 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
 export default function CalendarPage() {
   return (
-    <PortalShell title="Calendario">
-      {(bootstrap) => <CalendarContent bootstrap={bootstrap} />}
+    <PortalShell title="Agenda">
+      {(bootstrap) => <CalendarContent canRecordVerdict={!getViewAs() && ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role)} />}
     </PortalShell>
   );
 }

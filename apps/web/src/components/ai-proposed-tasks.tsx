@@ -33,6 +33,17 @@ export type ProposedTask = {
   rationale: string;
   description: string;
   priority: string;
+  owner_role?: "cliente" | "consultor";
+  completion_criteria?: string;
+  expected_metric?: string;
+  due_hint?: string | null;
+  initiative_measurement?: {
+    metric_name: string;
+    unit: string | null;
+    baseline: number | null;
+    target: number | null;
+    evaluation_window: string;
+  };
   phase: string | null;
   pending_approval: boolean;
   output_id: string;
@@ -311,6 +322,21 @@ function ProposedTaskDetail({
           onChange={(event) => onPatch({ description: event.target.value })}
         />
       </div>
+
+      {task.owner_role || task.completion_criteria || task.expected_metric || task.due_hint ? (
+        <dl className="grid gap-2 rounded-md border border-separator bg-surface-subtle p-3 text-xs">
+          {task.owner_role ? <div><dt className="font-medium text-foreground">Rol de ejecución</dt><dd className="mt-0.5 text-muted">{task.owner_role}</dd></div> : null}
+          {task.completion_criteria ? <div><dt className="font-medium text-foreground">Criterio de cierre</dt><dd className="mt-0.5 text-muted">{task.completion_criteria}</dd></div> : null}
+          {task.expected_metric ? <div><dt className="font-medium text-foreground">Métrica y ventana de revisión</dt><dd className="mt-0.5 text-muted">{task.expected_metric}</dd></div> : null}
+          {task.due_hint ? <div><dt className="font-medium text-foreground">Plazo orientativo</dt><dd className="mt-0.5 text-muted">{task.due_hint}</dd></div> : null}
+        </dl>
+      ) : null}
+      {task.initiative_measurement ? (
+        <p className="rounded-md border border-separator bg-surface-subtle p-3 text-xs leading-relaxed text-muted">
+          <span className="font-medium text-foreground">Medición mensual: </span>
+          {task.initiative_measurement.metric_name} · base {task.initiative_measurement.baseline === null ? "no disponible" : `${task.initiative_measurement.baseline}${task.initiative_measurement.unit ? ` ${task.initiative_measurement.unit}` : ""}`} · objetivo {task.initiative_measurement.target === null ? "sin definir" : `${task.initiative_measurement.target}${task.initiative_measurement.unit ? ` ${task.initiative_measurement.unit}` : ""}`} · {task.initiative_measurement.evaluation_window}
+        </p>
+      ) : null}
 
       {/* El porque lo pone el agente y no se edita: es la trazabilidad de en
           que se apoyo para proponerla. */}

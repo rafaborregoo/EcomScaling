@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { useMarketingPortal } from "../marketing-portal-context";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
@@ -39,8 +39,11 @@ type ImageAnalysis = {
   objects: string[];
   colors: Array<{ label: string; hex: string }>;
   style: string;
+  composition?: string;
+  aspect_ratio_estimate?: "portrait" | "square" | "landscape" | "panoramic" | "unclear";
   ocr_text: string;
   suggested_use: string;
+  inferences?: string[];
   alt_text: string;
   confidence: "low" | "medium" | "high";
 };
@@ -59,6 +62,20 @@ type BankImage = {
   attempts: number;
   analyzed_at: string | null;
   created_at: string;
+  sources?: Array<{ channel: "instagram" | "meta"; source_kind: string }>;
+};
+
+type MetaImageCandidate = {
+  id: string;
+  creative_id: string;
+  creative_name: string | null;
+  position: number;
+  asset_type: "image" | "video";
+  visual_kind: "static_image" | "video_thumbnail";
+  label: string | null;
+  asset_hash: string | null;
+  created_at: string;
+  available: boolean;
 };
 
 const statusLabel: Record<ImageStatus, string> = {
@@ -131,6 +148,11 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     Array<{ id: string; name: string; updated_at: string }>
   >([]);
   const [creatingPiece, setCreatingPiece] = useState(false);
+  const [metaCandidates, setMetaCandidates] = useState<MetaImageCandidate[] | null>(null);
+  const [loadingMetaCandidates, setLoadingMetaCandidates] = useState(false);
+  const [importingMetaAssetId, setImportingMetaAssetId] = useState<string | null>(null);
+  const [metaImportError, setMetaImportError] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<"all" | "instagram" | "meta">("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -161,6 +183,50 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
   }, [base, canView]);
 
+  const loadMetaCandidates = useCallback(async () => {
+    if (!base || !canView) return;
+    setLoadingMetaCandidates(true);
+    setMetaImportError(null);
+    try {
+      const response = await apiFetch(`${base}/meta-assets`);
+      if (!response.ok) {
+        setMetaImportError(await readApiError(response));
+        return;
+      }
+      const payload = (await response.json()) as { candidates?: MetaImageCandidate[] };
+      setMetaCandidates(payload.candidates ?? []);
+    } catch {
+      setMetaImportError("No se pudieron cargar las creatividades de Meta.");
+    } finally {
+      setLoadingMetaCandidates(false);
+    }
+  }, [base, canView]);
+
+  const importMetaCandidate = useCallback(async (candidate: MetaImageCandidate) => {
+    if (!base) return;
+    setImportingMetaAssetId(candidate.id);
+    setMetaImportError(null);
+    try {
+      const response = await apiFetch(`${base}/meta-import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asset_id: candidate.id }),
+      });
+      if (!response.ok) {
+        setMetaImportError(await readApiError(response));
+        return;
+      }
+      await load();
+      toast.success(candidate.visual_kind === "video_thumbnail"
+        ? "Miniatura de vídeo importada; se analizará como imagen fija en segundo plano."
+        : "Imagen importada al banco visual; el análisis se procesa en segundo plano.");
+    } catch {
+      setMetaImportError("No se pudo importar la imagen de Meta. Vuelve a sincronizar la integración e inténtalo otra vez.");
+    } finally {
+      setImportingMetaAssetId(null);
+    }
+  }, [base, load]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -178,6 +244,12 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }, [hasPending, load]);
 
   const expanded = images.find((image) => image.id === expandedId) ?? null;
+  const visibleImages = useMemo(
+    () => sourceFilter === "all"
+      ? images
+      : images.filter((image) => image.sources?.some((source) => source.channel === sourceFilter)),
+    [images, sourceFilter],
+  );
 
   // Al abrir el detalle: lleva el foco al panel y desplázalo a la vista.
   useEffect(() => {
@@ -399,10 +471,10 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </Link>
         </div>
         <p className="mt-2 max-w-3xl text-sm text-muted">
-          Importa las imágenes con las que vas a trabajar en Instagram. Cada una
-          entra en cola y un agente extrae su descripción, objetos, colores,
-          texto y uso sugerido. Esa ficha se guarda como contexto y el generador
-          de contenido la usa al redactar publicaciones.
+          Reúne imágenes propias y creatividades estáticas de Meta. Cada archivo
+          se copia al almacenamiento de la tienda antes de analizarse; el banco
+          conserva sus canales de origen y no mezcla observaciones visuales con
+          métricas de rendimiento.
         </p>
       </div>
 
@@ -453,6 +525,68 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             void uploadFiles(files);
           }}
         />
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              if (metaCandidates === null) void loadMetaCandidates();
+              else setMetaCandidates(null);
+            }}
+            disabled={loadingMetaCandidates}
+          >
+            {loadingMetaCandidates
+              ? "Cargando Meta…"
+              : metaCandidates === null
+                ? "Elegir imágenes de Meta"
+                : "Cerrar selección de Meta"}
+          </Button>
+          <span className="text-xs text-muted">
+            Se ofrecen imágenes y fotogramas de portada de vídeo sincronizados; no se importa el vídeo completo.
+          </span>
+        </div>
+        {metaImportError ? <ErrorBlock>{metaImportError}</ErrorBlock> : null}
+        {metaCandidates ? (
+          <div className="mt-4 space-y-3 border-t border-separator pt-4">
+            {metaCandidates.length === 0 ? (
+              <EmptyState
+                title="No hay recursos visuales de Meta disponibles"
+                hint="Sincroniza una cuenta publicitaria y comprueba que tenga imágenes o vídeos con una miniatura disponible."
+              />
+            ) : (
+              <>
+                <p className="text-xs text-muted">
+                  Se muestran hasta 100 imágenes y miniaturas sincronizadas más recientes. Las URL temporales no se muestran ni se guardan; importar un vídeo conserva solo una imagen fija.
+                </p>
+                <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
+                  {metaCandidates.map((candidate) => (
+                    <li
+                      key={candidate.id}
+                      className="flex min-w-0 items-center justify-between gap-3 border border-separator p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {candidate.label || candidate.creative_name || "Creatividad de Meta"}
+                        </p>
+                        <p className="truncate text-xs text-muted">
+                          {candidate.creative_name ?? "Anuncio"} · {candidate.visual_kind === "video_thumbnail" ? "miniatura de vídeo" : "imagen"} · pieza {candidate.position + 1}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void importMetaCandidate(candidate)}
+                        disabled={!candidate.available || importingMetaAssetId !== null}
+                      >
+                        {importingMetaAssetId === candidate.id ? "Importando…" : candidate.visual_kind === "video_thumbnail" ? "Importar miniatura" : "Importar imagen"}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        ) : null}
         {images.length > 0 ? (
           <p
             role="status"
@@ -470,8 +604,32 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <Card
         title="Imágenes del banco"
-        description="Todo lo extraído aquí forma el contexto de Instagram. Puedes editar o borrar cada ficha."
+        description="El análisis describe el contenido visual; la procedencia indica si se importó desde Instagram o Meta. Puedes editar o borrar cada ficha."
       >
+        {images.length > 0 ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Filtrar por canal de origen">
+            <span className="mr-1 text-xs text-muted">Origen</span>
+            {([
+              ["all", "Todos"],
+              ["instagram", "Instagram"],
+              ["meta", "Meta"],
+            ] as const).map(([filter, label]) => (
+              <Button
+                key={filter}
+                type="button"
+                size="sm"
+                variant={sourceFilter === filter ? "primary" : "secondary"}
+                aria-pressed={sourceFilter === filter}
+                onClick={() => {
+                  setSourceFilter(filter);
+                  setExpandedId(null);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         {isLoading ? (
           <LoadingBlock label="Cargando banco…" />
         ) : images.length === 0 && uploading.length === 0 ? (
@@ -481,6 +639,12 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         ) : (
           <div className="space-y-6">
+            {visibleImages.length === 0 && uploading.length === 0 ? (
+              <EmptyState
+                title="No hay imágenes de este origen"
+                hint="Prueba otro canal o importa creatividades estáticas desde Meta."
+              />
+            ) : null}
             <ul className="grid list-none grid-cols-1 gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
               {uploading.map((name) => (
                 <li
@@ -502,7 +666,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </div>
                 </li>
               ))}
-              {images.map((image) => {
+              {visibleImages.map((image) => {
                 const selected = expandedId === image.id;
                 return (
                   <li key={image.id}>
@@ -547,6 +711,13 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           </span>
                           <StatusBadge status={image.status} />
                         </span>
+                        <span className="flex flex-wrap gap-1">
+                          {(image.sources ?? []).map((source) => (
+                            <Badge key={`${image.id}-${source.channel}-${source.source_kind}`} tone="neutral">
+                              {source.channel === "meta" ? "Meta" : "Instagram"}
+                            </Badge>
+                          ))}
+                        </span>
                         <span className="line-clamp-2 block text-xs text-muted">
                           {image.status === "analyzed"
                             ? (image.analysis?.description ?? "Ficha lista")
@@ -573,7 +744,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <Card
                   kicker={
                     expanded.knowledge_document_id
-                      ? "En el contexto de Instagram"
+                      ? "En el contexto de Marketing"
                       : "Analizada · aún sin indexar en contexto"
                   }
                   title={expanded.original_filename}
@@ -666,6 +837,13 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             <p className={EYEBROW}>Estilo</p>
                             <p className="mt-1">{expanded.analysis.style}</p>
                           </div>
+                          <div>
+                            <p className={EYEBROW}>Composición</p>
+                            <p className="mt-1">{expanded.analysis.composition ?? "No incluido en el análisis anterior."}</p>
+                            <p className="mt-1 text-xs text-muted">
+                              Proporción visual estimada: {expanded.analysis.aspect_ratio_estimate ?? "no disponible"}
+                            </p>
+                          </div>
                           {expanded.analysis.objects.length > 0 ? (
                             <div>
                               <p className={EYEBROW}>Objetos</p>
@@ -707,11 +885,21 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             </div>
                           ) : null}
                           <div>
-                            <p className={EYEBROW}>Uso sugerido</p>
+                            <p className={EYEBROW}>Uso potencial</p>
                             <p className="mt-1">
                               {expanded.analysis.suggested_use}
                             </p>
                           </div>
+                          {(expanded.analysis.inferences?.length ?? 0) > 0 ? (
+                            <div>
+                              <p className={EYEBROW}>Inferencias visuales · revisar</p>
+                              <ul className="mt-1 list-disc space-y-1 pl-5 text-muted">
+                                {expanded.analysis.inferences?.map((inference, index) => (
+                                  <li key={`${index}-${inference}`}>{inference}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
                           <div>
                             <p className={EYEBROW}>Alt text</p>
                             <p className="mt-1">{expanded.analysis.alt_text}</p>
@@ -859,9 +1047,6 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 }
 
 export default function ImageBankPage() {
-  return (
-    <PortalShell title="Banco de imágenes">
-      {(bootstrap) => <ImageBankContent bootstrap={bootstrap} />}
-    </PortalShell>
-  );
+  const { bootstrap } = useMarketingPortal();
+  return <ImageBankContent bootstrap={bootstrap} />;
 }

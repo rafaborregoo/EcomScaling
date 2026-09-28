@@ -25,6 +25,7 @@ import {
   type KlaviyoSignalRow,
 } from "./klaviyo-triage.js";
 import { loadDraftThreadSummaries } from "./ai-runtime.js";
+import { readInitiativeMeasurement } from "./agent-task-delivery.js";
 import { connectionSeverity } from "./integrations.js";
 import {
   authorizationPurgeCutoff,
@@ -636,6 +637,17 @@ type ProposedTask = {
   rationale: string;
   description: string;
   priority: string;
+  owner_role?: "cliente" | "consultor";
+  completion_criteria?: string;
+  expected_metric?: string;
+  due_hint?: string | null;
+  initiative_measurement?: {
+    metric_name: string;
+    unit: string | null;
+    baseline: number | null;
+    target: number | null;
+    evaluation_window: string;
+  };
   phase: string | null;
   pending_approval: boolean;
   // Salida de la que viene la propuesta y su posicion dentro de
@@ -765,6 +777,7 @@ export async function listConsultantProposedTasks(
         ];
       });
 
+      const initiativeMeasurement = readInitiativeMeasurement(write);
       list.push({
         output_id: outputId,
         write_index: writeIndex,
@@ -777,6 +790,19 @@ export async function listConsultantProposedTasks(
           typeof write.description === "string" ? write.description.trim() : "",
         priority:
           typeof write.priority === "string" ? write.priority : "medium",
+        ...(write.owner_role === "cliente" || write.owner_role === "consultor"
+          ? { owner_role: write.owner_role }
+          : {}),
+        ...(typeof write.completion_criteria === "string"
+          ? { completion_criteria: write.completion_criteria.trim().slice(0, 500) }
+          : {}),
+        ...(typeof write.expected_metric === "string"
+          ? { expected_metric: write.expected_metric.trim().slice(0, 240) }
+          : {}),
+        ...(typeof write.due_hint === "string" || write.due_hint === null
+          ? { due_hint: typeof write.due_hint === "string" ? write.due_hint.trim().slice(0, 100) : null }
+          : {}),
+        ...(initiativeMeasurement ? { initiative_measurement: initiativeMeasurement } : {}),
         phase:
           typeof phaseRaw === "string" && phaseRaw.trim().length > 0
             ? phaseRaw.trim()
@@ -1579,7 +1605,7 @@ export async function listConsultantOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, organization_id, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, created_at, updated_at, organization_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .in("organization_id", safeIds)
       .order("created_at", { ascending: false })
@@ -1601,6 +1627,20 @@ export async function listConsultantOperations(
       error: "consultant_operations_load_failed",
       detail: tasksResult.error?.message ?? alertsResult.error?.message,
     };
+  }
+
+  const assigneeIds = [...new Set((tasksResult.data ?? [])
+    .map((task) => task.assigned_to as string | null)
+    .filter((id): id is string => Boolean(id)))];
+  const nameByAssignee = new Map<string, string | null>();
+  if (assigneeIds.length > 0) {
+    const { data: profiles } = await createServiceClient(env)
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", assigneeIds);
+    for (const profile of profiles ?? []) {
+      nameByAssignee.set(profile.id as string, profile.full_name as string | null);
+    }
   }
 
   const withName = <T extends { organization_id: string }>(row: T) => ({
@@ -1648,7 +1688,13 @@ export async function listConsultantOperations(
         const named = withName(
           row as { organization_id: string } & Record<string, unknown>,
         );
-        return withMilestone(named as Record<string, unknown>);
+        const task = withMilestone(named as Record<string, unknown>);
+        return {
+          ...task,
+          assignee_name: row.assigned_to
+            ? nameByAssignee.get(row.assigned_to as string) ?? null
+            : null,
+        };
       }),
       alerts: (alertsResult.data ?? []).map(withName),
     },
@@ -1687,17 +1733,14 @@ export async function listConsultantMarketing(
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
-  const [draftsResult, threadByDraft] = await Promise.all([
-    supabase
-      .from("marketing_content_drafts")
-      .select(
-        "id, organization_id, content_type, status, template_name, subject, summary, purpose, audience, locale, tone, plain_text, html, confidence, version, created_at, updated_at, scheduled_for, decision_reason, request",
-      )
-      .in("organization_id", safeIds)
-      .order("updated_at", { ascending: false })
-      .limit(300),
-    loadDraftThreadSummaries(supabase, safeIds),
-  ]);
+  const draftsResult = await supabase
+    .from("marketing_content_drafts")
+    .select(
+      "id, organization_id, content_type, status, template_name, subject, summary, purpose, audience, locale, tone, plain_text, html, confidence, version, created_at, updated_at, scheduled_for, decision_reason, request",
+    )
+    .in("organization_id", safeIds)
+    .order("updated_at", { ascending: false })
+    .limit(300);
 
   if (draftsResult.error) {
     return {
@@ -1707,6 +1750,15 @@ export async function listConsultantMarketing(
       detail: draftsResult.error.message,
     };
   }
+
+  const draftIds = (draftsResult.data ?? []).map((draft) => draft.id as string);
+  // No hace falta leer todas las notas del portfolio para representar 300
+  // borradores: acota la consulta al conjunto que ya se va a mostrar.
+  const threadByDraft = await loadDraftThreadSummaries(
+    supabase,
+    safeIds,
+    draftIds,
+  );
 
   const drafts = (draftsResult.data ?? []).map((draft) => {
     const thread = threadByDraft.get(draft.id as string) ?? {
@@ -1913,6 +1965,66 @@ export async function addMarketingDraftNote(
     },
   });
 
+  return { ok: true as const, data: { note } };
+}
+
+/** Lista el hilo compartido de una salida, solo dentro de su organización. */
+export async function listAgentOutputNotes(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  outputId: string,
+) {
+  if (!resolveDraftAuthorKind(context, organizationId)) {
+    return { ok: false as const, statusCode: 403, error: "agent_output_notes_access_required" };
+  }
+  const supabase = createServiceClient(env);
+  const { data: output, error: outputError } = await supabase
+    .from("agent_outputs").select("id, organization_id")
+    .eq("id", outputId).maybeSingle();
+  if (outputError) return { ok: false as const, statusCode: 500, error: "agent_output_load_failed", detail: outputError.message };
+  if (!output || output.organization_id !== organizationId) return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
+  const { data, error } = await supabase.from("agent_output_notes")
+    .select("id, body, author_user_id, author_kind, created_at")
+    .eq("output_id", outputId).eq("organization_id", organizationId)
+    .order("created_at", { ascending: true }).limit(200);
+  if (error) return { ok: false as const, statusCode: 500, error: "agent_output_notes_load_failed", detail: error.message };
+  const authorIds = [...new Set((data ?? []).map((n) => n.author_user_id).filter((id): id is string => Boolean(id)))];
+  const names = new Map<string, string | null>();
+  if (authorIds.length) {
+    const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", authorIds);
+    for (const profile of profiles ?? []) names.set(profile.id, profile.full_name);
+  }
+  return { ok: true as const, data: { notes: (data ?? []).map((note) => ({ ...note, author_name: note.author_user_id ? names.get(note.author_user_id) ?? null : null })) } };
+}
+
+/** Añade una nota al output tras validar tanto el miembro como la pertenencia del output. */
+export async function addAgentOutputNote(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  outputId: string,
+  body: { body?: string; from_ai?: boolean },
+) {
+  const actorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!actorKind) return { ok: false as const, statusCode: 403, error: "agent_output_notes_access_required" };
+  const text = body.body?.trim();
+  if (!text) return { ok: false as const, statusCode: 400, error: "note_body_required" };
+  const supabase = createServiceClient(env);
+  const { data: output, error: outputError } = await supabase
+    .from("agent_outputs").select("id, organization_id")
+    .eq("id", outputId).maybeSingle();
+  if (outputError) return { ok: false as const, statusCode: 500, error: "agent_output_load_failed", detail: outputError.message };
+  if (!output || output.organization_id !== organizationId) return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
+  const authorKind = body.from_ai ? "ai" : actorKind;
+  const { data: note, error } = await supabase.from("agent_output_notes").insert({
+    output_id: outputId, organization_id: organizationId, author_user_id: context.user.id,
+    author_kind: authorKind, body: text.slice(0, 4000),
+  }).select("id, body, author_user_id, author_kind, created_at").single();
+  if (error) return { ok: false as const, statusCode: 500, error: "agent_output_note_save_failed", detail: error.message };
+  await recordAuditLog(supabase, { organizationId, actorUserId: context.user.id,
+    action: "agent_output_note.added", entityType: "agent_output", entityId: outputId,
+    oldData: null, newData: { note_id: note.id, author_kind: authorKind } });
   return { ok: true as const, data: { note } };
 }
 
@@ -3402,11 +3514,10 @@ function requirePlatformAdminOrStoreOwner(
   };
 }
 
-// Borrar/restaurar una tienda (web Shopify) de un cliente lo puede hacer el
-// consultor asignado, no solo platform_admin. Mismo criterio que
-// listOrganizationStores: rol consultor/admin + membership (real o virtual)
-// sobre ESA organizacion. Editar/borrar el cliente entero sigue en
-// requirePlatformAdmin.
+// Consultor asignado o responsable de la propia organización puede retirar y
+// restaurar una tienda. Los datos históricos permanecen durante el periodo de
+// gracia, por lo que el propietario puede corregir una conexión a la tienda
+// equivocada sin perder el histórico de inmediato.
 function requireStoreManager(context: AuthContext, organizationId: string) {
   if (
     !["platform_admin", "consultant"].includes(context.profile.platform_role)
@@ -3508,8 +3619,8 @@ export async function listOrganizationStores(
  * autorizo pero nunca trajo un dato, no es borrar una tienda, y no puede
  * pedir la misma autoridad.
  *
- * Borrar una tienda de verdad es del consultor: hay historico detras y se hace
- * con periodo de gracia. Pero ninguno de estos dos casos tiene historico -- la
+ * Retirar una tienda con historial programa una purga con periodo de gracia.
+ * Ninguno de estos dos casos tiene historico -- la
  * fila `pending` que siembra el OAuth, o la conexion en `error` que nunca
  * sincronizo nada, las crea el propio owner al pulsar "Conectar"
  * (shopify.ts exige owner/manager/admin) -- y ademas le esta comiendo cupo de
@@ -3693,12 +3804,9 @@ export async function deleteOrganizationStore(
     };
   }
 
-  // A partir de aqui ya no es un intento ni una conexion rota sin datos: es
-  // una tienda con historial, y eso sigue siendo del consultor.
-  if (access.ok === false) {
-    return access;
-  }
-
+  // Una tienda con historial se desactiva ahora y se purga al acabar el
+  // periodo de gracia. La misma autoridad que puede retirar una conexión
+  // equivocada también puede solicitar la baja de su propia tienda.
   const scheduledPurge = scheduledPurgeAt();
 
   const { error: updateError } = await supabase
@@ -3752,7 +3860,11 @@ export async function restoreOrganizationStore(
   connectionId: string,
 ) {
   const access = requireStoreManager(context, organizationId);
-  if (access.ok === false) {
+  const puedeRestaurar = canDiscardAuthorizationAttempt(
+    context,
+    organizationId,
+  );
+  if (access.ok === false && !puedeRestaurar) {
     return access;
   }
 

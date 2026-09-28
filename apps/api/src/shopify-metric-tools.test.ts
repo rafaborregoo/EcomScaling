@@ -160,3 +160,31 @@ test("toda tool llama a funciones SQL que existen en las migraciones", () => {
   });
   assert.deepEqual(rotas, [], "tools llamando a funciones SQL inexistentes");
 });
+
+test("el embudo expone dias completos dentro de la ventana y dias solicitados", () => {
+  const dir = new URL("../../../supabase/migrations/", import.meta.url);
+  const migration = readFileSync(
+    new URL("20261115710000_a21_funnel_window_coverage.sql", dir),
+    "utf8",
+  );
+  assert.match(migration, /days_with_funnel_data bigint/);
+  assert.match(migration, /requested_days bigint/);
+  assert.match(migration, /count\(distinct d\.bucket_date\) filter/s);
+  assert.match(migration, /sessions_that_completed_checkout is not null/s);
+  assert.match(migration, /revoke execute .* from public, anon/s);
+  assert.match(migration, /grant execute .* to authenticated, service_role/s);
+});
+
+test("A22 delivery diagnostics sigue siendo read-only y expone cobertura/eventos versionados", () => {
+  const dir = new URL("../../../supabase/migrations/", import.meta.url);
+  const migration = readFileSync(
+    new URL("20261115730000_a22_fulfillment_events_routes.sql", dir),
+    "utf8",
+  );
+  assert.match(migration, /security invoker/i);
+  assert.match(migration, /revoke execute .* from public, anon/s);
+  assert.match(migration, /grant execute .* to authenticated, service_role/s);
+  assert.match(migration, /event_sync_partial/);
+  assert.match(migration, /destination_region_code/);
+  assert.match(migration, /count\(\*\) >= 30 as sample_reliable/);
+});

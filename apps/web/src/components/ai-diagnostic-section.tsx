@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useActiveConnection } from "@/components/active-connection";
@@ -14,6 +14,8 @@ import {
   ErrorBlock,
   Link,
   LoadingBlock,
+  CheckIcon,
+  CloseIcon,
   type Tone,
 } from "@/components/ui";
 
@@ -36,8 +38,17 @@ type Recommendation = {
   expected_impact: string;
   owner: "cliente" | "consultor";
 };
+type MonitorSection = {
+  key: string;
+  label: string;
+  findings: Finding[];
+  recommendations: Recommendation[];
+};
 type DiagnosticOutput = {
-  answer: string;
+  /** Legacy agents keep this; A02 v9 emits a headline instead. */
+  answer?: string;
+  headline?: string;
+  sections?: MonitorSection[];
   findings: Finding[];
   recommendations: Recommendation[];
   proposed_writes: Array<{
@@ -45,6 +56,17 @@ type DiagnosticOutput = {
     title: string;
     description: string;
     priority: string;
+    owner_role?: "cliente" | "consultor";
+    completion_criteria?: string;
+    expected_metric?: string;
+    due_hint?: string | null;
+    initiative_measurement?: {
+      metric_name: string;
+      unit: string | null;
+      baseline: number | null;
+      target: number | null;
+      evaluation_window: string;
+    };
   }>;
   confidence: "low" | "medium" | "high";
   warnings: string[];
@@ -75,6 +97,123 @@ type Diagnostic = {
     sources: Array<{ id: string; label: string }>;
   };
 };
+
+function A26EmailRenderPreview({ organizationId, runId }: { organizationId: string; runId: string }) {
+  const [previews, setPreviews] = useState<Array<{ viewport: string; url: string }>>([]);
+  const [state, setState] = useState<"loading" | "ready" | "pending" | "error">("loading");
+
+  useEffect(() => {
+    let active = true;
+    const objectUrls: string[] = [];
+    setPreviews([]);
+    setState("loading");
+    void (async () => {
+      try {
+        // The isolated renderer runs asynchronously. Poll briefly so the
+        // preview appears without asking the user to refresh the diagnostic.
+        for (let attempt = 0; attempt < 12 && active; attempt += 1) {
+          const captures: Array<{ viewport: string; url: string }> = [];
+          for (const viewport of ["desktop", "mobile"] as const) {
+            const fileName = `${viewport}-first-screen.png`;
+            const response = await apiFetch(
+              `/v1/organizations/${organizationId}/ai/runs/${runId}/email-render/${fileName}`,
+              { cache: "no-store" },
+            );
+            if (response.status === 404) continue;
+            if (!response.ok) throw new Error("render_preview_load_failed");
+            const url = URL.createObjectURL(await response.blob());
+            objectUrls.push(url);
+            captures.push({ viewport, url });
+          }
+          if (!active) return;
+          if (captures.length) {
+            setPreviews(captures);
+            setState("ready");
+            return;
+          }
+          if (attempt < 11) await new Promise((resolve) => setTimeout(resolve, 5_000));
+        }
+        if (active) setState("pending");
+      } catch {
+        if (active) setState("error");
+      }
+    })();
+    return () => {
+      active = false;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [organizationId, runId]);
+
+  return (
+    <section className="space-y-3 rounded-lg border border-separator bg-surface-subtle p-4" aria-label="Simulación visual del email">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Vista simulada del email</h3>
+        <p className="mt-1 text-xs leading-5 text-muted">No es una captura de bandeja de entrada. Las imágenes y fuentes externas pueden no cargarse en esta simulación.</p>
+      </div>
+      {state === "loading" ? <p className="text-sm text-muted">Buscando las capturas…</p> : null}
+      {state === "pending" ? <p className="text-sm text-muted">La captura aún no está lista; aparecerá cuando termine el render aislado.</p> : null}
+      {state === "error" ? <p role="status" className="text-sm text-muted">No se pudieron cargar las capturas visuales.</p> : null}
+      {previews.length ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {previews.map((preview) => (
+            <figure key={preview.viewport} className="min-w-0 overflow-hidden rounded-md border border-separator bg-white">
+              <img src={preview.url} alt={`Primera pantalla del email en viewport ${preview.viewport}`} className="h-auto max-h-[34rem] w-full object-contain object-top" />
+              <figcaption className="border-t border-separator px-3 py-2 text-xs text-muted">{preview.viewport === "desktop" ? "Escritorio" : "Móvil"} · primera pantalla simulada</figcaption>
+            </figure>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AgentOutputThread({ organizationId, outputId }: { organizationId: string; outputId: string }) {
+  const [notes, setNotes] = useState<Array<{ id: string; body: string; author_kind: string; author_name: string | null; created_at: string }>>([]);
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!expanded || loaded) return;
+    let active = true;
+    void apiFetch(`/v1/organizations/${organizationId}/ai/outputs/${outputId}/notes`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message ?? payload.error ?? "No se pudo cargar el hilo.");
+        if (active) { setNotes(payload.notes ?? []); setLoaded(true); }
+      })
+      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "No se pudo cargar el hilo."); });
+    return () => { active = false; };
+  }, [organizationId, outputId, expanded, loaded]);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!body.trim() || saving) return;
+    setSaving(true); setError(null);
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/ai/outputs/${outputId}/notes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message ?? payload.error ?? "No se pudo guardar la nota.");
+      setNotes((current) => [...current, { ...payload.note, author_name: null }]); setBody(""); setExpanded(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la nota."); }
+    finally { setSaving(false); }
+  }
+  return <section className="border-t border-separator pt-3">
+    <Button variant="ghost" size="sm" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+      {expanded ? "Ocultar conversación" : `Notas del equipo${notes.length ? ` · ${notes.length}` : ""}`}
+    </Button>
+    {expanded ? <div className="mt-2 space-y-3">
+      {notes.map((note) => <div key={note.id} className="rounded-md bg-surface-subtle p-3">
+        <p className="text-xs font-medium text-muted">{note.author_name ?? ({ consultant: "Consultor", client: "Cliente", platform: "E-NORA", ai: "IA" }[note.author_kind] ?? "Equipo")} · {new Date(note.created_at).toLocaleString("es-ES")}</p>
+        <p className="mt-1 whitespace-pre-wrap text-sm">{note.body}</p>
+      </div>)}
+      <form onSubmit={submit} className="space-y-2"><textarea className="field min-h-20 w-full" value={body} onChange={(event) => setBody(event.target.value)} maxLength={4000} placeholder="Añade una observación para el equipo…" />
+        <Button type="submit" size="sm" disabled={saving || !body.trim()}>{saving ? "Guardando…" : "Añadir nota"}</Button>
+      </form>
+      {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+    </div> : null}
+  </section>;
+}
 
 const severityTone: Record<Finding["severity"], Tone> = {
   info: "neutral",
@@ -441,9 +580,10 @@ function TrustStrip({
 }
 
 /**
- * Bloque de diagnostico automatico reutilizable (AI-02/AI-05: A02, A04, A06).
- * Se genera solo (sin boton de "aprobar para ver"); la aprobacion humana solo
- * materializa proposed_writes como tareas reales. Mismo patron de cache de
+ * Bloque de diagnóstico reutilizable (A02, A04, A06). Al montarse solo lee el
+ * resultado almacenado; la generación corresponde al cron o al botón explícito
+ * «Actualizar ahora». La aprobación humana solo materializa proposed_writes
+ * como tareas reales. Mismo patrón de caché de
  * 24h en el backend (getMonitorDiagnostic / getTaskPlannerDiagnostic /
  * getStockPlannerDiagnostic), solo cambia el par de endpoints.
  */
@@ -458,7 +598,9 @@ export function AiDiagnosticSection({
   variant = "full",
   bare = false,
   showInternals = false,
+  showMeta = true,
   areas,
+  renderPreview = false,
 }: {
   organizationId: string;
   title: string;
@@ -480,10 +622,14 @@ export function AiDiagnosticSection({
   // cuadran) y solo son accionables para platform_admin. El consultor ve el
   // analisis; si algo no es fiable, el agente ya lo dice en el propio texto.
   showInternals?: boolean;
+  // Permite ocultar el periodo y la fecha generada en paneles de decisión.
+  showMeta?: boolean;
   // Adonde lleva cada hallazgo. Lo aporta la pantalla que monta la seccion,
   // porque es la unica que sabe que bloques tiene y con que ancla. Sin esto,
   // un hallazgo se lee y no se arregla.
   areas?: FindingAreas;
+  /** Muestra capturas privadas de la simulación A26 asociadas al run actual. */
+  renderPreview?: boolean;
 }) {
   const { connectionId } = useActiveConnection();
   const { registerLocalInsights } = useInsights();
@@ -491,9 +637,14 @@ export function AiDiagnosticSection({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notReady, setNotReady] = useState(false);
+  const [needsFirstRun, setNeedsFirstRun] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isCreatingTasks, setIsCreatingTasks] = useState(false);
   const [tasksFeedback, setTasksFeedback] = useState<string | null>(null);
+  const [proposalDecisions, setProposalDecisions] = useState<{
+    outputId: string;
+    decisions: Record<number, "approved" | "rejected">;
+  } | null>(null);
   const [answerExpanded, setAnswerExpanded] = useState(false);
 
   useEffect(() => {
@@ -521,6 +672,8 @@ export function AiDiagnosticSection({
       setIsLoading(true);
       setError(null);
       setTasksFeedback(null);
+      setNotReady(false);
+      setNeedsFirstRun(false);
       try {
         const response = await apiFetch(
           `/v1/organizations/${organizationId}${getPath}${connectionParam}`,
@@ -529,14 +682,17 @@ export function AiDiagnosticSection({
         if (response.ok) {
           setDiagnostic((await response.json()) as Diagnostic);
           setNotReady(false);
+          setNeedsFirstRun(false);
         } else {
           setDiagnostic(null);
           const message = await readApiError(response);
           // Una organizacion sin datos no es un fallo: es que todavia no toca.
           // Se cuenta como estado normal, no como error rojo.
           const sinDatos = message.startsWith("agent_sin_datos");
+          const pendiente = message.startsWith("agent_diagnostic_pending");
           setNotReady(sinDatos);
-          setError(sinDatos ? null : message);
+          setNeedsFirstRun(pendiente);
+          setError(sinDatos || pendiente ? null : message);
         }
       } catch {
         setDiagnostic(null);
@@ -565,6 +721,7 @@ export function AiDiagnosticSection({
 
       if (response.ok) {
         setDiagnostic((await response.json()) as Diagnostic);
+        setNeedsFirstRun(false);
       } else {
         setError(await readApiError(response));
       }
@@ -577,10 +734,27 @@ export function AiDiagnosticSection({
     }
   }
 
-  async function createSuggestedTasks() {
+  async function applyProposalDecisions() {
     if (!diagnostic) {
       return;
     }
+
+    const decisions =
+      proposalDecisions?.outputId === diagnostic.output_id
+        ? proposalDecisions.decisions
+        : {};
+    const writes = diagnostic.output.proposed_writes;
+    if (writes.some((_, index) => !decisions[index])) return;
+    const approvedCount = writes.filter(
+      (_, index) => decisions[index] === "approved",
+    ).length;
+    const decision = approvedCount > 0 ? "approved" : "rejected";
+    const edits =
+      decision === "approved"
+        ? writes.flatMap((_, index) =>
+            decisions[index] === "approved" ? [] : [{ index, skip: true }],
+          )
+        : undefined;
 
     setIsCreatingTasks(true);
     setTasksFeedback(null);
@@ -590,7 +764,7 @@ export function AiDiagnosticSection({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision: "approved" }),
+          body: JSON.stringify({ decision, ...(edits ? { edits } : {}) }),
         },
       );
 
@@ -600,11 +774,11 @@ export function AiDiagnosticSection({
       }
 
       const payload = (await response.json()) as { tasks_created: number };
-      setDiagnostic({ ...diagnostic, output_status: "approved" });
+      setDiagnostic({ ...diagnostic, output_status: decision });
       setTasksFeedback(
-        payload.tasks_created > 0
-          ? `${payload.tasks_created} tarea(s) creada(s) en Tareas.`
-          : "Sin tareas nuevas que crear.",
+        decision === "rejected"
+          ? "Propuestas descartadas. No se ha creado ninguna tarea."
+          : `${payload.tasks_created} de ${writes.length} tarea(s) aprobada(s) creada(s) en Tareas.`,
       );
     } catch {
       setTasksFeedback(
@@ -615,7 +789,7 @@ export function AiDiagnosticSection({
     }
   }
 
-  const meta = diagnostic ? (
+  const meta = diagnostic && showMeta ? (
     <span className="text-xs text-muted">
       {days ? `últimos ${days} días · ` : ""}
       {diagnostic.from_cache ? "generado" : "recién generado"} el{" "}
@@ -629,7 +803,7 @@ export function AiDiagnosticSection({
     </span>
   ) : null;
 
-  const refreshButton = diagnostic ? (
+  const refreshButton = diagnostic || needsFirstRun ? (
     <Button
       variant="ghost"
       size="sm"
@@ -648,10 +822,16 @@ export function AiDiagnosticSection({
       Conecta tu tienda para que la IA empiece a analizarla. El primer análisis
       llega tras la primera sincronización.
     </p>
+  ) : needsFirstRun ? (
+    <p className="text-sm leading-6 text-muted">
+      El primer análisis está pendiente. Puedes generarlo con «Actualizar ahora»
+      o esperar al próximo ciclo automático.
+    </p>
   ) : error ? (
     <ErrorBlock>{error}</ErrorBlock>
   ) : diagnostic ? (
     (() => {
+      const hasMonitorSections = Array.isArray(diagnostic.output.sections);
       const { rest: connectedFindings, connectors } = partitionConnectivity(
         diagnostic.output.findings,
       );
@@ -700,22 +880,191 @@ export function AiDiagnosticSection({
             </div>
 
             <ul className="mt-2 grid gap-3 sm:grid-cols-2">
-              {diagnostic.output.proposed_writes.map((write, index) => (
-                <li key={index} className="rounded-md border border-accent p-3">
-                  <Badge
-                    tone={
-                      ["urgent", "high"].includes(write.priority)
-                        ? "danger"
-                        : write.priority === "medium"
-                          ? "warn"
-                          : "neutral"
-                    }
+              {diagnostic.output.proposed_writes.map((write, index) => {
+                const selectedDecision =
+                  proposalDecisions?.outputId === diagnostic.output_id
+                    ? proposalDecisions.decisions[index]
+                    : undefined;
+                const selectable = diagnostic.output_status === "pending_approval";
+                return (
+                  <li
+                    key={index}
+                    className={`rounded-md border p-3 ${
+                      selectedDecision === "approved"
+                        ? "border-success/40 bg-success/5"
+                        : selectedDecision === "rejected"
+                          ? "border-danger/40 bg-danger/5"
+                          : "border-accent"
+                    }`}
                   >
-                    {priorityLabelsEs[write.priority] ?? write.priority}
-                  </Badge>
-                  <p className="mt-2 text-sm font-medium text-foreground">
-                    {humanizeAgentText(write.title)}
+                    <Badge
+                      tone={
+                        ["urgent", "high"].includes(write.priority)
+                          ? "danger"
+                          : write.priority === "medium"
+                            ? "warn"
+                            : "neutral"
+                      }
+                    >
+                      {priorityLabelsEs[write.priority] ?? write.priority}
+                    </Badge>
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {humanizeAgentText(write.title)}
+                    </p>
+                    {write.description ? (
+                      <p className="mt-1 text-xs leading-relaxed text-muted">
+                        {humanizeAgentText(write.description)}
+                      </p>
+                    ) : null}
+                    {write.owner_role || write.completion_criteria || write.expected_metric || write.due_hint ? (
+                      <dl className="mt-2 grid gap-1 border-t border-separator pt-2 text-xs">
+                        {write.owner_role ? <div><dt className="inline font-medium text-foreground">Rol de ejecución: </dt><dd className="inline text-muted">{write.owner_role}</dd></div> : null}
+                        {write.completion_criteria ? <div><dt className="inline font-medium text-foreground">Cierre: </dt><dd className="inline text-muted">{humanizeAgentText(write.completion_criteria)}</dd></div> : null}
+                        {write.expected_metric ? <div><dt className="inline font-medium text-foreground">Métrica a revisar: </dt><dd className="inline text-muted">{humanizeAgentText(write.expected_metric)}</dd></div> : null}
+                        {write.due_hint ? <div><dt className="inline font-medium text-foreground">Plazo orientativo: </dt><dd className="inline text-muted">{humanizeAgentText(write.due_hint)}</dd></div> : null}
+                      </dl>
+                    ) : null}
+                    {write.initiative_measurement ? (
+                      <p className="mt-2 border-t border-separator pt-2 text-xs text-muted">
+                        <span className="font-medium text-foreground">Medición mensual: </span>
+                        {humanizeAgentText(write.initiative_measurement.metric_name)} · base {write.initiative_measurement.baseline === null ? "no disponible" : `${write.initiative_measurement.baseline}${write.initiative_measurement.unit ? ` ${write.initiative_measurement.unit}` : ""}`} · objetivo {write.initiative_measurement.target === null ? "sin definir" : `${write.initiative_measurement.target}${write.initiative_measurement.unit ? ` ${write.initiative_measurement.unit}` : ""}`} · {humanizeAgentText(write.initiative_measurement.evaluation_window)}
+                      </p>
+                    ) : null}
+                    {selectable ? (
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-separator pt-2">
+                        <span className="text-xs text-muted">
+                          {selectedDecision === "approved"
+                            ? "Se incluirá en Tareas"
+                            : selectedDecision === "rejected"
+                              ? "Se descartará"
+                              : "Pendiente de decisión"}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            type="button"
+                            aria-label={`Aprobar: ${humanizeAgentText(write.title)}`}
+                            aria-pressed={selectedDecision === "approved"}
+                            title="Aprobar esta tarea"
+                            className={`min-w-0 rounded-full px-2 ${selectedDecision === "approved" ? "bg-success/10 text-success" : "text-success hover:bg-success/10"}`}
+                            onClick={() =>
+                              setProposalDecisions((current) => ({
+                                outputId: diagnostic.output_id,
+                                decisions: {
+                                  ...(current?.outputId === diagnostic.output_id
+                                    ? current.decisions
+                                    : {}),
+                                  [index]: "approved",
+                                },
+                              }))
+                            }
+                          >
+                            <CheckIcon aria-hidden className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            type="button"
+                            aria-label={`Descartar: ${humanizeAgentText(write.title)}`}
+                            aria-pressed={selectedDecision === "rejected"}
+                            title="Descartar esta tarea"
+                            className={`min-w-0 rounded-full px-2 ${selectedDecision === "rejected" ? "bg-danger/10 text-danger" : "text-danger hover:bg-danger/10"}`}
+                            onClick={() =>
+                              setProposalDecisions((current) => ({
+                                outputId: diagnostic.output_id,
+                                decisions: {
+                                  ...(current?.outputId === diagnostic.output_id
+                                    ? current.decisions
+                                    : {}),
+                                  [index]: "rejected",
+                                },
+                              }))
+                            }
+                          >
+                            <CloseIcon aria-hidden className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <Button
+                type="button"
+                disabled={
+                  isCreatingTasks ||
+                  diagnostic.output_status !== "pending_approval" ||
+                  diagnostic.output.proposed_writes.some(
+                    (_, index) =>
+                      !(
+                        proposalDecisions?.outputId === diagnostic.output_id &&
+                        proposalDecisions.decisions[index]
+                      ),
+                  )
+                }
+                onClick={applyProposalDecisions}
+              >
+                {isCreatingTasks
+                  ? "Aplicando decisiones..."
+                  : diagnostic.output_status !== "pending_approval"
+                    ? "Ya revisadas"
+                    : "Aplicar decisiones"}
+              </Button>
+              {diagnostic.output_status === "pending_approval" ? (
+                <div className="text-xs text-muted">
+                  <span>
+                    {proposalDecisions?.outputId === diagnostic.output_id
+                      ? Object.keys(proposalDecisions.decisions).length
+                      : 0} / {diagnostic.output.proposed_writes.length} revisadas
+                  </span>
+                  <p className="mt-1">
+                    Marca ✓ o ✕ en cada propuesta para aplicar las decisiones.
                   </p>
+                </div>
+              ) : null}
+              {tasksFeedback ? (
+                <p className="text-sm text-muted">{tasksFeedback}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : variant === "summary" &&
+          diagnostic.output_status === "pending_approval" &&
+          diagnostic.output.proposed_writes.length ? (
+          <section aria-label="Propuestas para tu tienda">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-base font-semibold text-foreground">
+                Propuestas para tu tienda
+              </h3>
+              <span className="text-xs text-muted">
+                {diagnostic.output.proposed_writes.length} por revisar
+              </span>
+            </div>
+            <ul className="mt-2 divide-y divide-separator rounded-md border border-edge/60">
+              {diagnostic.output.proposed_writes.map((write, index) => (
+                <li
+                  key={`${write.kind}-${write.title}-${index}`}
+                  className="p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-foreground">
+                      {humanizeAgentText(write.title)}
+                    </p>
+                    <Badge
+                      tone={
+                        ["urgent", "high"].includes(write.priority)
+                          ? "danger"
+                          : write.priority === "medium"
+                            ? "warn"
+                            : "neutral"
+                      }
+                    >
+                      {priorityLabelsEs[write.priority] ?? write.priority}
+                    </Badge>
+                  </div>
                   {write.description ? (
                     <p className="mt-1 text-xs leading-relaxed text-muted">
                       {humanizeAgentText(write.description)}
@@ -724,33 +1073,11 @@ export function AiDiagnosticSection({
                 </li>
               ))}
             </ul>
-
-            <div className="mt-3 flex flex-wrap items-center gap-4">
-              <Button
-                type="button"
-                disabled={
-                  isCreatingTasks ||
-                  diagnostic.output_status !== "pending_approval"
-                }
-                onClick={createSuggestedTasks}
-              >
-                {isCreatingTasks
-                  ? "Creando..."
-                  : diagnostic.output_status !== "pending_approval"
-                    ? "Ya revisadas"
-                    : "Aprobar y crear en Tareas"}
-              </Button>
-              {tasksFeedback ? (
-                <p className="text-sm text-muted">{tasksFeedback}</p>
-              ) : null}
-            </div>
-          </div>
-        ) : variant === "summary" &&
-          diagnostic.output.proposed_writes.length ? (
-          <Banner tone="warn">
-            {diagnostic.output.proposed_writes.length} propuesta(s) pendiente(s)
-            de revisión del consultor. No se ha ejecutado ninguna escritura.
-          </Banner>
+            <p className="mt-2 text-xs leading-relaxed text-muted">
+              El consultor revisará estas propuestas antes de incorporarlas a
+              tus tareas.
+            </p>
+          </section>
         ) : tasksFeedback ? (
           <p className="text-sm text-muted">{tasksFeedback}</p>
         ) : null;
@@ -771,10 +1098,82 @@ export function AiDiagnosticSection({
             </p>
           ) : null}
 
-          {variant === "tasks" ? null : (
+          {diagnostic.output.headline ? (
+            <p className="text-sm font-semibold text-foreground">
+              {diagnostic.output.headline}
+            </p>
+          ) : null}
+
+          {diagnostic.output.sections?.length ? (
+            <div className="grid gap-x-5 gap-y-6 lg:grid-cols-2">
+              {diagnostic.output.sections.map((section) => (
+                <section
+                  key={section.key}
+                  aria-labelledby={`monitor-section-${section.key}`}
+                  className="flex flex-col"
+                >
+                  <div className="mb-2 flex min-h-7 items-center justify-between gap-3">
+                    <h3
+                      id={`monitor-section-${section.key}`}
+                      className="text-base font-semibold leading-6 text-foreground"
+                    >
+                      {section.label}
+                    </h3>
+                    <span className="shrink-0 text-xs text-muted">
+                      {section.findings.length} hallazgos · {section.recommendations.length} acciones
+                    </span>
+                  </div>
+                  <div className="flex-1 rounded-lg border border-edge/60 bg-surface p-4">
+                    {section.findings.length ? (
+                      <FindingsList rows={section.findings} areas={areas} />
+                    ) : null}
+                    {section.recommendations.length ? (
+                      <div className={section.findings.length ? "mt-4 border-t border-separator pt-3" : "pt-0"}>
+                        <h4 className="text-sm font-semibold text-foreground">
+                          Qué hacer
+                        </h4>
+                        <ul className="mt-2 divide-y divide-separator">
+                          {section.recommendations.map((recommendation, index) => (
+                            <li key={index} className="py-3 first:pt-0 last:pb-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge
+                                  tone={
+                                    ["urgent", "high"].includes(recommendation.priority)
+                                      ? "danger"
+                                      : recommendation.priority === "medium"
+                                        ? "warn"
+                                        : "neutral"
+                                  }
+                                >
+                                  {priorityLabelsEs[recommendation.priority] ?? recommendation.priority}
+                                </Badge>
+                                <Badge tone="neutral">
+                                  {ownerLabelsEs[recommendation.owner] ?? recommendation.owner}
+                                </Badge>
+                              </div>
+                              <p className="mt-2 text-sm text-foreground">
+                                {humanizeAgentText(recommendation.action)}
+                              </p>
+                              {recommendation.expected_impact ? (
+                                <p className="mt-1 text-xs leading-relaxed text-muted">
+                                  {humanizeAgentText(recommendation.expected_impact)}
+                                </p>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : null}
+
+          {variant === "tasks" || hasMonitorSections ? null : (
             <div>
               {variant === "full" ? (
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-base font-semibold text-foreground">
                   Análisis
                 </h3>
               ) : null}
@@ -783,9 +1182,9 @@ export function AiDiagnosticSection({
                   variant === "full" ? " mt-1" : ""
                 }${answerExpanded ? "" : " line-clamp-3"}`}
               >
-                {humanizeAgentText(diagnostic.output.answer)}
+                {humanizeAgentText(diagnostic.output.answer ?? "")}
               </p>
-              {diagnostic.output.answer.length > 220 ? (
+              {(diagnostic.output.answer?.length ?? 0) > 220 ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -809,6 +1208,8 @@ export function AiDiagnosticSection({
 
           {proposedBlock}
 
+          {renderPreview ? <A26EmailRenderPreview organizationId={organizationId} runId={diagnostic.run_id} /> : null}
+
           {variant === "tasks" && !diagnostic.output.proposed_writes.length ? (
             <p className="text-sm text-muted">
               Sin tareas nuevas en este ciclo. Las que ya existen están en{" "}
@@ -816,16 +1217,16 @@ export function AiDiagnosticSection({
             </p>
           ) : null}
 
-          {variant === "full" && riskFindings.length ? (
+          {variant === "full" && !hasMonitorSections && riskFindings.length ? (
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="text-base font-semibold text-foreground">
                 Riesgos ({riskFindings.length})
               </h3>
               <FindingsList rows={riskFindings} areas={areas} />
             </div>
           ) : null}
 
-          {variant === "full" && observationFindings.length ? (
+          {variant === "full" && !hasMonitorSections && observationFindings.length ? (
             <div>
               <Button
                 variant="ghost"
@@ -847,9 +1248,9 @@ export function AiDiagnosticSection({
             </div>
           ) : null}
 
-          {variant === "full" && sortedRecs.length ? (
+          {variant === "full" && !hasMonitorSections && sortedRecs.length ? (
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="text-base font-semibold text-foreground">
                 Recomendaciones
               </h3>
               <ul className="mt-2 space-y-2">
@@ -930,6 +1331,7 @@ export function AiDiagnosticSection({
           </div>
         ) : null}
         {body}
+        {diagnostic ? <AgentOutputThread key={diagnostic.output_id} organizationId={organizationId} outputId={diagnostic.output_id} /> : null}
       </div>
     );
   }
@@ -937,7 +1339,7 @@ export function AiDiagnosticSection({
   return (
     <Card
       title={
-        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <span className="flex items-center gap-2 text-base font-semibold text-foreground">
           <Badge tone="brand">IA</Badge>
           {title}
         </span>
@@ -946,6 +1348,7 @@ export function AiDiagnosticSection({
       actions={refreshButton}
     >
       {body}
+      {diagnostic ? <AgentOutputThread key={diagnostic.output_id} organizationId={organizationId} outputId={diagnostic.output_id} /> : null}
     </Card>
   );
 }

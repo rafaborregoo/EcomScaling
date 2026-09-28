@@ -151,6 +151,7 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         tasksLabelSingular="tarea"
         days={30}
         showInternals={isConsultant}
+        renderPreview
         // Sin `rendimiento` a proposito: este agente no recibe cifras de
         // rendimiento y su propio prompt le prohibe juzgar con ellas. Darle el
         // area le abriria la puerta a mandar al lector a una tabla que no ha
@@ -177,6 +178,16 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           emails: { label: "Ver los emails", href: "#klaviyo-emails" },
           medicion: { label: "Ver medición", href: "#klaviyo-medicion" },
         }}
+      />
+      <AiDiagnosticSection
+        organizationId={organizationId}
+        title="Arquitectura de flujos"
+        getPath="/ai/klaviyo-flow-architect"
+        runPath="/ai/klaviyo-flow-architect-run"
+        loadingLabel="Revisando los flujos y oportunidades de automatización…"
+        tasksLabelSingular="tarea"
+        days={90}
+        showInternals={isConsultant}
       />
     </div>
   );

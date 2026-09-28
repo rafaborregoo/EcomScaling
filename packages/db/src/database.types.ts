@@ -7208,6 +7208,7 @@ export type Database = {
         Row: {
           agent_run_id: string | null
           analysis: Json | null
+          analysis_fingerprint: string | null
           analyzed_at: string | null
           attempts: number
           byte_size: number
@@ -7223,12 +7224,14 @@ export type Database = {
           original_filename: string
           public_url: string
           status: string
+          storage_bucket: string
           storage_path: string
           updated_at: string
         }
         Insert: {
           agent_run_id?: string | null
           analysis?: Json | null
+          analysis_fingerprint?: string | null
           analyzed_at?: string | null
           attempts?: number
           byte_size: number
@@ -7244,12 +7247,14 @@ export type Database = {
           original_filename: string
           public_url: string
           status?: string
+          storage_bucket?: string
           storage_path: string
           updated_at?: string
         }
         Update: {
           agent_run_id?: string | null
           analysis?: Json | null
+          analysis_fingerprint?: string | null
           analyzed_at?: string | null
           attempts?: number
           byte_size?: number
@@ -7265,6 +7270,7 @@ export type Database = {
           original_filename?: string
           public_url?: string
           status?: string
+          storage_bucket?: string
           storage_path?: string
           updated_at?: string
         }
@@ -7299,10 +7305,72 @@ export type Database = {
           },
         ]
       }
+      marketing_visual_asset_sources: {
+        Row: {
+          channel: string
+          created_at: string
+          id: string
+          image_id: string
+          meta_asset_id: string | null
+          origin_host: string | null
+          origin_key: string
+          organization_id: string
+          source_kind: string
+          source_metadata: Json
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          id?: string
+          image_id: string
+          meta_asset_id?: string | null
+          origin_host?: string | null
+          origin_key: string
+          organization_id: string
+          source_kind: string
+          source_metadata?: Json
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          id?: string
+          image_id?: string
+          meta_asset_id?: string | null
+          origin_host?: string | null
+          origin_key?: string
+          organization_id?: string
+          source_kind?: string
+          source_metadata?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_visual_asset_sources_org_image_fk"
+            columns: ["image_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "instagram_image_bank"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "marketing_visual_asset_sources_org_meta_asset_fk"
+            columns: ["meta_asset_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "meta_creative_assets"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "marketing_visual_asset_sources_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       instagram_image_overlays: {
         Row: {
           created_at: string
           created_by: string
+          creative_brief: string
           format: string
           id: string
           image_id: string | null
@@ -7316,6 +7384,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by: string
+          creative_brief?: string
           format?: string
           id?: string
           image_id?: string | null
@@ -7329,6 +7398,7 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string
+          creative_brief?: string
           format?: string
           id?: string
           image_id?: string | null
@@ -8577,6 +8647,7 @@ export type Database = {
           currency_code: string | null
           entity_name: string | null
           entity_type: string
+          external_message_id: string
           external_entity_id: string | null
           id: string
           metric_id: string
@@ -8586,6 +8657,8 @@ export type Database = {
           raw_data: Json
           report_run_id: string
           revenue: number | null
+          variation_id: string
+          variation_name: string
         }
         Insert: {
           conversions?: number | null
@@ -8593,6 +8666,7 @@ export type Database = {
           currency_code?: string | null
           entity_name?: string | null
           entity_type: string
+          external_message_id?: string
           external_entity_id?: string | null
           id?: string
           metric_id: string
@@ -8602,6 +8676,8 @@ export type Database = {
           raw_data?: Json
           report_run_id: string
           revenue?: number | null
+          variation_id?: string
+          variation_name?: string
         }
         Update: {
           conversions?: number | null
@@ -8609,6 +8685,7 @@ export type Database = {
           currency_code?: string | null
           entity_name?: string | null
           entity_type?: string
+          external_message_id?: string
           external_entity_id?: string | null
           id?: string
           metric_id?: string
@@ -8618,6 +8695,8 @@ export type Database = {
           raw_data?: Json
           report_run_id?: string
           revenue?: number | null
+          variation_id?: string
+          variation_name?: string
         }
         Relationships: [
           {
@@ -8797,6 +8876,69 @@ export type Database = {
           },
           {
             foreignKeyName: "klaviyo_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      klaviyo_template_snapshots: {
+        Row: {
+          account_id: string
+          created_at: string
+          editor_type: string | null
+          external_created_at: string | null
+          external_template_id: string
+          external_updated_at: string | null
+          html_content: string | null
+          id: string
+          name: string | null
+          observed_at: string
+          organization_id: string
+          superseded_at: string
+          text_content: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          editor_type?: string | null
+          external_created_at?: string | null
+          external_template_id: string
+          external_updated_at?: string | null
+          html_content?: string | null
+          id?: string
+          name?: string | null
+          observed_at: string
+          organization_id: string
+          superseded_at: string
+          text_content?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          editor_type?: string | null
+          external_created_at?: string | null
+          external_template_id?: string
+          external_updated_at?: string | null
+          html_content?: string | null
+          id?: string
+          name?: string | null
+          observed_at?: string
+          organization_id?: string
+          superseded_at?: string
+          text_content?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "klaviyo_template_snapshots_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_template_snapshots_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -9511,6 +9653,8 @@ export type Database = {
           from_name: string
           html: string
           id: string
+          idempotency_fingerprint: string | null
+          idempotency_key: string | null
           last_edited_at: string | null
           last_edited_by: string | null
           locale: string
@@ -9550,6 +9694,8 @@ export type Database = {
           from_name?: string
           html: string
           id?: string
+          idempotency_fingerprint?: string | null
+          idempotency_key?: string | null
           last_edited_at?: string | null
           last_edited_by?: string | null
           locale: string
@@ -9589,6 +9735,8 @@ export type Database = {
           from_name?: string
           html?: string
           id?: string
+          idempotency_fingerprint?: string | null
+          idempotency_key?: string | null
           last_edited_at?: string | null
           last_edited_by?: string | null
           locale?: string
@@ -9652,6 +9800,67 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketing_mailing_sequences: {
+        Row: {
+          id: string
+          organization_id: string
+          store_id: string | null
+          created_by: string | null
+          status: string
+          request: Json
+          plan: Json
+          client_state: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          store_id?: string | null
+          created_by?: string | null
+          status?: string
+          request: Json
+          plan: Json
+          client_state: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          store_id?: string | null
+          created_by?: string | null
+          status?: string
+          request?: Json
+          plan?: Json
+          client_state?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_mailing_sequences_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketing_mailing_sequences_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketing_mailing_sequences_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -13260,6 +13469,177 @@ export type Database = {
           },
         ]
       }
+      shopify_fulfillment_events: {
+        Row: {
+          created_at: string
+          estimated_delivery_at: string | null
+          external_event_id: string
+          fulfillment_id: string
+          happened_at: string
+          id: string
+          organization_id: string
+          reason_code: string
+          reason_confidence: number
+          status: string
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_delivery_at?: string | null
+          external_event_id: string
+          fulfillment_id: string
+          happened_at: string
+          id?: string
+          organization_id: string
+          reason_code?: string
+          reason_confidence?: number
+          status: string
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          estimated_delivery_at?: string | null
+          external_event_id?: string
+          fulfillment_id?: string
+          happened_at?: string
+          id?: string
+          organization_id?: string
+          reason_code?: string
+          reason_confidence?: number
+          status?: string
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_fulfillment_events_fulfillment_id_fkey"
+            columns: ["fulfillment_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_fulfillments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_fulfillment_event_sync_state: {
+        Row: {
+          error_code: string | null
+          event_count: number
+          fulfillment_id: string
+          last_attempt_at: string
+          last_external_updated_at: string | null
+          last_success_at: string | null
+          next_cursor: string | null
+          organization_id: string
+          status: string
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          error_code?: string | null
+          event_count?: number
+          fulfillment_id: string
+          last_attempt_at?: string
+          last_external_updated_at?: string | null
+          last_success_at?: string | null
+          next_cursor?: string | null
+          organization_id: string
+          status: string
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          error_code?: string | null
+          event_count?: number
+          fulfillment_id?: string
+          last_attempt_at?: string
+          last_external_updated_at?: string | null
+          last_success_at?: string | null
+          next_cursor?: string | null
+          organization_id?: string
+          status?: string
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_fulfillment_event_sync_state_fulfillment_id_fkey"
+            columns: ["fulfillment_id"]
+            isOneToOne: true
+            referencedRelation: "shopify_fulfillments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_delivery_exceptions: {
+        Row: {
+          created_at: string
+          episode_started_at: string
+          exception_type: string
+          fulfillment_id: string
+          id: string
+          last_observed_at: string
+          latest_event_at: string | null
+          latest_event_id: string | null
+          latest_event_status: string | null
+          likely_area: string
+          next_action_code: string
+          organization_id: string
+          reason_confidence: number
+          resolved_at: string | null
+          status: string
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          episode_started_at?: string
+          exception_type: string
+          fulfillment_id: string
+          id?: string
+          last_observed_at?: string
+          latest_event_at?: string | null
+          latest_event_id?: string | null
+          latest_event_status?: string | null
+          likely_area: string
+          next_action_code: string
+          organization_id: string
+          reason_confidence?: number
+          resolved_at?: string | null
+          status?: string
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          episode_started_at?: string
+          exception_type?: string
+          fulfillment_id?: string
+          id?: string
+          last_observed_at?: string
+          latest_event_at?: string | null
+          latest_event_id?: string | null
+          latest_event_status?: string | null
+          likely_area?: string
+          next_action_code?: string
+          organization_id?: string
+          reason_confidence?: number
+          resolved_at?: string | null
+          status?: string
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_delivery_exceptions_fulfillment_id_fkey"
+            columns: ["fulfillment_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_fulfillments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shopify_inventory_current_state: {
         Row: {
           available_quantity: number | null
@@ -13717,6 +14097,8 @@ export type Database = {
           source_name: string | null
           store_id: string
           tags: string[]
+          shipping_country_code: string | null
+          shipping_region_code: string | null
           total_items: number
           updated_at: string
         }
@@ -13765,6 +14147,8 @@ export type Database = {
           source_name?: string | null
           store_id: string
           tags?: string[]
+          shipping_country_code?: string | null
+          shipping_region_code?: string | null
           total_items?: number
           updated_at?: string
         }
@@ -13813,6 +14197,8 @@ export type Database = {
           source_name?: string | null
           store_id?: string
           tags?: string[]
+          shipping_country_code?: string | null
+          shipping_region_code?: string | null
           total_items?: number
           updated_at?: string
         }
@@ -15657,8 +16043,16 @@ export type Database = {
           is_visible_to_client: boolean
           metadata: Json | null
           organization_id: string
+          outcome_after_value: number | null
+          outcome_before_value: number | null
+          outcome_measured_at: string | null
+          outcome_metric_name: string | null
+          outcome_recorded_at: string | null
+          outcome_summary: string | null
+          outcome_unit: string | null
           priority: Database["public"]["Enums"]["task_priority"]
           source: Database["public"]["Enums"]["task_source"]
+          store_id: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["task_status"]
           title: string
@@ -15679,8 +16073,16 @@ export type Database = {
           is_visible_to_client?: boolean
           metadata?: Json | null
           organization_id: string
+          outcome_after_value?: number | null
+          outcome_before_value?: number | null
+          outcome_measured_at?: string | null
+          outcome_metric_name?: string | null
+          outcome_recorded_at?: string | null
+          outcome_summary?: string | null
+          outcome_unit?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           source: Database["public"]["Enums"]["task_source"]
+          store_id?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["task_status"]
           title: string
@@ -15701,8 +16103,16 @@ export type Database = {
           is_visible_to_client?: boolean
           metadata?: Json | null
           organization_id?: string
+          outcome_after_value?: number | null
+          outcome_before_value?: number | null
+          outcome_measured_at?: string | null
+          outcome_metric_name?: string | null
+          outcome_recorded_at?: string | null
+          outcome_summary?: string | null
+          outcome_unit?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
           source?: Database["public"]["Enums"]["task_source"]
+          store_id?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["task_status"]
           title?: string
@@ -16707,6 +17117,7 @@ export type Database = {
         Args: { target_organization_id: string; target_store_id?: string }
         Returns: {
           adds_utm: boolean
+          account_id: string
           body_chars: number
           custom_utm_params: number
           external_message_id: string
@@ -16724,6 +17135,23 @@ export type Database = {
           tracks_clicks: boolean
           tracks_opens: boolean
           trigger_type: string
+        }[]
+      }
+      klaviyo_template_body_at_send: {
+        Args: {
+          target_organization_id: string
+          target_store_id: string
+          template_requests: Json
+        }
+        Returns: {
+          account_id: string
+          external_template_id: string
+          html_content: string | null
+          send_time: string
+          text_content: string | null
+          version_observed_at: string | null
+          version_source: string | null
+          version_superseded_at: string | null
         }[]
       }
       klaviyo_email_report: {
@@ -16750,6 +17178,25 @@ export type Database = {
           subject: string
           trigger_type: string
           unsubscribes: number
+        }[]
+      }
+      klaviyo_email_variation_report: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          account_id: string
+          campaign_id: string
+          campaign_message_id: string | null
+          period_end: string
+          period_start: string
+          statistics: Json
+          total_count: number
+          variation_id: string
+          variation_name: string
         }[]
       }
       klaviyo_link_clicks: {
@@ -16848,6 +17295,41 @@ export type Database = {
           document_title: string
           similarity: number
           visibility: string
+        }[]
+      }
+      ai_knowledge_catalog_coverage: {
+        Args: { target_organization_id: string }
+        Returns: {
+          active_documents: number
+          audience_counts: Json
+          chunks_without_embeddings: number
+          documents_pending_index: number
+          documents_without_chunks: number
+          global_documents: number
+          indexed_documents: number
+          latest_document_updated_at: string | null
+          organization_documents: number
+          total_chunks: number
+        }[]
+      }
+      ai_knowledge_semantic_candidates: {
+        Args: {
+          max_candidates?: number
+          source_document_limit?: number
+          target_organization_id: string
+        }
+        Returns: {
+          candidate_audience: string
+          candidate_document_id: string
+          candidate_title: string
+          candidate_updated_at: string
+          candidate_visibility: string
+          semantic_similarity: number
+          source_audience: string
+          source_document_id: string
+          source_title: string
+          source_updated_at: string
+          source_visibility: string
         }[]
       }
       knowledge_search_hybrid: {
@@ -16995,6 +17477,55 @@ export type Database = {
           video_plays: number
         }[]
       }
+      meta_creative_diagnostics: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_ad_id: string
+          target_organization_id: string
+          target_store_id?: string | null
+        }
+        Returns: Json
+      }
+      meta_creative_daily_trend: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_ad_id: string
+          target_organization_id: string
+          target_store_id?: string | null
+        }
+        Returns: Json
+      }
+      meta_scoped_review_issues: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string | null
+        }
+        Returns: {
+          account_last_synced_at: string | null
+          account_name: string
+          ad_account_id: string
+          ad_effective_status: string | null
+          ad_id: string
+          ad_name: string
+          ad_set_id: string
+          ad_set_name: string
+          campaign_id: string
+          campaign_name: string
+          detected_at: string
+          error_code: number
+          error_summary: string | null
+          error_type: string | null
+          freshness: string
+          issue_id: string
+          issue_level: string | null
+          review_category: string
+          store_id: string | null
+        }[]
+      }
       meta_creative_ranking_distribution: {
         Args: {
           period_end: string
@@ -17020,16 +17551,26 @@ export type Database = {
         Returns: {
           ad_set_id: string
           ad_set_name: string
+          activity_reset_confirmation: string
+          activity_sync_finished_at: string | null
+          activity_sync_records_read: number | null
+          activity_sync_state: string
           campaign_name: string
           conversions_missing: number
           daily_budget: number
-          days_since_change: number
+          days_since_account_activity: number
           effective_status: string
-          last_significant_change: string
+          last_account_activity_at: string
+          last_account_activity_description: string
+          last_account_activity_type: string
+          account_last_synced_at: string
           learning_conversions: number
           learning_conversions_needed: number
           learning_stage_status: string
+          learning_threshold_source: string
           optimization_goal: string
+          spend_source_days: number
+          spend_source_rows: number
           spend_in_period: number
         }[]
       }
@@ -17054,6 +17595,52 @@ export type Database = {
           last_fired_at: string
           pixel_id: string
           pixel_name: string
+        }[]
+      }
+      meta_optimization_event_health: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string | null
+        }
+        Returns: {
+          ad_set_id: string
+          ad_set_name: string
+          billing_event: string | null
+          campaign_name: string
+          custom_conversion_id: string | null
+          destination_type: string | null
+          effective_status: string | null
+          mapping_status: string
+          matched_event_last_date: string | null
+          matched_event_total: number | null
+          optimization_goal: string | null
+          pixel_id: string | null
+          pixel_last_fired_at: string | null
+          pixel_last_synced_at: string | null
+          pixel_name: string | null
+          pixel_unavailable: boolean | null
+          promoted_event_name: string | null
+          promoted_pixel_external_id: string | null
+          spend_in_period: number
+          eligible_ad_set_count: number
+          ad_set_rows_truncated: boolean
+          store_sessions_total: number | null
+          store_active_session_days: number | null
+          store_session_source_rows: number | null
+          store_latest_session_date: string | null
+          sessions_sync_state: string | null
+          sessions_sync_finished_at: string | null
+          sessions_sync_records_read: number | null
+          store_orders_total: number | null
+          store_order_days: number | null
+          store_order_fact_rows: number | null
+          store_latest_order_date: string | null
+          orders_sync_state: string | null
+          orders_sync_finished_at: string | null
+          orders_sync_records_read: number | null
+          store_activity_evidence: string | null
         }[]
       }
       meta_spend_by_campaign: {
@@ -17086,6 +17673,21 @@ export type Database = {
         Returns: {
           bucket_date: string
           spend: number
+        }[]
+      }
+      meta_performance_daily: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          bucket_date: string
+          spend: number
+          purchases: number
+          purchase_value: number
+          roas: number | null
         }[]
       }
       meta_spend_summary: {
@@ -17188,6 +17790,14 @@ export type Database = {
           unknown_orders: number
         }[]
       }
+      shopify_product_repurchase_summary: {
+        Args: {
+          as_of: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: Json
+      }
       shopify_customer_value: {
         Args: { target_organization_id: string; target_store_id: string }
         Returns: {
@@ -17216,6 +17826,94 @@ export type Database = {
           in_transit: number
           late_deliveries: number
           with_estimate: number
+        }[]
+      }
+      shopify_delivery_diagnostics: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string | null
+        }
+        Returns: {
+          tracking_company: string
+          location_id: string | null
+          location_name: string | null
+          destination_country_code: string | null
+          destination_region_code: string | null
+          fulfillments: number
+          sample_reliable: boolean
+          delivered: number
+          pending: number
+          with_estimate: number
+          delivered_with_estimate: number
+          late_deliveries: number
+          late_rate_pct: number | null
+          overdue_pending: number
+          with_tracking: number
+          invalid_timestamp_order: number
+          median_hours_to_fulfillment_created: number | null
+          p90_hours_to_fulfillment_created: number | null
+          median_days_from_fulfillment_created_to_delivery: number | null
+          p90_days_from_fulfillment_created_to_delivery: number | null
+          events_synced: number
+          event_sync_partial: number
+          event_sync_failed: number
+          fulfillments_with_events: number
+          event_coverage_pct: number | null
+          customs_hold_fulfillments: number
+          delivery_attempt_fulfillments: number
+          delayed_fulfillments: number
+          failed_fulfillments: number
+          unknown_reason_fulfillments: number
+          pickup_event_coverage: string
+        }[]
+      }
+      shopify_fulfillment_event_candidates: {
+        Args: {
+          p_created_after: string
+          p_organization_id: string
+          p_store_id: string
+        }
+        Returns: {
+          id: string
+          external_fulfillment_id: string
+          external_created_at: string | null
+          external_updated_at: string | null
+          delivered_at: string | null
+          last_attempt_at: string | null
+          last_success_at: string | null
+          last_external_updated_at: string | null
+          next_cursor: string | null
+          event_count: number | null
+          sync_status: string | null
+        }[]
+      }
+      refresh_shopify_delivery_exception: {
+        Args: {
+          p_fulfillment_id: string
+          p_organization_id: string
+          p_store_id: string
+        }
+        Returns: undefined
+      }
+      shopify_open_delivery_exceptions: {
+        Args: {
+          result_limit?: number
+          target_organization_id: string
+          target_store_id: string | null
+        }
+        Returns: {
+          age_hours: number
+          exception_type: string
+          latest_event_at: string | null
+          latest_event_status: string | null
+          likely_area: string
+          next_action_code: string
+          opened_at: string
+          reason_confidence: number
+          shipment_ref: string
+          tracking_company: string
         }[]
       }
       shopify_discount_cost_by_code: {
@@ -17321,9 +18019,11 @@ export type Database = {
           checkouts_reached: number
           conversion_rate_shopify: number
           days_with_sessions: number
-          funnel_data_since: string
+          days_with_funnel_data: number
+          funnel_data_since: string | null
           online_store_visitors: number
           purchases: number
+          requested_days: number | null
           sessions: number
         }[]
       }
@@ -17435,9 +18135,16 @@ export type Database = {
         }
         Returns: {
           available_quantity: number
+          inventory_status: string
+          latest_inventory_sync_at: string | null
+          order_count: number
           product_id: string
+          quantity_sold_period: number
           quantity_sold_30d: number
+          selling_days: number
+          synced_variants: number
           title: string
+          tracked_variants: number
         }[]
       }
       shopify_stock_summary:

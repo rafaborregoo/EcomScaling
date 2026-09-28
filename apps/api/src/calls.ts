@@ -16,6 +16,8 @@ import {
 import { recordAuditLog } from "./audit-log.js";
 import { parseSafeExternalHttpUrl } from "./external-url.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
+import { resolveCallTaskOwnership } from "./call-task-ownership.js";
+import { explicitCallTaskDueAt } from "./call-task-due-hint.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -163,7 +165,7 @@ export async function listCalls(
         "call_transcripts(id, version, source, is_current, content, created_at)",
         "call_ai_summaries(id, transcript_id, summary, key_points, agreed_actions, status, approved_at, published_at, rejection_reason, created_at)",
         "call_internal_notes(id, body, author_user_id, created_at)",
-        "call_task_links(id, task_id, tasks(id, title, status, priority))",
+        "call_task_links(id, task_id, tasks(id, title, status, priority, assigned_to, is_visible_to_client, metadata))",
       ].join(", "),
     )
     .eq("organization_id", organizationId)
@@ -711,9 +713,11 @@ export async function decideSummary(
 
       const existingTitles = new Set(
         [
-          ...((existingLinks ?? []) as Array<{
-            tasks: { title?: string } | null;
-          }>).map((link) => link.tasks?.title),
+          ...(
+            (existingLinks ?? []) as Array<{
+              tasks: { title?: string } | null;
+            }>
+          ).map((link) => link.tasks?.title),
           ...((openOrgTasks ?? []) as Array<{ title?: string }>).map(
             (task) => task.title,
           ),
@@ -740,7 +744,10 @@ export async function decideSummary(
         // ignoraba al materializar -- una tarea del CONSULTOR ("preparar el
         // analisis de margen antes de la proxima") acababa en el backlog del
         // cliente como si fuera suya. Ahora la del consultor nace interna.
-        const isConsultantTask = proposed.owner === "consultor";
+        const ownership = resolveCallTaskOwnership(
+          proposed.owner,
+          context.user.id,
+        );
 
         const { data: task, error: taskError } = await supabase
           .from("tasks")
@@ -753,12 +760,21 @@ export async function decideSummary(
               typeof proposed.description === "string"
                 ? proposed.description
                 : null,
-            is_visible_to_client: !isConsultantTask,
+            due_at: explicitCallTaskDueAt(proposed.due_hint),
+            is_visible_to_client: ownership.isVisibleToClient,
             created_by: context.user.id,
             // La del consultor es suya; la del cliente no tiene responsable en
             // el equipo, y ponerle uno falsearia el reparto de carga.
-            assigned_to: isConsultantTask ? context.user.id : null,
-            metadata: { call_summary_id: summaryId, owner: proposed.owner },
+            assigned_to: ownership.assignedTo,
+            metadata: {
+              call_summary_id: summaryId,
+              owner: ownership.owner,
+              due_hint:
+                typeof proposed.due_hint === "string" &&
+                proposed.due_hint.trim()
+                  ? proposed.due_hint.trim().slice(0, 160)
+                  : null,
+            },
           })
           .select("id")
           .single();
@@ -918,6 +934,7 @@ export async function createTaskFromCall(
     ["low", "medium", "high", "urgent"].includes(payload.priority)
       ? payload.priority
       : "medium";
+  const ownership = resolveCallTaskOwnership(payload.owner, context.user.id);
 
   const supabase = createServiceClient(env);
 
@@ -942,8 +959,10 @@ export async function createTaskFromCall(
       description:
         typeof payload.description === "string" ? payload.description : null,
       due_at: typeof payload.due_at === "string" ? payload.due_at : null,
+      is_visible_to_client: ownership.isVisibleToClient,
       created_by: context.user.id,
-      assigned_to: context.user.id,
+      assigned_to: ownership.assignedTo,
+      metadata: { owner: ownership.owner },
     })
     .select("id, title")
     .single();

@@ -41,7 +41,7 @@ MAILTO=""
 20 5 * * * /opt/ecomscaling/run-worker-job.sh benchmark-confidence
 
 # --- F7 recomendacion / F8 ejecucion (diarios, en orden de fase) ---------
-# Migrados desde GitHub Actions el 2026-09-24 (workflows borrados en 2b2ab70).
+# Migrados desde GitHub Actions el 2026-09-22 (workflows borrados en 2b2ab70).
 # Van detras de benchmark-confidence (5:20) porque leen lo que este deja.
 35 5 * * * /opt/ecomscaling/run-worker-job.sh expected-outcome
 50 5 * * * /opt/ecomscaling/run-worker-job.sh recommendation-confidence
@@ -55,3 +55,8 @@ MAILTO=""
 12 * * * * /opt/ecomscaling/run-worker-job.sh action-envelope
 27 * * * * /opt/ecomscaling/run-worker-job.sh execution-supervision
 57 * * * * /opt/ecomscaling/run-worker-job.sh continuous-learning
+
+# --- AI-07 memoria acumulativa (cada 15 min, como en el GH Action original
+# memory-ingestion.yml, borrado el 2026-09-22 junto al resto de workflows sin
+# migrar este job -- quedo parado en produccion hasta ahora, ver docs/REVISION_AGENTES.md T5)
+3,18,33,48 * * * * /opt/ecomscaling/run-worker-job.sh memory-ingestion

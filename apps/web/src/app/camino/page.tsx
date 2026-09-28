@@ -39,6 +39,7 @@ import { CaminoProposal } from "@/components/camino-proposal";
 import { StrategicPlanImport } from "@/components/strategic-plan-import";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { clientNextStep } from "./next-step";
+import { CaminoProposalDecision, type StoredCaminoProposal } from "./proposal-decision";
 import { isPast } from "@/lib/elapsed";
 import {
   AsyncState,
@@ -111,6 +112,22 @@ type Plan = {
   id: string;
   name: string;
   description: string | null;
+  horizon_months?: number | null;
+  goal?: {
+    metric_key: string;
+    metric_label: string;
+    unit: "money" | "pct" | "count" | "ratio";
+    currency_code: string | null;
+    baseline: number | null;
+    target: number | null;
+    target_offset_days: number;
+    baseline_window_days?: number;
+    baseline_observed_at?: string;
+    target_date?: string;
+    rationale: string;
+    assumptions: string[];
+    confidence: "low" | "medium" | "high";
+  } | null;
   status: string;
   version: number;
   starts_on: string | null;
@@ -121,6 +138,37 @@ type Plan = {
 type PlanResponse = {
   organization_id: string;
   plan: Plan | null;
+  weekly_reviews?: CaminoWeeklyReviewRecord[];
+};
+
+type CaminoWeeklyReviewRecord = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  created_at: string;
+  proposals?: StoredCaminoProposal[];
+  output: {
+    executive_summary: string;
+    goal_progress: {
+      status: string;
+      explanation: string;
+      observed_value: number | null;
+      comparison_value: number | null;
+      baseline_value?: number | null;
+      expected_value?: number | null;
+      target_value?: number | null;
+      metric_label?: string;
+      unit?: "money" | "pct" | "count" | "ratio";
+      measurement_period?: "equivalent_monthly" | "rolling_7_days" | "point_in_time";
+      measurement_window_days?: number;
+    };
+    progress: Array<{ item: string; status: string; evidence: string }>;
+    risks: Array<{ severity: string; detail: string; evidence: string }>;
+    next_actions: Array<{ priority: string; title: string; rationale: string; owner: string; due_in_days: number }>;
+    change_proposals: Array<{ change: string; target_type: string; target_id: string | null; description: string; reason: string; evidence: string }>;
+    confidence: string;
+    warnings: string[];
+  } | null;
 };
 
 type ObjectiveCatalogEntry = {
@@ -159,11 +207,22 @@ const OBJECTIVE_PERIOD_LABELS: Record<string, string> = {
 function formatObjectiveValue(
   value: number,
   unit: ObjectiveCatalogEntry["unit"],
+  currency = "EUR",
 ) {
-  if (unit === "money") return formatMoney(value);
+  if (unit === "money") return formatMoney(value, currency);
   if (unit === "pct") return `${value.toFixed(1)}%`;
   if (unit === "ratio") return `${value.toFixed(2)}x`;
   return value.toFixed(0);
+}
+
+function formatPlanGoalValue(
+  value: number,
+  goal: NonNullable<Plan["goal"]>,
+) {
+  if (goal.unit === "money" && !goal.currency_code) {
+    return `${value} (moneda no disponible)`;
+  }
+  return formatObjectiveValue(value, goal.unit, goal.currency_code ?? "EUR");
 }
 
 type InternalNote = {
@@ -1677,7 +1736,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       if (!silent) setIsLoading(true);
       try {
         const response = await apiFetch(
-          `/v1/organizations/${organizationId}/strategic-plan`,
+          `/v1/organizations/${organizationId}/strategic-plan${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`,
         );
         if (!response.ok) {
           setError(await readApiError(response));
@@ -1693,7 +1752,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         if (!silent) setIsLoading(false);
       }
     },
-    [organizationId],
+    [connectionId, organizationId],
   );
 
   useEffect(() => {
@@ -1736,7 +1795,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: planName.trim(), phases: [] }),
+          body: JSON.stringify({ name: planName.trim(), phases: [], connectionId: connectionId || null }),
         },
       );
       if (!response.ok) {
@@ -1986,6 +2045,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   const plan = payload?.plan ?? null;
+  const weeklyReviews = payload?.weekly_reviews ?? [];
   const phases = (plan?.strategic_plan_phases ?? [])
     .slice()
     .sort((a, b) => a.position - b.position);
@@ -2045,6 +2105,122 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           eso el panel de siempre manda. */}
       {!isConsultantView && plan ? (
         <ClientNextStep plan={plan} phases={phases} />
+      ) : null}
+
+      {plan?.status === "active" ? (
+        <Card
+          title="Seguimiento semanal de Mi Camino"
+          description="Revisiones basadas en el avance observado. Las recomendaciones no modifican el plan ni crean tareas por sí solas."
+        >
+          {weeklyReviews.length ? (
+            <div className="mt-3 space-y-4">
+              {weeklyReviews.slice(0, 4).map((review) => {
+                const content = review.output;
+                if (!content) return null;
+                return (
+                  <article key={review.id} className="rounded-lg border border-separator bg-surface p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Badge tone={content.goal_progress.status === "on_track" || content.goal_progress.status === "achieved" ? "success" : content.goal_progress.status === "at_risk" || content.goal_progress.status === "blocked" ? "danger" : "neutral"}>
+                        {content.goal_progress.status === "on_track" ? "En curso" : content.goal_progress.status === "at_risk" ? "En riesgo" : content.goal_progress.status === "blocked" ? "Bloqueado" : content.goal_progress.status === "achieved" ? "Objetivo logrado" : "Faltan datos"}
+                      </Badge>
+                      <span className="text-xs text-muted">{new Date(review.created_at).toLocaleDateString("es-ES")}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6">{content.executive_summary}</p>
+                    {plan.goal && content.goal_progress.observed_value !== null ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="rounded-md bg-surface-subtle px-3 py-2">
+                          <p className="text-[11px] text-muted">Medido</p>
+                          <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.observed_value, plan.goal)}</p>
+                        </div>
+                        {content.goal_progress.comparison_value !== null ? (
+                          <div className="rounded-md bg-surface-subtle px-3 py-2">
+                            <p className="text-[11px] text-muted">Periodo anterior</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.comparison_value, plan.goal)}</p>
+                          </div>
+                        ) : null}
+                        {content.goal_progress.expected_value != null ? (
+                          <div className="rounded-md bg-surface-subtle px-3 py-2">
+                            <p className="text-[11px] text-muted">Ritmo de referencia</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.expected_value, plan.goal)}</p>
+                          </div>
+                        ) : null}
+                        {content.goal_progress.target_value != null ? (
+                          <div className="rounded-md bg-surface-subtle px-3 py-2">
+                            <p className="text-[11px] text-muted">Objetivo</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.target_value, plan.goal)}</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <p className="mt-2 text-sm text-muted">{content.goal_progress.explanation}</p>
+                    {content.progress.length ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Avance observado</p>
+                        <ul className="mt-2 space-y-2">
+                          {content.progress.slice(0, 4).map((item, index) => (
+                            <li key={`${review.id}-progress-${index}`} className="text-sm">
+                              <span className="font-medium">{item.item}</span>
+                              <span className="ml-2 text-muted">{displayValue(item.status)} · {item.evidence}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {content.risks.length ? (
+                      <div className="mt-4 rounded-md border border-separator px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Riesgos y bloqueos</p>
+                        <ul className="mt-2 space-y-2">
+                          {content.risks.slice(0, 3).map((risk, index) => (
+                            <li key={`${review.id}-risk-${index}`} className="text-sm">
+                              <Badge tone={risk.severity === "high" ? "danger" : risk.severity === "medium" ? "warn" : "neutral"}>{displayValue(risk.severity)}</Badge>
+                              <span className="ml-2">{risk.detail}</span>
+                              <p className="mt-1 text-xs text-muted">Evidencia: {risk.evidence}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {content.next_actions.length ? (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Próximas acciones sugeridas</p>
+                        <ul className="mt-2 space-y-2">
+                          {content.next_actions.slice(0, 3).map((action, index) => (
+                            <li key={`${review.id}-action-${index}`} className="text-sm">
+                              <span className="font-medium">{action.title}</span>
+                              <span className="text-muted"> — {action.rationale} · Responsable: {displayValue(action.owner)} · En {action.due_in_days} días</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {content.change_proposals.length ? (
+                      <div className="mt-4 rounded-md border border-separator px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Cambios sugeridos · requieren revisión humana</p>
+                        <ul className="mt-2 space-y-3">
+                          {content.change_proposals.slice(0, 4).map((change, index) => (
+                            <li key={`${review.id}-change-${index}`} className="text-sm">
+                              <p className="font-medium">{displayValue(change.change)} {displayValue(change.target_type)}{change.target_id ? ` · ${change.target_id}` : ""}</p>
+                              <p>{change.description}</p>
+                              <p className="text-muted">Motivo: {change.reason}</p>
+                              <p className="text-xs text-muted">Evidencia: {change.evidence}</p>
+                              {organizationId && plan ? (() => {
+                                const stored = review.proposals?.find((proposal) => proposal.proposal_index === index);
+                                return stored ? <CaminoProposalDecision key={stored.id} organizationId={organizationId} planId={plan.id} record={stored} canManage={canManage} onUpdated={() => void loadPlan(true)} /> : <p className="mt-2 text-xs text-muted">Esta propuesta es anterior al registro de decisiones y solo puede consultarse.</p>;
+                              })() : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {content.warnings.length ? <p className="mt-2 text-xs text-muted">Límites: {content.warnings.join(" · ")}</p> : null}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted">Aún no hay una revisión semanal. Se generará desde el ciclo programado cuando este Camino activo cumpla una semana.</p>
+          )}
+        </Card>
       ) : null}
 
       {plan && totalMilestones > 0 ? (
@@ -2111,7 +2287,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : plan ? (
         <>
           <Card
-            kicker={`v${plan.version} · ${displayValue(plan.status)}`}
+            kicker={`v${plan.version}${plan.horizon_months ? ` · ${plan.horizon_months} ${plan.horizon_months === 1 ? "mes" : "meses"}` : ""} · ${displayValue(plan.status)}`}
             title={plan.name}
             description={plan.description ?? undefined}
             actions={
@@ -2133,6 +2309,25 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
             }
           >
+            {plan.goal ? (
+              <div className="mb-4 rounded-lg border border-separator bg-surface-subtle p-3">
+                <p className="text-xs font-medium text-muted">Objetivo del Camino</p>
+                <p className="mt-1 text-sm font-semibold">
+                  {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal)}
+                  {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal)}`}
+                </p>
+                {plan.goal.baseline_window_days ? (
+                  <p className="mt-1 text-xs text-muted">
+                    Base observada en {plan.goal.baseline_window_days} días{plan.goal.baseline_observed_at ? ` · ${new Date(plan.goal.baseline_observed_at).toLocaleDateString("es-ES")}` : ""}
+                    {plan.goal.target_date ? ` · objetivo para ${new Date(`${plan.goal.target_date}T00:00:00`).toLocaleDateString("es-ES")}` : ""}
+                  </p>
+                ) : null}
+                <p className="mt-1 text-xs text-muted">{plan.goal.rationale}</p>
+                {plan.goal.assumptions.length ? (
+                  <p className="mt-1 text-xs text-muted">Supuestos: {plan.goal.assumptions.join(" · ")}</p>
+                ) : null}
+              </div>
+            ) : null}
             {totalMilestones > 0 ? (
               <ProgressBar
                 value={(doneMilestones / totalMilestones) * 100}

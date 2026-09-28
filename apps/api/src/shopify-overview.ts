@@ -439,6 +439,9 @@ async function loadConnections(supabase: SupabaseClient, organizationId: string)
     .select("id, provider_account_name, provider_account_id, status, scopes, api_version, connected_at, last_sync_at, last_error_message")
     .eq("organization_id", organizationId)
     .eq("provider", "shopify")
+    // El borrado conserva los datos durante 30 días para poder restaurarlos,
+    // pero la tienda ya no debe salir en el selector ni admitir acciones.
+    .neq("status", "pending_deletion")
     .order("updated_at", { ascending: false });
 
   if (error) {

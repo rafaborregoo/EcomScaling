@@ -9,6 +9,7 @@ import { recordAuditLog } from "./audit-log.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 import { resolveTaskAssignee } from "./task-assignment.js";
+import { parseTaskOutcomeInput } from "./task-outcome.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -587,7 +588,7 @@ export async function listOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, created_at, updated_at, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
@@ -691,6 +692,63 @@ const TASK_STATUSES = [
 
 const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 
+/** Candidatos acotados a una organizacion; nunca se expone un directorio global. */
+export async function listTaskAssignees(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const [{ data: members, error: membersError }, { data: assignments, error: assignmentsError }] = await Promise.all([
+    supabase.from("organization_members").select("user_id, role").eq("organization_id", organizationId).eq("is_active", true),
+    supabase.from("consultant_assignments").select("consultant_user_id, is_primary").eq("organization_id", organizationId).eq("is_active", true),
+  ]);
+  if (membersError || assignmentsError) {
+    return { ok: false as const, statusCode: 500, error: "task_assignees_load_failed", detail: membersError?.message ?? assignmentsError?.message };
+  }
+
+  const memberRoleById = new Map((members ?? []).map((member) => [member.user_id as string, member.role as string]));
+  const consultantIds = new Set((assignments ?? []).map((assignment) => assignment.consultant_user_id as string));
+  const ids = [...new Set([...memberRoleById.keys(), ...consultantIds])];
+  if (!ids.includes(context.user.id)) ids.push(context.user.id);
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, full_name, is_active")
+    .in("id", ids);
+  if (profilesError) {
+    return { ok: false as const, statusCode: 500, error: "task_assignee_profiles_load_failed", detail: profilesError.message };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      assignees: (profiles ?? []).filter((profile) => profile.is_active).map((profile) => ({
+        id: profile.id as string,
+        name: (profile.full_name as string | null) ?? "Usuario",
+        role: memberRoleById.get(profile.id as string) ?? (consultantIds.has(profile.id as string) ? "consultant" : "member"),
+        is_self: profile.id === context.user.id,
+      })).sort((a, b) => Number(b.is_self) - Number(a.is_self) || a.name.localeCompare(b.name, "es")),
+    },
+  };
+}
+
+async function validateTaskAssignee(
+  supabase: SupabaseClient,
+  organizationId: string,
+  userId: string,
+  currentUserId: string,
+) {
+  const [{ data: member }, { data: assignment }, { data: profile }] = await Promise.all([
+    supabase.from("organization_members").select("user_id").eq("organization_id", organizationId).eq("user_id", userId).eq("is_active", true).maybeSingle(),
+    supabase.from("consultant_assignments").select("consultant_user_id").eq("organization_id", organizationId).eq("consultant_user_id", userId).eq("is_active", true).maybeSingle(),
+    supabase.from("profiles").select("id, is_active").eq("id", userId).maybeSingle(),
+  ]);
+  return Boolean(profile?.is_active && (member || assignment || userId === currentUserId));
+}
+
 /**
  * Alta manual de una tarea (FE-03: el modulo de tareas no tenia forma de
  * anadir un pendiente ad-hoc -- solo llegaban desde reglas de alertas, IA,
@@ -710,6 +768,7 @@ export async function createTask(
     categories?: string[];
     dueAt?: string | null;
     isVisibleToClient?: boolean;
+    assignedTo?: string | null;
     milestoneId?: string | null;
   },
 ) {
@@ -721,6 +780,15 @@ export async function createTask(
   const title = input.title?.trim();
   if (!title) {
     return { ok: false as const, statusCode: 400, error: "missing_task_title" };
+  }
+  if (title.length > 255) {
+    return { ok: false as const, statusCode: 400, error: "task_title_too_long" };
+  }
+  if (input.dueAt && !Number.isFinite(Date.parse(input.dueAt))) {
+    return { ok: false as const, statusCode: 400, error: "invalid_task_due_at" };
+  }
+  if (input.isVisibleToClient === false && !isConsultantOrAdmin(context)) {
+    return { ok: false as const, statusCode: 403, error: "internal_task_denied", message: "Solo un consultor o administrador puede crear trabajo interno." };
   }
 
   const milestoneId = input.milestoneId?.trim() || null;
@@ -740,6 +808,11 @@ export async function createTask(
   const categories = valid.length > 0 ? valid : ["general"];
 
   const supabase = createServiceClient(env);
+
+  const assignedTo = input.assignedTo?.trim() || context.user.id;
+  if (!(await validateTaskAssignee(supabase, organizationId, assignedTo, context.user.id))) {
+    return { ok: false as const, statusCode: 400, error: "invalid_task_assignee", message: "El responsable debe tener acceso activo a esta tienda." };
+  }
 
   // La tarea puede nacer ya colgada de un hito de Mi Camino (misma tabla
   // `tasks`, solo se añade el enlace en milestone_task_links).
@@ -781,7 +854,7 @@ export async function createTask(
       created_by: context.user.id,
       // Quien la crea se hace responsable. El reparto automatico solo decide
       // cuando no hay nadie eligiendo (alertas, IA).
-      assigned_to: context.user.id,
+      assigned_to: assignedTo,
       // Por defecto visible: una tarea manual sin marcar como interna es
       // igual de visible para el cliente que cualquier otra de la lista.
       is_visible_to_client: input.isVisibleToClient ?? true,
@@ -828,6 +901,7 @@ export async function createTask(
       title: data.title,
       priority: data.priority,
       categories: data.categories,
+      assigned_to: assignedTo,
     },
   });
 
@@ -837,6 +911,45 @@ export async function createTask(
   };
 }
 
+export async function updateTaskAssignment(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  taskId: string,
+  input: { assignedTo?: string | null; dueAt?: string | null },
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+
+  if (input.assignedTo !== undefined && input.assignedTo !== null) {
+    const assignedTo = input.assignedTo.trim();
+    if (!assignedTo || !(await validateTaskAssignee(createServiceClient(env), organizationId, assignedTo, context.user.id))) {
+      return { ok: false as const, statusCode: 400, error: "invalid_task_assignee", message: "El responsable debe tener acceso activo a esta tienda." };
+    }
+  }
+  if (input.dueAt !== undefined && input.dueAt !== null && !Number.isFinite(Date.parse(input.dueAt))) {
+    return { ok: false as const, statusCode: 400, error: "invalid_task_due_at" };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.from("tasks").update({
+    ...(input.assignedTo !== undefined ? { assigned_to: input.assignedTo?.trim() || null } : {}),
+    ...(input.dueAt !== undefined ? { due_at: input.dueAt } : {}),
+  }).eq("id", taskId).eq("organization_id", organizationId).select("id, assigned_to, due_at").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "task_assignment_update_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "task_not_found" };
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "operations.update_task_assignment",
+    entityType: "task",
+    entityId: taskId,
+    newData: { assigned_to: data.assigned_to, due_at: data.due_at },
+  });
+  return { ok: true as const, data };
+}
+
 export async function updateTaskStatus(
   env: ApiEnv,
   context: AuthContext,
@@ -844,6 +957,7 @@ export async function updateTaskStatus(
   taskId: string,
   statusInput: string | undefined,
   reason: string | undefined,
+  outcomeInput?: unknown,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -878,17 +992,53 @@ export async function updateTaskStatus(
     };
   }
 
+  const parsedOutcome = parseTaskOutcomeInput(outcomeInput);
+  if (!parsedOutcome.ok || (parsedOutcome.data && statusInput !== "completed")) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_task_outcome",
+      message: "El resultado debe tener una métrica y fecha válidas y solo puede guardarse al completar la tarea.",
+    };
+  }
+
   const supabase = createServiceClient(env);
   const now = new Date().toISOString();
+
+  const { data: previousTask, error: previousTaskError } = await supabase
+    .from("tasks")
+    .select("id, status, completed_at")
+    .eq("id", taskId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (previousTaskError) {
+    return { ok: false as const, statusCode: 500, error: "task_load_failed", detail: previousTaskError.message };
+  }
+  if (!previousTask) return { ok: false as const, statusCode: 404, error: "task_not_found" };
 
   const { data, error } = await supabase
     .from("tasks")
     .update({
-      status: statusInput,
+      ...(previousTask.status === "completed" && statusInput === "completed"
+        ? {}
+        : { status: statusInput }),
       ...(statusInput === "in_progress" ? { started_at: now } : {}),
-      ...(statusInput === "completed" ? { completed_at: now } : {}),
+      ...(statusInput === "completed" && previousTask.status !== "completed"
+        ? { completed_at: now }
+        : {}),
       ...(statusInput === "ignored"
         ? { ignored_at: now, ignored_reason: reason ?? null }
+        : {}),
+      ...(statusInput === "completed" && parsedOutcome.data
+        ? {
+            outcome_metric_name: parsedOutcome.data.metric_name,
+            outcome_before_value: parsedOutcome.data.before_value,
+            outcome_after_value: parsedOutcome.data.after_value,
+            outcome_unit: parsedOutcome.data.unit,
+            outcome_summary: parsedOutcome.data.summary,
+            outcome_measured_at: parsedOutcome.data.measured_at,
+            outcome_recorded_at: now,
+          }
         : {}),
     })
     .eq("id", taskId)
@@ -944,10 +1094,24 @@ export async function updateTaskStatus(
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
-    action: "operations.update_task_status",
+    action: previousTask.status === "completed" && statusInput === "completed" && parsedOutcome.data
+      ? "operations.record_task_outcome"
+      : "operations.update_task_status",
     entityType: "task",
     entityId: data.id,
-    newData: { status: data.status, reason: reason ?? null },
+    newData: {
+      status: data.status,
+      reason: reason ?? null,
+      ...(parsedOutcome.data ? {
+        measured_outcome: {
+          metric_name: parsedOutcome.data.metric_name,
+          before_value: parsedOutcome.data.before_value,
+          after_value: parsedOutcome.data.after_value,
+          unit: parsedOutcome.data.unit,
+          measured_at: parsedOutcome.data.measured_at,
+        },
+      } : {}),
+    },
   });
 
   return { ok: true as const, data: { id: data.id, status: data.status } };

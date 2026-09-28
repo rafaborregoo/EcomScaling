@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emailHtmlToText, emailHtmlToPlainText } from "./email-body-text.js";
+import { emailHtmlToText, emailHtmlToPlainText, emailHtmlToTextExcerpt } from "./email-body-text.js";
 
 test("no deja que el CSS pase por copy", () => {
   const { text } = emailHtmlToText(
@@ -68,6 +68,25 @@ test("avisa cuando ha cortado, para que el agente no lo lea como el email entero
 
   const corto = emailHtmlToText("<p>corto</p>", 100);
   assert.equal(corto.truncated, false);
+});
+
+test("A26 keeps the email opening and final CTA while bounding long-copy context", () => {
+  const html = `<p>${"Contexto inicial ".repeat(190)}</p><p>Detalles intermedios ${"detalle ".repeat(400)}</p><a href="https://store.test/offer">Ver oferta final</a>`;
+  const excerpt = emailHtmlToTextExcerpt(html, 2000);
+  assert.equal(excerpt.truncated, true);
+  assert.ok(excerpt.text.length <= 2000);
+  assert.ok(excerpt.text.startsWith("Contexto inicial"));
+  assert.match(excerpt.text, /Ver oferta final/);
+  assert.deepEqual(excerpt.links, [{ text: "Ver oferta final", href: "https://store.test/offer" }]);
+  assert.match(excerpt.text, /contenido intermedio omitido/);
+});
+
+test("A26 bounds oversized source HTML separately from the excerpt budget", () => {
+  const html = `<p>Inicio</p>${" ".repeat(150_000)}<p>Más allá del límite</p>`;
+  const excerpt = emailHtmlToTextExcerpt(html, 2000);
+  assert.equal(excerpt.truncated, true);
+  assert.match(excerpt.text, /contenido posterior no analizado/);
+  assert.ok(!excerpt.text.includes("Más allá del límite"));
 });
 
 test("HTML vacio o ausente no revienta", () => {

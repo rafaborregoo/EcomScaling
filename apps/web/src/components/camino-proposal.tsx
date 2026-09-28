@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { A01_CAMINO_BRIEF_KEY, parseA01BriefHandoff } from "@/lib/a01-call-handoff";
 import { EvidenceChips } from "@/components/ai-proposed-tasks";
 import {
   AiEvidence,
@@ -11,8 +13,11 @@ import {
   Button,
   Card,
   ErrorBlock,
+  Field,
+  Input,
   LoadingBlock,
   Select,
+  Textarea,
   toast,
 } from "@/components/ui";
 
@@ -52,9 +57,24 @@ type CaminoPhase = {
   milestones: CaminoMilestone[];
 };
 
+type CaminoGoal = {
+  metric_key: string;
+  metric_label: string;
+  unit: "money" | "pct" | "count" | "ratio";
+  currency_code: string | null;
+  baseline: number | null;
+  target: number | null;
+  target_offset_days: number;
+  rationale: string;
+  assumptions: string[];
+  confidence: "low" | "medium" | "high";
+};
+
 type CaminoProposalContent = {
   plan_name: string;
+  horizon_months?: number;
   diagnosis: string;
+  goal?: CaminoGoal;
   phases: CaminoPhase[];
   sources: Array<{ kind: string; reference: string; period: string | null }>;
   confidence: "low" | "medium" | "high";
@@ -66,15 +86,14 @@ type CaminoProposal = {
   run_id: string;
   status: string;
   generated_at: string;
+  horizon_months: number | null;
   content: CaminoProposalContent | null;
 };
 
-const HORIZONS = [
-  { value: "month", label: "1 mes" },
-  { value: "quarter", label: "3 meses" },
-  { value: "half_year", label: "6 meses" },
-  { value: "year", label: "1 año" },
-];
+const HORIZONS = Array.from({ length: 12 }, (_, index) => {
+  const months = index + 1;
+  return { value: String(months), label: months === 1 ? "1 mes" : `${months} meses` };
+});
 
 const CONFIDENCE_LABEL: Record<string, string> = {
   low: "Confianza baja",
@@ -92,6 +111,23 @@ function targetDateLabel(offsetDays: number) {
   );
 }
 
+function goalValue(goal: CaminoGoal, value: number | null) {
+  if (value === null) return "sin baseline/objetivo cuantificable";
+  if (goal.unit === "money" && goal.currency_code) {
+    try {
+      return new Intl.NumberFormat("es-ES", {
+        style: "currency",
+        currency: goal.currency_code,
+        maximumFractionDigits: 2,
+      }).format(value);
+    } catch {
+      return `${value} ${goal.currency_code}`;
+    }
+  }
+  if (goal.unit === "money") return `${value} (moneda no disponible)`;
+  return goal.unit === "pct" ? `${value}%` : String(value);
+}
+
 export function CaminoProposal({
   organizationId,
   connectionId,
@@ -104,19 +140,38 @@ export function CaminoProposal({
   hasOpenPlan: boolean;
   onPlanCreated: () => void;
 }) {
-  const [horizon, setHorizon] = useState("quarter");
+  const searchParams = useSearchParams();
+  const fromCall = searchParams.get("fromCall") === "1";
+  const [horizon, setHorizon] = useState("3");
+  const [brief, setBrief] = useState("");
+  const [adjustedHorizon, setAdjustedHorizon] = useState("3");
+  const [adjustedGoalTarget, setAdjustedGoalTarget] = useState("");
   const [proposal, setProposal] = useState<CaminoProposal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const callHandoffConsumed = useRef(false);
+
+  useEffect(() => {
+    if (!fromCall || !organizationId || callHandoffConsumed.current) return;
+    callHandoffConsumed.current = true;
+    const stagedBrief = parseA01BriefHandoff(
+      window.sessionStorage.getItem(A01_CAMINO_BRIEF_KEY),
+      organizationId,
+    );
+    window.sessionStorage.removeItem(A01_CAMINO_BRIEF_KEY);
+    if (stagedBrief) setBrief(stagedBrief);
+  }, [fromCall, organizationId]);
 
   const load = useCallback(async () => {
     if (!organizationId) return;
     setIsLoading(true);
     try {
+      const query = new URLSearchParams({ horizonMonths: horizon });
+      if (connectionId) query.set("connectionId", connectionId);
       const response = await apiFetch(
-        `/v1/organizations/${organizationId}/ai/camino-proposal`,
+        `/v1/organizations/${organizationId}/ai/camino-proposal?${query.toString()}`,
       );
       if (!response.ok) {
         setError(await readApiError(response));
@@ -126,13 +181,17 @@ export function CaminoProposal({
         proposal: CaminoProposal | null;
       };
       setProposal(payload.proposal);
+      if (payload.proposal) {
+        setAdjustedHorizon(String(payload.proposal.content?.horizon_months ?? payload.proposal.horizon_months ?? horizon));
+        setAdjustedGoalTarget(payload.proposal.content?.goal?.target == null ? "" : String(payload.proposal.content.goal.target));
+      }
       setError(null);
     } catch {
       setError("No se pudo cargar la propuesta de camino. Reintenta.");
     } finally {
       setIsLoading(false);
     }
-  }, [organizationId]);
+  }, [organizationId, horizon, connectionId]);
 
   useEffect(() => {
     void load();
@@ -150,7 +209,10 @@ export function CaminoProposal({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ horizon }),
+          body: JSON.stringify({
+            horizon_months: Number(horizon),
+            ...(brief.trim() ? { brief: brief.trim().slice(0, 2000) } : {}),
+          }),
         },
       );
       if (!response.ok) {
@@ -176,7 +238,11 @@ export function CaminoProposal({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ output_id: proposal.output_id }),
+          body: JSON.stringify({
+            output_id: proposal.output_id,
+            horizon_months: Number(adjustedHorizon),
+            ...(proposal.content?.goal ? { goal_target: adjustedGoalTarget.trim() ? Number(adjustedGoalTarget) : null } : {}),
+          }),
         },
       );
       if (!response.ok) {
@@ -211,7 +277,11 @@ export function CaminoProposal({
             className="w-36"
             aria-label="Horizonte del camino"
             value={horizon}
-            onChange={setHorizon}
+            disabled={isLoading || isGenerating || isCreating}
+            onChange={(value) => {
+              setHorizon(value);
+              setProposal(null);
+            }}
             options={HORIZONS}
           />
           <Button
@@ -230,6 +300,16 @@ export function CaminoProposal({
       }
     >
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+      <Field label="Acuerdo o cambio citado en una llamada (opcional)">
+        <Textarea
+          value={brief}
+          maxLength={2000}
+          onChange={(event) => setBrief(event.target.value)}
+          placeholder="Qué pidió cambiar el cliente; la IA lo contrastará con resultados y margen"
+          rows={3}
+        />
+      </Field>
 
       {isLoading ? (
         <LoadingBlock label="Cargando propuesta..." />
@@ -263,6 +343,33 @@ export function CaminoProposal({
           </div>
 
           <p className="text-sm leading-6">{content.diagnosis}</p>
+
+          {content.goal ? (
+            <div className="rounded-lg border border-separator bg-surface-subtle p-3">
+              <p className="text-xs font-medium text-muted">Objetivo recomendado</p>
+              <p className="mt-1 text-sm font-semibold">
+                  {content.goal.metric_label}: {goalValue(content.goal, content.goal.baseline)}
+                  {content.goal.target === null ? " → objetivo por definir" : ` → ${goalValue(content.goal, content.goal.target)}`}
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                Plazo recomendado: {Math.max(1, Math.ceil(content.goal.target_offset_days / 30))} meses · {content.goal.rationale}
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium">
+                  Plazo al crear el borrador
+                  <Select className="mt-1 w-full" aria-label="Plazo ajustado para el Camino" value={adjustedHorizon} disabled={isCreating || alreadyApplied} onChange={setAdjustedHorizon} options={HORIZONS} />
+                </label>
+                <label className="text-xs font-medium">
+                  Objetivo ajustado ({content.goal.unit === "money" ? content.goal.currency_code ?? "moneda" : content.goal.unit})
+                  <Input className="mt-1" type="number" step="any" value={adjustedGoalTarget} disabled={isCreating || alreadyApplied} onChange={(event) => setAdjustedGoalTarget(event.target.value)} placeholder="Sin objetivo cuantificado" />
+                </label>
+              </div>
+              {Number(adjustedHorizon) !== (content.horizon_months ?? proposal?.horizon_months ?? Number(horizon)) ? <p className="mt-2 text-xs text-muted">Al crear el borrador, las fechas de hitos y del objetivo se reajustarán proporcionalmente al plazo elegido. Podrás revisarlas antes de activar el Camino.</p> : null}
+              {content.goal.assumptions.length ? (
+                <p className="mt-1 text-xs text-muted">Supuestos: {content.goal.assumptions.join(" · ")}</p>
+              ) : null}
+            </div>
+          ) : null}
 
           <ol className="space-y-3">
             {content.phases.map((phase, phaseIndex) => (
@@ -300,7 +407,7 @@ export function CaminoProposal({
                           {milestone.name}
                         </p>
                         <span className="shrink-0 text-[0.65rem] text-muted">
-                          {targetDateLabel(milestone.target_offset_days)}
+                          {targetDateLabel(Math.min(Number(adjustedHorizon) * 30, Math.round(milestone.target_offset_days * Number(adjustedHorizon) / Math.max(1, content.horizon_months ?? proposal?.horizon_months ?? Number(horizon)))))}
                         </span>
                       </div>
                       <p className="mt-0.5 text-xs text-muted">

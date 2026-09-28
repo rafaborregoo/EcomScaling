@@ -14,8 +14,10 @@ import {
   Checkbox,
   EmptyState,
   ErrorBlock,
+  Field,
   LoadingBlock,
   Select,
+  Textarea,
   toast,
   type Tone,
 } from "@/components/ui";
@@ -98,13 +100,16 @@ function windowLabel(startOffsetDays: number, durationDays: number) {
 export function CampaignPlanProposal({
   organizationId,
   connectionId,
+  initialBrief = "",
   onApplied,
 }: {
   organizationId: string;
   connectionId?: string;
+  initialBrief?: string;
   onApplied?: () => void;
 }) {
   const [horizon, setHorizon] = useState("month");
+  const [brief, setBrief] = useState(initialBrief);
   const [proposal, setProposal] = useState<CampaignPlanProposal | null>(null);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [calendarId, setCalendarId] = useState("");
@@ -173,7 +178,7 @@ export function CampaignPlanProposal({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ horizon }),
+          body: JSON.stringify({ horizon, ...(brief.trim() ? { brief: brief.trim().slice(0, 2000) } : {}) }),
         },
       );
       if (!response.ok) {
@@ -276,6 +281,19 @@ export function CampaignPlanProposal({
       }
     >
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+      <Field label="Contexto de la llamada (opcional)">
+        <Textarea
+          value={brief}
+          maxLength={2000}
+          onChange={(event) => setBrief(event.target.value)}
+          placeholder="La idea o acuerdo que A05 debe contrastar con los datos de la tienda"
+          rows={3}
+        />
+        <p className="mt-1 text-xs text-muted">
+          La IA lo usará como dirección inicial, pero comprobará su viabilidad con margen, stock y rendimiento actuales.
+        </p>
+      </Field>
 
       {isLoading ? (
         <LoadingBlock label="Cargando plan..." />

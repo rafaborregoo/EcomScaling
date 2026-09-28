@@ -97,6 +97,8 @@ export type MetaInsightsData = {
     // las cifras de abajo no son comparables entre cuentas del ambito.
     purchase_action_types: string[];
   } | null;
+  daily_spend: Array<{ bucket_date: string; spend: number }>;
+  daily_roas: Array<{ bucket_date: string; roas: number | null }>;
   creatives: MetaCreativeRow[];
   ranking_distribution: Array<{
     dimension: string;
@@ -117,8 +119,18 @@ export type MetaInsightsData = {
     conversions_missing: number | null;
     daily_budget: number | null;
     spend_in_period: number;
-    last_significant_change: string | null;
-    days_since_change: number | null;
+    learning_threshold_source: string | null;
+    spend_source_days: number | null;
+    spend_source_rows: number | null;
+    last_account_activity_at: string | null;
+    last_account_activity_type: string | null;
+    last_account_activity_description: string | null;
+    days_since_account_activity: number | null;
+    activity_reset_confirmation: string | null;
+    activity_sync_state: string | null;
+    activity_sync_finished_at: string | null;
+    activity_sync_records_read: number | null;
+    account_last_synced_at: string | null;
   }>;
   pixels: Array<{
     pixel_id: string;
@@ -284,6 +296,10 @@ export async function getMetaInsights(
     periodDays === "all"
       ? null
       : new Date(periodEnd.getTime() - periodDays * 24 * 60 * 60 * 1000);
+  const trendDays = periodDays === "all" ? 365 : periodDays;
+  const trendStart = new Date(
+    periodEnd.getTime() - trendDays * 24 * 60 * 60 * 1000,
+  );
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -313,6 +329,7 @@ export async function getMetaInsights(
 
     const [
       summaryResult,
+      dailyPerformanceResult,
       creativesResult,
       rankingResult,
       learningResult,
@@ -321,6 +338,12 @@ export async function getMetaInsights(
       changesResult,
     ] = await Promise.all([
       supabase.rpc("meta_spend_summary", window),
+      supabase.rpc("meta_performance_daily", {
+        target_organization_id: organizationId,
+        period_start: trendStart.toISOString().slice(0, 10),
+        period_end: periodEnd.toISOString().slice(0, 10),
+        target_store_id: storeId,
+      }),
       supabase.rpc("meta_creative_performance", {
         ...window,
         min_impressions: MIN_IMPRESSIONS_FOR_RATES,
@@ -353,6 +376,11 @@ export async function getMetaInsights(
     const num = (value: unknown): number => Number(value) || 0;
     const nullableNum = (value: unknown): number | null =>
       value === null || value === undefined ? null : Number(value);
+    const dailyPerformance = rows<Record<string, unknown>>(
+      dailyPerformanceResult,
+      "rendimiento diario",
+      unavailable,
+    );
 
     const data: MetaInsightsData = {
       organization_id: organizationId,
@@ -388,6 +416,14 @@ export async function getMetaInsights(
               : [],
           }
         : null,
+      daily_spend: dailyPerformance.map((row) => ({
+        bucket_date: String(row.bucket_date),
+        spend: num(row.spend),
+      })),
+      daily_roas: dailyPerformance.map((row) => ({
+        bucket_date: String(row.bucket_date),
+        roas: nullableNum(row.roas),
+      })),
       creatives: rows(creativesResult, "creatives", unavailable),
       ranking_distribution: rows(rankingResult, "ranking", unavailable),
       learning: rows(learningResult, "learning", unavailable),

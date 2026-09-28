@@ -87,6 +87,20 @@ export type ShopifyInsightsData = {
     late_deliveries: number;
     avg_delay_days: number | null;
   } | null;
+  delivery_exceptions: Array<{
+    id: string;
+    order_name: string | null;
+    tracking_company: string | null;
+    exception_type: string;
+    reason_confidence: number;
+    likely_area: string;
+    next_action_code: string;
+    episode_started_at: string;
+    age_hours: number;
+    last_observed_at: string;
+    latest_event_at: string | null;
+    latest_event_status: string | null;
+  }> | null;
   checkout_recovery: {
     checkouts: number;
     recovered: number;
@@ -159,7 +173,84 @@ async function loadStoreIdForConnection(
     throw new Error(`shopify_insights_store_load_failed: ${error.message}`);
   }
 
-  return data?.id ?? null;
+  if (!data?.id) {
+    throw new ShopifyInsightsScopeError();
+  }
+
+  return data.id;
+}
+
+class ShopifyInsightsScopeError extends Error {
+  constructor() {
+    super("shopify_connection_not_found");
+  }
+}
+
+async function loadOpenDeliveryExceptions(
+  supabase: ReturnType<typeof createUserScopedClient>,
+  organizationId: string,
+  storeId: string | null,
+) {
+  let query = supabase
+    .from("shopify_delivery_exceptions")
+    .select(
+      "id, organization_id, store_id, fulfillment_id, exception_type, reason_confidence, likely_area, next_action_code, episode_started_at, last_observed_at, latest_event_at, latest_event_status",
+    )
+    .eq("organization_id", organizationId)
+    .eq("status", "open")
+    .order("episode_started_at", { ascending: true })
+    .limit(50);
+  if (storeId) query = query.eq("store_id", storeId);
+
+  const { data: exceptions, error } = await query;
+  if (error) throw new Error(`delivery_exceptions_read_failed: ${error.message}`);
+  if (!exceptions?.length) return [];
+
+  const fulfillmentIds = [...new Set(exceptions.map((row) => row.fulfillment_id))];
+  let fulfillmentsQuery = supabase
+    .from("shopify_fulfillments")
+    .select("id, order_id, tracking_company")
+    .eq("organization_id", organizationId)
+    .in("id", fulfillmentIds);
+  if (storeId) fulfillmentsQuery = fulfillmentsQuery.eq("store_id", storeId);
+  const { data: fulfillments, error: fulfillmentsError } = await fulfillmentsQuery;
+  if (fulfillmentsError) {
+    throw new Error(`delivery_exception_fulfillments_read_failed: ${fulfillmentsError.message}`);
+  }
+  if (!fulfillments?.length) return [];
+
+  const fulfillmentById = new Map((fulfillments ?? []).map((row) => [row.id, row]));
+  const orderIds = [...new Set((fulfillments ?? []).map((row) => row.order_id))];
+  let ordersQuery = supabase
+    .from("shopify_order_facts")
+    .select("id, order_name")
+    .eq("organization_id", organizationId)
+    .in("id", orderIds);
+  if (storeId) ordersQuery = ordersQuery.eq("store_id", storeId);
+  const { data: orders, error: ordersError } = await ordersQuery;
+  if (ordersError) {
+    throw new Error(`delivery_exception_orders_read_failed: ${ordersError.message}`);
+  }
+
+  const orderNameById = new Map((orders ?? []).map((row) => [row.id, row.order_name]));
+  return exceptions.flatMap((exception) => {
+    const fulfillment = fulfillmentById.get(exception.fulfillment_id);
+    if (!fulfillment) return [];
+    return [{
+      id: exception.id,
+      order_name: orderNameById.get(fulfillment.order_id) ?? null,
+      tracking_company: fulfillment.tracking_company,
+      exception_type: exception.exception_type,
+      reason_confidence: exception.reason_confidence,
+      likely_area: exception.likely_area,
+      next_action_code: exception.next_action_code,
+      episode_started_at: exception.episode_started_at,
+      age_hours: Math.max(0, (Date.now() - Date.parse(exception.episode_started_at)) / 3_600_000),
+      last_observed_at: exception.last_observed_at,
+      latest_event_at: exception.latest_event_at,
+      latest_event_status: exception.latest_event_status,
+    }];
+  });
 }
 
 type RpcResult = { data: unknown; error: { message: string } | null };
@@ -247,11 +338,28 @@ export async function getShopifyInsights(
         "shopify_cohorts",
         "shopify_customer_lifetime",
         "shopify_customer_churn",
+        "shopify_delivery_exceptions",
       ],
-      purpose: "Panel de Shopify: recurrencia, valor por cliente, cohortes, LTV y churn",
+      purpose: "Panel de Shopify: métricas de clientes y seguimiento de incidencias de entrega",
       storeId,
       detail: { period_days: periodDays },
     });
+
+    let deliveryExceptions: ShopifyInsightsData["delivery_exceptions"] = null;
+    let deliveryExceptionsUnavailable = false;
+    try {
+      deliveryExceptions = await loadOpenDeliveryExceptions(
+        supabase,
+        organizationId,
+        storeId,
+      );
+    } catch (error) {
+      deliveryExceptionsUnavailable = true;
+      logger.error(
+        `No se pudo cargar la cola de incidencias de Shopify para la organizacion ${organizationId}`,
+        error instanceof Error ? error : new Error("delivery_exceptions_read_failed"),
+      );
+    }
 
     const cacheKey = `shopify:insights:${organizationId}:${storeId ?? "org"}:${periodDays}`;
     const cached = await getCached<ShopifyInsightsData>(
@@ -260,7 +368,16 @@ export async function getShopifyInsights(
     );
 
     if (cached) {
-      return { ok: true as const, data: cached };
+      return {
+        ok: true as const,
+        data: {
+          ...cached,
+          delivery_exceptions: deliveryExceptions,
+          unavailable: deliveryExceptionsUnavailable
+            ? [...new Set([...cached.unavailable, "delivery_exceptions"])]
+            : cached.unavailable.filter((item) => item !== "delivery_exceptions"),
+        },
+      };
     }
 
     const window = {
@@ -337,6 +454,7 @@ export async function getShopifyInsights(
       attribution: rows(attributionResult, "attribution", unavailable),
       returns: rows(returnsResult, "returns", unavailable),
       delivery: singleRow(deliveryResult, "delivery", unavailable),
+      delivery_exceptions: deliveryExceptions,
       checkout_recovery: singleRow(
         recoveryResult,
         "checkout_recovery",
@@ -352,6 +470,7 @@ export async function getShopifyInsights(
       churn: singleRow(churnResult, "churn", unavailable),
       unavailable,
     };
+    if (deliveryExceptionsUnavailable) unavailable.push("delivery_exceptions");
 
     if (unavailable.length) {
       logger.error(
@@ -379,6 +498,14 @@ export async function getShopifyInsights(
 
     return { ok: true as const, data };
   } catch (error) {
+    if (error instanceof ShopifyInsightsScopeError) {
+      return {
+        ok: false as const,
+        statusCode: 404,
+        error: "shopify_connection_not_found",
+        message: "La conexión de Shopify seleccionada no está activa en esta organización.",
+      };
+    }
     const message =
       error instanceof Error ? error.message : "shopify_insights_failed";
 

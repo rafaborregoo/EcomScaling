@@ -18,7 +18,7 @@
  *  3. Tarea mencionada sin responsable claro: se discute un problema real
  *     pero nadie en la transcripcion se compromete a resolverlo -- el agente
  *     no deberia inventar un nombre de responsable que no esta en el texto
- *     (fuente unica = transcripcion, sin tools, por diseño de A01).
+ *     (ningún resultado de conocimiento puede aportar hechos sobre quién habló).
  *  4. Audio deficiente: transcripcion con tramos marcados `[inaudible]`/
  *     `[audio cortado]` justo en los puntos donde se menciona una cifra y un
  *     plazo -- el agente no deberia rellenar esos huecos con una cifra o

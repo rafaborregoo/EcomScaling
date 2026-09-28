@@ -1,7 +1,14 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, type ReactNode, useEffect, useState } from "react";
+import {
+  createContext,
+  Suspense,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import {
   apiFetch,
   fetchAccountActions,
@@ -29,7 +36,9 @@ import {
   MenuIcon,
   PanelLeftIcon,
   Popover,
+  PlusIcon,
   Select,
+  StoreIcon,
   Tooltip,
 } from "@/components/ui";
 import {
@@ -62,6 +71,17 @@ type PortalShellProps = {
   title: string;
   children: (bootstrap: BootstrapResponse, token: string) => ReactNode;
 };
+
+type PortalSession = { bootstrap: BootstrapResponse; token: string };
+const PortalSessionContext = createContext<PortalSession | null>(null);
+
+export function usePortalSession() {
+  const session = useContext(PortalSessionContext);
+  if (!session) {
+    throw new Error("usePortalSession debe usarse dentro del shell del portal");
+  }
+  return session;
+}
 
 // Valores centinela para las opciones "Vista general" (cliente) y "Todas las
 // tiendas" de los selectores del header (el control no admite key vacia).
@@ -110,12 +130,10 @@ function writeConnectionMap(organizationId: string, connectionId: string) {
 function AccountStateBanner({
   organizationStatus,
   subscriptionStatus,
-  needsShopifyReauthorization,
   isConsultant,
 }: {
   organizationStatus: string;
   subscriptionStatus: string | null;
-  needsShopifyReauthorization: boolean;
   isConsultant: boolean;
 }) {
   // El consultor/admin es quien pausa a un cliente (status 'suspended'), a
@@ -171,33 +189,6 @@ function AccountStateBanner({
     );
   }
 
-  if (needsShopifyReauthorization) {
-    return (
-      <Alert
-        status="warning"
-        className="border-b border-separator px-6 py-3 lg:px-10"
-      >
-        <Alert.Indicator />
-        <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
-          <div>
-            <Alert.Title>Shopify necesita autorización</Alert.Title>
-            <Alert.Description>
-              La tienda no puede sincronizar datos nuevos hasta que se complete
-              la reautorización.
-            </Alert.Description>
-          </div>
-          <Link
-            className="inline-flex items-center gap-1 whitespace-nowrap"
-            href="/integraciones"
-          >
-            Revisar integración
-            <IconChevronRight aria-hidden />
-          </Link>
-        </Alert.Content>
-      </Alert>
-    );
-  }
-
   return null;
 }
 
@@ -223,14 +214,9 @@ function buildUrlWithParams(
   return query ? `${pathname}?${query}` : pathname;
 }
 
-// Cada pagina monta su propio PortalShell (no vive en un layout compartido),
-// asi que cada navegacion lo desmonta y remonta desde cero. Sin esta cache en
-// memoria del modulo, eso significaba pedir el bootstrap otra vez y tapar
-// tapar todo el shell (sidebar, cabecera, contenido) con "Cargando cuenta..." en
-// cada clic de navegacion -- el sidebar "desaparecia" constantemente. Con la
-// cache, solo se ve ese loader la primera vez que se abre el portal en la
-// sesion; las siguientes navegaciones muestran el shell al instante con los
-// ultimos datos conocidos mientras se refrescan en segundo plano.
+// El shell persistente lo monta el layout raíz. Esta cache también sirve para
+// la entrada inicial y para páginas fuera del marco persistente (p. ej. tests
+// o rutas que renderizan PortalShell de forma aislada).
 let bootstrapCache: {
   bootstrap: BootstrapResponse;
   actions: AccountAction[];
@@ -370,6 +356,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   }, []);
 
   const handleModuleNavigation = (href: string) => {
+    if (primaryNavMode === "hover") setIsPrimaryNavHovered(false);
     router.push(href);
   };
 
@@ -484,6 +471,42 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       clearInterval(timer);
     };
   }, [bootstrapUserId, pathname]);
+
+  // El contador del rail refleja el mismo estado que los avisos de cuenta, sin
+  // repetir banners de error en cada pantalla. Se refresca al abrir
+  // Integraciones, después de cambios locales y a baja frecuencia mientras el
+  // portal está abierto para recoger fallos de sincronización en segundo plano.
+  useEffect(() => {
+    if (!bootstrapUserId || !token) return;
+    let cancelled = false;
+    const refreshIntegrationActions = async () => {
+      try {
+        const fresh = await fetchAccountActions(token);
+        if (cancelled) return;
+        setActions(fresh);
+        if (bootstrapCache?.bootstrap.user.id === bootstrapUserId) {
+          bootstrapCache = { ...bootstrapCache, actions: fresh };
+        }
+      } catch {
+        /* Se conserva el último estado válido y se reintenta más tarde. */
+      }
+    };
+    if (pathname.startsWith("/integraciones")) {
+      void refreshIntegrationActions();
+    }
+    const onIntegrationStatusChanged = () => void refreshIntegrationActions();
+    window.addEventListener("integration-status-changed", onIntegrationStatusChanged);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshIntegrationActions();
+      }
+    }, 3 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("integration-status-changed", onIntegrationStatusChanged);
+    };
+  }, [bootstrapUserId, pathname, token]);
 
   // Tiendas Shopify de la organización activa, para el selector global de
   // tienda del header. Se recarga cada vez que cambia la organización, via
@@ -740,10 +763,14 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   // le pasa a cada conexion y que hacer. Repetir arriba los mismos avisos --
   // todos apuntando a la pagina en la que ya estas -- era el triple de rojo
   // diciendo lo mismo, que es justo lo que hacia ilegible ese modulo.
-  const inIntegrations = pathname.startsWith("/integraciones");
-  const pageActions = inIntegrations
-    ? actions.filter((action) => !action.cta_href.startsWith("/integraciones"))
-    : actions;
+  // Las incidencias de integración se resumen en el rail con su severidad.
+  // Evita repetir el mismo aviso rojo en todas las páginas del dashboard.
+  const pageActions = actions.filter(
+    (action) =>
+      action.type !== "integration_error" &&
+      action.type !== "integration_reauthorization_required" &&
+      action.type !== "shopify_reauthorization_required",
+  );
   // "Ver como" fuerza el nav y los permisos de un cliente normal aunque el
   // rol real sea platform_admin: es lo que hace que la vista sea la misma
   // que ve el dueño de la organizacion, no la del admin mirandola por encima.
@@ -772,13 +799,55 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     navigationRole,
     Boolean(activeOrganizationId),
   );
+  const showAddStoreAction =
+    navigationRole === "client" && Boolean(activeOrganizationId);
   const activeModule = getActivePortalModule(navigationModules, pathname);
 
   // Numeritos por ruta del nav. El rail los agrega por módulo y el segundo
   // nivel los deja junto a la opción concreta.
+  const visibleIntegrationActions = actions.filter((action) => {
+    if (
+      action.type !== "integration_error" &&
+      action.type !== "integration_reauthorization_required" &&
+      action.type !== "shopify_reauthorization_required"
+    ) return false;
+    return !activeOrganizationId || action.organization_id === activeOrganizationId;
+  });
+  const providerNavPath: Record<string, string> = {
+    shopify: "/integraciones/shopify",
+    meta_ads: "/integraciones/meta",
+    klaviyo: "/integraciones/klaviyo",
+    instagram: "/integraciones/instagram",
+  };
+  const integrationNavCounts: Record<string, number> = {};
+  const integrationNavSeverity: Record<string, "error" | "warning"> = {};
+  for (const action of visibleIntegrationActions) {
+    const path = providerNavPath[action.provider];
+    if (!path) continue;
+    integrationNavCounts[path] = (integrationNavCounts[path] ?? 0) + 1;
+    const severity = action.severity === "error" ? "error" : "warning";
+    if (severity === "error" || !integrationNavSeverity[path]) {
+      integrationNavSeverity[path] = severity;
+    }
+  }
+  const integrationIssueCount = visibleIntegrationActions.length;
   const navBadges: Record<string, number> = {
     "/mensajes": messagesUnread,
     "/tareas": tasksUnread,
+    "/integraciones": integrationIssueCount,
+    ...integrationNavCounts,
+  };
+  const integrationSeverity = (path: string) =>
+    path === "/integraciones"
+      ? visibleIntegrationActions.some((action) => action.severity === "error")
+        ? "error"
+        : "warning"
+      : integrationNavSeverity[path] ?? "warning";
+  const navBadgeClass = (path: string) => {
+    if (!path.startsWith("/integraciones")) return "bg-accent text-white";
+    return integrationSeverity(path) === "error"
+      ? "bg-danger text-white"
+      : "bg-warning text-foreground";
   };
 
   // Chats sirve para hablar con el consultor. Sin consultor asignado no hay
@@ -828,7 +897,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "group flex min-h-10 items-center rounded-lg px-3 py-2.5 text-[0.9375rem] no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
+                  "group flex w-full min-w-0 min-h-10 items-center rounded-lg px-3 py-2.5 text-left text-[0.9375rem] no-underline transition-colors duration-150 hover:bg-surface hover:no-underline motion-reduce:transition-none",
                   active
                     ? "bg-surface font-medium text-foreground"
                     : "text-muted hover:text-foreground",
@@ -837,8 +906,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                 {badge > 0 ? (
                   <span
-                    className="ml-2 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-medium leading-4 text-white"
-                    aria-label={`${badge} sin leer`}
+                    className={`ml-2 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${navBadgeClass(itemPath)}`}
+                    aria-label={itemPath.startsWith("/integraciones")
+                      ? `${badge} incidencias de integración, ${integrationSeverity(itemPath) === "error" ? "error" : "advertencia"}`
+                      : `${badge} sin leer`}
                   >
                     {badge > 99 ? "99+" : badge}
                   </span>
@@ -870,6 +941,31 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   const mobileNavigation = (
     <nav className="grid gap-6" aria-label="Navegación principal">
+      {showAddStoreAction ? (
+        <section aria-labelledby="mobile-add-store">
+          <div className="mb-2 flex items-center gap-2 px-2">
+            <StoreIcon className="size-4 text-muted" aria-hidden />
+            <h2
+              id="mobile-add-store"
+              className="text-sm font-semibold text-foreground"
+            >
+              Tiendas
+            </h2>
+          </div>
+          <Link
+            href="/integraciones/shopify"
+            className="flex min-h-11 items-center gap-3 rounded-lg px-2.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
+          >
+            <span className="relative inline-flex size-5 items-center justify-center" aria-hidden>
+              <StoreIcon className="size-5" />
+              <span className="absolute -right-1 -bottom-1 flex size-3 items-center justify-center rounded-full bg-accent text-white ring-2 ring-white">
+                <PlusIcon className="size-1.5" />
+              </span>
+            </span>
+            Añadir tienda
+          </Link>
+        </section>
+      ) : null}
       {navigationModules.map((module) => (
         <section key={module.id} aria-labelledby={`mobile-module-${module.id}`}>
           <div className="mb-2 flex items-center gap-2 px-2">
@@ -1074,13 +1170,14 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       {/* dvh, no vh: en Safari movil 100vh incluye la barra de URL, asi que
           la pagina siempre quedaba un poco scrolleable aunque no hubiera
           contenido de sobra. */}
-      <InsightsProvider
-        scope={{
-          organizationId: activeOrganizationId,
-          connectionId: activeConnectionId,
-          isConsultant,
-        }}
-      >
+      <PortalSessionContext.Provider value={{ bootstrap, token }}>
+        <InsightsProvider
+          scope={{
+            organizationId: activeOrganizationId,
+            connectionId: activeConnectionId,
+            isConsultant,
+          }}
+        >
         <main className="min-h-dvh bg-white text-foreground lg:pt-2">
           <a className="skip-link" href="#portal-content">
             Saltar al contenido principal
@@ -1214,10 +1311,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   .map((module) => {
                     const Icon = module.icon;
                     const active = module.id === activeModule.id;
-                    const badge = module.items.reduce(
-                      (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
-                      0,
-                    );
+                    const badge = module.id === "integraciones"
+                      ? (navBadges["/integraciones"] ?? 0)
+                      : module.items.reduce(
+                          (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
+                          0,
+                        );
                     const link = (
                       <Link
                         key={module.id}
@@ -1226,7 +1325,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         aria-current={active ? "page" : undefined}
                         onClick={() => handleModuleNavigation(module.items[0].href)}
                         className={[
-                          "relative flex h-11 shrink-0 items-center rounded-lg no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
+                          "relative flex h-11 shrink-0 items-center rounded-lg no-underline transition-colors duration-150 hover:bg-surface hover:no-underline motion-reduce:transition-none",
                           isPrimaryNavExpanded
                             ? "w-full gap-3 px-3"
                             : "size-11 justify-center",
@@ -1238,8 +1337,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         <Icon className="size-5" aria-hidden />
                         {badge > 0 ? (
                           <span
-                            aria-label={`${badge} sin leer`}
-                            className="absolute right-0.5 top-0.5 size-2 rounded-full bg-accent ring-2 ring-white"
+                            aria-label={module.id === "integraciones"
+                              ? `${badge} incidencias de integración`
+                              : `${badge} sin leer`}
+                            className={`absolute right-0.5 top-0.5 size-2 rounded-full ring-2 ring-white ${module.id === "integraciones" ? (integrationSeverity("/integraciones") === "error" ? "bg-danger" : "bg-warning") : "bg-accent"}`}
                           />
                         ) : null}
                         <span
@@ -1252,6 +1353,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         >
                           {module.label}
                         </span>
+                        {badge > 0 && isPrimaryNavExpanded ? (
+                          <span className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${module.id === "integraciones" ? navBadgeClass("/integraciones") : "bg-accent text-white"}`}>
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        ) : null}
                       </Link>
                     );
                     // Colapsado el rail es solo iconos: sin tooltip no hay forma
@@ -1274,6 +1380,56 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   isPrimaryNavExpanded ? "items-stretch" : "items-center",
                 ].join(" ")}
               >
+                {showAddStoreAction
+                  ? (() => {
+                      const link = (
+                        <Link
+                          key="add-store"
+                          href="/integraciones/shopify"
+                          aria-label="Añadir tienda Shopify"
+                          onClick={() =>
+                            handleModuleNavigation("/integraciones/shopify")
+                          }
+                          className={[
+                            "flex h-11 items-center rounded-lg no-underline transition-colors hover:bg-surface hover:no-underline",
+                            isPrimaryNavExpanded
+                              ? "w-full gap-3 px-3"
+                              : "size-11 justify-center",
+                            pathname === "/integraciones/shopify"
+                              ? "bg-surface text-accent"
+                              : "text-muted hover:text-foreground",
+                          ].join(" ")}
+                        >
+                          <span
+                            className="relative inline-flex size-5 shrink-0 items-center justify-center"
+                            aria-hidden
+                          >
+                            <StoreIcon className="size-5" />
+                            <span className="absolute -right-1 -bottom-1 flex size-3 items-center justify-center rounded-full bg-accent text-white ring-2 ring-white">
+                              <PlusIcon className="size-1.5" />
+                            </span>
+                          </span>
+                          <span
+                            className={[
+                              "truncate text-sm font-medium transition-opacity duration-150",
+                              isPrimaryNavExpanded ? "opacity-100" : "hidden",
+                            ].join(" ")}
+                          >
+                            Añadir tienda
+                          </span>
+                        </Link>
+                      );
+                      if (isPrimaryNavExpanded) return link;
+                      return (
+                        <Tooltip key="add-store-tooltip" delay={300}>
+                          {link}
+                          <Tooltip.Content placement="right">
+                            <p>Añadir tienda</p>
+                          </Tooltip.Content>
+                        </Tooltip>
+                      );
+                    })()
+                  : null}
                 {navigationModules
                   .filter((module) => module.utility)
                   .map((module) => {
@@ -1437,17 +1593,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 <AccountStateBanner
                   organizationStatus={activeOrganization.status}
                   subscriptionStatus={activeSubscription?.status ?? null}
-                  needsShopifyReauthorization={
-                    shopifyConnections.some((connection) =>
-                      ["reauthorization_required", "needs_reauth"].includes(
-                        connection.status,
-                      ),
-                    ) ||
-                    actions.some(
-                      (action) =>
-                        action.type === "shopify_reauthorization_required",
-                    )
-                  }
                   isConsultant={isConsultant}
                 />
               ) : null}
@@ -1556,20 +1701,27 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             aria-label="Navegación principal"
             className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
           >
-            {bottomNavItems.map((module) => {
-              const Icon = module.icon;
-              const active = module.id === activeModule.id;
-              return (
+              {bottomNavItems.map((module) => {
+                const Icon = module.icon;
+                const active = module.id === activeModule.id;
+                const hasIntegrationIssues = module.id === "integraciones" && integrationIssueCount > 0;
+                return (
                 <Link
                   key={module.id}
                   href={module.items[0].href}
                   aria-current={active ? "page" : undefined}
                   className={[
-                    "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
+                    "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
                     active ? "text-accent" : "text-muted",
                   ].join(" ")}
                 >
                   <Icon className="size-5 shrink-0" aria-hidden />
+                  {hasIntegrationIssues ? (
+                    <span
+                      aria-label={`${integrationIssueCount} incidencias de integración`}
+                      className={`absolute top-1.5 size-1.5 rounded-full ${integrationSeverity("/integraciones") === "error" ? "bg-danger" : "bg-warning"}`}
+                    />
+                  ) : null}
                   <span className="max-w-full truncate">{module.label}</span>
                 </Link>
               );
@@ -1620,7 +1772,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             </>
           ) : null}
         </main>
-      </InsightsProvider>
+        </InsightsProvider>
+      </PortalSessionContext.Provider>
     </>
   );
 }
@@ -1632,6 +1785,9 @@ function PortalShellContent({ title, children }: PortalShellProps) {
  * shell indirectly.
  */
 export function PortalShell(props: PortalShellProps) {
+  const session = useContext(PortalSessionContext);
+  if (session) return <>{props.children(session.bootstrap, session.token)}</>;
+
   return (
     <Suspense fallback={<LoadingBlock label="Cargando E-NORA..." />}>
       <PortalShellContent {...props} />

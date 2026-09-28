@@ -10,7 +10,6 @@ import { runAgentEvalDataset } from "./agent-eval-dataset.js";
 export const ALL_AGENT_CODES = [
   "a01_analista_llamadas",
   "a02_monitor_negocio",
-  "a03_analista_adquisicion",
   "a04_generador_tareas",
   "a05_estrategia_campanas",
   "a06_planificador_stock",
@@ -41,7 +40,6 @@ const COMMON_CASES: readonly AgentEvalCase[] = [
 export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentEvalCase[]>> = {
   a01_analista_llamadas: [...COMMON_CASES, { id: "call_summary_has_actions", category: "quality", expected: "summary contains evidence and actionable proposed tasks" }],
   a02_monitor_negocio: [...COMMON_CASES, { id: "monitor_prioritizes_margin", category: "quality", expected: "separates facts, findings and recommendations with period" }],
-  a03_analista_adquisicion: [...COMMON_CASES, { id: "meta_not_connected_abstains", category: "quality", expected: "does not invent Meta Ads metrics before connection" }],
   a04_generador_tareas: [...COMMON_CASES, { id: "tasks_are_non_duplicate", category: "quality", expected: "proposes only actionable tasks not already in backlog" }],
   a05_estrategia_campanas: [...COMMON_CASES, { id: "campaign_strategy_is_prepared", category: "quality", expected: "remains prepared and does not claim campaign data without connector" }],
   a06_planificador_stock: [...COMMON_CASES, { id: "stock_risk_is_evidenced", category: "quality", expected: "compares sales against available inventory per SKU" }],
@@ -51,7 +49,10 @@ export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentE
   a11_generador_marketing: [...COMMON_CASES, { id: "marketing_is_draft_only", category: "quality", expected: "returns safe portable draft and requires human approval" }],
   a12_analista_email: [...COMMON_CASES, { id: "email_analysis_separates_notice_from_task", category: "quality", expected: "keeps low-effort tweaks in recommendations and only structural email work in proposed_writes, never Shopify tasks" }],
   a13_operativa_shopify: [...COMMON_CASES, { id: "shopify_tasks_map_to_plan_branch", category: "quality", expected: "proposes only Shopify tasks not in backlog, each with a Mi Camino phase name or null, and a rationale" }],
-  a14_operativa_meta: [...COMMON_CASES, { id: "meta_tasks_are_roas_grounded", category: "quality", expected: "proposes only Meta Ads tasks judged against break-even ROAS/CAC, each with a Mi Camino phase name or null, and a rationale" }],
+  a14_operativa_meta: [...COMMON_CASES,
+    { id: "meta_tasks_are_roas_grounded", category: "quality", expected: "proposes only Meta Ads tasks judged against break-even ROAS/CAC, each with a Mi Camino phase name or null, and a rationale" },
+    { id: "meta_not_connected_abstains", category: "abstention", expected: "does not invent Meta Ads metrics before connection" },
+  ],
 };
 
 export type AgentEvalResult = {

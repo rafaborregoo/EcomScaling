@@ -19,6 +19,7 @@ import { redactConsultantOnly, selectProposedTasks } from "./calls.js";
 const keyPoints = {
   facts: ["Cerraron 120 pedidos en julio"],
   proposed_tasks: [{ title: "Cargar costes", owner: "cliente" }],
+  sources: [{ kind: "document", reference: "Guía de margen", period: null }],
   consultant_gaps: [
     {
       topic: "Roturas de stock del top de facturacion",
@@ -51,6 +52,7 @@ test("el recorte no toca el resumen que si es del cliente", () => {
 
   assert.deepEqual(redacted.facts, keyPoints.facts);
   assert.deepEqual(redacted.proposed_tasks, keyPoints.proposed_tasks);
+  assert.deepEqual(redacted.sources, keyPoints.sources);
   assert.equal(redacted.confidence, "medium");
 });
 

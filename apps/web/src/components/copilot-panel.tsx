@@ -41,6 +41,11 @@ type ChatProposalEvidence = {
   period: string | null;
   source: string;
 };
+type ChatProposalGuidance = {
+  reviewer: "assigned_consultant" | "client" | "unverified";
+  reviewer_name: string | null;
+  destination: "tasks";
+};
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -70,7 +75,10 @@ type ChatMessage = {
     priority: "low" | "medium" | "high" | "urgent";
     rationale: string;
     evidence: ChatProposalEvidence[];
+    effort_estimate?: "low" | "medium" | "high" | "unknown";
+    financial_cost_estimate?: { amount: number; currency: string; basis: string } | null;
   }>;
+  proposalGuidance?: ChatProposalGuidance | null;
 };
 type ChatError = { message: string; status: "warning" | "danger" };
 type Conversation = { id: string; title: string; updated_at: string };
@@ -86,7 +94,8 @@ function resolveUiActions(actions: unknown): ResolvedCopilotUiAction[] {
  * Lo que el consultor tiene delante cuando pregunta. Viaja al agente A09 como
  * `view_context` para que resuelva preguntas cortas ("¿por qué ha bajado
  * esto?") sin obligar a repetir el contexto que la pantalla ya muestra. El
- * backend lo sanea y nunca lo usa para ampliar el alcance de datos.
+ * backend lo sanea; una tienda explícita reduce el alcance de las tools y,
+ * si no se puede resolver, el turno falla cerrado.
  */
 export type CopilotView = {
   route: string;
@@ -119,6 +128,18 @@ const ERROR_MESSAGES: Record<string, ChatError> = {
   },
   organization_access_denied: {
     message: "No tienes acceso a esta organización.",
+    status: "danger",
+  },
+  store_scope_invalid: {
+    message: "No se pudo validar la tienda seleccionada. Vuelve a elegirla e inténtalo de nuevo.",
+    status: "warning",
+  },
+  store_scope_unresolved: {
+    message: "La tienda seleccionada ya no está disponible. Elige una tienda válida antes de consultar.",
+    status: "warning",
+  },
+  store_scope_resolution_failed: {
+    message: "No se pudo comprobar el alcance de la tienda. No se consultaron datos; inténtalo de nuevo.",
     status: "danger",
   },
 };
@@ -374,6 +395,7 @@ export function CopilotPanel({
           approval_required?: boolean;
           approval_status?: "pending_approval" | "approved" | "rejected";
           proposed_writes?: ChatMessage["proposedWrites"];
+          proposal_guidance?: ChatProposalGuidance | null;
           ui_actions?: CopilotUiAction[];
           tasks_created?: number;
           feedback_rating?: "helpful" | "not_helpful";
@@ -390,6 +412,7 @@ export function CopilotPanel({
           approvalRequired: message.approval_required,
           approvalStatus: message.approval_status,
           proposedWrites: message.proposed_writes,
+          proposalGuidance: message.proposal_guidance,
           uiActions: resolveUiActions(message.ui_actions),
           tasksCreated: message.tasks_created,
           feedback: message.feedback_rating,
@@ -523,6 +546,7 @@ export function CopilotPanel({
           ui_actions?: CopilotUiAction[];
           proposed_writes?: ChatMessage["proposedWrites"];
         };
+        proposal_guidance?: ChatProposalGuidance | null;
         saldo?: CopilotBalance;
         model?: { id: string; label: string; degraded: boolean };
         usage?: ChatUsage;
@@ -571,6 +595,7 @@ export function CopilotPanel({
             ? "pending_approval"
             : undefined,
           proposedWrites: payload.output.proposed_writes,
+          proposalGuidance: payload.proposal_guidance,
           usage: payload.usage,
         },
       ]);
@@ -961,6 +986,20 @@ export function CopilotPanel({
                               : "Pendiente"}
                         </Badge>
                       </div>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-y border-separator py-2 text-xs">
+                        <span className="text-muted">
+                          {message.proposalGuidance?.reviewer === "assigned_consultant"
+                            ? `Revisa${message.proposalGuidance.reviewer_name ? ` ${message.proposalGuidance.reviewer_name}` : " el consultor asignado"}`
+                            : message.proposalGuidance?.reviewer === "client"
+                              ? "Decisión del cliente: puedes aprobarla o rechazarla"
+                              : message.proposalGuidance?.reviewer === "unverified"
+                                ? "Revisor no verificado: confirma la asignación antes de decidir"
+                                : "Abre Tareas para consultar el estado de esta propuesta"}
+                        </span>
+                        <Link href="/tareas" onClick={onClose} className="font-medium text-accent no-underline hover:underline">
+                          Ir a Tareas
+                        </Link>
+                      </div>
                       <div className="mt-2 space-y-2">
                         {message.proposedWrites.map((proposal) => (
                           <div key={`${proposal.kind}:${proposal.title}`}>
@@ -969,6 +1008,13 @@ export function CopilotPanel({
                             </p>
                             <p className="text-xs leading-5 text-muted">
                               {proposal.description}
+                            </p>
+                            <p className="mt-1 text-xs text-muted">
+                              Esfuerzo: {proposal.effort_estimate === "low" ? "bajo" : proposal.effort_estimate === "medium" ? "medio" : proposal.effort_estimate === "high" ? "alto" : "por estimar"}
+                              {" · "}
+                              Coste externo: {proposal.financial_cost_estimate && /^[A-Z]{3}$/.test(proposal.financial_cost_estimate.currency)
+                                ? `${new Intl.NumberFormat("es-ES", { style: "currency", currency: proposal.financial_cost_estimate.currency }).format(proposal.financial_cost_estimate.amount)} (${proposal.financial_cost_estimate.basis})`
+                                : "no estimado con evidencia disponible"}
                             </p>
                             {proposal.rationale ? (
                               <p className="mt-1 text-xs leading-5 text-muted">

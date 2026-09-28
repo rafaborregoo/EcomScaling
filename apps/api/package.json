@@ -32,69 +32,222 @@
       "types": "./dist/src/constraints-engine.d.ts",
       "default": "./dist/src/constraints-engine.js"
     },
-    "./feasibility-engine": {
-      "types": "./dist/src/feasibility-engine.d.ts",
-      "default": "./dist/src/feasibility-engine.js"
+    "./decision-blocks-engine": {
+      "types": "./dist/src/decision-blocks-engine.d.ts",
+      "default": "./dist/src/decision-blocks-engine.js"
     },
-    "./risk-engine": { "types": "./dist/src/risk-engine.d.ts", "default": "./dist/src/risk-engine.js" },
-    "./allocation-engine": { "types": "./dist/src/allocation-engine.d.ts", "default": "./dist/src/allocation-engine.js" },
-    "./strategic-fit-engine": { "types": "./dist/src/strategic-fit-engine.d.ts", "default": "./dist/src/strategic-fit-engine.js" },
-    "./ranking-engine": { "types": "./dist/src/ranking-engine.d.ts", "default": "./dist/src/ranking-engine.js" },
-    "./portfolio-engine": { "types": "./dist/src/portfolio-engine.d.ts", "default": "./dist/src/portfolio-engine.js" },
-    "./decision-output-engine": { "types": "./dist/src/decision-output-engine.d.ts", "default": "./dist/src/decision-output-engine.js" },
-    "./playbook-engine": { "types": "./dist/src/playbook-engine.d.ts", "default": "./dist/src/playbook-engine.js" },
-    "./acquisition-engine": { "types": "./dist/src/acquisition-engine.d.ts", "default": "./dist/src/acquisition-engine.js" },
-    "./paid-media-engine": { "types": "./dist/src/paid-media-engine.d.ts", "default": "./dist/src/paid-media-engine.js" },
-    "./conversion-engine": { "types": "./dist/src/conversion-engine.d.ts", "default": "./dist/src/conversion-engine.js" },
-    "./offer-pricing-engine": { "types": "./dist/src/offer-pricing-engine.d.ts", "default": "./dist/src/offer-pricing-engine.js" },
-    "./retention-crm-engine": { "types": "./dist/src/retention-crm-engine.d.ts", "default": "./dist/src/retention-crm-engine.js" },
-    "./unit-economics-engine": { "types": "./dist/src/unit-economics-engine.d.ts", "default": "./dist/src/unit-economics-engine.js" },
-    "./product-inventory-engine": { "types": "./dist/src/product-inventory-engine.d.ts", "default": "./dist/src/product-inventory-engine.js" },
-    "./operations-cx-engine": { "types": "./dist/src/operations-cx-engine.d.ts", "default": "./dist/src/operations-cx-engine.js" },
-    "./measurement-experimentation-engine": { "types": "./dist/src/measurement-experimentation-engine.d.ts", "default": "./dist/src/measurement-experimentation-engine.js" },
-    "./scalability-constraints-engine": { "types": "./dist/src/scalability-constraints-engine.d.ts", "default": "./dist/src/scalability-constraints-engine.js" },
-    "./recovery-crisis-engine": { "types": "./dist/src/recovery-crisis-engine.d.ts", "default": "./dist/src/recovery-crisis-engine.js" },
-    "./benchmark-guardrails-engine": { "types": "./dist/src/benchmark-guardrails-engine.d.ts", "default": "./dist/src/benchmark-guardrails-engine.js" },
-    "./cohort-context-engine": { "types": "./dist/src/cohort-context-engine.d.ts", "default": "./dist/src/cohort-context-engine.js" },
-    "./data-quality-reliability-engine": { "types": "./dist/src/data-quality-reliability-engine.d.ts", "default": "./dist/src/data-quality-reliability-engine.js" },
-    "./acquisition-demand-engine": { "types": "./dist/src/acquisition-demand-engine.d.ts", "default": "./dist/src/acquisition-demand-engine.js" },
-    "./paid-media-benchmarks-engine": { "types": "./dist/src/paid-media-benchmarks-engine.d.ts", "default": "./dist/src/paid-media-benchmarks-engine.js" },
-    "./conversion-cro-benchmarks-engine": { "types": "./dist/src/conversion-cro-benchmarks-engine.d.ts", "default": "./dist/src/conversion-cro-benchmarks-engine.js" },
-    "./offer-pricing-benchmarks-engine": { "types": "./dist/src/offer-pricing-benchmarks-engine.d.ts", "default": "./dist/src/offer-pricing-benchmarks-engine.js" },
-    "./retention-crm-benchmarks-engine": { "types": "./dist/src/retention-crm-benchmarks-engine.d.ts", "default": "./dist/src/retention-crm-benchmarks-engine.js" },
-    "./unit-economics-benchmarks-engine": { "types": "./dist/src/unit-economics-benchmarks-engine.d.ts", "default": "./dist/src/unit-economics-benchmarks-engine.js" },
-    "./operations-cx-benchmarks-engine": { "types": "./dist/src/operations-cx-benchmarks-engine.d.ts", "default": "./dist/src/operations-cx-benchmarks-engine.js" },
-    "./product-inventory-benchmarks-engine": { "types": "./dist/src/product-inventory-benchmarks-engine.d.ts", "default": "./dist/src/product-inventory-benchmarks-engine.js" },
-    "./scalability-benchmarks-engine": { "types": "./dist/src/scalability-benchmarks-engine.d.ts", "default": "./dist/src/scalability-benchmarks-engine.js" },
-    "./anomalies-red-flags-engine": { "types": "./dist/src/anomalies-red-flags-engine.d.ts", "default": "./dist/src/anomalies-red-flags-engine.js" },
-    "./benchmark-confidence-engine": { "types": "./dist/src/benchmark-confidence-engine.d.ts", "default": "./dist/src/benchmark-confidence-engine.js" },
-    "./intervention-eligibility-engine": { "types": "./dist/src/intervention-eligibility-engine.d.ts", "default": "./dist/src/intervention-eligibility-engine.js" },
-    "./intervention-matching-engine": { "types": "./dist/src/intervention-matching-engine.d.ts", "default": "./dist/src/intervention-matching-engine.js" },
-    "./intervention-prioritization-engine": { "types": "./dist/src/intervention-prioritization-engine.d.ts", "default": "./dist/src/intervention-prioritization-engine.js" },
-    "./intervention-impact-engine": { "types": "./dist/src/intervention-impact-engine.d.ts", "default": "./dist/src/intervention-impact-engine.js" },
-    "./intervention-feasibility-engine": { "types": "./dist/src/intervention-feasibility-engine.d.ts", "default": "./dist/src/intervention-feasibility-engine.js" },
-    "./intervention-risk-engine": { "types": "./dist/src/intervention-risk-engine.d.ts", "default": "./dist/src/intervention-risk-engine.js" },
-    "./intervention-sequencing-engine": { "types": "./dist/src/intervention-sequencing-engine.d.ts", "default": "./dist/src/intervention-sequencing-engine.js" },
-    "./intervention-test-execute-engine": { "types": "./dist/src/intervention-test-execute-engine.d.ts", "default": "./dist/src/intervention-test-execute-engine.js" },
-    "./intervention-intensity-engine": { "types": "./dist/src/intervention-intensity-engine.d.ts", "default": "./dist/src/intervention-intensity-engine.js" },
-    "./maturity-recommendations-engine": { "types": "./dist/src/maturity-recommendations-engine.d.ts", "default": "./dist/src/maturity-recommendations-engine.js" },
-    "./constraint-recommendations-engine": { "types": "./dist/src/constraint-recommendations-engine.d.ts", "default": "./dist/src/constraint-recommendations-engine.js" },
-    "./recommendation-portfolio-engine": { "types": "./dist/src/recommendation-portfolio-engine.d.ts", "default": "./dist/src/recommendation-portfolio-engine.js" },
-    "./dynamic-decision-engine": { "types": "./dist/src/dynamic-decision-engine.d.ts", "default": "./dist/src/dynamic-decision-engine.js" },
-    "./restraint-decision-engine": { "types": "./dist/src/restraint-decision-engine.d.ts", "default": "./dist/src/restraint-decision-engine.js" },
-    "./expected-outcome-engine": { "types": "./dist/src/expected-outcome-engine.d.ts", "default": "./dist/src/expected-outcome-engine.js" },
-    "./recommendation-confidence-engine": { "types": "./dist/src/recommendation-confidence-engine.d.ts", "default": "./dist/src/recommendation-confidence-engine.js" },
-    "./recommendation-communication-engine": { "types": "./dist/src/recommendation-communication-engine.d.ts", "default": "./dist/src/recommendation-communication-engine.js" },
-    "./execution-lifecycle-engine": { "types": "./dist/src/execution-lifecycle-engine.d.ts", "default": "./dist/src/execution-lifecycle-engine.js" },
-    "./hitl-approval-engine": { "types": "./dist/src/hitl-approval-engine.d.ts", "default": "./dist/src/hitl-approval-engine.js" },
-    "./closure-handoff-engine": { "types": "./dist/src/closure-handoff-engine.d.ts", "default": "./dist/src/closure-handoff-engine.js" },
-    "./execution-plan-engine": { "types": "./dist/src/execution-plan-engine.d.ts", "default": "./dist/src/execution-plan-engine.js" },
-    "./readiness-engine": { "types": "./dist/src/readiness-engine.d.ts", "default": "./dist/src/readiness-engine.js" },
-    "./action-envelope-engine": { "types": "./dist/src/action-envelope-engine.d.ts", "default": "./dist/src/action-envelope-engine.js" },
-    "./execution-supervision-engine": { "types": "./dist/src/execution-supervision-engine.d.ts", "default": "./dist/src/execution-supervision-engine.js" },
-    "./intervention-effect-engine": { "types": "./dist/src/intervention-effect-engine.d.ts", "default": "./dist/src/intervention-effect-engine.js" },
-    "./ai-model-pricing": { "types": "./dist/src/ai-model-pricing.d.ts", "default": "./dist/src/ai-model-pricing.js" },
-    "./continuous-learning-engine": { "types": "./dist/src/continuous-learning-engine.d.ts", "default": "./dist/src/continuous-learning-engine.js" },
+    "./playbook-engine": {
+      "types": "./dist/src/playbook-engine.d.ts",
+      "default": "./dist/src/playbook-engine.js"
+    },
+    "./acquisition-engine": {
+      "types": "./dist/src/acquisition-engine.d.ts",
+      "default": "./dist/src/acquisition-engine.js"
+    },
+    "./paid-media-engine": {
+      "types": "./dist/src/paid-media-engine.d.ts",
+      "default": "./dist/src/paid-media-engine.js"
+    },
+    "./conversion-engine": {
+      "types": "./dist/src/conversion-engine.d.ts",
+      "default": "./dist/src/conversion-engine.js"
+    },
+    "./offer-pricing-engine": {
+      "types": "./dist/src/offer-pricing-engine.d.ts",
+      "default": "./dist/src/offer-pricing-engine.js"
+    },
+    "./retention-crm-engine": {
+      "types": "./dist/src/retention-crm-engine.d.ts",
+      "default": "./dist/src/retention-crm-engine.js"
+    },
+    "./unit-economics-engine": {
+      "types": "./dist/src/unit-economics-engine.d.ts",
+      "default": "./dist/src/unit-economics-engine.js"
+    },
+    "./product-inventory-engine": {
+      "types": "./dist/src/product-inventory-engine.d.ts",
+      "default": "./dist/src/product-inventory-engine.js"
+    },
+    "./operations-cx-engine": {
+      "types": "./dist/src/operations-cx-engine.d.ts",
+      "default": "./dist/src/operations-cx-engine.js"
+    },
+    "./measurement-experimentation-engine": {
+      "types": "./dist/src/measurement-experimentation-engine.d.ts",
+      "default": "./dist/src/measurement-experimentation-engine.js"
+    },
+    "./scalability-constraints-engine": {
+      "types": "./dist/src/scalability-constraints-engine.d.ts",
+      "default": "./dist/src/scalability-constraints-engine.js"
+    },
+    "./recovery-crisis-engine": {
+      "types": "./dist/src/recovery-crisis-engine.d.ts",
+      "default": "./dist/src/recovery-crisis-engine.js"
+    },
+    "./benchmark-guardrails-engine": {
+      "types": "./dist/src/benchmark-guardrails-engine.d.ts",
+      "default": "./dist/src/benchmark-guardrails-engine.js"
+    },
+    "./cohort-context-engine": {
+      "types": "./dist/src/cohort-context-engine.d.ts",
+      "default": "./dist/src/cohort-context-engine.js"
+    },
+    "./data-quality-reliability-engine": {
+      "types": "./dist/src/data-quality-reliability-engine.d.ts",
+      "default": "./dist/src/data-quality-reliability-engine.js"
+    },
+    "./acquisition-demand-engine": {
+      "types": "./dist/src/acquisition-demand-engine.d.ts",
+      "default": "./dist/src/acquisition-demand-engine.js"
+    },
+    "./paid-media-benchmarks-engine": {
+      "types": "./dist/src/paid-media-benchmarks-engine.d.ts",
+      "default": "./dist/src/paid-media-benchmarks-engine.js"
+    },
+    "./conversion-cro-benchmarks-engine": {
+      "types": "./dist/src/conversion-cro-benchmarks-engine.d.ts",
+      "default": "./dist/src/conversion-cro-benchmarks-engine.js"
+    },
+    "./offer-pricing-benchmarks-engine": {
+      "types": "./dist/src/offer-pricing-benchmarks-engine.d.ts",
+      "default": "./dist/src/offer-pricing-benchmarks-engine.js"
+    },
+    "./retention-crm-benchmarks-engine": {
+      "types": "./dist/src/retention-crm-benchmarks-engine.d.ts",
+      "default": "./dist/src/retention-crm-benchmarks-engine.js"
+    },
+    "./unit-economics-benchmarks-engine": {
+      "types": "./dist/src/unit-economics-benchmarks-engine.d.ts",
+      "default": "./dist/src/unit-economics-benchmarks-engine.js"
+    },
+    "./operations-cx-benchmarks-engine": {
+      "types": "./dist/src/operations-cx-benchmarks-engine.d.ts",
+      "default": "./dist/src/operations-cx-benchmarks-engine.js"
+    },
+    "./product-inventory-benchmarks-engine": {
+      "types": "./dist/src/product-inventory-benchmarks-engine.d.ts",
+      "default": "./dist/src/product-inventory-benchmarks-engine.js"
+    },
+    "./scalability-benchmarks-engine": {
+      "types": "./dist/src/scalability-benchmarks-engine.d.ts",
+      "default": "./dist/src/scalability-benchmarks-engine.js"
+    },
+    "./anomalies-red-flags-engine": {
+      "types": "./dist/src/anomalies-red-flags-engine.d.ts",
+      "default": "./dist/src/anomalies-red-flags-engine.js"
+    },
+    "./benchmark-confidence-engine": {
+      "types": "./dist/src/benchmark-confidence-engine.d.ts",
+      "default": "./dist/src/benchmark-confidence-engine.js"
+    },
+    "./intervention-eligibility-engine": {
+      "types": "./dist/src/intervention-eligibility-engine.d.ts",
+      "default": "./dist/src/intervention-eligibility-engine.js"
+    },
+    "./intervention-matching-engine": {
+      "types": "./dist/src/intervention-matching-engine.d.ts",
+      "default": "./dist/src/intervention-matching-engine.js"
+    },
+    "./intervention-prioritization-engine": {
+      "types": "./dist/src/intervention-prioritization-engine.d.ts",
+      "default": "./dist/src/intervention-prioritization-engine.js"
+    },
+    "./intervention-impact-engine": {
+      "types": "./dist/src/intervention-impact-engine.d.ts",
+      "default": "./dist/src/intervention-impact-engine.js"
+    },
+    "./intervention-feasibility-engine": {
+      "types": "./dist/src/intervention-feasibility-engine.d.ts",
+      "default": "./dist/src/intervention-feasibility-engine.js"
+    },
+    "./intervention-risk-engine": {
+      "types": "./dist/src/intervention-risk-engine.d.ts",
+      "default": "./dist/src/intervention-risk-engine.js"
+    },
+    "./intervention-sequencing-engine": {
+      "types": "./dist/src/intervention-sequencing-engine.d.ts",
+      "default": "./dist/src/intervention-sequencing-engine.js"
+    },
+    "./intervention-test-execute-engine": {
+      "types": "./dist/src/intervention-test-execute-engine.d.ts",
+      "default": "./dist/src/intervention-test-execute-engine.js"
+    },
+    "./intervention-intensity-engine": {
+      "types": "./dist/src/intervention-intensity-engine.d.ts",
+      "default": "./dist/src/intervention-intensity-engine.js"
+    },
+    "./maturity-recommendations-engine": {
+      "types": "./dist/src/maturity-recommendations-engine.d.ts",
+      "default": "./dist/src/maturity-recommendations-engine.js"
+    },
+    "./constraint-recommendations-engine": {
+      "types": "./dist/src/constraint-recommendations-engine.d.ts",
+      "default": "./dist/src/constraint-recommendations-engine.js"
+    },
+    "./recommendation-portfolio-engine": {
+      "types": "./dist/src/recommendation-portfolio-engine.d.ts",
+      "default": "./dist/src/recommendation-portfolio-engine.js"
+    },
+    "./dynamic-decision-engine": {
+      "types": "./dist/src/dynamic-decision-engine.d.ts",
+      "default": "./dist/src/dynamic-decision-engine.js"
+    },
+    "./restraint-decision-engine": {
+      "types": "./dist/src/restraint-decision-engine.d.ts",
+      "default": "./dist/src/restraint-decision-engine.js"
+    },
+    "./expected-outcome-engine": {
+      "types": "./dist/src/expected-outcome-engine.d.ts",
+      "default": "./dist/src/expected-outcome-engine.js"
+    },
+    "./recommendation-confidence-engine": {
+      "types": "./dist/src/recommendation-confidence-engine.d.ts",
+      "default": "./dist/src/recommendation-confidence-engine.js"
+    },
+    "./recommendation-communication-engine": {
+      "types": "./dist/src/recommendation-communication-engine.d.ts",
+      "default": "./dist/src/recommendation-communication-engine.js"
+    },
+    "./execution-lifecycle-engine": {
+      "types": "./dist/src/execution-lifecycle-engine.d.ts",
+      "default": "./dist/src/execution-lifecycle-engine.js"
+    },
+    "./hitl-approval-engine": {
+      "types": "./dist/src/hitl-approval-engine.d.ts",
+      "default": "./dist/src/hitl-approval-engine.js"
+    },
+    "./closure-handoff-engine": {
+      "types": "./dist/src/closure-handoff-engine.d.ts",
+      "default": "./dist/src/closure-handoff-engine.js"
+    },
+    "./execution-plan-engine": {
+      "types": "./dist/src/execution-plan-engine.d.ts",
+      "default": "./dist/src/execution-plan-engine.js"
+    },
+    "./readiness-engine": {
+      "types": "./dist/src/readiness-engine.d.ts",
+      "default": "./dist/src/readiness-engine.js"
+    },
+    "./action-envelope-engine": {
+      "types": "./dist/src/action-envelope-engine.d.ts",
+      "default": "./dist/src/action-envelope-engine.js"
+    },
+    "./execution-supervision-engine": {
+      "types": "./dist/src/execution-supervision-engine.d.ts",
+      "default": "./dist/src/execution-supervision-engine.js"
+    },
+    "./intervention-effect-engine": {
+      "types": "./dist/src/intervention-effect-engine.d.ts",
+      "default": "./dist/src/intervention-effect-engine.js"
+    },
+    "./ai-model-pricing": {
+      "types": "./dist/src/ai-model-pricing.d.ts",
+      "default": "./dist/src/ai-model-pricing.js"
+    },
+    "./continuous-learning-engine": {
+      "types": "./dist/src/continuous-learning-engine.d.ts",
+      "default": "./dist/src/continuous-learning-engine.js"
+    },
     "./adversarial-engine": {
       "types": "./dist/src/adversarial-engine.d.ts",
       "default": "./dist/src/adversarial-engine.js"
@@ -202,7 +355,7 @@
     "test:continuous-learning": "tsx --test src/continuous-learning-engine.test.ts src/ai-playbook-insights-api.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test:unit": "tsx --test --test-force-exit src/action-envelope-engine.test.ts src/ai-model-pricing.test.ts src/signal-engine.test.ts src/agent-eval-evidence-store.test.ts src/agent-eval-readiness.test.ts src/agent-eval-runner.test.ts src/ai-context-retention.test.ts src/ai-model-routing.test.ts src/auth-context-operational.test.ts src/auth-context-own-organization.test.ts src/be-07-sql-gateway-evals.test.ts src/closure-handoff-engine.test.ts src/closure-handoff-insights.test.ts src/consultant-client-overview.test.ts src/copilot-ui-actions.test.ts src/execution-plan-engine.test.ts src/execution-plan-insights.test.ts src/external-url.test.ts src/fathom-webhook-handler.test.ts src/fathom-webhook.test.ts src/hitl-approval-context.test.ts src/integrations-configuration.test.ts src/integrations-connection-severity.test.ts src/klaviyo-oauth.test.ts src/memory-ingestion.test.ts src/meta-ad-write-plan.test.ts src/meta-oauth.test.ts src/meta-sync-batch.test.ts src/meta-sync-concurrency.test.ts src/meta-sync-contract.test.ts src/meta-sync-idempotency.test.ts src/ops-health-check.test.ts src/platform-logs.test.ts src/protected-data-access.test.ts src/readiness-engine.test.ts src/shopify-client.test.ts src/shopify-count-reconcile.test.ts src/shopify-sync-idempotency.test.ts src/single-flight.test.ts src/webhook-retention.test.ts src/shopify-order-journey.test.ts src/meta-cost-rates.test.ts src/execution-supervision-engine.test.ts src/connection-ingestible.test.ts src/klaviyo-subject-patterns.test.ts src/shopify-pixel.test.ts src/tenant-context-api.test.ts src/retention-crm-engine.test.ts src/auth-context-cache.test.ts src/auth-context-rol-derivado.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-autorun-toggle.test.ts src/ai-diagnostic-activity-gate.test.ts src/ai-sin-datos-gate.test.ts src/ai-09-provider-circuit-breaker.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/server-failure-sanitization.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts src/shopify-bulk-url.test.ts src/shopify-webhook-payload.test.ts src/shopify-webhook-ingest-gate.test.ts src/shopify-sessions-rows.test.ts src/shopify-metrics-targets.test.ts src/shopify-product-costs-ownership.test.ts src/shopify-product-costs-import.test.ts src/klaviyo-client.test.ts src/klaviyo-backfill.test.ts src/klaviyo-template-push.test.ts src/klaviyo-permissions.test.ts src/shopify-permissions.test.ts src/klaviyo-subject.test.ts src/klaviyo-report-value-statistics.test.ts src/email-body-text.test.ts src/invoice-mailer.test.ts src/klaviyo-triage.test.ts src/meta-purchase-action-type.test.ts src/marketing-asset-mime.test.ts src/consultor-ia-contexto.test.ts src/camino-proposal.test.ts src/ai-15-call-coaching.test.ts src/consultant-work.test.ts src/consultant-workbench.test.ts src/ai-23-campaign-plan.test.ts src/knowledge-constraints.test.ts src/client-access.test.ts src/consultant-partners.test.ts src/invite-mail-render.test.ts src/task-assignment.test.ts src/work-split.test.ts src/integration-freshness.test.ts src/shopify-discount-classification.test.ts src/shopify-metric-tools.test.ts src/store-triage.test.ts src/meta-insight-numbers.test.ts src/meta-sync-blocks.test.ts src/meta-reauth-error.test.ts src/meta-triage.test.ts src/store-scope.test.ts src/store-limit.test.ts src/stripe.test.ts src/billing-grant.test.ts src/ai-30-trazabilidad.test.ts src/billing-finance.test.ts src/invoicing.test.ts src/platform-finance.test.ts src/copilot-tokens.test.ts src/capacidad-cartera.test.ts src/invite-codes.test.ts src/vinculacion.test.ts src/decision-playbook-chat-context.test.ts src/paid-media-engine.test.ts src/conversion-engine.test.ts",
+    "test:unit": "tsx --test --test-force-exit src/action-envelope-engine.test.ts src/ai-model-pricing.test.ts src/signal-engine.test.ts src/agent-eval-evidence-store.test.ts src/agent-eval-readiness.test.ts src/agent-eval-runner.test.ts src/ai-context-retention.test.ts src/ai-model-routing.test.ts src/auth-context-operational.test.ts src/auth-context-own-organization.test.ts src/be-07-sql-gateway-evals.test.ts src/closure-handoff-engine.test.ts src/closure-handoff-insights.test.ts src/consultant-client-overview.test.ts src/copilot-ui-actions.test.ts src/execution-plan-engine.test.ts src/execution-plan-insights.test.ts src/external-url.test.ts src/fathom-webhook-handler.test.ts src/fathom-webhook.test.ts src/hitl-approval-context.test.ts src/integrations-configuration.test.ts src/integrations-connection-severity.test.ts src/klaviyo-oauth.test.ts src/memory-ingestion.test.ts src/meta-ad-write-plan.test.ts src/meta-oauth.test.ts src/meta-sync-batch.test.ts src/meta-sync-concurrency.test.ts src/meta-sync-contract.test.ts src/meta-sync-idempotency.test.ts src/ops-health-check.test.ts src/platform-logs.test.ts src/protected-data-access.test.ts src/readiness-engine.test.ts src/shopify-client.test.ts src/shopify-count-reconcile.test.ts src/shopify-sync-idempotency.test.ts src/single-flight.test.ts src/webhook-retention.test.ts src/shopify-order-journey.test.ts src/meta-cost-rates.test.ts src/execution-supervision-engine.test.ts src/connection-ingestible.test.ts src/klaviyo-subject-patterns.test.ts src/shopify-pixel.test.ts src/tenant-context-api.test.ts src/retention-crm-engine.test.ts src/auth-context-cache.test.ts src/auth-context-rol-derivado.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-autorun-toggle.test.ts src/ai-diagnostic-activity-gate.test.ts src/ai-sin-datos-gate.test.ts src/ai-09-provider-circuit-breaker.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/server-failure-sanitization.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts src/shopify-bulk-url.test.ts src/shopify-webhook-payload.test.ts src/shopify-webhook-ingest-gate.test.ts src/shopify-sessions-rows.test.ts src/shopify-metrics-targets.test.ts src/shopify-product-costs-ownership.test.ts src/shopify-product-costs-import.test.ts src/klaviyo-client.test.ts src/klaviyo-backfill.test.ts src/klaviyo-template-push.test.ts src/klaviyo-permissions.test.ts src/shopify-permissions.test.ts src/klaviyo-subject.test.ts src/klaviyo-report-value-statistics.test.ts src/email-body-text.test.ts src/invoice-mailer.test.ts src/klaviyo-triage.test.ts src/meta-purchase-action-type.test.ts src/marketing-asset-mime.test.ts src/consultor-ia-contexto.test.ts src/camino-proposal.test.ts src/ai-15-call-coaching.test.ts src/consultant-work.test.ts src/consultant-workbench.test.ts src/ai-23-campaign-plan.test.ts src/knowledge-constraints.test.ts src/client-access.test.ts src/consultant-partners.test.ts src/invite-mail-render.test.ts src/task-assignment.test.ts src/work-split.test.ts src/integration-freshness.test.ts src/shopify-discount-classification.test.ts src/shopify-metric-tools.test.ts src/store-triage.test.ts src/meta-insight-numbers.test.ts src/meta-sync-blocks.test.ts src/meta-reauth-error.test.ts src/meta-triage.test.ts src/store-scope.test.ts src/store-limit.test.ts src/stripe.test.ts src/billing-grant.test.ts src/ai-30-trazabilidad.test.ts src/billing-finance.test.ts src/invoicing.test.ts src/platform-finance.test.ts src/copilot-tokens.test.ts src/capacidad-cartera.test.ts src/invite-codes.test.ts src/vinculacion.test.ts src/decision-playbook-chat-context.test.ts src/paid-media-engine.test.ts src/conversion-engine.test.ts src/agent-task-delivery.test.ts src/call-task-due-hint.test.ts src/call-task-ownership.test.ts src/campaign-outcome.test.ts src/consultant-proposal-guidance.test.ts src/decision-blocks-engine.test.ts src/knowledge-catalog.test.ts src/marketing-brand-profile.test.ts src/marketing-playbook-api.test.ts src/marketing-playbook-pdf.test.ts src/marketing-playbook-visual.test.ts src/marketing-playbook.test.ts src/marketing-template-profile.test.ts src/marketing-template-selection.test.ts src/meta-measurement-verdict.test.ts src/plan-horizon-context.test.ts src/shopify-fulfillment-events.test.ts src/stock-risk-evidence.test.ts src/task-outcome.test.ts src/consultant-specialist-context.test.ts src/camino-review-scheduling.test.ts src/camino-goal-progress.test.ts src/a20-product-repurchase-contract.test.ts src/retention-agent-evidence.test.ts src/klaviyo-performance-tools.test.ts src/shopify-operational-context.test.ts src/visual-asset-sources.test.ts src/meta-static-image.test.ts src/a15-migration-contract.test.ts src/a16-brief-contract.test.ts src/a23-daily-trend-contract.test.ts src/meta-creative-vision.test.ts src/meta-visual-asset.test.ts src/a24-meta-scope.test.ts src/marketing-draft-idempotency.test.ts src/marketing-mailing-sequence.test.ts src/klaviyo-flow-architect-context.test.ts src/klaviyo-flow-definition-summary.test.ts src/klaviyo-flow-event-volume.test.ts src/a28-flow-architect-contract.test.ts src/klaviyo-email-report-summary.test.ts src/marketing-peer-history.test.ts",
     "test:offer-pricing": "tsx --test --test-force-exit src/offer-pricing-engine.test.ts",
     "test:retention-crm": "tsx --test --test-force-exit src/retention-crm-engine.test.ts",
     "test:unit-economics": "tsx --test --test-force-exit src/unit-economics-engine.test.ts",
@@ -227,9 +380,29 @@
     "test:benchmark-confidence": "tsx --test --test-force-exit src/benchmark-confidence-engine.test.ts",
     "test:intervention-eligibility": "tsx --test --test-force-exit src/intervention-eligibility-engine.test.ts src/intervention-matching-engine.test.ts src/intervention-prioritization-engine.test.ts src/intervention-impact-engine.test.ts src/intervention-feasibility-engine.test.ts src/intervention-risk-engine.test.ts src/intervention-sequencing-engine.test.ts src/intervention-test-execute-engine.test.ts src/intervention-intensity-engine.test.ts src/maturity-recommendations-engine.test.ts src/constraint-recommendations-engine.test.ts src/recommendation-portfolio-engine.test.ts src/dynamic-decision-engine.test.ts src/restraint-decision-engine.test.ts src/expected-outcome-engine.test.ts src/decision-playbook-chat-context.test.ts src/ai-playbook-insights-api.test.ts",
     "test:finance": "tsx --test --test-force-exit src/billing-finance.test.ts",
+    "test:camino-proposal-decision": "tsx --test --test-force-exit src/camino-proposal-decision.test.ts",
+    "test:camino-proposal-adjustment": "tsx --test --test-force-exit src/camino-proposal-adjustment.test.ts",
+    "test:delivery-store-scope": "tsx --test --test-force-exit src/delivery-store-scope.test.ts",
+    "test:knowledge-gap-signals": "tsx --test --test-force-exit src/knowledge-gap-signals.test.ts",
+    "test:a09-specialist-context": "tsx --test --test-force-exit src/consultant-specialist-context.test.ts",
+    "test:a20-retention": "tsx --test --test-force-exit src/a20-product-repurchase-contract.test.ts src/retention-agent-evidence.test.ts",
+    "test:camino-goal-progress": "tsx --test --test-force-exit src/camino-goal-progress.test.ts",
+    "test:camino-review-scheduling": "tsx --test --test-force-exit src/camino-review-scheduling.test.ts",
     "test:markdown": "tsx --test --test-force-exit src/strategic-plan-markdown.test.ts",
     "test": "npm run test:unit",
-    "test:remote": "dotenv -e ../../.env.local -- node ../../scripts/run-remote-tests.mjs --test --test-force-exit src/sql-gateway.test.ts src/rls-tenant-isolation.test.ts src/db-00-private-schema-permissions.test.ts src/db-01-enum-drift.test.ts src/db-04-webhook-idempotency.test.ts src/db-04-token-refresh-claim.test.ts src/be-01-cross-tenant-route-manipulation.test.ts src/ai-01-call-summary-decision-status.test.ts src/db-02-metrics-rpc-tenant-isolation.test.ts src/db-08-purge-cascade.test.ts src/db-11-knowledge-search-isolation.test.ts src/be-07-sql-gateway-tenant-isolation.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-orchestration-task-dedup.test.ts src/ai-observability-trace.test.ts src/auth-context-access-source.test.ts src/be-01-consultant-cross-tenant-write.test.ts src/be-01-cross-tenant-write-endpoints.test.ts src/ai-09-organization-daily-budget.test.ts src/be-00-graceful-shutdown.test.ts src/fe-02-period-comparison.test.ts src/db-03-financial-engine-golden.test.ts src/fe-04-mi-camino-tree.test.ts src/db-01-notifications-lifecycle.test.ts src/sqo-04-platform-admin-privilege-escalation.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts"
+    "test:a12-klaviyo-performance": "tsx --test --test-force-exit src/klaviyo-performance-tools.test.ts",
+    "test:a13-store-scope": "tsx --test --test-force-exit src/shopify-operational-context.test.ts",
+    "test:a15-visual-sources": "tsx --test --test-force-exit src/visual-asset-sources.test.ts",
+    "test:a15-meta-static-image": "tsx --test --test-force-exit src/meta-static-image.test.ts",
+    "test:a15-migration-contract": "tsx --test --test-force-exit src/a15-migration-contract.test.ts",
+    "test:a16-brief-contract": "tsx --test --test-force-exit src/a16-brief-contract.test.ts",
+    "test:a23-daily-trend-contract": "tsx --test --test-force-exit src/a23-daily-trend-contract.test.ts src/meta-creative-vision.test.ts src/meta-visual-asset.test.ts",
+    "test:a24-meta-scope": "tsx --test --test-force-exit src/a24-meta-scope.test.ts",
+    "test:a27-draft-idempotency": "tsx --test --test-force-exit src/marketing-draft-idempotency.test.ts",
+    "test:a27-mailing-sequence": "tsx --test --test-force-exit src/marketing-mailing-sequence.test.ts",
+    "test:a28-flow-architect": "tsx --test --test-force-exit src/klaviyo-flow-architect-context.test.ts src/klaviyo-flow-definition-summary.test.ts src/klaviyo-flow-event-volume.test.ts src/a28-flow-architect-contract.test.ts src/klaviyo-email-report-summary.test.ts src/marketing-peer-history.test.ts",
+    "test:a26-html": "tsx --test --test-force-exit src/email-body-text.test.ts src/email-html-analysis.test.ts src/email-render-queue.test.ts src/klaviyo-email-template-scope.test.ts src/klaviyo-template-history.test.ts src/klaviyo-report-groupings.test.ts src/klaviyo-variation-report.test.ts src/klaviyo-variation-content.test.ts src/marketing-peer-history.test.ts src/marketing-store-scope.test.ts",
+    "test:remote": "dotenv -e ../../.env.local -- node ../../scripts/run-remote-tests.mjs --test --test-force-exit src/sql-gateway.test.ts src/rls-tenant-isolation.test.ts src/db-00-private-schema-permissions.test.ts src/db-01-enum-drift.test.ts src/db-04-webhook-idempotency.test.ts src/db-04-token-refresh-claim.test.ts src/be-01-cross-tenant-route-manipulation.test.ts src/ai-01-call-summary-decision-status.test.ts src/db-02-metrics-rpc-tenant-isolation.test.ts src/db-08-purge-cascade.test.ts src/db-11-knowledge-search-isolation.test.ts src/be-07-sql-gateway-tenant-isolation.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-orchestration-task-dedup.test.ts src/ai-activity-feed.test.ts src/ai-observability-trace.test.ts src/auth-context-access-source.test.ts src/be-01-consultant-cross-tenant-write.test.ts src/be-01-cross-tenant-write-endpoints.test.ts src/ai-09-organization-daily-budget.test.ts src/be-00-graceful-shutdown.test.ts src/fe-02-period-comparison.test.ts src/db-03-financial-engine-golden.test.ts src/fe-04-mi-camino-tree.test.ts src/db-01-notifications-lifecycle.test.ts src/sqo-04-platform-admin-privilege-escalation.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts"
   },
   "engines": {
     "node": "24.x"
@@ -245,15 +418,19 @@
     "@fastify/helmet": "^13.1.0",
     "@fastify/rate-limit": "^11.1.0",
     "@supabase/supabase-js": "^2.109.0",
-    "fastify": "^5.6.2",
+    "css-tree": "3.2.1",
+    "fastify": "^5.12.5",
     "ioredis": "^5.11.1",
     "nodemailer": "^10.0.10",
+    "parse5": "8.0.1",
+    "pdfjs-dist": "6.3.289",
     "pgsql-ast-parser": "^12.0.2",
     "stripe": "22.6.0",
     "ws": "^8.21.1",
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@types/css-tree": "3.2.0",
     "@types/node": "^20.19.17",
     "@types/nodemailer": "^8.0.1",
     "@types/ws": "^8.18.1",

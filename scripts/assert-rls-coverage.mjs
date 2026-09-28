@@ -26,7 +26,20 @@ const rlsTables = names(
 const policyTables = names(
   /create\s+policy\s+[^\n]+\s+on\s+public\.([a-z0-9_]+)/gi,
 );
-const serviceOnlyTables = new Set(["client_invites", "memory_ingestion_queue", "referrals"]);
+const serviceOnlyTables = new Set([
+  "client_invites",
+  "memory_ingestion_queue",
+  "referrals",
+  "ai_agent_refresh_limits",
+  "marketing_brand_profiles",
+  "internal_mailing_playbook_entries",
+  "klaviyo_template_snapshots",
+  "platform_ai_prompts",
+  "platform_ai_runs",
+  "platform_ai_security_events",
+  "meta_measurement_verdict_cache",
+  "marketing_mailing_sequences",
+]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));
 const unclassifiedPolicyless = [...tables].filter(

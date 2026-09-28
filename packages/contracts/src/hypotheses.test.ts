@@ -292,7 +292,7 @@ test("§43: una metrica de resultado no es candidata a raiz", () => {
 test("§51 y §52: que lo proponga un agente no es evidencia", () => {
   const r = reglas({
     hypotheses: [
-      causal({ confidence: "medium", proposing_agent: "a03_analista_adquisicion" }),
+      causal({ confidence: "medium", proposing_agent: "a14_operativa_meta" }),
       hip({ hypothesis_id: "H-2", code: "H2" }),
     ],
   });

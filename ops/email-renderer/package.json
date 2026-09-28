@@ -1,0 +1,12 @@
+{
+  "name": "@e-nora/email-renderer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test render-core.test.mjs",
+    "start": "node worker.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

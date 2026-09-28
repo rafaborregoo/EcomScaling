@@ -2,7 +2,9 @@ import { pathToFileURL } from "node:url";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { extractInternalPlaybookPdfText, MAX_INTERNAL_PLAYBOOK_PDF_BYTES } from "./marketing-playbook-pdf.js";
+import { registerInternalMailingVisualImageBodyParser } from "./marketing-playbook-visual.js";
 import { Redis } from "ioredis";
 import {
   describeEnvironmentTargetRisk,
@@ -24,6 +26,7 @@ import {
   redactSensitiveText,
 } from "@e-nora/observability";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
+import { parseCaminoDurationMonths } from "@e-nora/ai";
 import { getAdminModelPrices, runAdminModelPriceSync } from "./ai-model-pricing.js";
 import { apiMetrics } from "./metrics.js";
 import {
@@ -33,13 +36,15 @@ import {
 import { listConsultantTemporalUrgency } from "./temporal-urgency-api.js";
 import { listConsultantDecisionImpact } from "./decision-impact-api.js";
 import { listConsultantConstraints } from "./constraints-api.js";
-import { listConsultantFeasibility } from "./feasibility-api.js";
-import { listConsultantRisk } from "./risk-api.js";
-import { listConsultantAllocation } from "./allocation-api.js";
-import { listConsultantStrategicFit } from "./strategic-fit-api.js";
-import { listConsultantRanking } from "./ranking-api.js";
-import { listConsultantPortfolio } from "./portfolio-api.js";
-import { listConsultantDecisionOutputs } from "./decision-output-api.js";
+import {
+  listConsultantAllocation,
+  listConsultantDecisionOutputs,
+  listConsultantFeasibility,
+  listConsultantPortfolio,
+  listConsultantRanking,
+  listConsultantRisk,
+  listConsultantStrategicFit,
+} from "./decision-blocks-api.js";
 import { listConsultantPlaybookRuns } from "./playbook-api.js";
 import { listConsultantAcquisitionRuns } from "./acquisition-api.js";
 import { listConsultantPaidMediaRuns } from "./paid-media-api.js";
@@ -145,6 +150,8 @@ import {
   listConsultantPlans,
   listConsultantStores,
   listMarketingDraftNotes,
+  listAgentOutputNotes,
+  addAgentOutputNote,
   setMarketingDraftSchedule,
   listConsultants,
   createOwnStore,
@@ -308,9 +315,11 @@ import {
   addTaskComment,
   createTask,
   evaluateAlertRules,
+  listTaskAssignees,
   listOperations,
   runAlertRulesForAllOrganizations,
   updateAlertStatus,
+  updateTaskAssignment,
   updateTaskStatus,
 } from "./operations.js";
 import { listAlertRules, upsertAlertRule } from "./alert-rules.js";
@@ -336,6 +345,7 @@ import {
   listKpiSnapshots,
   listCampaignPlanningAttention,
   updateCampaignCalendarExecution,
+  recordCampaignOutcomeVerdict,
   updateCampaignCalendarItem,
   upsertKpiSnapshot,
 } from "./campaign-planning.js";
@@ -344,6 +354,7 @@ import {
   type ProposedWriteEdit,
   getConsultantChatMessages,
   getEmailAnalystDiagnostic,
+  getKlaviyoFlowArchitectDiagnostic,
   getMonitorDiagnostic,
   getKnowledgeManagerDiagnostic,
   getOperativaShopifyDiagnostic,
@@ -369,13 +380,25 @@ import {
   isPlanHorizon,
   listAgentRuns,
   getAgentRunTrace,
+  getA26EmailRenderCapture,
   getOrganizationDailyBudgetStatusForOrganization,
   listMarketingContentDrafts,
+  listMarketingTemplatePage,
+  getMarketingBrandProfile,
+  saveMarketingBrandProfile,
+  listInternalMailingPlaybook,
+  previewInternalMailingPlaybook,
+  getInternalMailingPlaybookEntry,
+  saveInternalMailingPlaybookDraft,
+  setInternalMailingPlaybookStatus,
   listMarketingContentDraftVersions,
   updateMarketingContentDraft,
   decideMarketingContentDraft,
   runMarketingContentDraft,
   runWeeklyMailingPlanner,
+  getWeeklyMailingPlanSequence,
+  updateWeeklyMailingPlanSequenceStatus,
+  analyzeInternalMailingVisualReference,
   saveManualMarketingDraft,
   submitMarketingContentDraft,
   uploadMarketingAsset,
@@ -383,9 +406,12 @@ import {
   submitConsultantChatFeedback,
   runCallAnalyst,
   getDiagnosticOrchestratorObservability,
+  getAdminAiAgentRefreshLimits,
+  setAdminAiAgentRefreshLimit,
   runConsultantChatTurn,
   runDiagnosticOrchestratorTick,
   runEmailAnalystAgent,
+  runKlaviyoFlowArchitectAgent,
   runKnowledgeManagerAgent,
   runOperativaShopifyAgent,
   runOperativaMetaAgent,
@@ -397,7 +423,6 @@ import {
   getCampaignPlanProposal,
   isCampaignPlanHorizon,
   getCaminoProposal,
-  isCaminoHorizon,
   type ConsultantChatViewContext,
   describeProviderRedundancy,
   isAgentAutorunEnabled,
@@ -409,6 +434,8 @@ import type { StripeWebhookHeaders } from "./stripe-webhook.js";
 import {
   enqueueInstagramImage,
   listInstagramImageBank,
+  listMetaVisualImageCandidates,
+  importMetaVisualImage,
   updateInstagramImageMarkdown,
   retryInstagramImage,
   deleteInstagramImage,
@@ -471,6 +498,7 @@ import {
   linkTaskToMilestone,
   reorderMilestones,
   reorderPhases,
+  recordCaminoChangeProposalAction,
   updateMilestone,
   updateMilestoneStatus,
   updatePhase,
@@ -659,6 +687,13 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.headers["x-request-id"]?.toString() ?? crypto.randomUUID(),
   });
 
+  app.addContentTypeParser(
+    "application/pdf",
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
+  );
+  registerInternalMailingVisualImageBodyParser(app);
+
   await app.register(cors, {
     origin: env.WEB_ORIGIN,
     credentials: true,
@@ -741,12 +776,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     timeWindow: "1 minute",
     skipOnError: true,
     redis: rateLimitRedis,
-    keyGenerator: (request) =>
+    keyGenerator: (request: FastifyRequest) =>
       decodeJwtSubject(request.headers.authorization) ?? request.ip,
     // `INTERNAL_API_SECRET` es opcional en la config: sin este `Boolean(...)`,
     // cuando no esta puesto `undefined === undefined` seria true y el limite
     // quedaria desactivado para todo el mundo.
-    allowList: (request) =>
+    allowList: (request: FastifyRequest) =>
       // El preflight CORS no llega a ningun handler y no lleva
       // `Authorization`, asi que `keyGenerator` caia a la IP: en local todas
       // las pestanas compartian ese cubo y, detras del proxy, lo compartirian
@@ -1991,6 +2026,31 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendServiceFailure(reply, result);
       }
 
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get<{ Params: { organizationId: string; outputId: string } }>(
+    "/v1/organizations/:organizationId/ai/outputs/:outputId/notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listAgentOutputNotes(env, auth.context, request.params.organizationId, request.params.outputId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; outputId: string };
+    Body: { body?: string; from_ai?: boolean };
+  }>(
+    "/v1/organizations/:organizationId/ai/outputs/:outputId/notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await addAgentOutputNote(env, auth.context, request.params.organizationId, request.params.outputId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
     },
   );
@@ -3616,7 +3676,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         rateLimit: {
           max: 1200,
           timeWindow: "1 minute",
-          keyGenerator: (request) =>
+          keyGenerator: (request: FastifyRequest) =>
             `pixel:${String((request.query as { s?: string }).s ?? "")}`,
         },
       },
@@ -4114,6 +4174,139 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
     const result = await runAdminModelPriceSync(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get("/v1/admin/ai-agent-refresh-limits", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getAdminAiAgentRefreshLimits(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.put<{
+    Body: { agent_code?: string; daily_manual_refresh_limit?: number };
+  }>("/v1/admin/ai-agent-refresh-limits", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await setAdminAiAgentRefreshLimit(
+      env,
+      auth.context,
+      request.body?.agent_code ?? "",
+      request.body?.daily_manual_refresh_limit ?? Number.NaN,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Playbook privado de mailing: endpoints exclusivos de platform admin.
+  app.post(
+    "/v1/admin/marketing-playbook/extract-pdf",
+    { bodyLimit: MAX_INTERNAL_PLAYBOOK_PDF_BYTES },
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (auth.context.profile.platform_role !== "platform_admin") {
+        return reply.code(403).send({ error: "platform_admin_required" });
+      }
+      try {
+        return await extractInternalPlaybookPdfText(request.body as Buffer);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        const statusCode = code === "marketing_playbook_pdf_invalid" ? 400 : 422;
+        return reply.code(statusCode).send({
+          error: code || "marketing_playbook_pdf_parse_failed",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/v1/admin/marketing-playbook/analyze-image",
+    { bodyLimit: 1_400_000 },
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (auth.context.profile.platform_role !== "platform_admin") {
+        return reply.code(403).send({ error: "platform_admin_required" });
+      }
+      if (request.headers["x-reference-rights-confirmed"] !== "true") {
+        return reply.code(400).send({ error: "reference_rights_confirmation_required" });
+      }
+      if (!Buffer.isBuffer(request.body)) {
+        return reply.code(400).send({ error: "reference_image_binary_required" });
+      }
+      const result = await analyzeInternalMailingVisualReference(env, {
+        actorUserId: auth.context.user.id,
+        imageBytes: request.body,
+        contentType: (request.headers["content-type"] ?? "").split(";")[0]?.trim() ?? "",
+        rightsConfirmed: true,
+      });
+      if (result.ok === false) return reply.code(result.statusCode).send({ error: result.error });
+      return result.data;
+    },
+  );
+
+  app.get<{ Querystring: { include_drafts?: string } }>("/v1/admin/marketing-playbook", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await listInternalMailingPlaybook(
+      env,
+      auth.context,
+      request.query.include_drafts !== "false",
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Body: unknown }>("/v1/admin/marketing-playbook/preview", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await previewInternalMailingPlaybook(env, auth.context, request.body);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get<{ Params: { entryId: string } }>("/v1/admin/marketing-playbook/:entryId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await getInternalMailingPlaybookEntry(env, auth.context, request.params.entryId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Body: Record<string, unknown> }>("/v1/admin/marketing-playbook", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await saveInternalMailingPlaybookDraft(env, auth.context, request.body);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Params: { entryId: string }; Body: Record<string, unknown> }>("/v1/admin/marketing-playbook/:entryId/versions", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await saveInternalMailingPlaybookDraft(env, auth.context, request.body, request.params.entryId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Params: { entryId: string } }>("/v1/admin/marketing-playbook/:entryId/publish", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await setInternalMailingPlaybookStatus(env, auth.context, request.params.entryId, "published");
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Params: { entryId: string } }>("/v1/admin/marketing-playbook/:entryId/retire", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await setInternalMailingPlaybookStatus(env, auth.context, request.params.entryId, "retired");
     if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
   });
@@ -5954,6 +6147,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       dueAt?: string;
       isVisibleToClient?: boolean;
       milestoneId?: string | null;
+      assignedTo?: string | null;
     };
   }>("/v1/organizations/:organizationId/tasks", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -5976,9 +6170,40 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(201).send(result.data);
   });
 
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/task-assignees",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listTaskAssignees(env, auth.context, request.params.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.patch<{
     Params: { organizationId: string; taskId: string };
-    Body: { status?: string; reason?: string };
+    Body: { assignedTo?: string | null; dueAt?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/tasks/:taskId/assignment",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await updateTaskAssignment(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.taskId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; taskId: string };
+    Body: { status?: string; reason?: string; outcome?: unknown };
   }>(
     "/v1/organizations/:organizationId/tasks/:taskId/status",
     async (request, reply) => {
@@ -5995,6 +6220,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.taskId,
         request.body?.status,
         request.body?.reason,
+        request.body?.outcome,
       );
 
       if (isServiceFailure(result)) {
@@ -6208,7 +6434,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
     "/v1/organizations/:organizationId/strategic-plan",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -6228,6 +6454,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         authorization,
         auth.context,
         request.params.organizationId,
+        request.query.connectionId,
       );
 
       if (isServiceFailure(result)) {
@@ -6239,10 +6466,38 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   app.post<{
+    Params: { organizationId: string; planId: string; proposalId: string };
+    Body: {
+      action?: string;
+      reason?: string;
+      expected_last_event_id?: string | null;
+      edited_proposal?: { description?: string; reason?: string; evidence?: string; target_id?: string | null };
+    };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/:planId/proposals/:proposalId/action",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await recordCaminoChangeProposalAction(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.planId,
+        request.params.proposalId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
     Params: { organizationId: string };
     Body: {
       name?: string;
       description?: string | null;
+      storeId?: string | null;
+      connectionId?: string | null;
       phases?: Array<{
         name?: string;
         description?: string | null;
@@ -6858,9 +7113,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.send(await getAgentEvalReadiness(env));
   });
 
-  // AI-02: diagnostico automatico, sin boton de "aprobar para ver" (RLS ya deja
-  // ver pending_approval a consultor/admin). Devuelve el ultimo run fresco
-  // (<24h) o genera uno nuevo sobre la marcha si no hay ninguno o esta viejo.
+  // A02: GET es de solo lectura. Devuelve el último resultado aunque esté
+  // obsoleto; el cron o la acción POST explícita son quienes pueden generarlo.
   app.get<{
     Params: { organizationId: string };
     Querystring: { connectionId?: string; days?: string };
@@ -6886,7 +7140,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  // Regenerar ahora (ignora la cache de 24h): boton secundario "Actualizar".
+  // Regenerar ahora bajo acción explícita del usuario: botón «Actualizar ahora».
   app.post<{
     Params: { organizationId: string };
     Querystring: { connectionId?: string; days?: string };
@@ -7047,7 +7301,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   // A19: propuesta de CAMINO (plan estrategico completo) para un horizonte.
   // No se autogenera al abrir la pantalla como los diagnosticos: el GET solo
   // recupera la propuesta que ya exista, el POST es el que gasta modelo.
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { horizonMonths?: string; connectionId?: string };
+  }>(
     "/v1/organizations/:organizationId/ai/camino-proposal",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -7056,10 +7313,18 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
+      const horizonMonths = request.query.horizonMonths === undefined
+        ? undefined
+        : parseCaminoDurationMonths(request.query.horizonMonths);
+      if (request.query.horizonMonths !== undefined && horizonMonths === null) {
+        return reply.code(400).send({ error: "invalid_camino_horizon" });
+      }
       const result = await getCaminoProposal(
         env,
         auth.context,
         request.params.organizationId,
+        horizonMonths ?? undefined,
+        request.query.connectionId,
       );
 
       if (isServiceFailure(result)) {
@@ -7073,7 +7338,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.post<{
     Params: { organizationId: string };
     Querystring: { connectionId?: string };
-    Body: { horizon?: string };
+    Body: { horizon?: string; horizon_months?: number; brief?: string };
   }>(
     "/v1/organizations/:organizationId/ai/camino-proposal/run",
     aiEndpointRateLimit,
@@ -7084,8 +7349,9 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
-      const horizon = request.body?.horizon ?? "";
-      if (!isCaminoHorizon(horizon)) {
+      const requestedHorizon = request.body?.horizon_months ?? request.body?.horizon ?? "";
+      const horizonMonths = parseCaminoDurationMonths(requestedHorizon);
+      if (horizonMonths === null) {
         return reply.code(400).send({ error: "invalid_camino_horizon" });
       }
 
@@ -7093,8 +7359,10 @@ export async function buildApp(): Promise<FastifyInstance> {
         env,
         auth.context,
         request.params.organizationId,
-        horizon,
+        horizonMonths,
         request.query.connectionId,
+        undefined,
+        typeof request.body?.brief === "string" ? request.body.brief.slice(0, 2000) : null,
       );
 
       if (isServiceFailure(result)) {
@@ -7109,7 +7377,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // sigue siendo un segundo gesto humano (activateStrategicPlan).
   app.post<{
     Params: { organizationId: string };
-    Body: { output_id?: string };
+    Body: { output_id?: string; horizon_months?: number; goal_target?: number | null };
   }>(
     "/v1/organizations/:organizationId/strategic-plan/from-proposal",
     async (request, reply) => {
@@ -7129,6 +7397,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         outputId,
+        { horizonMonths: request.body?.horizon_months, ...(Object.prototype.hasOwnProperty.call(request.body ?? {}, "goal_target") ? { goalTarget: request.body?.goal_target } : {}) },
       );
 
       if (isServiceFailure(result)) {
@@ -7168,7 +7437,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.post<{
     Params: { organizationId: string };
     Querystring: { connectionId?: string };
-    Body: { horizon?: string };
+    Body: { horizon?: string; brief?: string };
   }>(
     "/v1/organizations/:organizationId/ai/campaign-plan/run",
     aiEndpointRateLimit,
@@ -7190,6 +7459,8 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         horizon,
         request.query.connectionId,
+        undefined,
+        typeof request.body?.brief === "string" ? request.body.brief.slice(0, 2000) : null,
       );
 
       if (isServiceFailure(result)) {
@@ -7344,7 +7615,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   // AI (A12): analista de email marketing (Klaviyo), mismo patron read-only.
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
     "/v1/organizations/:organizationId/ai/email-analyst",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -7357,6 +7628,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         env,
         auth.context,
         request.params.organizationId,
+        request.query.connectionId || null,
       );
 
       if (isServiceFailure(result)) {
@@ -7367,7 +7639,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  app.post<{ Params: { organizationId: string } }>(
+  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
     "/v1/organizations/:organizationId/ai/email-analyst-run",
     aiEndpointRateLimit,
     async (request, reply) => {
@@ -7381,12 +7653,41 @@ export async function buildApp(): Promise<FastifyInstance> {
         env,
         auth.context,
         request.params.organizationId,
+        request.query.connectionId || null,
       );
 
       if (isServiceFailure(result)) {
         return sendServiceFailure(reply, result);
       }
 
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // A28: arquitectura propuesta de flows; lectura e informe, sin mutaciones Klaviyo.
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
+    "/v1/organizations/:organizationId/ai/klaviyo-flow-architect",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getKlaviyoFlowArchitectDiagnostic(
+        env, auth.context, request.params.organizationId, request.query.connectionId || null,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
+    "/v1/organizations/:organizationId/ai/klaviyo-flow-architect-run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await runKlaviyoFlowArchitectAgent(
+        env, auth.context, request.params.organizationId, request.query.connectionId || null,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
     },
   );
@@ -7445,7 +7746,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       run: runContenidoEmailAgent,
     },
   ] as const) {
-    app.get<{ Params: { organizationId: string } }>(
+    app.get<{
+      Params: { organizationId: string };
+      Querystring: { connectionId?: string };
+    }>(
       `/v1/organizations/:organizationId/ai/${agent.slug}`,
       async (request, reply) => {
         const auth = await resolveAuthContext(
@@ -7455,11 +7759,61 @@ export async function buildApp(): Promise<FastifyInstance> {
         if (isAuthContextError(auth)) {
           return sendAuthFailure(reply, auth.error);
         }
-        const result = await agent.get(
-          env,
-          auth.context,
-          request.params.organizationId,
-        );
+        const fallbackGet = (agent as unknown as {
+          get: (
+            apiEnv: Parameters<typeof getMedicionMetaDiagnostic>[0],
+            authContext: Parameters<typeof getMedicionMetaDiagnostic>[1],
+            orgId: string,
+          ) => Promise<any>;
+        }).get;
+        const result =
+          agent.slug === "operativa-shopify"
+            ? await getOperativaShopifyDiagnostic(
+                env,
+                auth.context,
+                request.params.organizationId,
+                request.query.connectionId,
+              )
+            : agent.slug === "operativa-meta"
+              ? await getOperativaMetaDiagnostic(
+                  env,
+                  auth.context,
+                  request.params.organizationId,
+                  request.query.connectionId,
+                )
+            : agent.slug === "adquisicion-shopify"
+                ? await getAdquisicionShopifyDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : agent.slug === "retencion-clientes"
+                ? await getRetencionClientesDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : agent.slug === "postventa-shopify"
+                ? await getPostventaShopifyDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : agent.slug === "contenido-email"
+                ? await getContenidoEmailDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : agent.slug === "creatividad-meta"
+                ? await getCreatividadMetaDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : agent.slug === "medicion-meta"
+                ? await getMedicionMetaDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : agent.slug === "cambios-meta"
+                ? await getCambiosMetaDiagnostic(
+                    env, auth.context, request.params.organizationId, request.query.connectionId,
+                  )
+              : await fallbackGet(
+                  env,
+                  auth.context,
+                  request.params.organizationId,
+                );
         if (isServiceFailure(result)) {
           return sendServiceFailure(reply, result);
         }
@@ -7467,7 +7821,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       },
     );
 
-    app.post<{ Params: { organizationId: string } }>(
+    app.post<{
+      Params: { organizationId: string };
+      Querystring: { connectionId?: string };
+    }>(
       `/v1/organizations/:organizationId/ai/${agent.slug}-run`,
       aiEndpointRateLimit,
       async (request, reply) => {
@@ -7478,11 +7835,63 @@ export async function buildApp(): Promise<FastifyInstance> {
         if (isAuthContextError(auth)) {
           return sendAuthFailure(reply, auth.error);
         }
-        const result = await agent.run(
-          env,
-          auth.context,
-          request.params.organizationId,
-        );
+        const fallbackRun = (agent as unknown as {
+          run: (
+            apiEnv: Parameters<typeof runMedicionMetaAgent>[0],
+            authContext: Parameters<typeof runMedicionMetaAgent>[1],
+            orgId: string,
+          ) => Promise<any>;
+        }).run;
+        const result =
+          agent.slug === "operativa-shopify"
+            ? await runOperativaShopifyAgent(
+                env,
+                auth.context,
+                request.params.organizationId,
+                undefined,
+                request.query.connectionId,
+              )
+            : agent.slug === "operativa-meta"
+              ? await runOperativaMetaAgent(
+                  env,
+                  auth.context,
+                  request.params.organizationId,
+                  undefined,
+                  request.query.connectionId,
+                )
+              : agent.slug === "adquisicion-shopify"
+                ? await runAdquisicionShopifyAgent(
+                    env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                  )
+                : agent.slug === "retencion-clientes"
+                  ? await runRetencionClientesAgent(
+                      env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                    )
+              : agent.slug === "postventa-shopify"
+                ? await runPostventaShopifyAgent(
+                    env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                  )
+              : agent.slug === "contenido-email"
+                ? await runContenidoEmailAgent(
+                    env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                  )
+              : agent.slug === "creatividad-meta"
+                ? await runCreatividadMetaAgent(
+                    env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                  )
+              : agent.slug === "medicion-meta"
+                ? await runMedicionMetaAgent(
+                    env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                  )
+              : agent.slug === "cambios-meta"
+                ? await runCambiosMetaAgent(
+                    env, auth.context, request.params.organizationId, undefined, request.query.connectionId,
+                  )
+              : await fallbackRun(
+                  env,
+                  auth.context,
+                  request.params.organizationId,
+                );
         if (isServiceFailure(result)) {
           return sendServiceFailure(reply, result);
         }
@@ -7582,6 +7991,33 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.get<{
+    Params: { organizationId: string; runId: string; fileName: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/runs/:runId/email-render/:fileName",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+
+      const result = await getA26EmailRenderCapture(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.params.runId,
+        request.params.fileName,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply
+        .header("Cache-Control", "private, no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .type("image/png")
+        .send(result.data.capture);
+    },
+  );
+
   app.post<{
     Params: { organizationId: string; outputId: string };
     // `edits`: el consultor reescribe o descarta propuestas sueltas antes de
@@ -7625,7 +8061,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // para copiar manualmente.
   app.post<{
     Params: { organizationId: string };
-    Body: { content_type?: string; brief?: string };
+    Body: { content_type?: string; brief?: string; idempotency_key?: string };
   }>(
     "/v1/organizations/:organizationId/marketing/drafts",
     aiEndpointRateLimit,
@@ -7641,6 +8077,45 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { store_connection_id?: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/brand-profile",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getMarketingBrandProfile(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.store_connection_id || null,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/marketing/brand-profile",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await saveMarketingBrandProfile(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
     },
   );
 
@@ -7666,6 +8141,48 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string; sequenceId: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getWeeklyMailingPlanSequence(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; sequenceId: string };
+    Body: { status?: unknown };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId/status",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const status = request.body?.status;
+      if (status !== "in_progress" && status !== "completed" && status !== "abandoned") {
+        return reply.code(400).send({ error: "weekly_mailing_sequence_status_invalid" });
+      }
+      const result = await updateWeeklyMailingPlanSequenceStatus(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+        status,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send(result.data);
     },
   );
 
@@ -7752,6 +8269,40 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/instagram/image-bank/meta-assets",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listMetaVisualImageCandidates(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/image-bank/meta-import",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await importMetaVisualImage(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(result.data.deduped ? 200 : 201).send(result.data);
     },
   );
 
@@ -7952,6 +8503,41 @@ export async function buildApp(): Promise<FastifyInstance> {
         authorization,
         auth.context,
         request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { cursor_created_at?: string; cursor_id?: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/templates",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization)
+        return reply.code(401).send({ error: "missing_bearer_token" });
+
+      const { cursor_created_at: createdAt, cursor_id: id } = request.query;
+      const hasCursor = Boolean(createdAt || id);
+      const validCursor =
+        !hasCursor ||
+        (typeof createdAt === "string" &&
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(createdAt) &&
+          typeof id === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+      if (!validCursor)
+        return reply.code(400).send({ error: "invalid_template_cursor" });
+
+      const result = await listMarketingTemplatePage(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        hasCursor ? { createdAt: createdAt!, id: id! } : null,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
@@ -8971,6 +9557,20 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.itemId,
         request.body ?? {},
       );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; itemId: string };
+    Body: { verdict?: string; reason?: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/verdict",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await recordCampaignOutcomeVerdict(env, auth.context, request.params.organizationId, request.params.itemId, request.body ?? {});
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },

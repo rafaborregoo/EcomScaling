@@ -142,6 +142,10 @@ type BulkOrderLine = BulkLine & {
     estimatedDeliveryAt?: string | null;
     trackingInfo?: Array<{ company?: string | null; number?: string | null }> | null;
   }> | null;
+  shippingAddress?: {
+    countryCodeV2?: string | null;
+    provinceCode?: string | null;
+  } | null;
   customer?: { id?: string | null; numberOfOrders?: number | null } | null;
   customerJourneySummary?: {
     customerOrderIndex?: number | null;
@@ -352,7 +356,8 @@ type BlockKey =
   | "abandoned_checkouts"
   | "discounts"
   | "marketing_events"
-  | "collections";
+  | "collections"
+  | "fulfillment_events";
 
 type BlockState = {
   read: number;
@@ -370,6 +375,226 @@ type BlockState = {
 
 function createBlockState(): BlockState {
   return { read: 0, written: 0, failed: 0, error: null, warning: null };
+}
+
+type NormalizedFulfillmentReason = {
+  reason_code:
+    | "customs_hold"
+    | "address_issue"
+    | "delivery_attempt"
+    | "carrier_delay"
+    | "carrier_failure"
+    | "unknown";
+  reason_confidence: number;
+};
+
+/** The original carrier message is classified transiently and never persisted. */
+export function classifyFulfillmentEventReason(
+  status: string,
+  message: string | null | undefined,
+): NormalizedFulfillmentReason {
+  const normalized = (message ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  if (/\b(customs?|aduanas?|customs clearance|clearance hold|import duty|border inspection)\b/.test(normalized)) {
+    return { reason_code: "customs_hold", reason_confidence: 0.98 };
+  }
+  if (/\b(incorrect address|wrong address|address issue|undeliverable|direccion incorrecta|direccion incompleta)\b/.test(normalized)) {
+    return { reason_code: "address_issue", reason_confidence: 0.95 };
+  }
+  if (status === "ATTEMPTED_DELIVERY") {
+    return { reason_code: "delivery_attempt", reason_confidence: 0.99 };
+  }
+  if (status === "DELAYED") {
+    return { reason_code: "carrier_delay", reason_confidence: 0.99 };
+  }
+  if (status === "FAILURE") {
+    return { reason_code: "carrier_failure", reason_confidence: 0.95 };
+  }
+  return { reason_code: "unknown", reason_confidence: 0 };
+}
+
+type ShopifyFulfillmentEvent = {
+  id: string;
+  status: string;
+  happenedAt: string;
+  estimatedDeliveryAt?: string | null;
+  message?: string | null;
+};
+
+type FulfillmentEventsResponse = {
+  node: {
+    id: string;
+    events: {
+      nodes: ShopifyFulfillmentEvent[];
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    };
+  } | null;
+};
+
+const FULFILLMENT_EVENTS_QUERY = `query FulfillmentEvents($id: ID!, $first: Int!, $after: String) {
+  node(id: $id) {
+    ... on Fulfillment {
+      id
+      events(first: $first, after: $after) {
+        nodes { id status happenedAt estimatedDeliveryAt message }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`;
+
+type LocalFulfillmentForEventSync = {
+  id: string;
+  external_fulfillment_id: string;
+  external_created_at: string | null;
+  external_updated_at: string | null;
+  delivered_at: string | null;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_external_updated_at: string | null;
+  next_cursor: string | null;
+  event_count: number | null;
+  sync_status: "complete" | "partial" | "failed" | null;
+};
+
+async function syncShopifyFulfillmentEvents(input: {
+  supabase: SupabaseClient;
+  shopDomain: string;
+  accessToken: string;
+  organizationId: string;
+  storeId: string;
+}): Promise<{ read: number; written: number; failed: number; warning: string | null }> {
+  const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: fulfillments, error: fulfillmentError } = await input.supabase.rpc(
+    "shopify_fulfillment_event_candidates",
+    {
+      p_organization_id: input.organizationId,
+      p_store_id: input.storeId,
+      p_created_after: cutoff,
+    },
+  );
+  if (fulfillmentError) throw new Error("fulfillment_event_candidates_unavailable");
+  const candidates = (fulfillments ?? []) as LocalFulfillmentForEventSync[];
+  if (!candidates.length) return { read: 0, written: 0, failed: 0, warning: null };
+
+  let read = 0;
+  let written = 0;
+  let failed = 0;
+  let partial = 0;
+  let pagesRemaining = 60;
+  for (const fulfillment of candidates) {
+    const changed = (fulfillment.last_external_updated_at ?? null) !== (fulfillment.external_updated_at ?? null);
+    let cursor = changed ? null : fulfillment.next_cursor ?? null;
+    let eventCount = changed || !fulfillment.next_cursor ? 0 : Number(fulfillment.event_count ?? 0);
+    let status: "complete" | "partial" | "failed" = "partial";
+    let errorCode: string | null = null;
+    let lastPageInfo = { hasNextPage: false, endCursor: null as string | null };
+
+    try {
+      for (let page = 0; page < 3 && pagesRemaining > 0; page += 1) {
+        const response = await shopifyGraphql<FulfillmentEventsResponse>(
+          input.shopDomain,
+          input.accessToken,
+          FULFILLMENT_EVENTS_QUERY,
+          { id: fulfillment.external_fulfillment_id, first: 100, after: cursor },
+        );
+        pagesRemaining -= 1;
+        read += 1;
+        if (!response.node || !response.node.events) {
+          errorCode = "fulfillment_events_node_unavailable";
+          status = "failed";
+          break;
+        }
+        const events = response.node.events.nodes ?? [];
+        const eventRows = events.map((event) => {
+          const reason = classifyFulfillmentEventReason(event.status, event.message);
+          const normalizedStatus = new Set([
+            "ATTEMPTED_DELIVERY", "CARRIER_PICKED_UP", "CONFIRMED", "DELAYED",
+            "DELIVERED", "FAILURE", "IN_TRANSIT", "LABEL_PRINTED",
+            "LABEL_PURCHASED", "OUT_FOR_DELIVERY", "READY_FOR_PICKUP",
+          ]).has(event.status) ? event.status : "OTHER";
+          return {
+            organization_id: input.organizationId,
+            store_id: input.storeId,
+            fulfillment_id: fulfillment.id,
+            external_event_id: event.id,
+            status: normalizedStatus,
+            happened_at: event.happenedAt,
+            estimated_delivery_at: event.estimatedDeliveryAt ?? null,
+            ...reason,
+          };
+        });
+        if (eventRows.length) {
+          const { error } = await input.supabase
+            .from("shopify_fulfillment_events")
+            .upsert(eventRows, { onConflict: "store_id,external_event_id" });
+          if (error) {
+            errorCode = "fulfillment_events_persist_failed";
+            status = "failed";
+            break;
+          }
+          written += eventRows.length;
+          eventCount += eventRows.length;
+        }
+        lastPageInfo = response.node.events.pageInfo;
+        cursor = lastPageInfo.endCursor;
+        if (!lastPageInfo.hasNextPage) {
+          status = "complete";
+          break;
+        }
+        status = "partial";
+      }
+    } catch {
+      errorCode = "shopify_fulfillment_events_read_failed";
+      status = "failed";
+    }
+
+    const attemptedAt = new Date().toISOString();
+    const completedAt = status === "complete" ? attemptedAt : fulfillment.last_success_at ?? null;
+    const { error: stateUpsertError } = await input.supabase
+      .from("shopify_fulfillment_event_sync_state")
+      .upsert({
+        fulfillment_id: fulfillment.id,
+        organization_id: input.organizationId,
+        store_id: input.storeId,
+        last_attempt_at: attemptedAt,
+        last_success_at: completedAt,
+        last_external_updated_at: changed ? fulfillment.external_updated_at : fulfillment.last_external_updated_at ?? fulfillment.external_updated_at,
+        next_cursor: status === "complete" ? null : lastPageInfo.hasNextPage ? lastPageInfo.endCursor : null,
+        event_count: eventCount,
+        status,
+        error_code: errorCode,
+      }, { onConflict: "fulfillment_id" });
+    if (!stateUpsertError) {
+      const { error: exceptionRefreshError } = await input.supabase.rpc(
+        "refresh_shopify_delivery_exception",
+        {
+          p_organization_id: input.organizationId,
+          p_store_id: input.storeId,
+          p_fulfillment_id: fulfillment.id,
+        },
+      );
+      if (exceptionRefreshError) {
+        errorCode = "delivery_exception_refresh_failed";
+        status = "failed";
+        await input.supabase
+          .from("shopify_fulfillment_event_sync_state")
+          .update({ status, error_code: errorCode })
+          .eq("fulfillment_id", fulfillment.id)
+          .eq("store_id", input.storeId);
+      }
+    }
+    if (stateUpsertError || errorCode) failed += 1;
+    if (!stateUpsertError && status === "partial") partial += 1;
+    if (pagesRemaining <= 0) break;
+  }
+
+  const warning = failed || partial || candidates.some((row) => !row.last_attempt_at)
+    ? "La sincronización de eventos de fulfillment sigue parcial; la ausencia de eventos no prueba ausencia de incidencias."
+    : null;
+  return { read, written, failed, warning };
 }
 
 function createServiceClient(env: ApiEnv) {
@@ -718,6 +943,7 @@ export async function runShopifyInitialSync(
     discounts: createBlockState(),
     marketing_events: createBlockState(),
     collections: createBlockState(),
+    fulfillment_events: createBlockState(),
   };
 
   // Recorriendo `blocks` y no una lista aparte: son las mismas claves, y
@@ -1332,6 +1558,7 @@ export async function runShopifyInitialSync(
                 sourceName
                 displayFinancialStatus
                 displayFulfillmentStatus
+                shippingAddress { countryCodeV2 provinceCode }
                 currencyCode
                 presentmentCurrencyCode
                 currentSubtotalPriceSet { shopMoney { amount } }
@@ -1396,6 +1623,8 @@ export async function runShopifyInitialSync(
         customer_reference_hash: order.customer?.id
           ? sha256(order.customer.id)
           : null,
+        shipping_country_code: order.shippingAddress?.countryCodeV2 ?? null,
+        shipping_region_code: order.shippingAddress?.provinceCode ?? null,
         financial_status: order.displayFinancialStatus ?? null,
         fulfillment_status: order.displayFulfillmentStatus ?? null,
         source_name: order.sourceName ?? null,
@@ -1864,6 +2093,30 @@ export async function runShopifyInitialSync(
       blocks.orders.error = blocks.orders.error ?? message;
       blocks.refunds.failed += 1;
       blocks.refunds.error = blocks.refunds.error ?? message;
+    }
+
+    // Tracking events are a separate bounded read. Carrier message text is
+    // inspected only in memory to derive a small reason code; no address or
+    // source message is persisted, logged, or sent to the model.
+    try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      const eventSync = await syncShopifyFulfillmentEvents({
+        supabase,
+        shopDomain,
+        accessToken,
+        organizationId: connection.organization_id,
+        storeId,
+      });
+      blocks.fulfillment_events.read += eventSync.read;
+      blocks.fulfillment_events.written += eventSync.written;
+      blocks.fulfillment_events.failed += eventSync.failed;
+      blocks.fulfillment_events.warning = eventSync.warning;
+    } catch (error) {
+      blocks.fulfillment_events.failed += 1;
+      blocks.fulfillment_events.warning =
+        error instanceof Error
+          ? error.message
+          : "fulfillment_events_sync_unavailable";
     }
 
     try {

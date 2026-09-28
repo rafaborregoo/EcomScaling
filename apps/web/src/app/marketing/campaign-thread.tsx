@@ -13,6 +13,7 @@ import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import {
   Badge,
   Button,
+  ButtonLink,
   Card,
   EmptyState,
   LoadingBlock,
@@ -96,7 +97,12 @@ export function CampaignThread({
       ) : visible.length === 0 ? (
         <EmptyState
           title="Sin campañas activas"
-          hint="Propón un plan arriba y llévalo al calendario, o créalas desde Planificación."
+          hint="Propón un plan arriba y llévalo al calendario, o créalas desde Planificación → Agenda."
+          action={
+            <ButtonLink href="/planificacion/calendario" variant="secondary">
+              Abrir Agenda
+            </ButtonLink>
+          }
         />
       ) : (
         <List as="ul">

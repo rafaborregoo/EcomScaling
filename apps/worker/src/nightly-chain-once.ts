@@ -43,13 +43,7 @@ export const NIGHTLY_CHAIN = [
   "temporal-urgency", // 4.03
   "decision-impact", // 4.04
   "constraints", // 4.05
-  "feasibility", // 4.06
-  "risk", // 4.07
-  "allocation", // 4.08
-  "strategic-fit", // 4.09
-  "ranking", // 4.10
-  "portfolio", // 4.11
-  "decision-output", // 4.12
+  "decision-blocks", // 4.06-4.12, un solo motor (decision-blocks-engine.ts)
   // F5 playbooks
   "playbook", // 5.00
   "acquisition", // 5.01

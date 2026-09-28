@@ -43,6 +43,7 @@ import {
   Settings,
   SlidersHorizontal,
   Sparkles,
+  Store,
   Users,
   Wallet,
 } from "lucide-react";
@@ -198,6 +199,10 @@ export function ActivityIcon(props: ComponentPropsWithoutRef<"svg">) {
 
 export function WalletIcon(props: ComponentPropsWithoutRef<"svg">) {
   return <Wallet {...props} />;
+}
+
+export function StoreIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return <Store {...props} />;
 }
 
 export function PanelLeftIcon(props: ComponentPropsWithoutRef<"svg">) {

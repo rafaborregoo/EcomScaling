@@ -27,7 +27,6 @@ import {
   Card,
   EmptyState,
   LoadingBlock,
-  Select,
 } from "@/components/ui";
 import {
   storeLabel,
@@ -286,21 +285,33 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
                       <p className="truncate">{label}</p>
                       <p className="text-muted">{provider}</p>
                     </div>
-                    <div className="sm:w-64 sm:shrink-0">
-                      <Select
-                        aria-label={`Tienda de ${label} (${provider})`}
-                        aria-describedby={rowError ? rowErrorId : undefined}
-                        invalid={Boolean(rowError)}
-                        disabled={isSaving}
-                        value={draft[account.id] ?? UNASSIGNED}
-                        onChange={(value) =>
-                          setDraft((current) => ({
-                            ...current,
-                            [account.id]: value,
-                          }))
-                        }
-                        options={storeOptions}
-                      />
+                    <div
+                      className="flex flex-wrap gap-1.5 sm:max-w-[32rem] sm:justify-end"
+                      role="group"
+                      aria-label={`Tienda de ${label} (${provider})`}
+                      aria-describedby={rowError ? rowErrorId : undefined}
+                    >
+                      {storeOptions.map((option) => {
+                        const selected = (draft[account.id] ?? UNASSIGNED) === option.value;
+                        return (
+                          <Button
+                            key={option.value || "unassigned"}
+                            type="button"
+                            size="sm"
+                            variant={selected ? "primary" : "secondary"}
+                            aria-pressed={selected}
+                            disabled={isSaving}
+                            onClick={() =>
+                              setDraft((current) => ({
+                                ...current,
+                                [account.id]: option.value,
+                              }))
+                            }
+                          >
+                            {option.label}
+                          </Button>
+                        );
+                      })}
                       {rowError ? (
                         <p
                           id={rowErrorId}

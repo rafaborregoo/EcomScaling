@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
 import { pivotCohorts, retentionRate, type CohortRow } from "./cohort-pivot";
 import {
+  AreaChart,
+  BarChart,
   Badge,
   Banner,
   Card,
@@ -74,6 +76,20 @@ export type ShopifyInsights = {
     late_deliveries: number;
     avg_delay_days: number | null;
   } | null;
+  delivery_exceptions?: Array<{
+    id: string;
+    order_name: string | null;
+    tracking_company: string | null;
+    exception_type: string;
+    reason_confidence: number;
+    likely_area: string;
+    next_action_code: string;
+    episode_started_at: string;
+    age_hours: number;
+    last_observed_at: string;
+    latest_event_at: string | null;
+    latest_event_status: string | null;
+  }> | null;
   checkout_recovery: {
     checkouts: number;
     recovered: number;
@@ -144,9 +160,23 @@ function LifetimeMetrics({
   const horizon = ltv ? `a ${ltv.milestone_days} días` : "";
   const payback = lifetime?.payback;
   const churnRate = churn?.churn_rate == null ? null : Number(churn.churn_rate);
+  const hasCompleteContribution = Boolean(
+    lifetime?.curve.length &&
+      lifetime.curve.every((milestone) => milestone.avg_contribution != null),
+  );
+  const lifetimeChartData = (lifetime?.curve ?? [])
+    .filter((milestone) => milestone.avg_revenue != null)
+    .map((milestone) => ({
+      hito: `${milestone.milestone_days} días`,
+      Ingresos: Number(milestone.avg_revenue),
+      ...(hasCompleteContribution
+        ? { Margen: Number(milestone.avg_contribution) }
+        : {}),
+    }));
 
   return (
-    <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-4 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric
         card
         label={`LTV (margen) ${horizon}`.trim()}
@@ -197,9 +227,37 @@ function LifetimeMetrics({
         hint={
           churn && churn.base_customers > 0
             ? `${count(Number(churn.churned_customers))} de ${count(Number(churn.base_customers))} no han vuelto`
-            : "sin clientes en la base"
+          : "sin clientes en la base"
         }
       />
+      </div>
+      {lifetimeChartData.length > 1 ? (
+        <div className="border-t border-edge pt-4">
+          <div className="mb-2">
+            <p className="text-sm font-medium text-foreground">
+              Evolución del valor por cliente
+            </p>
+            <p className="text-xs text-muted">
+              Ingresos medios acumulados desde la primera compra.
+              {hasCompleteContribution
+                ? " También se muestra el margen cuando todos los costes están disponibles."
+                : " El margen no aparece porque faltan costes en alguno de los hitos."}
+            </p>
+          </div>
+          <AreaChart
+            data={lifetimeChartData}
+            xKey="hito"
+            series={[
+              { key: "Ingresos", label: "Ingresos", color: "#2563eb" },
+              ...(hasCompleteContribution
+                ? [{ key: "Margen", label: "Margen", color: "#15805d" }]
+                : []),
+            ]}
+            height={220}
+            valueFormatter={(amount) => formatMoney(amount, currency)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -490,6 +548,19 @@ function AttributionSection({
     .filter((row) => row.attributed)
     .reduce((total, row) => total + row.orders, 0);
   const totalOrders = rows.reduce((total, row) => total + row.orders, 0);
+  const channelRevenue = new Map<string, number>();
+  rows.forEach((row) => {
+    if (row.attributed) {
+      channelRevenue.set(
+        row.channel,
+        (channelRevenue.get(row.channel) ?? 0) + row.revenue,
+      );
+    }
+  });
+  const channelChartData = [...channelRevenue.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 8)
+    .map(([channel, revenue]) => ({ channel, revenue }));
 
   const columns: TableColumnDef<AttributionRow>[] = [
     {
@@ -546,6 +617,28 @@ function AttributionSection({
         </Banner>
       ) : (
         <>
+          {channelChartData.length ? (
+            <div className="mb-4 border-t border-edge pt-4">
+              <div className="mb-2">
+                <p className="text-sm font-medium text-foreground">
+                  Ingresos atribuidos por canal
+                </p>
+                <p className="text-xs text-muted">
+                  Canales con más ingresos según la primera visita registrada por Shopify.
+                </p>
+              </div>
+              <BarChart
+                data={channelChartData}
+                xKey="channel"
+                series={[
+                  { key: "revenue", label: "Ingresos", color: "#2563eb" },
+                ]}
+                horizontal
+                height={Math.max(180, channelChartData.length * 42)}
+                valueFormatter={(amount) => formatMoney(amount, currency)}
+              />
+            </div>
+          ) : null}
           <Table
             ariaLabel="Pedidos por canal de primera visita"
             columns={columns}
@@ -871,6 +964,77 @@ function RecoverySection({
   );
 }
 
+const DELIVERY_EXCEPTION_LABELS: Record<string, string> = {
+  eta_overdue: "ETA vencida",
+  customs_hold: "Retención aduanera informada",
+  address_issue: "Problema de dirección informado",
+  delivery_attempt: "Intento de entrega informado",
+  carrier_delay: "Retraso informado por el transportista",
+  carrier_failure: "Incidencia del transportista",
+};
+
+const DELIVERY_NEXT_ACTIONS: Record<string, string> = {
+  investigate_overdue_shipment: "Comprobar el seguimiento y la fecha prometida.",
+  verify_customs_documentation: "Revisar si falta documentación aduanera.",
+  verify_address_with_customer: "Verificar la dirección antes de un nuevo intento.",
+  confirm_delivery_attempt: "Confirmar el resultado del intento de entrega.",
+  review_carrier_eta: "Contrastar la nueva fecha estimada con el transportista.",
+  escalate_carrier: "Solicitar al transportista el estado actualizado.",
+};
+
+const DELIVERY_AREAS: Record<string, string> = {
+  carrier_or_customs: "Área a investigar: transportista o aduanas",
+  merchant_fulfillment: "Área a investigar: preparación del pedido",
+  unknown: "Área a investigar: aún sin determinar",
+};
+
+function DeliveryExceptionsSection({ insights }: { insights: ShopifyInsights }) {
+  const exceptions = insights.delivery_exceptions;
+
+  return (
+    <Card
+      id="shopify-incidencias-entrega"
+      title="Incidencias de entrega"
+      description="Seguimiento de envíos que requieren revisión; una señal no determina por sí sola quién es responsable."
+    >
+      {exceptions == null ? (
+        <Banner tone="warn" className="text-sm">
+          No se pudo cargar la cola de incidencias. No equivale a que no haya envíos afectados.
+        </Banner>
+      ) : exceptions.length === 0 ? (
+        <EmptyState title="No hay incidencias abiertas en los envíos sincronizados" hint="Esto no confirma que todos los pedidos estén ya sincronizados; las señales aparecerán cuando Shopify comunique un problema o venza la fecha estimada." />
+      ) : (
+        <ul className="divide-y divide-edge">
+          {exceptions.map((item) => (
+            <li key={item.id} className="grid gap-2 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">
+                    {item.order_name ? `Pedido ${item.order_name}` : "Pedido sin número disponible"}
+                  </span>
+                  <Badge tone="warn">{DELIVERY_EXCEPTION_LABELS[item.exception_type] ?? "Incidencia de entrega"}</Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  {DELIVERY_NEXT_ACTIONS[item.next_action_code] ?? "Revisar el seguimiento del envío."}
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  {item.tracking_company || "Transportista no identificado"} · {DELIVERY_AREAS[item.likely_area] ?? DELIVERY_AREAS.unknown}
+                  {item.latest_event_status ? ` · Último estado: ${item.latest_event_status}` : ""}
+                </p>
+              </div>
+              <div className="text-xs text-muted sm:text-right">
+                <div>Abierta hace {decimal(item.age_hours, " h")}</div>
+                <div>Fiabilidad de la señal: {Math.round(item.reason_confidence * 100)}%</div>
+                <div className="mt-1">Última observación: {new Date(item.last_observed_at).toLocaleDateString("es-ES")}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 export function ShopifyInsightsSections({
   organizationId,
   connectionId,
@@ -962,6 +1126,7 @@ export function ShopifyInsightsSections({
       <CohortsSection insights={insights} />
       <AttributionSection insights={insights} currency={currency} />
       <RecoverySection insights={insights} currency={currency} />
+      <DeliveryExceptionsSection insights={insights} />
       <DiscountsSection insights={insights} currency={currency} />
       <OperationsSection insights={insights} currency={currency} />
     </>

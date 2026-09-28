@@ -21,6 +21,7 @@ import test from "node:test";
 import { rankOrdersByStore } from "./consultant.js";
 import {
   resolveChatKnowledgeAudience,
+  resolveChatStoreSelection,
   sanitizeChatViewContext,
 } from "./ai-runtime.js";
 import { createKnowledgeDocument } from "./knowledge.js";
@@ -148,6 +149,25 @@ test("un contexto de vista sin contenido util no genera bloque", () => {
     null,
     "tipos que no son los esperados se ignoran en vez de reventar",
   );
+});
+
+test("A09 conserva una tienda seleccionada y no confunde IDs inválidos con todas las tiendas", () => {
+  const connectionId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(resolveChatStoreSelection(undefined), { kind: "none" });
+  assert.deepEqual(resolveChatStoreSelection({ store_id: null }), { kind: "none" });
+  assert.deepEqual(resolveChatStoreSelection({ store_id: connectionId }), {
+    kind: "selected",
+    connectionId,
+  });
+  assert.deepEqual(resolveChatStoreSelection({ store_id: "not-a-uuid" }), {
+    kind: "invalid",
+  });
+  assert.deepEqual(resolveChatStoreSelection({ store_id: 42 }), {
+    kind: "invalid",
+  });
+
+  const view = sanitizeChatViewContext({ store_id: connectionId });
+  assert.equal(view?.store_id, connectionId, "la tienda por sí sola cuenta como contexto útil");
 });
 
 // --- AI-07: quien pregunta decide que conocimiento se recupera -------------

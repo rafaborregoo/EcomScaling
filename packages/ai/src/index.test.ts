@@ -42,7 +42,323 @@ import {
   agentOutputJsonSchema,
   chatOutputSchema,
   chatJsonSchema,
+  callProposedTaskSchema,
+  callSummaryOutputSchema,
+  monitorOutputJsonSchema,
+  monitorOutputSchema,
+  weeklyMailingPlanJsonSchema,
+  weeklyMailingPlanOutputSchema,
+  validateAgentImageAttachments,
+  agentInputSchema,
+  platformAgentInputSchema,
 } from "./index.js";
+
+test("platform agent turn is explicitly tenantless and rejects organization IDs", () => {
+  const platformInput = {
+    run_id: "00000000-0000-4000-8000-000000000001",
+    agent_code: "a27_internal_reference_visual",
+    agent_version: "1",
+    actor_user_id: "00000000-0000-4000-8000-000000000002",
+    trigger_type: "manual" as const,
+    objective: "Analyze a private mailing reference",
+    allowed_tools: [],
+    approval_mode: "none" as const,
+    scope: "platform" as const,
+  };
+  assert.equal(platformAgentInputSchema.safeParse(platformInput).success, true);
+  assert.equal(platformAgentInputSchema.safeParse({
+    ...platformInput,
+    organization_id: "00000000-0000-4000-8000-000000000003",
+  }).success, false);
+  assert.equal(agentInputSchema.safeParse(platformInput).success, false);
+});
+
+test("una propuesta de tarea conserva un milestone_id exacto para enlazar tras aprobación", () => {
+  const write = {
+    kind: "task" as const,
+    title: "Completar la fase de margen",
+    description: "Auditar costes y descuentos",
+    priority: "high" as const,
+    rationale: "El hito activo depende de esta revisión.",
+    evidence: [],
+    milestone_id: "00000000-0000-4000-8000-000000000123",
+  };
+  assert.equal(agentProposedWriteSchema.parse(write).milestone_id, write.milestone_id);
+  assert.equal(agentProposedWriteSchema.safeParse({ ...write, milestone_id: "inventado" }).success, false);
+  const proposedWriteJson = agentOutputJsonSchema.properties.proposed_writes.items;
+  assert.deepEqual(proposedWriteJson.properties.milestone_id, { type: ["string", "null"], format: "uuid" });
+});
+
+test("una propuesta conserva el product ID exacto opcional para dedupe determinista de A06", () => {
+  const write = {
+    kind: "task" as const,
+    title: "Revisar reposición de SKU X",
+    description: "Comprobar con proveedor.",
+    priority: "high" as const,
+    rationale: "La cobertura es baja.",
+    evidence: [],
+    related_product_id: "00000000-0000-4000-8000-000000000111",
+  };
+  assert.equal(agentProposedWriteSchema.parse(write).related_product_id, write.related_product_id);
+  assert.equal(agentProposedWriteSchema.safeParse({ ...write, related_product_id: "SKU-X" }).success, false);
+  const jsonWrite = agentOutputJsonSchema.properties.proposed_writes.items;
+  assert.deepEqual(jsonWrite.properties.related_product_id, { type: ["string", "null"], format: "uuid" });
+});
+
+test("A11 internal design playbook tool is read-only, bounded and has a strict input contract", () => {
+  const definition = TOOL_REGISTRY.find((tool) => tool.name === "search_internal_email_design_playbook");
+  const contract = getToolContract("search_internal_email_design_playbook");
+  assert.ok(definition);
+  assert.equal(definition.permission, "read");
+  assert.equal(definition.connector, null);
+  assert.equal(definition.status, "implemented_partial");
+  assert.ok(contract);
+  assert.equal(contract.inputSchema.safeParse({ objective: "launch" }).success, true);
+  assert.equal(contract.inputSchema.safeParse({ objective: "x".repeat(501) }).success, false);
+  assert.equal(contract.inputSchema.safeParse({ objective: "launch", unknown: true }).success, false);
+  assert.equal(contract.outputSchema.safeParse({
+    data: { status: "available", selected: [] },
+    provenance: { source: "search_internal_email_design_playbook", as_of: new Date().toISOString(), freshness_seconds: 0 },
+  }).success, true);
+});
+
+test("propuestas admiten estimaciones acotadas y rechazan divisa/coste inventado mal formado", () => {
+  const write = {
+    kind: "task" as const,
+    title: "Revisar la oferta",
+    description: "Validar el impacto antes de publicar.",
+    priority: "medium" as const,
+    rationale: "Hay una hipótesis por comprobar.",
+    evidence: [],
+    effort_estimate: "unknown" as const,
+    financial_cost_estimate: null,
+  };
+  assert.equal(agentProposedWriteSchema.parse(write).financial_cost_estimate, null);
+  assert.equal(agentProposedWriteSchema.safeParse({ ...write, financial_cost_estimate: { amount: -1, currency: "EUR", basis: "" } }).success, false);
+  const properties = agentOutputJsonSchema.properties.proposed_writes.items.properties;
+  assert.deepEqual(properties.effort_estimate.enum, ["low", "medium", "high", "unknown"]);
+  assert.ok(properties.financial_cost_estimate.anyOf);
+});
+
+test("validates bounded private image attachments and limits image count", () => {
+  const image = {
+    base64: "aGVsbG8=",
+    mediaType: "image/png" as const,
+    label: "desktop preview",
+  };
+  assert.deepEqual(validateAgentImageAttachments([image]), [image]);
+  assert.equal(
+    validateAgentImageAttachments(Array.from({ length: 10 }, () => image))
+      .length,
+    8,
+  );
+  assert.throws(
+    () =>
+      validateAgentImageAttachments([
+        { ...image, base64: "a".repeat(2_000_001) },
+      ]),
+    /agent_image_payload_out_of_bounds/,
+  );
+});
+
+test("A27 entrega dirección visual común y módulos por correo para el handoff A11", () => {
+  const valid = weeklyMailingPlanOutputSchema.safeParse({
+    plan_name: "Semana lanzamiento",
+    diagnosis: "Sin evidencia suficiente",
+    strategy_decision: "Educación primero, oferta solo con margen validado",
+    alternatives_rejected: [{ alternative: "Descuento inmediato", reason: "No hay margen validado" }],
+    objective_rationale: "La prioridad es enseñar el valor antes de pedir la compra.",
+    audience_rationale: "El segmento indicado coincide con la fase de consideración.",
+    cadence: {
+      recommendation: "Dos envíos separados por cuatro días.",
+      requested_schedule_assessment: "El calendario solicitado es razonable para este volumen.",
+      requires_user_approval: false,
+    },
+    experiment: {
+      hypothesis: "Un beneficio concreto aumentará los clics cualificados.",
+      primary_metric: "click_rate",
+      guardrail_metrics: ["unsubscribe_rate", "complaint_rate"],
+      design: "Comparar asunto A/B solo si Klaviyo ofrece muestra suficiente.",
+      decision_rule: "No elegir ganador si la muestra o ventana no bastan.",
+      evidence_status: "insufficient_evidence",
+    },
+    success_criteria: ["Mejorar clics cualificados sin empeorar bajas."],
+    stop_criteria: ["Detener si aumentan quejas o bajas frente al umbral acordado."],
+    sequence_rationale: "Educar y luego presentar el producto",
+    visual_direction:
+      "Editorial modular, paleta de marca y una imagen de producto por correo",
+    emails: [
+      {
+        sequence_number: 1,
+        title: "Presentación",
+        sequence_role: "Abrir el tema y aportar contexto útil.",
+        objective: "Educación",
+        audience: "Nuevos",
+        angle: "Problema y solución",
+        subject_direction: "Curiosidad específica",
+        preheader_direction: "Beneficio concreto",
+        cta: "Ver producto",
+        copy_brief: "No inventar claims",
+        visual_modules:
+          "Hero de texto, producto, bloque de prueba, CTA y footer",
+      },
+    ],
+    sources: [],
+    confidence: "low",
+    warnings: [],
+  });
+  assert.equal(valid.success, true);
+  assert.deepEqual(weeklyMailingPlanJsonSchema.required, [
+    "plan_name",
+    "diagnosis",
+    "strategy_decision",
+    "alternatives_rejected",
+    "objective_rationale",
+    "audience_rationale",
+    "cadence",
+    "experiment",
+    "success_criteria",
+    "stop_criteria",
+    "sequence_rationale",
+    "visual_direction",
+    "emails",
+    "sources",
+    "confidence",
+    "warnings",
+  ]);
+  assert.equal(
+    weeklyMailingPlanOutputSchema.safeParse({
+      plan_name: "x",
+      diagnosis: "x",
+      strategy_decision: "x",
+      alternatives_rejected: [],
+      objective_rationale: "x",
+      audience_rationale: "x",
+      cadence: { recommendation: "x", requested_schedule_assessment: "x", requires_user_approval: false },
+      experiment: { hypothesis: "x", primary_metric: "x", guardrail_metrics: [], design: "x", decision_rule: "x", evidence_status: "not_applicable" },
+      success_criteria: ["x"],
+      stop_criteria: ["x"],
+      sequence_rationale: "x",
+      emails: [],
+      sources: [],
+      confidence: "low",
+      warnings: [],
+    }).success,
+    false,
+  );
+});
+
+test("A01 conserva due_hint y acepta propuestas antiguas sin el campo", () => {
+  const proposal = {
+    title: "Preparar informe",
+    description: "Revisar margen",
+    priority: "medium" as const,
+    owner: "consultor" as const,
+  };
+  assert.equal(
+    callProposedTaskSchema.parse({
+      ...proposal,
+      due_hint: "antes de la próxima llamada",
+    }).due_hint,
+    "antes de la próxima llamada",
+  );
+  assert.equal(callProposedTaskSchema.parse(proposal).due_hint, null);
+});
+
+test("A01 conserva referencias de conocimiento separadas de los hechos de llamada", () => {
+  const legacy = callSummaryOutputSchema.parse({
+    summary: "Resumen",
+    facts: [],
+    decisions: [],
+    recommendations: [],
+    risks: [],
+    proposed_tasks: [],
+    key_quotes: [],
+    confidence: "medium",
+    warnings: [],
+  });
+  assert.deepEqual(legacy.sources, []);
+  assert.deepEqual(legacy.proposed_campaign_ideas, []);
+  assert.deepEqual(legacy.proposed_camino_changes, []);
+  const withReference = callSummaryOutputSchema.parse({
+    ...legacy,
+    sources: [{ kind: "document", reference: "Guía de margen", period: null }],
+    proposed_campaign_ideas: [
+      {
+        objective: "Lanzamiento de verano",
+        audience: "Clientes recurrentes",
+        timing_hint: "Primera semana de junio",
+        evidence_quote: "Hagamos el lanzamiento la primera semana de junio.",
+      },
+    ],
+    proposed_camino_changes: [
+      {
+        change: "Añadir una fase de retención",
+        rationale: "Se acordó priorizar la recompra",
+        evidence_quote:
+          "El siguiente trimestre enfoquémonos en que vuelvan a comprar.",
+      },
+    ],
+  });
+  assert.deepEqual(withReference.sources, [
+    { kind: "document", reference: "Guía de margen", period: null },
+  ]);
+  assert.equal(
+    withReference.proposed_campaign_ideas[0]?.audience,
+    "Clientes recurrentes",
+  );
+  assert.equal(
+    withReference.proposed_camino_changes[0]?.change,
+    "Añadir una fase de retención",
+  );
+});
+
+test("A02 emite titular y secciones, y normaliza compatibilidad sin pedir listas planas", () => {
+  const parsed = monitorOutputSchema.parse({
+    headline: "El margen requiere atención por el aumento de descuentos.",
+    sections: [
+      {
+        key: "finanzas",
+        label: "Ventas y margen",
+        findings: [
+          {
+            title: "Más descuentos",
+            severity: "medium",
+            evidence:
+              "Los descuentos fueron 20 % de la venta bruta durante 30 días.",
+            area: null,
+          },
+        ],
+        recommendations: [
+          {
+            action: "Revisar las reglas de descuento.",
+            priority: "high",
+            expected_impact: "Proteger el margen bruto.",
+            owner: "consultor",
+          },
+        ],
+      },
+    ],
+    sources: [
+      {
+        kind: "metric",
+        reference: "shopify_financial_summary",
+        period: "30 días",
+      },
+    ],
+    confidence: "high",
+    warnings: [],
+  });
+
+  assert.equal(parsed.answer, parsed.headline);
+  assert.equal(parsed.findings[0]?.area, "finanzas");
+  assert.equal(parsed.recommendations.length, 1);
+  assert.deepEqual(parsed.proposed_writes, []);
+  assert.equal(parsed.approval_required, false);
+  assert.equal("answer" in monitorOutputJsonSchema.properties, false);
+  assert.equal("findings" in monitorOutputJsonSchema.properties, false);
+  assert.equal("recommendations" in monitorOutputJsonSchema.properties, false);
+});
 
 test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
   assert.deepEqual(RAG_EMBEDDING_PROFILE, {
@@ -72,7 +388,11 @@ test("A09 devuelve acciones de UI con destino semantico, no URLs libres", () => 
 
   assert.equal(parsed.ui_actions?.[0]?.insight_slug, "continuous-learning");
   assert.deepEqual(
-    (chatJsonSchema.properties.ui_actions as { items: { properties: { kind: { enum: readonly string[] } } } }).items.properties.kind.enum,
+    (
+      chatJsonSchema.properties.ui_actions as {
+        items: { properties: { kind: { enum: readonly string[] } } };
+      }
+    ).items.properties.kind.enum,
     ["open_insight"],
   );
 });
@@ -466,9 +786,15 @@ test("estimateCostUsd calcula coste real por modelo conocido", () => {
 
 test("la tarifa de ai_model_prices gana al respaldo y el id fechado cae en su alias", () => {
   assert.equal(estimateCostUsd("claude-haiku-4-5-20251001", 1_000_000, 0), 1);
-  setLiveModelPricing({ "gpt-5.5": { inputPerMTok: 6, outputPerMTok: 36 } }, "2026-10-01");
+  setLiveModelPricing(
+    { "gpt-5.5": { inputPerMTok: 6, outputPerMTok: 36 } },
+    "2026-10-01",
+  );
   try {
-    assert.equal(estimateCostUsd("gpt-5.5-2026-04-23", 1_000_000, 1_000_000), 42);
+    assert.equal(
+      estimateCostUsd("gpt-5.5-2026-04-23", 1_000_000, 1_000_000),
+      42,
+    );
     assert.equal(getPricingVersion(), "2026-10-01");
     // Lo que la tabla no tiene sigue saliendo del respaldo.
     assert.equal(estimateCostUsd("claude-opus-4-8", 1_000_000, 1_000_000), 30);
@@ -614,8 +940,11 @@ test("la extracción de imagen de Instagram valida hex y arma el markdown de con
       { label: "ámbar", hex: "#c8862f" },
     ],
     style: "producto editorial, luz natural dura",
+    composition: "El producto ocupa el centro y queda aire en los laterales.",
+    aspect_ratio_estimate: "square" as const,
     ocr_text: "",
     suggested_use: "Portada de carrusel de lanzamiento.",
+    inferences: [],
     alt_text: "Vela encendida sobre una superficie de mármol claro.",
     confidence: "high" as const,
   };
@@ -630,9 +959,10 @@ test("la extracción de imagen de Instagram valida hex y arma el markdown de con
 
   const md = instagramImageAnalysisToMarkdown(
     instagramImageAnalysisSchema.parse(base),
-    { filename: "vela.jpg", url: "https://cdn.example.com/vela.jpg" },
+    { filename: "vela.jpg" },
   );
-  assert.match(md, /# Imagen: vela\.jpg/);
+  assert.match(md, /# Activo visual: vela\.jpg/);
+  assert.doesNotMatch(md, /https?:\/\//);
   assert.match(md, /blanco roto \(#f4f1ec\)/);
   assert.match(md, /\*\*Texto en la imagen:\*\* —/);
 });
@@ -753,6 +1083,47 @@ test("las tools de contexto de dominio tienen contrato y permanecen en solo lect
       false,
     );
   }
+});
+
+test("A12 tiene tools de rendimiento acotadas y estrictamente read-only", () => {
+  const validWindow = { period_start: "2026-01-01", period_end: "2026-03-31" };
+  for (const name of ["klaviyo_performance_summary", "klaviyo_deliverability_health"]) {
+    const contract = getToolContract(name);
+    assert.equal(contract?.definition.permission, "read");
+    assert.equal(contract?.definition.status, "implemented_partial");
+    assert.equal(contract?.definition.connector, "klaviyo");
+    assert.equal(contract?.inputSchema.safeParse(validWindow).success, true);
+    assert.equal(contract?.inputSchema.safeParse({ ...validWindow, store_id: "other" }).success, false);
+    assert.equal(contract?.inputSchema.safeParse({ ...validWindow, period_end: "2026-04-01T00:00:00Z" }).success, false);
+  }
+  const entity = getToolContract("klaviyo_entity_performance");
+  assert.equal(entity?.inputSchema.safeParse({
+    ...validWindow,
+    entity_type: "flow",
+    entity_id: "123e4567-e89b-42d3-a456-426614174000",
+  }).success, true);
+  assert.equal(entity?.inputSchema.safeParse({
+    ...validWindow,
+    entity_type: "campaign",
+    entity_id: "not-a-uuid",
+  }).success, false);
+});
+
+test("A23 creative drilldown is a bounded read-only tool with server-owned store scope", () => {
+  const contract = getToolContract("meta_creative_diagnostics");
+  const tool = TOOL_REGISTRY.find((item) => item.name === "meta_creative_diagnostics");
+  const base = {
+    ad_id: "00000000-0000-4000-8000-000000000001",
+    period_start: "2020-01-01",
+    period_end: "2020-03-31",
+  };
+  assert.equal(tool?.permission, "read");
+  assert.equal(tool?.connector, "meta");
+  assert.equal(tool?.status, "implemented_partial");
+  assert.equal(contract?.inputSchema.safeParse(base).success, true);
+  assert.equal(contract?.inputSchema.safeParse({ ...base, store_id: "other" }).success, false);
+  assert.equal(contract?.inputSchema.safeParse({ ...base, ad_id: "not-an-id" }).success, false);
+  assert.equal(contract?.inputSchema.safeParse({ ...base, period_end: "2020-04-01" }).success, false);
 });
 
 test("las tools de listas exigen paginacion explicita y nunca cortan en silencio", () => {
@@ -1210,4 +1581,65 @@ test("el JSON Schema exige rationale y evidence en cada proposed_write", () => {
 
   assert.equal(write.required.includes("rationale"), true);
   assert.equal(write.required.includes("evidence"), true);
+});
+
+test("las propuestas tipan el contrato de entrega semanal y siguen aceptando salidas antiguas", () => {
+  const write = {
+    kind: "task" as const,
+    title: "Preparar una prueba de oferta",
+    description: "Comparar la oferta actual con una alternativa.",
+    priority: "medium" as const,
+    owner_role: "cliente" as const,
+    completion_criteria: "Prueba aprobada y resultado registrado en Tareas.",
+    expected_metric: "Conversión de sesión a pedido durante 14 días.",
+    due_hint: "Antes del viernes de esta semana",
+  };
+  assert.deepEqual(
+    agentProposedWriteSchema.parse(write),
+    { ...write, rationale: "", evidence: [] },
+  );
+  assert.equal(agentProposedWriteSchema.safeParse({ ...write, owner_role: "equipo" }).success, false);
+  assert.equal(agentProposedWriteSchema.safeParse({ ...write, completion_criteria: "x".repeat(501) }).success, false);
+  assert.equal(agentProposedWriteSchema.safeParse({ ...write, due_hint: " " }).success, false);
+
+  const properties = agentOutputJsonSchema.properties.proposed_writes.items.properties;
+  assert.deepEqual(properties.owner_role.enum, ["cliente", "consultor"]);
+  assert.equal(properties.completion_criteria.maxLength, 500);
+  assert.equal(properties.expected_metric.maxLength, 240);
+  assert.equal(properties.due_hint.maxLength, 100);
+});
+
+test("las propuestas admiten línea base y objetivo nulos sin confundirlos con cero", () => {
+  const measurement = {
+    metric_name: "Margen de contribución",
+    unit: "%",
+    baseline: 18.5,
+    target: null,
+    evaluation_window: "30 días desde la activación",
+  };
+  assert.equal(
+    agentProposedWriteSchema.parse({
+      kind: "task",
+      title: "Ajustar descuentos",
+      description: "Probar regla por margen.",
+      priority: "medium",
+      initiative_measurement: measurement,
+    }).initiative_measurement?.target,
+    null,
+  );
+  assert.equal(
+    agentProposedWriteSchema.safeParse({
+      kind: "task",
+      title: "Ajustar descuentos",
+      description: "Probar regla por margen.",
+      priority: "medium",
+      initiative_measurement: { ...measurement, target: Number.POSITIVE_INFINITY },
+    }).success,
+    false,
+  );
+  const properties = agentOutputJsonSchema.properties.proposed_writes.items.properties;
+  assert.deepEqual(properties.initiative_measurement.required, [
+    "metric_name", "unit", "baseline", "target", "evaluation_window",
+  ]);
+  assert.deepEqual(properties.initiative_measurement.properties.target.type, ["number", "null"]);
 });

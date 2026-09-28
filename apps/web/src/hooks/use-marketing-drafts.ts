@@ -25,6 +25,7 @@ export type MarketingDraft = {
     content_type?: string;
     brief?: string;
     design?: TemplateDesign;
+    template_profile?: Record<string, unknown>;
     source?: string;
     klaviyo_template_id?: string;
   } | null;
@@ -70,6 +71,17 @@ export type MarketingDraft = {
    * encender el icono de mensaje sin abrir las piezas una por una.
    */
   thread: PieceThread | null;
+  template_performance?: {
+    measured_entities: number;
+    delivered: number;
+    opens_unique: number;
+    clicks_unique: number;
+    conversions: number;
+    revenue: number;
+    currency_code: string | null;
+    unsubscribes: number;
+    last_sent_at: string | null;
+  } | null;
 };
 
 export function useMarketingDrafts(organizationId: string, canView: boolean) {

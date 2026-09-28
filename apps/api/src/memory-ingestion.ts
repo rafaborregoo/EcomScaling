@@ -23,7 +23,7 @@ const QUEUE_BATCH_SIZE = 20;
 const STALE_CLAIM_MS = 10 * 60 * 1000;
 
 export type MemorySourceType =
-  "call_summary" | "internal_note" | "ai_output_decision";
+  "call_summary" | "internal_note" | "ai_output_decision" | "campaign_outcome_verdict";
 export type MemoryAudience =
   "client_visible" | "consultant_only" | "system_only";
 export type MemoryOrigin =
@@ -54,7 +54,7 @@ export interface EnqueueMemoryIngestionInput {
 
 /**
  * Encola una fuente de memoria (resumen publicado, nota interna, decision
- * sobre salida de IA) para indexacion asincrona. Nunca falla la accion humana
+ * sobre salida de IA o veredicto humano de campaña) para indexacion asincrona. Nunca falla la accion humana
  * que la origina: si Voyage esta caido, la fila queda pendiente y un worker
  * la reintenta. Idempotente por (organization_id, source_type,
  * source_entity_id, source_version) -- volver a llamar con los mismos valores

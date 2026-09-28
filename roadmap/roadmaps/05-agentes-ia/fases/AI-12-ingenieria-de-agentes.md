@@ -1,5 +1,9 @@
 # AI-12 - Ingenieria de agentes (10 disciplinas)
 
+> **Orquestacion 2026-09-26:** feed de actividad compartido entre agentes (`activity_events` +
+> `recent_activity_feed`, inyectado en `runGenericDiagnosticAgent` y en el digest de cache). Mapa y
+> pendientes en AI-05, seccion "Orquestacion global por estado compartido".
+
 > **Evidencia transversal vigente 2026-08-26:** el contrato/calidad IA pasa 60/60 con
 > `npx tsx --test packages/ai/src/index.test.ts`. El API registra runs y coste estimado
 > con etiquetas de baja cardinalidad para diagnosticos, A01, A11 y A09/chat; no incluye

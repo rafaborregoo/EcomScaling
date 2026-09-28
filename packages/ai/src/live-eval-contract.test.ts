@@ -33,8 +33,8 @@ test("genera un caso base para cada agente activo, sin dejarse ninguno", () => {
 });
 
 const testCase: LiveAgentEvalCase = {
-  id: "a03-missing-meta",
-  agentCode: "a03_analista_adquisicion",
+  id: "a14-missing-meta",
+  agentCode: "a14_operativa_meta",
   objective: "Analiza Meta Ads",
   expectedAbstention: true,
   evidenceContext: { organizationId: "eval-org", availableSources: [] },
@@ -91,7 +91,7 @@ test("convierte resultados shadow en evidencia AI-26 con coste, latencia y traza
     results: [
       {
         caseId: "case-1",
-        agentCode: "a03_analista_adquisicion",
+        agentCode: "a14_operativa_meta",
         mode: "shadow",
         passed: true,
         failures: [],
@@ -109,7 +109,7 @@ test("convierte resultados shadow en evidencia AI-26 con coste, latencia y traza
     cases: [
       {
         case_id: "case-1",
-        agent_code: "a03_analista_adquisicion",
+        agent_code: "a14_operativa_meta",
         latency_ms: 250,
         cost_usd: 0.03,
         trace_id: "trace-1",

@@ -17,7 +17,20 @@ import { caminoProposalToPlanInput } from "./strategic-plans.js";
 
 const proposal = {
   plan_name: "Recuperar margen y estabilizar surtido",
+  horizon_months: 3,
   diagnosis: "Margen bruto del 18% en 90 dias con 42 productos sin coste.",
+  goal: {
+    metric_key: "net_sales" as const,
+    metric_label: "Ingresos netos mensuales",
+    unit: "money" as const,
+    currency_code: "EUR",
+    baseline: 8200,
+    target: 10400,
+    target_offset_days: 90,
+    rationale: "El baseline procede de la ventana Shopify comparada y el target depende de recuperar margen primero.",
+    assumptions: ["Costes del catálogo principal completados"],
+    confidence: "medium" as const,
+  },
   phases: [
     {
       name: "Recuperar margen",
@@ -98,6 +111,8 @@ test("la fecha del hito se ancla al momento de aceptar, no al de generar", () =>
   );
 
   assert.equal(plan.name, proposal.plan_name);
+  assert.equal(plan.horizonMonths, proposal.horizon_months);
+  assert.deepEqual(plan.goal, { ...proposal.goal, target_date: "2026-12-04" });
   assert.equal(plan.phases?.length, 2);
 
   // 5 de septiembre + 14 dias = 19 de septiembre.
@@ -117,6 +132,28 @@ test("la fecha del hito se ancla al momento de aceptar, no al de generar", () =>
   );
 });
 
+test("al convertir una propuesta conserva la tienda que la generó", () => {
+  const plan = caminoProposalToPlanInput(
+    caminoPlanOutputSchema.parse(proposal),
+    Date.parse("2026-09-05T10:00:00.000Z"),
+    "store-shopify-1",
+  );
+  assert.equal(plan.storeId, "store-shopify-1");
+});
+
+test("el baseline del Camino queda anclado a la ventana y fecha de su ejecución de origen", () => {
+  const plan = caminoProposalToPlanInput(
+    caminoPlanOutputSchema.parse(proposal),
+    Date.parse("2026-09-05T10:00:00.000Z"),
+    "store-shopify-1",
+    180,
+    "2026-09-01T10:00:00.000Z",
+  );
+  assert.equal(plan.goal?.baseline_window_days, 180);
+  assert.equal(plan.goal?.baseline_observed_at, "2026-09-01T10:00:00.000Z");
+  assert.equal(plan.goal?.target_date, "2026-12-04");
+});
+
 test("el criterio de exito sobrevive al plan: no hay columna propia para el", () => {
   const plan = caminoProposalToPlanInput(
     caminoPlanOutputSchema.parse(proposal),
@@ -129,6 +166,21 @@ test("el criterio de exito sobrevive al plan: no hay columna propia para el", ()
     description.includes("Menos de 5 productos sin coste en el top 80%."),
     "si se pierde, el hito se marca completado a ojo",
   );
+});
+
+test("la meta A19 exige métrica/unidad/plazo y permite baseline o target desconocido", () => {
+  const needsEvidence = structuredClone(proposal) as Record<string, any>;
+  needsEvidence.goal.baseline = null;
+  needsEvidence.goal.target = null;
+  assert.equal(caminoPlanOutputSchema.safeParse(needsEvidence).success, true);
+
+  const wrongCurrency = structuredClone(proposal) as Record<string, any>;
+  delete wrongCurrency.goal.currency_code;
+  assert.equal(caminoPlanOutputSchema.safeParse(wrongCurrency).success, false);
+
+  const unboundedDate = structuredClone(proposal) as Record<string, any>;
+  unboundedDate.goal.target_offset_days = 366;
+  assert.equal(caminoPlanOutputSchema.safeParse(unboundedDate).success, false);
 });
 
 test("los cuatro horizontes del camino cubren de un mes a un ano", () => {

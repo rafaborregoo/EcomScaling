@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   Checkbox,
-  CollapsibleSection,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
@@ -19,6 +18,7 @@ import {
   BackToHub,
   ConnectionFacts,
   ConnectionPicker,
+  InfoModalButton,
   LastErrorBanner,
   ProviderStatusCard,
   Steps,
@@ -227,7 +227,10 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </Banner>
         ) : (
           <>
-            <CollapsibleSection title="Ver los pasos de autorización">
+            <InfoModalButton
+              title="Qué ocurre al conectar Meta Ads"
+              label="Ver pasos y permisos"
+            >
               <Steps
                 items={[
                   <>
@@ -248,7 +251,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </>,
                 ]}
               />
-            </CollapsibleSection>
+            </InfoModalButton>
             <Button
               className="mt-4"
               type="button"
@@ -383,11 +386,9 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <LastErrorBanner provider={meta} />
 
-      <CollapsibleSection title="Detalles técnicos de la conexión">
-        <Card title="Detalles de la conexión">
+      <InfoModalButton title="Detalles técnicos de Meta Ads" label="Detalles técnicos">
           <ConnectionFacts provider={meta} />
-        </Card>
-      </CollapsibleSection>
+      </InfoModalButton>
     </div>
   );
 }

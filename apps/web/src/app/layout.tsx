@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans } from "next/font/google";
 import { AriaRouterProvider } from "@/components/aria-router-provider";
+import { PersistentPortalFrame } from "@/components/persistent-portal-frame";
 import { Toast } from "@/components/ui";
 import "./globals.css";
 
@@ -53,7 +54,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <AriaRouterProvider>
-          {children}
+          <PersistentPortalFrame>{children}</PersistentPortalFrame>
           {/* Arriba y flotando sobre el contenido, justo bajo el nav: un aviso
               de "conectada" o de error tiene que verse sin depender de donde
               este el scroll, y desaparecer solo. */}

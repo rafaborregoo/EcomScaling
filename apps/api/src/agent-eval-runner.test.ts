@@ -52,7 +52,7 @@ test("conecta shadow/live con el writer AI-26 mediante provider inyectado", asyn
   } as any;
   const result = await runAndPersistLiveAgentEvals(
     client,
-    { id: "version-1", code: "a03_analista_adquisicion" },
+    { id: "version-1", code: "a14_operativa_meta" },
     "shadow",
     async () => ({
       output: {
@@ -68,7 +68,7 @@ test("conecta shadow/live con el writer AI-26 mediante provider inyectado", asyn
     [
       {
         id: "case-1",
-        agentCode: "a03_analista_adquisicion",
+        agentCode: "a14_operativa_meta",
         objective: "Analiza Meta Ads",
         expectedAbstention: true,
         evidenceContext: { organizationId: "eval-org", availableSources: [] },

@@ -19,14 +19,15 @@ embedded = true
 #   read_orders -> bulk de pedidos + webhooks orders|refunds
 #   read_products / read_inventory / read_locations -> productos, inventoryLevels, locations
 #   read_customers -> bulk de clientes (requiere Protected customer data access)
-#   read_discounts -> discountNodes
-#   read_marketing_events -> marketingEvents
+#   read_discounts -> discountNodes y métricas por código promocional
+#   read_marketing_events -> eventos/canales de marketing
 #   read_reports -> ShopifyQL, bloque `sessions`
+#   read_returns -> devoluciones y margen neto
 # read_all_orders (historico >60 dias) NO esta: necesita Access request aprobada en
 # el Partner Dashboard; sin ella el deploy falla con "scopes: read_all_orders".
-scopes = "read_products,read_inventory,read_locations,read_orders,read_customers,read_discounts,read_marketing_events,read_reports,write_pixels,read_customer_events"
+scopes = "read_customer_events,read_customers,read_discounts,read_inventory,read_locations,read_marketing_events,read_orders,read_products,read_reports,read_returns,write_pixels"
 optional_scopes = [ ]
-use_legacy_install_flow = false
+use_legacy_install_flow = true
 
 [auth]
 redirect_urls = [

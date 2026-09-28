@@ -70,7 +70,7 @@ export function Metric({
         className,
       )}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         {insight ? (
           <div className="flex items-center gap-1">
             <p className={EYEBROW}>{label}</p>
@@ -81,7 +81,7 @@ export function Metric({
         )}
         <p
           className={cn(
-            "mt-1 font-semibold tracking-tight tabular-nums",
+            "mt-1 text-center font-semibold tracking-tight tabular-nums",
             // A dos por fila en movil la tarjeta mide ~156px: text-2xl parte
             // "12.345,67 €" en dos lineas. Baja por ancho de tarjeta.
             // break-words: no todo valor es una cifra -- /camino mete aqui

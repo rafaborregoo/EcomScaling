@@ -11,16 +11,16 @@ import {
   Banner,
   Button,
   Card,
-  CollapsibleSection,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
-  Select,
+  Modal,
 } from "@/components/ui";
 import {
   BackToHub,
   ConnectionFacts,
   ConnectionPicker,
+  InfoModalButton,
   LastErrorBanner,
   ProviderStatusCard,
   readErr,
@@ -135,6 +135,7 @@ function KlaviyoIntegrationPage({
   // El Select guarda al cambiar y no habia ninguna confirmacion: ni visual ni
   // anunciada. Quien lo usa con teclado no sabia si se habia guardado.
   const [metricStatus, setMetricStatus] = useState("");
+  const [isMetricPickerOpen, setIsMetricPickerOpen] = useState(false);
 
   if (isLoading) {
     return <AsyncState status="loading" loadingLabel="Cargando Klaviyo..." />;
@@ -161,9 +162,18 @@ function KlaviyoIntegrationPage({
   }
 
   const configured = klaviyo.configuration.status === "configured";
+  // Esta página configura y sincroniza la cuenta elegida. El resumen global
+  // del proveedor puede pertenecer a otra conexión de la organización.
+  const selectedProvider = {
+    ...klaviyo,
+    connection,
+    latest_sync: connection?.latest_sync ?? null,
+    health: connection?.health ?? klaviyo.health,
+    activation: connection?.activation ?? klaviyo.activation,
+  };
 
-  async function saveMetric(metricId: string) {
-    if (!organization || !metricId) return;
+  async function saveMetric(metricId: string): Promise<boolean> {
+    if (!organization || !metricId) return false;
     setSavingMetric(true);
     setMetricSaveError(null);
     setMetricStatus("Guardando métrica de conversión...");
@@ -180,7 +190,7 @@ function KlaviyoIntegrationPage({
         const message = await readErr(response);
         setMetricSaveError(message);
         setMetricStatus(`No se pudo guardar la métrica. ${message}`);
-        return;
+        return false;
       }
       setMetricStatus("Métrica de conversión guardada.");
       setMetrics((current) =>
@@ -193,11 +203,13 @@ function KlaviyoIntegrationPage({
                 selected: metric.external_metric_id === metricId,
               })),
             }
-          : current,
+        : current,
       );
+      return true;
     } catch {
       setMetricSaveError("No se pudo guardar la métrica. Reintenta.");
       setMetricStatus("No se pudo guardar la métrica. Reintenta.");
+      return false;
     } finally {
       setSavingMetric(false);
     }
@@ -207,7 +219,7 @@ function KlaviyoIntegrationPage({
     <div className="portal-page space-y-5 sm:space-y-6">
       <BackToHub />
 
-      <ProviderStatusCard provider={klaviyo}>
+      <ProviderStatusCard provider={selectedProvider}>
         <p className="mt-3 text-sm leading-6 text-muted">
           Importa campañas, flujos, listas y métricas de email/SMS, y publica en
           tu cuenta las plantillas aprobadas en Marketing.
@@ -278,12 +290,10 @@ function KlaviyoIntegrationPage({
       </Card>
 
       {connection ? (
-        <CollapsibleSection title="Configurar cómo se mide una venta">
-          <Card
-            className="border border-channel-email"
-            title="Elige qué conversión representa una venta"
-            description="Esta métrica será la referencia para atribuir ingresos y conversiones en los informes de Klaviyo."
-          >
+        <Card
+          title="Métrica de conversión"
+          description="Esta métrica sirve para atribuir ingresos y conversiones en los informes de Klaviyo."
+        >
             {loading ? (
               <LoadingBlock label="Cargando métricas..." />
             ) : metricsError ? (
@@ -295,16 +305,53 @@ function KlaviyoIntegrationPage({
               />
             ) : (
               <>
-                <Select
-                  aria-label="Métrica primaria de conversión"
-                  value={metrics.conversion_metric_id ?? ""}
-                  onChange={(value) => void saveMetric(value)}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsMetricPickerOpen(true)}
                   disabled={savingMetric}
-                  options={metrics.metrics.map((metric) => ({
-                    value: metric.external_metric_id,
-                    label: `${metric.name}${metric.metric_type ? ` · ${metric.metric_type}` : ""}`,
-                  }))}
-                />
+                >
+                  {savingMetric
+                    ? "Guardando…"
+                    : metrics.metrics.find((metric) => metric.selected)?.name ?? "Elegir métrica"}
+                </Button>
+                <Modal isOpen={isMetricPickerOpen} onOpenChange={setIsMetricPickerOpen}>
+                  <Modal.Backdrop>
+                    <Modal.Container size="sm">
+                      <Modal.Dialog aria-label="Elegir métrica de conversión">
+                        <Modal.Header>
+                          <Modal.Heading>¿Qué cuenta como una venta?</Modal.Heading>
+                        </Modal.Header>
+                        <Modal.Body>
+                          <div className="max-h-72 space-y-2 overflow-y-auto">
+                            {metrics.metrics.map((metric) => (
+                              <Button
+                                key={metric.id}
+                                type="button"
+                                size="sm"
+                                variant={metric.selected ? "primary" : "secondary"}
+                                className="w-full justify-start"
+                                disabled={savingMetric}
+                                onClick={async () => {
+                                  const saved = await saveMetric(metric.external_metric_id);
+                                  if (saved) setIsMetricPickerOpen(false);
+                                }}
+                              >
+                                <span className="min-w-0 flex-1 truncate text-left">
+                                  {metric.name}
+                                </span>
+                                {metric.metric_type ? (
+                                  <span className="text-xs opacity-75">{metric.metric_type}</span>
+                                ) : null}
+                              </Button>
+                            ))}
+                          </div>
+                        </Modal.Body>
+                      </Modal.Dialog>
+                    </Modal.Container>
+                  </Modal.Backdrop>
+                </Modal>
                 <p
                   role="status"
                   aria-live="polite"
@@ -319,16 +366,12 @@ function KlaviyoIntegrationPage({
                 ) : null}
               </>
             )}
-          </Card>
-        </CollapsibleSection>
+        </Card>
       ) : null}
 
       {connection ? (
-        <CollapsibleSection title="Ver las últimas lecturas recibidas">
-          <Card
-            title="Últimas lecturas recibidas"
-            description="Mostramos solo datos que Klaviyo ha devuelto. Si no hay filas, todavía no significa que el resultado sea cero."
-          >
+        <InfoModalButton title="Últimas lecturas de Klaviyo" label="Ver lecturas recientes">
+          <p>Mostramos datos que Klaviyo ya ha devuelto. Si no hay filas, todavía no significa que el resultado sea cero.</p>
             {loading ? (
               <LoadingBlock label="Cargando reporting..." />
             ) : reportsError ? (
@@ -390,12 +433,11 @@ function KlaviyoIntegrationPage({
                 })}
               </div>
             )}
-          </Card>
-        </CollapsibleSection>
+        </InfoModalButton>
       ) : null}
 
       <LastErrorBanner
-        provider={klaviyo}
+        provider={selectedProvider}
         retrying={pending === "retry-klaviyo"}
         onRetry={
           connection
@@ -404,11 +446,9 @@ function KlaviyoIntegrationPage({
         }
       />
 
-      <CollapsibleSection title="Detalles técnicos de la conexión">
-        <Card title="Detalles de la conexión">
-          <ConnectionFacts provider={klaviyo} />
-        </Card>
-      </CollapsibleSection>
+      <InfoModalButton title="Detalles técnicos de Klaviyo" label="Detalles técnicos">
+          <ConnectionFacts provider={selectedProvider} />
+      </InfoModalButton>
     </div>
   );
 }

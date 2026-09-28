@@ -2,12 +2,13 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PortalShell } from "@/components/portal-shell";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { buildMarketingBrief } from "@/lib/marketing-brief";
+import { A01_CAMPAIGN_BRIEF_KEY, parseA01BriefHandoff } from "@/lib/a01-call-handoff";
 import { formatMoney } from "@/lib/money";
 import { useUrlSection } from "@/lib/use-url-section";
 import { ModuleSummary } from "@/components/module-summary";
@@ -52,6 +53,7 @@ import {
   type MergeField,
 } from "./template-fields";
 import { useCopilotAsk } from "@/components/copilot-ask";
+import { useMarketingPortal } from "./marketing-portal-context";
 import {
   buildPieceAnalysisQuestion,
   isTemplateInUse,
@@ -71,6 +73,7 @@ import {
   AsyncState,
   LoadingBlock,
   Badge,
+  ButtonLink,
   Banner,
   Button,
   Card,
@@ -82,6 +85,7 @@ import {
   Heading,
   Input,
   List,
+  Modal,
   Select,
   Dropdown,
   Label,
@@ -756,6 +760,8 @@ function UpcomingPublications({
 }
 
 function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { organizationId } = useActiveOrganization();
   const activeMembership = bootstrap.memberships.find(
     (membership) => membership.organization_id === organizationId,
@@ -789,6 +795,12 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
   const [showKlaviyoImport, setShowKlaviyoImport] = useState(false);
+  const [isMailingPlannerOpen, setIsMailingPlannerOpen] = useState(false);
+  const [isCampaignProposalOpen, setIsCampaignProposalOpen] = useState(
+    () => searchParams.get("openCampaignPlan") === "1",
+  );
+  const [campaignProposalBrief, setCampaignProposalBrief] = useState("");
+  const campaignIntentConsumed = useRef(false);
   const [contentType, setContentType] = useState("campaign");
   const [channel, setChannel] = useState("email_klaviyo");
   const [objective, setObjective] = useState("conversion");
@@ -797,6 +809,23 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [tone, setTone] = useState("brand");
   const [cta, setCta] = useState("");
   const [brief, setBrief] = useState("");
+  useEffect(() => {
+    if (
+      campaignIntentConsumed.current ||
+      !organizationId ||
+      searchParams.get("openCampaignPlan") !== "1"
+    ) return;
+    campaignIntentConsumed.current = true;
+    const stagedBrief = parseA01BriefHandoff(
+      window.sessionStorage.getItem(A01_CAMPAIGN_BRIEF_KEY),
+      organizationId,
+    );
+    window.sessionStorage.removeItem(A01_CAMPAIGN_BRIEF_KEY);
+    setCampaignProposalBrief(stagedBrief ?? "");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openCampaignPlan");
+    router.replace(`/marketing?${params.toString()}`, { scroll: false });
+  }, [organizationId, router, searchParams]);
   // AI-11 "Plantilla con marca": paleta de colores + textos literales que la IA
   // debe respetar, ademas del contexto de empresa.
   const [genMode, setGenMode] = useState<"campaign" | "template">("campaign");
@@ -873,6 +902,24 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     (draft) => !isTemplateInUse(draft.status),
   );
 
+  const editInBuilder = useCallback((draft: MarketingDraft) => {
+    const next = draft.request?.design
+      ? draft.request.design
+      : Array.isArray(draft.blocks) && draft.blocks.length > 0
+        ? designFromAiBlocks(draft.blocks, design.styles)
+        : null;
+    if (!next) return;
+    setDesign(next);
+    setTemplateName(draft.template_name);
+    setTemplateSubject(draft.subject);
+    setTemplatePreheader(draft.preheader);
+    setTemplateFromName(draft.from_name);
+    setTemplateReplyTo(draft.reply_to ?? "");
+    setGenMode("template");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast.success("Plantilla cargada en el editor");
+  }, [design.styles]);
+
   // Lo que ofrece "Elegir plantilla": piezas guardadas que traen un diseño
   // reutilizable. Una pieza sin bloques no se puede abrir en el editor, así
   // que ofrecerla sería una opción que no hace nada al pulsarla.
@@ -883,6 +930,57 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         (Array.isArray(draft.blocks) && draft.blocks.length > 0),
     )
     .slice(0, 15);
+
+  const referenceTemplateId = searchParams.get("reference");
+  const handledReferenceTemplate = useRef<string | null>(null);
+  /* eslint-disable react-hooks/set-state-in-effect -- A deliberate one-shot URL intent hydrates the email editor from the selected library template. */
+  useEffect(() => {
+    if (!referenceTemplateId) {
+      handledReferenceTemplate.current = null;
+      return;
+    }
+    if (
+      isLoading ||
+      handledReferenceTemplate.current === referenceTemplateId
+    ) return;
+    const source = savedTemplates.find((draft) => draft.id === referenceTemplateId);
+    if (source) {
+      editInBuilder(source);
+    } else {
+      try {
+        const stored = window.sessionStorage.getItem(
+          "e-nora:marketing:reference-template",
+        );
+        const reference = stored
+          ? (JSON.parse(stored) as {
+              id?: unknown;
+              name?: unknown;
+              subject?: unknown;
+              design?: unknown;
+            })
+          : null;
+        const design = reference?.design as TemplateDesign | undefined;
+        if (
+          reference?.id !== referenceTemplateId ||
+          !design ||
+          !Array.isArray(design.blocks) ||
+          !design.styles
+        ) return;
+        setDesign(design);
+        setTemplateName(typeof reference.name === "string" ? reference.name : "");
+        setTemplateSubject(typeof reference.subject === "string" ? reference.subject : "");
+        setGenMode("template");
+        toast.success("Plantilla cargada como punto de partida");
+      } catch {
+        return;
+      }
+    }
+    handledReferenceTemplate.current = referenceTemplateId;
+    window.sessionStorage.removeItem("e-nora:marketing:reference-template");
+    setTab("crear");
+    router.replace("/marketing?section=crear", { scroll: false });
+  }, [editInBuilder, isLoading, referenceTemplateId, router, savedTemplates, setTab]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const askCopilot = useCopilotAsk();
 
@@ -1005,6 +1103,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ? {
                   content_type: "campaign",
                   channel: "email_klaviyo",
+                  store_id: activeConnectionId || null,
                   brief: structuredBrief,
                   brand_colors: brandColors,
                   ...(design.blocks.length > 0 ? { base_design: design } : {}),
@@ -1022,6 +1121,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               : {
                   content_type: contentType,
                   channel,
+                  store_id: activeConnectionId || null,
                   brief: structuredBrief,
                 },
           ),
@@ -1068,24 +1168,6 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     } finally {
       setIsGenerating(false);
     }
-  }
-
-  function editInBuilder(draft: MarketingDraft) {
-    const next = draft.request?.design
-      ? draft.request.design
-      : Array.isArray(draft.blocks) && draft.blocks.length > 0
-        ? designFromAiBlocks(draft.blocks, design.styles)
-        : null;
-    if (!next) return;
-    setDesign(next);
-    setTemplateName(draft.template_name);
-    setTemplateSubject(draft.subject);
-    setTemplatePreheader(draft.preheader);
-    setTemplateFromName(draft.from_name);
-    setTemplateReplyTo(draft.reply_to ?? "");
-    setGenMode("template");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    toast.success("Plantilla cargada en el editor");
   }
 
   /**
@@ -1484,25 +1566,41 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
 
   return (
-    <div className="portal-page space-y-5">
+    <div className="portal-page marketing-workspace space-y-7">
       {/* Los atajos que habia aqui ("Nueva plantilla", "Generar con IA",
           "Importar de Klaviyo") hacian `scrollIntoView` a una tarjeta de mas
           abajo. Existian porque TODO vivia en la misma pagina: crear, revisar,
           importar y medir apilados en un solo scroll. Con las pestañas de
           abajo el atajo es la pestaña, asi que sobran. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Heading size="lg">Marketing</Heading>
-        <span className="sr-only">
-          Banco de imágenes
-        </span>
+      <div className="mkt-page-header">
+        <div className="min-w-0">
+          <p className="mkt-eyebrow">MARKETING / CENTRO DE TRABAJO</p>
+          <Heading size="lg" className="mkt-page-title">Marketing</Heading>
+          <p className="mkt-page-description">
+            Planifica envíos, crea contenido y entiende qué funciona en cada canal.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {tab === "crear" ? (
+            <ButtonLink href="/marketing/plantillas" variant="secondary">
+              Explorar plantillas
+            </ButtonLink>
+          ) : tab !== "plan" ? (
+            <Button type="button" onClick={() => setTab("crear")}>
+              Crear contenido
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {/* Estado real del canal antes de generar nada más: qué espera decisión,
           qué va a salir y qué ha rendido lo ya enviado. El ingreso se nombra
           como atribuido por Klaviyo (ADR-0021): no es venta Shopify y no se
           suma con la de otras plataformas. */}
-      <ModuleSummary
-        metrics={[
+      {tab !== "plan" ? (
+        <div className="mkt-summary">
+        <ModuleSummary
+          metrics={[
           {
             label: "Pendientes de decisión",
             value: drafts
@@ -1542,8 +1640,10 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ? `${attribution.klaviyo.totals.conversions.toLocaleString("es-ES")} conversiones atribuidas · ${performanceDays} d`
               : "Conecta Klaviyo para medir el email",
           },
-        ]}
-      />
+          ]}
+        />
+        </div>
+      ) : null}
 
       {aiRuntimeStatus && !aiRuntimeStatus.configured ? (
         <Banner tone="warn" className="text-sm">
@@ -1582,27 +1682,22 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
              escribir la pieza. */
           plan: (
             <div className="space-y-6">
-              <WeeklyMailingPlanner
-                organizationId={organizationId}
-                templates={savedTemplates.flatMap((draft) =>
-                  draft.request?.design
-                    ? [
-                        {
-                          id: draft.id,
-                          name:
-                            draft.template_name ||
-                            draft.subject ||
-                            "Plantilla sin nombre",
-                          design: draft.request.design,
-                        },
-                      ]
-                    : [],
-                )}
-                onGenerated={async () => {
-                  await Promise.all([loadDrafts(), reloadCampaignItems()]);
-                  setTab("contenido");
-                }}
-              />
+              <div className="mkt-section-intro flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
+                <div className="max-w-2xl space-y-1">
+                  <Heading size="md">Plan de marketing</Heading>
+                  <p className="text-sm text-muted">
+                    Revisa lo que ya está planificado. Crea una secuencia o una propuesta sólo cuando la necesites.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" onClick={() => setIsCampaignProposalOpen(true)}>
+                    Proponer campañas
+                  </Button>
+                  <Button type="button" onClick={() => setIsMailingPlannerOpen(true)}>
+                    Preparar mailing
+                  </Button>
+                </div>
+              </div>
               {/* Primero lo que ya esta decidido, despues la propuesta nueva:
                   la pestaña abria vacia aunque el calendario tuviera campañas
                   dentro, porque solo sabia enseñar la ultima propuesta. */}
@@ -1621,13 +1716,61 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   void attribution.reload();
                 }}
               />
-              <CampaignPlanProposal
-                organizationId={organizationId}
-                onApplied={() => {
-                  void loadDrafts();
-                  void reloadCampaignItems();
-                }}
-              />
+              <Modal
+                isOpen={isMailingPlannerOpen}
+                onOpenChange={setIsMailingPlannerOpen}
+              >
+                <Modal.Backdrop>
+                  <Modal.Container size="cover">
+                    <Modal.Dialog aria-label="Preparar mailing semanal">
+                      <Modal.CloseTrigger />
+                      <Modal.Header>
+                        <Modal.Heading>Preparar mailing semanal</Modal.Heading>
+                      </Modal.Header>
+                      <Modal.Body>
+                        <WeeklyMailingPlanner
+                          organizationId={organizationId}
+                          storeConnectionId={activeConnectionId}
+                          isOpen={isMailingPlannerOpen}
+                          onGenerated={async () => {
+                            await Promise.all([
+                              loadDrafts(),
+                              reloadCampaignItems(),
+                            ]);
+                            setIsMailingPlannerOpen(false);
+                            setTab("contenido");
+                          }}
+                        />
+                      </Modal.Body>
+                    </Modal.Dialog>
+                  </Modal.Container>
+                </Modal.Backdrop>
+              </Modal>
+              <Modal
+                isOpen={isCampaignProposalOpen}
+                onOpenChange={setIsCampaignProposalOpen}
+              >
+                <Modal.Backdrop>
+                  <Modal.Container size="lg">
+                    <Modal.Dialog aria-label="Proponer campañas">
+                      <Modal.CloseTrigger />
+                      <Modal.Header>
+                        <Modal.Heading>Propuesta de campañas</Modal.Heading>
+                      </Modal.Header>
+                      <Modal.Body>
+                        <CampaignPlanProposal
+                          organizationId={organizationId}
+                          initialBrief={campaignProposalBrief}
+                          onApplied={() => {
+                            void loadDrafts();
+                            void reloadCampaignItems();
+                          }}
+                        />
+                      </Modal.Body>
+                    </Modal.Dialog>
+                  </Modal.Container>
+                </Modal.Backdrop>
+              </Modal>
             </div>
           ),
           contenido: (
@@ -1666,7 +1809,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   />
                 </Card>
               ) : (
-                <div className="space-y-6">
+                <div className="mkt-content-groups space-y-4">
                   <Card
                     title="Plantillas en uso"
                     description="Aprobadas y publicadas: material listo para copiar y mandar. Ábrelas para ver la conversación o pedirle un análisis al Consultor IA."
@@ -2343,6 +2486,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 que ponia `showKlaviyoImport` a true desaparecio al pasar a
                 pestañas. Vive aqui, junto a lo demas que crea borradores. */}
               <div className="flex flex-wrap items-center gap-3">
+                <ButtonLink href="/marketing/plantillas" variant="secondary">
+                  Biblioteca de plantillas
+                </ButtonLink>
                 <Button
                   type="button"
                   variant="secondary"
@@ -2370,6 +2516,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 />
               ) : null}
               <Card
+                className="mkt-composer-panel"
                 title="Crear contenido"
                 description="Describe el objetivo, la audiencia y la oferta. Claude propondrá el contenido con el contexto de la empresa y señalará cualquier dato que falte, sin inventar descuentos ni resultados."
               >
@@ -2392,10 +2539,10 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 />
                 <Form
                   aria-label="Crear contenido con Claude"
-                  className="space-y-6"
+                  className="mkt-composer-form space-y-6"
                   onSubmit={generateDraft}
                 >
-                  <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="mkt-settings-grid grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                     {genMode === "campaign" ? (
                       <>
                         <Field label="Canal de destino">
@@ -2492,7 +2639,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       {/* La plantilla se prepara como se prepara un email: la
                         cabecera arriba, las herramientas debajo del asunto y
                         el cuerpo en el lienzo. */}
-                      <div className="border border-separator">
+                      <div className="mkt-email-headers border border-separator">
                         <ComposerRow label="Nombre">
                           <Input
                             aria-label="Nombre interno de la plantilla"
@@ -2819,14 +2966,16 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
           ),
           rendimiento: (
-            <PerformanceTab
-              days={performanceDays}
-              onDaysChange={setPerformanceDays}
-              klaviyo={attribution.klaviyo}
-              meta={attribution.meta}
-              shopify={attribution.shopify}
-              isLoading={attribution.isLoading}
-            />
+            <div className="mkt-performance-tab">
+              <PerformanceTab
+                days={performanceDays}
+                onDaysChange={setPerformanceDays}
+                klaviyo={attribution.klaviyo}
+                meta={attribution.meta}
+                shopify={attribution.shopify}
+                isLoading={attribution.isLoading}
+              />
+            </div>
           ),
         }}
       />
@@ -3296,9 +3445,6 @@ function MarketingRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
 }
 
 export default function MarketingPage() {
-  return (
-    <PortalShell title="Marketing IA">
-      {(bootstrap) => <MarketingRouter bootstrap={bootstrap} />}
-    </PortalShell>
-  );
+  const { bootstrap } = useMarketingPortal();
+  return <MarketingRouter bootstrap={bootstrap} />;
 }

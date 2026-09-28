@@ -33,6 +33,7 @@ export type ReadinessResponse = z.infer<typeof readinessResponseSchema>;
 // arma apps/api/src/actions.ts.
 export const ACCOUNT_ACTION_TYPES = [
   "integration_error",
+  "integration_reauthorization_required",
   "shopify_reauthorization_required",
 ] as const;
 
@@ -74,7 +75,6 @@ export type AgentCatalogEntry = {
 export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { code: "a01_analista_llamadas", displayName: "Resumen de llamada", description: "Resumen y acciones propuestas desde transcripciones revisadas.", status: "implemented" },
   { code: "a02_monitor_negocio", displayName: "Diagnóstico del negocio", description: "Diagnóstico con fuentes y límites explícitos.", status: "implemented" },
-  { code: "a03_analista_adquisicion", displayName: "Análisis de adquisición", description: "Preparado para Meta Ads; no operativo sin conexión.", status: "prepared" },
   { code: "a04_generador_tareas", displayName: "Plan de prioridades", description: "Propone tareas desde señales Shopify verificadas.", status: "implemented" },
   { code: "a05_estrategia_campanas", displayName: "Estrategia de campañas", description: "Preparado para campañas futuras; no operativo sin conector.", status: "prepared" },
   { code: "a06_planificador_stock", displayName: "Planificación de stock", description: "Detecta riesgos de inventario con propuestas revisables.", status: "implemented" },
@@ -82,6 +82,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { code: "a08_gestor_conocimiento", displayName: "Estado del conocimiento", description: "Revisa cobertura y calidad sin inventar documentos.", status: "implemented" },
   { code: "a09_copiloto_consultor", displayName: "Copiloto", description: "Responde con alcance tenant-bound y lectura controlada.", status: "implemented" },
   { code: "a11_generador_marketing", displayName: "Borradores de marketing", description: "Contenido portable para revisión; no publica ni envía.", status: "implemented" },
+  { code: "a28_arquitecto_flujos", displayName: "Arquitectura de flujos", description: "Propone automatizaciones Klaviyo basadas en inventario y cobertura; no modifica ni activa flujos.", status: "implemented" },
 ];
 
 export function getAgentCatalogEntry(agentCode: string) {

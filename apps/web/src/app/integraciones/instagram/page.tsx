@@ -6,12 +6,12 @@ import {
   AsyncState,
   Banner,
   Card,
-  CollapsibleSection,
   ErrorBlock,
 } from "@/components/ui";
 import {
   BackToHub,
   ConnectionFacts,
+  InfoModalButton,
   ProviderStatusCard,
   Steps,
   useIntegrations,
@@ -70,10 +70,11 @@ function InstagramIntegrationPage({
           El conector está preparado pero no se activa aún: no se muestran
           métricas simuladas ni un botón de conexión prematuro.
         </Banner>
-        <CollapsibleSection
-          className="mt-5"
-          title="Ver qué tendrá que estar listo"
-        >
+        <div className="mt-4">
+          <InfoModalButton
+            title="Requisitos para activar Instagram"
+            label="Ver requisitos"
+          >
           <Steps
             items={[
               <>
@@ -90,14 +91,13 @@ function InstagramIntegrationPage({
               </>,
             ]}
           />
-        </CollapsibleSection>
+          </InfoModalButton>
+        </div>
       </Card>
 
-      <CollapsibleSection title="Detalles técnicos de la conexión">
-        <Card title="Detalles de la conexión">
+      <InfoModalButton title="Detalles técnicos de Instagram" label="Detalles técnicos">
           <ConnectionFacts provider={instagram} />
-        </Card>
-      </CollapsibleSection>
+      </InfoModalButton>
     </div>
   );
 }

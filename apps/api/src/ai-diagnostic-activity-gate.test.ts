@@ -1,13 +1,17 @@
 /**
- * Fase 1 del control de coste de agentes de diagnostico: getCachedDiagnostic
- * ya no regenera solo por superar las 24h -- ademas tiene que haber habido
- * actividad en la organizacion (digest distinto). decideDiagnosticCacheServe
- * es la regla pura; aqui se fija su tabla de casos.
+ * La lectura del diagnostico nunca ejecuta el agente. Esta regla pura solo
+ * describe la frescura del resultado existente; el orquestador decide cuando
+ * generar uno nuevo.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  decideDiagnosticCacheServe,
+  agentRpcEvidence,
+  diagnosticCacheFreshness,
+  consultantAssignmentContext,
+  summarizeMonitorForPlan,
+  orchestratorScopesForAgent,
   decideOrchestratorAction,
   manualRefreshCapExceeded,
   orgDailyRunCapReached,
@@ -15,82 +19,159 @@ import {
   scoreDiagnosticPriority,
   isPlanHorizon,
   orchestratorMinRunAgeFor,
+  isCaminoWeeklyReviewDue,
+  MONITOR_CADENCES,
+  monitorMetaSpendArgs,
   PLAN_HORIZONS,
 } from "./ai-runtime.js";
+
+test("A21 no confunde error de consulta, ausencia de filas y datos disponibles", () => {
+  assert.deepEqual(agentRpcEvidence([{ sessions: 12 }], null), {
+    availability: "available", data: [{ sessions: 12 }],
+  });
+  assert.deepEqual(agentRpcEvidence(null, null), { availability: "no_data_returned" });
+  assert.deepEqual(agentRpcEvidence([], { message: "timeout" }), {
+    availability: "unavailable",
+  });
+});
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = 1_000 * DAY_MS;
 
-test("sin run previo: no se puede servir cache", () => {
-  const d = decideDiagnosticCacheServe({
+test("la guia de aprobacion distingue consultor, cliente y estado desconocido", () => {
+  const assigned = consultantAssignmentContext(true, "Lucia");
+  assert.equal(assigned.has_consultant, true);
+  assert.equal(assigned.consultant_name, "Lucia");
+  assert.match(assigned.decision_rule, /consultor humano/);
+
+  const unassigned = consultantAssignmentContext(false);
+  assert.equal(unassigned.has_consultant, false);
+  assert.match(unassigned.decision_rule, /cliente puede aceptar o rechazar/);
+
+  const unknown = consultantAssignmentContext(null);
+  assert.equal(unknown.has_consultant, null);
+  assert.match(unknown.decision_rule, /No se pudo comprobar/);
+});
+
+test("el plan recibe un resumen acotado de A02 y reconoce salidas antiguas y nuevas", () => {
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const old = summarizeMonitorForPlan(
+    { answer: "Atender stock", findings: [{ title: "Stock bajo", severity: "high", area: "shopify" }] },
+    "2026-09-26T12:00:00Z",
+    now,
+  );
+  assert.equal(old?.headline, "Atender stock");
+  assert.equal(old?.findings[0]?.title, "Stock bajo");
+  assert.equal(old?.stale, false);
+
+  const structured = summarizeMonitorForPlan(
+    { headline: "Margen en riesgo", sections: [{ findings: [{ title: "Descuentos altos", severity: "medium" }] }] },
+    "2026-09-01T12:00:00Z",
+    now,
+  );
+  assert.equal(structured?.headline, "Margen en riesgo");
+  assert.equal(structured?.findings[0]?.title, "Descuentos altos");
+  assert.equal(structured?.stale, true);
+  assert.equal(summarizeMonitorForPlan(null, null), null);
+});
+
+test("el orquestador conserva el agregado y crea una pasada por tienda para los diagnósticos con ámbito", () => {
+  const stores = [
+    { storeId: "store-1", connectionId: "connection-1" },
+    { storeId: "store-2", connectionId: "connection-2" },
+  ];
+  assert.deepEqual(orchestratorScopesForAgent("a13_operativa_shopify", stores), [
+    { storeId: null, connectionId: null },
+    ...stores,
+  ]);
+  assert.deepEqual(orchestratorScopesForAgent("a14_operativa_meta", stores), [
+    { storeId: null, connectionId: null },
+    ...stores,
+  ]);
+  assert.deepEqual(orchestratorScopesForAgent("a21_adquisicion_shopify", stores), [
+    { storeId: null, connectionId: null },
+    ...stores,
+  ]);
+  assert.deepEqual(orchestratorScopesForAgent("a20_retencion_clientes", stores), [
+    { storeId: null, connectionId: null },
+    ...stores,
+  ]);
+  assert.deepEqual(orchestratorScopesForAgent("a19_revision_camino", stores), [
+    { storeId: null, connectionId: null },
+    ...stores,
+  ]);
+});
+
+test("sin run previo: no hay antiguedad que mostrar", () => {
+  const d = diagnosticCacheFreshness({
     generatedAt: null,
     storedDigest: null,
     currentDigest: "abc",
     now: NOW,
   });
-  assert.deepEqual(d, { serve: false, stale: false, noActivitySince: false });
+  assert.deepEqual(d, { stale: false, noActivitySince: false });
 });
 
-test("run reciente (<24h): se sirve cache aunque el digest haya cambiado", () => {
-  const d = decideDiagnosticCacheServe({
+test("run reciente (<24h): no esta marcado como obsoleto", () => {
+  const d = diagnosticCacheFreshness({
     generatedAt: NOW - DAY_MS / 2,
     storedDigest: "old",
     currentDigest: "new",
     now: NOW,
   });
-  assert.equal(d.serve, true);
   assert.equal(d.stale, false);
   assert.equal(d.noActivitySince, false);
 });
 
 test("run viejo (>24h) sin actividad: se sigue sirviendo, marcado no_activity_since", () => {
-  const d = decideDiagnosticCacheServe({
+  const d = diagnosticCacheFreshness({
     generatedAt: NOW - 5 * DAY_MS,
     storedDigest: "same",
     currentDigest: "same",
     now: NOW,
   });
-  assert.deepEqual(d, { serve: true, stale: true, noActivitySince: true });
+  assert.deepEqual(d, { stale: true, noActivitySince: true });
 });
 
-test("run viejo (>24h) con actividad nueva: se regenera", () => {
-  const d = decideDiagnosticCacheServe({
+test("run viejo (>24h) con actividad nueva: se muestra como obsoleto", () => {
+  const d = diagnosticCacheFreshness({
     generatedAt: NOW - 2 * DAY_MS,
     storedDigest: "before",
     currentDigest: "after",
     now: NOW,
   });
-  assert.equal(d.serve, false);
   assert.equal(d.stale, true);
+  assert.equal(d.noActivitySince, false);
 });
 
-test("run viejo pero digest no disponible (rpc caida): cae a la regla de 24h y regenera", () => {
-  const d = decideDiagnosticCacheServe({
+test("run viejo con digest no disponible: se muestra como obsoleto", () => {
+  const d = diagnosticCacheFreshness({
     generatedAt: NOW - 2 * DAY_MS,
     storedDigest: "before",
     currentDigest: null,
     now: NOW,
   });
-  assert.equal(d.serve, false);
+  assert.equal(d.stale, true);
+  assert.equal(d.noActivitySince, false);
 });
 
-test("run viejo, digest guardado nulo (run anterior a esta feature): regenera al pasar 24h", () => {
-  const d = decideDiagnosticCacheServe({
+test("run viejo sin digest guardado: se muestra como obsoleto", () => {
+  const d = diagnosticCacheFreshness({
     generatedAt: NOW - 2 * DAY_MS,
     storedDigest: null,
     currentDigest: "after",
     now: NOW,
   });
-  assert.equal(d.serve, false);
+  assert.equal(d.stale, true);
+  assert.equal(d.noActivitySince, false);
 });
 
-test("tope de refrescos manuales: bloquea al llegar al cap, no antes", () => {
-  // El default subio de 3 a 12 al dejar de cubrir solo tres agentes y pasar a
-  // contar cualquier refresco manual de la organizacion.
+test("tope de refrescos manuales por agente: bloquea al llegar al cap", () => {
+  // Default alto mientras se prueba el producto; el cupo se cuenta por agente.
   assert.equal(manualRefreshCapExceeded(0), false);
-  assert.equal(manualRefreshCapExceeded(11), false);
-  assert.equal(manualRefreshCapExceeded(12), true);
-  assert.equal(manualRefreshCapExceeded(30), true);
+  assert.equal(manualRefreshCapExceeded(999), false);
+  assert.equal(manualRefreshCapExceeded(1000), true);
+  assert.equal(manualRefreshCapExceeded(1200), true);
   // cap configurable
   assert.equal(manualRefreshCapExceeded(1, 1), true);
   assert.equal(manualRefreshCapExceeded(0, 1), false);
@@ -198,11 +279,127 @@ test("cada horizonte de plan tiene su propia antiguedad minima", () => {
   assert.ok(month >= 27 * DAY_MS, "el mensual no se regenera a media mes");
 });
 
-test("un agente sin horizonte propio usa la antiguedad general", () => {
-  assert.equal(
-    orchestratorMinRunAgeFor("a02_monitor_negocio"),
-    orchestratorMinRunAgeFor("a06_planificador_stock"),
+test("la revision A19 solo vence cada siete dias y no depende del digest", () => {
+  const now = Date.now();
+  const cadence = orchestratorMinRunAgeFor("a19_revision_camino");
+  assert.equal(cadence, 7 * DAY_MS);
+  const notYetDue = decideOrchestratorAction({
+    lastRunAt: now - 6 * DAY_MS,
+    storedDigest: null,
+    currentDigest: "changed",
+    hasUnreviewedPending: false,
+    now,
+    minRunAgeMs: cadence,
+  });
+  assert.equal(notYetDue.run, false);
+  assert.equal(notYetDue.reason, "cooldown");
+  const due = decideOrchestratorAction({
+    lastRunAt: now - cadence,
+    storedDigest: null,
+    currentDigest: null,
+    hasUnreviewedPending: false,
+    now,
+    minRunAgeMs: cadence,
+  });
+  assert.equal(due.run, true);
+});
+
+test("A19 espera siete dias desde la activacion para la primera revision", () => {
+  const now = Date.parse("2026-09-27T12:00:00.000Z");
+  assert.equal(isCaminoWeeklyReviewDue("2026-09-25T12:00:00.000Z", now), false);
+  assert.equal(isCaminoWeeklyReviewDue("2026-09-20T12:00:00.000Z", now), true);
+  assert.equal(isCaminoWeeklyReviewDue(null, now), false);
+  assert.equal(isCaminoWeeklyReviewDue("invalid", now), false);
+});
+
+test("A02 separa tres ventanas de diagnostico con sus propias cadencias", () => {
+  assert.deepEqual(
+    MONITOR_CADENCES.map(({ lookbackDays }) => lookbackDays),
+    [7, 30, 90],
   );
+  assert.deepEqual(
+    MONITOR_CADENCES.map(({ minRunAgeMs }) => minRunAgeMs),
+    [DAY_MS, 56 * 60 * 60 * 1000, 7 * DAY_MS],
+  );
+  assert.ok(MONITOR_CADENCES[0].minRunAgeMs < MONITOR_CADENCES[1].minRunAgeMs);
+  assert.ok(MONITOR_CADENCES[1].minRunAgeMs < MONITOR_CADENCES[2].minRunAgeMs);
+  assert.equal(
+    orchestratorMinRunAgeFor("a06_planificador_stock"),
+    20 * 60 * 60 * 1000,
+  );
+});
+
+test("A02 mantiene el scope de tienda en la consulta de inversión Meta", () => {
+  assert.deepEqual(
+    monitorMetaSpendArgs({
+      organizationId: "org-1",
+      periodStart: new Date("2026-09-01T18:20:00.000Z"),
+      periodEnd: new Date("2026-09-28T18:20:00.000Z"),
+      storeId: "store-1",
+    }),
+    {
+      target_organization_id: "org-1",
+      period_start: "2026-09-01",
+      period_end: "2026-09-28",
+      target_store_id: "store-1",
+    },
+  );
+  assert.equal(
+    monitorMetaSpendArgs({
+      organizationId: "org-1",
+      periodStart: new Date("2026-09-01T00:00:00.000Z"),
+      periodEnd: new Date("2026-09-28T00:00:00.000Z"),
+      storeId: null,
+    }).target_store_id,
+    null,
+  );
+});
+
+test("A02 abrir el dashboard solo lee; refrescar y cron son las únicas rutas de ejecución", () => {
+  const runtime = readFileSync(new URL("./ai-runtime.ts", import.meta.url), "utf8");
+  const server = readFileSync(new URL("./server.ts", import.meta.url), "utf8");
+  const web = readFileSync(
+    new URL("../../web/src/components/ai-diagnostic-section.tsx", import.meta.url),
+    "utf8",
+  );
+
+  const cacheStart = runtime.indexOf("async function getCachedDiagnostic(");
+  const cacheEnd = runtime.indexOf("const DEFAULT_DIAGNOSTIC_LOOKBACK_DAYS", cacheStart);
+  assert.ok(cacheStart >= 0 && cacheEnd > cacheStart);
+  const cacheReader = runtime.slice(cacheStart, cacheEnd);
+  assert.doesNotMatch(cacheReader, /runMonitorAgent|runGenericDiagnosticAgent|runAgentTurn/);
+
+  const getStart = server.indexOf('"/v1/organizations/:organizationId/ai/monitor"');
+  const postStart = server.indexOf('"/v1/organizations/:organizationId/ai/monitor-run"');
+  assert.ok(getStart >= 0 && postStart > getStart);
+  const getRoute = server.slice(getStart, postStart);
+  const postEnd = server.indexOf("\n  // AI-05", postStart);
+  assert.ok(postEnd > postStart);
+  const postRoute = server.slice(postStart, postEnd);
+  assert.match(getRoute, /getMonitorDiagnostic/);
+  assert.doesNotMatch(getRoute, /runMonitorAgent/);
+  assert.match(postRoute, /runMonitorAgent/);
+
+  const loadStart = web.indexOf("async function load()");
+  const regenerateStart = web.indexOf("async function regenerate()", loadStart);
+  assert.ok(loadStart >= 0 && regenerateStart > loadStart);
+  const pageLoad = web.slice(loadStart, regenerateStart);
+  assert.match(pageLoad, /apiFetch\(/);
+  assert.doesNotMatch(pageLoad, /method:\s*["']POST/);
+  const manualRun = web.slice(regenerateStart, web.indexOf("async function applyProposalDecisions", regenerateStart));
+  assert.match(manualRun, /method:\s*["']POST/);
+});
+
+test("A09 falla cerrado si no puede leer la conversación o su historial", () => {
+  const runtime = readFileSync(new URL("./ai-runtime.ts", import.meta.url), "utf8");
+  const turnStart = runtime.indexOf("export async function runConsultantChatTurn(");
+  const turnEnd = runtime.indexOf("\nexport async function ", turnStart + 1);
+  assert.ok(turnStart >= 0 && turnEnd > turnStart);
+  const turn = runtime.slice(turnStart, turnEnd);
+
+  assert.match(turn, /conversationLookupError[\s\S]*?error: "conversation_load_failed"/);
+  assert.match(turn, /historyError[\s\S]*?error: "chat_history_load_failed"/);
+  assert.ok(turn.indexOf("chat_history_load_failed") < turn.indexOf("const runId = crypto.randomUUID()"));
 });
 
 // `:horizon` llega de la URL: si la guarda aceptara cualquier string, se

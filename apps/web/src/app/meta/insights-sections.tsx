@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
 import {
+  AreaChart,
   Badge,
   Banner,
   Card,
@@ -71,8 +72,18 @@ export type MetaLearningRow = {
   conversions_missing: number | null;
   daily_budget: number | null;
   spend_in_period: number;
-  last_significant_change: string | null;
-  days_since_change: number | null;
+  learning_threshold_source: string | null;
+  spend_source_days: number | null;
+  spend_source_rows: number | null;
+  last_account_activity_at: string | null;
+  last_account_activity_type: string | null;
+  last_account_activity_description: string | null;
+  days_since_account_activity: number | null;
+  activity_reset_confirmation: string | null;
+  activity_sync_state: string | null;
+  activity_sync_finished_at: string | null;
+  activity_sync_records_read: number | null;
+  account_last_synced_at: string | null;
 };
 
 export type MetaAudienceRow = {
@@ -133,6 +144,8 @@ export type MetaInsights = {
     days_with_data: number;
     purchase_action_types: string[];
   } | null;
+  daily_spend: Array<{ bucket_date: string; spend: number }>;
+  daily_roas: Array<{ bucket_date: string; roas: number | null }>;
   creatives: MetaCreative[];
   ranking_distribution: Array<{
     dimension: string;
@@ -342,9 +355,15 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
             hint={
               mixedPurchaseActions
                 ? "Las cuentas de este ambito no cuentan la compra igual"
-                : undefined
+              : undefined
             }
           />
+          <Metric
+            card
+            label="Impresiones"
+            value={count(summary.impressions)}
+          />
+          <Metric card label="Clics" value={count(summary.clicks)} />
           <Metric
             card
             // Sin compras no hay ROAS, y un 0 se leeria como "no vende".
@@ -373,6 +392,68 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
             value={money(summary.cpc ?? null, insights.currency)}
           />
         </div>
+
+        {insights.daily_spend?.length > 1 ? (
+          <div className="border-t border-edge pt-4">
+            <div className="mb-2">
+              <p className="text-sm font-medium text-foreground">
+                Evolución diaria de la inversión
+              </p>
+              <p className="text-xs text-muted">
+                {insights.period.days === "all"
+                  ? "Últimos 365 días"
+                  : `Últimos ${insights.period.days} días`}
+              </p>
+            </div>
+            <AreaChart
+              data={insights.daily_spend.map((day) => ({
+                date: new Date(`${day.bucket_date}T12:00:00`).toLocaleDateString(
+                  "es-ES",
+                  { day: "2-digit", month: "short" },
+                ),
+                Inversión: day.spend,
+              }))}
+              xKey="date"
+              series={[
+                { key: "Inversión", label: "Inversión", color: "#15805d" },
+              ]}
+              height={220}
+              valueFormatter={(value) => money(value, insights.currency)}
+            />
+          </div>
+        ) : null}
+
+        {insights.daily_roas?.filter((day) => day.roas !== null).length > 1 ? (
+          <div className="border-t border-edge pt-4">
+            <div className="mb-2">
+              <p className="text-sm font-medium text-foreground">ROAS diario</p>
+              <p className="text-xs text-muted">
+                Valor de compra atribuido por Meta / inversión del día
+              </p>
+            </div>
+            <AreaChart
+              data={insights.daily_roas.flatMap((day) =>
+                day.roas === null
+                  ? []
+                  : [
+                      {
+                        date: new Date(`${day.bucket_date}T12:00:00`).toLocaleDateString(
+                          "es-ES",
+                          { day: "2-digit", month: "short" },
+                        ),
+                        ROAS: day.roas,
+                      },
+                    ],
+              )}
+              xKey="date"
+              series={[{ key: "ROAS", label: "ROAS", color: "#7157d9" }]}
+              height={220}
+              valueFormatter={(value) =>
+                `${value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}x`
+              }
+            />
+          </div>
+        ) : null}
 
         <p className="text-xs text-muted">
           Cifras atribuidas por Meta en su propia ventana de conversion. No son
@@ -758,7 +839,10 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
   }
 
   const rows: LearningTableRow[] = insights.learning
-    .filter((row) => row.learning_stage_status === "LEARNING")
+    .filter((row) =>
+      row.learning_stage_status === "LEARNING" ||
+      row.learning_stage_status === "LEARNING_LIMITED",
+    )
     .map((row) => ({ ...row, id: row.ad_set_id }));
 
   if (!rows.length) {
@@ -784,21 +868,30 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
       ),
     },
     {
+      key: "learning_stage_status",
+      label: "Estado Meta",
+      render: (row) => (
+        <Badge tone={row.learning_stage_status === "LEARNING_LIMITED" ? "warn" : "neutral"}>
+          {row.learning_stage_status === "LEARNING_LIMITED" ? "Aprendizaje limitado" : "Aprendiendo"}
+        </Badge>
+      ),
+    },
+    {
       key: "conversions",
-      label: "Conversiones",
+      label: "Conversiones Meta",
       render: (row) =>
         row.learning_conversions_needed == null ? (
           "—"
         ) : (
           <span className="tabular-nums">
             {count(row.learning_conversions)} de{" "}
-            {count(row.learning_conversions_needed)}
+            {count(row.learning_conversions_needed)} ref.
           </span>
         ),
     },
     {
       key: "conversions_missing",
-      label: "Faltan",
+      label: "Hasta ref.",
       render: (row) =>
         row.conversions_missing == null ? (
           "—"
@@ -812,21 +905,36 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
       key: "spend_in_period",
       label: "Gasto",
       render: (row) => (
-        <span className="tabular-nums">
-          {money(row.spend_in_period, currency)}
-        </span>
+        <div>
+          <span className="tabular-nums">{money(row.spend_in_period, currency)}</span>
+          <p className="text-xs text-muted">
+            {row.spend_source_days == null
+              ? "cobertura desconocida"
+              : `${count(row.spend_source_days)} días con datos`}
+          </p>
+        </div>
       ),
     },
     {
-      key: "last_significant_change",
-      label: "Último cambio",
+      key: "last_account_activity_at",
+      label: "Última actividad registrada",
       render: (row) =>
-        row.days_since_change == null ? (
-          <span className="text-muted">sin cambios registrados</span>
+        row.days_since_account_activity == null ? (
+          <span className="text-muted">sin evento en el log disponible</span>
         ) : (
-          <span className="tabular-nums">
-            hace {Math.round(row.days_since_change)} d
-          </span>
+          <div>
+            <span className="tabular-nums">hace {Math.round(row.days_since_account_activity)} d</span>
+            <p className="max-w-56 truncate text-xs text-muted" title={row.last_account_activity_description ?? undefined}>
+              {row.last_account_activity_description ?? row.last_account_activity_type ?? "tipo no disponible"}
+            </p>
+            <p className="text-xs text-muted">
+              {row.activity_sync_state === "fresh"
+                ? "log actualizado"
+                : row.activity_sync_state === "stale"
+                  ? "log antiguo"
+                  : "cobertura del log desconocida"}
+            </p>
+          </div>
         ),
     },
   ];
@@ -834,7 +942,7 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
   return (
     <Card
       title="Aprendizaje"
-      description="Un conjunto que aún aprende entrega peor, y es normal."
+      description="Estado reportado por Meta; las conversiones y el historial son señales, no una promesa de cuándo saldrá de aprendizaje."
     >
       <Table
         ariaLabel="Conjuntos en fase de aprendizaje"
@@ -842,12 +950,8 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
         rows={rows}
       />
 
-      {/* El bucle que hay que romper: se toca porque entrega mal, y tocarlo
-          reinicia el aprendizaje, con lo que vuelve a entregar mal. */}
       <p className="mt-3 text-xs text-muted">
-        Meta reinicia el aprendizaje ante cambios de presupuesto, puja o
-        segmentación. La columna de cambios está para ver si un conjunto lleva
-        semanas sin salir de aquí porque se toca cada pocos días.
+        La referencia de 50 conversiones es interna, no un umbral confirmado en esta respuesta de Meta. La última actividad disponible no confirma que se reiniciara el aprendizaje; su ausencia tampoco demuestra que no hubiera cambios.
       </p>
     </Card>
   );
