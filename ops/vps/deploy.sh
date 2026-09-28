@@ -105,6 +105,7 @@ ssh "$host" "chmod 750 $remote/run-worker-job.sh && crontab $remote/ecomscaling.
 echo "==> 5/6 Build (en serie: la RAM no da para los dos a la vez)"
 ssh "$host" "docker compose $compose build api"
 ssh "$host" "docker compose $compose build worker"
+ssh "$host" "docker compose $compose build email-renderer"
 
 echo "==> 6/6 Arranque"
 ssh "$host" "docker compose $compose up -d && docker compose $compose ps"

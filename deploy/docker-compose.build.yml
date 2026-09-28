@@ -18,3 +18,9 @@ services:
     build:
       context: ./src
       dockerfile: apps/worker/Dockerfile
+
+  email-renderer:
+    image: ecomscaling-email-renderer:local
+    build:
+      context: ./src
+      dockerfile: ops/email-renderer/Dockerfile

@@ -83,9 +83,7 @@ services:
       - email-render-spool:/spool
 
   email-renderer:
-    build:
-      context: ..
-      dockerfile: ops/email-renderer/Dockerfile
+    image: ecomscaling-email-renderer:local
     restart: unless-stopped
     init: true
     user: "1000:2000"
