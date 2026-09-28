@@ -9,11 +9,48 @@ import {
   recordShopifyOrderTracking,
   recordShopifyRefundTracking,
 } from "./klaviyo-tracking.js";
+import { getValidShopifyAccessToken } from "./shopify-token-store.js";
+import { shopifyGraphql } from "./shopify-client.js";
 
 type ApiEnv = LoadedApiEnv;
 const logger = createLogger("shopify-webhook-handler");
 
 type SyncBlockKey = "catalog" | "inventory" | "orders" | "refunds";
+
+const SHOPIFY_RETURN_REASONS = new Set([
+  "COLOR", "DEFECTIVE", "NOT_AS_DESCRIBED", "OTHER", "SIZE_TOO_LARGE",
+  "SIZE_TOO_SMALL", "STYLE", "UNKNOWN", "UNWANTED", "WRONG_ITEM",
+]);
+
+export function normalizeShopifyReturnReason(value: unknown) {
+  return typeof value === "string" && SHOPIFY_RETURN_REASONS.has(value)
+    ? value
+    : null;
+}
+
+function shopifyNumericId(value: unknown, resource: string) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+    return `gid://shopify/${resource}/${value}`;
+  }
+  if (typeof value !== "string") return null;
+  if (new RegExp(`^gid://shopify/${resource}/\\d+$`).test(value)) return value;
+  return /^\d+$/.test(value) ? `gid://shopify/${resource}/${value}` : null;
+}
+
+export function mapShopifyFulfillmentLineItems(
+  fulfillments: Array<{ id: string; fulfillmentLineItems: { nodes: Array<{ id: string }> } }>,
+  localFulfillmentIds: Map<string, string>,
+) {
+  const result = new Map<string, string>();
+  for (const fulfillment of fulfillments) {
+    const localFulfillmentId = localFulfillmentIds.get(fulfillment.id);
+    if (!localFulfillmentId) continue;
+    for (const line of fulfillment.fulfillmentLineItems.nodes) {
+      result.set(line.id, localFulfillmentId);
+    }
+  }
+  return result;
+}
 
 type RestMoneySet = { shop_money?: { amount?: string | null } | null } | null;
 
@@ -100,6 +137,7 @@ type ConnectionContext = {
   connectionId: string;
   organizationId: string;
   storeId: string;
+  shopDomain: string;
 };
 
 /**
@@ -117,7 +155,7 @@ async function resolveConnectionContext(
 ): Promise<ConnectionContext | null> {
   const { data: connection } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, status")
+    .select("id, organization_id, status, provider_account_id")
     .eq("provider", "shopify")
     .eq("provider_account_id", shopDomain)
     .order("updated_at", { ascending: false })
@@ -138,10 +176,12 @@ async function resolveConnectionContext(
     return null;
   }
 
+  if (!connection.provider_account_id) return null;
   return {
     connectionId: connection.id,
     organizationId: connection.organization_id,
     storeId: store.id,
+    shopDomain: connection.provider_account_id,
   };
 }
 
@@ -601,6 +641,153 @@ async function processRefundCreate(
   );
 }
 
+async function processShopifyReturn(
+  supabase: SupabaseClient,
+  ctx: ConnectionContext,
+  payload: Record<string, unknown>,
+  env: ApiEnv,
+) {
+  const returnGid = shopifyNumericId(
+    payload.admin_graphql_api_id ?? payload.id,
+    "Return",
+  );
+  if (!returnGid) throw new Error("shopify_return_webhook_missing_id");
+
+  const accessToken = await getValidShopifyAccessToken(env, ctx.connectionId);
+  const result = await shopifyGraphql<{
+    return: {
+      id: string;
+      status: string | null;
+      createdAt: string | null;
+      closedAt: string | null;
+      order: {
+        id: string;
+        fulfillments: {
+          nodes: Array<{
+            id: string;
+            fulfillmentLineItems: { nodes: Array<{ id: string }> };
+          }>;
+        };
+      } | null;
+      returnLineItems: {
+        nodes: Array<{
+          id: string;
+          quantity: number;
+          returnReason: string | null;
+          returnReasonDefinition: { handle: string } | null;
+          fulfillmentLineItem: { id: string; lineItem: { id: string } } | null;
+        }>;
+        pageInfo: { hasNextPage: boolean };
+      };
+    } | null;
+  }>(
+    ctx.shopDomain,
+    accessToken,
+    `query A22Return($id: ID!) {
+      return(id: $id) {
+        id status createdAt closedAt
+        order {
+          id
+          fulfillments(first: 20) {
+            nodes { id fulfillmentLineItems(first: 100) { nodes { id } } }
+          }
+        }
+        returnLineItems(first: 250) {
+          nodes {
+            id quantity returnReason
+            returnReasonDefinition { handle }
+            fulfillmentLineItem { id lineItem { id } }
+          }
+          pageInfo { hasNextPage }
+        }
+      }
+    }`,
+    { id: returnGid },
+  );
+
+  const returned = result.return;
+  const orderGid = returned?.order?.id;
+  if (!returned || !orderGid) throw new Error("shopify_return_or_order_not_found");
+  if (returned.returnLineItems.pageInfo.hasNextPage) {
+    throw new Error("shopify_return_line_items_exceed_page_limit");
+  }
+
+  const { data: order, error: orderError } = await supabase
+    .from("shopify_order_facts")
+    .select("id")
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("external_order_id", orderGid)
+    .maybeSingle();
+  if (orderError || !order) {
+    throw new Error(orderError?.message ?? "shopify_return_order_not_synced");
+  }
+
+  const { data: returnRow, error: returnError } = await supabase
+    .from("shopify_returns")
+    .upsert({
+      organization_id: ctx.organizationId,
+      store_id: ctx.storeId,
+      order_id: order.id,
+      external_return_id: returned.id,
+      status: returned.status,
+      total_quantity: returned.returnLineItems.nodes.reduce((sum, item) => sum + Math.max(0, item.quantity), 0),
+      external_created_at: returned.createdAt,
+      closed_at: returned.closedAt,
+    }, { onConflict: "store_id,external_return_id" })
+    .select("id")
+    .single();
+  if (returnError || !returnRow) {
+    throw new Error(returnError?.message ?? "shopify_return_upsert_failed");
+  }
+
+  const fulfillmentExternalIds: string[] = [];
+  for (const fulfillment of returned.order?.fulfillments.nodes ?? []) {
+    fulfillmentExternalIds.push(fulfillment.id);
+  }
+  const { data: fulfillments, error: fulfillmentError } = fulfillmentExternalIds.length
+    ? await supabase.from("shopify_fulfillments").select("id, external_fulfillment_id")
+        .eq("organization_id", ctx.organizationId).eq("store_id", ctx.storeId)
+        .in("external_fulfillment_id", fulfillmentExternalIds)
+    : { data: [], error: null };
+  if (fulfillmentError) throw new Error(fulfillmentError.message);
+  const localFulfillmentIds = new Map((fulfillments ?? []).map((item) => [item.external_fulfillment_id, item.id]));
+  const fulfillmentLineToLocalFulfillment = mapShopifyFulfillmentLineItems(
+    returned.order?.fulfillments.nodes ?? [],
+    localFulfillmentIds,
+  );
+
+  const lines = returned.returnLineItems.nodes.map((item) => {
+    const fulfillmentLineItemId = item.fulfillmentLineItem?.id ?? null;
+    const reason = normalizeShopifyReturnReason(item.returnReason);
+    return {
+      organization_id: ctx.organizationId,
+      return_id: returnRow.id,
+      external_return_line_item_id: item.id,
+      external_fulfillment_line_item_id: fulfillmentLineItemId,
+      fulfillment_id: fulfillmentLineItemId ? fulfillmentLineToLocalFulfillment.get(fulfillmentLineItemId) ?? null : null,
+      quantity: Math.max(0, item.quantity),
+      return_reason: reason,
+      // customerNote/returnReasonNote deliberately are not requested or stored.
+    };
+  });
+  if (lines.length) {
+    const { error: linesError } = await supabase.from("shopify_return_line_items")
+      .upsert(lines, { onConflict: "return_id,external_return_line_item_id" });
+    if (linesError) throw new Error(linesError.message);
+  }
+}
+
+export function safeWebhookPayload(topic: string, payload: Record<string, unknown>) {
+  if (!topic.startsWith("returns/")) return payload;
+  // Return webhook bodies may contain customer-entered notes. Persist only the
+  // global ID needed to re-fetch the object through the scoped Admin API token.
+  return {
+    ...(typeof payload.id === "number" || typeof payload.id === "string" ? { id: payload.id } : {}),
+    ...(typeof payload.admin_graphql_api_id === "string" ? { admin_graphql_api_id: payload.admin_graphql_api_id } : {}),
+  };
+}
+
 const TOPIC_HANDLERS: Record<
   string,
   {
@@ -609,12 +796,21 @@ const TOPIC_HANDLERS: Record<
       supabase: SupabaseClient,
       ctx: ConnectionContext,
       payload: Record<string, unknown>,
+      env: ApiEnv,
     ) => Promise<void>;
   }
 > = {
   "orders/create": { scope: "orders", handle: processOrderCreateOrUpdate },
   "orders/updated": { scope: "orders", handle: processOrderCreateOrUpdate },
   "refunds/create": { scope: "refunds", handle: processRefundCreate },
+  "returns/request": { scope: "orders", handle: processShopifyReturn },
+  "returns/approve": { scope: "orders", handle: processShopifyReturn },
+  "returns/process": { scope: "orders", handle: processShopifyReturn },
+  "returns/close": { scope: "orders", handle: processShopifyReturn },
+  "returns/update": { scope: "orders", handle: processShopifyReturn },
+  "returns/cancel": { scope: "orders", handle: processShopifyReturn },
+  "returns/decline": { scope: "orders", handle: processShopifyReturn },
+  "returns/reopen": { scope: "orders", handle: processShopifyReturn },
   "products/update": { scope: "catalog", handle: processProductUpdate },
   "inventory_levels/update": {
     scope: "inventory",
@@ -783,6 +979,7 @@ export async function handleShopifyWebhookRequest(
   if (!payload) {
     return { statusCode: 400, body: { error: "invalid_json_payload" } };
   }
+  const persistedPayload = safeWebhookPayload(topic, payload);
 
   const fingerprint = sha256(rawBody.toString("utf8"));
 
@@ -798,7 +995,7 @@ export async function handleShopifyWebhookRequest(
       fingerprint,
       signature_valid: true,
       status: "received",
-      payload,
+      payload: persistedPayload,
       headers: {
         "x-shopify-shop-domain": shopDomain,
         "x-shopify-topic": topic,
@@ -890,7 +1087,7 @@ export async function handleShopifyWebhookRequest(
   }
 
   try {
-    await handle!(supabase, ctx, payload);
+    await handle!(supabase, ctx, persistedPayload, env);
 
     await supabase
       .schema("private")
@@ -1004,7 +1201,7 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
     }
 
     try {
-      await handle(supabase, ctx, event.payload as Record<string, unknown>);
+      await handle(supabase, ctx, event.payload as Record<string, unknown>, env);
       await supabase
         .schema("private")
         .from("webhook_events")
@@ -1040,7 +1237,7 @@ async function resolveConnectionContextById(
 ): Promise<ConnectionContext | null> {
   const { data: connection } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, status")
+    .select("id, organization_id, status, provider_account_id")
     .eq("id", connectionId)
     .maybeSingle();
   if (!connection || !acceptsWebhookIngest(connection.status)) return null;
@@ -1049,6 +1246,6 @@ async function resolveConnectionContextById(
     .select("id")
     .eq("connection_id", connection.id)
     .maybeSingle();
-  if (!store) return null;
-  return { connectionId: connection.id, organizationId: connection.organization_id, storeId: store.id };
+  if (!store || !connection.provider_account_id) return null;
+  return { connectionId: connection.id, organizationId: connection.organization_id, storeId: store.id, shopDomain: connection.provider_account_id };
 }

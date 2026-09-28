@@ -14630,7 +14630,9 @@ export type Database = {
       shopify_return_line_items: {
         Row: {
           created_at: string
+          external_fulfillment_line_item_id: string | null
           external_return_line_item_id: string
+          fulfillment_id: string | null
           id: string
           order_item_id: string | null
           organization_id: string
@@ -14642,7 +14644,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          external_fulfillment_line_item_id?: string | null
           external_return_line_item_id: string
+          fulfillment_id?: string | null
           id?: string
           order_item_id?: string | null
           organization_id: string
@@ -14654,7 +14658,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          external_fulfillment_line_item_id?: string | null
           external_return_line_item_id?: string
+          fulfillment_id?: string | null
           id?: string
           order_item_id?: string | null
           organization_id?: string
@@ -14665,6 +14671,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "shopify_return_line_items_fulfillment_id_fkey"
+            columns: ["fulfillment_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_fulfillments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "shopify_return_line_items_order_item_id_fkey"
             columns: ["order_item_id"]
