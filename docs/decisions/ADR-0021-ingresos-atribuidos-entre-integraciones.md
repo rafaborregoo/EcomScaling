@@ -107,3 +107,7 @@ magnitud que no existe (p. ej. recomendar recortar Meta porque "solo aporta el
   parte del alcance, no como mejora posterior.
 - Complementa ADR-0006 (patron de modulo) y ADR-0019 (resiliencia de agentes);
   root `CLAUDE.md` ya referencia `docs/decisions/`.
+- Cross-channel attribution: conocimiento en `conocimiento/fase-10/` (10.01
+  principios, 10.02 contrato, 10.04 guardrails); contrato en codigo en
+  `packages/contracts/src/cross-channel-attribution.ts`. Klaviyo no expone su
+  ventana de atribucion por API: viaja como desconocida, no como default.

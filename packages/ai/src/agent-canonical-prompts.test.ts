@@ -290,10 +290,18 @@ test("A11 v6 consulta historial Klaviyo y catálogo Shopify con alcance limitado
   assert.match(migration, /get_shopify_product_catalog/);
   assert.match(migration, /brief explícito actual > perfil\/guía de marca disponible > hechos del catálogo/);
   assert.match(runtime, /\.eq\("organization_id", organizationId\)[\s\S]*\.order\("updated_at", \{ ascending: false \}\)/);
-  assert.match(runtime, /productsQuery = productsQuery\.eq\("store_id", storeId\)/);
+  assert.match(
+    runtime,
+    /\.from\("shopify_products"\)[\s\S]{0,700}\.eq\("organization_id", organizationId\)[\s\S]{0,400}\.eq\("store_id", storeId\)/,
+  );
   assert.match(runtime, /\.eq\("organization_id", organizationId\)[\s\S]*\.in\("product_id", productIds\)/);
   assert.match(tools, /get_shopify_product_catalog: \{[\s\S]*?max\(30\)/);
-  assert.match(runtime, /no contiene descripción extensa, imágenes ni disponibilidad en tiempo real/);
+  assert.match(
+    tools,
+    /get_shopify_product_catalog:[\s\S]{0,1600}product_metadata_coverage[\s\S]{0,200}variants_coverage[\s\S]{0,120}media_coverage[\s\S]{0,120}bundle_coverage[\s\S]{0,120}offers_coverage/,
+  );
+  assert.match(tools, /no contiene importes de venta ni reembolso/);
+  assert.match(tools, /no presentes inventario como tiempo real/);
   assert.match(runtime, /no_single_store_selected/);
   assert.match(runtime, /\.eq\("connection_id", requestedConnectionId\)/);
 });
@@ -340,7 +348,10 @@ test("A12 v4 habilita lecturas de rendimiento con fechas, tienda y granularidad 
   assert.match(migration, /klaviyo_deliverability_health/);
   assert.match(migration, /granularidad mensual/);
   assert.match(runtime, /target_store_id: storeId/);
-  assert.match(runtime, /parseKlaviyoPerformanceWindow\(input\.period_start, input\.period_end\)/);
+  assert.match(
+    runtime,
+    /parseKlaviyoPerformanceWindow\([\s\S]{0,100}input\.period_start[\s\S]{0,100}input\.period_end/,
+  );
   assert.match(runtime, /no_disponible_por_tienda/);
 });
 
@@ -356,6 +367,11 @@ test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
   assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
+  assert.match(runtime, /runOperativaShopifyAgent[\s\S]{0,500}resolveStrictStoreScope/);
+  assert.match(runtime, /operationalMetricValue\(sales\.data, sales\.error\)/);
+  assert.match(runtime, /operationalMetricValue\(prevSales\.data, prevSales\.error\)/);
+  assert.match(runtime, /operationalMetricValue\(financial\.data, financial\.error\)/);
+  assert.match(runtime, /operationalMetricValue\(stock\.data, stock\.error\)/);
 });
 
 test("A14 v2 mantiene ROAS, plan, tareas y alertas dentro del alcance correcto", () => {
@@ -367,6 +383,8 @@ test("A14 v2 mantiene ROAS, plan, tareas y alertas dentro del alcance correcto",
   assert.match(migration, /'v1'[\s\S]*?'v2'/);
   assert.match(migration, /Las cuentas sin tienda asignada se muestran aparte/);
   assert.match(runtime, /target_store_id: storeId/);
+  assert.match(runtime, /runOperativaMetaAgent[\s\S]{0,500}resolveStrictStoreScope/);
+  assert.match(runtime, /\.from\("meta_ad_accounts"\)[\s\S]{0,300}\.eq\("is_active", true\)[\s\S]{0,150}\.is\("store_id", null\)/);
   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
   assert.match(runtime, /meta_spend_query_failed/);
@@ -567,6 +585,19 @@ test("A22 v5 usa la cola de incidencias sin cerrar por hitos ambiguos", () => {
   assert.match(source, /direcciones|addresses|tracking numbers/i);
 });
 
+test("A22 v6 permite comparar devoluciones solo con cohorte madura y cobertura fiable", () => {
+  const migration = fs.readFileSync(
+    path.resolve(REPO_ROOT, "supabase/migrations/20261115770000_a22_return_delay_comparison.sql"),
+    "utf8",
+  );
+  assert.match(migration, /'a22_postventa_shopify_system', 'v6'/);
+  assert.match(migration, /shopify_return_delay_comparison/);
+  assert.match(migration, /shopify_fulfillment_health/);
+  assert.match(migration, /Order\.returnStatus es el estado agregado actual/i);
+  assert.match(migration, /nunca prueba de que el retraso caus/i);
+  assert.match(migration, /is_active = false[\s\S]*version <> 'v6'/);
+});
+
 test("el playbook de mailing queda privado, versionado y con ejemplos no revelables", () => {
   const migration = fs.readFileSync(
     path.resolve(REPO_ROOT, "supabase/migrations/20261115320000_a11_internal_mailing_playbook.sql"),
@@ -649,4 +680,82 @@ test("A23 drilldown is bounded, store-scoped, read-only and does not expose raw 
   assert.match(prompt, /meta_creative_diagnostics/);
   assert.match(prompt, /la tienda y organización las fija el sistema/);
   assert.match(prompt, /no significa que hayas visto la imagen\/vídeo/);
+});
+
+test("A23/A25 distinguish failed Meta queries from successful empty results", () => {
+  const migration = fs.readFileSync(
+    path.resolve(REPO_ROOT, "supabase/migrations/20261115780000_a23_a25_meta_rpc_availability.sql"),
+    "utf8",
+  );
+  assert.match(migration, /a23_creatividad_meta_system'[\s\S]*?'v6'/);
+  assert.match(migration, /a25_cambios_meta_system'[\s\S]*?'v3'/);
+  assert.match(migration, /`available`, `no_data_returned` y `unavailable`/);
+  assert.match(migration, /no concluyas que la cuenta estuvo quieta/);
+  assert.match(migration, /Nunca conviertas un error técnico en hallazgo de negocio/);
+  assert.match(migration, /set is_active = false/);
+  assert.match(migration, /is_active = true/);
+});
+
+test("A25 only reports mature complete comparisons and scopes audience usage", () => {
+  const migration = fs.readFileSync(
+    path.resolve(REPO_ROOT, "supabase/migrations/20261115810000_a25_change_investigation_v4.sql"),
+    "utf8",
+  );
+  assert.match(migration, /'comparable_observation_only'/);
+  assert.match(migration, /'attribution_immature'/);
+  assert.match(migration, /'partial_before_window'/);
+  assert.match(migration, /'unresolved_entity'/);
+  assert.match(migration, /cp\.ad_account_id = c\.ad_account_id/);
+  assert.match(migration, /dr\.ad_account_id = r\.ad_account_id/);
+  assert.match(migration, /impressions_before/);
+  assert.match(migration, /clicks_after/);
+  assert.match(migration, /concurrent_changes_24h/);
+  assert.match(migration, /Si el gate A24 no es `usable_with_attribution_limits`/);
+  assert.match(migration, /target_store_id is null or acc\.store_id = target_store_id/);
+  assert.match(migration, /ad_sets_including bigint, ad_sets_excluding bigint/);
+  assert.match(migration, /active_ad_sets bigint, archived_ad_sets bigint/);
+  assert.match(migration, /'a25_cambios_meta_system', 'v4'/);
+  assert.match(migration, /'v4', source\.model, 'a25_cambios_meta_system', 'v4'/);
+});
+
+test("A23 only treats ranking and impression thresholds as descriptive evidence", () => {
+  const migration = fs.readFileSync(
+    path.resolve(REPO_ROOT, "supabase/migrations/20261115790000_a23_claim_strength_v7.sql"),
+    "utf8",
+  );
+  assert.match(migration, /a23_creatividad_meta_system'[\s\S]*?'v7'/);
+  assert.match(migration, /ultimo veredicto vigente de Meta/);
+  assert.match(migration, /1000 impresiones.*no demuestran significancia/s);
+  assert.match(migration, /video_plays.*proxy.*no una visualizacion de 3 segundos/s);
+  assert.match(migration, /no trae desglose de formato ni placement.*si no estan disponibles/);
+  assert.match(migration, /break-even de A14.*A24/s);
+  assert.match(migration, /nunca pauses anuncios ni escales presupuesto automaticamente/);
+});
+
+test("A23 treats absent availability metadata as unknown and never fills it with zero", () => {
+  const migration = fs.readFileSync(
+    path.resolve(REPO_ROOT, "supabase/migrations/20261115791000_a23_missing_availability_fail_closed.sql"),
+    "utf8",
+  );
+  assert.match(migration, /a23_creatividad_meta_system'[\s\S]*?'v8'/);
+  assert.match(migration, /si no recibes el bloque de disponibilidad/);
+  assert.match(migration, /interpreta todas las fuentes como unknown/);
+  assert.match(migration, /no concluyas cero, cuenta quieta ni ausencia de datos/);
+  assert.match(migration, /no recomiendes pausa ni escalado por ventas o roas/i);
+});
+
+test("A23 v9 follows the structured decision contract and keeps Meta changes human-approved", () => {
+  const migration = fs.readFileSync(
+    path.resolve(REPO_ROOT, "supabase/migrations/20261115792000_a23_structured_decision_v9.sql"),
+    "utf8",
+  );
+  assert.match(migration, /a23_creatividad_meta_system'[\s\S]*?'v9'/);
+  assert.match(migration, /creative_decisions/);
+  assert.match(migration, /measurement_verdict/);
+  assert.match(migration, /spend_currency/);
+  assert.match(migration, /debe copiar exactamente/i);
+  assert.match(migration, /signal[\s\S]*window[\s\S]*spend_implicated[\s\S]*uncertainty[\s\S]*hypothesis[\s\S]*success_criterion/);
+  assert.match(migration, /propose_pause/);
+  assert.match(migration, /aprobaci[oó]n humana/);
+  assert.match(migration, /no ejecutes cambios, pausas ni escalados en meta/i);
 });

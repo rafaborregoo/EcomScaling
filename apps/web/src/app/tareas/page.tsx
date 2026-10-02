@@ -15,8 +15,11 @@ import { ModuleSummary } from "@/components/module-summary";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { assigneeLabel } from "./assignee-label";
+import s from "./tareas.module.css";
 import { daysSince, isWithinLastDays, oldest } from "@/lib/elapsed";
 import { displayValue } from "@/lib/display-labels";
+import { DiscussModal } from "@/components/discuss-modal";
+import { HeroBlock, heroPrimary } from "@/components/trabajo-ui";
 import {
   LoadingBlock,
   Checkbox,
@@ -24,6 +27,7 @@ import {
   Badge,
   Button,
   Card,
+  CollapsibleSection,
   ErrorBlock,
   Field,
   Input,
@@ -251,6 +255,14 @@ function isTaskOverdue(task: Task) {
   );
 }
 
+// De dónde sale la tarea, cuando no es a mano: se ve en la fila como chip.
+const SOURCE_LABELS: Record<string, string> = {
+  alert: "Desde alerta",
+  ai_consultant: "IA",
+  strategic_plan: "Mi Camino",
+  campaign: "Agenda",
+};
+
 // "Fase · Hito" de Mi Camino al que pertenece la tarea, para la meta de la fila.
 function milestoneLabel(task: Task) {
   if (!task.milestone) return null;
@@ -335,8 +347,6 @@ function TaskDetail({
     task.categories.map((c) => CATEGORY_LABELS[c] ?? c).join(" · "),
     PRIORITY_LABELS[task.priority] ?? task.priority,
     STATUS_LABELS[task.status] ?? task.status,
-    task.source === "alert" ? "desde alerta" : null,
-    milestoneLabel(task),
     task.due_at ? `vence ${formatDueDate(task.due_at)}` : null,
     isTaskOverdue(task) ? "vencida" : null,
     viewerUserId
@@ -561,6 +571,28 @@ function NewTaskForm({
             onChange={(event) => setDueAt(event.target.value)}
             className="w-40"
           />
+          <div className={s.chips} role="group" aria-label="Atajos de fecha">
+            {[
+              ["Hoy", 0],
+              ["Mañana", 1],
+              ["En 1 semana", 7],
+            ].map(([label, days]) => {
+              const d = new Date();
+              d.setDate(d.getDate() + Number(days));
+              const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  className={s.chip}
+                  aria-pressed={dueAt === value}
+                  onClick={() => setDueAt(value)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
         {milestones.length > 0 ? (
           <Select
@@ -684,7 +716,14 @@ function TaskRow({
   ].filter(Boolean);
 
   return (
-    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
+    <div
+      className={`${s.row} flex flex-wrap items-start gap-x-4 gap-y-2 py-3`}
+      data-priority={task.priority}
+      data-overdue={isTaskOverdue(task) ? "" : undefined}
+      data-done={
+        ["pending", "in_progress"].includes(task.status) ? undefined : ""
+      }
+    >
       <div className="min-w-[15rem] flex-1">
         <div className="flex flex-wrap items-center gap-2">
           {priorityBadge ? (
@@ -693,6 +732,12 @@ function TaskRow({
           {/* Sin `truncate`: un titulo cortado obliga a abrir el detalle solo
               para saber de que va la tarea. */}
           <p className="text-sm font-medium text-foreground">{task.title}</p>
+          {task.milestone ? (
+            <Badge tone="brand">Hito · {milestoneLabel(task)}</Badge>
+          ) : null}
+          {SOURCE_LABELS[task.source] && task.source !== "strategic_plan" ? (
+            <Badge tone="neutral">{SOURCE_LABELS[task.source]}</Badge>
+          ) : null}
         </div>
         {/* El cliente va en la meta con peso propio, no en un badge gris que
             competia con los que si clasifican la tarea. */}
@@ -809,20 +854,25 @@ function TaskFilters({
       ) : null}
       {onStatusChange && onCategoryChange ? (
         <>
-          <Select
-            className="w-[calc(50%-0.25rem)] sm:w-44"
-            aria-label="Filtrar por estado"
-            value={status ?? "open"}
-            onChange={onStatusChange}
-            options={[
-              { value: "open", label: "Abiertas" },
-              { value: "pending", label: "Pendientes" },
-              { value: "in_progress", label: "En curso" },
-              { value: "completed", label: "Completadas" },
-              { value: "ignored", label: "Ignoradas" },
-              { value: "all", label: "Todas" },
-            ]}
-          />
+          <div className={s.chips} role="group" aria-label="Filtrar por estado">
+            {[
+              ["open", "Abiertas"],
+              ["in_progress", "En curso"],
+              ["completed", "Completadas"],
+              ["ignored", "Ignoradas"],
+              ["all", "Todas"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={s.chip}
+                aria-pressed={(status ?? "open") === value}
+                onClick={() => onStatusChange(value!)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <Select
             className="w-[calc(50%-0.25rem)] sm:w-40"
             aria-label="Filtrar por módulo"
@@ -851,11 +901,14 @@ function AlertRow({
   clientName,
   isPending,
   onStatusChange,
+  onCreateTask,
 }: {
   alert: Alert;
   clientName?: string;
   isPending: boolean;
   onStatusChange: (status: string) => void;
+  /** Convierte la alerta en una tarea con su título y su mensaje. */
+  onCreateTask?: () => void;
 }) {
   return (
     <List.Item className="flex flex-wrap items-start justify-between gap-3 py-3">
@@ -894,6 +947,16 @@ function AlertRow({
             onClick={() => onStatusChange("acknowledged")}
           >
             Marcar vista
+          </Button>
+        ) : null}
+        {onCreateTask ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={isPending}
+            onClick={onCreateTask}
+          >
+            Crear tarea
           </Button>
         ) : null}
         <Button
@@ -1591,6 +1654,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     Record<string, boolean>
   >({});
   const [tab, setTab] = useState<"tasks" | "alerts">("tasks");
+  const [discussTask, setDiscussTask] = useState<Task | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [completionTask, setCompletionTask] = useState<{ taskId: string; title: string; mode: "complete" | "record" } | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -1912,6 +1976,10 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   });
 
   const tasksPage = usePaginatedUrl(sortedTasks, TASKS_PAGE_SIZE);
+  // Lo primero de la lista ya ordenada (vencidas > prioridad > fecha), solo abiertas.
+  const nextTask =
+    sortedTasks.find((task) => ["pending", "in_progress"].includes(task.status)) ??
+    null;
 
   const detailTask = detailTaskId
     ? (filteredTasks.find((task) => task.id === detailTaskId) ?? null)
@@ -1940,10 +2008,56 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      {isConsultant && organization ? (
-        <p className="text-sm text-muted">
-          Viendo tareas de {organization.display_name}.
-        </p>
+      {nextTask ? (
+        <HeroBlock
+          label={isTaskOverdue(nextTask) ? "Lo siguiente · va tarde" : "Lo siguiente"}
+          title={nextTask.title}
+          actions={
+            <>
+              {canResolveTasks ? (
+                <button
+                  type="button"
+                  className={heroPrimary}
+                  disabled={pendingTaskId === nextTask.id}
+                  onClick={() => void changeTaskStatus(nextTask.id, "completed")}
+                >
+                  Completar
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setDetailTaskId(nextTask.id)}>
+                Detalle
+              </button>
+              <button type="button" onClick={() => setDiscussTask(nextTask)}>
+                Escribir sobre esto
+              </button>
+            </>
+          }
+        >
+          {[dueSignal(nextTask).text, milestoneLabel(nextTask) ? `Hito · ${milestoneLabel(nextTask)}` : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </HeroBlock>
+      ) : payload && openTasks.length === 0 && !hasProposals ? (
+        <HeroBlock
+          label="Al día"
+          title="No tienes tareas abiertas"
+          actions={
+            <button
+              type="button"
+              className={heroPrimary}
+              onClick={() => {
+                setTab("tasks");
+                setIsCreatingTask(true);
+              }}
+            >
+              Nueva tarea
+            </button>
+          }
+        >
+          {completedLast30 > 0
+            ? `${completedLast30} cerrada${completedLast30 === 1 ? "" : "s"} en los últimos 30 días.`
+            : "Cuando haya algo que hacer, aparecerá aquí lo siguiente."}
+        </HeroBlock>
       ) : null}
 
       {payload ? (
@@ -2134,6 +2248,17 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     onStatusChange={(status) =>
                       void changeAlertStatus(alert.id, status)
                     }
+                    onCreateTask={() =>
+                      void createTaskManual({
+                        title: alert.title,
+                        description: alert.message,
+                        priority: ["critical", "high"].includes(alert.severity) ? "high" : "medium",
+                        category: "general",
+                        dueAt: "",
+                        isVisibleToClient: true,
+                        milestoneId: "",
+                      })
+                    }
                   />
                 ))}
               </List>
@@ -2141,7 +2266,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </Card>
 
           {resolvedAlerts.length > 0 ? (
-            <Card title="Resueltas recientes">
+            <CollapsibleSection title={`Resueltas recientes · ${resolvedAlerts.length}`}>
               <List>
                 {resolvedAlerts.slice(0, 20).map((alert) => (
                   <List.Item key={alert.id} className="py-2.5">
@@ -2155,10 +2280,22 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </List.Item>
                 ))}
               </List>
-            </Card>
+            </CollapsibleSection>
           ) : null}
         </div>
       )}
+
+      <DiscussModal
+        organizationId={organization?.id ?? null}
+        title={discussTask?.title ?? null}
+        draft={
+          discussTask
+            ? `Hola, te escribo sobre la tarea «${discussTask.title}»${discussTask.due_at ? ` (${dueSignal(discussTask).text.toLowerCase()})` : ""}. `
+            : ""
+        }
+        viewerIsClient={!isConsultant}
+        onClose={() => setDiscussTask(null)}
+      />
 
       {completionTask ? (
         <TaskOutcomeDialog
@@ -2212,6 +2349,17 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     }
                   />
                 </Modal.Body>
+                <Modal.Footer>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setDetailTaskId(null);
+                      setDiscussTask(detailTask);
+                    }}
+                  >
+                    Escribir sobre esto
+                  </Button>
+                </Modal.Footer>
               </Modal.Dialog>
             </Modal.Container>
           </Modal.Backdrop>

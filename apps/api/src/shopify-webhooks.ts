@@ -27,7 +27,9 @@ export const SHOPIFY_WEBHOOK_TOPICS = [
   { graphqlTopic: "RETURNS_CANCEL", restTopic: "returns/cancel" },
   { graphqlTopic: "RETURNS_DECLINE", restTopic: "returns/decline" },
   { graphqlTopic: "RETURNS_REOPEN", restTopic: "returns/reopen" },
+  { graphqlTopic: "PRODUCTS_CREATE", restTopic: "products/create" },
   { graphqlTopic: "PRODUCTS_UPDATE", restTopic: "products/update" },
+  { graphqlTopic: "PRODUCTS_DELETE", restTopic: "products/delete" },
   { graphqlTopic: "INVENTORY_LEVELS_UPDATE", restTopic: "inventory_levels/update" },
   // INT-01/R-010: sin app/uninstalled la conexion quedaba en "connected" para
   // siempre tras una desinstalacion hecha desde Shopify.

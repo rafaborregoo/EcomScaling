@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import NextLink from "next/link";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -14,29 +15,60 @@ import {
   callTaskStatusLabel,
   type CallTaskAudience,
 } from "./call-task-view-model";
-import { ModuleSummary } from "@/components/module-summary";
+import { useModuleSummary } from "@/components/module-summary";
 import { daysSince, isUpcoming } from "@/lib/elapsed";
 import {
   LoadingBlock,
-  Heading,
-  Accordion,
-  Alert,
-  Badge,
   Button,
-  Card,
   Checkbox,
+  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   Link,
-  List,
   Modal,
   Select,
   Textarea,
   toast,
-  type Tone,
 } from "@/components/ui";
+import p from "../dashboard/client-pulse.module.css";
+import s from "./llamadas.module.css";
+
+// Llamadas usa el lenguaje del panel: .root trae los tokens (petróleo +
+// azafrán para el cliente) y .consultant los cambia a grafito + mandarina.
+export function CallsTheme({
+  isConsultant,
+  children,
+}: {
+  isConsultant: boolean;
+  children: ReactNode;
+}) {
+  const root = <div className={p.root}>{children}</div>;
+  return isConsultant ? <div className={p.consultant}>{root}</div> : root;
+}
+
+type ChipTone = "neutral" | "good" | "warn" | "bad" | "acc";
+
+const CHIP_CLASS: Record<ChipTone, string> = {
+  neutral: p.chip,
+  good: `${p.chip} ${p.chipGood}`,
+  warn: `${p.chip} ${p.chipWarn}`,
+  bad: `${p.chip} ${s.chipBad}`,
+  acc: `${p.chip} ${p.chipAcc}`,
+};
+
+function Chip({ tone = "neutral", children }: { tone?: ChipTone; children: ReactNode }) {
+  return <span className={CHIP_CLASS[tone]}>{children}</span>;
+}
+
+const btn = {
+  primary: p.btn,
+  acc: `${p.btn} ${p.acc}`,
+  ghost: `${p.btn} ${p.ghost}`,
+  ghostSm: `${p.btn} ${p.ghost} ${p.sm}`,
+  accSm: `${p.btn} ${p.acc} ${p.sm}`,
+};
 
 type CallTranscript = {
   id: string;
@@ -119,37 +151,39 @@ function A01Handoffs({
     `Cambio acordado: ${item.change}\nMotivo: ${item.rationale}\nCita de la llamada: “${item.evidence_quote}”`;
 
   return (
-    <div className="mt-4 space-y-3 rounded-lg border border-separator bg-surface-subtle p-4">
-      <h3 className="text-sm font-semibold">Continuar lo acordado</h3>
+    <div className={s.handoffs}>
+      <p className={p.lbl}>Continuar lo acordado</p>
       {campaigns.map((item, index) => (
-        <div key={`campaign-${index}`} className="flex flex-wrap items-center justify-between gap-3 border-t border-separator pt-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Preparar campaña · {item.objective}</p>
-            <p className="mt-1 text-xs text-muted">{item.audience}{item.timing_hint ? ` · ${item.timing_hint}` : ""}</p>
-            <p className="mt-1 text-xs text-muted">«{item.evidence_quote}»</p>
+        <div key={`campaign-${index}`} className={s.list}>
+          <div>
+            <div className="min-w-0">
+              <p className="font-semibold">Preparar campaña · {item.objective}</p>
+              <p className={s.small}>{item.audience}{item.timing_hint ? ` · ${item.timing_hint}` : ""} · «{item.evidence_quote}»</p>
+            </div>
+            <Link
+              href="/marketing?section=plan&openCampaignPlan=1"
+              onClick={() => window.sessionStorage.setItem(A01_CAMPAIGN_BRIEF_KEY, serializeA01BriefHandoff(organizationId, campaignBrief(item)))}
+              className={`${btn.ghostSm} shrink-0 no-underline`}
+            >Abrir plan de campañas</Link>
           </div>
-          <Link
-            href="/marketing?section=plan&openCampaignPlan=1"
-            onClick={() => window.sessionStorage.setItem(A01_CAMPAIGN_BRIEF_KEY, serializeA01BriefHandoff(organizationId, campaignBrief(item)))}
-            className="shrink-0"
-          >Abrir A05 · Plan de campañas</Link>
         </div>
       ))}
       {caminoChanges.map((item, index) => (
-        <div key={`camino-${index}`} className="flex flex-wrap items-center justify-between gap-3 border-t border-separator pt-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Revisar cambio del Camino · {item.change}</p>
-            <p className="mt-1 text-xs text-muted">{item.rationale}</p>
-            <p className="mt-1 text-xs text-muted">«{item.evidence_quote}»</p>
+        <div key={`camino-${index}`} className={s.list}>
+          <div>
+            <div className="min-w-0">
+              <p className="font-semibold">Revisar cambio del Camino · {item.change}</p>
+              <p className={s.small}>{item.rationale} · «{item.evidence_quote}»</p>
+            </div>
+            <Link
+              href="/camino?fromCall=1"
+              onClick={() => window.sessionStorage.setItem(A01_CAMINO_BRIEF_KEY, serializeA01BriefHandoff(organizationId, caminoBrief(item)))}
+              className={`${btn.ghostSm} shrink-0 no-underline`}
+            >Abrir Camino</Link>
           </div>
-          <Link
-            href="/camino?fromCall=1"
-            onClick={() => window.sessionStorage.setItem(A01_CAMINO_BRIEF_KEY, serializeA01BriefHandoff(organizationId, caminoBrief(item)))}
-            className="shrink-0"
-          >Abrir A19 · Camino</Link>
         </div>
       ))}
-      <p className="text-xs text-muted">El agente especialista contrastará el brief con los datos actuales. No se crea ni modifica nada hasta revisar y confirmar su propuesta.</p>
+      <p className={s.small}>El especialista contrastará el brief con los datos actuales. No se crea ni modifica nada hasta que revises y confirmes su propuesta.</p>
     </div>
   );
 }
@@ -208,118 +242,65 @@ function StructuredSummary({
     return null;
   }
 
+  const bulletBlock = (label: string, items: ReactNode[]) =>
+    items.length ? (
+      <div className={s.block}>
+        <p className={p.lbl}>{label}</p>
+        <ul className={s.dots}>
+          {items.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
+  // Los avisos del modelo no van aquí: se leen al revisar el resumen
+  // (PendingSummaryReview) y nunca llegan a la vista del cliente.
   return (
-    <div className="mt-3 space-y-3 text-sm">
-      {detail?.facts?.length ? (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Hechos</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {detail.facts.map((fact, index) => (
-              <li key={index}>{fact}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {decisions.length ? (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Decisiones</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {decisions.map((decision, index) => (
-              <li key={index}>{decision}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {detail?.recommendations?.length ? (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            Recomendaciones
-          </h3>
-          <ul className="mt-1 space-y-1">
-            {detail.recommendations.map((rec, index) => (
-              <li key={index}>
-                <span className="font-medium">{rec.action}</span>{" "}
-                <span className="text-xs text-muted">
-                  ({priorityLabels[rec.priority] ?? rec.priority})
-                </span>
-                {rec.rationale ? (
-                  <span className="text-muted"> — {rec.rationale}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {detail?.risks?.length ? (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Riesgos</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {detail.risks.map((risk, index) => (
-              <li key={index}>{risk}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {createdTasksForClient !== undefined ? (
-        createdTasksForClient.length > 0 ? (
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Tareas creadas
-            </h3>
-            <ul className="mt-1 space-y-1">
-              {createdTasksForClient.map((link) => (
-                <li key={link.id}>{link.tasks?.title ?? link.task_id}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null
-      ) : !hideProposedTasks && detail?.proposed_tasks?.length ? (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            Tareas propuestas (se crean al aprobar)
-          </h3>
-          <ul className="mt-1 space-y-1">
-            {detail.proposed_tasks.map((task, index) => (
-              <li key={index} className="flex flex-wrap items-baseline gap-2">
-                <span>{task.title}</span>
-                <span className="text-xs text-muted">
-                  {priorityLabels[task.priority] ?? task.priority} ·{" "}
-                  {task.owner}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {detail?.warnings?.length ? (
-        <div className="rounded-md border border-warn/30 bg-warn/5 p-3">
-          <h3 className="text-sm font-semibold text-warn-deep">Avisos</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-muted">
-            {detail.warnings.map((warning, index) => (
-              <li key={index}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+    <div className={p.two}>
+      {bulletBlock("Hechos", detail?.facts ?? [])}
+      {bulletBlock("Decisiones", decisions)}
+      {bulletBlock(
+        "Recomendaciones",
+        (detail?.recommendations ?? []).map((rec) => (
+          <>
+            <span className="font-medium text-[var(--ink)]">{rec.action}</span>{" "}
+            <span className={s.small}>
+              ({priorityLabels[rec.priority] ?? rec.priority})
+            </span>
+            {rec.rationale ? <> · {rec.rationale}</> : null}
+          </>
+        )),
+      )}
+      {bulletBlock("A vigilar", detail?.risks ?? [])}
+      {createdTasksForClient !== undefined
+        ? bulletBlock(
+            "Tareas creadas",
+            createdTasksForClient.map((link) => link.tasks?.title ?? link.task_id),
+          )
+        : !hideProposedTasks
+          ? bulletBlock(
+              "Tareas propuestas (se crean al aprobar)",
+              (detail?.proposed_tasks ?? []).map(
+                (task) =>
+                  `${task.title} · ${priorityLabels[task.priority] ?? task.priority} · ${task.owner}`,
+              ),
+            )
+          : null}
     </div>
   );
 }
 
-const GAP_SEVERITY: Record<string, { label: string; tone: Tone }> = {
-  high: { label: "Alta", tone: "danger" },
+const GAP_SEVERITY: Record<string, { label: string; tone: ChipTone }> = {
+  high: { label: "Alta", tone: "bad" },
   medium: { label: "Media", tone: "warn" },
   low: { label: "Baja", tone: "neutral" },
 };
 
-const TREND_META: Record<string, { label: string; tone: Tone }> = {
-  mejora: { label: "Mejora", tone: "success" },
+const TREND_META: Record<string, { label: string; tone: ChipTone }> = {
+  mejora: { label: "Mejora", tone: "good" },
   estable: { label: "Estable", tone: "neutral" },
-  empeora: { label: "Empeora", tone: "danger" },
+  empeora: { label: "Empeora", tone: "bad" },
   sin_referencia: { label: "Sin referencia", tone: "neutral" },
 };
 
@@ -341,82 +322,63 @@ function ConsultantCoaching({ detail }: { detail: CallSummaryDetail }) {
   const aboutClient = signals.filter((signal) => signal.about !== "consultor");
 
   return (
-    <section className="rounded-md border border-separator p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-medium text-foreground">Lectura para ti</p>
-        <Badge tone="neutral">Solo consultor</Badge>
+    <section className={p.panel}>
+      <div className={p.panelH}>
+        <h3>
+          Lectura para ti <Chip>Solo consultor</Chip>
+        </h3>
       </div>
+      <div className={p.two}>
+        {gaps.length > 0 ? (
+          <div className={s.block}>
+            <p className={p.lbl}>Lo que no se trató</p>
+            <ul className={s.list}>
+              {gaps.map((gap, index) => (
+                <li key={index}>
+                  <div className={s.signal}>
+                    <span className="font-semibold">{gap.topic}</span>
+                    <Chip tone={GAP_SEVERITY[gap.severity]?.tone ?? "neutral"}>
+                      {GAP_SEVERITY[gap.severity]?.label ?? gap.severity}
+                    </Chip>
+                  </div>
+                  <p className={s.gapNote}>{gap.why_it_matters}</p>
+                  {/* La evidencia es lo que separa un hueco real de una opinión
+                      del modelo: siempre visible, no plegada. */}
+                  <p className={s.gapNote}>
+                    <strong className="text-[var(--ink)]">Por qué lo dice: </strong>
+                    {gap.evidence}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
-      {gaps.length > 0 ? (
-        <div className="mt-3">
-          <h3 className="text-sm font-semibold text-foreground">
-            Lo que no se trató
-          </h3>
-          <ul className="mt-2 space-y-2">
-            {gaps.map((gap, index) => (
-              <li
-                key={index}
-                className="border-t border-separator pt-2 text-sm first:border-t-0 first:pt-0"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{gap.topic}</span>
-                  <Badge tone={GAP_SEVERITY[gap.severity]?.tone ?? "neutral"}>
-                    {GAP_SEVERITY[gap.severity]?.label ?? gap.severity}
-                  </Badge>
-                </div>
-                <p className="mt-0.5 text-xs text-muted">
-                  {gap.why_it_matters}
-                </p>
-                {/* La evidencia es lo que separa un hueco real de una opinión
-                    del modelo: siempre visible, no plegada. */}
-                <p className="mt-0.5 text-xs text-muted">
-                  <span className="font-medium text-foreground">
-                    Por qué lo dice:{" "}
-                  </span>
-                  {gap.evidence}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {signals.length > 0 ? (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          {[
-            { title: "Cómo llevaste la llamada", rows: aboutConsultant },
-            { title: "Cómo llegó el cliente", rows: aboutClient },
-          ]
-            .filter((group) => group.rows.length > 0)
-            .map((group) => (
-              <div key={group.title}>
-                <h3 className="text-sm font-semibold text-foreground">
-                  {group.title}
-                </h3>
-                <ul className="mt-2 space-y-2">
-                  {group.rows.map((signal, index) => (
-                    <li key={index} className="text-sm">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="font-medium">{signal.label}</span>
-                        <span className="tabular-nums text-muted">
-                          {signal.value}
-                        </span>
-                        <Badge
-                          tone={TREND_META[signal.trend]?.tone ?? "neutral"}
-                        >
-                          {TREND_META[signal.trend]?.label ?? signal.trend}
-                        </Badge>
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {signal.reading}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-        </div>
-      ) : null}
+        {[
+          { title: "Cómo llevaste la llamada", rows: aboutConsultant },
+          { title: "Cómo llegó el cliente", rows: aboutClient },
+        ]
+          .filter((group) => group.rows.length > 0)
+          .map((group) => (
+            <div key={group.title} className={s.block}>
+              <p className={p.lbl}>{group.title}</p>
+              <ul className={s.list}>
+                {group.rows.map((signal, index) => (
+                  <li key={index}>
+                    <div className={s.signal}>
+                      <span className="font-medium">{signal.label}</span>
+                      <span className={s.signalValue}>{signal.value}</span>
+                      <Chip tone={TREND_META[signal.trend]?.tone ?? "neutral"}>
+                        {TREND_META[signal.trend]?.label ?? signal.trend}
+                      </Chip>
+                    </div>
+                    <p className={s.gapNote}>{signal.reading}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+      </div>
     </section>
   );
 }
@@ -467,12 +429,6 @@ const callTypeLabels: Record<string, string> = {
   ad_hoc: "Puntual",
 };
 
-const callStatusLabels: Record<string, string> = {
-  scheduled: "Programada",
-  held: "Realizada",
-  cancelled: "Cancelada",
-};
-
 const summaryStatusLabels: Record<string, string> = {
   draft: "Borrador",
   pending_approval: "Pendiente de aprobación",
@@ -489,6 +445,21 @@ function formatDate(value: string | null) {
     : "-";
 }
 
+function shortDate(value: string | null) {
+  return value
+    ? new Date(value).toLocaleDateString("es-ES", {
+        day: "numeric",
+        month: "short",
+      })
+    : "—";
+}
+
+function callWhen(call: ConsultingCall) {
+  return call.held_at ?? call.scheduled_at ?? call.created_at;
+}
+
+const OPEN_TASK_STATUSES = new Set(["pending", "in_progress"]);
+
 // --- Flujo de una llamada -------------------------------------------------
 //
 // El modulo tenia todas las piezas (transcripcion, agente A01, aprobacion,
@@ -497,13 +468,10 @@ function formatDate(value: string | null) {
 // vistas: la fila de la lista (para saberlo sin desplegar) y el detalle (para
 // decir cual es el siguiente paso y quien lo hace).
 
-const CONFIDENCE_META: Record<
-  string,
-  { label: string; tone: "success" | "warn" | "danger" }
-> = {
-  high: { label: "Confianza alta", tone: "success" },
+const CONFIDENCE_META: Record<string, { label: string; tone: ChipTone }> = {
+  high: { label: "Confianza alta", tone: "good" },
   medium: { label: "Confianza media", tone: "warn" },
-  low: { label: "Confianza baja", tone: "danger" },
+  low: { label: "Confianza baja", tone: "bad" },
 };
 
 // Revisión de un resumen A01 pendiente: banda de confianza/avisos arriba,
@@ -571,23 +539,32 @@ function PendingSummaryReview({
   }
 
   return (
-    <Alert status="warning" className="items-start p-3">
-      <Alert.Indicator />
-      <Alert.Content className="gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Alert.Title className="text-xs uppercase">
-            {summaryStatusLabels[summary.status]}
-            {summary.run_id ? " · IA (A01)" : ""}
-          </Alert.Title>
-          {confidence && CONFIDENCE_META[confidence] ? (
-            <Badge tone={CONFIDENCE_META[confidence].tone}>
-              {CONFIDENCE_META[confidence].label}
-            </Badge>
-          ) : null}
+    <section id="resumen" className={`${p.panel} ${s.attn}`}>
+      <div className={p.panelH}>
+        <div>
+          <h3>
+            Resumen propuesto
+            <Chip tone="warn">{summaryStatusLabels[summary.status]}</Chip>
+            {confidence && CONFIDENCE_META[confidence] ? (
+              <Chip tone={CONFIDENCE_META[confidence].tone}>
+                {CONFIDENCE_META[confidence].label}
+              </Chip>
+            ) : null}
+          </h3>
+          <p className={p.sub}>
+            {summary.run_id ? "Generado por IA" : "Redactado a mano"} ·{" "}
+            {formatDate(summary.created_at)}
+          </p>
         </div>
+      </div>
+
+      <div className={s.stack}>
+        <p className={s.lead}>{summary.summary}</p>
+
+        <StructuredSummary summary={summary} hideProposedTasks />
 
         {warnings.length ? (
-          <ul className="list-disc space-y-0.5 rounded-md border border-warn/40 bg-warn-tint px-4 py-2 pl-6 text-xs text-warn-deep">
+          <ul className={`${s.warnings} ${s.dots}`}>
             {warnings.map((warning, index) => (
               <li key={index}>{warning}</li>
             ))}
@@ -595,164 +572,154 @@ function PendingSummaryReview({
         ) : null}
 
         {sources.length ? (
-          <div className="rounded-md border border-separator bg-surface-subtle p-3">
-            <p className="text-xs font-semibold">
-              Referencias de conocimiento consultadas
-            </p>
-            <ul className="mt-1 list-inside list-disc text-sm text-muted">
-              {sources.map((source, index) => (
-                <li key={`${source.reference}-${index}`}>{source.reference}</li>
-              ))}
-            </ul>
-          </div>
+          <p className={s.small}>
+            Consultó: {sources.map((source) => source.reference).join(" · ")}
+          </p>
         ) : null}
 
-        <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
-          {summary.summary}
-        </p>
-
-        <StructuredSummary summary={summary} hideProposedTasks />
-
         {proposedTasks.length ? (
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Tareas propuestas · marca las que quieras crear al aprobar
-            </h3>
-            <ul className="mt-2 space-y-1.5">
+          <div className={s.block}>
+            <p className={p.lbl}>
+              Tareas detectadas · marca las que se crean al aprobar
+            </p>
+            <div className={s.tasks}>
               {proposedTasks.map((task, index) => {
                 const isForClient = task.owner === "cliente";
                 const isSelected = selected.has(index);
                 return (
-                  <li
+                  <div
                     key={index}
-                    className="rounded-md border border-separator bg-surface p-2.5 text-sm"
+                    className={`${s.task} ${isSelected ? "" : s.taskOff}`}
                   >
-                    <Checkbox
-                      checked={isSelected}
-                      onChange={() => toggle(index)}
-                    >
-                      <span className="font-medium">{task.title}</span>
-                    </Checkbox>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-6">
-                      {/* `owner` ya no es decorativo: decide si la tarea entra
-                          en el backlog del cliente o nace interna para ti. */}
-                      <Badge tone={isForClient ? "neutral" : "brand"}>
-                        {isForClient ? "Para el cliente" : "Para ti · interna"}
-                      </Badge>
-                      <Badge
-                        tone={
-                          ["urgent", "high"].includes(task.priority)
-                            ? "warn"
-                            : "neutral"
-                        }
+                    <div className="min-w-0">
+                      <Checkbox
+                        checked={isSelected}
+                        onChange={() => toggle(index)}
                       >
-                        {priorityLabels[task.priority] ?? task.priority}
-                      </Badge>
-                    </div>
-                    {task.description ? (
-                      <p className="mt-1 pl-6 text-xs text-muted">
-                        {task.description}
-                      </p>
-                    ) : null}
-                    {/* Punto de Mi Camino en el que entra. Solo para las del
-                        cliente: una tarea interna tuya no es parte del plan de
-                        la tienda. */}
-                    {isForClient && milestones.length > 0 ? (
-                      <div className="mt-2 pl-6">
-                        <Select
-                          className="w-full sm:w-80"
-                          aria-label={`Punto de Mi Camino para «${task.title}»`}
-                          disabled={!isSelected}
-                          value={taskMilestones[String(index)] ?? ""}
-                          onChange={(value) =>
-                            setTaskMilestones((current) => ({
-                              ...current,
-                              [String(index)]: value,
-                            }))
+                        <span className="font-semibold">{task.title}</span>
+                      </Checkbox>
+                      <div className={s.tags}>
+                        {/* `owner` decide si la tarea entra en el backlog del
+                            cliente o nace interna para ti. */}
+                        <Chip tone={isForClient ? "neutral" : "acc"}>
+                          {isForClient ? "Cliente" : "Para ti · interna"}
+                        </Chip>
+                        <Chip
+                          tone={
+                            ["urgent", "high"].includes(task.priority)
+                              ? "warn"
+                              : "neutral"
                           }
-                          options={[
-                            { value: "", label: "Fuera del plan" },
-                            ...milestones,
-                          ]}
-                        />
+                        >
+                          {priorityLabels[task.priority] ?? task.priority}
+                        </Chip>
                       </div>
-                    ) : null}
-                  </li>
+                      {task.description ? (
+                        <p className={s.why}>{task.description}</p>
+                      ) : null}
+                    </div>
+                    {/* Punto de Mi Camino en el que entra. Solo para las del
+                        cliente: una tarea interna tuya no es parte del plan. */}
+                    {isForClient && milestones.length > 0 ? (
+                      <Select
+                        className="w-full"
+                        aria-label={`Punto de Mi Camino para «${task.title}»`}
+                        disabled={!isSelected}
+                        value={taskMilestones[String(index)] ?? ""}
+                        onChange={(value) =>
+                          setTaskMilestones((current) => ({
+                            ...current,
+                            [String(index)]: value,
+                          }))
+                        }
+                        options={[
+                          { value: "", label: "Fuera del plan" },
+                          ...milestones,
+                        ]}
+                      />
+                    ) : (
+                      <span />
+                    )}
+                  </div>
                 );
               })}
-            </ul>
+            </div>
             {milestones.length === 0 ? (
-              <p className="mt-2 text-xs text-muted">
+              <p className={s.small}>
                 Esta tienda no tiene un camino activo, así que las tareas se
                 crean fuera del plan.
               </p>
             ) : null}
           </div>
         ) : null}
+      </div>
 
-        <div className="mt-1 flex flex-wrap gap-2">
-          <Button size="sm" type="button" disabled={isBusy} onClick={approve}>
-            {proposedTasks.length
-              ? `Aprobar · ${selected.size}/${proposedTasks.length} tareas`
-              : "Aprobar y publicar"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            disabled={isBusy}
-            onClick={() => {
-              setRejectReason("");
-              setRejectOpen(true);
-            }}
-          >
-            Rechazar
-          </Button>
-        </div>
+      <div className={s.foot}>
+        <button
+          className={btn.acc}
+          type="button"
+          disabled={isBusy}
+          onClick={approve}
+        >
+          {proposedTasks.length
+            ? `Aprobar y publicar · ${selected.size} ${selected.size === 1 ? "tarea" : "tareas"}`
+            : "Aprobar y publicar"}
+        </button>
+        <button
+          className={`${btn.ghost} ${s.push}`}
+          type="button"
+          disabled={isBusy}
+          onClick={() => {
+            setRejectReason("");
+            setRejectOpen(true);
+          }}
+        >
+          Rechazar
+        </button>
+      </div>
 
-        <Modal isOpen={rejectOpen} onOpenChange={setRejectOpen}>
-          <Modal.Backdrop>
-            <Modal.Container size="md">
-              <Modal.Dialog aria-label="Rechazar resumen">
-                <Modal.Header>
-                  <Modal.Heading>Rechazar resumen</Modal.Heading>
-                </Modal.Header>
-                <Modal.Body>
-                  <Field label="Motivo del rechazo">
-                    <Textarea
-                      className="h-24"
-                      autoFocus
-                      value={rejectReason}
-                      onChange={(event) => setRejectReason(event.target.value)}
-                      placeholder="Qué falló o qué debería corregir el análisis. Queda registrado y sirve de feedback."
-                    />
-                  </Field>
-                </Modal.Body>
-                <Modal.Footer>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setRejectOpen(false)}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={isBusy || !rejectReason.trim()}
-                    onClick={() => {
-                      onReject(rejectReason.trim());
-                      setRejectOpen(false);
-                    }}
-                  >
-                    Rechazar resumen
-                  </Button>
-                </Modal.Footer>
-              </Modal.Dialog>
-            </Modal.Container>
-          </Modal.Backdrop>
-        </Modal>
-      </Alert.Content>
-    </Alert>
+      <Modal isOpen={rejectOpen} onOpenChange={setRejectOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="md">
+            <Modal.Dialog aria-label="Rechazar resumen">
+              <Modal.Header>
+                <Modal.Heading>Rechazar resumen</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <Field label="Motivo del rechazo">
+                  <Textarea
+                    className="h-24"
+                    autoFocus
+                    value={rejectReason}
+                    onChange={(event) => setRejectReason(event.target.value)}
+                    placeholder="Qué falló o qué debería corregir el análisis. Queda registrado y sirve de feedback."
+                  />
+                </Field>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setRejectOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  disabled={isBusy || !rejectReason.trim()}
+                  onClick={() => {
+                    onReject(rejectReason.trim());
+                    setRejectOpen(false);
+                  }}
+                >
+                  Rechazar resumen
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </section>
   );
 }
 
@@ -771,7 +738,10 @@ export function CallDetail({
 }) {
   const { organizationId } = useActiveOrganization();
   const [error, setError] = useState<string | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
+  // Qué acción está en curso: todas bloquean (evita dobles envíos), pero solo
+  // el análisis dice "Analizando...".
+  const [busy, setBusy] = useState<string | null>(null);
+  const isBusy = busy !== null;
 
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [showTranscriptForm, setShowTranscriptForm] = useState(false);
@@ -802,9 +772,9 @@ export function CallDetail({
   const [milestoneOptions, setMilestoneOptions] = useState<
     { value: string; label: string }[]
   >([]);
-  const hasPendingSummary = call.call_ai_summaries.some(
-    (summary) => summary.status === "pending_approval",
-  );
+  // Mismo criterio que callStage: un pendiente de una transcripción antigua ya
+  // no cuenta.
+  const hasPendingSummary = pendingSummaries.length > 0;
 
   const planQuery = useCachedQuery<{
     plan?: {
@@ -891,8 +861,12 @@ export function CallDetail({
       !selectedProposedTaskTitles.has(normalizeTaskTitle(link.tasks.title)),
   );
 
-  async function run(action: () => Promise<Response>, successMessage?: string) {
-    setIsBusy(true);
+  async function run(
+    action: () => Promise<Response>,
+    successMessage?: string,
+    key = "other",
+  ) {
+    setBusy(key);
     setError(null);
     try {
       const response = await action();
@@ -913,17 +887,19 @@ export function CallDetail({
       );
       return false;
     } finally {
-      setIsBusy(false);
+      setBusy(null);
     }
   }
 
-  async function markHeld() {
-    await run(() =>
-      apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "held" }),
-      }),
+  async function setStatus(status: "held" | "cancelled") {
+    await run(
+      () =>
+        apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }),
+      status === "cancelled" ? "Llamada cancelada." : undefined,
     );
   }
 
@@ -965,12 +941,15 @@ export function CallDetail({
   // opcional deja re-generar centrándose en algo concreto (B5).
   async function analyzeCall() {
     const focus = focusDraft.trim();
-    const ok = await run(() =>
-      apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(focus ? { focus } : {}),
-      }),
+    const ok = await run(
+      () =>
+        apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(focus ? { focus } : {}),
+        }),
+      undefined,
+      "analyze",
     );
     if (ok) {
       setFocusDraft("");
@@ -1045,82 +1024,185 @@ export function CallDetail({
     }
   }
 
+  const stage = callStage(call);
+  const isUpcomingCall =
+    call.status === "scheduled" && isUpcoming(call.scheduled_at);
+  const stepState = (index: number) =>
+    stage.step === 4 || index + 1 < stage.step
+      ? s.stepDone
+      : index + 1 === stage.step
+        ? s.stepNow
+        : s.stepTodo;
+  const stepNote = [
+    currentTranscript ? `v${currentTranscript.version}` : "Falta",
+    stage.step > 2 ? "Hecho" : "Pendiente",
+    stage.step === 3 ? "Te toca" : stage.step > 3 ? "Aprobado" : "Pendiente",
+    stage.step === 4 ? "Lo ve el cliente" : "Lo verá el cliente",
+  ];
+  const scrollTo = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+
   return (
-    <Card
-      title={call.title}
-      description={`${callTypeLabels[call.call_type] ?? call.call_type} · ${formatDate(call.held_at ?? call.scheduled_at)}${call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}`}
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">
-            {callStatusLabels[call.status] ?? call.status}
-          </span>
-          {!call.is_visible_to_client && isConsultant ? (
-            <Badge tone="warn">Oculta al cliente</Badge>
-          ) : null}
-          {call.recording_url ? (
-            <Link href={call.recording_url} target="_blank" rel="noreferrer">
-              Ver grabacion
-              {call.recording_provider ? ` (${call.recording_provider})` : ""}
-            </Link>
+    <div className="grid gap-7">
+      <div className={s.head}>
+        <div>
+          <p className={p.lbl}>{callTypeLabels[call.call_type] ?? call.call_type}</p>
+          <h1 className={s.title}>{call.title}</h1>
+          <p className={s.meta}>
+            {formatDate(call.held_at ?? call.scheduled_at)}
+            {call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}
+            {call.recording_url ? (
+              <>
+                {" · "}
+                <a href={call.recording_url} target="_blank" rel="noreferrer">
+                  Grabación
+                  {call.recording_provider
+                    ? ` en ${displayValue(call.recording_provider)}`
+                    : ""}
+                </a>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className={s.headActions}>
+          {call.status === "cancelled" ? <Chip>Cancelada</Chip> : null}
+          {isConsultant && !call.is_visible_to_client ? (
+            <Chip tone="warn">Oculta al cliente</Chip>
           ) : null}
           {isConsultant && call.status === "scheduled" ? (
-            <Button
-              size="sm"
+            <button
+              className={btn.ghost}
               type="button"
               disabled={isBusy}
-              onClick={markHeld}
+              onClick={() => void setStatus("held")}
             >
               Marcar realizada
-            </Button>
+            </button>
+          ) : null}
+          {isConsultant && call.status !== "cancelled" ? (
+            <ConfirmDialog
+              trigger={
+                <button
+                  className={`${btn.ghost} ${s.danger}`}
+                  type="button"
+                  disabled={isBusy}
+                >
+                  Cancelar llamada
+                </button>
+              }
+              title="Cancelar llamada"
+              description="La llamada queda como cancelada y sale de lo pendiente. Su historial se conserva."
+              confirmLabel="Cancelar llamada"
+              cancelLabel="Volver"
+              onConfirm={() => void setStatus("cancelled")}
+            />
           ) : null}
         </div>
-      }
-    >
-      <div className="space-y-5">
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      </div>
 
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.38fr)]">
-          {publishedSummary ? (
-            <section className="min-w-0 border-b border-separator pb-5 xl:col-start-1">
-              <h2 className="text-base font-semibold text-foreground">
-                Resumen de la llamada
-              </h2>
-              <p className="whitespace-pre-wrap text-sm leading-6">
-                {publishedSummary.summary}
-              </p>
-              <StructuredSummary summary={publishedSummary} hideProposedTasks />
-              {isCallSummaryDetail(publishedSummary.key_points) ? (
-                <A01Handoffs organizationId={organizationId} detail={publishedSummary.key_points} />
-              ) : null}
-              <p className="mt-2 text-xs text-muted">
-                Publicado el {formatDate(publishedSummary.published_at)}
-              </p>
-            </section>
-          ) : !isConsultant ? (
-            <p className="text-sm text-muted xl:col-start-1">
-              El resumen estara disponible cuando se publique.
-            </p>
-          ) : null}
+      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-          {/* La lectura interna sobrevive a la aprobación: sigue siendo lo que
-            revisas antes de la siguiente llamada. Solo si no hay uno pendiente,
-            que trae el suyo. */}
-          {isConsultant &&
-          pendingSummaries.length === 0 &&
-          publishedSummary &&
-          isCallSummaryDetail(publishedSummary.key_points) ? (
-            <div className="min-w-0 xl:col-start-1">
-              <ConsultantCoaching detail={publishedSummary.key_points} />
+      {isConsultant && call.status !== "cancelled" ? (
+        isUpcomingCall ? (
+          <section className={p.hero}>
+            <div className={p.heroMeta}>
+              <span>Próxima llamada</span>
             </div>
-          ) : null}
-
-          {isConsultant ? (
-            <>
-              {pendingSummaries.map((summary) => (
-                <div
-                  key={summary.id}
-                  className="min-w-0 space-y-3 xl:col-start-1"
+            <h2 className={p.headline}>
+              Programada para el {formatDate(call.scheduled_at)}
+            </h2>
+            <p className={p.headlineDetail}>
+              Cuando termine, márcala como realizada y pega la transcripción.
+            </p>
+          </section>
+        ) : (
+          <section className={p.hero}>
+            <div className={p.heroMeta}>
+              <span>{stage.step === 4 ? "Al día" : "Siguiente paso"}</span>
+              {stage.step < 4 ? <span>Te toca a ti</span> : null}
+            </div>
+            <h2 className={p.headline}>{stage.next}</h2>
+            <div className={s.steps} aria-label="Paso del flujo">
+              {["Transcripción", "Análisis", "Aprobar", "Publicado"].map(
+                (label, index) => (
+                  <div
+                    key={label}
+                    className={`${s.step} ${stepState(index)}`}
+                    aria-current={
+                      stepState(index) === s.stepNow ? "step" : undefined
+                    }
+                  >
+                    <b>
+                      <i aria-hidden />
+                      {label}
+                    </b>
+                    <span>{stepNote[index]}</span>
+                  </div>
+                ),
+              )}
+            </div>
+            <div className={p.heroActions}>
+              {stage.step === 1 ? (
+                <button
+                  className={btn.acc}
+                  type="button"
+                  onClick={() => {
+                    setShowTranscriptForm(true);
+                    scrollTo("transcripcion");
+                  }}
                 >
+                  Añadir transcripción
+                </button>
+              ) : null}
+              {stage.step === 2 ? (
+                <>
+                  <button
+                    className={btn.acc}
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => void analyzeCall()}
+                  >
+                    {busy === "analyze"
+                      ? "Analizando..."
+                      : "Generar resumen con IA"}
+                  </button>
+                  <button
+                    className={btn.ghost}
+                    type="button"
+                    onClick={() => {
+                      setShowSummaryForm(true);
+                      scrollTo("generar");
+                    }}
+                  >
+                    Redactar a mano
+                  </button>
+                </>
+              ) : null}
+              {stage.step === 3 ? (
+                <a className={btn.acc} href="#resumen">
+                  Ir al resumen
+                </a>
+              ) : null}
+              {stage.step === 4 ? (
+                <a className={btn.ghost} href="#resumen-publicado">
+                  Ver resumen publicado
+                </a>
+              ) : null}
+              {currentTranscript ? (
+                <a className={btn.ghost} href="#transcripcion">
+                  Ver transcripción
+                </a>
+              ) : null}
+            </div>
+          </section>
+        )
+      ) : null}
+
+      <div className={s.grid}>
+        <div className={s.stack}>
+          {isConsultant
+            ? pendingSummaries.map((summary) => (
+                <div key={summary.id} className={s.stack}>
                   <PendingSummaryReview
                     summary={summary}
                     isBusy={isBusy}
@@ -1141,440 +1223,414 @@ export function CallDetail({
                     <ConsultantCoaching detail={summary.key_points} />
                   ) : null}
                 </div>
-              ))}
+              ))
+            : null}
 
-              {/* Paso 1. Estaba dentro de un acordeon plegado titulado
-                "Transcripcion (sin transcripcion)": el unico campo que
-                desbloquea todo el flujo quedaba escondido tras dos clics. */}
-              <section className="min-w-0 rounded-md border border-separator p-4 xl:col-start-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium text-foreground">
-                    1 · Transcripción
+          {publishedSummary ? (
+            <section className={p.panel} id="resumen-publicado">
+              <div className={p.panelH}>
+                <div>
+                  <h3>{isConsultant ? "Resumen publicado" : "Lo que hablamos"}</h3>
+                  <p className={p.sub}>
+                    Publicado el {formatDate(publishedSummary.published_at)}
                   </p>
-                  {currentTranscript ? (
-                    <Badge tone="success">v{currentTranscript.version}</Badge>
-                  ) : (
-                    <Badge tone="neutral">Sin transcripción</Badge>
-                  )}
-                  {!showTranscriptForm ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      className="ml-auto"
-                      onClick={() => setShowTranscriptForm(true)}
-                    >
-                      {currentTranscript
-                        ? "Reemplazar"
-                        : "Añadir transcripción"}
-                    </Button>
-                  ) : null}
                 </div>
+              </div>
+              <div className={s.stack}>
+                <p className={s.lead}>{publishedSummary.summary}</p>
+                <StructuredSummary summary={publishedSummary} hideProposedTasks />
+                {/* Atajos a otros especialistas: trabajo del consultor, el
+                    cliente no los ve. */}
+                {isConsultant &&
+                isCallSummaryDetail(publishedSummary.key_points) ? (
+                  <A01Handoffs
+                    organizationId={organizationId}
+                    detail={publishedSummary.key_points}
+                  />
+                ) : null}
+              </div>
+            </section>
+          ) : !isConsultant ? (
+            <section className={p.panel}>
+              <p className={p.sub}>
+                El resumen estará disponible cuando tu consultor lo publique.
+              </p>
+            </section>
+          ) : null}
 
-                {currentTranscript && !showTranscriptForm ? (
-                  <div className="mt-3">
-                    <p
-                      className={
-                        transcriptExpanded
-                          ? "max-h-96 overflow-y-auto whitespace-pre-wrap pr-2 text-[13px] leading-relaxed text-muted"
-                          : "line-clamp-4 whitespace-pre-wrap text-[13px] leading-relaxed text-muted"
-                      }
-                    >
-                      {currentTranscript.content}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
+          {/* La lectura interna sobrevive a la aprobación: sigue siendo lo que
+            revisas antes de la siguiente llamada. Solo si no hay uno pendiente,
+            que trae el suyo. */}
+          {isConsultant &&
+          pendingSummaries.length === 0 &&
+          publishedSummary &&
+          isCallSummaryDetail(publishedSummary.key_points) ? (
+            <ConsultantCoaching detail={publishedSummary.key_points} />
+          ) : null}
+
+          {isConsultant ? (
+            <section className={p.panel} id="transcripcion">
+              <div className={p.panelH}>
+                <h3>
+                  Transcripción
+                  {currentTranscript ? (
+                    <Chip tone="good">v{currentTranscript.version}</Chip>
+                  ) : (
+                    <Chip>Sin transcripción</Chip>
+                  )}
+                </h3>
+                {!showTranscriptForm ? (
+                  <button
+                    className={btn.ghostSm}
+                    type="button"
+                    onClick={() => setShowTranscriptForm(true)}
+                  >
+                    {currentTranscript ? "Reemplazar" : "Añadir transcripción"}
+                  </button>
+                ) : null}
+              </div>
+
+              {currentTranscript && !showTranscriptForm ? (
+                <div className={s.stack}>
+                  <p
+                    className={`${s.transcript} ${transcriptExpanded ? "" : s.transcriptClamp}`}
+                  >
+                    {currentTranscript.content}
+                  </p>
+                  <div>
+                    <button
+                      className={btn.ghostSm}
                       type="button"
-                      className="mt-2"
                       aria-expanded={transcriptExpanded}
                       onClick={() => setTranscriptExpanded((value) => !value)}
                     >
                       {transcriptExpanded
                         ? "Ocultar transcripción"
                         : "Ver transcripción completa"}
-                    </Button>
+                    </button>
                   </div>
-                ) : null}
-
-                {showTranscriptForm ? (
-                  <form className="mt-2 space-y-2" onSubmit={submitTranscript}>
-                    <Textarea
-                      className="h-40"
-                      autoFocus
-                      aria-label="Transcripción de la llamada"
-                      value={transcriptDraft}
-                      onChange={(event) =>
-                        setTranscriptDraft(event.target.value)
-                      }
-                      placeholder="Pega aquí la transcripción de Loom, Fathom, Meet..."
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        type="submit"
-                        disabled={isBusy || !transcriptDraft.trim()}
-                      >
-                        {currentTranscript
-                          ? `Guardar como v${currentTranscript.version + 1}`
-                          : "Guardar transcripción"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        type="button"
-                        onClick={() => {
-                          setShowTranscriptForm(false);
-                          setTranscriptDraft("");
-                        }}
-                      >
-                        Cancelar
-                      </Button>
-                    </div>
-                    {currentTranscript ? (
-                      <p className="text-xs text-muted">
-                        Se guarda como versión nueva. El resumen ya publicado
-                        queda atado a la versión que lo originó.
-                      </p>
-                    ) : null}
-                  </form>
-                ) : null}
-              </section>
-
-              {/* Paso 2. Antes eran dos botones sueltos y un input con
-                placeholder: nada decia que el agente existe, que lee, ni por
-                que estaba apagado. */}
-              <section className="min-w-0 rounded-md border border-separator p-4 xl:col-start-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium text-foreground">
-                    2 · Resumen
-                  </p>
-                  <Badge tone="brand">Agente A01</Badge>
                 </div>
-                {showSummaryForm ? (
-                  <form className="mt-3 space-y-2" onSubmit={submitSummary}>
-                    <Textarea
-                      className="h-32"
-                      autoFocus
-                      aria-label="Nuevo resumen de la llamada"
-                      value={summaryDraft}
-                      onChange={(event) => setSummaryDraft(event.target.value)}
-                      placeholder="Puntos tratados, decisiones y próximos pasos..."
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        type="submit"
-                        disabled={isBusy || !summaryDraft.trim()}
-                      >
-                        Guardar resumen
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        type="button"
-                        onClick={() => setShowSummaryForm(false)}
-                      >
-                        Cancelar
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="mt-3 space-y-2">
-                    <Input
-                      aria-label="Enfoque para el análisis (opcional)"
-                      value={focusDraft}
-                      onChange={(event) => setFocusDraft(event.target.value)}
-                      placeholder="Enfoque opcional: «profundiza en pricing», «ignora la parte de RRHH»"
-                    />
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        disabled={isBusy || !currentTranscript}
-                        onClick={analyzeCall}
-                      >
-                        {isBusy
-                          ? "Analizando..."
-                          : pendingSummaries.length
-                            ? "Regenerar con IA"
-                            : "Generar resumen con IA"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        type="button"
-                        onClick={() => setShowSummaryForm(true)}
-                      >
-                        Redactar a mano
-                      </Button>
-                    </div>
-                    {/* El motivo del boton apagado, escrito. Antes vivia en un
-                      `title` que solo aparecia al pasar el raton. */}
-                    {!currentTranscript ? (
-                      <p className="text-xs text-warning">
-                        Añade la transcripción para poder generar el resumen: es
-                        lo único que lee el agente.
-                      </p>
-                    ) : null}
+              ) : null}
+
+              {!currentTranscript && !showTranscriptForm ? (
+                <p className={p.sub}>
+                  Pégala desde Loom, Fathom o Meet: es lo único que lee la IA
+                  para preparar el resumen.
+                </p>
+              ) : null}
+
+              {showTranscriptForm ? (
+                <form className={s.stack} onSubmit={submitTranscript}>
+                  <Textarea
+                    className="h-40"
+                    autoFocus
+                    aria-label="Transcripción de la llamada"
+                    value={transcriptDraft}
+                    onChange={(event) => setTranscriptDraft(event.target.value)}
+                    placeholder="Pega aquí la transcripción de Loom, Fathom, Meet..."
+                  />
+                  {currentTranscript ? (
+                    <p className={s.small}>
+                      Se guarda como versión nueva. El resumen ya publicado
+                      queda atado a la versión que lo originó.
+                    </p>
+                  ) : null}
+                  <div className={s.headActions}>
+                    <button
+                      className={btn.primary}
+                      type="submit"
+                      disabled={isBusy || !transcriptDraft.trim()}
+                    >
+                      {currentTranscript
+                        ? `Guardar como v${currentTranscript.version + 1}`
+                        : "Guardar transcripción"}
+                    </button>
+                    <button
+                      className={btn.ghost}
+                      type="button"
+                      onClick={() => {
+                        setShowTranscriptForm(false);
+                        setTranscriptDraft("");
+                      }}
+                    >
+                      Cancelar
+                    </button>
                   </div>
-                )}
-              </section>
-            </>
+                </form>
+              ) : null}
+            </section>
           ) : null}
 
-          <aside className="space-y-4 xl:col-start-2 xl:row-start-1 xl:sticky xl:top-24">
-            <section className="rounded-lg border border-separator bg-surface p-4">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-foreground">
-                  Tareas
-                </h2>
-                <Badge tone={selectedTaskLinks.length ? "brand" : "neutral"}>
-                  {selectedTaskLinks.length}
-                </Badge>
-              </div>
-
-              {isConsultant ? (
-                <>
-                  <div
-                    className="mt-3 grid grid-cols-2 gap-1 rounded-md border border-separator p-1"
-                    role="group"
-                    aria-label="Responsable de las tareas"
-                  >
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant={taskAudience === "cliente" ? "primary" : "ghost"}
-                      className="w-full"
-                      aria-pressed={taskAudience === "cliente"}
-                      onClick={() => setTaskAudience("cliente")}
-                    >
-                      Cliente
-                    </Button>
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant={
-                        taskAudience === "consultor" ? "primary" : "ghost"
-                      }
-                      className="w-full"
-                      aria-pressed={taskAudience === "consultor"}
-                      onClick={() => setTaskAudience("consultor")}
-                    >
-                      Para mí
-                    </Button>
-                  </div>
-                  <p className="mt-2 text-xs leading-5 text-muted">
-                    {taskAudience === "cliente"
-                      ? "Trabajo visible en el bloque de tareas del cliente."
-                      : "Trabajo interno tuyo sobre esta tienda."}
-                  </p>
-                  <form className="mt-3 space-y-2" onSubmit={submitTask}>
-                    <Input
-                      className="w-full"
-                      aria-label={
-                        taskAudience === "cliente"
-                          ? "Nueva tarea para el cliente"
-                          : "Nueva tarea interna del consultor"
-                      }
-                      value={taskTitleDraft}
-                      onChange={(event) =>
-                        setTaskTitleDraft(event.target.value)
-                      }
-                      placeholder={
-                        taskAudience === "cliente"
-                          ? "Añadir tarea para el cliente..."
-                          : "Añadir tarea interna..."
-                      }
-                    />
-                    <Button
-                      size="sm"
-                      type="submit"
-                      className="w-full"
-                      disabled={isBusy || !taskTitleDraft.trim()}
-                    >
-                      {taskAudience === "cliente"
-                        ? "Añadir al cliente"
-                        : "Añadir para mí"}
-                    </Button>
-                  </form>
-                </>
-              ) : null}
-
-              {selectedProposedTasks.length > 0 ? (
-                <div className="mt-5">
-                  <h3 className="text-xs font-semibold tracking-wide text-muted">
-                    Detectadas en la conversación
+          {isConsultant ? (
+            <section className={p.panel} id="generar">
+              <div className={p.panelH}>
+                <div>
+                  <h3>
+                    <span className={p.ia}>IA</span>
+                    {pendingSummaries.length || publishedSummary
+                      ? "Nuevo resumen"
+                      : "Resumen"}
                   </h3>
-                  <ul className="mt-2 divide-y divide-separator">
-                    {selectedProposedTasks.map((task, index) => {
-                      const linked = selectedTaskLinks.find(
-                        (link) =>
-                          link.tasks?.title &&
-                          normalizeTaskTitle(link.tasks.title) ===
-                            normalizeTaskTitle(task.title),
-                      );
-                      const pending =
-                        proposedTasksSource?.status === "pending_approval";
-                      return (
-                        <li
-                          key={`${task.title}-${index}`}
-                          className="py-3 first:pt-0"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <span className="text-sm font-medium leading-5 text-foreground">
-                              {task.title}
-                            </span>
-                            <Badge
-                              tone={
-                                linked
-                                  ? "success"
-                                  : pending
-                                    ? "warn"
-                                    : "neutral"
-                              }
-                            >
-                              {linked
-                                ? callTaskStatusLabel(linked.tasks?.status)
-                                : pending
-                                  ? "Propuesta"
-                                  : "No creada"}
-                            </Badge>
-                          </div>
-                          <p className="mt-1 text-xs text-muted">
-                            {priorityLabels[task.priority] ?? task.priority} ·{" "}
-                            {task.owner}
-                          </p>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  {pendingSummaries.length ? (
+                    <p className={p.sub}>
+                      Regenerar crea otra propuesta para revisar.
+                    </p>
+                  ) : null}
                 </div>
-              ) : null}
+              </div>
+              {showSummaryForm ? (
+                <form className={s.stack} onSubmit={submitSummary}>
+                  <Textarea
+                    className="h-32"
+                    autoFocus
+                    aria-label="Nuevo resumen de la llamada"
+                    value={summaryDraft}
+                    onChange={(event) => setSummaryDraft(event.target.value)}
+                    placeholder="Puntos tratados, decisiones y próximos pasos..."
+                  />
+                  <div className={s.headActions}>
+                    <button
+                      className={btn.primary}
+                      type="submit"
+                      disabled={isBusy || !summaryDraft.trim()}
+                    >
+                      Guardar resumen
+                    </button>
+                    <button
+                      className={btn.ghost}
+                      type="button"
+                      onClick={() => setShowSummaryForm(false)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className={s.stack}>
+                  <Input
+                    aria-label="Enfoque para el análisis (opcional)"
+                    value={focusDraft}
+                    onChange={(event) => setFocusDraft(event.target.value)}
+                    placeholder="Enfoque opcional: «profundiza en pricing», «ignora la parte de RRHH»"
+                  />
+                  <div className={s.headActions}>
+                    <button
+                      className={btn.acc}
+                      type="button"
+                      disabled={isBusy || !currentTranscript}
+                      onClick={() => void analyzeCall()}
+                    >
+                      {busy === "analyze"
+                        ? "Analizando..."
+                        : pendingSummaries.length
+                          ? "Regenerar con IA"
+                          : "Generar resumen con IA"}
+                    </button>
+                    <button
+                      className={btn.ghost}
+                      type="button"
+                      onClick={() => setShowSummaryForm(true)}
+                    >
+                      Redactar a mano
+                    </button>
+                  </div>
+                  {!currentTranscript ? (
+                    <p className={s.small}>
+                      Añade la transcripción para poder generar el resumen: es
+                      lo único que lee la IA.
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </section>
+          ) : null}
+        </div>
 
-              {additionalCallTasks.length > 0 ? (
-                <div className="mt-5">
-                  <h3 className="text-xs font-semibold tracking-wide text-muted">
-                    {isConsultant ? "Añadidas a mano" : "Tareas de la llamada"}
-                  </h3>
-                  <ul className="mt-2 divide-y divide-separator">
-                    {additionalCallTasks.map((link) => (
-                      <li key={link.id} className="py-3 first:pt-0">
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-sm font-medium leading-5 text-foreground">
-                            {link.tasks?.title ?? link.task_id}
-                          </span>
-                          <Badge tone="neutral">
-                            {callTaskStatusLabel(link.tasks?.status)}
-                          </Badge>
-                        </div>
+        <aside className={s.aside}>
+          <section className={p.panel}>
+            <div className={p.panelH}>
+              <h3>{isConsultant ? "Tareas de la llamada" : "Tus tareas"}</h3>
+              <Chip tone={selectedTaskLinks.length ? "acc" : "neutral"}>
+                {selectedTaskLinks.length}
+              </Chip>
+            </div>
+
+            {isConsultant ? (
+              <div className={s.stack}>
+                <div
+                  className={s.seg}
+                  role="group"
+                  aria-label="Responsable de las tareas"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={taskAudience === "cliente"}
+                    onClick={() => setTaskAudience("cliente")}
+                  >
+                    Cliente
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={taskAudience === "consultor"}
+                    onClick={() => setTaskAudience("consultor")}
+                  >
+                    Para mí
+                  </button>
+                </div>
+                <form className={s.field} onSubmit={submitTask}>
+                  <Input
+                    aria-label={
+                      taskAudience === "cliente"
+                        ? "Nueva tarea para el cliente"
+                        : "Nueva tarea interna del consultor"
+                    }
+                    value={taskTitleDraft}
+                    onChange={(event) => setTaskTitleDraft(event.target.value)}
+                    placeholder={
+                      taskAudience === "cliente"
+                        ? "Añadir tarea para el cliente..."
+                        : "Añadir tarea interna..."
+                    }
+                  />
+                  <button
+                    className={btn.ghost}
+                    type="submit"
+                    disabled={isBusy || !taskTitleDraft.trim()}
+                  >
+                    Añadir
+                  </button>
+                </form>
+              </div>
+            ) : null}
+
+            {selectedProposedTasks.length > 0 ? (
+              <div className={`${s.block} mt-4`}>
+                <p className={p.lbl}>Detectadas en la conversación</p>
+                <div className={s.list}>
+                  {selectedProposedTasks.map((task, index) => {
+                    const linked = selectedTaskLinks.find(
+                      (link) =>
+                        link.tasks?.title &&
+                        normalizeTaskTitle(link.tasks.title) ===
+                          normalizeTaskTitle(task.title),
+                    );
+                    const pending =
+                      proposedTasksSource?.status === "pending_approval";
+                    return (
+                      <div key={`${task.title}-${index}`}>
+                        <span className="min-w-0">{task.title}</span>
+                        <Chip tone={linked ? "good" : pending ? "warn" : "neutral"}>
+                          {linked
+                            ? callTaskStatusLabel(linked.tasks?.status)
+                            : pending
+                              ? "Propuesta"
+                              : "No creada"}
+                        </Chip>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {additionalCallTasks.length > 0 ? (
+              <div className={`${s.block} mt-4`}>
+                {isConsultant ? <p className={p.lbl}>Añadidas a mano</p> : null}
+                <div className={s.list}>
+                  {additionalCallTasks.map((link) => (
+                    <div key={link.id}>
+                      <span className="min-w-0">
+                        {link.tasks?.title ?? link.task_id}
+                      </span>
+                      <Chip
+                        tone={
+                          link.tasks?.status === "completed" ? "good" : "neutral"
+                        }
+                      >
+                        {callTaskStatusLabel(link.tasks?.status)}
+                      </Chip>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedProposedTasks.length === 0 &&
+            additionalCallTasks.length === 0 ? (
+              <p className={`${s.small} mt-4`}>
+                {taskAudience === "consultor"
+                  ? "No tienes tareas internas vinculadas a esta llamada."
+                  : isConsultant
+                    ? "No hay tareas del cliente vinculadas a esta llamada."
+                    : "Esta llamada no dejó tareas para ti."}
+              </p>
+            ) : null}
+          </section>
+
+          {isConsultant ? (
+            <section className={p.panel}>
+              <div className={p.panelH}>
+                <h3>Notas internas</h3>
+              </div>
+              <div className={s.stack}>
+                {call.call_internal_notes.length > 0 ? (
+                  <ul className={s.list}>
+                    {call.call_internal_notes.map((note) => (
+                      <li key={note.id}>
+                        <p>{note.body}</p>
+                        <p className={s.small}>{formatDate(note.created_at)}</p>
                       </li>
                     ))}
                   </ul>
-                </div>
-              ) : null}
-
-              {selectedProposedTasks.length === 0 &&
-              additionalCallTasks.length === 0 ? (
-                <p className="mt-4 text-sm leading-5 text-muted">
-                  {taskAudience === "consultor"
-                    ? "No tienes tareas internas vinculadas a esta llamada."
-                    : "No hay tareas del cliente vinculadas a esta llamada."}
-                </p>
-              ) : null}
-            </section>
-
-            {isConsultant ? (
-              <section className="rounded-lg border border-separator p-4">
-                <h2 className="text-sm font-semibold text-foreground">
-                  Notas internas
-                </h2>
-                <form className="mt-3 space-y-2" onSubmit={submitNote}>
+                ) : null}
+                <form className={s.field} onSubmit={submitNote}>
                   <Input
-                    className="w-full"
                     aria-label="Nota interna (solo consultores)"
                     value={noteDraft}
                     onChange={(event) => setNoteDraft(event.target.value)}
-                    placeholder="Escribe una nota interna..."
+                    placeholder="Escribe una nota..."
                   />
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <button
+                    className={btn.ghost}
                     type="submit"
-                    className="w-full"
                     disabled={isBusy || !noteDraft.trim()}
                   >
-                    Guardar nota
-                  </Button>
+                    Guardar
+                  </button>
                 </form>
-                {call.call_internal_notes.length > 0 ? (
-                  <ul className="mt-4 divide-y divide-separator">
-                    {call.call_internal_notes.map((note) => (
-                      <li key={note.id} className="py-3 text-sm first:pt-0">
-                        <p>{note.body}</p>
-                        <p className="mt-1 text-xs text-muted">
-                          {formatDate(note.created_at)}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </section>
-            ) : null}
-          </aside>
+              </div>
+            </section>
+          ) : null}
 
           {previousSummaries.length > 0 ? (
-            <div className="min-w-0 xl:col-start-1">
-              <Accordion
-                className="border border-separator"
-                items={[
-                  {
-                    id: "history",
-                    title: `Llamadas anteriores (${previousSummaries.length})`,
-                    content: (
-                      <div className="space-y-4">
-                        {previousSummaries.map(({ call: other, summary }) => {
-                          const decisions = Array.isArray(
-                            summary.agreed_actions,
-                          )
-                            ? summary.agreed_actions
-                            : [];
-                          return (
-                            <div
-                              key={other.id}
-                              className="border-t border-separator pt-3 first:border-t-0 first:pt-0"
-                            >
-                              <p className="text-sm font-medium">
-                                {other.title}
-                              </p>
-                              <p className="text-xs text-muted">
-                                {formatDate(
-                                  other.held_at ?? other.scheduled_at,
-                                )}
-                              </p>
-                              <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-muted">
-                                {summary.summary}
-                              </p>
-                              {decisions.length ? (
-                                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted">
-                                  {decisions
-                                    .slice(0, 4)
-                                    .map((decision, index) => (
-                                      <li key={index}>{decision}</li>
-                                    ))}
-                                </ul>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            </div>
+            <section className={p.panel}>
+              <div className={p.panelH}>
+                <h3>Llamadas anteriores</h3>
+              </div>
+              <div className={s.list}>
+                {previousSummaries.map(({ call: other, summary }) => (
+                  <div key={other.id}>
+                    <NextLink
+                      href={`/llamadas/${other.id}`}
+                      className="min-w-0 font-medium"
+                    >
+                      {other.title}
+                    </NextLink>
+                    <span className={`${s.small} shrink-0`}>
+                      {shortDate(other.held_at ?? other.scheduled_at)}
+                      {Array.isArray(summary.agreed_actions) &&
+                      summary.agreed_actions.length
+                        ? ` · ${summary.agreed_actions.length} decisiones`
+                        : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
           ) : null}
-        </div>
+        </aside>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -1679,10 +1735,85 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
   }
 
+  // Tres grupos excluyentes. "Te esperan" usa callStage, el mismo criterio que
+  // el detalle, para que la lista y la llamada nunca digan cosas distintas.
+  const byDateDesc = (a: ConsultingCall, b: ConsultingCall) =>
+    Date.parse(callWhen(b)) - Date.parse(callWhen(a));
+  const upcoming = calls
+    .filter((call) => call.status === "scheduled" && isUpcoming(call.scheduled_at))
+    .sort((a, b) => -byDateDesc(a, b));
+  const waiting = isConsultant
+    ? calls
+        .filter(
+          (call) =>
+            call.status !== "cancelled" &&
+            !upcoming.includes(call) &&
+            callStage(call).step < 4,
+        )
+        .sort(byDateDesc)
+    : [];
+  const history = calls
+    .filter((call) => !upcoming.includes(call) && !waiting.includes(call))
+    .sort(byDateDesc);
+
+  const lastHeld = calls
+    .filter((call) => call.status === "held" && call.held_at)
+    .sort(byDateDesc)[0];
+  const lastHeldDays = daysSince(lastHeld?.held_at);
+  const taskLinks = calls.flatMap((call) =>
+    call.call_task_links.filter((link) => link.tasks),
+  );
+  const openTasks = taskLinks.filter((link) =>
+    OPEN_TASK_STATUSES.has(link.tasks?.status ?? ""),
+  ).length;
+
+  const metrics: Array<{
+    label: string;
+    value: string;
+    hint?: string;
+    tone?: "default" | "warn" | "success";
+  }> = calls.length
+    ? [
+        ...(isConsultant
+          ? [
+              {
+                label: "Te esperan",
+                value: waiting.length.toLocaleString("es-ES"),
+                hint: "Llamadas con un paso pendiente tuyo",
+                tone: waiting.length ? ("warn" as const) : ("success" as const),
+              },
+            ]
+          : []),
+        {
+          label: "Próxima llamada",
+          value: upcoming[0]?.scheduled_at
+            ? shortDate(upcoming[0].scheduled_at)
+            : "Sin agendar",
+          tone: upcoming.length ? "default" : "warn",
+        },
+        {
+          label: isConsultant ? "Tareas abiertas de llamadas" : "Tareas abiertas",
+          value: `${openTasks} / ${taskLinks.length}`,
+        },
+        {
+          label: "Última realizada",
+          value:
+            lastHeldDays === null
+              ? "Ninguna"
+              : lastHeldDays === 0
+                ? "Hoy"
+                : `Hace ${lastHeldDays} d`,
+          hint: "Frecuencia de contacto",
+        },
+      ]
+    : [];
+  // Las mismas cifras que ve la pantalla, publicadas al Consultor IA.
+  useModuleSummary(metrics.length ? { metrics } : null);
+
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
-      <section className="flex flex-wrap items-baseline justify-between gap-3">
-        <Heading size="lg">Llamadas de consultoría</Heading>
+    <div className="grid gap-7">
+      <section className={s.head}>
+        <h1 className={s.title}>Llamadas</h1>
         {isConsultant ? (
           <>
             {/* El boton NO puede ir dentro de `Modal.Trigger`: ese componente
@@ -1691,9 +1822,13 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 la propagacion -- el div nunca recibia el clic y "Registrar
                 llamada" no hacia absolutamente nada. El modal ya esta
                 controlado por `isOpen`, asi que se abre desde el propio boton. */}
-            <Button type="button" onClick={() => setShowCreateForm(true)}>
+            <button
+              className={btn.primary}
+              type="button"
+              onClick={() => setShowCreateForm(true)}
+            >
               Registrar llamada
-            </Button>
+            </button>
             <Modal
               isOpen={showCreateForm}
               onOpenChange={(open) => {
@@ -1804,85 +1939,25 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {/* Antes de una llamada el consultor necesita saber cuándo fue la
-          anterior, qué quedó sin cerrar y si hay resúmenes esperándole. Estaba
-          todo, pero repartido dentro de cada llamada plegada. */}
-      {!isLoading && calls.length > 0 ? (
-        <ModuleSummary
-          metrics={[
-            {
-              label: "Llamadas registradas",
-              value: calls.length.toLocaleString("es-ES"),
-            },
-            {
-              label: "Última realizada",
-              value: (() => {
-                const held = calls
-                  .filter((call) => call.status === "held" && call.held_at)
-                  .sort(
-                    (a, b) =>
-                      Date.parse(b.held_at as string) -
-                      Date.parse(a.held_at as string),
-                  )[0];
-                const days = daysSince(held?.held_at);
-                if (days === null) return "Ninguna";
-                return days === 0 ? "Hoy" : `Hace ${days} d`;
-              })(),
-              hint: "Frecuencia de contacto",
-            },
-            {
-              label: "Próxima programada",
-              value: (() => {
-                const next = calls
-                  .filter(
-                    (call) =>
-                      call.status === "scheduled" &&
-                      isUpcoming(call.scheduled_at),
-                  )
-                  .sort(
-                    (a, b) =>
-                      Date.parse(a.scheduled_at as string) -
-                      Date.parse(b.scheduled_at as string),
-                  )[0];
-                return next?.scheduled_at
-                  ? new Date(next.scheduled_at).toLocaleDateString("es-ES", {
-                      day: "2-digit",
-                      month: "short",
-                    })
-                  : "Sin agendar";
-              })(),
-              tone: calls.some(
-                (call) =>
-                  call.status === "scheduled" && isUpcoming(call.scheduled_at),
-              )
-                ? "default"
-                : "warn",
-            },
-            {
-              label: "Resúmenes por aprobar",
-              value: calls
-                .filter((call) =>
-                  call.call_ai_summaries.some(
-                    (summary) => summary.status === "pending_approval",
-                  ),
-                )
-                .length.toLocaleString("es-ES"),
-              tone: calls.some((call) =>
-                call.call_ai_summaries.some(
-                  (summary) => summary.status === "pending_approval",
-                ),
-              )
-                ? "warn"
-                : "success",
-            },
-            {
-              label: "Acciones acordadas",
-              value: calls
-                .reduce((total, call) => total + call.call_task_links.length, 0)
-                .toLocaleString("es-ES"),
-              hint: "Tareas creadas desde llamadas",
-            },
-          ]}
-        />
+          anterior, qué quedó sin cerrar y qué le espera. */}
+      {!isLoading && metrics.length > 0 ? (
+        <section className={s.pulse} aria-label="Resumen de llamadas">
+          {metrics.map((metric) => (
+            <div
+              key={metric.label}
+              className={
+                metric.label === "Te esperan" && metric.tone === "warn"
+                  ? s.hot
+                  : metric.tone === "warn"
+                    ? s.warn
+                    : undefined
+              }
+            >
+              <b>{metric.value}</b>
+              <span>{metric.label}</span>
+            </div>
+          ))}
+        </section>
       ) : null}
 
       {isLoading ? (
@@ -1892,59 +1967,186 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           title="Aún no hay llamadas registradas"
           hint={
             isConsultant
-              ? "Esta organización todavía no tiene llamadas para revisar."
-              : "Cuando registres una llamada, aparecerá aquí."
+              ? "Registra la primera para guardar su transcripción y sacar el resumen con IA."
+              : "Cuando tu consultor registre una llamada, aparecerá aquí."
+          }
+          action={
+            isConsultant ? (
+              <button
+                className={btn.primary}
+                type="button"
+                onClick={() => setShowCreateForm(true)}
+              >
+                Registrar llamada
+              </button>
+            ) : undefined
           }
         />
       ) : (
-        <List bordered>
-          {calls.map((call) => {
-            const when = call.held_at ?? call.scheduled_at;
-            const stage = callStage(call);
-            return (
-              <List.Item key={call.id} className="px-1 py-2.5">
-                <Link
-                  href={`/llamadas/${call.id}`}
-                  aria-label={`Abrir llamada ${call.title}`}
-                  className="flex w-full flex-wrap items-center gap-2 rounded-md px-2 py-1 text-left text-foreground no-underline transition hover:bg-surface"
-                >
-                  <Badge
-                    tone={
-                      call.status === "held"
-                        ? "success"
-                        : call.status === "cancelled"
-                          ? "neutral"
-                          : "warn"
-                    }
-                  >
-                    {callStatusLabels[call.status] ?? call.status}
-                  </Badge>
-                  <span className="min-w-0 flex-1 font-medium">
-                    {call.title}
+        <>
+          <CallGroup
+            label="Te esperan"
+            calls={waiting}
+            render={(call) => {
+              const stage = callStage(call);
+              return (
+                <CallRow
+                  key={call.id}
+                  call={call}
+                  aside={
+                    <>
+                      <div className={s.bar} aria-hidden>
+                        {[1, 2, 3, 4].map((step) => (
+                          <i
+                            key={step}
+                            className={
+                              step < stage.step
+                                ? s.barDone
+                                : step === stage.step
+                                  ? s.barNow
+                                  : undefined
+                            }
+                          />
+                        ))}
+                      </div>
+                      <span className={s.stage}>{stage.label}</span>
+                    </>
+                  }
+                  action={
+                    <span className={stage.step === 3 ? btn.accSm : btn.ghostSm}>
+                      {STAGE_ACTION[stage.step]}
+                    </span>
+                  }
+                />
+              );
+            }}
+          />
+          <CallGroup
+            label="Próximas"
+            calls={upcoming}
+            render={(call) => (
+              <CallRow
+                key={call.id}
+                call={call}
+                aside={
+                  <span className={s.stage}>
+                    {new Date(call.scheduled_at as string).toLocaleTimeString(
+                      "es-ES",
+                      { hour: "2-digit", minute: "2-digit" },
+                    )}
                   </span>
-                  {/* En que paso del flujo esta, sin desplegar: era la unica
-                      forma de saber que llamada te esta esperando. */}
-                  {isConsultant ? (
-                    <Badge tone={stage.tone}>{stage.label}</Badge>
-                  ) : null}
-                  <span className="shrink-0 text-xs text-muted tabular-nums">
-                    {when
-                      ? new Date(when).toLocaleDateString("es-ES", {
-                          day: "2-digit",
-                          month: "short",
-                        })
-                      : "—"}
-                  </span>
-                  <span className="shrink-0 text-xs font-medium text-accent">
-                    Abrir
-                  </span>
-                </Link>
-              </List.Item>
-            );
-          })}
-        </List>
+                }
+                action={<span className={btn.ghostSm}>Abrir</span>}
+              />
+            )}
+          />
+          <CallGroup
+            label="Historial"
+            calls={history}
+            render={(call) => {
+              const links = call.call_task_links.filter((link) => link.tasks);
+              const closed = links.filter(
+                (link) => link.tasks?.status === "completed",
+              ).length;
+              const hasPublished = call.call_ai_summaries.some(
+                (summary) => summary.status === "published",
+              );
+              return (
+                <CallRow
+                  key={call.id}
+                  call={call}
+                  muted={call.status === "cancelled"}
+                  aside={
+                    <span className={s.stage}>
+                      {call.status === "cancelled" ? (
+                        <Chip>Cancelada</Chip>
+                      ) : hasPublished ? (
+                        <Chip tone="good">
+                          {isConsultant ? "Publicado" : "Resumen disponible"}
+                        </Chip>
+                      ) : null}
+                      {links.length ? (
+                        <span className={s.small}>
+                          {closed} de {links.length} tareas cerradas
+                        </span>
+                      ) : null}
+                    </span>
+                  }
+                  action={<span className={btn.ghostSm}>Abrir</span>}
+                />
+              );
+            }}
+          />
+        </>
       )}
     </div>
+  );
+}
+
+const STAGE_ACTION: Record<number, string> = {
+  1: "Pegar transcripción",
+  2: "Analizar",
+  3: "Revisar",
+  4: "Abrir",
+};
+
+function CallGroup({
+  label,
+  calls,
+  render,
+}: {
+  label: string;
+  calls: ConsultingCall[];
+  render: (call: ConsultingCall) => ReactNode;
+}) {
+  if (calls.length === 0) return null;
+  return (
+    <section className={s.group}>
+      <p className={p.lbl}>
+        {label} · {calls.length}
+      </p>
+      <div className={s.rows}>{calls.map(render)}</div>
+    </section>
+  );
+}
+
+function CallRow({
+  call,
+  aside,
+  action,
+  muted = false,
+}: {
+  call: ConsultingCall;
+  aside: ReactNode;
+  action: ReactNode;
+  muted?: boolean;
+}) {
+  const when = new Date(callWhen(call));
+  return (
+    <NextLink
+      href={`/llamadas/${call.id}`}
+      aria-label={`Abrir llamada ${call.title}`}
+      className={`${s.row} ${muted ? s.rowMuted : ""}`}
+    >
+      <div className={s.date}>
+        <b>{when.getDate()}</b>
+        {when.toLocaleDateString("es-ES", { month: "short" })}
+      </div>
+      <div className="min-w-0">
+        <p className={s.rowTitle}>{call.title}</p>
+        <p className={s.rowMeta}>
+          {[
+            callTypeLabels[call.call_type] ?? call.call_type,
+            call.duration_minutes ? `${call.duration_minutes} min` : null,
+            call.recording_provider ? displayValue(call.recording_provider) : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      </div>
+      <div className="min-w-0">{aside}</div>
+      <div>{action}</div>
+    </NextLink>
   );
 }
 
@@ -1979,18 +2181,10 @@ function ConsultantCallsView() {
   const [onlyPending, setOnlyPending] = useState(false);
 
   if (isLoading && !data) {
-    return (
-      <div className="portal-page">
-        <LoadingBlock label="Cargando llamadas de la cartera..." />
-      </div>
-    );
+    return <LoadingBlock label="Cargando llamadas de la cartera..." />;
   }
   if (error) {
-    return (
-      <div className="portal-page">
-        <ErrorBlock>{error}</ErrorBlock>
-      </div>
-    );
+    return <ErrorBlock>{error}</ErrorBlock>;
   }
   if (!data) return null;
 
@@ -2008,92 +2202,115 @@ function ConsultantCallsView() {
     );
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
-      <Card
-        title="Llamadas · toda la cartera"
-        description={`${data.calls.length} llamadas · ${pendingCount} con resumen pendiente de aprobar`}
-      >
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Select
-            className="w-52"
-            aria-label="Filtrar por cliente"
-            value={clientFilter}
-            onChange={setClientFilter}
-            options={[
-              { value: "all", label: "Todos los clientes" },
-              ...data.organizations.map((organization) => ({
-                value: organization.id,
-                label: organization.display_name,
-              })),
-            ]}
-          />
-          <Button
-            variant={onlyPending ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => setOnlyPending((value) => !value)}
-          >
-            Solo pendientes de aprobar
-          </Button>
-          {/* Registrar una llamada exige un cliente activo (la API es por
-              organizacion), y desde la cartera no habia ninguna forma de
-              llegar: ni boton ni pista. Con un cliente filtrado, esto abre su
-              vista, que es donde se registra. */}
-          {clientFilter === "all" ? (
-            <span className="text-xs text-muted">
-              Elige un cliente para registrar una llamada.
-            </span>
-          ) : (
-            <Button
-              size="sm"
-              className="ml-auto"
-              onClick={() => setOrganizationId(clientFilter)}
-            >
-              Registrar llamada en este cliente
-            </Button>
-          )}
+    <div className="grid gap-7">
+      <section className={s.head}>
+        <div>
+          <p className={p.lbl}>Toda la cartera</p>
+          <h1 className={s.title}>Llamadas</h1>
         </div>
+        {/* Registrar una llamada exige un cliente activo (la API es por
+            organizacion). Con un cliente filtrado, esto abre su vista, que es
+            donde se registra. */}
+        {clientFilter !== "all" ? (
+          <button
+            className={btn.primary}
+            type="button"
+            onClick={() => setOrganizationId(clientFilter)}
+          >
+            Registrar llamada en este cliente
+          </button>
+        ) : null}
+      </section>
 
-        {filtered.length === 0 ? (
-          <EmptyState
-            title="Sin llamadas para este filtro"
-            hint="Cambia el filtro o abre un cliente para registrar una llamada."
-          />
-        ) : (
-          <List>
-            {filtered.map((call) => (
-              <List.Item key={call.id} className="py-1">
-                <Link
-                  href={`/llamadas/${call.id}`}
-                  onClick={() => setOrganizationId(call.organization_id)}
-                  aria-label={`Abrir llamada ${call.title} de ${call.organization_name}`}
-                  className="flex w-full items-start justify-between gap-4 rounded-md px-2 py-3 text-left text-foreground no-underline transition hover:bg-surface"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {call.summary_pending ? (
-                        <Badge tone="warn">Resumen pendiente</Badge>
-                      ) : call.has_published_summary ? (
-                        <Badge tone="success">Resumen publicado</Badge>
-                      ) : null}
-                      <span className="font-medium">{call.title}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {call.organization_name} · {displayValue(call.call_type)}{" "}
-                      · {displayValue(call.status)}
-                      {call.held_at
-                        ? ` · ${new Date(call.held_at).toLocaleDateString("es-ES")}`
-                        : ""}
-                    </p>
-                  </div>
-                  <span className="shrink-0 pt-0.5 text-xs font-medium text-accent">
-                    Abrir
+      <section className={s.pulse} aria-label="Resumen de la cartera">
+        <div className={pendingCount ? s.hot : undefined}>
+          <b>{pendingCount.toLocaleString("es-ES")}</b>
+          <span>Resúmenes por aprobar</span>
+        </div>
+        <div>
+          <b>{data.calls.length.toLocaleString("es-ES")}</b>
+          <span>Llamadas registradas</span>
+        </div>
+        <div>
+          <b>{data.organizations.length.toLocaleString("es-ES")}</b>
+          <span>Clientes</span>
+        </div>
+      </section>
+
+      <div className={s.headActions}>
+        <Select
+          className="w-56"
+          aria-label="Filtrar por cliente"
+          value={clientFilter}
+          onChange={setClientFilter}
+          options={[
+            { value: "all", label: "Todos los clientes" },
+            ...data.organizations.map((organization) => ({
+              value: organization.id,
+              label: organization.display_name,
+            })),
+          ]}
+        />
+        <button
+          className={onlyPending ? `${btn.primary} ${p.sm}` : btn.ghostSm}
+          type="button"
+          aria-pressed={onlyPending}
+          onClick={() => setOnlyPending((value) => !value)}
+        >
+          Solo por aprobar
+        </button>
+        {clientFilter === "all" ? (
+          <span className={s.small}>
+            Elige un cliente para registrar una llamada.
+          </span>
+        ) : null}
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          title="Sin llamadas para este filtro"
+          hint="Cambia el filtro o abre un cliente para registrar una llamada."
+        />
+      ) : (
+        <div className={s.rows}>
+          {filtered.map((call) => {
+            const when = new Date(call.held_at ?? call.created_at);
+            return (
+              <NextLink
+                key={call.id}
+                href={`/llamadas/${call.id}`}
+                onClick={() => setOrganizationId(call.organization_id)}
+                aria-label={`Abrir llamada ${call.title} de ${call.organization_name}`}
+                className={s.row}
+              >
+                <div className={s.date}>
+                  <b>{when.getDate()}</b>
+                  {when.toLocaleDateString("es-ES", { month: "short" })}
+                </div>
+                <div className="min-w-0">
+                  <p className={s.rowTitle}>{call.title}</p>
+                  <p className={s.rowMeta}>
+                    {call.organization_name} · {displayValue(call.call_type)} ·{" "}
+                    {displayValue(call.status)}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  {call.summary_pending ? (
+                    <Chip tone="warn">Resumen por aprobar</Chip>
+                  ) : call.has_published_summary ? (
+                    <Chip tone="good">Publicado</Chip>
+                  ) : null}
+                </div>
+                <div>
+                  <span className={call.summary_pending ? btn.accSm : btn.ghostSm}>
+                    {call.summary_pending ? "Revisar" : "Abrir"}
                   </span>
-                </Link>
-              </List.Item>
-            ))}
-          </List>
-        )}
-      </Card>
+                </div>
+              </NextLink>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -2104,9 +2321,13 @@ export function CallsRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
     bootstrap.profile.platform_role,
   );
 
-  if (isConsultant && !organizationId) {
-    return <ConsultantCallsView />;
-  }
-
-  return <CallsContent bootstrap={bootstrap} />;
+  return (
+    <CallsTheme isConsultant={isConsultant}>
+      {isConsultant && !organizationId ? (
+        <ConsultantCallsView />
+      ) : (
+        <CallsContent bootstrap={bootstrap} />
+      )}
+    </CallsTheme>
+  );
 }

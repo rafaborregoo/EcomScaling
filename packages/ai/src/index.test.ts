@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   checkOutputSanity,
   buildAgentSystemPrompt,
+  buildA23CreativeOutputContract,
   renderAgentPromptSections,
   estimateCostUsd,
   getPricingVersion,
@@ -52,6 +53,53 @@ import {
   agentInputSchema,
   platformAgentInputSchema,
 } from "./index.js";
+
+test("A23 output requires a structured evidence-backed decision and blocks pause on an unknown measurement gate", () => {
+  const contract = buildA23CreativeOutputContract();
+  const output = {
+    answer: "El alcance observado no basta para atribuir compras.",
+    findings: [],
+    recommendations: [],
+    sources: [],
+    proposed_writes: [],
+    approval_required: false,
+    confidence: "low",
+    warnings: [],
+    creative_decisions: [{
+      action: "observe",
+      signal: "La fuente de compras no tiene estado de disponibilidad.",
+      window: "2026-09-01 a 2026-09-28",
+      spend_implicated: null,
+      spend_currency: null,
+      uncertainty: "No se puede confirmar si la lectura de compras tuvo éxito.",
+      hypothesis: "Verificar primero la disponibilidad y frescura del informe.",
+      success_criterion: "Contar con lectura disponible y una ventana comparable.",
+      measurement_verdict: "unknown",
+    }],
+  } as const;
+
+  assert.equal(contract.schema.safeParse(output).success, true);
+  assert.equal(contract.schema.safeParse({
+    ...output,
+    creative_decisions: [{ ...output.creative_decisions[0], action: "propose_pause" }],
+  }).success, false);
+  assert.equal(contract.schema.safeParse({
+    ...output,
+    creative_decisions: [{ ...output.creative_decisions[0], measurement_verdict: "restricted" }],
+  }).success, false);
+  assert.equal(contract.schema.safeParse({
+    ...output,
+    creative_decisions: [{ ...output.creative_decisions[0], spend_implicated: 45 }],
+  }).success, false);
+  assert.equal(contract.schema.safeParse({
+    ...output,
+    creative_decisions: [{ ...output.creative_decisions[0], signal: undefined }],
+  }).success, false);
+
+  const jsonSchema = contract.jsonSchema as { required?: string[]; properties?: Record<string, unknown> };
+  assert.equal(jsonSchema.required?.includes("creative_decisions"), true);
+  assert.ok(jsonSchema.properties?.creative_decisions);
+});
 
 test("platform agent turn is explicitly tenantless and rejects organization IDs", () => {
   const platformInput = {

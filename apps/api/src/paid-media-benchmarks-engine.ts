@@ -11,14 +11,18 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import {
+  gateShopifyNetMetricsObservation,
+  shopifyNetMetricsQualityFacts,
+} from "./shopify-net-metrics-coverage.js";
 
-const PAID_MEDIA_BENCHMARKS_SOURCE_VERSION = "f6-p04.v1";
+const PAID_MEDIA_BENCHMARKS_SOURCE_VERSION = "f6-p04.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type PaidMediaBenchmarksEvidence = {
   media?: { available: boolean; spend?: number | null; impressions?: number | null; clicks?: number | null; days?: number | null } | null;
   ecommerce?: { available: boolean; sessions?: number | null; orders_count?: number | null; revenue?: number | null; conversion_rate?: number | null } | null;
-  economics?: { available: boolean; contribution?: number | null; gross_margin?: number | null; net_profit?: number | null; returns?: number | null } | null;
+  economics?: { available: boolean; contribution?: number | null; gross_margin?: number | null; net_profit?: number | null; returns?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   attribution?: { available: boolean; attributed_revenue?: number | null; purchases?: number | null; roas?: number | null; days?: number | null } | null;
   adsSpend?: { available: boolean; spend?: number | null; days?: number | null } | null;
   customerMix?: { available: boolean; new_customer_share?: number | null; returning_share?: number | null; branded_share?: number | null; retargeting_share?: number | null } | null;
@@ -89,6 +93,7 @@ export function applyPaidMediaBenchmarksEvidence(
   const facts: Record<string, PlaybookTriState> = {
     ...context.facts,
     ...paidMediaFacts(),
+    ...shopifyNetMetricsQualityFacts(economics),
     "paid_media.objective.observed": UNKNOWN,
     "paid_media.delivery.observed": observed(media?.available, media?.spend !== null && media?.spend !== undefined),
     "paid_media.response.observed": observed(media?.available, media?.impressions !== null && media?.impressions !== undefined && media?.clicks !== null && media?.clicks !== undefined),
@@ -96,7 +101,7 @@ export function applyPaidMediaBenchmarksEvidence(
     "paid_media.post_click.observed": observed(ecommerce?.available, ecommerce?.orders_count !== null && ecommerce?.orders_count !== undefined),
     "paid_media.acquisition.observed": observed(attribution?.available, attribution?.purchases !== null && attribution?.purchases !== undefined),
     "paid_media.revenue.observed": observed(ecommerce?.available, ecommerce?.revenue !== null && ecommerce?.revenue !== undefined),
-    "paid_media.economics.observed": observed(economics?.available, economics?.contribution !== null && economics?.contribution !== undefined),
+    "paid_media.economics.observed": gateShopifyNetMetricsObservation(economics, observed(economics?.available, economics?.contribution !== null && economics?.contribution !== undefined)),
     "paid_media.incrementality.observed": observed(evidence.incrementality?.available, Boolean(evidence.incrementality?.evidence_kind)),
     "paid_media.attribution.observed": observed(attribution?.available, attribution?.roas !== null && attribution?.roas !== undefined),
     "paid_media.scale.observed": observed(evidence.scale?.available, evidence.scale?.marginal_cac !== null && evidence.scale?.marginal_cac !== undefined),
@@ -169,7 +174,7 @@ async function enrichPaidMediaBenchmarksContext(
     media: available(metaResult) ? { available: true, spend: meta?.spend, impressions: meta?.impressions, clicks: meta?.clicks, days: meta?.days_with_data } : { available: false },
     adsSpend: available(adsResult) ? { available: true, spend: ads?.spend, days: ads?.days_with_data } : { available: false },
     ecommerce: available(salesResult) || available(funnelResult) ? { available: true, sessions: funnel?.sessions, orders_count: sales?.orders_count, revenue: sales?.net_sales, conversion_rate: funnel?.conversion_rate_shopify } : { available: false },
-    economics: available(marginResult) || available(financialResult) ? { available: true, contribution: financial?.contribution_per_order, gross_margin: margin?.gross_margin, net_profit: financial?.net_profit } : { available: false },
+    economics: available(marginResult) || available(financialResult) ? { available: true, contribution: financial?.contribution_per_order, gross_margin: margin?.gross_margin, net_profit: financial?.net_profit, lines_with_exact_metrics: margin?.lines_with_exact_metrics, lines_with_estimated_metrics: margin?.lines_with_estimated_metrics, lines_without_metrics: margin?.lines_without_metrics } : { available: false },
     attribution: available(metaResult) ? { available: true, attributed_revenue: meta?.purchase_value, purchases: meta?.purchases, roas: meta?.roas, days: meta?.days_with_data } : { available: false },
     customerMix: { available: false },
     incrementality: { available: false },

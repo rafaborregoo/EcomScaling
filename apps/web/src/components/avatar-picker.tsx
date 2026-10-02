@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { ImagePlus, Upload } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabase";
 import { Avatar, UploadButton, cn } from "@/components/ui";
 
@@ -76,19 +77,33 @@ export function AvatarPicker({
           </button>
         ))}
       </div>
-      <div className="mt-3">
+      {value && !AVATAR_PRESETS.includes(value) ? (
+        <div className="mt-4 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+          <Avatar name={name || "?"} src={value} size="sm" />
+          <span className="text-sm font-medium text-emerald-900">Foto seleccionada</span>
+        </div>
+      ) : null}
+      <div className="mt-4 flex flex-col gap-4 rounded-xl border border-dashed border-accent/40 bg-accent/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
+            <ImagePlus size={20} aria-hidden />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Sube tu propia foto</p>
+            <p className="mt-0.5 text-xs text-muted">PNG, JPG, WEBP o GIF</p>
+          </div>
+        </div>
         <UploadButton
           accept="image/png,image/jpeg,image/webp,image/gif"
           variant="secondary"
-          size="sm"
+          size="md"
           onFile={uploadAvatar}
         >
-          Subir una foto
+          <Upload size={16} aria-hidden />
+          Elegir archivo
         </UploadButton>
-        {uploadError ? (
-          <p className="mt-1 text-xs text-danger">{uploadError}</p>
-        ) : null}
       </div>
+      {uploadError ? <p className="mt-2 text-xs text-danger">{uploadError}</p> : null}
     </div>
   );
 }

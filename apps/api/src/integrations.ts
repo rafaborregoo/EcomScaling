@@ -116,6 +116,7 @@ type SyncRunRow = {
   id: string;
   connection_id: string;
   sync_type: string;
+  sync_scope?: string | null;
   status: string;
   records_read: number;
   records_written: number;
@@ -388,6 +389,7 @@ async function loadLatestRuns(
         "id",
         "connection_id",
         "sync_type",
+        "sync_scope",
         "status",
         "records_read",
         "records_written",
@@ -400,7 +402,9 @@ async function loadLatestRuns(
     )
     .in("connection_id", connectionIds)
     .order("created_at", { ascending: false })
-    .limit(25);
+    // Unas 30 por conexion: el historial de la ficha y, por bloque, lo ultimo
+    // que trajo cada uno.
+    .limit(Math.min(1000, connectionIds.length * 30));
 
   if (error) {
     return { ok: false as const, error: error.message };
@@ -519,10 +523,10 @@ export async function listIntegrations(
             );
           })
           .map((connection) => {
-            const latestSync =
-              latestRunsResult.data.find(
-                (item) => item.connection_id === connection.id,
-              ) ?? null;
+            const runs = latestRunsResult.data
+              .filter((item) => item.connection_id === connection.id)
+              .slice(0, 30);
+            const latestSync = runs[0] ?? null;
             const health = deriveIntegrationHealth({
               available: provider.available,
               connectionStatus: connection.status,
@@ -534,13 +538,14 @@ export async function listIntegrations(
             return {
               ...toConnectionView(connection),
               latest_sync: latestSync,
+              recent_syncs: runs,
               health,
               activation: deriveIntegrationActivation(
                 provider,
                 connection,
                 latestSync,
                 health,
-                hasRecoveredSync(connection.id, latestRunsResult.data),
+                hasRecoveredSync(connection.id, runs),
               ),
             };
           })

@@ -401,6 +401,33 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     document.title = `${title} · E-NORA IA`;
   }, [title]);
 
+  // Presencia agregada para el panel de salud: Redis cuenta una sola vez a
+  // cada usuario con una pestaña autenticada y visible en los últimos 60 s.
+  useEffect(() => {
+    if (!bootstrapUserId || !token) return;
+    let cancelled = false;
+    const heartbeat = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      try {
+        await apiFetch("/v1/platform-presence/heartbeat", {
+          method: "POST",
+          cache: "no-store",
+          body: JSON.stringify({}),
+        });
+      } catch {
+        // La presencia es una señal operativa; no debe bloquear el producto.
+      }
+    };
+    const timer = window.setInterval(() => void heartbeat(), 20_000);
+    document.addEventListener("visibilitychange", heartbeat);
+    void heartbeat();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", heartbeat);
+    };
+  }, [bootstrapUserId, token]);
+
   // Numerito de mensajes sin leer en el nav. Se refresca al navegar (abrir
   // /mensajes marca como leído en el servidor) y cada 60 s.
   useEffect(() => {
@@ -928,11 +955,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     </nav>
   );
 
+  // Integraciones no lleva segundo nivel: el hub ya lleva a cada conector
+  // (casilla → ficha → Configurar) y cada página vuelve al hub.
+  const hideContextNav = activeModule.id === "integraciones";
+
   const contextPanel = (
-    <aside className="sticky top-0 hidden h-dvh min-h-0 flex-col overflow-hidden border-r border-separator bg-white text-foreground lg:flex">
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-separator px-4">
-        <BrandLogo className="h-4 min-w-0 max-w-[9.5rem]" />
-      </div>
+    <aside className="sticky top-0 hidden h-dvh min-h-0 flex-col overflow-hidden border-r border-separator bg-white text-foreground lg:flex admin-context-nav">
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
         {contextNavigation}
       </div>
@@ -1178,7 +1206,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             isConsultant,
           }}
         >
-        <main className="min-h-dvh bg-white text-foreground lg:pt-2">
+        <main className={`min-h-dvh bg-white text-foreground lg:pt-2${isPlatformAdmin ? " admin-portal" : ""}`}>
           <a className="skip-link" href="#portal-content">
             Saltar al contenido principal
           </a>
@@ -1198,7 +1226,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           ) : null}
           {/* En móvil, menú a la izquierda y acciones de cuenta a la derecha.
           La navegación completa vive en la barra inferior y en «Más». */}
-          <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
+          <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden admin-mobile-legacy">
             <div className="flex items-center gap-2 px-3 py-2.5 text-foreground">
               <button
                 type="button"
@@ -1254,14 +1282,22 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
           <div
             className={[
-              "relative grid min-h-dvh",
-              isCopilotOpen
-                ? primaryNavMode === "expanded"
-                  ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
-                  : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)_26rem]"
-                : primaryNavMode === "expanded"
-                  ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
-                  : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)]",
+              "relative grid min-h-dvh admin-shell-grid",
+              hideContextNav
+                ? isCopilotOpen
+                  ? primaryNavMode === "expanded"
+                    ? "lg:grid-cols-[13rem_minmax(0,1fr)_26rem]"
+                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)_26rem]"
+                  : primaryNavMode === "expanded"
+                    ? "lg:grid-cols-[13rem_minmax(0,1fr)]"
+                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)]"
+                : isCopilotOpen
+                  ? primaryNavMode === "expanded"
+                    ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
+                    : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)_26rem]"
+                  : primaryNavMode === "expanded"
+                    ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
+                    : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)]",
             ].join(" ")}
           >
             <aside
@@ -1272,7 +1308,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 if (primaryNavMode === "hover") setIsPrimaryNavHovered(false);
               }}
               className={[
-                "sticky top-0 z-40 hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-2 text-foreground transition-[width] duration-200 ease-out lg:flex",
+                "sticky top-0 z-40 hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-2 text-foreground transition-[width] duration-200 ease-out lg:flex admin-primary-nav",
                 isPrimaryNavExpanded ? "w-[13rem] items-stretch" : "w-[4.75rem] items-center",
               ].join(" ")}
             >
@@ -1284,19 +1320,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   isPrimaryNavExpanded ? "mx-3 gap-3 px-2" : "size-12 justify-center",
                 ].join(" ")}
               >
-                <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-[0.7rem] font-semibold tracking-[-0.02em] text-white shadow-sm">
-                  ES
-                </span>
-                <span
-                  className={[
-                    "truncate text-sm font-semibold transition-opacity duration-150",
-                    isPrimaryNavExpanded
-                      ? "opacity-100"
-                      : "hidden",
-                  ].join(" ")}
-                >
-                  E-NORA
-                </span>
+                <BrandLogo
+                  variant={isPrimaryNavExpanded ? "letras" : "simple"}
+                  className={isPrimaryNavExpanded ? "h-5 w-auto" : "size-10"}
+                />
               </Link>
 
               <nav
@@ -1551,9 +1578,19 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </div>
             </aside>
 
-            {contextPanel}
+            {hideContextNav ? null : contextPanel}
 
-            <section id="portal-content" tabIndex={-1} className="min-w-0">
+            <section
+              id="portal-content"
+              tabIndex={-1}
+              className={`min-w-0${isPlatformAdmin ? " admin-portal-content" : ""}${
+                // Marketing e Integraciones comparten los colores de Trabajo e Inicio (petróleo +
+                // azafrán en cliente, grafito + mandarina en consultor).
+                activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "integraciones"
+                  ? ` trabajo-theme trabajo-theme--${navigationRole === "client" ? "client" : "consultant"}`
+                  : ""
+              }`}
+            >
               {/* Barra superior fija: una sola fila, estilo Supabase --
               ubicación de la pantalla y selectores de ámbito a la izquierda;
               notificaciones y cuenta a la derecha. El
@@ -1561,7 +1598,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               general" (sin cliente) como estado por defecto. Un cliente
               normal solo lo ve si pertenece a mas de una organizacion. Al
               elegir un cliente/tienda todo se scopea a el. */}
-              <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
+              <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10 admin-desktop-header">
                 <p className="shrink-0 text-[0.8125rem] font-medium text-foreground">
                   {title}
                 </p>
@@ -1625,7 +1662,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   </Link>
                 </div>
               ) : null}
-              <div className="px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14">
+              <div className={`px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14${isPlatformAdmin ? " admin-portal-page" : ""}`}>
                 <ActiveOrganizationContext.Provider
                   value={{
                     // Un consultor puede estar en vista general -> "" real.
@@ -1699,7 +1736,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
           <nav
             aria-label="Navegación principal"
-            className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+            className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden admin-mobile-bottom"
           >
               {bottomNavItems.map((module) => {
                 const Icon = module.icon;

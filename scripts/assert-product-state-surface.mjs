@@ -35,7 +35,17 @@ for (const relativeRoute of operationalRoutes) {
   }
 
   for (const token of requiredTokens) {
-    if (!source.includes(token)) {
+    let stateSource = source;
+    // DashboardPage delegates session loading/error/empty states to PortalShell
+    // and the client dashboard owns its data loading/empty states.
+    if (relativeRoute === "dashboard/page.tsx") {
+      const delegated = await Promise.all([
+        readFile(path.join(root, "..", "components", "portal-shell.tsx"), "utf8"),
+        readFile(path.join(root, "dashboard", "client-dashboard.tsx"), "utf8"),
+      ]);
+      stateSource += delegated.join("\n");
+    }
+    if (!stateSource.includes(token)) {
       violations.push(`${relativeRoute}: missing ${token}`);
     }
   }

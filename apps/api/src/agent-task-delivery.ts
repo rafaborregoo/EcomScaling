@@ -22,6 +22,38 @@ export type InitiativeMeasurement = {
   evaluation_window: string;
 };
 
+export type AiEffortEstimate = "low" | "medium" | "high" | "unknown";
+
+export type A18InitiativeChange = {
+  action: "replace" | "retire";
+  previous_task_id: string;
+  previous_task_title: string;
+};
+
+export function readA18InitiativeChange(value: unknown): A18InitiativeChange | null {
+  if (!value || typeof value !== "object") return null;
+  const change = value as Record<string, unknown>;
+  if (
+    (change.action !== "replace" && change.action !== "retire") ||
+    typeof change.previous_task_id !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(change.previous_task_id) ||
+    typeof change.previous_task_title !== "string" ||
+    !change.previous_task_title.trim() ||
+    change.previous_task_title.length > 255
+  ) return null;
+  return {
+    action: change.action,
+    previous_task_id: change.previous_task_id.toLowerCase(),
+    previous_task_title: change.previous_task_title,
+  };
+}
+
+export function readAiEffortEstimate(value: unknown): AiEffortEstimate | null {
+  return value === "low" || value === "medium" || value === "high" || value === "unknown"
+    ? value
+    : null;
+}
+
 export function readProposedMilestoneId(value: unknown): string | null {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)

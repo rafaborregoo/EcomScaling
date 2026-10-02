@@ -25,7 +25,7 @@ async function fetchJson(key: string): Promise<unknown> {
       error?: string;
       message?: string;
     } | null;
-    throw new Error(body?.error || body?.message || `HTTP ${response.status}`);
+    throw new Error(body?.message || body?.error || `HTTP ${response.status}`);
   }
   return response.json();
 }
@@ -79,6 +79,7 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
   const [isValidating, setIsValidating] = useState(false);
 
   useEffect(() => {
+    setError(null);
     if (!key) return;
     let cancelled = false;
 

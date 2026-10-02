@@ -79,3 +79,9 @@ Comparar números con definiciones diferentes produce conclusiones falsas.
 La analítica no consiste en acumular métricas.
 
 Consiste en utilizar definiciones consistentes para responder preguntas de negocio correctamente.
+
+---
+
+## Puente cross-channel
+
+El revenue que Klaviyo u otra herramienta atribuye a email no es revenue incremental, tampoco cuando se compara con paid media o con las ventas de Shopify. Las afirmaciones incrementales siguen exigiendo la evidencia causal de `conocimiento/fase-09/01-rag-produccion/9.05-incrementality.md`; el marco multicanal está en `conocimiento/fase-10/01-rag-produccion/10.01-principios-cross-channel-attribution.md`.

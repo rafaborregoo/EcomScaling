@@ -60,9 +60,12 @@ export function resolveKlaviyoOAuthEnv(
     KLAVIYO_CLIENT_ID: env.KLAVIYO_CLIENT_ID,
     KLAVIYO_CLIENT_SECRET: env.KLAVIYO_CLIENT_SECRET,
     KLAVIYO_REDIRECT_URI: env.KLAVIYO_REDIRECT_URI,
-    KLAVIYO_SCOPES: parseKlaviyoScopes(
-      env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES,
-    ).join(" "),
+    // Klaviyo sync lee eventos además de métricas. Un override antiguo no debe
+    // permitir iniciar una autorización que volvería a dejar la cuenta atascada.
+    KLAVIYO_SCOPES: [...new Set([
+      ...parseKlaviyoScopes(env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES),
+      "events:read",
+    ])].join(" "),
   };
 }
 

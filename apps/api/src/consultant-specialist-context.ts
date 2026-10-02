@@ -1,3 +1,5 @@
+import { summarizeKlaviyoFlowArchitecture } from "./klaviyo-flow-architect-output.js";
+
 const SPECIALIST_FRESHNESS_DAYS: Record<string, number> = {
   a02_monitor_negocio: 14,
   a06_planificador_stock: 14,
@@ -145,6 +147,23 @@ function summarizeSpecialistOutput(code: string, value: unknown) {
             return text ? [text] : [];
           })
         : [],
+    };
+  }
+
+  if (code === "a28_arquitecto_flujos") {
+    return {
+      answer: shortText(output.answer, 650),
+      findings: summarizeFindings(output.findings),
+      recommendations: summarizeRecommendations(output.recommendations),
+      sources: summarizeSources(output.sources),
+      confidence: shortText(output.confidence, 16),
+      warnings: Array.isArray(output.warnings)
+        ? output.warnings.slice(0, 2).flatMap((warning) => {
+            const text = shortText(warning, 180);
+            return text ? [text] : [];
+          })
+        : [],
+      flow_architecture: summarizeKlaviyoFlowArchitecture(output.flow_architecture),
     };
   }
 

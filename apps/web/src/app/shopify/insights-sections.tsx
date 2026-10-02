@@ -65,6 +65,9 @@ export type ShopifyInsights = {
     revenue: number;
     refunded_amount: number;
     top_return_reason: string | null;
+    lines_with_exact_metrics: number;
+    lines_with_estimated_metrics: number;
+    lines_without_metrics: number;
   }>;
   delivery: {
     fulfillments: number;
@@ -104,6 +107,8 @@ export type ShopifyInsights = {
     orders: number;
     order_revenue: number;
     order_discount_total: number;
+    attributed_discount_total: number | null;
+    attribution_coverage: "complete" | "partial" | "unavailable" | "migration_pending";
     new_customers: number;
     orders_with_multiple_codes: number;
     discount_share: number | null;
@@ -132,12 +137,17 @@ type LifetimeMilestone = {
   avg_contribution: number | null;
   items_without_cost: number;
   cohort_cac: number | null;
+  lines_with_exact_metrics?: number;
+  lines_with_estimated_metrics?: number;
+  lines_without_metrics?: number;
+  net_metrics_coverage_available?: boolean;
 };
 
 const PAYBACK_UNKNOWN: Record<string, string> = {
   sin_cohorte: "sin clientes con historia suficiente",
   cohorte_inmadura: "aún sin un año de historia",
   sin_coste: "falta el coste de producto",
+  sin_cobertura: "faltan importes netos de líneas históricas",
   sin_cac: "sin gasto publicitario en la ventana",
 };
 
@@ -151,7 +161,7 @@ function LifetimeMetrics({
   currency,
 }: {
   insights: ShopifyInsights;
-  currency: string;
+  currency: string | null;
 }) {
   const lifetime = insights.lifetime;
   const churn = insights.churn;
@@ -189,7 +199,11 @@ function LifetimeMetrics({
           !ltv
             ? "sin clientes con historia suficiente"
             : ltv.avg_contribution == null
-              ? `sin coste en ${count(ltv.items_without_cost)} líneas`
+                ? ltv.net_metrics_coverage_available === false
+                  ? "cobertura neta pendiente de reconciliación"
+                  : (ltv.lines_without_metrics ?? 0) > 0
+                ? `sin cobertura neta en ${count(ltv.lines_without_metrics ?? 0)} líneas; coste ausente en ${count(ltv.items_without_cost)} líneas`
+                : `sin coste en ${count(ltv.items_without_cost)} líneas`
               : `${count(ltv.cohort_customers)} clientes en la cohorte`
         }
       />
@@ -324,7 +338,7 @@ function CustomersSection({
   currency,
 }: {
   insights: ShopifyInsights;
-  currency: string;
+  currency: string | null;
 }) {
   const recurrence = insights.recurrence;
   const value = insights.customer_value;
@@ -445,8 +459,9 @@ function CustomersSection({
       {/* El valor por cliente no se recorta al periodo: un LTV de 30 dias es
           un numero mas pequeño que no significa nada. */}
       <p className="mt-3 text-xs text-muted">
-        Las cifras de cliente cubren todo el histórico, no el periodo
-        seleccionado.
+        Las cifras de cliente usan los pedidos disponibles en la tienda y no el
+        periodo seleccionado. El alcance histórico depende de los permisos y de
+        la sincronización completada.
       </p>
     </Card>
   );
@@ -531,7 +546,7 @@ function AttributionSection({
   currency,
 }: {
   insights: ShopifyInsights;
-  currency: string;
+  currency: string | null;
 }) {
   const rows: AttributionRow[] = insights.attribution.map((row, index) => ({
     id: `${row.source_type ?? "sin"}-${row.source ?? ""}-${row.utm_campaign ?? ""}-${index}`,
@@ -663,6 +678,7 @@ type DiscountRow = {
   orders: number;
   revenue: number;
   discount: number;
+  attributionCoverage: "complete" | "partial" | "unavailable" | "migration_pending";
   newCustomers: number;
   shared: number;
   share: number | null;
@@ -673,17 +689,18 @@ function DiscountsSection({
   currency,
 }: {
   insights: ShopifyInsights;
-  currency: string;
+  currency: string | null;
 }) {
   const rows: DiscountRow[] = insights.discounts.map((row) => ({
     id: row.code,
     code: row.code,
     orders: row.orders,
     revenue: row.order_revenue,
-    discount: row.order_discount_total,
+    discount: row.attributed_discount_total ?? 0,
+    attributionCoverage: row.attribution_coverage,
     newCustomers: row.new_customers,
     shared: row.orders_with_multiple_codes,
-    share: row.discount_share,
+    share: row.attribution_coverage === "complete" ? row.discount_share : null,
   }));
 
   const anyShared = rows.some((row) => row.shared > 0);
@@ -698,8 +715,10 @@ function DiscountsSection({
     },
     {
       key: "discount",
-      label: "Descuento del pedido",
-      render: (row) => formatMoney(row.discount, currency),
+      label: "Descuento atribuido",
+      render: (row) => row.attributionCoverage === "complete"
+        ? formatMoney(row.discount, currency)
+        : "Sin cobertura exacta",
     },
     {
       key: "share",
@@ -758,6 +777,9 @@ type ReturnRow = {
   rate: number | null;
   reason: string | null;
   refunded: number;
+  exactMetrics: number;
+  estimatedMetrics: number;
+  missingMetrics: number;
 };
 
 function OperationsSection({
@@ -765,7 +787,7 @@ function OperationsSection({
   currency,
 }: {
   insights: ShopifyInsights;
-  currency: string;
+  currency: string | null;
 }) {
   const delivery = insights.delivery;
   const returnRows: ReturnRow[] = insights.returns.map((row) => ({
@@ -776,12 +798,32 @@ function OperationsSection({
     rate: row.return_rate,
     reason: row.top_return_reason,
     refunded: row.refunded_amount,
+    exactMetrics: row.lines_with_exact_metrics,
+    estimatedMetrics: row.lines_with_estimated_metrics,
+    missingMetrics: row.lines_without_metrics,
   }));
 
   const anyReturn = returnRows.some((row) => row.returned > 0);
 
   const columns: TableColumnDef<ReturnRow>[] = [
-    { key: "title", label: "Producto", render: (row) => row.title },
+    {
+      key: "title",
+      label: "Producto",
+      render: (row) => (
+        <span>
+          {row.title}
+          {row.missingMetrics > 0 ? (
+            <small style={{ display: "block", color: "var(--muted)" }}>
+              {row.missingMetrics} líneas de ingreso pendientes de resincronizar
+            </small>
+          ) : row.estimatedMetrics > 0 ? (
+            <small style={{ display: "block", color: "var(--muted)" }}>
+              {row.estimatedMetrics} líneas con ingreso estimado
+            </small>
+          ) : null}
+        </span>
+      ),
+    },
     { key: "sold", label: "Vendidas", render: (row) => count(row.sold) },
     {
       key: "returned",
@@ -904,7 +946,7 @@ function RecoverySection({
   currency,
 }: {
   insights: ShopifyInsights;
-  currency: string;
+  currency: string | null;
 }) {
   const recovery = insights.checkout_recovery;
 
@@ -964,7 +1006,7 @@ function RecoverySection({
   );
 }
 
-const DELIVERY_EXCEPTION_LABELS: Record<string, string> = {
+export const DELIVERY_EXCEPTION_LABELS: Record<string, string> = {
   eta_overdue: "ETA vencida",
   customs_hold: "Retención aduanera informada",
   address_issue: "Problema de dirección informado",
@@ -973,7 +1015,7 @@ const DELIVERY_EXCEPTION_LABELS: Record<string, string> = {
   carrier_failure: "Incidencia del transportista",
 };
 
-const DELIVERY_NEXT_ACTIONS: Record<string, string> = {
+export const DELIVERY_NEXT_ACTIONS: Record<string, string> = {
   investigate_overdue_shipment: "Comprobar el seguimiento y la fecha prometida.",
   verify_customs_documentation: "Revisar si falta documentación aduanera.",
   verify_address_with_customer: "Verificar la dirección antes de un nuevo intento.",
@@ -982,7 +1024,7 @@ const DELIVERY_NEXT_ACTIONS: Record<string, string> = {
   escalate_carrier: "Solicitar al transportista el estado actualizado.",
 };
 
-const DELIVERY_AREAS: Record<string, string> = {
+export const DELIVERY_AREAS: Record<string, string> = {
   carrier_or_customs: "Área a investigar: transportista o aduanas",
   merchant_fulfillment: "Área a investigar: preparación del pedido",
   unknown: "Área a investigar: aún sin determinar",
@@ -1044,7 +1086,7 @@ export function ShopifyInsightsSections({
   organizationId: string;
   connectionId: string | null;
   periodDays: number | "all";
-  currency: string;
+  currency: string | null;
 }) {
   const [insights, setInsights] = useState<ShopifyInsights | null>(null);
   const [error, setError] = useState<string | null>(null);

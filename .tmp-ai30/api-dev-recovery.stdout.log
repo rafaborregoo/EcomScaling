@@ -1,0 +1,8 @@
+
+> ecomscaling-ia@0.1.0 dev:api
+> npm run dev --workspace=@e-nora/api
+
+
+> @e-nora/api@0.1.0 dev
+> dotenv -e ../../.env.local -- tsx watch src/server.ts
+

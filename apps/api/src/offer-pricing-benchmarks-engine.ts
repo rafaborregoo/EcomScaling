@@ -1,13 +1,14 @@
 import { validateOfferPricingBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
 import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const SOURCE_VERSION = "f6-p06.v1";
+const SOURCE_VERSION = "f6-p06.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type OfferPricingBenchmarksEvidence = {
   sales?: { available: boolean; orders_count?: number | null; revenue?: number | null; units_sold?: number | null } | null;
-  margin?: { available: boolean; items_with_cost?: number | null; margin?: number | null; contribution?: number | null } | null;
+  margin?: { available: boolean; items_with_cost?: number | null; margin?: number | null; contribution?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   funnel?: { available: boolean; sessions?: number | null; conversion_rate?: number | null } | null;
   products?: { available: boolean; product_count?: number | null; top_products_count?: number | null } | null;
   promotions?: { available: boolean; discount_codes?: number | null } | null;
@@ -59,16 +60,16 @@ export function applyOfferPricingBenchmarksEvidence(context: PlaybookFrameworkIn
   const hasSales = Boolean(sales && [sales.orders_count, sales.revenue].some(present));
   const hasEconomics = Boolean(margin && [margin.margin, margin.contribution, margin.items_with_cost].some(present));
   const updated: Record<string, PlaybookTriState> = {
-    ...context.facts, ...facts(),
+    ...context.facts, ...facts(), ...shopifyNetMetricsQualityFacts(margin),
     "offer_pricing_benchmarks.offer_context.observed": UNKNOWN,
     "offer_pricing_benchmarks.pricing.observed": UNKNOWN,
     "offer_pricing_benchmarks.aov.observed": observed(sales?.available, Boolean(sales && present(sales.orders_count) && present(sales.revenue))),
     "offer_pricing_benchmarks.upt.observed": observed(sales?.available, Boolean(sales && present(sales.units_sold) && Number(sales.orders_count) > 0)),
     "offer_pricing_benchmarks.asp.observed": UNKNOWN,
     "offer_pricing_benchmarks.funnel.observed": observed(funnel?.available, Boolean(funnel && [funnel.sessions, funnel.conversion_rate].some(present))),
-    "offer_pricing_benchmarks.economics.observed": observed(margin?.available, hasEconomics),
-    "offer_pricing_benchmarks.contribution_per_order.observed": observed(margin?.available, Boolean(margin && present(margin.contribution) && Number(sales?.orders_count) > 0)),
-    "offer_pricing_benchmarks.contribution_per_session.observed": observed(margin?.available, Boolean(margin && present(margin.contribution) && Number(funnel?.sessions) > 0)),
+    "offer_pricing_benchmarks.economics.observed": gateShopifyNetMetricsObservation(margin, observed(margin?.available, hasEconomics)),
+    "offer_pricing_benchmarks.contribution_per_order.observed": gateShopifyNetMetricsObservation(margin, observed(margin?.available, Boolean(margin && present(margin.contribution) && Number(sales?.orders_count) > 0))),
+    "offer_pricing_benchmarks.contribution_per_session.observed": gateShopifyNetMetricsObservation(margin, observed(margin?.available, Boolean(margin && present(margin.contribution) && Number(funnel?.sessions) > 0))),
     "offer_pricing_benchmarks.product_mix.observed": observed(evidence.products?.available, Boolean(evidence.products && present(evidence.products.top_products_count))),
     "offer_pricing_benchmarks.promotions.observed": observed(evidence.promotions?.available, present(evidence.promotions?.discount_codes)),
     "offer_pricing_benchmarks.returns.observed": observed(evidence.returns?.available, present(evidence.returns?.return_rate)),
@@ -107,7 +108,7 @@ async function enrichOfferPricingBenchmarksContext(supabase: any, context: Playb
   const source = (name: string, result: any, requireRow = true) => !result?.error && (!requireRow || first(result) !== null) ? `${name}:${organizationId}:${day}` : "";
   return applyOfferPricingBenchmarksEvidence(context, {
     sales: available(salesResult) ? { available: true, orders_count: sales?.orders_count, revenue: sales?.net_sales, units_sold: sales?.units_sold } : { available: false },
-    margin: available(marginResult) ? { available: true, items_with_cost: margin?.items_with_cost, margin: margin?.gross_margin, contribution: null, /* shopify_margin_summary NO devuelve contribution: leerla era undefined silencioso. La real es shopify_financial_summary.contribution_per_order, que este motor no pide */ } : { available: false },
+    margin: available(marginResult) ? { available: true, items_with_cost: margin?.items_with_cost, margin: margin?.gross_margin, contribution: null, lines_with_exact_metrics: margin?.lines_with_exact_metrics, lines_with_estimated_metrics: margin?.lines_with_estimated_metrics, lines_without_metrics: margin?.lines_without_metrics, /* shopify_margin_summary NO devuelve contribution: leerla era undefined silencioso. La real es shopify_financial_summary.contribution_per_order, que este motor no pide */ } : { available: false },
     funnel: available(funnelResult) ? { available: true, sessions: funnel?.sessions, conversion_rate: funnel?.conversion_rate_shopify } : { available: false },
     products: !productsResult?.error && Array.isArray(productsResult?.data) && productsResult.data.length > 0 ? { available: true, product_count: productsResult.data.length, top_products_count: productsResult.data.length } : { available: false },
     promotions: !discountResult?.error && Array.isArray(discountResult?.data) && discountResult.data.length > 0 ? { available: true, discount_codes: discountResult.data.length } : { available: false },

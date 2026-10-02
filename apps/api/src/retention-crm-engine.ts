@@ -15,8 +15,9 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const RETENTION_SOURCE_VERSION = "f5-p05.v1";
+const RETENTION_SOURCE_VERSION = "f5-p05.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type RetentionCrmEvidence = {
@@ -26,7 +27,7 @@ export type RetentionCrmEvidence = {
     stateful_customers?: number | null;
   } | null;
   sales?: { orders_count?: number | null; refunds?: number | null } | null;
-  margin?: { items_with_cost?: number | null; gross_margin?: number | null } | null;
+  margin?: { items_with_cost?: number | null; gross_margin?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   crm?: { account_count?: number | null; flows_count?: number | null; campaigns_count?: number | null } | null;
   consent?: { consent_events?: number | null } | null;
   /** Klaviyo: lo que ya calculan sus funciones y ningun diagnostico leia. */
@@ -110,13 +111,14 @@ export function applyRetentionCrmEvidence(
   const customers = evidence.customers;
   const facts = {
     ...context.facts,
+    ...shopifyNetMetricsQualityFacts(evidence.margin),
     "retention.customer_base.available": observed(customers?.customer_count),
     "retention.repeat.observed": customers?.customer_count && customers.repeat_customers !== null && customers.repeat_customers !== undefined
       ? "TRUE"
       : UNKNOWN,
     "retention.cohorts.observed": UNKNOWN,
     "retention.lifecycle.state_observed": observed(customers?.stateful_customers),
-    "retention.economics.contribution.available": observed(evidence.margin?.items_with_cost),
+    "retention.economics.contribution.available": gateShopifyNetMetricsObservation(evidence.margin, observed(evidence.margin?.items_with_cost)),
     "retention.crm.capabilities.available": observed(evidence.crm?.account_count),
     "retention.consent.observed": observed(evidence.consent?.consent_events),
     "retention.experience.refunds_available": evidence.sales ? "TRUE" : UNKNOWN,

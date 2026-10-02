@@ -126,6 +126,16 @@ const ERROR_MESSAGES: Record<string, ChatError> = {
       "No se encontró esta conversación. Cierra el panel y ábrelo de nuevo para empezar una nueva.",
     status: "danger",
   },
+  conversation_scope_unknown: {
+    message:
+      "Este hilo es anterior al aislamiento por tienda. Inicia una conversación nueva para mantener los datos separados.",
+    status: "warning",
+  },
+  conversation_scope_mismatch: {
+    message:
+      "Este hilo pertenece a otro alcance. Inicia una conversación nueva para la tienda actual.",
+    status: "warning",
+  },
   organization_access_denied: {
     message: "No tienes acceso a esta organización.",
     status: "danger",
@@ -335,6 +345,7 @@ export function CopilotPanel({
   // SSR y para cualquier viewport estrecho.
   const [isDesktop, setIsDesktop] = useState(false);
   const targetOrganizationId = organizationId || pickedOrganizationId;
+  const targetStoreId = view?.storeId ?? null;
   const targetOrganizationName = organizations.find(
     (organization) => organization.id === targetOrganizationId,
   )?.name;
@@ -363,7 +374,7 @@ export function CopilotPanel({
     setError(null);
     setSavedIndexes([]);
     setDegraded(false);
-  }, [targetOrganizationId]);
+  }, [targetOrganizationId, targetStoreId]);
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
@@ -379,7 +390,7 @@ export function CopilotPanel({
     setError(null);
     try {
       const response = await apiFetch(
-        `/v1/organizations/${targetOrganizationId}/consultant-chat/conversations/${id}`,
+        `/v1/organizations/${targetOrganizationId}/consultant-chat/conversations/${id}${view?.storeId ? `?connection_id=${encodeURIComponent(view.storeId)}` : ""}`,
       );
       if (!response.ok) {
         setError(await readError(response));
@@ -435,7 +446,7 @@ export function CopilotPanel({
     void (async () => {
       try {
         const response = await apiFetch(
-          `/v1/organizations/${targetOrganizationId}/consultant-chat/conversations`,
+          `/v1/organizations/${targetOrganizationId}/consultant-chat/conversations${view?.storeId ? `?connection_id=${encodeURIComponent(view.storeId)}` : ""}`,
         );
         if (!response.ok || cancelled) return;
         const payload = (await response.json()) as {
@@ -452,9 +463,9 @@ export function CopilotPanel({
     return () => {
       cancelled = true;
     };
-    // loadConversation cierra sobre el turno: cargar solo al cambiar cliente.
+    // Las conversaciones también se aíslan por tienda; recargarlas al cambiar cliente o tienda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetOrganizationId]);
+  }, [targetOrganizationId, targetStoreId]);
 
   useEffect(() => {
     if (!targetOrganizationId) {
@@ -1176,7 +1187,7 @@ export function CopilotPanel({
                   {pending?.saveAnswer ? (
                     savedIndexes.includes(index) ? (
                       <p className="mt-3 text-xs text-muted">
-                        Guardado en el hilo de la pieza.
+                        {pending.savedLabel ?? "Guardado en el hilo de la pieza."}
                       </p>
                     ) : (
                       <Button
@@ -1188,7 +1199,7 @@ export function CopilotPanel({
                       >
                         {savingIndex === index
                           ? "Guardando…"
-                          : "Dejar en el hilo de la pieza"}
+                          : (pending.saveLabel ?? "Dejar en el hilo de la pieza")}
                       </Button>
                     )
                   ) : null}

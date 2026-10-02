@@ -144,3 +144,30 @@ test("A06 puede nutrir coordinación estratégica solo con una salida fresca, ap
   })], { organizationId: "org-1", storeId: "store-1", now });
   assert.equal(pending, undefined);
 });
+
+test("A19 recibe el diseno A28 aprobado de su tienda con evidencia acotada", () => {
+  const row = candidate({
+    agent_versions: { version: "v2", agent_definitions: { code: "a28_arquitecto_flujos" } },
+    agent_outputs: {
+      id: "flow-output",
+      status: "approved",
+      output: {
+        answer: "Validar el evento antes de crear.", confidence: "low", findings: [], recommendations: [], sources: [], warnings: [],
+        flow_architecture: {
+          decision: "needs_validation", summary: "Falta medir perfiles elegibles.", candidates: [{
+            action: "create", name: "Bienvenida", objective: "Primera compra", entry_trigger: "Suscripcion confirmada",
+            trigger_verification: "unverified", entry_conditions: ["Consentimiento"], exit_conditions: ["Compra"],
+            exclusions: ["Bajas"], sequence: [{ step: 1, channel: "email", delay: "1 dia", purpose: "Presentar producto" }],
+            cadence: "Una vez", priority: "medium", primary_kpi: "Conversion", stop_rule: "Quejas altas",
+            evidence: [{ source: "Klaviyo sync", period: "90d", sample_size: null, coverage: "partial" }],
+            data_gaps: ["Perfiles elegibles"], conflicts: [], private_detail: "omit",
+          }], private_architecture_note: "omit",
+        },
+      },
+    },
+  });
+  const [result] = summarizeRecentSpecialistOutputs([row], { organizationId: "org-1", storeId: "store-1", now });
+  const summary = result?.summary as { flow_architecture: { candidates: Array<{ name: string }> } };
+  assert.equal(summary.flow_architecture.candidates[0]?.name, "Bienvenida");
+  assert.doesNotMatch(JSON.stringify(result), /private_detail|private_architecture_note/);
+});

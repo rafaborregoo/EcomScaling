@@ -3,6 +3,15 @@ export type ScopedOpenTask = {
   [key: string]: unknown;
 };
 
+/** Keep an RPC failure distinct from a successful query with no rows. */
+export function operationalMetricValue<T>(
+  rows: readonly T[] | null,
+  error: unknown,
+): T | { status: "unavailable" | "no_data"; reason?: "rpc_error" } {
+  if (error) return { status: "unavailable", reason: "rpc_error" };
+  return rows?.[0] ?? { status: "no_data" };
+}
+
 /** Separate work owned by the selected store from legacy organization-wide work. */
 export function partitionOpenTasksForStore<T extends ScopedOpenTask>(
   tasks: readonly T[],

@@ -15,7 +15,7 @@ test("construye evidencia offline por version sin conectores", () => {
   );
 
   assert.equal(payload.evaluation.agent_version_id, "version-1");
-  assert.equal(payload.evaluation.dataset_version, "2026-08-26.v1");
+  assert.equal(payload.evaluation.dataset_version, "2026-09-29.v2");
   assert.equal(payload.evaluation.evaluation_mode, "offline");
   assert.deepEqual(payload.evaluation.evaluated_agent_codes, [
     "a01_analista_llamadas",

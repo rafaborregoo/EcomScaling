@@ -11,15 +11,16 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const PRODUCT_INVENTORY_SOURCE_VERSION = "f5-p07.v1";
+const PRODUCT_INVENTORY_SOURCE_VERSION = "f5-p07.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type ProductInventoryEvidence = {
   catalog?: { products_count?: number | null; variants_count?: number | null } | null;
   stock?: { tracked_items?: number | null; total_available?: number | null; low_stock_items?: number | null; out_of_stock_items?: number | null } | null;
   sales?: { orders_count?: number | null; units_sold?: number | null } | null;
-  margin?: { items_with_cost?: number | null } | null;
+  margin?: { items_with_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
 };
 
 function observed(value: number | null | undefined): PlaybookTriState {
@@ -76,6 +77,7 @@ export function applyProductInventoryEvidence(
   const margin = evidence.margin;
   const facts = {
     ...context.facts,
+    ...shopifyNetMetricsQualityFacts(margin),
     "product_inventory.catalog.available": observed(catalog?.products_count),
     "product_inventory.catalog.assortment_observed": observed(catalog?.products_count),
     "product_inventory.catalog.roles_observed": UNKNOWN,
@@ -95,7 +97,7 @@ export function applyProductInventoryEvidence(
     "product_inventory.quality.observed": UNKNOWN,
     "product_inventory.inventory_accuracy.observed": UNKNOWN,
     "product_inventory.sku_rationalization.observed": UNKNOWN,
-    "product_inventory.economics.available": observed(margin?.items_with_cost),
+    "product_inventory.economics.available": gateShopifyNetMetricsObservation(margin, observed(margin?.items_with_cost)),
     "product_inventory.learning.observed": UNKNOWN,
   } satisfies Record<string, PlaybookTriState>;
   return {

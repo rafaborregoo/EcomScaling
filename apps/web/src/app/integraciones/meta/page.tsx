@@ -30,6 +30,7 @@ import {
   useStoreScope,
   type MetaAssetsResponse,
 } from "../shared";
+import hub from "../hub.module.css";
 
 function useMetaAssets(
   organizationId: string | null,
@@ -191,7 +192,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className={hub.page}>
       <BackToHub />
 
       <ProviderStatusCard provider={meta}>

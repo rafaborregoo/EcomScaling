@@ -57,15 +57,22 @@ type DecisionBlock = {
   key: string;
   table: string;
   statusColumn: string;
-  /** Una fila por candidato (el primer caso abierto) o una por organizacion. */
+  /**
+   * Una fila por caso abierto (candidate_ref = diagnostic_cases.id) o una por
+   * organizacion. Un bloque por candidato sin casos no escribe nada: la
+   * organizacion NO es un candidato (son ids de dominios distintos, aunque los
+   * dos sean uuid y la columna los acepte).
+   */
   perCandidate: boolean;
+  /** El contrato exige al menos un candidato (ranking): sin casos abiertos no se evalua. */
+  requiresCases?: boolean;
   storesUnknowns: boolean;
-  evaluate(org: string, caseIds: string[], now: string): Evaluated;
+  evaluate(org: string, caseIds: string[], now: string, candidate?: string): Evaluated;
 };
 
-/** Primer caso abierto, o la organizacion si no hay ninguno. */
-function firstCandidate(org: string, caseIds: string[]) {
-  return caseIds[0] ?? org;
+function requireCandidate(candidate: string | undefined): string {
+  if (!candidate) throw new Error("decision_block_candidate_required");
+  return candidate;
 }
 
 export const DECISION_BLOCKS: readonly DecisionBlock[] = [
@@ -76,9 +83,9 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
     statusColumn: "feasibility_assessment",
     perCandidate: true,
     storesUnknowns: true,
-    evaluate: (org, caseIds, now) => {
-      const candidate = firstCandidate(org, caseIds);
-      const sourceRef = caseIds[0] ? `diagnostic_case:${caseIds[0]}` : `organization:${org}`;
+    evaluate: (org, _caseIds, now, candidateRef) => {
+      const candidate = requireCandidate(candidateRef);
+      const sourceRef = `diagnostic_case:${candidate}`;
       return evaluateFeasibility({
         assessment_id: `p06:${org}:${candidate}`,
         business_id: org,
@@ -103,8 +110,8 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
     statusColumn: "risk_assessment",
     perCandidate: true,
     storesUnknowns: true,
-    evaluate: (org, caseIds, now) => {
-      const candidate = firstCandidate(org, caseIds);
+    evaluate: (org, _caseIds, now, candidateRef) => {
+      const candidate = requireCandidate(candidateRef);
       return evaluateRisk({
         assessment_id: `p07:${org}:${candidate}`,
         business_id: org,
@@ -137,8 +144,8 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
     statusColumn: "allocation_assessment",
     perCandidate: true,
     storesUnknowns: true,
-    evaluate: (org, caseIds, now) => {
-      const candidate = firstCandidate(org, caseIds);
+    evaluate: (org, _caseIds, now, candidateRef) => {
+      const candidate = requireCandidate(candidateRef);
       return evaluateAllocation({
         assessment_id: `p08:${org}:${candidate}`,
         business_id: org,
@@ -166,8 +173,8 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
     statusColumn: "strategic_assessment",
     perCandidate: true,
     storesUnknowns: true,
-    evaluate: (org, caseIds, now) => {
-      const candidate = firstCandidate(org, caseIds);
+    evaluate: (org, _caseIds, now, candidateRef) => {
+      const candidate = requireCandidate(candidateRef);
       return evaluateStrategicFit({
         assessment_id: `p09:${org}:${candidate}`,
         business_id: org,
@@ -200,6 +207,7 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
     table: "decision_rankings",
     statusColumn: "ranking_status",
     perCandidate: false,
+    requiresCases: true,
     storesUnknowns: true,
     evaluate: (org, caseIds, now) =>
       evaluateRanking({
@@ -207,7 +215,7 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
         business_id: org,
         as_of: now,
         policy: null,
-        candidates: (caseIds.length ? caseIds : [org]).map((candidate_ref) => ({
+        candidates: caseIds.map((candidate_ref) => ({
           candidate_ref,
           urgency: null,
           impact: null,
@@ -257,8 +265,8 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
     statusColumn: "decision_status",
     perCandidate: true,
     storesUnknowns: false,
-    evaluate: (org, caseIds, now) => {
-      const candidate = firstCandidate(org, caseIds);
+    evaluate: (org, _caseIds, now, candidateRef) => {
+      const candidate = requireCandidate(candidateRef);
       return evaluateDecisionOutput({
         assessment_id: `p12:${org}:${candidate}`,
         business_id: org,
@@ -286,9 +294,17 @@ export const DECISION_BLOCKS: readonly DecisionBlock[] = [
   },
 ];
 
-/** Parte pura: los siete resultados para una organizacion, sin tocar la base. */
+/** Candidatos de un bloque: uno por caso abierto si es por candidato, o uno sin candidato si es de organizacion. */
+function candidatesOf(block: DecisionBlock, caseIds: string[]): Array<string | undefined> {
+  if (block.perCandidate) return caseIds;
+  return block.requiresCases && !caseIds.length ? [] : [undefined];
+}
+
+/** Parte pura: los resultados para una organizacion (un bloque por candidato da una fila por caso), sin tocar la base. */
 export function evaluateDecisionBlocks(org: string, caseIds: string[], now = new Date().toISOString()) {
-  return DECISION_BLOCKS.map((block) => ({ block, result: block.evaluate(org, caseIds, now) }));
+  return DECISION_BLOCKS.flatMap((block) =>
+    candidatesOf(block, caseIds).map((candidate) => ({ block, candidate, result: block.evaluate(org, caseIds, now, candidate) })),
+  );
 }
 
 async function persistBlock(supabase: any, block: DecisionBlock, r: Evaluated) {
@@ -328,17 +344,32 @@ export async function runDecisionBlocksEngine(env: LoadedApiEnv, organizationId:
   if (error) throw new Error(`decision_blocks_cases_load_failed: ${error.message}`);
   const caseIds = ((cases ?? []) as { id: string }[]).map((c) => c.id);
   const now = new Date().toISOString();
-  const blocks: Record<string, { ok: boolean; assessment_id?: string; status?: unknown; error?: string }> = {};
+  const blocks: Record<string, { ok: boolean; assessment_id?: string | undefined; assessment_ids?: string[]; status?: unknown; error?: string; skipped?: string }> = {};
   for (const block of DECISION_BLOCKS) {
-    try {
-      const result = block.evaluate(organizationId, caseIds, now);
-      const stored = await persistBlock(supabase, block, result);
-      blocks[block.code] = { ok: true, assessment_id: stored.id, status: result[block.statusColumn] };
-    } catch (blockError) {
-      const message = blockError instanceof Error ? blockError.message : String(blockError);
-      blocks[block.code] = { ok: false, error: message };
-      logger.error("decision_block_failed", { organization_id: organizationId, block: block.code, error: message });
+    // Sin casos abiertos, los bloques por candidato (y el ranking) no tienen a quien evaluar.
+    if (!candidatesOf(block, caseIds).length) {
+      blocks[block.code] = { ok: true, skipped: "no_open_cases", assessment_ids: [] };
+      continue;
     }
+    const ids: string[] = [];
+    const errors: string[] = [];
+    let status: unknown;
+    for (const candidate of candidatesOf(block, caseIds)) {
+      // Un caso que falla no impide evaluar los demas.
+      try {
+        const result = block.evaluate(organizationId, caseIds, now, candidate);
+        const stored = await persistBlock(supabase, block, result);
+        ids.push(stored.id);
+        status ??= result[block.statusColumn];
+      } catch (blockError) {
+        const message = blockError instanceof Error ? blockError.message : String(blockError);
+        errors.push(message);
+        logger.error("decision_block_failed", { organization_id: organizationId, block: block.code, candidate_ref: candidate ?? null, error: message });
+      }
+    }
+    blocks[block.code] = errors.length
+      ? { ok: false, error: errors.join("; "), assessment_ids: ids }
+      : { ok: true, assessment_id: ids[0], assessment_ids: ids, status };
   }
   return { organization_id: organizationId, blocks };
 }
@@ -353,7 +384,7 @@ export async function runDecisionBlocksEngineForAllOrganizations(env: LoadedApiE
     try {
       const { blocks } = await runDecisionBlocksEngine(env, row.id);
       const failed = Object.entries(blocks).filter(([, b]) => !b.ok).map(([code]) => code);
-      summary.assessments += Object.keys(blocks).length - failed.length;
+      summary.assessments += Object.values(blocks).reduce((n, b) => n + (b.assessment_ids?.length ?? 0), 0);
       if (failed.length) {
         summary.failed += 1;
         summary.failed_blocks.push(...failed.map((code) => `${row.id}:${code}`));

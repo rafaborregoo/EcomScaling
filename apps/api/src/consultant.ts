@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { loadCaminoRoutes } from "./camino-routes.js";
 import {
   assertCapacidadDeCartera,
   loadCapacidad,
@@ -25,8 +26,16 @@ import {
   type KlaviyoSignalRow,
 } from "./klaviyo-triage.js";
 import { loadDraftThreadSummaries } from "./ai-runtime.js";
-import { readInitiativeMeasurement } from "./agent-task-delivery.js";
+import { readA18InitiativeChange, readInitiativeMeasurement } from "./agent-task-delivery.js";
 import { connectionSeverity } from "./integrations.js";
+import {
+  currenciesByOrganization,
+  singleCurrency,
+  klaviyoCampaignRevenueEvidence,
+  metaPurchaseValueEvidence,
+  shopifyNetSalesEvidence,
+} from "./cross-channel-attribution.js";
+import { buildCrossChannelMeasurementSet } from "@e-nora/contracts";
 import {
   authorizationPurgeCutoff,
   classifyAuthorizationAttempt,
@@ -395,7 +404,7 @@ export async function listConsultantOrganizations(
 type OrdersByOrgRow = {
   organization_id: string;
   orders_count: number | string;
-  net_sales: number | string;
+  net_sales: number | string | null;
 };
 
 // Filas del widget "Pedidos": pedidos + facturacion por cliente en un rango,
@@ -408,6 +417,7 @@ function rankOrdersByOrg(
     currency_code?: string | null;
   }>,
   rpcRows: OrdersByOrgRow[] | null,
+  currencies: Map<string, Array<string | null>>,
 ) {
   const byOrg = new Map(
     (rpcRows ?? []).map((row) => [row.organization_id, row]),
@@ -416,16 +426,21 @@ function rankOrdersByOrg(
   return organizations
     .map((organization) => {
       const row = byOrg.get(organization.id);
+      const currencyCode = singleCurrency(currencies.get(organization.id) ?? []);
       return {
         organization_id: organization.id,
         display_name: organization.display_name,
-        currency_code: organization.currency_code ?? "EUR",
+        currency_code: currencyCode,
         orders_count: num(row?.orders_count),
-        net_sales: num(row?.net_sales),
+        net_sales: currencyCode ? num(row?.net_sales) : null,
       };
     })
     .filter((entry) => entry.orders_count > 0)
-    .sort((a, b) => b.net_sales - a.net_sales);
+    .sort((a, b) => b.orders_count - a.orders_count || (
+      a.currency_code && a.currency_code === b.currency_code
+        ? (b.net_sales ?? 0) - (a.net_sales ?? 0)
+        : a.display_name.localeCompare(b.display_name, "es")
+    ));
 }
 
 type OrdersByStoreRow = {
@@ -435,7 +450,7 @@ type OrdersByStoreRow = {
   myshopify_domain: string | null;
   currency_code: string | null;
   orders_count: number | string;
-  net_sales: number | string;
+  net_sales: number | string | null;
   units_sold: number | string;
 };
 
@@ -446,6 +461,7 @@ type OrdersByStoreRow = {
 export function rankOrdersByStore(
   organizations: Array<{ id: string; display_name: string }>,
   rpcRows: OrdersByStoreRow[] | null,
+  currencyByStore?: Map<string, string | null>,
 ) {
   const nameByOrg = new Map(
     organizations.map((organization) => [
@@ -455,26 +471,35 @@ export function rankOrdersByStore(
   );
   const num = (value: unknown) => Number(value ?? 0);
   return (rpcRows ?? [])
-    .map((row) => ({
+    .map((row) => {
+      const currencyCode = currencyByStore
+        ? currencyByStore.get(row.store_id) ?? null
+        : row.currency_code;
+      return ({
       store_id: row.store_id,
       organization_id: row.organization_id,
       organization_name: nameByOrg.get(row.organization_id) ?? "—",
       shop_name: row.shop_name ?? row.myshopify_domain ?? "Tienda",
       myshopify_domain: row.myshopify_domain,
-      currency_code: row.currency_code ?? "EUR",
+      currency_code: currencyCode,
       orders_count: num(row.orders_count),
-      net_sales: num(row.net_sales),
+      net_sales: currencyCode ? num(row.net_sales) : null,
       units_sold: num(row.units_sold),
       // AOV por tienda: el dato que hace comparable a dos tiendas con volumen
       // muy distinto, y que el consultor mira justo despues del ranking.
       aov:
-        num(row.orders_count) > 0
+        currencyCode && num(row.orders_count) > 0
           ? num(row.net_sales) / num(row.orders_count)
-          : 0,
-    }))
+          : null,
+      });
+    })
     .filter((entry) => entry.orders_count > 0)
     .sort(
-      (a, b) => b.orders_count - a.orders_count || b.net_sales - a.net_sales,
+      (a, b) => b.orders_count - a.orders_count || (
+        a.currency_code && a.currency_code === b.currency_code
+          ? (b.net_sales ?? 0) - (a.net_sales ?? 0)
+          : a.shop_name.localeCompare(b.shop_name, "es")
+      ),
     );
 }
 
@@ -505,7 +530,7 @@ export async function listConsultantOrders(
     : ["00000000-0000-0000-0000-000000000000"];
 
   const supabase = createServiceClient(env);
-  const [totalsResult, dailyResult, storesResult] = await Promise.all([
+  const [totalsResult, dailyResult, storesResult, shopifyCurrencyResult] = await Promise.all([
     supabase.rpc("consultant_orders_by_org", {
       org_ids: safeIds,
       period_start: fromIso,
@@ -521,6 +546,10 @@ export async function listConsultantOrders(
       period_start: fromIso,
       period_end: toIso,
     }),
+    supabase
+      .from("shopify_stores")
+      .select("id, organization_id, currency_code")
+      .in("organization_id", safeIds),
   ]);
 
   if (totalsResult.error) {
@@ -571,11 +600,13 @@ export async function listConsultantOrders(
       rows: rankOrdersByOrg(
         organizations,
         totalsResult.data as OrdersByOrgRow[] | null,
+        currenciesByOrganization(shopifyCurrencyResult.data),
       ),
       // Ranking por tienda, ordenado por numero de pedidos.
       stores: rankOrdersByStore(
         organizations,
         storesResult.data as OrdersByStoreRow[] | null,
+        new Map((shopifyCurrencyResult.data ?? []).map((row) => [row.id, row.currency_code])),
       ),
       // Serie diaria por cliente para el grafico de evolucion. El frontend
       // rellena los dias sin pedidos con 0.
@@ -647,6 +678,11 @@ type ProposedTask = {
     baseline: number | null;
     target: number | null;
     evaluation_window: string;
+  };
+  initiative_change?: {
+    action: "replace" | "retire";
+    previous_task_id: string;
+    previous_task_title: string;
   };
   phase: string | null;
   pending_approval: boolean;
@@ -778,6 +814,7 @@ export async function listConsultantProposedTasks(
       });
 
       const initiativeMeasurement = readInitiativeMeasurement(write);
+      const initiativeChange = readA18InitiativeChange(write.initiative_change);
       list.push({
         output_id: outputId,
         write_index: writeIndex,
@@ -803,6 +840,7 @@ export async function listConsultantProposedTasks(
           ? { due_hint: typeof write.due_hint === "string" ? write.due_hint.trim().slice(0, 100) : null }
           : {}),
         ...(initiativeMeasurement ? { initiative_measurement: initiativeMeasurement } : {}),
+        ...(initiativeChange ? { initiative_change: initiativeChange } : {}),
         phase:
           typeof phaseRaw === "string" && phaseRaw.trim().length > 0
             ? phaseRaw.trim()
@@ -846,6 +884,8 @@ type MetaByOrgRow = {
   roas: number | string | null;
   cac: number | string | null;
   days_with_data: number | string;
+  // Solo desde la migracion f10 de consultant_meta_by_org; antes, ausente.
+  purchase_attribution_window?: string | null;
 };
 
 const META_COMPARE_MONTH = { window: 30, back: 30 } as const;
@@ -892,9 +932,12 @@ export async function listConsultantMetaPortfolio(
   const curStart = now - cmp.window * dayMs;
   const prevEnd = now - cmp.back * dayMs;
   const prevStart = prevEnd - cmp.window * dayMs;
+  // Meta agrega por metric_date (dias enteros): Shopify arranca a las 00:00
+  // del mismo dia para que el periodo del ancla y el del canal coincidan.
+  const period = { start: day(curStart), end: day(now) };
 
   const supabase = createServiceClient(env);
-  const [curRes, prevRes, financials, backfillConns] = await Promise.all([
+  const [curRes, prevRes, financials, backfillConns, metaAccounts, shopifyStores] = await Promise.all([
     supabase.rpc("consultant_meta_by_org", {
       org_ids: safeIds,
       period_start: day(curStart),
@@ -909,7 +952,7 @@ export async function listConsultantMetaPortfolio(
       organizations.map(async (organization) => {
         const { data } = await supabase.rpc("shopify_financial_summary", {
           target_organization_id: organization.id,
-          period_start: iso(curStart),
+          period_start: `${period.start}T00:00:00.000Z`,
           period_end: iso(now),
           target_store_id: null,
         });
@@ -921,7 +964,18 @@ export async function listConsultantMetaPortfolio(
       .select("metadata")
       .eq("provider", "meta_ads")
       .in("organization_id", safeIds),
+    // Monedas de origen (patron A23): sin ellas no hay dependency_pct.
+    supabase
+      .from("meta_ad_accounts")
+      .select("organization_id, currency_code")
+      .in("organization_id", safeIds),
+    supabase
+      .from("shopify_stores")
+      .select("organization_id, currency_code")
+      .in("organization_id", safeIds),
   ]);
+  const metaCurrencies = currenciesByOrganization(metaAccounts.data);
+  const storeCurrencies = currenciesByOrganization(shopifyStores.data);
 
   // Cuántas cuentas de la cartera están importando su histórico ahora mismo
   // (para el banner del widget).
@@ -964,23 +1018,27 @@ export async function listConsultantMetaPortfolio(
         | null
         | undefined;
 
-      const spend = num(cur?.spend);
-      const prevSpend = num(prev?.spend);
-      const roas = numOrNull(cur?.roas);
-      const prevRoas = numOrNull(prev?.roas);
-      const cac = numOrNull(cur?.cac);
+      const metaCurrency = singleCurrency(metaCurrencies.get(organization.id) ?? []);
+      const shopifyCurrency = singleCurrency(storeCurrencies.get(organization.id) ?? []);
+      const metaCurrencyValid = metaCurrency !== null;
+      const hasSpendData = num(cur?.spend) > 0;
+      const spend = metaCurrencyValid ? num(cur?.spend) : null;
+      const prevSpend = metaCurrencyValid ? num(prev?.spend) : null;
+      const roas = metaCurrencyValid ? numOrNull(cur?.roas) : null;
+      const prevRoas = metaCurrencyValid ? numOrNull(prev?.roas) : null;
+      const cac = metaCurrencyValid ? numOrNull(cur?.cac) : null;
       const impressions = num(cur?.impressions);
       const clicks = num(cur?.clicks);
       const purchases = num(cur?.purchases);
-      const purchaseValue = num(cur?.purchase_value);
+      const purchaseValue = metaCurrencyValid ? num(cur?.purchase_value) : null;
       const daysWithData = num(cur?.days_with_data);
 
       const ctr = impressions > 0 ? (clicks / impressions) * 100 : null;
-      const cpm = impressions > 0 ? (spend / impressions) * 1000 : null;
+      const cpm = impressions > 0 && spend !== null ? (spend / impressions) * 1000 : null;
       const prevImpr = num(prev?.impressions);
       const prevCtr =
         prevImpr > 0 ? (num(prev?.clicks) / prevImpr) * 100 : null;
-      const prevCpm = prevImpr > 0 ? (prevSpend / prevImpr) * 1000 : null;
+      const prevCpm = prevImpr > 0 && prevSpend !== null ? (prevSpend / prevImpr) * 1000 : null;
 
       const hasSettings = fin?.has_settings === true;
       const netSales = num(fin?.net_sales);
@@ -990,14 +1048,33 @@ export async function listConsultantMetaPortfolio(
         hasSettings && grossMargin > 0 ? netSales / grossMargin : null;
       const contributionPerOrder =
         grossMargin > 0 && finOrders > 0 ? grossMargin / finOrders : null;
-      const dependencyPct =
-        netSales > 0 ? (purchaseValue / netSales) * 100 : null;
+      const comparableCurrencies = metaCurrency !== null && metaCurrency === shopifyCurrency;
+      const comparableBreakEvenRoas = comparableCurrencies ? breakEvenRoas : null;
+      const comparableContributionPerOrder = comparableCurrencies ? contributionPerOrder : null;
+      // ADR-0021 / fase-10: relacion atribuido Meta vs ventas observadas, solo
+      // con misma moneda y periodo. No es incrementalidad.
+      const attribution = buildCrossChannelMeasurementSet(
+        shopifyNetSalesEvidence({
+          period,
+          netSales: fin?.net_sales,
+          storeCurrencies: storeCurrencies.get(organization.id) ?? [],
+        }),
+        [
+          metaPurchaseValueEvidence({
+            period,
+            purchaseValue: cur?.purchase_value,
+            accountCurrencies: metaCurrencies.get(organization.id) ?? [],
+            attributionWindow: cur?.purchase_attribution_window,
+          }),
+        ],
+      );
+      const dependencyPct = attribution.comparisons[0]?.dependency_pct ?? null;
 
       const roasDeltaPct = pctChange(roas ?? 0, prevRoas);
 
       let score = 0;
-      if (roas != null && breakEvenRoas != null && roas < breakEvenRoas) {
-        score += ((breakEvenRoas - roas) / breakEvenRoas) * 40;
+      if (roas != null && comparableBreakEvenRoas != null && roas < comparableBreakEvenRoas) {
+        score += ((comparableBreakEvenRoas - roas) / comparableBreakEvenRoas) * 40;
       }
       if (roas != null && roas < 1) score += (1 - roas) * 20;
       if (roasDeltaPct != null && roasDeltaPct < 0) {
@@ -1005,26 +1082,28 @@ export async function listConsultantMetaPortfolio(
       }
       if (
         cac != null &&
-        contributionPerOrder != null &&
-        cac > contributionPerOrder
+        comparableContributionPerOrder != null &&
+        cac > comparableContributionPerOrder
       ) {
-        score += ((cac - contributionPerOrder) / contributionPerOrder) * 15;
+        score += ((cac - comparableContributionPerOrder) / comparableContributionPerOrder) * 15;
       }
       if (
         dependencyPct != null &&
         dependencyPct > 40 &&
         roas != null &&
-        (breakEvenRoas == null || roas < breakEvenRoas)
+        (comparableBreakEvenRoas == null || roas < comparableBreakEvenRoas)
       ) {
         score += dependencyPct * 0.2;
       }
-      if (spend > 0 && daysWithData < cmp.window * 0.5) score += 10;
-      if (spend > 0 && purchases === 0) score += 25;
+      if (spend !== null && spend > 0 && daysWithData < cmp.window * 0.5) score += 10;
+      if (spend !== null && spend > 0 && purchases === 0) score += 25;
 
       return {
         organization_id: organization.id,
         display_name: organization.display_name,
-        currency_code: organization.currency_code ?? "EUR",
+        currency_code: metaCurrency,
+        shopify_currency_code: shopifyCurrency,
+        has_spend_data: hasSpendData,
         score: Math.round(score * 10) / 10,
         spend,
         impressions,
@@ -1036,24 +1115,24 @@ export async function listConsultantMetaPortfolio(
         ctr,
         cpm,
         days_with_data: daysWithData,
-        break_even_roas: breakEvenRoas,
-        contribution_per_order: contributionPerOrder,
+        break_even_roas: comparableBreakEvenRoas,
+        contribution_per_order: comparableContributionPerOrder,
         dependency_pct: dependencyPct,
+        attribution,
         delta: {
-          spend_pct: pctChange(spend, prevSpend || null),
+          spend_pct: pctChange(spend ?? 0, prevSpend || null),
           roas_pct: roasDeltaPct,
           cac_pct: pctChange(cac ?? 0, numOrNull(prev?.cac)),
           purchases_pct: pctChange(purchases, num(prev?.purchases) || null),
-          purchase_value_pct: pctChange(
-            purchaseValue,
-            num(prev?.purchase_value) || null,
-          ),
+          purchase_value_pct: metaCurrencyValid
+            ? pctChange(purchaseValue ?? 0, num(prev?.purchase_value) || null)
+            : null,
           ctr_pct: pctChange(ctr ?? 0, prevCtr),
           cpm_pct: pctChange(cpm ?? 0, prevCpm),
         },
       };
     })
-    .filter((client) => client.spend > 0)
+    .filter((client) => client.has_spend_data)
     .sort((a, b) => b.score - a.score);
 
   return {
@@ -1118,12 +1197,54 @@ export async function listConsultantKlaviyoPortfolio(
       : new Date(now - days * dayMs).toISOString();
   const periodEnd = new Date(now).toISOString();
 
+  const period = { start: periodStart, end: periodEnd };
+
   const supabase = createServiceClient(env);
-  const { data, error } = await supabase.rpc("consultant_klaviyo_by_org", {
-    org_ids: safeIds,
-    period_start: periodStart,
-    period_end: periodEnd,
-  });
+  const [{ data, error }, klaviyoAccounts, shopifyStores, financials] = await Promise.all([
+    supabase.rpc("consultant_klaviyo_by_org", {
+      org_ids: safeIds,
+      period_start: periodStart,
+      period_end: periodEnd,
+    }),
+    // preferred_currency: nombre real del campo en la Accounts API; las filas
+    // sincronizadas antes del arreglo de klaviyo-sync solo lo tienen en raw_data.
+    supabase
+      .from("klaviyo_accounts")
+      .select("organization_id, currency_code, conversion_metric_id, preferred_currency:raw_data->>preferred_currency")
+      .in("organization_id", safeIds),
+    supabase
+      .from("shopify_stores")
+      .select("organization_id, currency_code")
+      .in("organization_id", safeIds),
+    Promise.all(
+      organizations.map(async (organization) => {
+        const { data: summary } = await supabase.rpc("shopify_financial_summary", {
+          target_organization_id: organization.id,
+          period_start: periodStart,
+          period_end: periodEnd,
+          target_store_id: null,
+        });
+        return [organization.id, (summary ?? [])[0]?.net_sales] as const;
+      }),
+    ),
+  ]);
+  const accountRows = (klaviyoAccounts.data ?? []) as Array<{
+    organization_id: string;
+    currency_code: string | null;
+    conversion_metric_id: string | null;
+    preferred_currency: string | null;
+  }>;
+  const klaviyoCurrencies = currenciesByOrganization(
+    accountRows.map((row) => ({
+      organization_id: row.organization_id,
+      currency_code: row.currency_code ?? row.preferred_currency,
+    })),
+  );
+  const withConversionMetric = new Set(
+    accountRows.filter((row) => row.conversion_metric_id).map((row) => row.organization_id),
+  );
+  const storeCurrencies = currenciesByOrganization(shopifyStores.data);
+  const netSalesByOrg = new Map(financials);
 
   if (error) {
     return {
@@ -1146,13 +1267,32 @@ export async function listConsultantKlaviyoPortfolio(
     .map((organization) => {
       const row = byOrg.get(organization.id);
       const recipients = num(row?.recipients);
+      const revenueEvidence = klaviyoCampaignRevenueEvidence({
+        period,
+        revenue: row?.revenue,
+        recipients,
+        accountCurrencies: klaviyoCurrencies.get(organization.id) ?? [],
+        conversionMetricSelected: withConversionMetric.has(organization.id),
+      });
+      // Paridad con Meta (fase-10 R1): misma relacion con el ancla Shopify.
+      const attribution = buildCrossChannelMeasurementSet(
+        shopifyNetSalesEvidence({
+          period,
+          netSales: netSalesByOrg.get(organization.id),
+          storeCurrencies: storeCurrencies.get(organization.id) ?? [],
+        }),
+        [revenueEvidence],
+      );
       return {
         organization_id: organization.id,
         display_name: organization.display_name,
-        currency_code: organization.currency_code ?? "EUR",
+        currency_code: singleCurrency(klaviyoCurrencies.get(organization.id) ?? []),
         campaigns_sent: num(row?.campaigns_sent),
         last_send_at: row?.last_send_at ?? null,
-        revenue: num(row?.revenue),
+        // null = desconocido (integracion incompleta o sin valores), nunca 0 €.
+        revenue: revenueEvidence.value,
+        dependency_pct: attribution.comparisons[0]?.dependency_pct ?? null,
+        attribution,
         recipients,
         open_rate: recipients > 0 ? num(row?.opens_unique) / recipients : null,
         click_rate:
@@ -1161,7 +1301,11 @@ export async function listConsultantKlaviyoPortfolio(
     })
     .filter((client) => client.campaigns_sent > 0)
     .sort(
-      (a, b) => b.campaigns_sent - a.campaigns_sent || b.revenue - a.revenue,
+      (a, b) =>
+        b.campaigns_sent - a.campaigns_sent ||
+        // Revenue desconocido al final, sin tratarlo como 0.
+        Number(b.revenue !== null) - Number(a.revenue !== null) ||
+        (b.revenue ?? 0) - (a.revenue ?? 0),
     );
 
   return {
@@ -1218,6 +1362,8 @@ export async function getConsultantOverview(
     { data: financialRows },
     { data: taskRows },
     { data: orders24hRows },
+    { data: shopifyCurrencyRows, error: shopifyCurrencyError },
+    { data: metaCurrencyRows, error: metaCurrencyError },
   ] = await Promise.all([
     supabase.rpc("consultant_business_rollup", {
       org_ids: safeIds,
@@ -1251,6 +1397,14 @@ export async function getConsultantOverview(
       period_start: last24hStart,
       period_end: periodEnd,
     }),
+    supabase
+      .from("shopify_stores")
+      .select("organization_id, currency_code")
+      .in("organization_id", safeIds),
+    supabase
+      .from("meta_ad_accounts")
+      .select("organization_id, currency_code")
+      .in("organization_id", safeIds),
   ]);
 
   if (currentError || previousError) {
@@ -1265,6 +1419,13 @@ export async function getConsultantOverview(
   const currentRow = (current ?? [])[0] ?? {};
   const previousRow = (previous ?? [])[0] ?? {};
   const num = (value: unknown) => Number(value ?? 0);
+  const currenciesPerOrganization = currenciesByOrganization(shopifyCurrencyRows);
+  const shopifyCurrency = shopifyCurrencyError
+    ? null
+    : singleCurrency((shopifyCurrencyRows ?? []).map((row) => row.currency_code));
+  const metaCurrency = metaCurrencyError
+    ? null
+    : singleCurrency((metaCurrencyRows ?? []).map((row) => row.currency_code));
 
   const planMix: Record<string, number> = {};
   for (const organization of organizations) {
@@ -1343,6 +1504,7 @@ export async function getConsultantOverview(
   const ordersLast24h = rankOrdersByOrg(
     organizations,
     orders24hRows as OrdersByOrgRow[] | null,
+    currenciesPerOrganization,
   );
 
   // Tiendas propias del consultor (membership real): no son "cartera", van en
@@ -1358,14 +1520,16 @@ export async function getConsultantOverview(
       stores: organizations.reduce((sum, org) => sum + org.store_count, 0),
       plan_mix: planMix,
       business: {
-        net_sales: num(currentRow.net_sales),
+        shopify_currency_code: shopifyCurrency,
+        meta_currency_code: metaCurrency,
+        net_sales: shopifyCurrency ? num(currentRow.net_sales) : null,
         orders: num(currentRow.orders_count),
-        meta_spend: num(currentRow.meta_spend),
-        meta_purchase_value: num(currentRow.meta_purchase_value),
-        roas: currentRow.roas == null ? null : num(currentRow.roas),
-        prev_net_sales: num(previousRow.net_sales),
+        meta_spend: metaCurrency ? num(currentRow.meta_spend) : null,
+        meta_purchase_value: metaCurrency ? num(currentRow.meta_purchase_value) : null,
+        roas: !metaCurrency || currentRow.roas == null ? null : num(currentRow.roas),
+        prev_net_sales: shopifyCurrency ? num(previousRow.net_sales) : null,
         prev_orders: num(previousRow.orders_count),
-        prev_meta_spend: num(previousRow.meta_spend),
+        prev_meta_spend: metaCurrency ? num(previousRow.meta_spend) : null,
       },
       portfolio,
       tasks,
@@ -2548,6 +2712,25 @@ export async function listOwnStoresOverview(
   const periodStart = new Date(Date.now() - windowDays * dayMs).toISOString();
 
   const supabase = createServiceClient(env);
+  const ownOrganizationIds = ownMemberships.length
+    ? ownMemberships.map((membership) => membership.organization_id)
+    : ["00000000-0000-0000-0000-000000000000"];
+  const [shopifyCurrenciesResult, metaCurrenciesResult] = await Promise.all([
+    supabase
+      .from("shopify_stores")
+      .select("organization_id, currency_code")
+      .in("organization_id", ownOrganizationIds),
+    supabase
+      .from("meta_ad_accounts")
+      .select("organization_id, currency_code")
+      .in("organization_id", ownOrganizationIds),
+  ]);
+  const shopifyCurrencies = currenciesByOrganization(
+    shopifyCurrenciesResult.error ? null : shopifyCurrenciesResult.data,
+  );
+  const metaCurrencies = currenciesByOrganization(
+    metaCurrenciesResult.error ? null : metaCurrenciesResult.data,
+  );
 
   const stores = await Promise.all(
     ownMemberships.map(async (membership) => {
@@ -2561,6 +2744,12 @@ export async function listOwnStoresOverview(
       }
       const row = (data ?? [])[0] ?? {};
       const num = (value: unknown) => Number(value ?? 0);
+      const shopifyCurrency = shopifyCurrenciesResult.error
+        ? null
+        : singleCurrency(shopifyCurrencies.get(membership.organization_id) ?? []);
+      const metaCurrency = metaCurrenciesResult.error
+        ? null
+        : singleCurrency(metaCurrencies.get(membership.organization_id) ?? []);
       return {
         ok: true as const,
         store: {
@@ -2568,11 +2757,12 @@ export async function listOwnStoresOverview(
           display_name:
             membership.organization?.display_name ?? membership.organization_id,
           status: membership.organization?.status ?? "active",
-          currency_code: membership.organization?.currency_code ?? "EUR",
-          net_sales: num(row.net_sales),
+          currency_code: shopifyCurrency,
+          meta_currency_code: metaCurrency,
+          net_sales: shopifyCurrency ? num(row.net_sales) : null,
           orders: num(row.orders_count),
-          meta_spend: num(row.meta_spend),
-          roas: row.roas == null ? null : num(row.roas),
+          meta_spend: metaCurrency ? num(row.meta_spend) : null,
+          roas: !metaCurrency || row.roas == null ? null : num(row.roas),
         },
       };
     }),
@@ -2609,6 +2799,7 @@ export async function listConsultantIntegrations(
   env: ApiEnv,
   authorization: string,
   context: AuthContext,
+  organizationId?: string,
 ) {
   const orgsResult = await listConsultantOrganizations(
     env,
@@ -2619,7 +2810,34 @@ export async function listConsultantIntegrations(
     return orgsResult;
   }
 
-  const organizations = orgsResult.data.organizations;
+  const authorizedOrganizations = orgsResult.data.organizations;
+  // Las integraciones son privadas de cada organización. Un consultor puede
+  // usar su propia tienda, pero la asignación a un cliente no le da acceso a
+  // las cuentas, estados ni errores de sus integraciones.
+  const visibleOrganizations =
+    context.profile.platform_role === "consultant"
+      ? authorizedOrganizations.filter((organization) =>
+          context.memberships.some(
+            (membership) =>
+              membership.organization_id === organization.id &&
+              membership.accessSource !== "consultant_assignment",
+          ),
+        )
+      : authorizedOrganizations;
+  if (
+    organizationId &&
+    !visibleOrganizations.some((organization) => organization.id === organizationId)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "consultant_organization_not_found",
+    };
+  }
+
+  const organizations = organizationId
+    ? visibleOrganizations.filter((organization) => organization.id === organizationId)
+    : visibleOrganizations;
   const ids = organizations.map((organization) => organization.id);
   const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
@@ -2629,7 +2847,7 @@ export async function listConsultantIntegrations(
   const { data, error } = await supabase
     .from("integration_connections")
     .select(
-      "organization_id, provider, status, last_sync_at, last_error_message",
+      "organization_id, provider, provider_account_id, provider_account_name, status, last_sync_at, last_error_message",
     )
     .in("organization_id", safeIds);
 
@@ -2649,11 +2867,19 @@ export async function listConsultantIntegrations(
   };
   const byOrg = new Map<string, Record<string, Cell>>();
   const providerSet = new Set<string>();
+  const visibleConnections = (data ?? []).filter(
+    (row) =>
+      !(
+        row.provider === "klaviyo" &&
+        typeof row.provider_account_id === "string" &&
+        row.provider_account_id.startsWith("pending:")
+      ),
+  );
   // Peor estado gana si un cliente tiene varias conexiones del mismo proveedor.
   // El orden lo pone connectionSeverity, el mismo que usa el detalle de un
   // cliente: si cada vista tuviera el suyo volveriamos a la contradiccion de
   // ver un cliente rojo en la lista y verde al entrar.
-  for (const row of data ?? []) {
+  for (const row of visibleConnections) {
     const orgId = row.organization_id as string;
     const provider = row.provider as string;
     providerSet.add(provider);
@@ -2681,6 +2907,18 @@ export async function listConsultantIntegrations(
         organization_id: organization.id,
         display_name: organization.display_name,
         providers: byOrg.get(organization.id) ?? {},
+        ...(organizationId
+          ? {
+              connections: visibleConnections
+                .filter((row) => row.organization_id === organization.id)
+                .map((row) => ({
+                  provider: row.provider as string,
+                  account_name: (row.provider_account_name as string | null) ?? null,
+                  status: row.status as string,
+                  last_sync_at: (row.last_sync_at as string | null) ?? null,
+                })),
+            }
+          : {}),
       })),
     },
   };
@@ -2873,6 +3111,7 @@ export async function listConsultantPlans(
     return {
       organization_id: organization.id,
       display_name: organization.display_name,
+      is_own_store: organization.is_own_store,
       health_tier:
         score >= 15
           ? "urgente"
@@ -2903,7 +3142,14 @@ export async function listConsultantPlans(
     };
   });
 
-  return { ok: true as const, data: { portfolio } };
+  // Una ruta por tienda: un cliente con varias tiendas tiene un camino por
+  // tienda, y el plan "actual" de arriba los mezcla.
+  const routesResult = await loadCaminoRoutes(createServiceClient(env), ids);
+  if (routesResult.ok === false) {
+    return { ok: false as const, statusCode: 503, error: "camino_routes_load_failed", detail: routesResult.detail };
+  }
+
+  return { ok: true as const, data: { portfolio, routes: routesResult.routes } };
 }
 
 /**

@@ -1,0 +1,228 @@
+/* Guía de marca: mismo lenguaje visual que el Estudio de contenido y el
+   constructor de flows (petróleo + azafrán, --tw-* con los mismos valores de
+   respaldo). A sangre sobre el relleno del contenido del shell, que es
+   px-4 / sm:px-6 / lg:px-10, pt-4 / lg:pt-6 y pb-28 / lg:pb-14 (portal-shell).
+   Esta ruta va sin el panel de pestañas, así que no hay los 8px extra del Estudio. */
+
+.page {
+  --gd-ink: var(--tw-ink, #0b2a33);
+  --gd-ink-3: var(--tw-ink-3, #5c757b);
+  --gd-line: var(--tw-line, #d3dee0);
+  --gd-surface: #ffffff;
+  --gd-canvas: color-mix(in srgb, var(--tw-paper, #edf1f1) 88%, var(--tw-ink, #0b2a33) 5%);
+  --gd-accent: var(--tw-accent, #f2b705);
+  --gd-on-accent: var(--tw-on-accent, #1d1500);
+  --gd-on-petrol: #e8f1f2;
+  display: flex;
+  flex-direction: column;
+  margin: -16px -16px -112px;
+  border-top: 1px solid var(--gd-line);
+  background: var(--gd-surface);
+  color: var(--gd-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+@media (min-width: 640px) {
+  .page {
+    margin-inline: -24px;
+  }
+}
+@media (min-width: 1024px) {
+  /* Página, no tarjeta: alto de la ventana bajo la barra fija de 48px; cada
+     columna hace su propio scroll y llega hasta abajo. */
+  .page {
+    position: sticky;
+    top: 48px;
+    height: calc(100dvh - 48px);
+    min-height: 560px;
+    margin: -24px -40px -56px;
+    border-top: 0;
+    overflow: hidden;
+  }
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 24px;
+  background: var(--gd-ink);
+  color: var(--gd-on-petrol);
+}
+.crumb {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.scopeGroup {
+  display: flex;
+  background: rgb(255 255 255 / 0.08);
+  border-radius: 6px;
+  padding: 4px;
+  gap: 4px;
+  margin-inline: auto;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.scopeBtn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  opacity: 0.82;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scopeBtn[aria-pressed="true"] {
+  background: var(--gd-accent);
+  color: var(--gd-on-accent);
+  opacity: 1;
+  font-weight: 600;
+}
+.scopeBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.scopeBtn small {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.85;
+}
+.state {
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.banners {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 24px 0;
+}
+.banners:empty {
+  display: none;
+}
+
+.work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1024px) {
+  .work {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: 200px minmax(0, 1fr) 360px;
+  }
+  .work > * {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+@media (min-width: 1280px) {
+  .work {
+    grid-template-columns: 224px minmax(0, 1fr) 400px;
+  }
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 12px;
+  background: var(--gd-surface);
+}
+@media (min-width: 1024px) {
+  .nav {
+    border-right: 1px solid var(--gd-line);
+  }
+}
+
+.toc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+@media (max-width: 1023px) {
+  .toc {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+}
+.tocLink {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--gd-ink-3);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.tocLink:hover {
+  background: color-mix(in srgb, var(--gd-ink) 6%, transparent);
+  color: var(--gd-ink);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gd-line);
+}
+.dot[data-s="ok"] {
+  background: #11806a;
+}
+.dot[data-s="inherit"] {
+  background: #3f6b8a;
+}
+.dot[data-s="err"] {
+  background: #b3361f;
+}
+
+/* Columna central: lienzo con tarjetas blancas encima. */
+.editCol {
+  min-width: 0;
+  background: var(--gd-canvas);
+}
+.edit {
+  min-width: 0;
+  padding: 24px 16px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 48rem;
+  margin-inline: auto;
+  width: 100%;
+}
+@media (min-width: 1024px) {
+  .edit {
+    padding: 24px 24px 96px;
+  }
+}
+
+.live {
+  background: var(--gd-surface);
+}
+@media (min-width: 1024px) {
+  .live {
+    border-left: 1px solid var(--gd-line);
+  }
+}
+
+.sec {
+  scroll-margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

@@ -1,0 +1,138 @@
+/* Bloque "¿Puedo fiarme de estas cifras?" de /shopify. Se pinta dentro del
+   .root de client-pulse, así que hereda sus variables (--surface, --line...). */
+
+.trust {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+.title {
+  margin: 0 0 8px 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.checks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--line);
+}
+.check {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 16px 18px;
+  background: var(--surface);
+}
+.checkH {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.check p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.check a {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.meter {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--sunken);
+}
+.meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+}
+.ok {
+  background: var(--good);
+}
+.warn {
+  background: var(--warn);
+}
+.costs {
+  display: grid;
+  gap: 12px;
+}
+.costs h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.costRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 8px;
+}
+.costActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.feedback {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.nav {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+.nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav a:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+@media (max-width: 1100px) {
+  .trust {
+    grid-template-columns: 1fr;
+  }
+  .checks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .checks {
+    grid-template-columns: 1fr;
+  }
+}

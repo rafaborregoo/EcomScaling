@@ -12,6 +12,7 @@ import {
   mapStripeSubscriptionToPatch,
   parseStripeSubscription,
   parseStripeWebhook,
+  stripeInvoiceUsesPrice,
   type StripeSubscription,
 } from "./stripe.js";
 import {
@@ -25,6 +26,13 @@ function createServiceClient(env: LoadedApiEnv) {
     auth: { persistSession: false, autoRefreshToken: false },
     realtime: { transport: WebSocket as never },
   });
+}
+
+function stripeObjectId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === "string" ? id : null;
 }
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
@@ -300,17 +308,36 @@ export async function handleStripeWebhookRequest(
       ? { ok: true, result: { subscription_id: result.subscriptionId } }
       : result;
   } else if (envelope.type === "invoice.paid") {
-    const invoiceResult = await createInvoiceForStripePayment(
-      env,
-      envelope.object,
-      envelope.id,
-    );
-    applied = invoiceResult.ok
-      ? {
-          ok: true,
-          result: invoiceResult as unknown as Record<string, unknown>,
-        }
-      : { ...invoiceResult, retryable: invoiceResult.statusCode === 503 };
+    if (
+      stripeInvoiceUsesPrice(
+        envelope.object,
+        env.STRIPE_MANAGED_PAYMENTS_PRICE_ID,
+      )
+    ) {
+      // Stripe actua como merchant of record y emite el documento fiscal de
+      // Managed Payments. No duplicar ese documento desde VERI*FACTU.
+      applied = {
+        ok: true,
+        result: {
+          invoice_id:
+            typeof envelope.object.id === "string" ? envelope.object.id : null,
+          managed_payments: true,
+          verifactu_invoice_skipped: true,
+        },
+      };
+    } else {
+      const invoiceResult = await createInvoiceForStripePayment(
+        env,
+        envelope.object,
+        envelope.id,
+      );
+      applied = invoiceResult.ok
+        ? {
+            ok: true,
+            result: invoiceResult as unknown as Record<string, unknown>,
+          }
+        : { ...invoiceResult, retryable: invoiceResult.statusCode === 503 };
+    }
   } else if (envelope.type === "invoice.payment_failed") {
     // No se emite factura ni se corta el acceso en el primer fallo. Stripe
     // puede seguir reintentando y `customer.subscription.updated` decide el
@@ -327,15 +354,75 @@ export async function handleStripeWebhookRequest(
             : null,
       },
     };
+  } else if (
+    envelope.type === "checkout.session.completed" ||
+    envelope.type === "checkout.session.async_payment_succeeded"
+  ) {
+    const status =
+      typeof envelope.object.payment_status === "string"
+        ? envelope.object.payment_status
+        : "unknown";
+    applied = {
+      ok: true,
+      result: {
+        checkout_session_id:
+          typeof envelope.object.id === "string" ? envelope.object.id : null,
+        mode:
+          typeof envelope.object.mode === "string"
+            ? envelope.object.mode
+            : null,
+        payment_status: status,
+        subscription_id: stripeObjectId(envelope.object.subscription),
+        managed_payments:
+          (
+            envelope.object.managed_payments as
+              { enabled?: unknown } | undefined
+          )?.enabled === true,
+      },
+    };
   } else {
-    const refundResult = await createRectifyingInvoiceForStripeRefund(
-      env,
-      envelope.object,
-      envelope.id,
-    );
-    applied = refundResult.ok
-      ? { ok: true, result: refundResult as unknown as Record<string, unknown> }
-      : { ...refundResult, retryable: refundResult.statusCode === 503 };
+    const invoiceId = stripeObjectId(envelope.object.invoice);
+    const { data: invoiceEvent } = invoiceId
+      ? await supabase
+          .schema("private")
+          .from("webhook_events")
+          .select("payload")
+          .eq("provider", "stripe")
+          .eq("topic", "invoice.paid")
+          .contains("payload", { id: invoiceId })
+          .maybeSingle()
+      : { data: null };
+    if (
+      invoiceEvent?.payload &&
+      stripeInvoiceUsesPrice(
+        invoiceEvent.payload as Record<string, unknown>,
+        env.STRIPE_MANAGED_PAYMENTS_PRICE_ID,
+      )
+    ) {
+      // Stripe emite el reembolso de Managed Payments; no hay una factura
+      // VERI*FACTU de E-NORA que rectificar para este cobro.
+      applied = {
+        ok: true,
+        result: {
+          refund_id: stripeObjectId(envelope.object.id),
+          invoice_id: invoiceId,
+          managed_payments: true,
+          verifactu_rectification_skipped: true,
+        },
+      };
+    } else {
+      const refundResult = await createRectifyingInvoiceForStripeRefund(
+        env,
+        envelope.object,
+        envelope.id,
+      );
+      applied = refundResult.ok
+        ? {
+            ok: true,
+            result: refundResult as unknown as Record<string, unknown>,
+          }
+        : { ...refundResult, retryable: refundResult.statusCode === 503 };
+    }
   }
 
   await supabase

@@ -25,6 +25,7 @@ import {
   listConsultantProposedTasks,
 } from "./consultant.js";
 import { listClientMessageThreads } from "./consultant-messages.js";
+import { singleCurrency } from "./cross-channel-attribution.js";
 import {
   UPCOMING_DAYS,
   buildWorkbench,
@@ -518,7 +519,7 @@ async function loadClientDesk(input: {
       windowStartIso,
     });
 
-  const [currentRollup, previousRollup, stock, stores, phases, recent] =
+  const [currentRollup, previousRollup, stock, stores, phases, recent, shopifyCurrencies, metaCurrencies] =
     await Promise.all([
       block<Record<string, unknown> | null>(
         null,
@@ -612,6 +613,22 @@ async function loadClientDesk(input: {
             .limit(ROW_LIMIT),
         (rows) => ({ newAlerts: rows.length, closedTasks: 0 }),
       ),
+      block<Array<string | null>>(
+        [],
+        () => supabase
+          .from("shopify_stores")
+          .select("currency_code")
+          .eq("organization_id", organizationId),
+        (rows) => rows.map((row) => nullableStr(row.currency_code)),
+      ),
+      block<Array<string | null>>(
+        [],
+        () => supabase
+          .from("meta_ad_accounts")
+          .select("currency_code")
+          .eq("organization_id", organizationId),
+        (rows) => rows.map((row) => nullableStr(row.currency_code)),
+      ),
     ]);
 
   const closedTasks = await block<number>(
@@ -669,6 +686,17 @@ async function loadClientDesk(input: {
   if (meta.length === 0) {
     coverage.push("Meta Ads sin conectar: inversión y ROAS no son medibles.");
   }
+  const shopifyCurrency = singleCurrency(shopifyCurrencies.rows);
+  const metaCurrency = singleCurrency(metaCurrencies.rows);
+  if (shopify.length > 0 && !shopifyCurrency) {
+    coverage.push("Las tiendas Shopify usan monedas distintas o sin identificar; no se agregan ventas sin conversiÃ³n.");
+  }
+  if (meta.length > 0 && !metaCurrency) {
+    coverage.push("Las cuentas de Meta usan monedas distintas o sin identificar; no se agregan importes ni ROAS.");
+  }
+  if (shopifyCurrencies.state === "error" || metaCurrencies.state === "error") {
+    coverage.push("No se pudo verificar la moneda de una fuente; se ocultan sus importes agregados.");
+  }
   if (currentRollup.state === "error" || previousRollup.state === "error") {
     coverage.push("El resumen de negocio no se pudo calcular; reinténtalo.");
   }
@@ -681,16 +709,18 @@ async function loadClientDesk(input: {
           has_financial_settings: hasFinancialSettings,
           shopify_connected: shopify.length > 0,
           meta_connected: meta.length > 0,
-          net_sales: num(current.net_sales),
+          shopify_currency_code: shopifyCurrency,
+          meta_currency_code: metaCurrency,
+          net_sales: shopifyCurrency ? num(current.net_sales) : null,
           orders: num(current.orders_count),
-          meta_spend: num(current.meta_spend),
-          meta_purchase_value: num(current.meta_purchase_value),
-          roas: current.roas == null ? null : num(current.roas),
-          prev_net_sales: previous ? num(previous.net_sales) : null,
+          meta_spend: metaCurrency ? num(current.meta_spend) : null,
+          meta_purchase_value: metaCurrency ? num(current.meta_purchase_value) : null,
+          roas: !metaCurrency || current.roas == null ? null : num(current.roas),
+          prev_net_sales: previous && shopifyCurrency ? num(previous.net_sales) : null,
           prev_orders: previous ? num(previous.orders_count) : null,
-          prev_meta_spend: previous ? num(previous.meta_spend) : null,
+          prev_meta_spend: previous && metaCurrency ? num(previous.meta_spend) : null,
           prev_roas:
-            previous && previous.roas != null ? num(previous.roas) : null,
+            previous && previous.roas != null && metaCurrency ? num(previous.roas) : null,
           out_of_stock_items: stock.rows
             ? num(stock.rows.out_of_stock_items)
             : null,
@@ -752,7 +782,7 @@ async function loadClientDesk(input: {
       new_alerts: recent.rows.newAlerts,
       closed_tasks: closedTasks.rows,
       net_sales_delta:
-        current && previous
+        current && previous && shopifyCurrency
           ? num(current.net_sales) - num(previous.net_sales)
           : null,
       orders_delta:
@@ -760,7 +790,7 @@ async function loadClientDesk(input: {
           ? num(current.orders_count) - num(previous.orders_count)
           : null,
       meta_spend_delta:
-        current && previous
+        current && previous && metaCurrency
           ? num(current.meta_spend) - num(previous.meta_spend)
           : null,
     },

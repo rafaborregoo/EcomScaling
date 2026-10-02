@@ -177,6 +177,7 @@ before(async () => {
     .from("shopify_variants")
     .insert({
       organization_id: orgId,
+      store_id: storeId,
       product_id: product.id,
       external_variant_id: `db03-golden-variant-${RUN_TAG}`,
       current_price: 250,
@@ -190,6 +191,7 @@ before(async () => {
     .from("shopify_inventory_items")
     .insert({
       organization_id: orgId,
+      store_id: storeId,
       variant_id: variant.id,
       external_inventory_item_id: `db03-golden-inv-${RUN_TAG}`,
       sku: `DB03-SKU-${RUN_TAG}`,

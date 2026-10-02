@@ -94,12 +94,15 @@ export function storePulse(input: PulseInput): Pulse {
 
 /**
  * Si no hay configuración financiera, el beneficio que se enseñe es mentira a
- * medias: no incluye costes de producto ni gastos fijos. Mejor no enseñarlo
- * que enseñar un número que el cliente creerá.
+ * medias: exige configuración, costes de producto y cobertura neta de líneas.
+ * Mejor no enseñarlo que enseñar un número parcial que el cliente creerá.
  */
 export function canShowProfit(input: {
   hasFinancialSettings: boolean;
   itemsWithoutCost: number;
+  linesWithoutNetMetrics: number | null | undefined;
 }): boolean {
-  return input.hasFinancialSettings && input.itemsWithoutCost === 0;
+  return input.hasFinancialSettings &&
+    input.itemsWithoutCost === 0 &&
+    input.linesWithoutNetMetrics === 0;
 }

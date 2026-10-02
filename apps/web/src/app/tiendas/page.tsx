@@ -37,10 +37,11 @@ type OwnStore = {
   organization_id: string;
   display_name: string;
   status: string;
-  currency_code: string;
-  net_sales: number;
+  currency_code: string | null;
+  meta_currency_code: string | null;
+  net_sales: number | null;
   orders: number;
-  meta_spend: number;
+  meta_spend: number | null;
   roas: number | null;
 };
 

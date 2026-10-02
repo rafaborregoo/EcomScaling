@@ -157,7 +157,7 @@ function ToolCatalogPanel() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="admin-module-body">
       <div className="grid gap-4 sm:grid-cols-3">
         <Metric card label="Tools en el catálogo" value={String(data.totals.total)} />
         <Metric

@@ -40,6 +40,7 @@ import {
   PanelLeft,
   Phone,
   Plug,
+  Search,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -232,6 +233,10 @@ export function ClockIcon(props: ComponentPropsWithoutRef<"svg">) {
 // Marca de "esto lo dice la IA". Un solo icono para todas las cards y para la
 // zona del nav: si cada metrica eligiera el suyo, habria que aprender cual es
 // cual.
+export function SearchIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return <Search {...props} />;
+}
+
 export function SparklesIcon(props: ComponentPropsWithoutRef<"svg">) {
   return <Sparkles {...props} />;
 }

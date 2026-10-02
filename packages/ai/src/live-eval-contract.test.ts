@@ -9,13 +9,11 @@ import {
 } from "./live-eval-contract.js";
 import { ACTIVE_AGENT_CODES } from "./agent-evals.js";
 
-// AI-30: este test afirmaba `cases.length === 11`. Hoy hay 13 agentes activos,
-// asi que llevaba roto desde que se anadio el numero 12 -- y nadie se entero
-// porque `live-eval-contract.test.ts` no estaba en el script `test` del
-// paquete: existia y no se ejecutaba nunca.
+// El registro de la suite live/shadow debe permanecer alineado con el catalogo
+// activo; el proveedor de eval es inyectable y puede ser un fixture sin API key.
 //
 // No se sube 11 a 13. Un numero a mano vuelve a caducar con el agente 14, y lo
-// que el test dice querer comprobar no es "hay 11 casos" sino "hay un caso por
+// que el test dice querer comprobar no es un numero fijo sino "hay un caso por
 // agente activo, y ninguno se queda fuera". Eso se compara contra la fuente de
 // verdad, que es la misma lista que usa la implementacion.
 test("genera un caso base para cada agente activo, sin dejarse ninguno", () => {
@@ -86,7 +84,7 @@ test("marca una salida que no cumple la abstencion esperada", async () => {
 test("convierte resultados shadow en evidencia AI-26 con coste, latencia y trazas", () => {
   const payload = buildLiveAgentEvalEvidencePayload({
     agentVersionId: "version-1",
-    datasetVersion: "2026-08-26.v1",
+    datasetVersion: "2026-09-29.v2",
     mode: "shadow",
     results: [
       {

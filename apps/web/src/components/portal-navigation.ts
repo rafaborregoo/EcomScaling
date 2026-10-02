@@ -44,40 +44,21 @@ const dashboardItems: PortalNavItem[] = [
   { href: "/dashboard?tab=klaviyo", label: "Klaviyo" },
 ];
 
+// Marketing: el trabajo diario arriba (Hoy, Campañas, Flows, Plantillas,
+// Audiencias, Rendimiento) y las herramientas de creación en su grupo.
 const marketingItems: PortalNavItem[] = [
-  {
-    href: "/marketing?section=plan",
-    label: "Plan",
-    defaultForPath: true,
-  },
-  { href: "/marketing?section=contenido", label: "Contenido" },
-  { href: "/marketing?section=crear", label: "Crear" },
-  { href: "/marketing/imagenes", label: "Banco de imágenes" },
-  { href: "/marketing/guia", label: "Guía de marca" },
+  { href: "/marketing?section=plan", label: "Hoy", defaultForPath: true },
+  { href: "/marketing?section=campanas", label: "Campañas" },
+  { href: "/marketing?section=flows", label: "Flows" },
+  { href: "/marketing?section=plantillas", label: "Plantillas" },
+  { href: "/marketing?section=audiencias", label: "Audiencias" },
   { href: "/marketing?section=rendimiento", label: "Rendimiento" },
+  { href: "/marketing?section=crear", label: "Crear contenido", group: "Crear" },
+  { href: "/marketing?section=contenido", label: "Revisión de piezas", group: "Crear" },
+  { href: "/marketing/plantillas", label: "Biblioteca de plantillas", group: "Crear" },
+  { href: "/marketing/imagenes", label: "Banco de imágenes", group: "Crear" },
+  { href: "/marketing/guia", label: "Guía de marca", group: "Crear" },
 ];
-
-marketingItems.push(
-  {
-    href: "/marketing/plantillas",
-    label: "Biblioteca de plantillas",
-  },
-);
-
-const marketingNavigationOrder = [
-  "/marketing?section=plan",
-  "/marketing?section=rendimiento",
-  "/marketing?section=contenido",
-  "/marketing?section=crear",
-  "/marketing/plantillas",
-  "/marketing/imagenes",
-  "/marketing/guia",
-];
-marketingItems.sort(
-  (left, right) =>
-    marketingNavigationOrder.indexOf(left.href) -
-    marketingNavigationOrder.indexOf(right.href),
-);
 
 const knowledgeItems: PortalNavItem[] = [
   {
@@ -218,8 +199,12 @@ function sharedModules(
       matchPrefixes: ["/shopify", "/meta", "/klaviyo"],
       items: [
         { href: "/shopify", label: "Shopify" },
+        { href: "/shopify/productos", label: "Productos", matchPrefixes: ["/shopify/productos/"] },
+        { href: "/shopify/promociones", label: "Promociones", matchPrefixes: ["/shopify/promociones/"] },
         { href: "/meta", label: "Meta Ads" },
+        { href: "/meta/campanas", label: "Campañas", matchPrefixes: ["/meta/campanas/"] },
         { href: "/klaviyo", label: "Klaviyo" },
+        { href: "/klaviyo/emails", label: "Emails", matchPrefixes: ["/klaviyo/emails/"] },
       ],
     },
     ...(consultant

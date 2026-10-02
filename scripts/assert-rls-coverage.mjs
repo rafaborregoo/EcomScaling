@@ -39,6 +39,8 @@ const serviceOnlyTables = new Set([
   "platform_ai_security_events",
   "meta_measurement_verdict_cache",
   "marketing_mailing_sequences",
+  "organization_ai_agent_runtime_config",
+  "platform_health_feedback",
 ]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));

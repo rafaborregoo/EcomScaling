@@ -9,12 +9,12 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { sanitizeGeneratedEmailHtml } from "@e-nora/ai";
 import {
-  requireOperationalOrganization,
   requireOwnOrganizationAccess,
   isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
+import { resolveKlaviyoStoreLink } from "./klaviyo-store-link.js";
 import {
   describeKlaviyoMissingPermissions,
   isKlaviyoPermissionError,
@@ -50,6 +50,37 @@ type Result<T> =
       detail?: string;
     };
 
+const ADMIN_ONBOARDING_RETURN_TO = "/admin/onboarding";
+
+function hasAdminOnboardingReturn(metadata: unknown) {
+  return typeof metadata === "object" && metadata !== null &&
+    (metadata as Record<string, unknown>).onboarding_return_to === ADMIN_ONBOARDING_RETURN_TO;
+}
+
+function klaviyoOnboardingRedirect(env: LoadedApiEnv, result: string) {
+  const url = new URL(ADMIN_ONBOARDING_RETURN_TO, env.WEB_ORIGIN);
+  url.searchParams.set("klaviyo", result);
+  return url.toString();
+}
+
+async function redirectKlaviyoOnboardingError(
+  supabase: ReturnType<typeof serviceClient>,
+  env: LoadedApiEnv,
+  connection: { id: string; metadata: unknown },
+  message: string,
+): Promise<Result<{ redirectUrl: string }> | null> {
+  if (!hasAdminOnboardingReturn(connection.metadata)) return null;
+  await supabase
+    .from("integration_connections")
+    .update({
+      status: "error",
+      last_error_at: new Date().toISOString(),
+      last_error_message: message.slice(0, 500),
+    })
+    .eq("id", connection.id);
+  return { ok: true, data: { redirectUrl: klaviyoOnboardingRedirect(env, "error") } };
+}
+
 function serviceClient(env: LoadedApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -84,8 +115,8 @@ async function markKlaviyoSyncFailure(
   });
 }
 
-function canManage(context: AuthContext, organizationId: string) {
-  const operational = requireOperationalOrganization(context, organizationId);
+export function canManage(context: AuthContext, organizationId: string) {
+  const operational = requireOwnOrganizationAccess(context, organizationId);
   if (isOperationalOrganizationError(operational)) return operational.error;
   const { membership } = operational;
   if (
@@ -101,6 +132,7 @@ export async function createKlaviyoConnectionAuthUrl(
   env: LoadedApiEnv,
   context: AuthContext,
   organizationId: string,
+  onboardingReturnTo?: string,
 ): Promise<Result<{ redirectUrl: string }>> {
   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS)) {
     return {
@@ -139,7 +171,14 @@ export async function createKlaviyoConnectionAuthUrl(
       status: "pending",
       scopes: parseKlaviyoScopes(oauthEnv.KLAVIYO_SCOPES),
       api_version: "2026-07-15",
-      metadata: { state, code_verifier: verifier, source: "oauth_start" },
+      metadata: {
+        state,
+        code_verifier: verifier,
+        source: "oauth_start",
+        ...(onboardingReturnTo === ADMIN_ONBOARDING_RETURN_TO
+          ? { onboarding_return_to: onboardingReturnTo }
+          : {}),
+      },
     },
     { onConflict: "organization_id,provider,provider_account_id" },
   );
@@ -223,6 +262,19 @@ export async function connectKlaviyoWithApiKey(
       detail: missingRequired.map((item) => item.key).join(","),
     };
   }
+  // No aceptar una conexión si Klaviyo no permitió confirmar que puede leer
+  // eventos. Un fallo temporal del sondeo debe poder reintentarse ahora, no
+  // reaparecer más tarde como una sincronización rota.
+  if (!probe.granted.includes("events:read")) {
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "klaviyo_permission_check_inconclusive",
+      message:
+        "No pudimos confirmar el permiso Events (Read) de Klaviyo. Reintenta la conexión en unos minutos.",
+      detail: "events:read",
+    };
+  }
 
   const attributes = account.attributes ?? {};
   const accountName =
@@ -270,6 +322,11 @@ export async function connectKlaviyoWithApiKey(
     };
   }
 
+  const storeLink = await resolveKlaviyoStoreLink(supabase, {
+    organizationId,
+    connectionId: connection.id,
+    externalAccountId: account.id,
+  });
   const { error: accountError } = await supabase
     .from("klaviyo_accounts")
     .upsert(
@@ -277,6 +334,7 @@ export async function connectKlaviyoWithApiKey(
         organization_id: organizationId,
         connection_id: connection.id,
         external_account_id: account.id,
+        ...(storeLink.storeScopeAvailable ? { store_id: storeLink.storeId } : {}),
         name: accountName,
         timezone:
           typeof attributes.timezone === "string" ? attributes.timezone : null,
@@ -443,7 +501,7 @@ export async function handleKlaviyoOAuthCallback(
       const supabase = serviceClient(env);
       const { data: pending } = await supabase
         .from("integration_connections")
-        .select("id")
+        .select("id, metadata")
         .eq("provider", "klaviyo")
         .eq("provider_account_id", `pending:${state}`)
         .eq("status", "pending")
@@ -457,6 +515,12 @@ export async function handleKlaviyoOAuthCallback(
             last_error_message: `klaviyo_oauth_denied:${query.error}`,
           })
           .eq("id", pending.id);
+        if (hasAdminOnboardingReturn(pending.metadata)) {
+          return {
+            ok: true,
+            data: { redirectUrl: klaviyoOnboardingRedirect(env, "denied") },
+          };
+        }
       }
     }
     return {
@@ -486,7 +550,12 @@ export async function handleKlaviyoOAuthCallback(
     return { ok: false, statusCode: 400, error: "invalid_klaviyo_oauth_state" };
   const verifier = metadataString(pending.metadata, "code_verifier");
   if (!verifier)
-    return {
+    return (await redirectKlaviyoOnboardingError(
+      supabase,
+      env,
+      pending,
+      "missing_klaviyo_pkce_verifier",
+    )) ?? {
       ok: false,
       statusCode: 400,
       error: "missing_klaviyo_pkce_verifier",
@@ -508,6 +577,13 @@ export async function handleKlaviyoOAuthCallback(
           last_error_message: `klaviyo_permissions_missing:${missingScopes.join(",")}`,
         })
         .eq("id", pending.id);
+      const onboardingRedirect = await redirectKlaviyoOnboardingError(
+        supabase,
+        env,
+        pending,
+        `klaviyo_permissions_missing:${missingScopes.join(",")}`,
+      );
+      if (onboardingRedirect) return onboardingRedirect;
       return {
         ok: false,
         statusCode: 403,
@@ -544,6 +620,11 @@ export async function handleKlaviyoOAuthCallback(
     const targetId = existing?.id ?? pending.id;
 
     await saveKlaviyoTokens(env, targetId, tokens);
+    const storeLink = await resolveKlaviyoStoreLink(supabase, {
+      organizationId: pending.organization_id,
+      connectionId: targetId,
+      externalAccountId: account.id,
+    });
     const { error: accountError } = await supabase
       .from("klaviyo_accounts")
       .upsert(
@@ -551,6 +632,7 @@ export async function handleKlaviyoOAuthCallback(
           organization_id: pending.organization_id,
           connection_id: targetId,
           external_account_id: account.id,
+          ...(storeLink.storeScopeAvailable ? { store_id: storeLink.storeId } : {}),
           name:
             typeof accountAttributes.name === "string"
               ? accountAttributes.name
@@ -622,7 +704,9 @@ export async function handleKlaviyoOAuthCallback(
     return {
       ok: true,
       data: {
-        redirectUrl: `${env.WEB_ORIGIN}/integraciones?klaviyo=connected`,
+        redirectUrl: hasAdminOnboardingReturn(pending.metadata)
+          ? klaviyoOnboardingRedirect(env, "connected")
+          : `${env.WEB_ORIGIN}/integraciones?klaviyo=connected`,
       },
     };
   } catch (error) {
@@ -635,6 +719,13 @@ export async function handleKlaviyoOAuthCallback(
         last_error_message: detail.slice(0, 500),
       })
       .eq("id", pending.id);
+    const onboardingRedirect = await redirectKlaviyoOnboardingError(
+      supabase,
+      env,
+      pending,
+      detail,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 502,
@@ -651,12 +742,16 @@ type KlaviyoMetricOption = {
   metric_type: string | null;
   is_conversion_candidate: boolean;
   selected: boolean;
+  /** De qué integración llega el evento («Shopify», «Klaviyo», «API»…). */
+  integration: string | null;
 };
 
 export async function listKlaviyoConversionMetrics(
   env: LoadedApiEnv,
   context: AuthContext,
   organizationId: string,
+  /** Con varias cuentas Klaviyo en la organización; sin él, la más reciente. */
+  connectionId?: string,
 ): Promise<
   Result<{
     account_id: string;
@@ -674,10 +769,14 @@ export async function listKlaviyoConversionMetrics(
     };
   }
   const supabase = serviceClient(env);
-  const { data: account, error: accountError } = await supabase
+  let accountQuery = supabase
     .from("klaviyo_accounts")
     .select("id, conversion_metric_id")
-    .eq("organization_id", organizationId)
+    .eq("organization_id", organizationId);
+  if (connectionId) accountQuery = accountQuery.eq("connection_id", connectionId);
+  const { data: account, error: accountError } = await accountQuery
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (accountError)
     return {
@@ -694,7 +793,7 @@ export async function listKlaviyoConversionMetrics(
   const { data: metrics, error: metricsError } = await supabase
     .from("klaviyo_metrics")
     .select(
-      "id, external_metric_id, name, metric_type, is_conversion_candidate",
+      "id, external_metric_id, name, metric_type, is_conversion_candidate, raw_data",
     )
     .eq("organization_id", organizationId)
     .eq("account_id", account.id)
@@ -711,10 +810,15 @@ export async function listKlaviyoConversionMetrics(
     data: {
       account_id: account.id,
       conversion_metric_id: account.conversion_metric_id,
-      metrics: (metrics ?? []).map((metric) => ({
-        ...metric,
-        selected: metric.external_metric_id === account.conversion_metric_id,
-      })),
+      metrics: (metrics ?? []).map(({ raw_data, ...metric }) => {
+        const integration = (raw_data as { integration?: { name?: unknown } } | null)
+          ?.integration?.name;
+        return {
+          ...metric,
+          selected: metric.external_metric_id === account.conversion_metric_id,
+          integration: typeof integration === "string" ? integration : null,
+        };
+      }),
     },
   };
 }
@@ -1191,7 +1295,7 @@ export async function selectKlaviyoConversionMetric(
   };
 }
 
-async function activeKlaviyoConnectionId(
+export async function activeKlaviyoConnectionId(
   supabase: ReturnType<typeof serviceClient>,
   organizationId: string,
 ): Promise<string | null> {

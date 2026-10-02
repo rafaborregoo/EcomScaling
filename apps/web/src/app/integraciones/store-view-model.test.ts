@@ -380,6 +380,14 @@ test("un codigo desconocido no se le ensena a nadie en crudo", () => {
   assert.equal(explained.technical, "klaviyo_weird_new_code");
 });
 
+test("el antiguo fallo al guardar imagen de variante explica que hay que actualizar el worker", () => {
+  const raw =
+    'catalog: shopify_variant_media_upsert_failed: null value in column "organization_id" of relation "shopify_variants" violates not-null constraint';
+  const explained = explainError(raw)!;
+  assert.match(explained.text, /actualizar el worker de Shopify y repetir la sincronización/);
+  assert.equal(explained.technical, raw);
+});
+
 test("sin reason conocido se cae al estado, nunca a un hueco en blanco", () => {
   const explained = explainHealth({ status: "algo_nuevo" });
   assert.equal(typeof explained.detail, "string");

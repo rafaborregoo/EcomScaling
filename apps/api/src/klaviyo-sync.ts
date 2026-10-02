@@ -8,6 +8,7 @@ import {
   type KlaviyoResource,
 } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
+import { resolveKlaviyoStoreLink } from "./klaviyo-store-link.js";
 import { klaviyoReportGroupings } from "./klaviyo-report-groupings.js";
 import {
   isKlaviyoPermissionError,
@@ -20,6 +21,7 @@ import {
   assertConnectionIngestible,
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
+import { syncKlaviyoMarketingBlocks } from "./klaviyo-sync-marketing.js";
 import { readKlaviyoFlowDefinitionSummary, summarizeKlaviyoFlowDefinition } from "./klaviyo-flow-definition-summary.js";
 import {
   classifyKlaviyoMetricName,
@@ -37,6 +39,7 @@ export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 6;
 
 // Ventana de clicks que se re-pide en cada pasada. Lo anterior ya esta
 // guardado: cada click es un evento y traerlo todo crece sin limite.
+// Es ventana de DESCARGA, no de atribucion: la de Klaviyo no llega por API.
 const KLAVIYO_CLICK_WINDOW_DAYS = 30;
 // Tope duro de paginas. Una tienda con mucho volumen no debe poder alargar
 // el sync indefinidamente: se trae lo mas reciente y el resto entra en la
@@ -300,14 +303,23 @@ export async function runKlaviyoSync(
     const account = await api.getAccount();
     const accountAttributes = attrs(account);
     const now = new Date().toISOString();
+    const storeLink = await resolveKlaviyoStoreLink(client, {
+      organizationId: connection.organization_id,
+      connectionId,
+      externalAccountId: account.id,
+    });
     const accountRow = {
       organization_id: connection.organization_id,
       connection_id: connectionId,
       external_account_id: account.id,
+      ...(storeLink.storeScopeAvailable ? { store_id: storeLink.storeId } : {}),
       name: text(accountAttributes.name),
       timezone: text(accountAttributes.timezone),
+      // La Accounts API lo llama `preferred_currency` (no `currency_code`):
+      // leyendo el nombre equivocado la moneda quedaba siempre null y ningun
+      // revenue Klaviyo podia compararse con Shopify (fase-10, G-XCA-005).
       currency_code:
-        text(accountAttributes.currency_code)?.toUpperCase() ?? null,
+        text(accountAttributes.preferred_currency)?.toUpperCase() ?? null,
       raw_data: accountAttributes,
       last_synced_at: now,
     };
@@ -1321,6 +1333,32 @@ export async function runKlaviyoSync(
       }
     }
 
+    // Bloques de Marketing (diagramas de flows, audiencias, series diarias,
+    // formularios, catálogo de plantillas). Cada uno se protege solo.
+    try {
+      const { data: accountMetric } = await client
+        .from("klaviyo_accounts")
+        .select("conversion_metric_id")
+        .eq("id", accountRowStored.id)
+        .maybeSingle();
+      await syncKlaviyoMarketingBlocks({
+        client,
+        api,
+        organizationId: connection.organization_id,
+        accountId: accountRowStored.id,
+        mode,
+        conversionMetricId: (accountMetric?.conversion_metric_id as string | null) ?? null,
+        metrics,
+        lists,
+        segments,
+        recordBlockRun,
+      });
+    } catch (error) {
+      console.warn(
+        `klaviyo_marketing_blocks_skipped:${error instanceof Error ? error.message : "unknown_error"}`,
+      );
+    }
+
     const recordsRead =
       resources.reduce((sum, rows) => sum + rows.length, 0) +
       1 +
@@ -1563,10 +1601,14 @@ export async function runKlaviyoReport(
           typeof groupings[`${entityType}_name`] === "string"
             ? groupings[`${entityType}_name`]
             : null,
+        // Flows agrupan por flow_message_id: sin él, dos emails del mismo
+        // flow chocan en la clave del upsert y el informe entero falla.
         external_message_id:
           typeof groupings.campaign_message_id === "string"
             ? groupings.campaign_message_id
-            : "",
+            : typeof groupings.flow_message_id === "string"
+              ? groupings.flow_message_id
+              : "",
         metric_id: account.conversion_metric_id,
         period_start: input.periodStart,
         period_end: input.periodEnd,

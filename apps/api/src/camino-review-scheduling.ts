@@ -34,3 +34,8 @@ export function isCaminoReviewClaimStale(updatedAt: string | null, nowMs = Date.
   const updatedAtMs = updatedAt ? Date.parse(updatedAt) : NaN;
   return Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > CAMINO_REVIEW_STALE_AFTER_MS;
 }
+
+/** A manual retry is available only after a failed run or an expired lease. */
+export function canRetryCaminoReview(status: string, updatedAt: string | null, nowMs = Date.now()): boolean {
+  return status === "failed" || (status === "running" && isCaminoReviewClaimStale(updatedAt, nowMs));
+}

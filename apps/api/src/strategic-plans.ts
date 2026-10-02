@@ -15,6 +15,8 @@ import {
 import { parseStrategicPlanMarkdown } from "./strategic-plan-markdown.js";
 import { isCaminoProposalActionAllowed } from "./camino-proposal-decision.js";
 import { adjustCaminoProposal } from "./camino-proposal-adjustment.js";
+import { loadCaminoRoutes } from "./camino-routes.js";
+import { caminoReviewWeekStart, canRetryCaminoReview } from "./camino-review-scheduling.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -143,6 +145,17 @@ export function assertCanManagePlan(context: AuthContext, organizationId: string
   return { ok: true as const };
 }
 
+/** Camino de cada tienda de la organización, para la vista "Todas las tiendas". */
+export async function getCaminoRoutes(env: ApiEnv, context: AuthContext, organizationId: string) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  const result = await loadCaminoRoutes(createServiceClient(env), [organizationId]);
+  if (result.ok === false) {
+    return { ok: false as const, statusCode: 503, error: "camino_routes_load_failed", detail: result.detail };
+  }
+  return { ok: true as const, data: { routes: result.routes } };
+}
+
 export async function getStrategicPlan(
   env: ApiEnv,
   authorization: string,
@@ -172,7 +185,7 @@ export async function getStrategicPlan(
   let planQuery = supabase
     .from("strategic_plans")
     .select(
-      "id, name, description, goal, horizon_months, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, categories, source, created_by))))",
+      "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, categories, source, created_by, assigned_to))))",
     )
     .eq("organization_id", organizationId);
   planQuery = storeId ? planQuery.eq("store_id", storeId) : planQuery.is("store_id", null);
@@ -199,9 +212,8 @@ export async function getStrategicPlan(
   if (plan?.status === "active") {
     const { data: reviews, error: reviewsError } = await supabase
       .from("strategic_plan_weekly_reviews")
-      .select("id, period_start, period_end, status, output_id, created_at, agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
+      .select("id, review_week_start, period_start, period_end, status, updated_at, output_id, created_at, agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
       .eq("plan_id", plan.id)
-      .eq("status", "succeeded")
       .order("created_at", { ascending: false })
       .limit(8);
     if (reviewsError) {
@@ -216,6 +228,9 @@ export async function getStrategicPlan(
         period_start: row.period_start,
         period_end: row.period_end,
         created_at: row.created_at,
+        status: row.status,
+        can_retry: row.review_week_start === caminoReviewWeekStart(new Date()) &&
+          canRetryCaminoReview(String(row.status), typeof row.updated_at === "string" ? row.updated_at : null),
         output: outputRow?.output ?? null,
         proposals: (proposals ?? []).map((proposal) => {
           const events = (proposal.strategic_plan_change_proposal_events as Array<Record<string, unknown>> | null) ?? [];
@@ -356,6 +371,9 @@ type PlanWithPhases = {
         tasks: {
           created_by: string | null;
           created_by_origin?: "consultant" | "client" | null;
+          assigned_to?: string | null;
+          assignee_name?: string | null;
+          assignee_origin?: "consultant" | "client" | null;
         } | null;
       }>;
     }>;
@@ -378,6 +396,9 @@ async function attachCreatorOrigin(
       if (milestone.created_by) creatorIds.add(milestone.created_by);
       for (const link of milestone.milestone_task_links) {
         if (link.tasks?.created_by) creatorIds.add(link.tasks.created_by);
+        // Quién lleva la tarea: «Para cerrar la fase» dice si le toca al
+        // cliente o a su consultor.
+        if (link.tasks?.assigned_to) creatorIds.add(link.tasks.assigned_to);
       }
     }
   }
@@ -388,8 +409,11 @@ async function attachCreatorOrigin(
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id, platform_role")
+    .select("id, platform_role, full_name")
     .in("id", Array.from(creatorIds));
+  const nameById = new Map<string, string | null>(
+    (profiles ?? []).map((profile) => [profile.id, profile.full_name ?? null]),
+  );
 
   const originById = new Map<string, "consultant" | "client">(
     (profiles ?? []).map((profile) => [
@@ -413,6 +437,13 @@ async function attachCreatorOrigin(
           link.tasks.created_by_origin = link.tasks.created_by
             ? (originById.get(link.tasks.created_by) ?? null)
             : null;
+          const assignee = link.tasks.assigned_to;
+          link.tasks.assignee_origin = assignee
+            ? (originById.get(assignee) ?? null)
+            : null;
+          link.tasks.assignee_name = assignee
+            ? (nameById.get(assignee) ?? null)
+            : null;
         }
       }
     }
@@ -426,6 +457,7 @@ type PlanInput = {
   description?: string | null;
   goal?: CaminoPlanOutput["goal"];
   horizonMonths?: number | null;
+  currencyCode?: string | null;
   phases?: Array<{
     name?: string;
     description?: string | null;
@@ -433,6 +465,9 @@ type PlanInput = {
       name?: string;
       description?: string | null;
       targetDate?: string | null;
+      // Metrica del hito elegida al crear el camino (builder a mano): se
+      // guarda como objetivo ligado al hito, igual que desde el panel.
+      objective?: { metricKey?: string; targetValue?: number } | null;
       tasks?: Array<{
         title?: string;
         description?: string | null;
@@ -442,6 +477,19 @@ type PlanInput = {
     }>;
   }>;
 };
+
+/** ISO 4217 en mayusculas o null; cualquier otra cosa se descarta. */
+export function normalizeCurrencyCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const code = value.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) return null;
+  try {
+    new Intl.NumberFormat("es-ES", { style: "currency", currency: code });
+    return code;
+  } catch {
+    return null;
+  }
+}
 
 export async function createStrategicPlan(
   env: ApiEnv,
@@ -466,6 +514,13 @@ export async function createStrategicPlan(
   );
 
   const supabase = createServiceClient(env);
+
+  const wantsObjectives = phases.some((phase) =>
+    (phase.milestones ?? []).some((milestone) => milestone.objective?.metricKey),
+  );
+  const objectiveCatalogKeys = wantsObjectives
+    ? new Set((await resolveObjectiveCatalog(env, organizationId)).map((entry) => entry.key))
+    : new Set<string>();
 
   let storeId: string | null = null;
   if (input.storeId || input.connectionId) {
@@ -515,6 +570,7 @@ export async function createStrategicPlan(
       description: input.description ?? null,
       goal: input.goal ?? null,
       horizon_months: input.horizonMonths ?? null,
+      currency_code: normalizeCurrencyCode(input.currencyCode),
       store_id: storeId,
       version: (latest?.version ?? 0) + 1,
       created_by: context.user.id,
@@ -603,6 +659,38 @@ export async function createStrategicPlan(
         };
       }
 
+      const objective = milestone.objective;
+      if (
+        objective?.metricKey &&
+        objectiveCatalogKeys.has(objective.metricKey) &&
+        typeof objective.targetValue === "number" &&
+        Number.isFinite(objective.targetValue) &&
+        objective.targetValue >= 0
+      ) {
+        const { error: objectiveError } = await supabase
+          .from("organization_metric_targets")
+          .insert({
+            organization_id: organizationId,
+            // La tienda la da el hito (su camino); igual que los creados desde el panel.
+            store_id: null,
+            milestone_id: milestoneRow.id,
+            metric_key: objective.metricKey,
+            target_value: objective.targetValue,
+            period: "monthly",
+            valid_from: new Date().toISOString().slice(0, 10),
+            created_by: context.user.id,
+          });
+        if (objectiveError) {
+          await rollback();
+          return {
+            ok: false as const,
+            statusCode: 500,
+            error: "plan_objective_create_failed",
+            detail: objectiveError.message,
+          };
+        }
+      }
+
       for (const task of (milestone.tasks ?? []).filter(
         (item) => item.title && item.title.trim().length > 0,
       )) {
@@ -682,6 +770,8 @@ export async function createStrategicPlanFromMarkdown(
   context: AuthContext,
   organizationId: string,
   markdown: string,
+  connectionId?: string | null,
+  currencyCode?: string | null,
 ) {
   const parsed = parseStrategicPlanMarkdown(markdown);
   if (!parsed.ok || !parsed.data) {
@@ -698,6 +788,10 @@ export async function createStrategicPlanFromMarkdown(
   const created = await createStrategicPlan(env, context, organizationId, {
     name: parsed.data.name,
     description: parsed.data.description ?? null,
+    // Sin esto el camino importado caía en el general de la organización
+    // aunque hubiera una tienda seleccionada.
+    connectionId: connectionId ?? null,
+    currencyCode: currencyCode ?? null,
     phases: parsed.data.phases.map((phase) => ({
       name: phase.name,
       description: phase.description ?? null,
@@ -814,6 +908,44 @@ export async function activateStrategicPlan(
     },
   );
   return { ok: true as const, data: { id: planId, status: "active" } };
+}
+
+/** Moneda en la que se muestran las cifras del camino. No convierte importes. */
+export async function updatePlanCurrency(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  planId: string,
+  value: unknown,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+  const currencyCode = normalizeCurrencyCode(value);
+  if (!currencyCode) {
+    return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase
+    .from("strategic_plans")
+    .update({ currency_code: currencyCode })
+    .eq("id", planId)
+    .eq("organization_id", organizationId)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "plan_currency_update_failed", detail: error.message };
+  }
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  }
+
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.set_currency", "strategic_plan", planId, {
+    currency_code: currencyCode,
+  });
+  return { ok: true as const, data: { id: planId, currency_code: currencyCode } };
 }
 
 const MILESTONE_ACTIONS = ["in_progress", "completed", "skipped"] as const;
@@ -1658,6 +1790,9 @@ export async function getObjectives(
   context: AuthContext,
   organizationId: string,
   storeId?: string | null,
+  // Tienda activa: el "actual" de los objetivos de hito se mide contra la
+  // tienda del camino, no contra el agregado del cliente.
+  connectionId?: string,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -1671,7 +1806,7 @@ export async function getObjectives(
   let targetsQuery = supabase
     .from("organization_metric_targets")
     .select(
-      "id, metric_key, target_value, period, valid_from, created_by, store_id",
+      "id, metric_key, target_value, period, valid_from, created_by, store_id, milestone_id",
     )
     .eq("organization_id", organizationId)
     .lte("valid_from", today)
@@ -1719,8 +1854,8 @@ export async function getObjectives(
   }
 
   const [shopifyResult, metaResult] = await Promise.all([
-    getShopifyMetrics(env, authorization, context, organizationId, "30"),
-    getMetaMetrics(env, authorization, context, organizationId, "30"),
+    getShopifyMetrics(env, authorization, context, organizationId, "30", connectionId),
+    getMetaMetrics(env, authorization, context, organizationId, "30", connectionId),
   ]);
 
   const actuals: Record<string, number | null> = {};
@@ -1766,6 +1901,7 @@ export async function getObjectives(
       return {
         id: target.id,
         store_id: target.store_id ?? null,
+        milestone_id: target.milestone_id ?? null,
         metric_key: target.metric_key,
         label: catalogEntry.label,
         unit: catalogEntry.unit,
@@ -1804,6 +1940,7 @@ type ObjectiveInput = {
   targetValue?: number;
   period?: string;
   storeId?: string | null;
+  milestoneId?: string | null;
 };
 
 export async function createObjective(
@@ -1842,6 +1979,19 @@ export async function createObjective(
     : "monthly";
 
   const supabase = createServiceClient(env);
+  const milestoneId =
+    typeof input.milestoneId === "string" && input.milestoneId ? input.milestoneId : null;
+  if (milestoneId) {
+    const { data: milestone } = await supabase
+      .from("strategic_plan_milestones")
+      .select("id")
+      .eq("id", milestoneId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (!milestone) {
+      return { ok: false as const, statusCode: 400, error: "invalid_milestone" };
+    }
+  }
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
     .toISOString()
@@ -1858,6 +2008,9 @@ export async function createObjective(
   closeQuery = input.storeId
     ? closeQuery.eq("store_id", input.storeId)
     : closeQuery.is("store_id", null);
+  closeQuery = milestoneId
+    ? closeQuery.eq("milestone_id", milestoneId)
+    : closeQuery.is("milestone_id", null);
   await closeQuery.is("valid_until", null);
 
   const { data, error } = await supabase
@@ -1865,6 +2018,7 @@ export async function createObjective(
     .insert({
       organization_id: organizationId,
       store_id: input.storeId ?? null,
+      milestone_id: milestoneId,
       metric_key: input.metricKey,
       target_value: input.targetValue,
       period,
@@ -1890,7 +2044,7 @@ export async function createObjective(
     "strategic_plan.set_objective",
     "organization_metric_target",
     data.id,
-    { metric_key: input.metricKey, target_value: input.targetValue, period },
+    { metric_key: input.metricKey, target_value: input.targetValue, period, milestone_id: milestoneId },
   );
 
   return { ok: true as const, data: { id: data.id } };
@@ -2594,7 +2748,7 @@ export async function createStrategicPlanFromProposal(
   context: AuthContext,
   organizationId: string,
   outputId: string,
-  adjustments: { horizonMonths?: unknown; goalTarget?: unknown } = {},
+  adjustments: { horizonMonths?: unknown; goalTarget?: unknown; currencyCode?: unknown } = {},
 ) {
   const authz = assertCanManagePlan(context, organizationId);
   if (authz.ok === false) {
@@ -2695,7 +2849,10 @@ export async function createStrategicPlanFromProposal(
     env,
     context,
     organizationId,
-    caminoProposalToPlanInput(reviewedProposal, Date.now(), run?.store_id ?? null, run?.lookback_days, run?.started_at),
+    {
+      ...caminoProposalToPlanInput(reviewedProposal, Date.now(), run?.store_id ?? null, run?.lookback_days, run?.started_at),
+      currencyCode: normalizeCurrencyCode(adjustments.currencyCode) ?? reviewedProposal.goal?.currency_code ?? null,
+    },
   );
 
   if (created.ok === false) {

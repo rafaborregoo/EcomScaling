@@ -11,13 +11,14 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const OFFER_PRICING_SOURCE_VERSION = "f5-p04.v1";
+const OFFER_PRICING_SOURCE_VERSION = "f5-p04.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type OfferPricingEvidence = {
   sales?: { orders_count?: number | null; discounts?: number | null } | null;
-  margin?: { items_with_cost?: number | null } | null;
+  margin?: { items_with_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   stock?: { tracked_items?: number | null } | null;
   top_products_count?: number | null;
 };
@@ -59,9 +60,10 @@ export function applyOfferPricingEvidence(
   const stock = evidence.stock;
   const facts = {
     ...context.facts,
+    ...shopifyNetMetricsQualityFacts(margin),
     "offer_pricing.economics.aov.available": Number(sales?.orders_count) > 0 ? "TRUE" : UNKNOWN,
     "offer_pricing.economics.discounts.available": sales ? "TRUE" : UNKNOWN,
-    "offer_pricing.economics.margin.available": Number(margin?.items_with_cost) > 0 ? "TRUE" : UNKNOWN,
+    "offer_pricing.economics.margin.available": gateShopifyNetMetricsObservation(margin, Number(margin?.items_with_cost) > 0 ? "TRUE" : UNKNOWN),
     "offer_pricing.catalog.available": Number(evidence.top_products_count) > 0 ? "TRUE" : UNKNOWN,
     "offer_pricing.inventory.available": Number(stock?.tracked_items) > 0 ? "TRUE" : UNKNOWN,
   } satisfies Record<string, PlaybookTriState>;

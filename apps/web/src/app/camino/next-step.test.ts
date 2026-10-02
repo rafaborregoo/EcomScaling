@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clientNextStep,
+  splitCriterion,
   type StepMilestone,
   type StepPhase,
   type StepTask,
@@ -186,4 +187,13 @@ test("un plan activo sin fases no revienta", () => {
   const step = clientNextStep("active", [], HOY);
   assert.equal(step.tone, "warn");
   assert.match(step.headline, /no tiene fases/);
+});
+
+test("splitCriterion separa el criterio de éxito que A19 pliega en la descripción", () => {
+  assert.deepEqual(splitCriterion("Subir el ticket.\n\nCriterio de exito: ticket medio >= 58 € un mes completo"), {
+    text: "Subir el ticket.",
+    criterion: "ticket medio >= 58 € un mes completo",
+  });
+  assert.deepEqual(splitCriterion("Sin criterio"), { text: "Sin criterio", criterion: null });
+  assert.deepEqual(splitCriterion(null), { text: "", criterion: null });
 });

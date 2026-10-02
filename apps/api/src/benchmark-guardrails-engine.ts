@@ -11,14 +11,15 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const BENCHMARK_SOURCE_VERSION = "f6-p00.v1";
+const BENCHMARK_SOURCE_VERSION = "f6-p00.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type BenchmarkGuardrailsEvidence = {
   sales?: { available: boolean; orders_count?: number | null; revenue?: number | null } | null;
   funnel?: { available: boolean; sessions?: number | null; conversion_rate?: number | null } | null;
-  margin?: { available: boolean; items_with_cost?: number | null } | null;
+  margin?: { available: boolean; items_with_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   stock?: { available: boolean; tracked_items?: number | null } | null;
   delivery?: { available: boolean; fulfillments?: number | null } | null;
   measurement?: { available: boolean; days?: number | null } | null;
@@ -70,6 +71,7 @@ export function applyBenchmarkGuardrailsEvidence(
   const hasSource = Boolean(evidence.sales || evidence.funnel || evidence.margin || evidence.stock || evidence.delivery || evidence.measurement);
   const facts: Record<string, PlaybookTriState> = {
     ...context.facts,
+    ...shopifyNetMetricsQualityFacts(evidence.margin),
     "benchmark.metric.definition.observed": UNKNOWN,
     "benchmark.metric.value.observed": observed(evidence.sales?.available, evidence.sales?.revenue ?? evidence.sales?.orders_count),
     "benchmark.metric.source.observed": hasSource ? "TRUE" : UNKNOWN,
@@ -79,7 +81,7 @@ export function applyBenchmarkGuardrailsEvidence(
     "benchmark.context.observed": UNKNOWN,
     "benchmark.comparability.observed": UNKNOWN,
     "benchmark.reference.observed": UNKNOWN,
-    "benchmark.economics.observed": observed(evidence.margin?.available, evidence.margin?.items_with_cost),
+    "benchmark.economics.observed": gateShopifyNetMetricsObservation(evidence.margin, observed(evidence.margin?.available, evidence.margin?.items_with_cost)),
     "benchmark.guardrails.observed": UNKNOWN,
     "benchmark.segment_mix.observed": UNKNOWN,
     "benchmark.trend.observed": UNKNOWN,
@@ -109,7 +111,7 @@ async function enrichBenchmarkGuardrailsContext(supabase: any, context: Playbook
     {
       sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count, revenue: first(salesResult)?.net_sales },
       funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate_shopify },
-      margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost },
+      margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost, lines_with_exact_metrics: first(marginResult)?.lines_with_exact_metrics, lines_with_estimated_metrics: first(marginResult)?.lines_with_estimated_metrics, lines_without_metrics: first(marginResult)?.lines_without_metrics },
       stock: stockResult.error ? { available: false } : { available: true, tracked_items: first(stockResult)?.tracked_items },
       delivery: deliveryResult.error ? { available: false } : { available: true, fulfillments: first(deliveryResult)?.fulfillments },
       measurement: dailyResult.error ? { available: false } : { available: true, days: Array.isArray(dailyResult.data) ? dailyResult.data.length : null },

@@ -78,3 +78,14 @@ Comparar números con definiciones diferentes produce conclusiones falsas.
 La analítica no consiste en acumular métricas.
 
 Consiste en utilizar definiciones consistentes para responder preguntas de negocio correctamente.
+
+---
+
+## Puente cross-channel
+
+Cuando el revenue atribuido a email aparece junto a paid media o a las ventas de la tienda:
+
+- attributed email revenue no equivale a incremental revenue;
+- no se suma con el revenue atribuido por Meta u otra plataforma: varias plataformas pueden atribuirse la misma venta;
+- la economía observada de Shopify/ecommerce sigue siendo el ancla del revenue del negocio cuando está disponible;
+- el análisis de email no es una excepción a las reglas generales de `conocimiento/fase-10/01-rag-produccion/10.01-principios-cross-channel-attribution.md`.

@@ -292,7 +292,10 @@ con `author_kind = 'system'`, `author_user_id = null`.
   `organization_access_denied`). Cliente user-scoped, `select("id, body, author_user_id, author_kind,
   created_at").eq("organization_id", organizationId).order("created_at", { ascending: true })`. Adjuntar
   `author_name` con un fetch service a `profiles` (copiar `listMarketingDraftNotes:1341-1358`). Efecto
-  lateral: `upsert` en `consultant_client_message_reads` con `last_read_at = now()` para el caller (service).
+  lateral: `upsert` en `consultant_client_message_reads` con `last_read_at = now()` para el caller (service),
+  salvo con `?mark_read=0`: cargar el hilo (sondeo, pestaña en segundo plano) no es leerlo. El chat usa
+  `mark_read=0` y llama a `POST .../consultant-messages/read` solo cuando el hilo está a la vista. La
+  respuesta incluye `counterpart_read_at` (el «Visto»).
 - **`postThreadMessage(env, context, organizationId, { body })`** — `resolveThreadAuthorKind` o 403
   `consultant_thread_access_required`; `body.trim()` no vacío o 400 `message_body_required`; insert service
   `{ organization_id, author_user_id: context.user.id, author_kind, body: text.slice(0, 4000) }`; devolver
@@ -306,7 +309,8 @@ Patrón GET/POST de `marketing/drafts/:draftId/notes` ([server.ts:1009-1065](../
 pasar `request.headers.authorization`, 401 si falta en el GET.
 
 - `GET  /v1/consultant/message-threads`                          → `listClientThreads`
-- `GET  /v1/organizations/:organizationId/consultant-messages`   → `listThreadMessages` (querystring `before?`, `limit?`)
+- `GET  /v1/organizations/:organizationId/consultant-messages`   → `listThreadMessages` (querystring `before?`, `limit?`, `mark_read?`)
+- `POST /v1/organizations/:organizationId/consultant-messages/read`  → `markThreadRead` (marca el hilo como leído para el caller)
 - `POST /v1/organizations/:organizationId/consultant-messages`   → `postThreadMessage` → `reply.code(201)`
 
 ### 2.4 Frontend

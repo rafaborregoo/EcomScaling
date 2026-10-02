@@ -120,7 +120,7 @@ export function requireOwnOrganizationAccess(
       statusCode: 403,
       error: "consultant_integrations_access_denied",
       message:
-        "Las integraciones de un cliente se gestionan desde el panel consultor, no desde /integraciones.",
+        "Las integraciones de los clientes no están disponibles para cuentas de consultor.",
     };
   }
 

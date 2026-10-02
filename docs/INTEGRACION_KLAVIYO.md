@@ -23,8 +23,8 @@ Fuente única: `DEFAULT_KLAVIYO_SCOPES` en
 [packages/config/src/index.ts](../packages/config/src/index.ts). Hoy:
 
 ```
-accounts:read flows:read campaigns:read forms:read lists:read segments:read
-metrics:read templates:read templates:write
+accounts:read events:read flows:read campaigns:read forms:read lists:read segments:read
+metrics:read templates:read templates:write campaigns:write
 ```
 
 | Scope | Para qué | Si falta |
@@ -33,11 +33,13 @@ metrics:read templates:read templates:write
 | `campaigns:read`, `flows:read`, `forms:read`, `segments:read`, `metrics:read`, `lists:read` | Sync e informes de rendimiento | El sync marca la conexión en error |
 | `templates:read` | Listar e importar plantillas existentes | "Importar de Klaviyo" en /marketing devuelve 403 |
 | `templates:write` | Publicar en la cuenta las piezas aprobadas | "Enviar a Klaviyo" devuelve `klaviyo_template_write_denied` |
+| `campaigns:write` | Programar, cancelar o devolver a borrador campañas desde Marketing → Campañas | "Programar" devuelve `klaviyo_campaign_write_denied`; todo lo demás sigue funcionando |
+| `flows:write` | Crear en Klaviyo (en borrador) los flows diseñados en Marketing → Flows | "Crear en Klaviyo" devuelve `klaviyo_flow_write_denied`. **Todavía no está en `DEFAULT_KLAVIYO_SCOPES`**: añadirlo sin declararlo antes en la app OAuth de Klaviyo haría fallar el callback de todas las conexiones nuevas. Con private API key basta marcar Flows en Full access; se sondea al conectar |
 
 **En una private API key** el equivalente es, en `Settings → API keys`: lectura
 (Read) para Campaigns, Flows, Metrics, Lists y Segments, y **Full access** en
-Templates. Con la clave solo de lectura todo lo demás sigue funcionando; lo
-único que se cae es publicar plantillas.
+Templates y Campaigns. Con la clave solo de lectura todo lo demás sigue
+funcionando; lo único que se cae es publicar plantillas y programar campañas.
 
 ### Al pegar la clave se comprueban los permisos
 

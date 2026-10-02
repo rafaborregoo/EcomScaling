@@ -83,7 +83,7 @@ test("el ranking de tiendas empata por facturacion y tolera numeros como texto",
       organization_id: "org-1",
       shop_name: "A",
       myshopify_domain: null,
-      currency_code: null,
+      currency_code: "EUR",
       orders_count: "7",
       net_sales: "100",
       units_sold: "7",
@@ -93,7 +93,7 @@ test("el ranking de tiendas empata por facturacion y tolera numeros como texto",
       organization_id: "org-1",
       shop_name: "B",
       myshopify_domain: null,
-      currency_code: null,
+      currency_code: "EUR",
       orders_count: 7,
       net_sales: 900,
       units_sold: 7,
@@ -104,7 +104,7 @@ test("el ranking de tiendas empata por facturacion y tolera numeros como texto",
     rows.map((row) => row.store_id),
     ["store-b", "store-a"],
   );
-  assert.equal(rows[1]?.currency_code, "EUR", "sin divisa se asume EUR");
+  assert.equal(rows[1]?.currency_code, "EUR", "con la misma moneda conocida se compara facturacion");
 });
 
 test("el contexto de vista se acota y descarta metricas incompletas", () => {

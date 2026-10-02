@@ -92,7 +92,7 @@ export class ShopifyReportsScopeError extends Error {
   constructor(hasReportsScope = false) {
     super(
       hasReportsScope
-        ? "shopify_reports_access_denied: Shopify ha rechazado ShopifyQL aunque la conexión tiene read_reports. Revisa el permiso de informes y el acceso Nivel 2 a datos protegidos en Shopify; después reautoriza la tienda en Integraciones."
+        ? "shopify_reports_access_denied: Shopify ha rechazado ShopifyQL aunque read_reports sí está concedido. Shopify exige además acceso a datos protegidos de cliente Nivel 2 para esta consulta. Comprueba en el Dev Dashboard/Partner Dashboard de Shopify la solicitud de datos protegidos de la app y los campos requeridos; reinstalar o reautorizar la tienda no sustituye esa aprobación. Esto solo limita sesiones y conversión; el resto de la sincronización sigue disponible."
         : "shopify_read_reports_scope_missing: la conexión no tiene el permiso de informes. Reautoriza la tienda en Integraciones para activar sesiones y conversión.",
     );
     this.name = "ShopifyReportsScopeError";

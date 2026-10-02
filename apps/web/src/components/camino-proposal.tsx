@@ -269,8 +269,7 @@ export function CaminoProposal({
 
   return (
     <Card
-      title="Camino propuesto por la IA"
-      description="Analiza los datos reales de esta tienda y la metodología de Conocimiento para proponer fases e hitos con fecha. No activa nada: el plan nace en borrador."
+      title="Nueva versión con IA"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Select
@@ -315,12 +314,7 @@ export function CaminoProposal({
         <LoadingBlock label="Cargando propuesta..." />
       ) : isGenerating ? (
         <LoadingBlock label="La IA está analizando ventas, margen, stock y adquisición..." />
-      ) : !content ? (
-        <p className="text-sm text-muted">
-          Elige el horizonte y pide una propuesta. La IA no inventa el plan: lo
-          construye sobre las cifras de esta tienda y avisa de lo que le falta.
-        </p>
-      ) : (
+      ) : !content ? null : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <p className="min-w-0 flex-1 text-sm font-semibold">

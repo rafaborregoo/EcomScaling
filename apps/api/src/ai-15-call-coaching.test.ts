@@ -38,6 +38,12 @@ const keyPoints = {
     },
   ],
   confidence: "medium",
+  warnings: ["La transcripcion no menciona el margen"],
+  risks: ["Rotura de stock antes de noviembre"],
+  recommendations: [{ action: "Subir umbral de envio", priority: "high", rationale: "" }],
+  proposed_campaign_ideas: [{ objective: "Reposicion", audience: "Compradores", timing_hint: null, evidence_quote: "" }],
+  proposed_camino_changes: [{ change: "Adelantar retencion", rationale: "", evidence_quote: "" }],
+  campo_nuevo_del_agente: "no deberia filtrarse",
 };
 
 test("el cliente no recibe el coaching interno del consultor", () => {
@@ -47,13 +53,31 @@ test("el cliente no recibe el coaching interno del consultor", () => {
   assert.equal(redacted.conversation_signals, undefined);
 });
 
-test("el recorte no toca el resumen que si es del cliente", () => {
+test("el cliente recibe solo lo que lee en su resumen", () => {
   const redacted = redactConsultantOnly(keyPoints) as Record<string, unknown>;
 
+  assert.deepEqual(Object.keys(redacted).sort(), ["facts", "recommendations", "risks"]);
   assert.deepEqual(redacted.facts, keyPoints.facts);
-  assert.deepEqual(redacted.proposed_tasks, keyPoints.proposed_tasks);
-  assert.deepEqual(redacted.sources, keyPoints.sources);
-  assert.equal(redacted.confidence, "medium");
+  assert.deepEqual(redacted.risks, keyPoints.risks);
+  assert.deepEqual(redacted.recommendations, keyPoints.recommendations);
+});
+
+test("el material de trabajo del consultor no llega al cliente", () => {
+  const redacted = redactConsultantOnly(keyPoints) as Record<string, unknown>;
+
+  // Tareas sin filtrar (las internas y las descartadas), propuestas sin
+  // revisar, y lo que el modelo dice de si mismo.
+  for (const key of [
+    "proposed_tasks",
+    "proposed_campaign_ideas",
+    "proposed_camino_changes",
+    "sources",
+    "confidence",
+    "warnings",
+    "campo_nuevo_del_agente",
+  ]) {
+    assert.equal(redacted[key], undefined, key);
+  }
 });
 
 test("el recorte aguanta key_points que no es el objeto de A01", () => {

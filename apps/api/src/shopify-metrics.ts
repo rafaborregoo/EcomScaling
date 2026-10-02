@@ -1,6 +1,9 @@
 import { createLogger } from "@e-nora/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
+import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
+import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
+import { parseShopifyScopes } from "./shopify-permissions.js";
 
 const logger = createLogger("api:shopify-metrics");
 
@@ -21,6 +24,12 @@ type ShopifyMetricsData = {
   organization_id: string;
   selected_connection_id: string | null;
   store_id: string | null;
+  currency_code: string | null;
+  financial_currency_coverage: ShopifyFinancialCurrencyCoverage;
+  order_history: {
+    earliest_imported_order_at: string | null;
+    access_scope: "all_orders" | "last_60_days" | "unknown";
+  };
   period: { days: number | "all"; start: string | null; end: string };
   sales: {
     orders_count: number;
@@ -49,6 +58,11 @@ type ShopifyMetricsData = {
     // fila fechada en `product_costs`: el coste de hoy aplicado a un pedido
     // viejo. Mejor que contarlo como gratis, pero la pantalla debe decirlo.
     items_with_estimated_cost: number;
+    // Cobertura de importe/unidades netas por línea: los históricos solo se
+    // rellenan cuando Shopify los vuelva a entregar en una sincronización.
+    lines_with_exact_metrics: number;
+    lines_with_estimated_metrics: number;
+    lines_without_metrics: number;
   };
   // `net_sales` sigue siendo el total con IVA y envio cobrado; el ingreso que
   // manda en beneficio, margen y unit economics es `net_revenue_ex_tax`. Los
@@ -113,7 +127,7 @@ type ShopifyMetricsData = {
   previous_period: {
     period: { start: string; end: string };
     sales: ShopifyMetricsData["sales"];
-    financial: { net_profit: number; net_margin_pct: number };
+    financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null };
   } | null;
   // La misma ventana del ano anterior. Responde una pregunta distinta a
   // `previous_period`: en un negocio con temporada, agosto contra julio dice
@@ -246,29 +260,6 @@ export function selectCurrentTargets(
   return selected;
 }
 
-async function loadStoreIdForConnection(
-  supabase: ReturnType<typeof createUserScopedClient>,
-  organizationId: string,
-  connectionId: string | undefined,
-) {
-  if (!connectionId) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("shopify_stores")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .eq("connection_id", connectionId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`shopify_metric_store_load_failed: ${error.message}`);
-  }
-
-  return data?.id ?? null;
-}
-
 function emptyMetricsData(
   organizationId: string,
   connectionId: string | undefined,
@@ -276,11 +267,18 @@ function emptyMetricsData(
   periodDays: number | "all",
   periodStart: Date | null,
   periodEnd: Date,
+  financialCurrencyCoverage: ShopifyFinancialCurrencyCoverage,
 ): ShopifyMetricsData {
   return {
     organization_id: organizationId,
     selected_connection_id: connectionId ?? null,
     store_id: storeId,
+    currency_code: null,
+    financial_currency_coverage: financialCurrencyCoverage,
+    order_history: {
+      earliest_imported_order_at: null,
+      access_scope: "unknown",
+    },
     period: {
       days: periodDays,
       start: periodStart?.toISOString() ?? null,
@@ -310,6 +308,9 @@ function emptyMetricsData(
       items_with_cost: 0,
       items_without_cost: 0,
       items_with_estimated_cost: 0,
+      lines_with_exact_metrics: 0,
+      lines_with_estimated_metrics: 0,
+      lines_without_metrics: 0,
     },
     financial: emptyFinancialData(),
     financial_monthly: [],
@@ -403,20 +404,122 @@ export async function getShopifyMetrics(
   const supabase = createUserScopedClient(env, token);
 
   try {
-    const storeId = await loadStoreIdForConnection(supabase, organizationId, connectionId);
+    const storeScope = await resolveShopifyStoreScope(supabase, organizationId, connectionId);
 
-    if (connectionId && !storeId) {
+    if (storeScope.status === "selection_required") {
       return {
-        ok: true as const,
-        data: emptyMetricsData(organizationId, connectionId, null, periodDays, periodStart, periodEnd),
+        ok: false as const,
+        statusCode: 409,
+        error: "shopify_store_selection_required",
+        message: "shopify_store_selection_required: Selecciona una tienda para consultar importes y rentabilidad sin mezclar tiendas.",
       };
     }
 
-    const cacheKey = `shopify:metrics:${organizationId}:${storeId ?? "org"}:${periodDays}`;
+    if (storeScope.status === "not_found") {
+      return {
+        ok: false as const,
+        statusCode: 404,
+        error: "shopify_connection_not_found",
+        message: "La conexión de Shopify seleccionada no está activa en esta organización.",
+      };
+    }
+
+    const storeId = storeScope.storeId;
+
+    const financialCurrencyCoverage = await resolveShopifyFinancialCurrencyCoverage(
+      supabase,
+      organizationId,
+      storeId,
+    );
+
+    if (!storeId) {
+      return {
+        ok: true as const,
+        data: emptyMetricsData(organizationId, connectionId, null, periodDays, periodStart, periodEnd, financialCurrencyCoverage),
+      };
+    }
+
+    if (!storeScope.currencyCode) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "shopify_currency_unavailable",
+        message: "shopify_currency_unavailable: La tienda todavía no tiene una moneda confirmada; sincronízala antes de mostrar importes.",
+      };
+    }
+
+    const [connectionScopeResult, earliestOrderResult] = await Promise.all([
+      storeScope.connectionId
+        ? supabase
+            .from("integration_connections")
+            .select("scopes")
+            .eq("id", storeScope.connectionId)
+            .eq("organization_id", organizationId)
+            .eq("provider", "shopify")
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      supabase
+        .from("shopify_order_facts")
+        .select("external_created_at, processed_at")
+        .eq("organization_id", organizationId)
+        .eq("store_id", storeId)
+        .order("external_created_at", { ascending: true, nullsFirst: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (connectionScopeResult.error) {
+      logger.info("shopify_order_history_scope_unavailable", {
+        organization_id: organizationId,
+        store_id: storeId,
+        error: connectionScopeResult.error.message,
+      });
+    }
+    if (earliestOrderResult.error) {
+      logger.info("shopify_order_history_start_unavailable", {
+        organization_id: organizationId,
+        store_id: storeId,
+        error: earliestOrderResult.error.message,
+      });
+    }
+    const storedScopes = connectionScopeResult.data?.scopes;
+    const grantedScopes = Array.isArray(storedScopes)
+      ? storedScopes.filter((scope): scope is string => typeof scope === "string")
+      : typeof storedScopes === "string"
+        ? parseShopifyScopes(storedScopes)
+        : [];
+    const accessScope: ShopifyMetricsData["order_history"]["access_scope"] =
+      connectionScopeResult.error || storedScopes == null
+        ? "unknown"
+        : grantedScopes.includes("read_all_orders")
+          ? "all_orders"
+          : grantedScopes.includes("read_orders")
+            ? "last_60_days"
+            : "unknown";
+    const earliestImportedOrderAt = earliestOrderResult.error
+      ? null
+      : earliestOrderResult.data?.external_created_at ?? earliestOrderResult.data?.processed_at ?? null;
+    const orderHistory: ShopifyMetricsData["order_history"] = {
+      earliest_imported_order_at: earliestImportedOrderAt,
+      access_scope: accessScope,
+    };
+
+    // El v4 incorpora moneda, alcance histórico y cobertura por tienda. Evita servir
+    // respuestas antiguas cacheadas sin moneda tras desplegar este contrato.
+    const cacheKey = `shopify:metrics:v4:${organizationId}:${storeId}:${periodDays}`;
     const cached = await getCached<ShopifyMetricsData>(env.REDIS_URL, cacheKey);
 
     if (cached) {
-      return { ok: true as const, data: cached };
+      // Currency coverage is live configuration; do not freeze a previous
+      // compatible result in Redis after an account/settings currency changes.
+      return {
+        ok: true as const,
+        data: {
+          ...cached,
+          currency_code: storeScope.currencyCode,
+          financial_currency_coverage: financialCurrencyCoverage,
+          order_history: orderHistory,
+        },
+      };
     }
 
     const [
@@ -427,6 +530,7 @@ export async function getShopifyMetrics(
       financialResult,
       previousSalesResult,
       previousFinancialResult,
+      previousMarginResult,
       dailyResult,
       funnelResult,
       funnelDailyResult,
@@ -475,6 +579,14 @@ export async function getShopifyMetrics(
         : Promise.resolve({ data: null, error: null }),
       previousPeriodStart
         ? supabase.rpc("shopify_financial_summary", {
+            target_organization_id: organizationId,
+            period_start: previousPeriodStart.toISOString(),
+            period_end: previousPeriodEnd!.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
+      previousPeriodStart
+        ? supabase.rpc("shopify_margin_summary", {
             target_organization_id: organizationId,
             period_start: previousPeriodStart.toISOString(),
             period_end: previousPeriodEnd!.toISOString(),
@@ -579,6 +691,9 @@ export async function getShopifyMetrics(
     if (previousFinancialResult.error) {
       logger.error("shopify_financial_summary_previous_period_failed", { organization_id: organizationId, error: previousFinancialResult.error.message });
     }
+    if (previousMarginResult.error) {
+      logger.error("shopify_margin_summary_previous_period_failed", { organization_id: organizationId, error: previousMarginResult.error.message });
+    }
     // No fatal: los sparklines son un adorno de las tarjetas KPI.
     if (dailyResult.error) {
       logger.error("shopify_sales_daily_failed", { organization_id: organizationId, error: dailyResult.error.message });
@@ -643,6 +758,9 @@ export async function getShopifyMetrics(
       items_with_cost: 0,
       items_without_cost: 0,
       items_with_estimated_cost: 0,
+      lines_with_exact_metrics: 0,
+      lines_with_estimated_metrics: 0,
+      lines_without_metrics: 0,
     };
 
     const financial = financialResult.data?.[0] ?? emptyFinancialData();
@@ -656,12 +774,21 @@ export async function getShopifyMetrics(
         ? previousFinancialResult.data?.[0] ?? emptyFinancialData()
         : null;
 
+    const previousMargin = !previousMarginResult.error && previousPeriodStart
+      ? previousMarginResult.data?.[0] ?? null
+      : null;
     const previousPeriod =
       previousPeriodStart && previousSales && previousFinancial
         ? {
             period: { start: previousPeriodStart.toISOString(), end: previousPeriodEnd!.toISOString() },
             sales: previousSales,
-            financial: { net_profit: previousFinancial.net_profit, net_margin_pct: previousFinancial.net_margin_pct },
+            financial: {
+              net_profit: previousFinancial.net_profit,
+              net_margin_pct: previousFinancial.net_margin_pct,
+              lines_without_metrics: previousMargin && Number.isFinite(Number(previousMargin.lines_without_metrics))
+                ? Number(previousMargin.lines_without_metrics)
+                : null,
+            },
           }
         : null;
 
@@ -822,6 +949,9 @@ export async function getShopifyMetrics(
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
       store_id: storeId,
+      currency_code: storeScope.currencyCode,
+      financial_currency_coverage: financialCurrencyCoverage,
+      order_history: orderHistory,
       period: {
         days: periodDays,
         start: periodStart?.toISOString() ?? null,

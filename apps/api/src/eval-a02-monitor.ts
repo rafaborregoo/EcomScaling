@@ -235,6 +235,7 @@ async function seedProductWithStock(
     .from("shopify_variants")
     .insert({
       organization_id: organizationId,
+      store_id: storeId,
       product_id: product.id,
       external_variant_id: `eval-variant-${label}-${RUN_TAG}`,
       title: "Default",
@@ -249,6 +250,7 @@ async function seedProductWithStock(
     .from("shopify_inventory_items")
     .insert({
       organization_id: organizationId,
+      store_id: storeId,
       variant_id: variant.id,
       external_inventory_item_id: `eval-inventory-item-${label}-${RUN_TAG}`,
       tracked: true,

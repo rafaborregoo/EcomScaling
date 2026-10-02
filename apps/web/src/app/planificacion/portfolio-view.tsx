@@ -12,6 +12,7 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
+  Heading,
   List,
   LoadingBlock,
   toast,
@@ -160,6 +161,7 @@ export function PlanningPortfolio() {
 
   return (
     <div className="space-y-6">
+      <Heading>Resumen de la cartera</Heading>
       {/* El titular cuenta CLIENTES, no acciones: "38 acciones vencidas" no
           dice a dónde ir; "4 clientes piden algo" sí. */}
       <ModuleSummary
@@ -191,10 +193,7 @@ export function PlanningPortfolio() {
         ]}
       />
 
-      <Card
-        title="Dónde meter horas"
-        description="Un cliente por fila, ordenados por lo que más urge. El motivo es la acción a tomar."
-      >
+      <Card title="Dónde meter horas">
         {rows.length === 0 ? (
           <EmptyState
             title="Sin clientes asignados"
@@ -214,10 +213,7 @@ export function PlanningPortfolio() {
       </Card>
 
       {blocked.length > 0 ? (
-        <Card
-          title="Lo que está parado"
-          description="Acciones en curso con un motivo de bloqueo. Nadie las va a desbloquear solo."
-        >
+        <Card title="Lo que está parado">
           <List as="ul">
             {blocked.flatMap((row) =>
               row.blocked.map((item) => (
@@ -255,9 +251,6 @@ export function PlanningPortfolio() {
         </Card>
       ) : null}
 
-      <p className="text-sm text-muted">
-        Elegir un cliente arriba cambia el cliente activo de todo el portal
-      </p>
     </div>
   );
 }

@@ -65,8 +65,8 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     scope: "read_products",
     area: "Catalogo",
     status: "active_ingestion",
-    fields: ["product.id", "title", "handle", "vendor", "productType", "status", "variants", "price", "compareAtPrice", "barcode"],
-    enables: ["Productos mas vendidos", "ventas por producto", "ventas por variante", "catalogo operativo"],
+    fields: ["product.id", "title", "handle", "vendor", "productType", "status", "variants", "selectedOptions", "price", "compareAtPrice", "barcode", "media", "productVariantComponents"],
+    enables: ["Catalogo visual e imagenes", "opciones de variante", "packs nativos", "Productos mas vendidos", "ventas por producto", "ventas por variante"],
   },
   {
     scope: "read_inventory",
@@ -86,8 +86,8 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     scope: "read_orders",
     area: "Ventas",
     status: "active_ingestion",
-    fields: ["order.id", "name", "processedAt", "displayFinancialStatus", "displayFulfillmentStatus", "lineItems", "refunds", "totals"],
-    enables: ["Ventas brutas/netas", "pedidos", "ticket medio", "unidades vendidas", "descuentos", "impuestos", "envio cobrado"],
+    fields: ["order.id", "name", "processedAt", "displayFinancialStatus", "displayFulfillmentStatus", "lineItems", "lineItems.lineItemGroup", "refunds", "totals"],
+    enables: ["Ventas brutas/netas", "pedidos", "packs observados en pedidos", "ticket medio", "unidades vendidas", "descuentos", "impuestos", "envio cobrado"],
   },
   {
     scope: "read_returns",
@@ -330,12 +330,13 @@ const datasets: DatasetDefinition[] = [
 
 // Tablas con columna `store_id` propia, comprobado contra las migraciones. Las
 // que no estan aqui cuelgan de la tienda por una FK intermedia
-// (shopify_order_items -> order_id -> shopify_order_facts.store_id,
-// shopify_variants -> product_id...), asi que su recuento va por organizacion.
+// (shopify_order_items -> order_id -> shopify_order_facts.store_id).
 const storeScopedTables = new Set([
   "shopify_stores",
   "shopify_locations",
   "shopify_products",
+  "shopify_variants",
+  "shopify_inventory_items",
   "shopify_collections",
   "shopify_order_facts",
   "shopify_order_transactions",
@@ -343,6 +344,7 @@ const storeScopedTables = new Set([
   "shopify_customers",
   "shopify_abandoned_checkouts",
   "shopify_discounts",
+  "shopify_order_discount_applications",
   "shopify_marketing_events",
   "shopify_sessions_daily",
   "shopify_returns",
@@ -511,13 +513,19 @@ async function loadOrders(supabase: SupabaseClient, organizationId: string, stor
   return data ?? [];
 }
 
-async function loadInventory(supabase: SupabaseClient, organizationId: string) {
-  const { data, error } = await supabase
+async function loadInventory(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string | null,
+) {
+  let query = supabase
     .from("shopify_inventory_items")
     .select("id, sku, tracked, requires_shipping, current_unit_cost, cost_currency_code, external_updated_at")
     .eq("organization_id", organizationId)
     .order("external_updated_at", { ascending: false })
     .limit(50);
+  if (storeId) query = query.eq("store_id", storeId);
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`shopify_inventory_sample_failed: ${error.message}`);
@@ -604,7 +612,7 @@ export async function getShopifyOverview(
         loadSyncBlocks(supabase, organizationId),
         loadProducts(supabase, organizationId, storeId),
         loadOrders(supabase, organizationId, storeId),
-        loadInventory(supabase, organizationId),
+        loadInventory(supabase, organizationId, storeId),
         Promise.all(
           datasets.map(async (dataset) => {
             let count = 0;

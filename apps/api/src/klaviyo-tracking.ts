@@ -27,13 +27,23 @@ function object(value: unknown): JsonRecord {
     : {};
 }
 
+function shopifyGid(resource: "Product" | "ProductVariant", value: unknown) {
+  if (typeof value === "string" && value.startsWith(`gid://shopify/${resource}/`)) {
+    return value;
+  }
+  const numericId = typeof value === "number"
+    ? Number.isSafeInteger(value) && value > 0 ? String(value) : null
+    : typeof value === "string" && /^\d+$/.test(value.trim()) ? value.trim() : null;
+  return numericId ? `gid://shopify/${resource}/${numericId}` : null;
+}
+
 function safeLineItems(payload: JsonRecord) {
   return Array.isArray(payload.line_items)
     ? payload.line_items.slice(0, 100).map((item) => {
         const row = object(item);
         return {
-          product_id: row.product_id ?? null,
-          variant_id: row.variant_id ?? null,
+          product_id: shopifyGid("Product", row.product_id),
+          variant_id: shopifyGid("ProductVariant", row.variant_id),
           title: row.title ?? null,
           sku: row.sku ?? null,
           quantity: row.quantity ?? 0,
@@ -47,18 +57,31 @@ function customerFrom(payload: JsonRecord): JsonRecord {
   return object(payload.customer);
 }
 
-async function accountIdForOrganization(
+async function accountIdForStore(
   supabase: SupabaseClient,
   organizationId: string,
-): Promise<string | null> {
-  const { data } = await supabase
+  storeId: string,
+): Promise<{ accountId: string | null; reason?: string }> {
+  const { data, error } = await supabase
     .from("klaviyo_accounts")
     .select("id")
     .eq("organization_id", organizationId)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  return (data?.id as string | undefined) ?? null;
+    .eq("store_id", storeId)
+    .limit(2);
+  if (error) {
+    const missingStoreScope = error.message.includes("store_id") && (
+      error.message.includes("does not exist") ||
+      error.message.includes("schema cache") ||
+      error.message.includes("could not find")
+    );
+    if (missingStoreScope) {
+      return { accountId: null, reason: "klaviyo_store_scope_pending" };
+    }
+    throw new Error(`klaviyo_store_account_lookup_failed:${error.message}`);
+  }
+  if (!data?.length) return { accountId: null, reason: "klaviyo_store_not_linked" };
+  if (data.length > 1) return { accountId: null, reason: "klaviyo_store_account_ambiguous" };
+  return { accountId: (data[0]?.id as string | undefined) ?? null };
 }
 
 async function upsertProfile(
@@ -187,15 +210,24 @@ export async function recordShopifyOrderTracking(
   supabase: SupabaseClient,
   input: {
     organizationId: string;
+    storeId: string;
     payload: JsonRecord;
   },
 ) {
-  const accountId = await accountIdForOrganization(
+  const account = await accountIdForStore(
     supabase,
     input.organizationId,
+    input.storeId,
   );
-  if (!accountId)
-    return { recorded: false, reason: "klaviyo_not_connected" } as const;
+  const accountId = account.accountId;
+  if (!accountId) {
+    console.info("Shopify order tracking skipped because its Klaviyo store link is unavailable", {
+      organization_id: input.organizationId,
+      store_id: input.storeId,
+      reason: account.reason ?? "klaviyo_not_connected",
+    });
+    return { recorded: false, reason: account.reason ?? "klaviyo_not_connected" } as const;
+  }
 
   const customer = customerFrom(input.payload);
   const profileId = await upsertProfile(supabase, {
@@ -260,14 +292,22 @@ export async function recordShopifyOrderTracking(
 
 export async function recordShopifyRefundTracking(
   supabase: SupabaseClient,
-  input: { organizationId: string; payload: JsonRecord },
+  input: { organizationId: string; storeId: string; payload: JsonRecord },
 ) {
-  const accountId = await accountIdForOrganization(
+  const account = await accountIdForStore(
     supabase,
     input.organizationId,
+    input.storeId,
   );
-  if (!accountId)
-    return { recorded: false, reason: "klaviyo_not_connected" } as const;
+  const accountId = account.accountId;
+  if (!accountId) {
+    console.info("Shopify refund tracking skipped because its Klaviyo store link is unavailable", {
+      organization_id: input.organizationId,
+      store_id: input.storeId,
+      reason: account.reason ?? "klaviyo_not_connected",
+    });
+    return { recorded: false, reason: account.reason ?? "klaviyo_not_connected" } as const;
+  }
   const sourceEventId =
     text(input.payload.admin_graphql_api_id) ??
     (input.payload.id != null ? `shopify-refund-${input.payload.id}` : null);

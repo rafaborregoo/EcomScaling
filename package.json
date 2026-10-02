@@ -39,6 +39,7 @@
     "supabase:start": "supabase start",
     "supabase:reset": "supabase db reset",
     "conocimiento:ingest": "dotenv -e .env.local -- node scripts/ingest-conocimiento.mjs",
+    "conocimiento:test": "node --test scripts/ingest-conocimiento.test.mjs",
     "conocimiento:archiva": "dotenv -e .env.local -- node scripts/archiva-conocimiento-global.mjs",
     "conocimiento:ingest:prod": "dotenv -e .env.production.local -v API_URL=https://api.ecom.noraapp.es -- node scripts/ingest-conocimiento.mjs",
     "conocimiento:archiva:prod": "dotenv -e .env.production.local -- node scripts/archiva-conocimiento-global.mjs",

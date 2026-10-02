@@ -29,6 +29,10 @@ const dir = path.resolve(
   "../supabase/migrations",
 );
 const dryRun = process.argv.includes("--dry-run");
+// --only=<version>: aplica solo esa migracion pendiente (mismo registro en
+// schema_migrations). Para cuando hay pendientes ajenas que no deben subir en
+// el mismo push; quien lo usa debe haber comprobado que no depende de ellas.
+const only = process.argv.find((arg) => arg.startsWith("--only="))?.slice("--only=".length);
 // Dos ficheros con la misma version se aplican los dos pero solo registran una
 // fila (insert ... on conflict do nothing): a partir de ahi uno de los dos
 // queda "aplicado" sin haberse ejecutado nunca en el siguiente entorno. Paso
@@ -109,7 +113,12 @@ try {
     "select version from supabase_migrations.schema_migrations",
   );
   const applied = new Set(rows.map((r) => r.version));
-  const pending = parsed.filter((m) => !applied.has(m.version));
+  const pending = parsed.filter(
+    (m) => !applied.has(m.version) && (!only || m.version === only),
+  );
+  if (only && pending.length === 0) {
+    throw new Error(`--only=${only}: no es una migracion pendiente en este entorno.`);
+  }
 
   if (pending.length === 0) {
     console.log("Sin migraciones pendientes.");

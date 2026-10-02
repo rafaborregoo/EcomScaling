@@ -21,11 +21,17 @@ services:
   api:
     image: ghcr.io/rafaborregoo/ecomscaling-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    networks:
+      - default
+      - host-metrics
     env_file: [.env.production]
     environment:
       API_HOST: 0.0.0.0
       API_PORT: "4000"
       REDIS_URL: redis://redis:6379
+      NODE_EXPORTER_URL: http://node-exporter:9100/metrics
+      CADVISOR_URL: http://cadvisor:8080/metrics
+      DOCKER_API_URL: http://docker-proxy:2375
       EMAIL_RENDER_SPOOL_DIR: /var/run/e-nora/email-render
       # AI-30: se guarda en agent_runs.deployment_version para poder atar un
       # comportamiento de produccion al codigo exacto que lo produjo. IMAGE_TAG
@@ -50,10 +56,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      cadvisor:
+        condition: service_started
+      docker-proxy:
+        condition: service_started
       email-render-spool-init:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:4000:4000"   # solo para debug local en el VPS
+      - "127.0.0.1:4000:4000" # solo para debug local en el VPS
 
   worker:
     image: ghcr.io/rafaborregoo/ecomscaling-worker:${IMAGE_TAG:-latest}
@@ -69,6 +79,72 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  # Métricas del host para platform_admin. El puerto solo existe en la red
+  # interna de Compose; no se publica en el VPS ni queda expuesto a Internet.
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1
+    restart: unless-stopped
+    networks:
+      - host-metrics
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.10
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containers/.+)($|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro,rslave
+
+  # MÃ©tricas de CPU, memoria y OOM por contenedor. Solo red interna.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    restart: unless-stopped
+    networks: [host-metrics]
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      - --max_housekeeping_interval=15s
+      - --event_storage_event_limit=default=0
+      - --event_storage_age_limit=default=0
+    volumes:
+      - /:/rootfs:ro,rslave
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.25
+
+  # API Docker de solo lectura y aislada; el socket no se monta dentro del API.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    networks: [host-metrics]
+    environment:
+      CONTAINERS: 1
+      POST: 0
+      PING: 1
+      VERSION: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 32m
+    cpus: 0.10
 
   email-render-spool-init:
     image: node:24-alpine
@@ -110,7 +186,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    env_file: [.env.production]   # lee API_DOMAIN
+    env_file: [.env.production] # lee API_DOMAIN
     ports:
       - "80:80"
       - "443:443"
@@ -126,3 +202,7 @@ volumes:
   email-render-spool:
   caddy-data:
   caddy-config:
+
+networks:
+  host-metrics:
+    internal: true

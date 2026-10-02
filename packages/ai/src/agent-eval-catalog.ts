@@ -1,0 +1,31 @@
+/** Active agent codes verified against the application runtime catalog. */
+export const AGENT_EVAL_AGENT_CODES = [
+  "a01_analista_llamadas",
+  "a02_monitor_negocio",
+  "a04_generador_tareas",
+  "a05_estrategia_campanas",
+  "a06_planificador_stock",
+  "a08_gestor_conocimiento",
+  "a09_copiloto_consultor",
+  "a11_generador_marketing",
+  "a12_analista_email",
+  "a13_operativa_shopify",
+  "a14_operativa_meta",
+  "a15_analista_imagenes",
+  "a16_texto_sobre_imagen",
+  "a17_plan_semanal",
+  "a18_plan_mensual",
+  "a19_arquitecto_camino",
+  "a19_revision_camino",
+  "a20_retencion_clientes",
+  "a21_adquisicion_shopify",
+  "a22_postventa_shopify",
+  "a23_creatividad_meta",
+  "a24_medicion_meta",
+  "a25_cambios_meta",
+  "a26_contenido_email",
+  "a27_planificador_mailing",
+  "a28_arquitecto_flujos",
+] as const;
+
+export type EvalAgentCode = (typeof AGENT_EVAL_AGENT_CODES)[number];

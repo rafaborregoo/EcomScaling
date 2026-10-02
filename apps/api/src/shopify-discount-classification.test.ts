@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyDiscount } from "./shopify-sync.js";
+import { classifyDiscount, isKnownShopifyDiscountType } from "./shopify-sync.js";
 
 test("un porcentaje llega como fraccion y se guarda en puntos", () => {
   const result = classifyDiscount("DiscountCodeBasic", { percentage: 0.15 });
@@ -41,4 +41,12 @@ test("un tipo desconocido no inventa clase", () => {
   const result = classifyDiscount("DiscountCodeSomethingNew", null);
   assert.equal(result.discountClass, null);
   assert.equal(result.valueType, null);
+});
+
+test("basic y free-shipping son tipos conocidos aunque no tengan customerBuys", () => {
+  assert.equal(isKnownShopifyDiscountType("DiscountCodeBasic"), true);
+  assert.equal(isKnownShopifyDiscountType("DiscountAutomaticBasic"), true);
+  assert.equal(isKnownShopifyDiscountType("DiscountCodeFreeShipping"), true);
+  assert.equal(isKnownShopifyDiscountType("DiscountAutomaticFreeShipping"), true);
+  assert.equal(isKnownShopifyDiscountType("DiscountCodeSomethingNew"), false);
 });

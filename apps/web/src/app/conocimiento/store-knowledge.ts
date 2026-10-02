@@ -21,6 +21,10 @@ export type StoreQuestion = {
   /** Unidad mostrada junto al input numerico ("%", "€", "días"...). */
   unit?: string;
   placeholder?: string;
+  /** Para qué usa el copiloto esta respuesta. Texto fijo; no promete cálculos. */
+  why?: string;
+  /** Ejemplo de buena respuesta, solo orientativo. */
+  example?: string;
 };
 
 export type StoreQuestionCategory = {
@@ -173,9 +177,33 @@ export const STORE_QUESTION_CATEGORIES: StoreQuestionCategory[] = [
   },
 ];
 
+const QUESTION_HINTS: Record<string, { why: string; example: string }> = {
+  vision: { why: "Es lo primero que lee el copiloto antes de proponerte nada.", example: "Menaje y textil de hogar de diseño mediterráneo. Cliente: mujer de 30 a 50 años que amuebla su primera casa en propiedad." },
+  objetivo: { why: "Ordena sus prioridades: no te propondrá crecer a cualquier precio si lo que toca es rentabilizar.", example: "Subir la recompra del 18 % al 25 % antes de diciembre sin bajar margen." },
+  ticket_medio: { why: "Para juzgar si una promoción o un pack sube o baja el pedido medio.", example: "65" },
+  pedidos_mes: { why: "Le da escala: 10 pedidos más no significan lo mismo con 50 que con 5.000 al mes.", example: "420" },
+  categoria_principal: { why: "Para compararte con tiendas parecidas y hablar en tu idioma.", example: "Vajilla de cerámica" },
+  skus: { why: "Cambia el consejo: con 20 referencias se cuida cada ficha, con 2.000 se trabaja por reglas.", example: "340" },
+  productos_estrella: { why: "Los vigilará primero cuando hable de stock y reposición.", example: "Plato llano Alba 27 cm y el juego de 6 vasos Ola: son la entrada del 40 % de clientes nuevos." },
+  temporada: { why: "Para no leer una caída de temporada como un problema.", example: "Alta: noviembre-diciembre y mayo (bodas). Baja: enero-febrero y agosto." },
+  tono_marca: { why: "Lo aplica en cada asunto y texto de email que redacta.", example: "Cercano y tranquilo, de tú. Nada de urgencias falsas ni mayúsculas. Valores: hecho a mano, durar años." },
+  competencia: { why: "Para comparar precios y mensajes con quien de verdad compites.", example: "Sargadelos en gama alta, Zara Home en precio y talleres pequeños de Instagram." },
+  diferenciacion: { why: "Es el argumento que pondrá en anuncios y emails.", example: "Cerámica hecha en Manises con reposición de piezas sueltas durante 10 años." },
+  lineas_rojas_marca: { why: "Lo que nunca escribirá en tu nombre.", example: "Nunca «últimas unidades» si no es verdad. Nunca comparar con marcas por su nombre." },
+  margen_minimo: { why: "Es el límite que tendrá presente al proponerte promociones y precios.", example: "35" },
+  descuentos_prohibidos: { why: "Los descartará antes de sugerirte campañas.", example: "Nada de descuentos sitewide de más del 15 %. Black Friday solo con packs, nunca con cupón." },
+  envio_gratis_desde: { why: "Para proponer packs y ventas cruzadas que lleguen a ese importe.", example: "60" },
+  cac_maximo: { why: "Para decirte si una campaña de captación compensa.", example: "22" },
+  envios_devoluciones: { why: "Para redactar emails posventa y responder dudas sin inventar condiciones.", example: "Envío 24-72 h en península. Devolución gratuita 30 días salvo piezas personalizadas." },
+  dias_envio: { why: "Para fijar promesas de entrega realistas en campañas con fecha.", example: "2" },
+  atencion_cliente: { why: "Para saber a dónde mandar a un cliente en cada email.", example: "Lucía, por WhatsApp y email, de lunes a viernes de 9 a 15 h." },
+  decisiones: { why: "Para dirigir cada propuesta a quien la puede aprobar.", example: "Marta (fundadora) aprueba presupuesto; Pablo lleva Meta y Klaviyo." },
+};
+
 export const STORE_QUESTIONS = STORE_QUESTION_CATEGORIES.flatMap((category) =>
   category.questions.map((question) => ({
     ...question,
+    ...QUESTION_HINTS[question.id],
     categoryId: category.id,
     categoryLabel: category.label,
   })),
@@ -185,7 +213,7 @@ export function questionDocumentTitle(question: { question: string }) {
   return QUESTIONNAIRE_PREFIX + question.question;
 }
 
-export type AnsweredDoc = { id: string; title: string; created_at: string };
+export type AnsweredDoc = { id: string; title: string; created_at: string; updated_at?: string };
 
 /**
  * El documento mas reciente por titulo. Desde que reeditar hace PATCH ya no

@@ -24,6 +24,7 @@ export type BulkLine = {
 };
 
 const SHOPIFY_BULK_RESULT_HOST = "storage.googleapis.com";
+const MAX_BULK_ROOT_DESCENDANTS = 5_000;
 
 /**
  * Shopify returns signed bulk JSONL files from Google Cloud Storage. Keep the
@@ -51,6 +52,13 @@ export function validateBulkResultUrl(value: string): string {
   return parsed.toString();
 }
 
+/**
+ * Only a COMPLETED bulk operation produces a result URL. Shopify's bulk JSONL
+ * exhausts selected nested connections into child rows with `__parentId`;
+ * `cursor` and `pageInfo` are ignored, so coverage must not infer missing
+ * children from absent pagination metadata.
+ * See https://shopify.dev/docs/apps/build/apis/graphql-admin/bulk-operations/queries.
+ */
 async function pollBulkOperation(
   shopDomain: string,
   accessToken: string,
@@ -169,50 +177,221 @@ export async function runBulkOperation(
   return pollBulkOperation(shopDomain, accessToken, operationId);
 }
 
-export async function fetchBulkResult(url: string | null): Promise<BulkLine[]> {
+export async function forEachBulkResultBatch(
+  url: string | null,
+  batchSize: number,
+  onBatch: (batch: BulkLine[]) => Promise<void> | void,
+): Promise<number> {
   if (!url) {
-    return [];
+    return 0;
+  }
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error("bulk_result_batch_size_invalid");
   }
 
-  const response = await fetch(validateBulkResultUrl(url));
+  // Shopify signs the initial GCS URL, but fetch follows redirects by default.
+  // A redirect could escape the host allowlist above, so the download must
+  // fail closed if storage ever returns one.
+  const response = await fetch(validateBulkResultUrl(url), { redirect: "error" });
 
   if (!response.ok) {
     throw new Error(`bulk_result_download_failed_${response.status}`);
   }
 
-  const text = await response.text();
+  let count = 0;
+  let batch: BulkLine[] = [];
+  const emitLine = async (rawLine: string) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    batch.push(JSON.parse(line) as BulkLine);
+    count += 1;
+    if (batch.length >= batchSize) {
+      const completed = batch;
+      batch = [];
+      await onBatch(completed);
+    }
+  };
+  const flush = async () => {
+    if (!batch.length) return;
+    const completed = batch;
+    batch = [];
+    await onBatch(completed);
+  };
 
-  if (!text.trim()) {
-    return [];
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    for (const line of text.split("\n")) await emitLine(line);
+    await flush();
+    return count;
   }
 
-  return text
-    .split("\n")
-    .filter((line) => line.trim().length)
-    .map((line) => JSON.parse(line) as BulkLine);
+  const decoder = new TextDecoder();
+  let pending = "";
+
+  const parseCompleteLines = async () => {
+    let newline = pending.indexOf("\n");
+    while (newline >= 0) {
+      const line = pending.slice(0, newline);
+      pending = pending.slice(newline + 1);
+      await emitLine(line);
+      newline = pending.indexOf("\n");
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      pending += decoder.decode(value, { stream: !done });
+      await parseCompleteLines();
+      if (done) break;
+    }
+
+    await emitLine(pending);
+    await flush();
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  return count;
+}
+
+export type BulkRootGroup = {
+  root: BulkLine;
+  childrenByParentId: Map<string, BulkLine[]>;
+};
+
+export type BulkRootChildrenBatch = {
+  root: BulkLine;
+  children: BulkLine[];
+  /** True for the final segment of this root, including roots with no children. */
+  rootComplete: boolean;
+};
+
+/**
+ * Streams a JSONL bulk export as bounded groups of top-level objects. Shopify
+ * emits each parent before its descendants, so child IDs can be associated
+ * with the current root and released as soon as that root batch is consumed.
+ */
+export async function forEachBulkRootBatch(
+  url: string | null,
+  rootBatchSize: number,
+  onBatch: (batch: BulkRootGroup[]) => Promise<void> | void,
+  options: { inlineParentIds?: (line: BulkLine) => string[] } = {},
+): Promise<number> {
+  if (!Number.isInteger(rootBatchSize) || rootBatchSize < 1) {
+    throw new Error("bulk_result_root_batch_size_invalid");
+  }
+
+  let rootGroups: BulkRootGroup[] = [];
+  let rootGroupByObjectId = new Map<string, BulkRootGroup>();
+  let descendantCountByRoot = new WeakMap<BulkRootGroup, number>();
+  let currentRoot: BulkRootGroup | null = null;
+  let count = 0;
+
+  const registerObjectAndInlineParents = (line: BulkLine, group: BulkRootGroup) => {
+    rootGroupByObjectId.set(line.id, group);
+    for (const id of options.inlineParentIds?.(line) ?? []) {
+      if (id) rootGroupByObjectId.set(id, group);
+    }
+  };
+
+  const flushRoots = async () => {
+    if (currentRoot) {
+      rootGroups.push(currentRoot);
+      currentRoot = null;
+    }
+    if (!rootGroups.length) return;
+    const completed = rootGroups;
+    rootGroups = [];
+    rootGroupByObjectId = new Map();
+    descendantCountByRoot = new WeakMap();
+    await onBatch(completed);
+  };
+
+  const acceptLines = async (lines: BulkLine[]) => {
+    for (const line of lines) {
+      count += 1;
+      if (!line.__parentId) {
+        if (currentRoot) {
+          rootGroups.push(currentRoot);
+          currentRoot = null;
+        }
+        if (rootGroups.length >= rootBatchSize) await flushRoots();
+        currentRoot = { root: line, childrenByParentId: new Map() };
+        registerObjectAndInlineParents(line, currentRoot);
+        continue;
+      }
+
+      const rootGroup = rootGroupByObjectId.get(line.__parentId);
+      if (!rootGroup) {
+        throw new Error("bulk_result_parent_not_found");
+      }
+      const descendantCount = (descendantCountByRoot.get(rootGroup) ?? 0) + 1;
+      if (descendantCount > MAX_BULK_ROOT_DESCENDANTS) {
+        throw new Error("bulk_result_root_group_exceeds_memory_limit");
+      }
+      descendantCountByRoot.set(rootGroup, descendantCount);
+      const siblings = rootGroup.childrenByParentId.get(line.__parentId) ?? [];
+      siblings.push(line);
+      rootGroup.childrenByParentId.set(line.__parentId, siblings);
+      registerObjectAndInlineParents(line, rootGroup);
+    }
+  };
+
+  await forEachBulkResultBatch(url, 500, acceptLines);
+  await flushRoots();
+  return count;
 }
 
 /**
- * Groups flattened bulk JSONL lines by their `__parentId`. Shopify emits a
- * separate line for every node reached through a paginated connection,
- * tagging it with the id of the nearest ancestor object that owns that
- * connection - even when that ancestor is itself an inline (non-connection)
- * field, such as an inventory item embedded inside a variant.
+ * Streams one root and bounded chunks of its direct children. This is useful
+ * for Shopify connections such as collection.products: a single collection
+ * can contain far more rows than a normal root batch and must not be retained
+ * in memory until the next collection arrives.
  */
-export function groupBulkLinesByParent(lines: BulkLine[]) {
-  const topLevel: BulkLine[] = [];
-  const childrenByParentId = new Map<string, BulkLine[]>();
-
-  for (const line of lines) {
-    if (!line.__parentId) {
-      topLevel.push(line);
-      continue;
-    }
-
-    const siblings = childrenByParentId.get(line.__parentId) ?? [];
-    siblings.push(line);
-    childrenByParentId.set(line.__parentId, siblings);
+export async function forEachBulkRootChildrenBatch(
+  url: string | null,
+  childBatchSize: number,
+  onBatch: (batch: BulkRootChildrenBatch) => Promise<void> | void,
+): Promise<number> {
+  if (!Number.isInteger(childBatchSize) || childBatchSize < 1) {
+    throw new Error("bulk_result_child_batch_size_invalid");
   }
 
-  return { topLevel, childrenByParentId };
+  let currentRoot: BulkLine | null = null;
+  let children: BulkLine[] = [];
+  let count = 0;
+
+  const emit = async (root: BulkLine, rootComplete: boolean) => {
+    const completed = children;
+    children = [];
+    await onBatch({ root, children: completed, rootComplete });
+  };
+
+  await forEachBulkResultBatch(url, childBatchSize, async (lines) => {
+    for (const line of lines) {
+      count += 1;
+      if (!line.__parentId) {
+        if (currentRoot) await emit(currentRoot, true);
+        currentRoot = line;
+        children = [];
+        continue;
+      }
+
+      if (!currentRoot || line.__parentId !== currentRoot.id) {
+        throw new Error("bulk_result_direct_child_parent_not_found");
+      }
+      children.push(line);
+      if (children.length >= childBatchSize) {
+        await emit(currentRoot, false);
+      }
+    }
+  });
+
+  if (currentRoot) await emit(currentRoot, true);
+  return count;
 }

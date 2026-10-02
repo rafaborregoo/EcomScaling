@@ -80,6 +80,19 @@ test("A27/A11/A26 solo reciben la arquitectura A28 aprobada, acotada y del mismo
           { kind: "task", title: "Diseñar bienvenida", description: "Validar evento antes de crear el flow" },
           { kind: "publish", title: "No debe pasar" },
         ],
+        flow_architecture: {
+          decision: "needs_validation",
+          summary: "Validar perfil elegible antes de disenar.",
+          candidates: [{
+            action: "create", name: "Bienvenida", objective: "Orientar primera compra",
+            entry_trigger: "Suscripcion confirmada", trigger_verification: "unverified",
+            entry_conditions: ["Consentimiento vigente"], exit_conditions: ["Compra completada"],
+            exclusions: ["Baja de marketing"], sequence: [{ step: 1, channel: "email", delay: "1 dia", purpose: "Presentar la tienda" }],
+            cadence: "Una vez por suscripcion", priority: "medium", primary_kpi: "Conversion a primera compra",
+            stop_rule: "Parar si suben quejas o bajas", evidence: [{ source: "Inventario Klaviyo", period: "sync actual", sample_size: null, coverage: "partial" }],
+            data_gaps: ["Volumen elegible"], conflicts: [], private_detail: "no compartir",
+          }],
+        },
         private_blob: "no compartir",
       },
     },
@@ -99,6 +112,8 @@ test("A27/A11/A26 solo reciben la arquitectura A28 aprobada, acotada y del mismo
 
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.code, "a28_arquitecto_flujos");
+  assert.equal(summaries[0]?.flow_architecture?.candidates[0]?.name, "Bienvenida");
+  assert.doesNotMatch(JSON.stringify(summaries), /private_detail/);
   assert.deepEqual(summaries[0]?.recommendations, ["Diseñar bienvenida: Validar evento antes de crear el flow"]);
   assert.doesNotMatch(JSON.stringify(summaries), /no compartir|No debe pasar|Aún no aprobado|Otra tienda/);
 });

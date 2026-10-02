@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { summarizeKlaviyoFlowInventory } from "./klaviyo-flow-architect-context.js";
 import { A28_MAX_METRIC_VOLUME_QUERIES } from "./klaviyo-flow-event-volume.js";
+import { klaviyoFlowArchitectOutputSchema } from "./klaviyo-flow-architect-output.js";
 
 const migrationUrl = new URL(
   "../../../supabase/migrations/20261115630000_a28_klaviyo_flow_architect.sql",
@@ -12,11 +13,19 @@ const orchestrationMigrationUrl = new URL(
   "../../../supabase/migrations/20261115640000_a28_approved_flow_context_orchestration.sql",
   import.meta.url,
 );
+const structuredArchitectureMigrationUrl = new URL(
+  "../../../supabase/migrations/20261115820000_a28_structured_flow_architecture.sql",
+  import.meta.url,
+);
 const serverUrl = new URL("./server.ts", import.meta.url);
 const runtimeUrl = new URL("./ai-runtime.ts", import.meta.url);
 const syncUrl = new URL("./klaviyo-sync.ts", import.meta.url);
 const klaviyoPageUrl = new URL(
   "../../web/src/app/klaviyo/page.tsx",
+  import.meta.url,
+);
+const diagnosticSectionUrl = new URL(
+  "../../web/src/components/ai-diagnostic-section.tsx",
   import.meta.url,
 );
 
@@ -85,6 +94,43 @@ test("A28 migration versions a manual read-only agent with bounded knowledge acc
   );
 });
 
+test("A28 structured architecture requires evidence and review fields while allowing abstention", async () => {
+  const base = {
+    answer: "Falta validar el volumen elegible.",
+    findings: [],
+    recommendations: [],
+    sources: [],
+    proposed_writes: [],
+    approval_required: true,
+    confidence: "low" as const,
+    warnings: [],
+  };
+  const abstention = klaviyoFlowArchitectOutputSchema.parse({
+    ...base,
+    flow_architecture: {
+      decision: "needs_validation",
+      summary: "No se justifica un flow hasta validar eventos y filtros.",
+      candidates: [],
+    },
+  });
+  assert.equal(abstention.flow_architecture.candidates.length, 0);
+
+  const migration = await readFile(structuredArchitectureMigrationUrl, "utf8");
+  assert.match(migration, /'a28_arquitecto_flujos_system'[\s\S]*?'v2'/);
+  assert.match(migration, /'a28_arquitecto_flujos'[\s\S]*?'v2'/);
+  assert.match(migration, /AI_A28_STRUCTURED_FLOW_ARCHITECTURE_INCOMPLETE/);
+
+  const invalid = klaviyoFlowArchitectOutputSchema.safeParse({
+    ...base,
+    flow_architecture: {
+      decision: "design_proposal",
+      summary: "Propuesta.",
+      candidates: [{ action: "create", name: "Welcome" }],
+    },
+  });
+  assert.equal(invalid.success, false);
+});
+
 test("only approved A28 architecture is passed to A27, A11 and A26 without implying activation", async () => {
   const sql = await readFile(orchestrationMigrationUrl, "utf8");
   assert.equal((sql.match(/convert_to\(/g) ?? []).length, 3);
@@ -102,10 +148,11 @@ test("only approved A28 architecture is passed to A27, A11 and A26 without imply
 });
 
 test("A28 manual UI section maps to authenticated GET/run API routes", async () => {
-  const [server, runtime, page] = await Promise.all([
+  const [server, runtime, page, diagnosticSection] = await Promise.all([
     readFile(serverUrl, "utf8"),
     readFile(runtimeUrl, "utf8"),
     readFile(klaviyoPageUrl, "utf8"),
+    readFile(diagnosticSectionUrl, "utf8"),
   ]);
   assert.match(server, /\/ai\/klaviyo-flow-architect/);
   assert.match(server, /\/ai\/klaviyo-flow-architect-run/);
@@ -113,6 +160,8 @@ test("A28 manual UI section maps to authenticated GET/run API routes", async () 
   assert.match(page, /getPath="\/ai\/klaviyo-flow-architect"/);
   assert.match(page, /runPath="\/ai\/klaviyo-flow-architect-run"/);
   assert.match(page, /days=\{90\}/);
+  assert.match(diagnosticSection, /flow_architecture\?:/);
+  assert.match(diagnosticSection, /Diseño revisable del flujo/);
   assert.equal(
     (runtime.match(/klaviyo_flow_architect_store_required/g) ?? []).length,
     2,

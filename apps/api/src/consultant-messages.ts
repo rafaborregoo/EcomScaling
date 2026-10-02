@@ -340,7 +340,7 @@ export async function listThreadMessages(
   authorization: string,
   context: AuthContext,
   organizationId: string,
-  params: { limit?: number | undefined },
+  params: { limit?: number | undefined; markRead?: boolean | undefined },
 ) {
   if (
     !context.memberships.some(
@@ -409,19 +409,64 @@ export async function listThreadMessages(
     })),
   );
 
-  // Marca el hilo como leído hasta ahora para el caller.
-  await service
+  // Cuándo leyó el otro lado (para el "Visto"). Con varios consultores o
+  // admins en el hilo se toma el más reciente de quien no es el caller.
+  // ponytail: sin distinguir lado por rol; si hace falta, filtrar por membresía.
+  const { data: reads } = await service
     .from("consultant_client_message_reads")
-    .upsert(
-      {
-        organization_id: organizationId,
-        user_id: context.user.id,
-        last_read_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id,user_id" },
-    );
+    .select("user_id, last_read_at")
+    .eq("organization_id", organizationId)
+    .neq("user_id", context.user.id);
+  const counterpartReadAt =
+    (reads ?? [])
+      .map((row) => row.last_read_at as string)
+      .sort()
+      .at(-1) ?? null;
 
-  return { ok: true as const, data: { messages } };
+  // Marcar como leído es un acto aparte: quien abre el hilo en una pestaña en
+  // segundo plano, o lo refresca por sondeo, no lo ha leído. Por defecto se
+  // mantiene el comportamiento anterior; el chat pasa `markRead: false` y usa
+  // `markThreadRead` cuando el hilo está a la vista.
+  if (params.markRead !== false) {
+    await markThreadReadNow(service, context, organizationId);
+  }
+
+  return {
+    ok: true as const,
+    data: { messages, counterpart_read_at: counterpartReadAt },
+  };
+}
+
+async function markThreadReadNow(
+  service: ReturnType<typeof createServiceClient>,
+  context: AuthContext,
+  organizationId: string,
+) {
+  await service.from("consultant_client_message_reads").upsert(
+    {
+      organization_id: organizationId,
+      user_id: context.user.id,
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "organization_id,user_id" },
+  );
+}
+
+/** Marca el hilo como leído hasta ahora para el caller. */
+export async function markThreadRead(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  if (!resolveThreadAuthorKind(context, organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+  await markThreadReadNow(createServiceClient(env), context, organizationId);
+  return { ok: true as const, data: { ok: true } };
 }
 
 // --------------------------------------------------------------------------

@@ -30,6 +30,7 @@ test("A21 no confunde error de consulta, ausencia de filas y datos disponibles",
     availability: "available", data: [{ sessions: 12 }],
   });
   assert.deepEqual(agentRpcEvidence(null, null), { availability: "no_data_returned" });
+  assert.deepEqual(agentRpcEvidence([], null), { availability: "no_data_returned" });
   assert.deepEqual(agentRpcEvidence([], { message: "timeout" }), {
     availability: "unavailable",
   });
@@ -100,6 +101,17 @@ test("el orquestador conserva el agregado y crea una pasada por tienda para los 
     { storeId: null, connectionId: null },
     ...stores,
   ]);
+});
+
+test("A23-A25 solo se programan por tienda: nunca incluyen agregado que mezcle cuentas", () => {
+  const stores = [
+    { storeId: "store-1", connectionId: "connection-1" },
+    { storeId: "store-2", connectionId: "connection-2" },
+  ];
+  for (const agent of ["a23_creatividad_meta", "a24_medicion_meta", "a25_cambios_meta"]) {
+    assert.deepEqual(orchestratorScopesForAgent(agent, stores), stores, agent);
+    assert.deepEqual(orchestratorScopesForAgent(agent, []), [], `${agent} without active stores`);
+  }
 });
 
 test("sin run previo: no hay antiguedad que mostrar", () => {

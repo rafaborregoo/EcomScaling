@@ -44,6 +44,11 @@ export type ProposedTask = {
     target: number | null;
     evaluation_window: string;
   };
+  initiative_change?: {
+    action: "replace" | "retire";
+    previous_task_id: string;
+    previous_task_title: string;
+  };
   phase: string | null;
   pending_approval: boolean;
   output_id: string;
@@ -335,6 +340,12 @@ function ProposedTaskDetail({
         <p className="rounded-md border border-separator bg-surface-subtle p-3 text-xs leading-relaxed text-muted">
           <span className="font-medium text-foreground">Medición mensual: </span>
           {task.initiative_measurement.metric_name} · base {task.initiative_measurement.baseline === null ? "no disponible" : `${task.initiative_measurement.baseline}${task.initiative_measurement.unit ? ` ${task.initiative_measurement.unit}` : ""}`} · objetivo {task.initiative_measurement.target === null ? "sin definir" : `${task.initiative_measurement.target}${task.initiative_measurement.unit ? ` ${task.initiative_measurement.unit}` : ""}`} · {task.initiative_measurement.evaluation_window}
+        </p>
+      ) : null}
+      {task.initiative_change ? (
+        <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-muted">
+          <span className="font-medium text-foreground">Cambio mensual: </span>
+          {task.initiative_change.action === "retire" ? "retirar" : "sustituir"} «{task.initiative_change.previous_task_title}». La iniciativa anterior solo se cerrará cuando se apruebe esta propuesta.
         </p>
       ) : null}
 

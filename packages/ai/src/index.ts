@@ -288,6 +288,14 @@ export const agentProposedWriteSchema = z.object({
     target: z.number().finite().nullable(),
     evaluation_window: z.string().trim().min(1).max(120),
   }).optional(),
+  // A18 may propose to replace or retire one exact open monthly initiative.
+  // The API revalidates its organization/store/status before applying after
+  // approval; other agents ignore this optional field.
+  initiative_change: z.object({
+    action: z.enum(["replace", "retire"]),
+    previous_task_id: z.string().uuid(),
+    previous_task_title: z.string().trim().min(1).max(255),
+  }).optional(),
   // Por que existe esta tarea. `.default()` a proposito: las salidas ya
   // guardadas y cualquier ruta que no use structured outputs no los traen, y
   // no deben quedar invalidas por ello.
@@ -441,6 +449,16 @@ export const agentOutputJsonSchema = {
               baseline: { type: ["number", "null"] },
               target: { type: ["number", "null"] },
               evaluation_window: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
+          initiative_change: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action", "previous_task_id", "previous_task_title"],
+            properties: {
+              action: { type: "string", enum: ["replace", "retire"] },
+              previous_task_id: { type: "string", format: "uuid" },
+              previous_task_title: { type: "string", minLength: 1, maxLength: 255 },
             },
           },
           rationale: {
@@ -2407,6 +2425,113 @@ export function buildLeanOutputContract(
   };
 }
 
+const a23MeasurementVerdicts = [
+  "usable_with_attribution_limits",
+  "restricted",
+  "not_assessable",
+  "unknown",
+] as const;
+
+function createA23CreativeDecisionSchema(
+  expectedVerdict?: typeof a23MeasurementVerdicts[number],
+) {
+  return z.object({
+    action: z.enum(["observe", "test_variant", "investigate_landing_offer", "propose_pause"]),
+    signal: z.string().trim().min(1).max(500),
+    window: z.string().trim().min(1).max(120),
+    spend_implicated: z.number().finite().nonnegative().nullable(),
+    spend_currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
+    uncertainty: z.string().trim().min(1).max(500),
+    hypothesis: z.string().trim().min(1).max(500),
+    success_criterion: z.string().trim().min(1).max(300),
+    measurement_verdict: expectedVerdict ? z.literal(expectedVerdict) : z.enum(a23MeasurementVerdicts),
+  }).superRefine((decision, ctx) => {
+  if (decision.action === "propose_pause" && decision.measurement_verdict !== "usable_with_attribution_limits") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["measurement_verdict"],
+        message: "Solo se puede proponer una pausa cuando el veredicto de medicion es util con limites de atribucion.",
+    });
+  }
+  if ((decision.spend_implicated === null) !== (decision.spend_currency === null)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["spend_currency"],
+      message: "La divisa solo puede indicarse junto con un importe observado.",
+    });
+  }
+  });
+}
+
+export const a23CreativeDecisionSchema = createA23CreativeDecisionSchema();
+
+export type A23CreativeDecision = z.infer<typeof a23CreativeDecisionSchema>;
+export type A23CreativeOutput = AgentOutput & { creative_decisions: A23CreativeDecision[] };
+
+/** A23 keeps its user-facing payload lean but requires an evidence-backed, gated decision record. */
+export function buildA23CreativeOutputContract(
+  measurementVerdict: A23CreativeDecision["measurement_verdict"] = "unknown",
+): OutputContract<A23CreativeOutput> {
+  const creativeDecisionSchema = createA23CreativeDecisionSchema(measurementVerdict);
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+  for (const field of ["answer", "findings", "recommendations"] as const) {
+    delete jsonSchema.properties[field];
+    jsonSchema.required = jsonSchema.required.filter((key) => key !== field);
+  }
+  jsonSchema.required.push("creative_decisions");
+  jsonSchema.properties.creative_decisions = {
+    type: "array",
+    maxItems: 5,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "action",
+        "signal",
+        "window",
+        "spend_implicated",
+        "spend_currency",
+        "uncertainty",
+        "hypothesis",
+        "success_criterion",
+        "measurement_verdict",
+      ],
+      properties: {
+        action: { type: "string", enum: ["observe", "test_variant", "investigate_landing_offer", "propose_pause"] },
+        signal: { type: "string", minLength: 1, maxLength: 500 },
+        window: { type: "string", minLength: 1, maxLength: 120 },
+        spend_implicated: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
+        spend_currency: { anyOf: [{ type: "string", pattern: "^[A-Z]{3}$" }, { type: "null" }] },
+        uncertainty: { type: "string", minLength: 1, maxLength: 500 },
+        hypothesis: { type: "string", minLength: 1, maxLength: 500 },
+        success_criterion: { type: "string", minLength: 1, maxLength: 300 },
+        measurement_verdict: {
+          type: "string",
+          enum: [measurementVerdict],
+        },
+      },
+    },
+  };
+
+  const schema = agentOutputSchema
+    .partial({ answer: true, findings: true, recommendations: true })
+    .extend({ creative_decisions: z.array(creativeDecisionSchema).max(5) })
+    .transform((value) => ({
+      ...value,
+      answer: value.answer ?? describeProposals(value.proposed_writes.length),
+      findings: value.findings ?? [],
+      recommendations: value.recommendations ?? [],
+    }));
+
+  return {
+    jsonSchema: jsonSchema as unknown as Record<string, unknown>,
+    schema: schema as unknown as z.ZodType<A23CreativeOutput>,
+  };
+}
+
 /**
  * Tool ejecutable durante una vuelta de agente. `execute` corre en el backend
  * (nunca en el modelo) y es responsable de su propia auditoria; lo que
@@ -3114,7 +3239,9 @@ function turnPricingFields(
  * backend y auditan cada invocacion.
  */
 export async function runAgentTurn<TOutput = AgentOutput>(params: {
-  apiKey: string;
+  apiKey?: string;
+  /** Inyección del cliente en el límite del proveedor (pruebas y replay offline). */
+  client?: Pick<Anthropic, "messages">;
   model: string;
   systemPrompt: string;
   input: AgentTurnInput;
@@ -3135,10 +3262,13 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
    */
   images?: AgentImageAttachment[];
 }): Promise<AgentTurnResult<TOutput>> {
+  if (!params.client && !params.apiKey) {
+    throw new Error("agent_provider_credentials_required");
+  }
   const input = "scope" in params.input
     ? platformAgentInputSchema.parse(params.input)
     : agentInputSchema.parse(params.input);
-  const client = new Anthropic({ apiKey: params.apiKey });
+  const client = params.client ?? new Anthropic({ apiKey: params.apiKey! });
   const startedAt = Date.now();
   const tools = params.tools ?? [];
   const budget = params.budget;
@@ -3399,6 +3529,9 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
 
   const requestBase = {
     model: params.model,
+    ...(params.model === "gpt-6-luna" || params.model === "gpt-6-sol"
+      ? { reasoning_effort: "none" as never }
+      : {}),
     max_completion_tokens: 16000,
     response_format: {
       type: "json_schema" as const,

@@ -90,6 +90,12 @@ export async function createStripeCheckout(
     return { ok: false as const, statusCode: 400, error: "price_id_required" };
   }
 
+  // Managed Payments es opt-in por precio. El ID procede de configuración
+  // server-side; el cliente nunca puede activar el modo enviando un booleano.
+  const managedPaymentsEnabled =
+    Boolean(env.STRIPE_MANAGED_PAYMENTS_PRICE_ID) &&
+    priceId === env.STRIPE_MANAGED_PAYMENTS_PRICE_ID;
+
   const organizationId = body.organization_id?.trim() || null;
   const customerTaxId = body.customer_tax_id?.trim().toUpperCase() || null;
   if (customerTaxId && !/^[A-Z0-9-]{5,40}$/.test(customerTaxId)) {
@@ -123,6 +129,9 @@ export async function createStripeCheckout(
         [STRIPE_CUSTOMER_TAX_ID_METADATA_KEY]: customerTaxId,
       }
     : subjectMetadata;
+  const checkoutMetadata = managedPaymentsEnabled
+    ? { ...metadata, ecomscaling_managed_payments: "true" }
+    : metadata;
 
   // El 10% del cliente vinculado (§2.1) NO se guarda en ningun sitio: se
   // deriva de que exista una asignacion viva a una consultora, aqui y ahora.
@@ -146,7 +155,9 @@ export async function createStripeCheckout(
       : null;
 
   const origin = (env.WEB_ORIGIN ?? "http://localhost:3001").replace(/\/$/, "");
-  const params: Stripe.Checkout.SessionCreateParams = {
+  const params: Stripe.Checkout.SessionCreateParams & {
+    managed_payments?: { enabled: true };
+  } = {
     mode: "subscription",
     // Etiqueta el flujo en el dashboard de Stripe para poder comparar
     // conversiones entre flujos de checkout. El sufijo aleatorio es lo que
@@ -165,14 +176,19 @@ export async function createStripeCheckout(
     // checkout: pedirlo despues por email es como se acaba emitiendo una
     // factura sin el.
     tax_id_collection: { enabled: true },
-    metadata,
-    subscription_data: { metadata },
+    metadata: checkoutMetadata,
+    subscription_data: { metadata: checkoutMetadata },
+    ...(managedPaymentsEnabled ? { managed_payments: { enabled: true } } : {}),
     ...descuentosDeCheckout({ vinculada, cuponReferido }),
   };
 
   try {
-    const session =
-      await createStripeClient(env).checkout.sessions.create(params);
+    const stripe = createStripeClient(
+      managedPaymentsEnabled
+        ? { ...env, STRIPE_API_VERSION: "2026-08-26.preview" }
+        : env,
+    );
+    const session = await stripe.checkout.sessions.create(params);
     if (!session.url) {
       return {
         ok: false as const,

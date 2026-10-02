@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -14,6 +15,7 @@ import {
   EmptyState,
   ErrorBlock,
   EYEBROW,
+  Heading,
   Input,
   List,
   LoadingBlock,
@@ -201,7 +203,7 @@ function CallPrepCard({
 
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <div className="mt-3 grid gap-4 lg:grid-cols-2">
+      <div className="mt-3 grid gap-3 lg:grid-cols-3 [&>div]:rounded-lg [&>div]:bg-surface [&>div]:p-3">
         <div>
           <p className={EYEBROW}>De la última llamada</p>
           {call.last_call ? (
@@ -238,14 +240,17 @@ function CallPrepCard({
               Es la primera llamada con este cliente.
             </p>
           )}
-          {call.my_open_tasks > 0 ? (
-            <p className="mt-2 text-xs text-warning">
-              Tienes {call.my_open_tasks} tarea
-              {call.my_open_tasks === 1 ? "" : "s"} interna
-              {call.my_open_tasks === 1 ? "" : "s"} abierta
-              {call.my_open_tasks === 1 ? "" : "s"} con este cliente.
-            </p>
-          ) : null}
+        </div>
+
+        <div>
+          <p className={EYEBROW}>Sin cerrar</p>
+          <p
+            className={`mt-1 text-sm ${call.my_open_tasks > 0 ? "text-warning" : "text-muted"}`}
+          >
+            {call.my_open_tasks > 0
+              ? `${call.my_open_tasks} ${call.my_open_tasks === 1 ? "tarea tuya abierta" : "tareas tuyas abiertas"} con este cliente`
+              : "Nada tuyo pendiente con este cliente."}
+          </p>
         </div>
 
         <div>
@@ -283,8 +288,18 @@ function CallPrepCard({
   );
 }
 
+/** Pantalla del consultor: el cliente va a sus tareas. */
+function RedirectTo({ href }: { href: string }) {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(href);
+  }, [href, router]);
+  return null;
+}
+
 function MyWorkContent() {
   const { setOrganizationId } = useActiveOrganization();
+  const router = useRouter();
   const [data, setData] = useState<WorkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -331,13 +346,7 @@ function MyWorkContent() {
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <div>
-        <p className={EYEBROW}>Mi trabajo</p>
-        <p className="mt-0.5 text-sm text-muted">
-          Lo que te toca a ti, no a tus clientes: próximas llamadas, lo que
-          debes preparar y tus tareas internas.
-        </p>
-      </div>
+      <Heading>Mi trabajo</Heading>
 
       <ModuleSummary
         period="Próximos 14 días"
@@ -391,10 +400,7 @@ function MyWorkContent() {
         )}
       </section>
 
-      <Card
-        title="Mis tareas"
-        description="Tareas internas: las tuyas, no las del cliente. Incluye las que A01 propone con dueño «consultor»."
-      >
+      <Card title="Mis tareas">
         {myTasks.length === 0 ? (
           <EmptyState
             title="Sin tareas internas abiertas"
@@ -452,10 +458,7 @@ function MyWorkContent() {
         )}
       </Card>
 
-      <Card
-        title="Clientes sin llamada agendada"
-        description="Lo que no está en el calendario no existe. Ordenados por silencio más largo."
-      >
+      <Card title="Clientes sin llamada agendada">
         {uncovered.length === 0 ? (
           <EmptyState title="Toda la cartera tiene su próxima llamada agendada" />
         ) : (
@@ -478,13 +481,26 @@ function MyWorkContent() {
                       : ""}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setOrganizationId(client.id)}
-                >
-                  Abrir cliente
-                </Button>
+                <div className="flex shrink-0 gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setOrganizationId(client.id)}
+                  >
+                    Abrir cliente
+                  </Button>
+                  {/* La llamada se agenda donde viven las llamadas, ya con el
+                      cliente activo. */}
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setOrganizationId(client.id);
+                      router.push("/llamadas");
+                    }}
+                  >
+                    Agendar
+                  </Button>
+                </div>
               </List.Item>
             ))}
           </List>
@@ -503,12 +519,7 @@ export default function MyWorkPage() {
         ) ? (
           <MyWorkContent />
         ) : (
-          <div className="portal-page">
-            <EmptyState
-              title="Esta pantalla es del consultor"
-              hint="Tus tareas están en «Tareas»."
-            />
-          </div>
+          <RedirectTo href="/tareas" />
         )
       }
     </PortalShell>

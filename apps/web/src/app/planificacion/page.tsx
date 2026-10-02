@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -10,6 +12,7 @@ import { ModuleSummary } from "@/components/module-summary";
 import { channelStyle } from "@/components/marketing-channel";
 import { agendaSignal, sortAgenda } from "./agenda-signal";
 import { PlanningPortfolio } from "./portfolio-view";
+import { HeroBlock, heroPrimary } from "@/components/trabajo-ui";
 import {
   Badge,
   Banner,
@@ -72,6 +75,12 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  // El Resumen es del consultor; el cliente tiene su agenda en Trabajo.
+  useEffect(() => {
+    if (!isConsultant) router.replace("/planificacion/calendario");
+  }, [isConsultant, router]);
 
   useEffect(() => {
     if (!organizationId || !isConsultant) {
@@ -154,41 +163,60 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   ).length;
   const money = (value?: number | null) =>
     value == null ? "—" : formatMoney(value);
+  // Una sola cosa que decidir, en este orden: lo atascado, lo que no tiene con
+  // qué salir, el tracking sin capturar y, si todo está al día, lo siguiente.
+  const decision =
+    attentionCount > 0
+      ? {
+          title: `${attentionCount} ${attentionCount === 1 ? "acción vencida o parada" : "acciones vencidas o paradas"}`,
+          body: "Reprográmalas o desbloquéalas antes de planificar más.",
+          cta: "Abrir agenda",
+          href: "/planificacion/calendario",
+        }
+      : withoutPiece > 0
+        ? {
+            title: `${withoutPiece} ${withoutPiece === 1 ? "acción sin pieza escrita" : "acciones sin pieza escrita"}`,
+            body: "Email, Meta o Instagram planificados sin borrador en Marketing.",
+            cta: "Ir a Marketing",
+            href: "/marketing?section=crear",
+          }
+        : !snapshots[0]
+          ? {
+              title: "Falta capturar el tracking",
+              body: "Sin un periodo cerrado no hay con qué comparar.",
+              cta: "Capturar tracking",
+              href: "/planificacion/tracking",
+            }
+          : {
+              title: nextUp ? nextUp.title : "La agenda no tiene nada por delante",
+              body: nextUp ? dateLabel(nextUp.starts_at) : "Planifica la siguiente acción.",
+              cta: "Abrir agenda",
+              href: "/planificacion/calendario",
+            };
 
-  if (!isConsultant)
-    return (
-      <Card
-        title="Planificación del consultor"
-        description="Esta herramienta coordina el trabajo interno del consultor y del consultor IA."
-      >
-        <ButtonLink href="/dashboard">Volver al dashboard</ButtonLink>
-      </Card>
-    );
+  if (!isConsultant) return null;
   // Sin cliente activo la respuesta ya no es "elige uno": es DECIR cuál elegir.
   if (!organizationId) return <PlanningPortfolio />;
   if (loading) return <LoadingBlock label="Cargando resumen…" />;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Heading>Planificación</Heading>
-          <p className="mt-1 max-w-2xl text-sm text-muted">
-            Una vista rápida de lo que está pasando, lo que viene después y qué
-            debe decidir el consultor.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <ButtonLink href="/planificacion/calendario">Calendario</ButtonLink>
-          <ButtonLink href="/planificacion/recomendaciones" variant="secondary">
-            Recomendaciones IA
-          </ButtonLink>
-          <ButtonLink href="/planificacion/tracking" variant="secondary">
-            Tracking
-          </ButtonLink>
-        </div>
-      </div>
+      <Heading>Resumen</Heading>
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      <HeroBlock
+        label="Siguiente decisión"
+        title={decision.title}
+        actions={
+          <>
+            <Link className={heroPrimary} href={decision.href}>
+              {decision.cta}
+            </Link>
+            <Link href="/planificacion/recomendaciones">Recomendaciones IA</Link>
+          </>
+        }
+      >
+        {decision.body}
+      </HeroBlock>
       {/* Lo que hay que saber antes de decidir qué planificar: cómo va el
           negocio, qué rinde la inversión y cuánto trabajo hay atascado. Las
           mismas cifras viajan al Consultor IA como vista actual. */}
@@ -241,10 +269,9 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           grande y un banner: el mismo dato tres veces y ninguna acción. */}
       <Card
         title="Agenda"
-        description="Lo parado primero, después lo vencido, después lo que viene. Cada acción dice si ya tiene su pieza escrita."
         actions={
           <ButtonLink href="/planificacion/calendario" variant="secondary">
-            Ver calendario
+            Abrir agenda
           </ButtonLink>
         }
       >
@@ -300,10 +327,8 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </p>
         ) : null}
       </Card>
-      <div className="grid gap-6 lg:grid-cols-2">
         <Card
           title="Último tracking"
-          description="El último snapshot utilizado para tomar decisiones."
           actions={
             <ButtonLink href="/planificacion/tracking" variant="secondary">
               Ver tracking
@@ -328,56 +353,13 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <Banner tone="warn">Todavía no hay snapshots registrados.</Banner>
           )}
         </Card>
-        {/* Antes esto era una tarjeta de texto fijo con un enlace: prometia
-            "la IA analiza los datos" y no enseñaba ni un dato. Ahora dice qué
-            falta para poder decidir. */}
-        <Card
-          title="Siguiente decisión"
-          description="La IA propone; el consultor valida antes de ejecutar."
-          actions={
-            <ButtonLink href="/planificacion/recomendaciones">
-              Abrir recomendaciones
-            </ButtonLink>
-          }
-        >
-          <List as="ul" className="text-sm">
-            <List.Item
-              as="li"
-              className="flex items-center justify-between gap-3 py-2"
-            >
-              <span>Acciones esperando decisión</span>
-              <Badge tone={attentionCount > 0 ? "warn" : "success"}>
-                {attentionCount}
-              </Badge>
-            </List.Item>
-            <List.Item
-              as="li"
-              className="flex items-center justify-between gap-3 py-2"
-            >
-              <span>Acciones sin pieza escrita</span>
-              <Badge tone={withoutPiece > 0 ? "warn" : "success"}>
-                {withoutPiece}
-              </Badge>
-            </List.Item>
-            <List.Item
-              as="li"
-              className="flex items-center justify-between gap-3 py-2"
-            >
-              <span>Tracking del periodo</span>
-              <Badge tone={snapshots[0] ? "success" : "warn"}>
-                {snapshots[0] ? "Registrado" : "Sin snapshot"}
-              </Badge>
-            </List.Item>
-          </List>
-        </Card>
-      </div>
     </div>
   );
 }
 
 export default function PlanningPage() {
   return (
-    <PortalShell title="Planificación">
+    <PortalShell title="Resumen">
       {(bootstrap) => <PlanningContent bootstrap={bootstrap} />}
     </PortalShell>
   );

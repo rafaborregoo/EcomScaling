@@ -1,69 +1,78 @@
-// Sube los .md de una carpeta como conocimiento GLOBAL (metodologia de
-// plataforma: visibility 'global', organization_id null). Un fichero = un
-// documento; el titulo sale del primer `# ` o del nombre del fichero.
+// Sincroniza una carpeta de conocimiento/ con el conocimiento GLOBAL de la BD
+// (visibility 'global', organization_id null). Un fichero = un documento; el
+// titulo sale del primer `# ` o del nombre del fichero.
 //
 // Uso:
-//   npm run conocimiento:ingest -- conocimiento/fase-01 --dry-run
-//   npm run conocimiento:ingest -- conocimiento/fase-01 --limit=1
-//   npm run conocimiento:ingest -- conocimiento/fase-01
+//   npm run conocimiento:ingest -- conocimiento/fase-10/01-rag-produccion --dry-run
+//   npm run conocimiento:ingest -- conocimiento/fase-10/01-rag-produccion
+//   npm run conocimiento:ingest -- <carpeta> --limit=N   como mucho N create+update
+//   npm run conocimiento:ingest -- conocimiento/fase-01/00-corpus-maestro --legacy-corpus
 //
-// Auth: KNOWLEDGE_ADMIN_TOKEN (bearer ya emitido) o
-// KNOWLEDGE_ADMIN_EMAIL/KNOWLEDGE_ADMIN_PASSWORD de una cuenta platform_admin.
+// La carpeta ES el scope: solo se crean, actualizan o archivan documentos
+// cuya ruta (columna `description`) cuelga directamente de ella. Nada fuera
+// del scope se toca. Para cada .md el plan decide:
+//   CREATE     no hay documento activo con esa ruta
+//   UPDATE     existe y su checksum difiere -> PATCH: sube version, rechunkea,
+//              reembebe y sustituye los chunks (mismo documento, no uno nuevo)
+//   UNCHANGED  mismo checksum -> no se llama a Voyage
+//   ARCHIVE    documento activo del scope cuyo .md ya no existe
+//   ERROR      conflicto que no se resuelve solo (titulo usado por otra ruta,
+//              dos documentos activos con la misma ruta, fallo HTTP)
+// --dry-run lee la BD y enseña el plan sin escribir nada.
 //
-// Limites de Voyage: la API ya reintenta con backoff los 429 dentro de una
-// peticion (withAgentResilience, packages/ai/src/resilience.ts), pero eso no
-// evita agotar el ritmo por minuto encadenando documentos. Por eso aqui:
-// secuencial, pausa entre documentos (INGEST_DELAY_MS) y `--limit` para
-// ingestar de N en N en vez de soltar la carpeta entera.
+// Identidad = ruta relativa (description) + titulo unico entre globales
+// activos (indice knowledge_documents_global_titulo_unico). Con eso basta: no
+// hace falta columna nueva.
+//
+// Auth: CREATE/UPDATE van por la API (es la que embebe), con
+// KNOWLEDGE_ADMIN_TOKEN o KNOWLEDGE_ADMIN_EMAIL/KNOWLEDGE_ADMIN_PASSWORD de
+// una cuenta platform_admin. Leer el estado (con checksum) y ARCHIVE van con
+// SUPABASE_SERVICE_ROLE_KEY, como scripts/archiva-conocimiento-global.mjs:
+// archivar solo cambia `status`, no necesita embeddings.
+//
+// Limites de Voyage: la API reintenta los 429 dentro de una peticion, pero eso
+// no evita agotar el ritmo por minuto encadenando documentos. Por eso:
+// secuencial, pausa entre documentos (INGEST_DELAY_MS) y `--limit`.
 import { readdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
-const folder = process.argv[2];
-const dryRun = process.argv.includes("--dry-run");
-const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
-const limit = limitArg ? Number(limitArg.split("=")[1]) : Infinity;
+// Solo 01-rag-produccion es RAG de produccion (conocimiento/README.md). Lista
+// blanca, no negra: contratos, runtime, policies, experience, tenant y
+// auditoria nunca se indexan. 00-corpus-maestro solo con --legacy-corpus:
+// fase-01 y fase-02 no tienen destilado y su conocimiento vivo sigue saliendo
+// de ahi (verificado en BD 2026-09-29); ninguna otra fase debe usarlo.
+// `contexto-RAG` se retiro: no queda carpeta ni documento con esa ruta.
+export const CAPA_RAG = "01-rag-produccion";
+export const CAPA_LEGACY = "00-corpus-maestro";
 
-if (!folder || Number.isNaN(limit) || limit < 1) {
-  console.error(
-    "uso: node scripts/ingest-conocimiento.mjs <carpeta> [--dry-run] [--limit=N]",
-  );
-  process.exit(1);
+export function capaPermitida(folder, { legacyCorpus = false } = {}) {
+  const hoja = normalizaRuta(folder).split("/").pop();
+  if (hoja === CAPA_RAG) return { ok: true };
+  if (hoja === CAPA_LEGACY && legacyCorpus) return { ok: true };
+  return {
+    ok: false,
+    motivo:
+      hoja === CAPA_LEGACY
+        ? `${folder} es corpus maestro: no es RAG de produccion. Solo fase-01/fase-02 lo usan, y exige --legacy-corpus.`
+        : `${folder} no es una carpeta indexable. Solo se ingesta ${CAPA_RAG}.`,
+  };
 }
 
-// Cada fase tiene ocho subcarpetas y solo dos son corpus. Lista blanca, no
-// negra: con seis que NO se indexan (contratos, runtime, policies,
-// experience, tenant, auditoria) y mas que puedan crearse, prohibir una a una
-// deja el hueco abierto a la siguiente. Equivocarse de ruta cuesta embeddings
-// y, peor, mete en el indice material que el copiloto citaria como si fuera
-// metodologia.
-const CARPETAS_INDEXABLES = [
-  "00-corpus-maestro",
-  "01-rag-produccion",
-  "contexto-RAG", // nombre anterior a la reestructuracion
-];
-
-const hoja = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
-if (!CARPETAS_INDEXABLES.includes(hoja)) {
-  console.error(
-    `${folder} no es una carpeta indexable.\n` +
-      `Solo se ingesta: ${CARPETAS_INDEXABLES.join(", ")}.`,
-  );
-  process.exit(1);
+/** Rutas comparables entre Windows (description con `\`) y POSIX. */
+export function normalizaRuta(ruta) {
+  return String(ruta ?? "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/\/+$/, "");
 }
 
-const audience = process.env.KNOWLEDGE_AUDIENCE ?? "consultant_only";
-const apiUrl =
-  process.env.API_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`;
-const delayMs = Number(process.env.INGEST_DELAY_MS ?? 3000);
-
-// Estimacion, no medicion: ~4 chars por token en español, el mismo ratio que
-// usa createKnowledgeDocument para token_count. Sirve para decidir antes de
-// gastar, no para facturar.
-const estimateTokens = (chars) => Math.ceil(chars / 4);
-const estimateChunks = (chars) => Math.ceil(chars / 1300);
+// Mismo calculo que createKnowledgeDocument/updateKnowledgeDocument (trim).
+export const checksumDe = (content) =>
+  createHash("sha256").update(content.trim()).digest("hex");
 
 // El titulo va a una columna, no a un render markdown: fuera enfasis
 // (**2. Producto**) y escapes de markdown (2\. Producto).
@@ -86,12 +95,10 @@ function encabezados(markdown) {
 /**
  * Titula cada documento con su primer encabezado, PERO una carpeta puede tener
  * varios ficheros que comparten el primero (fase-02: los 12 ficheros abren con
- * "FASE 2 - CICLO DE VIDA..." y lo que los distingue es el segundo, "E1 -
- * NACIMIENTO"). Con el titulo repetido, el dedupe por titulo se comeria once
- * de los doce, asi que a los que chocan se les anade el primer encabezado que
- * no comparten.
+ * "FASE 2 - CICLO DE VIDA..." y lo que los distingue es el segundo). A los que
+ * chocan se les anade el primer encabezado que no comparten.
  */
-function titula(documentos) {
+export function titula(documentos) {
   const porTitulo = new Map();
   for (const doc of documentos) {
     const base = doc.headings[0] ?? path.basename(doc.file, ".md");
@@ -112,6 +119,186 @@ function titula(documentos) {
   }
 
   return documentos;
+}
+
+const VIVO = (doc) => doc.status !== "archived" && doc.status !== "superseded";
+
+/**
+ * Plan puro repo -> BD. `local`: [{ path, title, checksum }] del scope.
+ * `remote`: documentos globales de la BD [{ id, title, description, status,
+ * checksum }]; checksum null = desconocido (se trata como cambiado).
+ */
+export function planSync({ scope, local, remote }) {
+  const raiz = normalizaRuta(scope);
+  const vivos = remote.filter(VIVO).map((doc) => ({ ...doc, path: normalizaRuta(doc.description) }));
+  const porRuta = new Map();
+  for (const doc of vivos) {
+    if (!porRuta.has(doc.path)) porRuta.set(doc.path, []);
+    porRuta.get(doc.path).push(doc);
+  }
+
+  const rutasLocales = new Set(local.map((doc) => normalizaRuta(doc.path)));
+  const plan = { create: [], update: [], unchanged: [], archive: [], error: [] };
+
+  // Solo hijos directos del scope: la lectura local no es recursiva, asi que
+  // un subdirectorio no leido nunca cuenta como "borrado".
+  for (const doc of vivos) {
+    if (path.posix.dirname(doc.path) === raiz && !rutasLocales.has(doc.path)) {
+      plan.archive.push({ id: doc.id, path: doc.path, title: doc.title });
+    }
+  }
+  const titulosLiberados = new Map(plan.archive.map((doc) => [doc.title, doc.id]));
+
+  for (const item of local) {
+    const ruta = normalizaRuta(item.path);
+    const coincidencias = porRuta.get(ruta) ?? [];
+
+    if (coincidencias.length > 1) {
+      plan.error.push({
+        path: ruta,
+        motivo: `${coincidencias.length} documentos activos con la misma ruta (${coincidencias
+          .map((doc) => doc.id)
+          .join(", ")}): archivar el sobrante a mano`,
+      });
+      continue;
+    }
+
+    const [existente] = coincidencias;
+    if (existente) {
+      if (existente.checksum && existente.checksum === item.checksum) {
+        plan.unchanged.push({ id: existente.id, path: ruta, title: existente.title });
+      } else {
+        plan.update.push({
+          id: existente.id,
+          path: ruta,
+          title: item.title,
+          remoteTitle: existente.title,
+          from: existente.checksum ?? null,
+          to: item.checksum,
+        });
+      }
+      continue;
+    }
+
+    // Sin documento en esta ruta: el titulo no puede estar cogido por otra
+    // (indice unico). Si lo tiene un documento del scope que se archiva en
+    // este mismo plan, es un renombrado: se archiva antes de crear.
+    const duenoTitulo = vivos.find((doc) => doc.title === item.title);
+    if (duenoTitulo && !titulosLiberados.has(item.title)) {
+      plan.error.push({
+        path: ruta,
+        motivo: `titulo "${item.title}" ya usado por ${duenoTitulo.path || duenoTitulo.id}`,
+      });
+      continue;
+    }
+    plan.create.push({
+      path: ruta,
+      title: item.title,
+      to: item.checksum,
+      ...(duenoTitulo ? { replaces: titulosLiberados.get(item.title) } : {}),
+    });
+  }
+
+  return plan;
+}
+
+/**
+ * Aplica un plan con un cliente de API inyectable. Orden: UPDATE, CREATE (un
+ * renombrado archiva primero el documento cuyo titulo reutiliza) y el resto
+ * de ARCHIVE al final, para no dejar huecos si algo falla a mitad.
+ */
+export async function executePlan(plan, api, { limit = Infinity, delayMs = 0, log = console.log } = {}) {
+  const manifest = { created: [], updated: [], unchanged: plan.unchanged, archived: [], errors: [...plan.error] };
+  const archivados = new Set();
+  let embebidos = 0;
+  let fallosSeguidos = 0;
+  const MAX_FALLOS_SEGUIDOS = 3;
+
+  const registraFallo = (entry, error) => {
+    manifest.errors.push({ path: entry.path, motivo: String(error?.message ?? error) });
+    fallosSeguidos += 1;
+    // Una clave invalida o un limite de Voyage no se arreglan solos a mitad de
+    // carpeta: tres seguidos y se para en vez de gastar peticiones.
+    return fallosSeguidos >= MAX_FALLOS_SEGUIDOS;
+  };
+
+  const archiva = async (entry) => {
+    if (archivados.has(entry.id)) return;
+    await api.archive(entry.id);
+    archivados.add(entry.id);
+    manifest.archived.push({ id: entry.id, path: entry.path, title: entry.title });
+    log(`ARCHIVED ${entry.path} (${entry.id})`);
+  };
+
+  const trabajos = [
+    ...plan.update.map((entry) => ({ kind: "update", entry })),
+    ...plan.create.map((entry) => ({ kind: "create", entry })),
+  ];
+
+  for (const { kind, entry } of trabajos) {
+    if (embebidos >= limit) {
+      log(`limite de ${limit} alcanzado: ${entry.path} queda pendiente`);
+      continue;
+    }
+    try {
+      if (kind === "update") {
+        const body = await api.update(entry.id, entry);
+        manifest.updated.push({ id: entry.id, path: entry.path, version: body.version, chunks: body.chunk_count });
+        log(`UPDATED ${entry.path} -> v${body.version}, ${body.chunk_count} chunks`);
+      } else {
+        const reemplazado = plan.archive.find((doc) => doc.id === entry.replaces);
+        if (reemplazado) await archiva(reemplazado);
+        const body = await api.create(entry);
+        manifest.created.push({ id: body.document_id, path: entry.path, chunks: body.chunk_count });
+        log(`CREATED ${entry.path} -> ${body.document_id}, ${body.chunk_count} chunks`);
+      }
+      embebidos += 1;
+      fallosSeguidos = 0;
+    } catch (error) {
+      log(`ERROR ${entry.path}: ${error?.message ?? error}`);
+      if (registraFallo(entry, error)) {
+        log("3 fallos seguidos: se para para no gastar mas peticiones.");
+        return manifest;
+      }
+    }
+    if (delayMs > 0) await sleep(delayMs);
+  }
+
+  for (const entry of plan.archive) {
+    try {
+      await archiva(entry);
+    } catch (error) {
+      log(`ERROR archivando ${entry.path}: ${error?.message ?? error}`);
+      registraFallo(entry, error);
+    }
+  }
+
+  return manifest;
+}
+
+// Estimacion, no medicion: ~4 chars por token, el mismo ratio que usa
+// createKnowledgeDocument para token_count.
+const estimateTokens = (chars) => Math.ceil(chars / 4);
+const estimateChunks = (chars) => Math.ceil(chars / 1300);
+
+export function imprimePlan(plan, contenidos, log = console.log) {
+  const seccion = (nombre, filas, linea) => {
+    log(`${nombre}: ${filas.length}`);
+    for (const fila of filas) log(`  ${linea(fila)}`);
+  };
+  seccion("CREATE", plan.create, (e) =>
+    `${e.path}  "${e.title}"${e.replaces ? `  (renombrado, archiva ${e.replaces})` : ""}`);
+  seccion("UPDATE", plan.update, (e) =>
+    `${e.path} -> ${e.id}  checksum ${String(e.from ?? "desconocido").slice(0, 12)} -> ${e.to.slice(0, 12)}` +
+    (e.remoteTitle !== e.title ? `  (titulo en BD se conserva: "${e.remoteTitle}")` : ""));
+  seccion("UNCHANGED", plan.unchanged, (e) => `${e.path} -> ${e.id}`);
+  seccion("ARCHIVE", plan.archive, (e) => `${e.path} -> ${e.id}  "${e.title}"`);
+  seccion("ERROR", plan.error, (e) => `${e.path}: ${e.motivo}`);
+
+  const chars = [...plan.create, ...plan.update].reduce((sum, e) => sum + (contenidos.get(e.path)?.length ?? 0), 0);
+  log(
+    `\nEmbeddings a generar (solo CREATE+UPDATE): ~${estimateChunks(chars)} chunks, ~${estimateTokens(chars)} tokens.`,
+  );
 }
 
 async function resolveToken() {
@@ -135,140 +322,130 @@ async function resolveToken() {
   return data.session.access_token;
 }
 
-const files = (await readdir(folder))
-  .filter((file) => file.endsWith(".md") && file.toLowerCase() !== "readme.md")
-  .sort(new Intl.Collator("es", { numeric: true }).compare);
+async function leeLocales(folder) {
+  const files = (await readdir(folder))
+    .filter((file) => file.endsWith(".md") && file.toLowerCase() !== "readme.md")
+    .sort(new Intl.Collator("es", { numeric: true }).compare);
 
-if (files.length === 0) {
-  console.error(`sin .md en ${folder}`);
-  process.exit(1);
-}
-
-const leidos = [];
-const porChecksum = new Map();
-
-for (const file of files) {
-  const content = await readFile(path.join(folder, file), "utf8");
-  // Ficheros identicos en la misma carpeta (una descarga repetida) son UN
-  // documento: ingerirlos dos veces duplica el corpus y reparte la busqueda
-  // entre dos copias del mismo texto.
-  const checksum = createHash("sha256").update(content).digest("hex");
-  const gemelo = porChecksum.get(checksum);
-  if (gemelo) {
-    console.log(`IDENTICO a "${gemelo}", se ignora: ${file}`);
-    continue;
-  }
-  porChecksum.set(checksum, file);
-  leidos.push({ file, content, headings: encabezados(content) });
-}
-
-const documentos = titula(leidos);
-
-if (dryRun) {
-  let totalChars = 0;
-  let totalChunks = 0;
-  // Las ventanas de contexto NO se comparten entre documentos: cada uno se
-  // embebe aparte, asi que las peticiones se suman por documento.
-  let requests = 0;
-
-  for (const doc of documentos) {
-    totalChars += doc.content.length;
-    totalChunks += estimateChunks(doc.content.length);
-    requests += Math.ceil(estimateChunks(doc.content.length) / 64);
-    console.log(
-      `${String(doc.content.length).padStart(7)} chars  ~${String(
-        estimateChunks(doc.content.length),
-      ).padStart(3)} chunks  ~${String(
-        estimateTokens(doc.content.length),
-      ).padStart(6)} tokens  ${doc.title}`,
-    );
-  }
-
-  console.log(
-    `\nTOTAL ${documentos.length} documentos, ${totalChars} chars, ~${totalChunks} chunks,` +
-      ` ~${estimateTokens(totalChars)} tokens de embedding.` +
-      `\nVoyage: ~${requests} peticiones a /contextualizedembeddings` +
-      ` (max 64 fragmentos por ventana), 1 documento cada ${delayMs}ms.`,
-  );
-  process.exit(0);
-}
-
-const token = await resolveToken();
-const headers = { "content-type": "application/json", authorization: `Bearer ${token}` };
-
-// knowledge_documents no tiene unique por checksum: reejecutar duplicaria el
-// corpus. Se salta por titulo ya presente.
-// ponytail: dedupe por titulo. Si hace falta reingestar de verdad, archivar
-// el documento viejo desde /admin/conocimiento y volver a lanzar.
-const listed = await fetch(`${apiUrl}/v1/organizations/global/knowledge/documents`, { headers });
-if (!listed.ok) {
-  console.error(`no se pudo listar lo ya ingestado: ${listed.status} ${await listed.text()}`);
-  process.exit(1);
-}
-const existing = new Set(
-  ((await listed.json()).documents ?? [])
-    .filter((document) => document.status !== "archived")
-    .map((document) => document.title),
-);
-
-let ingested = 0;
-let skipped = 0;
-// Una clave invalida o un limite de Voyage no se arreglan solos a mitad de
-// carpeta: sin este corte, un 401 en el primer documento se repetia en los
-// otros quince, gastando peticiones para recibir el mismo error dieciseis
-// veces. Tres seguidos y se para.
-let fallosSeguidos = 0;
-const MAX_FALLOS_SEGUIDOS = 3;
-
-for (const { file, content, title } of documentos) {
-  if (existing.has(title)) {
-    skipped += 1;
-    console.log(`SALTADO ${file} (ya existe: "${title}")`);
-    continue;
-  }
-
-  const started = Date.now();
-  const response = await fetch(`${apiUrl}/v1/organizations/global/knowledge/documents`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      title,
-      description: path.join(folder, file),
-      content,
-      source_type: "upload",
-      audience,
-    }),
-  });
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.error(`FALLO ${file}: ${response.status} ${JSON.stringify(body)}`);
-    fallosSeguidos += 1;
-    if (fallosSeguidos >= MAX_FALLOS_SEGUIDOS) {
-      console.error(
-        `\n${fallosSeguidos} fallos seguidos: se para para no gastar mas peticiones.`,
-      );
-      break;
+  const leidos = [];
+  const porChecksum = new Map();
+  for (const file of files) {
+    const content = await readFile(path.join(folder, file), "utf8");
+    // Ficheros identicos en la misma carpeta (una descarga repetida) son UN
+    // documento: ingerirlos dos veces reparte la busqueda entre dos copias.
+    const checksum = checksumDe(content);
+    const gemelo = porChecksum.get(checksum);
+    if (gemelo) {
+      console.log(`IDENTICO a "${gemelo}", se ignora: ${file}`);
+      continue;
     }
-    continue;
+    porChecksum.set(checksum, file);
+    leidos.push({ file, content, checksum, headings: encabezados(content) });
   }
-
-  fallosSeguidos = 0;
-
-  existing.add(title);
-  ingested += 1;
-  console.log(
-    `OK ${file} -> ${body.chunk_count} chunks, ${body.embedding_model}, audience ${body.audience}, ${(
-      (Date.now() - started) / 1000
-    ).toFixed(1)}s`,
-  );
-
-  if (ingested >= limit) {
-    console.log(`\nlimite de ${limit} alcanzado, parando`);
-    break;
-  }
-
-  if (delayMs > 0) await sleep(delayMs);
+  return titula(leidos);
 }
 
-console.log(`\n${ingested} ingestados, ${skipped} saltados, de ${files.length} ficheros`);
+async function main() {
+  const args = process.argv.slice(2);
+  const folder = args.find((arg) => !arg.startsWith("--"));
+  const dryRun = args.includes("--dry-run");
+  const legacyCorpus = args.includes("--legacy-corpus");
+  const limitArg = args.find((arg) => arg.startsWith("--limit="));
+  const limit = limitArg ? Number(limitArg.split("=")[1]) : Infinity;
+
+  if (!folder || Number.isNaN(limit) || limit < 1) {
+    console.error(
+      "uso: node scripts/ingest-conocimiento.mjs <carpeta> [--dry-run] [--limit=N] [--legacy-corpus]",
+    );
+    process.exit(1);
+  }
+
+  const capa = capaPermitida(folder, { legacyCorpus });
+  if (!capa.ok) {
+    console.error(capa.motivo);
+    process.exit(1);
+  }
+
+  // La ruta del scope es relativa a la raiz del repo (desde donde corre npm),
+  // igual que las `description` ya guardadas.
+  const scope = normalizaRuta(path.relative(process.cwd(), path.resolve(folder)));
+  const documentos = await leeLocales(folder);
+  if (documentos.length === 0) {
+    // Una carpeta vacia archivaria todo su scope: eso se decide a mano.
+    console.error(`sin .md en ${folder}: no se sincroniza (evita archivar el scope entero)`);
+    process.exit(1);
+  }
+
+  const audience = process.env.KNOWLEDGE_AUDIENCE ?? "consultant_only";
+  const apiUrl =
+    process.env.API_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`;
+  const delayMs = Number(process.env.INGEST_DELAY_MS ?? 3000);
+
+  const service = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+  const { data: documents, error: listError } = await service
+    .from("knowledge_documents")
+    .select("id, title, description, status, checksum")
+    .eq("visibility", "global")
+    .is("organization_id", null);
+  if (listError) throw new Error(`no se pudo leer el estado de la BD: ${listError.message}`);
+
+  const local = documentos.map((doc) => ({
+    path: `${scope}/${doc.file}`,
+    title: doc.title,
+    checksum: doc.checksum,
+  }));
+  const plan = planSync({ scope, local, remote: documents ?? [] });
+  const contenidos = new Map(documentos.map((doc) => [`${scope}/${doc.file}`, doc.content]));
+  console.log(`Destino: ${apiUrl}  scope: ${scope}  audience: ${audience}${dryRun ? "  [DRY-RUN]" : ""}\n`);
+  imprimePlan(plan, contenidos);
+
+  if (dryRun) process.exit(plan.error.length ? 2 : 0);
+
+  const token = await resolveToken();
+  const headers = { "content-type": "application/json", authorization: `Bearer ${token}` };
+  const base = `${apiUrl}/v1/organizations/global/knowledge/documents`;
+  const pide = async (url, init) => {
+    const response = await fetch(url, { headers, ...init });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(body)}`);
+    return body;
+  };
+
+  const api = {
+    create: (entry) =>
+      pide(base, {
+        method: "POST",
+        body: JSON.stringify({
+          title: entry.title,
+          description: entry.path,
+          content: contenidos.get(entry.path),
+          source_type: "upload",
+          audience,
+        }),
+      }),
+    update: (id, entry) =>
+      pide(`${base}/${id}`, { method: "PATCH", body: JSON.stringify({ content: contenidos.get(entry.path) }) }),
+    archive: async (id) => {
+      const { data, error } = await service
+        .from("knowledge_documents")
+        .update({ status: "archived" })
+        .eq("id", id)
+        .eq("visibility", "global")
+        .select("id")
+        .maybeSingle();
+      if (error || !data) throw new Error(`archive ${id}: ${error?.message ?? "no encontrado"}`);
+      return data;
+    },
+  };
+
+  const manifest = await executePlan(plan, api, { limit, delayMs });
+  console.log("\nMANIFIESTO");
+  console.log(JSON.stringify({ scope, ...manifest }, null, 2));
+  process.exit(manifest.errors.length ? 2 : 0);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  await main();
+}

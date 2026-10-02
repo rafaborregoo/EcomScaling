@@ -10,6 +10,7 @@ import {
   Badge,
   Button,
   Card,
+  Drawer,
   ErrorBlock,
   EYEBROW,
   Metric,
@@ -770,13 +771,9 @@ function ObservabilidadPanel() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() =>
-              setExpandedRunId((current) =>
-                current === row.id ? null : row.id,
-              )
-            }
+            onClick={() => setExpandedRunId(row.id)}
           >
-            {expandedRunId === row.id ? "Cerrar" : "Detalle"}
+            Detalle
           </Button>
         </div>
       ),
@@ -786,11 +783,8 @@ function ObservabilidadPanel() {
   const expandedRun = filteredRuns.find((run) => run.id === expandedRunId);
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="admin-module-body">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-
-      <OrchestratorPanel />
-      <ModelPricesPanel />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
@@ -820,6 +814,9 @@ function ObservabilidadPanel() {
           value={formatLatency(summary.avg_latency_ms)}
         />
       </div>
+
+      <OrchestratorPanel />
+      <ModelPricesPanel />
 
       <Card
         kicker="Panel platform admin"
@@ -968,8 +965,26 @@ function ObservabilidadPanel() {
           emptyLabel="Ninguna ejecución coincide con el filtro."
         />
 
-        {expandedRun ? (
-          <div className="mt-4 space-y-3 border-t border-separator pt-4">
+        <Drawer
+          isOpen={Boolean(expandedRun)}
+          onOpenChange={(open) => {
+            if (!open) setExpandedRunId(null);
+          }}
+        >
+          <Drawer.Backdrop>
+            <Drawer.Content placement="right" className="w-full max-w-3xl">
+              <Drawer.Dialog aria-label={expandedRun ? `Ejecución de ${expandedRun.agent_name}` : "Detalle de ejecución"}>
+                {expandedRun ? (
+                  <>
+                    <Drawer.Header className="admin-detail-header">
+                      <div className="min-w-0">
+                        <Drawer.Heading className="truncate">{expandedRun.agent_name}</Drawer.Heading>
+                        <p className="mt-1 text-sm text-muted">Ejecución · {formatDateTime(expandedRun.started_at)}</p>
+                      </div>
+                      <Drawer.CloseTrigger />
+                    </Drawer.Header>
+                    <Drawer.Body className="admin-detail-body">
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={statusMeta(expandedRun.status).tone}>
                 {statusMeta(expandedRun.status).label}
@@ -1062,7 +1077,13 @@ function ObservabilidadPanel() {
               />
             </div>
           </div>
-        ) : null}
+                    </Drawer.Body>
+                  </>
+                ) : null}
+              </Drawer.Dialog>
+            </Drawer.Content>
+          </Drawer.Backdrop>
+        </Drawer>
       </Card>
     </div>
   );

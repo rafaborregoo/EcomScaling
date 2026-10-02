@@ -12,7 +12,9 @@ import {
   mapStripeSubscriptionToPatch,
   parseStripeSubscription,
   parseStripeWebhook,
+  stripeInvoiceUsesPrice,
   STRIPE_FALLBACK_STORE_LIMIT,
+  STRIPE_CHECKOUT_EVENTS,
   STRIPE_HANDLED_EVENTS,
   stripeTimestampToIso,
 } from "./stripe.js";
@@ -75,6 +77,46 @@ test("un payload sin data.object se rechaza en vez de dar una fila vacia", () =>
 
 test("el webhook registra tambien los fallos de pago", () => {
   assert.equal(STRIPE_HANDLED_EVENTS.includes("invoice.payment_failed"), true);
+});
+
+test("el webhook conserva snapshots de Checkout completado y pagos asincronos", () => {
+  assert.equal(
+    STRIPE_CHECKOUT_EVENTS.includes("checkout.session.completed"),
+    true,
+  );
+  assert.equal(
+    STRIPE_CHECKOUT_EVENTS.includes("checkout.session.async_payment_succeeded"),
+    true,
+  );
+  assert.equal(
+    STRIPE_HANDLED_EVENTS.includes("checkout.session.completed"),
+    true,
+  );
+});
+
+test("Managed Payments reconoce referencias de precio en formatos de factura Stripe", () => {
+  assert.equal(
+    stripeInvoiceUsesPrice(
+      { lines: { data: [{ price: "price_mp" }] } },
+      "price_mp",
+    ),
+    true,
+  );
+  assert.equal(
+    stripeInvoiceUsesPrice(
+      {
+        lines: {
+          data: [{ pricing: { price_details: { price: { id: "price_mp" } } } }],
+        },
+      },
+      "price_mp",
+    ),
+    true,
+  );
+  assert.equal(
+    stripeInvoiceUsesPrice({ lines: { data: [] } }, "price_mp"),
+    false,
+  );
 });
 
 test("el plan y el limite salen de la metadata del PRECIO", () => {

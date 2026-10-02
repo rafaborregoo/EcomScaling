@@ -211,6 +211,11 @@ const CROSS_TENANT_ROUTES: Array<{
   },
   {
     method: "GET",
+    path: (id) => `/v1/organizations/${id}/ai/plan/day`,
+    label: "ai/plan/day",
+  },
+  {
+    method: "GET",
     path: (id) => `/v1/organizations/${id}/knowledge/documents`,
     label: "knowledge/documents",
   },
@@ -234,10 +239,15 @@ const CROSS_TENANT_ROUTES: Array<{
 // en cada corrida de CI, mismo criterio que los evals de AI-06 ("no correr en
 // cada PR").
 const CROSS_TENANT_DENIAL_ONLY_ROUTES: Array<{
-  method: "GET";
+  method: "GET" | "POST";
   path: (organizationId: string) => string;
   label: string;
 }> = [
+  {
+    method: "GET",
+    path: (id) => `/v1/organizations/${id}/ai/plan/day?connectionId=00000000-0000-0000-0000-000000000000`,
+    label: "ai/plan/day/explicit-store-scope",
+  },
   {
     method: "GET",
     path: (id) => `/v1/organizations/${id}/ai/monitor`,
@@ -247,6 +257,11 @@ const CROSS_TENANT_DENIAL_ONLY_ROUTES: Array<{
     method: "GET",
     path: (id) => `/v1/organizations/${id}/ai/task-planner`,
     label: "ai/task-planner",
+  },
+  {
+    method: "POST",
+    path: (id) => `/v1/organizations/${id}/ai/plan/day/run?connectionId=00000000-0000-0000-0000-000000000000`,
+    label: "ai/plan/day/run/explicit-store-scope",
   },
   {
     method: "GET",

@@ -21,33 +21,72 @@ export type LifetimeMilestone = {
   avg_contribution: number | null;
   items_without_cost: number;
   cohort_cac: number | null;
+  lines_with_exact_metrics?: number;
+  lines_with_estimated_metrics?: number;
+  lines_without_metrics?: number;
+  net_metrics_coverage_available?: boolean;
 };
 
 export type Payback =
   | { status: "PAID_BACK"; days: number }
   | { status: "NOT_WITHIN_HORIZON" }
-  | { status: "UNKNOWN"; reason: "sin_cohorte" | "sin_coste" | "sin_cac" | "cohorte_inmadura" };
+  | {
+      status: "UNKNOWN";
+      reason:
+        | "sin_cohorte"
+        | "sin_coste"
+        | "sin_cobertura"
+        | "sin_cac"
+        | "cohorte_inmadura"
+        | "currency_incompatible"
+        | "currency_unknown";
+    };
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
 
 /** Normaliza filas de la RPC (numeric llega como string). */
 export function parseLifetimeRows(rows: unknown): LifetimeMilestone[] {
   if (!Array.isArray(rows)) return [];
-  return rows.map((row: any) => ({
-    milestone_days: Number(row.milestone_days),
-    cohort_customers: Number(row.cohort_customers ?? 0),
-    avg_revenue: num(row.avg_revenue),
-    avg_contribution: num(row.avg_contribution),
-    items_without_cost: Number(row.items_without_cost ?? 0),
-    cohort_cac: num(row.cohort_cac),
-  }));
+  return rows.map((row: any) => {
+    const coverageAvailable = [
+      row.lines_with_exact_metrics,
+      row.lines_with_estimated_metrics,
+      row.lines_without_metrics,
+    ].every((value) => value !== null && value !== undefined && Number.isFinite(Number(value)));
+    const linesWithoutMetrics = coverageAvailable ? Number(row.lines_without_metrics) : undefined;
+    const netMetricsComplete = coverageAvailable && linesWithoutMetrics === 0;
+    return {
+      milestone_days: Number(row.milestone_days),
+      cohort_customers: Number(row.cohort_customers ?? 0),
+      avg_revenue: netMetricsComplete ? num(row.avg_revenue) : null,
+      avg_contribution: netMetricsComplete ? num(row.avg_contribution) : null,
+      items_without_cost: Number(row.items_without_cost ?? 0),
+      cohort_cac: num(row.cohort_cac),
+      ...(coverageAvailable
+        ? {
+            lines_with_exact_metrics: Number(row.lines_with_exact_metrics),
+            lines_with_estimated_metrics: Number(row.lines_with_estimated_metrics),
+            lines_without_metrics: linesWithoutMetrics!,
+          }
+        : {}),
+      net_metrics_coverage_available: coverageAvailable,
+    };
+  });
 }
 
 export function paybackFromCurve(curve: LifetimeMilestone[]): Payback {
   const matured = curve.filter((m) => m.cohort_customers > 0).sort((a, b) => a.milestone_days - b.milestone_days);
   if (!matured.length) return { status: "UNKNOWN", reason: "sin_cohorte" };
-  const withCost = matured.filter((m) => m.avg_contribution !== null);
-  if (!withCost.length) return { status: "UNKNOWN", reason: "sin_coste" };
+  const withNetCoverage = matured.filter(
+    (m) => m.net_metrics_coverage_available === true && m.lines_without_metrics === 0,
+  );
+  if (!withNetCoverage.length) return { status: "UNKNOWN", reason: "sin_cobertura" };
+  const withCost = withNetCoverage.filter((m) => m.avg_contribution !== null);
+  if (!withCost.length) {
+    return matured.some((m) => (m.lines_without_metrics ?? 0) > 0)
+      ? { status: "UNKNOWN", reason: "sin_cobertura" }
+      : { status: "UNKNOWN", reason: "sin_coste" };
+  }
   const comparable = withCost.filter((m) => m.cohort_cac !== null);
   if (!comparable.length) return { status: "UNKNOWN", reason: "sin_cac" };
   const hit = comparable.find((m) => m.avg_contribution! >= m.cohort_cac!);

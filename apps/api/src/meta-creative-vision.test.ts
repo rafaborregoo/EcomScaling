@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   A23_MAX_VISION_IMAGE_BYTES,
   A23_PRIVATE_IMAGE_BUCKET,
+  a23VisualFailureCoverage,
   selectA23VisionAdIds,
   validateA23PrivateImageMetadata,
 } from "./meta-creative-vision.js";
@@ -31,4 +32,14 @@ test("A23 visual bytes must be a small image in this organization's private Meta
   assert.equal(validateA23PrivateImageMetadata({ ...valid, path: "org-a/marketing-visual-bank/../asset.png" }), false);
   assert.equal(validateA23PrivateImageMetadata({ ...valid, contentType: "text/html" }), false);
   assert.equal(validateA23PrivateImageMetadata({ ...valid, byteSize: A23_MAX_VISION_IMAGE_BYTES + 1 }), false);
+});
+
+test("A23 visual lookup failures stay distinct from a successful empty private bank", () => {
+  assert.deepEqual(a23VisualFailureCoverage("creative_asset_metadata", 2), {
+    status: "visual_evidence_unavailable",
+    ads_considered: 2,
+    images_attached: 0,
+    failure_stage: "creative_asset_metadata",
+    note: "No se pudo verificar la evidencia visual; esto no significa que el anuncio carezca de activos importados.",
+  });
 });

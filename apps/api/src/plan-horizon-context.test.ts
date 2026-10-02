@@ -1,10 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planQueryEvidence, scopeAlertsForPlan, summarizeActiveCaminoForPlan, summarizeRecentPlanTaskOutcomes, summarizeSiblingPlanRuns, taskBelongsToPlanStore } from "./plan-horizon-context.js";
+import { planQueryEvidence, resolvePlanStoreScope, scopeAlertsForPlan, summarizeActiveCaminoForPlan, summarizeActiveMonthlyInitiatives, summarizeMonthlyPlanCapacity, summarizeRecentPlanAgentRuns, summarizeRecentPlanTaskOutcomes, summarizeSiblingPlanRuns, taskBelongsToPlanStore } from "./plan-horizon-context.js";
 
 const options = {
   currentAgentCode: "a04_generador_tareas",
   horizonByAgent: { a17: "semanal", a18: "mensual", a04_generador_tareas: "diario" },
+  staleAfterMsByAgent: {
+    a04_generador_tareas: 20 * 60 * 60 * 1000,
+    a17: 6 * 24 * 60 * 60 * 1000,
+    a18: 27 * 24 * 60 * 60 * 1000,
+  },
   now: Date.parse("2026-09-27T12:00:00Z"),
 };
 
@@ -16,11 +21,40 @@ test("distingue consulta disponible vacia de un error al cargar contexto", () =>
   });
 });
 
-function run(code: string, title: string, startedAt: string, status = "pending_approval") {
+test("el alcance agregado solo se usa cuando no se solicita connectionId", () => {
+  assert.deepEqual(resolvePlanStoreScope(null, { data: null, error: null }), {
+    ok: true,
+    storeId: null,
+    storeLabel: "todas las tiendas de la organizacion",
+  });
+  assert.deepEqual(resolvePlanStoreScope("connection-a", {
+    data: { id: "store-a", shop_name: "Tienda A" },
+    error: null,
+  }), {
+    ok: true,
+    storeId: "store-a",
+    storeLabel: 'la tienda "Tienda A"',
+  });
+});
+
+test("un connectionId ausente/inactivo o una consulta fallida no amplían a todas las tiendas", () => {
+  assert.deepEqual(resolvePlanStoreScope("connection-b", { data: null, error: null }), {
+    ok: false,
+    statusCode: 404,
+    error: "plan_store_not_found",
+  });
+  assert.deepEqual(resolvePlanStoreScope("connection-a", { data: null, error: { message: "timeout" } }), {
+    ok: false,
+    statusCode: 503,
+    error: "plan_store_scope_unavailable",
+  });
+});
+
+function run(code: string, title: string, startedAt: string, status = "pending_approval", approvalRequired = true) {
   return {
     started_at: startedAt,
     agent_versions: { agent_definitions: { code } },
-    agent_outputs: { status, output: { proposed_writes: [{ kind: "task", title, description: "entregable", rationale: "impacto", evidence: "dato" }] } },
+    agent_outputs: { status, approval_required: approvalRequired, output: { proposed_writes: [{ kind: "task", title, description: "entregable", rationale: "impacto", evidence: "dato" }] } },
   };
 }
 
@@ -33,7 +67,23 @@ test("conserva solo la ejecucion mas reciente de cada horizonte hermano y su est
   ], options);
   assert.deepEqual(result.map((item) => [item.horizon, item.proposals[0]?.title, item.output_status, item.stale]), [
     ["semanal", "Plan semanal nuevo", "pending_approval", false],
-    ["mensual", "Plan mensual", "published", true],
+    ["mensual", "Plan mensual", "published", false],
+  ]);
+  assert.equal(result[0]?.approval_required, true);
+});
+
+test("la frescura de los horizontes usa la cadencia diaria, semanal y mensual", () => {
+  const result = summarizeSiblingPlanRuns([
+    run("a04_generador_tareas", "Plan diario antiguo", "2026-09-25T12:00:00Z"),
+    run("a17", "Plan semanal vigente", "2026-09-24T12:00:00Z", "approved", false),
+    run("a18", "Plan mensual vigente", "2026-09-10T12:00:00Z", "approved", false),
+  ], {
+    ...options,
+    currentAgentCode: "a17",
+  });
+  assert.deepEqual(result.map((item) => [item.agent_code, item.stale, item.approval_required]), [
+    ["a04_generador_tareas", true, true],
+    ["a18", false, false],
   ]);
 });
 
@@ -108,16 +158,97 @@ test("el backlog de un plan incluye tareas globales y de su tienda, nunca de otr
   assert.equal(taskBelongsToPlanStore("store-b", null), true);
 });
 
-test("omite alertas de organizacion de un plan de tienda para no atribuirlas mal", () => {
-  const alerts = [{ title: "Caída de ventas tienda B", severity: "high" }];
+test("A18 cuantifica compromisos por tienda sin inventar horas de capacidad", () => {
+  const summary = summarizeMonthlyPlanCapacity([
+    { status: "in_progress", priority: "high", due_at: "2026-09-28T12:00:00Z", store_id: "store-a", metadata: { ai_effort_estimate: "high" } },
+    { status: "pending", priority: "urgent", due_at: "2026-10-10T12:00:00Z", store_id: null, metadata: { ai_effort_estimate: "low" } },
+    { status: "pending", priority: "low", due_at: null, store_id: "store-a" },
+    { status: "pending", priority: "high", due_at: "2026-09-30T12:00:00Z", store_id: "store-b" },
+    { status: "completed", priority: "urgent", due_at: "2026-09-20T12:00:00Z", store_id: "store-a" },
+  ], "store-a", { now: Date.parse("2026-09-29T12:00:00Z"), horizonDays: 30 });
+
+  assert.deepEqual(summary, {
+    scope: "store_plus_unscoped",
+    observed_commitments: 3,
+    in_progress: 1,
+    pending: 2,
+    overdue: 1,
+    due_within_horizon: 1,
+    high_or_urgent: 2,
+    effort_estimates: { low: 1, medium: 0, high: 1, unknown: 1 },
+    effort_estimate_coverage: 2 / 3,
+    estimated_effort_hours: null,
+    available_capacity_hours: null,
+    capacity_status: "not_quantifiable",
+    capacity_limit: "Las bandas cualitativas de esfuerzo describen solo tareas que las tienen; no hay capacidad mensual configurada ni equivalencia validada a horas, así que los datos no calculan disponibilidad.",
+  });
+});
+
+test("A18 solo puede versionar iniciativas publicadas del scope exacto", () => {
+  const summary = summarizeActiveMonthlyInitiatives([
+    { id: "task-a", title: "Iniciativa A", status: "pending", source: "ai_consultant", store_id: "store-a", metadata: { ai_monthly_initiative: {} } },
+    { id: "task-global", title: "Iniciativa global", status: "pending", source: "ai_consultant", store_id: null, metadata: { ai_monthly_initiative: {} } },
+    { id: "task-b", title: "Otra tienda", status: "pending", source: "ai_consultant", store_id: "store-b", metadata: { ai_monthly_initiative: {} } },
+    { id: "task-manual", title: "No es del agente", status: "pending", source: "manual", store_id: "store-a", metadata: { ai_monthly_initiative: {} } },
+    { id: "task-closed", title: "Retirada", status: "pending", source: "ai_consultant", store_id: "store-a", metadata: { ai_monthly_initiative: { lifecycle_status: "retired" } } },
+  ], "store-a");
+  assert.deepEqual(summary.map((item) => item.task_id), ["task-a"]);
+});
+
+test("A19 recibe las salidas aprobadas más recientes de A04/A17/A18 con tienda y frescura", () => {
+  const now = Date.parse("2026-09-29T12:00:00Z");
+  const summaries = summarizeRecentPlanAgentRuns([
+    {
+      id: "run-day", organization_id: "org-a", store_id: "store-a", status: "succeeded", finished_at: "2026-09-28T00:00:00Z",
+      agent_versions: { version: "v1", agent_definitions: { code: "a04_generador_tareas" } },
+      agent_outputs: { id: "out-day", status: "approved", output: { answer: "Señal diaria.", findings: [{ title: "Venta detenida", severity: "high" }], proposed_writes: [{ kind: "task", title: "Revisar campaña", priority: "high" }] } },
+    },
+    {
+      id: "run-week", organization_id: "org-a", store_id: "store-a", status: "succeeded", finished_at: "2026-09-29T11:00:00Z",
+      agent_versions: { version: "v3", agent_definitions: { code: "a17_plan_semanal" } },
+      agent_outputs: { id: "out-week", status: "pending_approval", output: { answer: "No aprobada." } },
+    },
+    {
+      id: "run-week-approved", organization_id: "org-a", store_id: "store-a", status: "succeeded", finished_at: "2026-09-21T12:00:00Z",
+      agent_versions: { version: "v3", agent_definitions: { code: "a17_plan_semanal" } },
+      agent_outputs: { id: "out-week-approved", status: "approved", output: { answer: "Señal semanal dentro de la ventana." } },
+    },
+    {
+      id: "run-month-old", organization_id: "org-a", store_id: "store-a", status: "succeeded", finished_at: "2026-08-24T11:59:59Z",
+      agent_versions: { version: "v6", agent_definitions: { code: "a18_plan_mensual" } },
+      agent_outputs: { id: "out-month-old", status: "published", output: { answer: "Señal mensual antigua." } },
+    },
+    {
+      id: "run-other-store", organization_id: "org-a", store_id: "store-b", status: "succeeded", finished_at: "2026-09-29T11:30:00Z",
+      agent_versions: { version: "v3", agent_definitions: { code: "a17_plan_semanal" } },
+      agent_outputs: { id: "out-other", status: "approved", output: { answer: "No mezclar." } },
+    },
+  ], { organizationId: "org-a", storeId: "store-a", now });
+
+  assert.deepEqual(summaries.map((summary) => summary.agent_code), ["a04_generador_tareas", "a17_plan_semanal", "a18_plan_mensual"]);
+  assert.equal(summaries[0]?.stale, false);
+  const dailySummary = summaries[0] as { summary?: { proposed_tasks?: unknown[] } };
+  assert.deepEqual(dailySummary.summary?.proposed_tasks, [{ title: "Revisar campaña", description: null, rationale: null, priority: "high", milestone_id: null }]);
+  assert.equal(summaries[1]?.stale, false);
+  assert.equal(summaries[2]?.stale, true);
+});
+
+test("incluye solo alertas atribuidas a la tienda y omite las organizativas", () => {
+  const alerts = [
+    { title: "Caída de ventas tienda A", severity: "high", store_id: "store-a" },
+    { title: "Caída de ventas tienda B", severity: "high", store_id: "store-b" },
+    { title: "Alerta antigua agregada", severity: "medium", store_id: null },
+  ];
   assert.deepEqual(scopeAlertsForPlan(alerts, "store-a"), {
-    status: "omitted_unscoped",
-    scope: "organization",
+    status: "available",
+    scope: "store",
+    alerts: [alerts[0]],
+    unscoped_omitted: 2,
   });
   assert.deepEqual(scopeAlertsForPlan(alerts, null), {
     status: "available",
     scope: "organization",
-    alerts,
+    alerts: alerts.slice(0, 30),
   });
 });
 

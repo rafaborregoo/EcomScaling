@@ -31,6 +31,7 @@ import {
   type KlaviyoMetricsResponse,
   type KlaviyoReportsResponse,
 } from "../shared";
+import hub from "../hub.module.css";
 
 function useKlaviyoConfig(
   organizationId: string | null,
@@ -216,7 +217,7 @@ function KlaviyoIntegrationPage({
   }
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className={hub.page}>
       <BackToHub />
 
       <ProviderStatusCard provider={selectedProvider}>
@@ -244,6 +245,16 @@ function KlaviyoIntegrationPage({
           Esta conexión puede leer, pero no publicar plantillas. Para enviar a
           Klaviyo las piezas aprobadas en Marketing, vuelve a autorizar por
           OAuth aceptando todos los permisos.
+        </Banner>
+      ) : null}
+
+      {connection &&
+      connection.scopes.length > 0 &&
+      !connection.scopes.includes("events:read") ? (
+        <Banner tone="danger">
+          Esta conexión no tiene permiso para leer eventos. Reautoriza Klaviyo y
+          acepta events:read; sin ese permiso, la sincronización seguirá
+          fallando.
         </Banner>
       ) : null}
 

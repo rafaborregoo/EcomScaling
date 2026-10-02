@@ -92,19 +92,28 @@ function parseRecordingUrl(
  * Se recorta aqui, en la unica lectura que sirve estos datos, en vez de mover
  * los campos a otra tabla: son parte de la misma salida del agente y viajan
  * juntos hasta el borde de la API.
+ *
+ * Lista de permitidos, no de prohibidos: el resto de `key_points` es material
+ * de trabajo del consultor -- tareas propuestas sin filtrar (incluidas las
+ * internas y las que descarto al aprobar; las creadas le llegan por
+ * `call_task_links`), ideas de campaña y cambios de Camino sin revisar, avisos
+ * y confianza del modelo, fuentes consultadas. Un campo nuevo que añada el
+ * agente queda oculto al cliente hasta que alguien decida lo contrario aqui.
  */
+const CLIENT_VISIBLE_KEY_POINTS = ["facts", "recommendations", "risks"] as const;
+
 export function redactConsultantOnly(keyPoints: unknown) {
   if (!keyPoints || typeof keyPoints !== "object" || Array.isArray(keyPoints)) {
     return keyPoints;
   }
 
-  const {
-    consultant_gaps: _gaps,
-    conversation_signals: _signals,
-    ...clientVisible
-  } = keyPoints as Record<string, unknown>;
-
-  return clientVisible;
+  const source = keyPoints as Record<string, unknown>;
+  return Object.fromEntries(
+    CLIENT_VISIBLE_KEY_POINTS.filter((key) => key in source).map((key) => [
+      key,
+      source[key],
+    ]),
+  );
 }
 
 /**
@@ -188,9 +197,15 @@ export async function listCalls(
 
   const calls = rows.map((call) => ({
     ...call,
+    // El cliente conserva id y versión (deciden qué resumen publicado es el
+    // vigente), pero no el texto: es material de trabajo del consultor.
     call_transcripts: (
-      (call.call_transcripts as Array<{ is_current: boolean }>) ?? []
-    ).filter((transcript) => transcript.is_current),
+      (call.call_transcripts as Array<{ is_current: boolean; content?: string }>) ?? []
+    )
+      .filter((transcript) => transcript.is_current)
+      .map(({ content, ...transcript }) =>
+        isConsultant ? { ...transcript, content } : transcript,
+      ),
     call_ai_summaries: (
       (call.call_ai_summaries as Array<Record<string, unknown>>) ?? []
     ).map((summary) =>

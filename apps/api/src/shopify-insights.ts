@@ -9,6 +9,9 @@ import { createLogger } from "@e-nora/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { recordProtectedDataAccess } from "./protected-data-access.js";
+import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
+import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
+import { normalizeShopifyDiscountAttributionRows } from "./shopify-discount-attribution.js";
 
 const logger = createLogger("api:shopify-insights");
 
@@ -29,6 +32,7 @@ export type ShopifyInsightsData = {
   organization_id: string;
   selected_connection_id: string | null;
   store_id: string | null;
+  financial_currency_coverage: ShopifyFinancialCurrencyCoverage;
   period: { days: number | "all"; start: string | null; end: string };
   // Cada bloque es null cuando su consulta falla, y falla por separado: una
   // metrica rota no puede dejar la pagina entera en blanco. La lista de
@@ -76,6 +80,9 @@ export type ShopifyInsightsData = {
     revenue: number;
     refunded_amount: number;
     top_return_reason: string | null;
+    lines_with_exact_metrics: number;
+    lines_with_estimated_metrics: number;
+    lines_without_metrics: number;
   }>;
   delivery: {
     fulfillments: number;
@@ -114,7 +121,11 @@ export type ShopifyInsightsData = {
     code: string;
     orders: number;
     order_revenue: number;
+    /** Descuento del pedido completo; puede repetirse entre códigos. */
     order_discount_total: number;
+    /** Importe atribuido a esta aplicación solo si la cobertura está completa. */
+    attributed_discount_total: number | null;
+    attribution_coverage: "complete" | "partial" | "unavailable" | "migration_pending";
     new_customers: number;
     orders_with_multiple_codes: number;
     discount_share: number | null;
@@ -136,6 +147,29 @@ export type ShopifyInsightsData = {
   unavailable: string[];
 };
 
+function applyLifetimeCurrencyCoverage(
+  lifetime: ShopifyInsightsData["lifetime"],
+  coverage: ShopifyFinancialCurrencyCoverage,
+): ShopifyInsightsData["lifetime"] {
+  if (!lifetime || coverage.status === "compatible") return lifetime;
+  const curve = lifetime.curve.map((milestone) => ({
+    ...milestone,
+    avg_contribution: null,
+    cohort_cac: null,
+  }));
+  const ltv = lifetime.ltv
+    ? { ...lifetime.ltv, avg_contribution: null }
+    : null;
+  return {
+    curve,
+    ltv,
+    payback: {
+      status: "UNKNOWN",
+      reason: `currency_${coverage.status}`,
+    },
+  };
+}
+
 function parsePeriodDays(daysInput: string | undefined): number | "all" {
   if (daysInput === "all") {
     return "all";
@@ -151,39 +185,6 @@ function parsePeriodDays(daysInput: string | undefined): number | "all" {
     MAX_PERIOD_DAYS,
     Math.max(MIN_PERIOD_DAYS, Math.floor(parsed)),
   );
-}
-
-async function loadStoreIdForConnection(
-  supabase: ReturnType<typeof createUserScopedClient>,
-  organizationId: string,
-  connectionId: string | undefined,
-) {
-  if (!connectionId) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("shopify_stores")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .eq("connection_id", connectionId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`shopify_insights_store_load_failed: ${error.message}`);
-  }
-
-  if (!data?.id) {
-    throw new ShopifyInsightsScopeError();
-  }
-
-  return data.id;
-}
-
-class ShopifyInsightsScopeError extends Error {
-  constructor() {
-    super("shopify_connection_not_found");
-  }
 }
 
 async function loadOpenDeliveryExceptions(
@@ -319,11 +320,56 @@ export async function getShopifyInsights(
   const supabase = createUserScopedClient(env, token);
 
   try {
-    const storeId = await loadStoreIdForConnection(
+    const storeScope = await resolveShopifyStoreScope(supabase, organizationId, connectionId);
+    if (storeScope.status === "selection_required") {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "shopify_store_selection_required",
+        message: "shopify_store_selection_required: Selecciona una tienda para consultar importes y métricas sin mezclar tiendas.",
+      };
+    }
+    if (storeScope.status === "not_found") {
+      return {
+        ok: false as const,
+        statusCode: 404,
+        error: "shopify_connection_not_found",
+        message: "La conexión de Shopify seleccionada no está activa en esta organización.",
+      };
+    }
+
+    const storeId = storeScope.storeId;
+    if (!storeId) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "shopify_store_not_ready",
+        message: "shopify_store_not_ready: La tienda todavía no ha terminado su primera sincronización.",
+      };
+    }
+    if (!storeScope.currencyCode) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "shopify_currency_unavailable",
+        message: "shopify_currency_unavailable: La tienda todavía no tiene una moneda confirmada; sincronízala antes de mostrar importes.",
+      };
+    }
+
+    const financialCurrencyCoverage = await resolveShopifyFinancialCurrencyCoverage(
       supabase,
       organizationId,
-      connectionId,
-    );
+      storeId,
+    ).catch(() => ({
+      status: "unknown" as const,
+      currency_code: storeScope.currencyCode,
+      store_scope: "single_store" as const,
+      store_count: 1,
+      compared_sources: [],
+      mismatched_sources: [],
+      unknown_sources: ["comprobación de moneda"],
+      as_of: new Date().toISOString(),
+    }));
 
     // Se registra antes de mirar la cache: quien pide el panel accede a los
     // datos igual, venga la respuesta de Redis o de Postgres. Registrar solo
@@ -372,6 +418,8 @@ export async function getShopifyInsights(
         ok: true as const,
         data: {
           ...cached,
+          financial_currency_coverage: financialCurrencyCoverage,
+          lifetime: applyLifetimeCurrencyCoverage(cached.lifetime, financialCurrencyCoverage),
           delivery_exceptions: deliveryExceptions,
           unavailable: deliveryExceptionsUnavailable
             ? [...new Set([...cached.unavailable, "delivery_exceptions"])]
@@ -439,6 +487,7 @@ export async function getShopifyInsights(
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
       store_id: storeId,
+      financial_currency_coverage: financialCurrencyCoverage,
       period: {
         days: periodDays,
         start: periodStart?.toISOString() ?? null,
@@ -460,13 +509,15 @@ export async function getShopifyInsights(
         "checkout_recovery",
         unavailable,
       ),
-      discounts: rows(discountsResult, "discounts", unavailable),
+      discounts: normalizeShopifyDiscountAttributionRows(
+        rows(discountsResult, "discounts", unavailable),
+      ) as ShopifyInsightsData["discounts"],
       lifetime: lifetimeResult.error
         ? (unavailable.push("lifetime"), null)
-        : (() => {
+        : applyLifetimeCurrencyCoverage((() => {
             const curve = parseLifetimeRows(lifetimeResult.data);
             return { curve, ltv: longestMaturedMilestone(curve), payback: paybackFromCurve(curve) };
-          })(),
+          })(), financialCurrencyCoverage),
       churn: singleRow(churnResult, "churn", unavailable),
       unavailable,
     };
@@ -498,14 +549,6 @@ export async function getShopifyInsights(
 
     return { ok: true as const, data };
   } catch (error) {
-    if (error instanceof ShopifyInsightsScopeError) {
-      return {
-        ok: false as const,
-        statusCode: 404,
-        error: "shopify_connection_not_found",
-        message: "La conexión de Shopify seleccionada no está activa en esta organización.",
-      };
-    }
     const message =
       error instanceof Error ? error.message : "shopify_insights_failed";
 

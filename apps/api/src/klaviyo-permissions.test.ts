@@ -70,8 +70,8 @@ test("un fallo que no es de permisos no acusa a la clave", async () => {
   );
   assert.equal(probe.missing.length, 0);
   assert.deepEqual(
-    probe.inconclusive.map((item) => item.key),
-    ["flows:read"],
+    probe.inconclusive.map((item) => item.key).sort(),
+    ["flows:read", "flows:write"],
   );
 });
 

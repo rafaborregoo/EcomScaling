@@ -227,6 +227,7 @@ before(async () => {
     .from("shopify_variants")
     .insert({
       organization_id: orgB,
+      store_id: storeBId,
       product_id: productBId,
       external_variant_id: `db02-rpc-isolation-variant-${RUN_TAG}`,
       current_price: 200,
@@ -243,6 +244,7 @@ before(async () => {
     .from("shopify_inventory_items")
     .insert({
       organization_id: orgB,
+      store_id: storeBId,
       variant_id: variant.id,
       external_inventory_item_id: `db02-rpc-isolation-inv-item-${RUN_TAG}`,
       sku: `DB02-SKU-${RUN_TAG}`,

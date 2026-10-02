@@ -1,3 +1,5 @@
+import { summarizeKlaviyoFlowArchitecture } from "./klaviyo-flow-architect-output.js";
+
 type PeerDefinition = { code?: unknown; name?: unknown } | null;
 type PeerVersion = { agent_definitions?: PeerDefinition | PeerDefinition[] | null } | null;
 type PeerRun = {
@@ -22,6 +24,7 @@ export type MarketingPeerSummary = {
   findings: string[];
   warnings: string[];
   recommendations: string[];
+  flow_architecture?: NonNullable<ReturnType<typeof summarizeKlaviyoFlowArchitecture>>;
 };
 
 const RELEVANT_MARKETING_PEERS = new Set([
@@ -94,6 +97,9 @@ export function summarizeMarketingPeerHistory(
       .find((value): value is string => typeof value === "string")
       ?.slice(0, 700) ?? "";
     const agent = typeof definition?.name === "string" ? definition.name : code;
+    const flowArchitecture = code === "a28_arquitecto_flujos"
+      ? summarizeKlaviyoFlowArchitecture(output.flow_architecture)
+      : null;
 
     summaries.push({
       agent,
@@ -104,6 +110,7 @@ export function summarizeMarketingPeerHistory(
       findings,
       warnings,
       recommendations,
+      ...(flowArchitecture ? { flow_architecture: flowArchitecture } : {}),
     });
     seen.add(code);
     if (summaries.length >= Math.max(0, Math.floor(maxAgents))) break;

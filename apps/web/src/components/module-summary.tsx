@@ -7,7 +7,7 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import { Metric } from "@/components/ui";
+import { StatusStrip } from "@/components/trabajo-ui";
 
 /**
  * "Los datos mas importantes" de un modulo, en un solo sitio y con un solo
@@ -39,7 +39,14 @@ export type ModuleSummaryData = {
   notes?: string;
 };
 
-type Publish = (summary: ModuleSummaryData | null) => void;
+const STRIP_TONE = {
+  default: undefined,
+  success: "good",
+  warn: "warn",
+  danger: "bad",
+} as const;
+
+type Publish =(summary: ModuleSummaryData | null) => void;
 
 const ModuleSummaryContext = createContext<Publish>(() => {});
 
@@ -97,23 +104,17 @@ export function ModuleSummary({
   return (
     <section aria-label="Resumen del módulo" className="space-y-2">
       {period ? <p className="text-sm text-muted">{period}</p> : null}
-      {/* auto-fit en vez de un número fijo de columnas: cada módulo publica
-          las cifras que le importan (4, 5, 6...) y la tira nunca deja un
-          hueco suelto al final de la fila. El minimo baja a 9.5rem para que
-          en movil entren DOS por fila: con 13rem caia a una sola columna y
-          seis KPIs eran 600px de scroll antes de llegar a nada accionable. */}
-      <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] sm:gap-4">
-        {metrics.map((metric) => (
-          <Metric
-            card
-            key={metric.label}
-            label={metric.label}
-            value={metric.value}
-            hint={metric.hint}
-            tone={metric.tone}
-          />
-        ))}
-      </div>
+      {/* Misma franja que las páginas de Trabajo (StatusStrip): auto-fit, así
+          que 4, 5 o 6 cifras nunca dejan hueco suelto, y en móvil caben dos
+          por fila. */}
+      <StatusStrip
+        items={metrics.map((metric) => ({
+          value: metric.value,
+          label: metric.label,
+          hint: metric.hint,
+          tone: STRIP_TONE[metric.tone ?? "default"],
+        }))}
+      />
       {notes ? <p className="text-sm text-muted">{notes}</p> : null}
     </section>
   );

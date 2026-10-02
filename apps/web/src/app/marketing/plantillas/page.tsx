@@ -4,12 +4,14 @@ import { useRouter } from "next/navigation";
 import { useActiveOrganization } from "@/components/active-organization";
 import {
   ButtonLink,
+  Card,
   EmptyState,
   Heading,
 } from "@/components/ui";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { useMarketingPortal } from "../marketing-portal-context";
 import { TemplateLibrary } from "../template-library";
+import { SYSTEM_TEMPLATES } from "../studio/studio-design";
 
 function TemplateLibraryPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const router = useRouter();
@@ -53,6 +55,19 @@ function TemplateLibraryPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
           hint="Necesitas ser propietario, manager, consultor o administrador de plataforma."
         />
       ) : (
+        <>
+        <section className="grid gap-3" aria-labelledby="nora-templates">
+          <h2 id="nora-templates" className="text-base font-semibold">Plantillas de NORA</h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {SYSTEM_TEMPLATES.map((template) => (
+              <Card key={template.id} title={template.name} description={template.description}>
+                <ButtonLink href={`/marketing?section=crear&system=${template.id}`} variant="secondary">
+                  Usar esta plantilla
+                </ButtonLink>
+              </Card>
+            ))}
+          </div>
+        </section>
         <TemplateLibrary
           organizationId={organizationId}
           isOpen
@@ -71,6 +86,7 @@ function TemplateLibraryPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
             );
           }}
         />
+        </>
       )}
     </main>
   );

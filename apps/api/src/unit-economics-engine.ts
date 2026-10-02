@@ -14,8 +14,9 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { shopifyNetMetricsComplete, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const UNIT_ECONOMICS_SOURCE_VERSION = "f5-p06.v1";
+const UNIT_ECONOMICS_SOURCE_VERSION = "f5-p06.v3";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type UnitEconomicsEvidence = {
@@ -30,6 +31,9 @@ export type UnitEconomicsEvidence = {
     items_with_cost?: number | null;
     items_without_cost?: number | null;
     gross_margin?: number | null;
+    lines_with_exact_metrics?: number | null;
+    lines_with_estimated_metrics?: number | null;
+    lines_without_metrics?: number | null;
   } | null;
   financial?: {
     net_sales?: number | null;
@@ -90,6 +94,9 @@ export function buildUnitEconomicsPlaybookContext(
       "unit_economics.scenarios.observed": UNKNOWN,
       "unit_economics.data_quality.comparable": UNKNOWN,
       "unit_economics.data_quality.cost_coverage": UNKNOWN,
+      "unit_economics.data_quality.net_line_metrics_complete": UNKNOWN,
+      "unit_economics.data_quality.net_line_metrics_exact": UNKNOWN,
+      "unit_economics.data_quality.net_line_metrics_estimated": UNKNOWN,
     },
   };
 }
@@ -103,25 +110,30 @@ export function applyUnitEconomicsEvidence(
   const sales = evidence.sales;
   const margin = evidence.margin;
   const financial = evidence.financial;
+  const netLineMetricsComplete = shopifyNetMetricsComplete(margin);
+  const lineMetricsComplete: PlaybookTriState = netLineMetricsComplete === null
+    ? UNKNOWN
+    : netLineMetricsComplete ? "TRUE" : "FALSE";
   const facts = {
     ...context.facts,
+    ...shopifyNetMetricsQualityFacts(margin),
     "unit_economics.revenue.gross_observed": observed(sales?.gross_sales),
     "unit_economics.revenue.discounts_observed": sales ? "TRUE" : UNKNOWN,
     "unit_economics.revenue.refunds_observed": sales ? "TRUE" : UNKNOWN,
     "unit_economics.revenue.net_observed": observed(sales?.net_sales),
     "unit_economics.unit_order.observed": observed(sales?.orders_count),
-    "unit_economics.costs.cogs_observed": observed(margin?.items_with_cost),
-    "unit_economics.costs.variable_observed": financial && [financial.cogs, financial.payment_fees, financial.shipping_costs].some((value) => value !== null && value !== undefined) ? "TRUE" : UNKNOWN,
+    "unit_economics.costs.cogs_observed": lineMetricsComplete === "TRUE" ? observed(margin?.items_with_cost) : UNKNOWN,
+    "unit_economics.costs.variable_observed": lineMetricsComplete === "TRUE" && financial && [financial.cogs, financial.payment_fees, financial.shipping_costs].some((value) => value !== null && value !== undefined) ? "TRUE" : UNKNOWN,
     "unit_economics.costs.fixed_observed": observed(financial?.fixed_costs),
     "unit_economics.costs.payment_fees_observed": observed(financial?.payment_fees),
     "unit_economics.costs.shipping_observed": observed(financial?.shipping_costs),
-    "unit_economics.gross_profit.observed": observed(margin?.gross_margin ?? financial?.gross_margin),
-    "unit_economics.financial_summary.available": financial ? "TRUE" : UNKNOWN,
+    "unit_economics.gross_profit.observed": lineMetricsComplete === "TRUE" ? observed(margin?.gross_margin ?? financial?.gross_margin) : UNKNOWN,
+    "unit_economics.financial_summary.available": lineMetricsComplete === "TRUE" && financial ? "TRUE" : UNKNOWN,
     // `net_profit` sigue sin ser contribution: incluye costes fijos. Lo que
     // cambio es que la v2 del RPC anade `contribution_per_order`, que si lo es,
     // y `cac_blended` (gasto publicitario entre clientes nuevos). El motor ya
     // recibia las dos columnas y las ignoraba.
-    "unit_economics.contribution.observed": observed(financial?.contribution_per_order),
+    "unit_economics.contribution.observed": lineMetricsComplete === "TRUE" ? observed(financial?.contribution_per_order) : UNKNOWN,
     "unit_economics.acquisition.cac_observed": observed(financial?.cac_blended),
     // `breakeven_cac_per_order` es el umbral que no hay que superar, no el
     // periodo de recuperacion. El payback sale de la curva de LTV sobre margen
@@ -133,7 +145,12 @@ export function applyUnitEconomicsEvidence(
     "unit_economics.segmented.observed": UNKNOWN,
     "unit_economics.scenarios.observed": UNKNOWN,
     "unit_economics.data_quality.comparable": UNKNOWN,
-    "unit_economics.data_quality.cost_coverage": margin ? observed(margin.items_without_cost) : UNKNOWN,
+    "unit_economics.data_quality.cost_coverage": lineMetricsComplete === "TRUE" && margin ? observed(margin.items_without_cost) : UNKNOWN,
+    "unit_economics.data_quality.net_line_metrics_complete": lineMetricsComplete,
+    "unit_economics.data_quality.net_line_metrics_exact":
+      typeof margin?.lines_with_exact_metrics === "number" ? observed(margin.lines_with_exact_metrics) : UNKNOWN,
+    "unit_economics.data_quality.net_line_metrics_estimated":
+      typeof margin?.lines_with_estimated_metrics === "number" ? observed(margin.lines_with_estimated_metrics) : UNKNOWN,
   } satisfies Record<string, PlaybookTriState>;
   return {
     ...context,

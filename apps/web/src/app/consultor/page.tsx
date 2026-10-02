@@ -1429,13 +1429,15 @@ function ConsultantPanel({
   // la vista de cartera, no dentro de la ficha de un cliente.
   const overviewQuery = useCachedQuery<{
     business?: {
-      net_sales: number;
+      net_sales: number | null;
+      shopify_currency_code: string | null;
+      meta_currency_code: string | null;
       orders: number;
-      meta_spend: number;
+      meta_spend: number | null;
       roas: number | null;
-      prev_net_sales: number;
+      prev_net_sales: number | null;
       prev_orders: number;
-      prev_meta_spend: number;
+      prev_meta_spend: number | null;
     };
   }>(focusId ? null : `/v1/consultant/overview?days=${windowDays}`);
 

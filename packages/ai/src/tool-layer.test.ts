@@ -66,6 +66,29 @@ test("A22 consulta incidencias logísticas abiertas sin scope controlado por el 
   }).success, true);
 });
 
+test("A22 puede comparar señal de devolución read-only y ocultar tasas no fiables", () => {
+  const contract = getToolContract("shopify_return_delay_comparison");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.definition.connector, "shopify");
+  assert.equal(contract.inputSchema.safeParse({}).success, true);
+  assert.equal(contract.inputSchema.safeParse({ target_store_id: "otra-tienda" }).success, false);
+  assert.equal(contract.outputSchema.safeParse({
+    data: {
+      comparison_status: "insufficient_return_status_coverage",
+      mature_late_orders: 32,
+      mature_ontime_orders: 30,
+      late_return_status_coverage_pct: 93.8,
+      late_return_signal_rate_pct: null,
+      ontime_return_signal_rate_pct: null,
+      difference_percentage_points: null,
+      sample_reliable: false,
+    },
+    provenance: { source: "shopify_return_delay_comparison", as_of: "2026-09-28T10:00:00.000Z", freshness_seconds: 0 },
+  }).success, true);
+});
+
 test("A20 puede consultar recompra agregada con muestra y sin scope controlado por el modelo", () => {
   const contract = getToolContract("shopify_product_repurchase_health");
   assert.ok(contract);

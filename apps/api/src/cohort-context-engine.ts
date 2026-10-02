@@ -11,14 +11,15 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const COHORT_SOURCE_VERSION = "f6-p01.v1";
+const COHORT_SOURCE_VERSION = "f6-p01.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type CohortContextEvidence = {
   sales?: { available: boolean; orders_count?: number | null; revenue?: number | null } | null;
   funnel?: { available: boolean; sessions?: number | null; conversion_rate?: number | null } | null;
-  margin?: { available: boolean; items_with_cost?: number | null } | null;
+  margin?: { available: boolean; items_with_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   measurement?: { available: boolean; days?: number | null } | null;
 };
 
@@ -74,6 +75,7 @@ export function applyCohortContextEvidence(
   const facts: Record<string, PlaybookTriState> = {
     ...context.facts,
     ...cohortFacts(),
+    ...shopifyNetMetricsQualityFacts(evidence.margin),
     "cohort.metric.observed": observed(
       evidence.sales?.available ?? evidence.funnel?.available,
       evidence.sales?.revenue ?? evidence.sales?.orders_count ?? evidence.funnel?.conversion_rate,
@@ -83,7 +85,7 @@ export function applyCohortContextEvidence(
     "cohort.sample.observed": observed(evidence.sales?.available ?? evidence.funnel?.available, evidence.sales?.orders_count ?? evidence.funnel?.sessions),
     "cohort.history.observed": observed(evidence.measurement?.available, evidence.measurement?.days),
     "cohort.temporal_context.observed": observed(evidence.measurement?.available, evidence.measurement?.days),
-    "cohort.economics.observed": observed(evidence.margin?.available, evidence.margin?.items_with_cost),
+    "cohort.economics.observed": gateShopifyNetMetricsObservation(evidence.margin, observed(evidence.margin?.available, evidence.margin?.items_with_cost)),
   };
   return { ...context, evidence_refs: [...new Set([...(context.evidence_refs ?? []), ...sourceRefs])], facts };
 }
@@ -103,7 +105,7 @@ async function enrichCohortContext(supabase: any, context: PlaybookFrameworkInpu
   return applyCohortContextEvidence(context, {
     sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count, revenue: first(salesResult)?.net_sales },
     funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate_shopify },
-    margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost },
+    margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost, lines_with_exact_metrics: first(marginResult)?.lines_with_exact_metrics, lines_with_estimated_metrics: first(marginResult)?.lines_with_estimated_metrics, lines_without_metrics: first(marginResult)?.lines_without_metrics },
     measurement: measurementResult.error ? { available: false } : { available: true, days: Array.isArray(measurementResult.data) ? measurementResult.data.length : null },
   }, [
     !salesResult.error ? `shopify_sales_summary:${organizationId}:${day}` : "",

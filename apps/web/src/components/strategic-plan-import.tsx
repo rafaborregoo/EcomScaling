@@ -33,9 +33,12 @@ type Preview = {
 
 export function StrategicPlanImport({
   organizationId,
+  connectionId,
   onImported,
 }: {
   organizationId: string;
+  /** Tienda para la que se importa el camino; sin ella, el camino general. */
+  connectionId?: string | null;
   onImported: () => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
@@ -84,7 +87,7 @@ export function StrategicPlanImport({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ markdown, fileName: preview.fileName }),
+          body: JSON.stringify({ markdown, fileName: preview.fileName, connectionId: connectionId || null }),
         },
       );
       if (!response.ok) {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "npm run build -w @e-nora/api",
     "dev": "dotenv -e ../../.env.local -- tsx watch src/worker.ts",
     "dev:shopify-reconcile": "dotenv -e ../../.env.local -- tsx src/shopify-reconcile-once.ts",
     "dev:context": "dotenv -e ../../.env.local -- tsx src/context-once.ts",

@@ -10,6 +10,7 @@ import {
   Badge,
   Button,
   Card,
+  Drawer,
   EmptyState,
   ErrorBlock,
   Field,
@@ -48,6 +49,7 @@ type GlobalDocument = {
 function PlatformKnowledgePanel() {
   const [documents, setDocuments] = useState<GlobalDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -166,6 +168,7 @@ function PlatformKnowledgePanel() {
     if (await ingest(title.trim(), content.trim(), "manual")) {
       setTitle("");
       setContent("");
+      setAdding(false);
     }
   }
 
@@ -173,7 +176,16 @@ function PlatformKnowledgePanel() {
     <div className="portal-page space-y-5 sm:space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <Card
+      <Drawer isOpen={adding} onOpenChange={(open) => !isSaving && setAdding(open)}>
+        <Drawer.Backdrop isDismissable={!isSaving}>
+          <Drawer.Content placement="right" className="w-full max-w-2xl">
+            <Drawer.Dialog aria-label="Añadir material a la metodología">
+              <Drawer.Header className="admin-detail-header">
+                <Drawer.Heading>Ingesta de conocimiento</Drawer.Heading>
+                {!isSaving ? <Drawer.CloseTrigger /> : null}
+              </Drawer.Header>
+              <Drawer.Body className="admin-detail-body">
+      {adding ? <Card
         title="Añadir a la metodología"
         description="Lo que subas aquí lo usa el copiloto de todos los clientes. Ni los consultores ni los clientes lo ven listado: para ellos, Conocimiento es solo el contexto de su tienda."
       >
@@ -230,11 +242,21 @@ function PlatformKnowledgePanel() {
             },
           ]}
         />
-      </Card>
+      </Card> : null}
+              </Drawer.Body>
+            </Drawer.Dialog>
+          </Drawer.Content>
+        </Drawer.Backdrop>
+      </Drawer>
 
       <Card
         title={`Metodología (${documents?.length ?? 0})`}
         description="Lo que el copiloto puede citar en cualquier cliente."
+        actions={
+          <Button onClick={() => setAdding((value) => !value)}>
+            {adding ? "Cerrar alta" : "Añadir material"}
+          </Button>
+        }
       >
         {documents === null ? (
           <LoadingBlock label="Cargando metodología…" />

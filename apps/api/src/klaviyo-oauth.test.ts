@@ -45,7 +45,7 @@ test("Klaviyo OAuth construye PKCE S256 y una URL de autorización completa", ()
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
   assert.equal(url.searchParams.get("code_challenge"), challenge);
   assert.equal(url.searchParams.get("state"), "state-123");
-  assert.equal(url.searchParams.get("scope"), "accounts:read flows:read");
+  assert.equal(url.searchParams.get("scope"), "accounts:read flows:read events:read");
 });
 
 test("Klaviyo normaliza scopes heredados con comas y detecta permisos ausentes", () => {

@@ -61,3 +61,16 @@ export function oldest(
       .sort()[0] ?? null
   );
 }
+
+/** «hace 5 min», «hace 3 h», «hace 2 d». `null` sin fecha válida. */
+export function timeAgo(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return null;
+  const minutes = Math.max(0, Math.round((Date.now() - parsed) / 60_000));
+  if (minutes < 1) return "ahora mismo";
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `hace ${hours} h`;
+  return `hace ${Math.round(hours / 24)} d`;
+}

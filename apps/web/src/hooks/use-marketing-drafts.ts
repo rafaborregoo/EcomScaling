@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { TemplateDesign } from "@/app/marketing/template-design";
+import type { StudioDesign } from "@/app/marketing/studio/studio-design";
 import type { PieceThread } from "@/app/marketing/piece-analysis";
 
 /**
@@ -24,7 +25,8 @@ export type MarketingDraft = {
     channel?: string;
     content_type?: string;
     brief?: string;
-    design?: TemplateDesign;
+    /** Versión 1: editor anterior. Versión 2: estudio de contenido. */
+    design?: TemplateDesign | StudioDesign;
     template_profile?: Record<string, unknown>;
     source?: string;
     klaviyo_template_id?: string;

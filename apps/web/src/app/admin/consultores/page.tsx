@@ -7,6 +7,13 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue, organizationStatusTone } from "@/lib/display-labels";
 import {
+  AssignmentEditor,
+  formatCost,
+  topAgentsLabel,
+  type Consultant,
+  type ConsultantsPayload,
+} from "@/components/admin-consultant-detail";
+import {
   ConcesionDePlan,
   concesionInicial,
   concesionValida,
@@ -20,72 +27,19 @@ import {
   Banner,
   BarChart,
   Button,
+  ButtonLink,
   Card,
   ConfirmDialog,
+  Drawer,
   ErrorBlock,
   EYEBROW,
   Field,
   Input,
+  Metric,
   Select,
   Table,
   type TableColumnDef,
 } from "@/components/ui";
-
-type AgentUsage = { name: string; runs: number };
-type AiStats = {
-  cost_usd: number;
-  run_count: number;
-  top_agents: AgentUsage[];
-};
-
-type AssignedOrg = {
-  organization_id: string;
-  display_name: string;
-  is_primary: boolean;
-  status: string;
-};
-
-type Plan = {
-  plan_code: string;
-  store_limit: number | null;
-  status: string;
-  ends_at: string | null;
-};
-
-type Consultant = {
-  id: string;
-  full_name: string | null;
-  is_active: boolean;
-  assignments: AssignedOrg[];
-  ai: AiStats;
-  consulting_organization_id: string | null;
-  plan: Plan | null;
-};
-
-type OrganizationOption = {
-  id: string;
-  display_name: string;
-  slug: string;
-  status: string;
-};
-
-type ConsultantsPayload = {
-  window_days: number;
-  consultants: Consultant[];
-  organizations: OrganizationOption[];
-  organization_stats: Record<string, AiStats>;
-};
-
-function formatCost(usd: number) {
-  return `$${usd.toFixed(usd > 0 && usd < 1 ? 4 : 2)}`;
-}
-
-function topAgentsLabel(agents: AgentUsage[]) {
-  if (agents.length === 0) {
-    return "—";
-  }
-  return agents.map((agent) => `${agent.name} (${agent.runs})`).join(", ");
-}
 
 function ConsultantsPanel() {
   const {
@@ -96,8 +50,8 @@ function ConsultantsPanel() {
   } = useCachedQuery<ConsultantsPayload>("/v1/admin/consultants");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   async function deleteConsultant(consultant: Consultant) {
     setBusyId(consultant.id);
@@ -112,7 +66,6 @@ function ConsultantsPanel() {
         return;
       }
       setNotice("Consultor eliminado.");
-      if (expandedId === consultant.id) setExpandedId(null);
       load();
     } catch {
       setError("No se pudo eliminar. Revisa la conexión e inténtalo de nuevo.");
@@ -241,15 +194,14 @@ function ConsultantsPanel() {
           >
             Reenviar
           </Button>
-          <Button
+          <ButtonLink
+            href={`/admin/consultores/${row.id}`}
             size="sm"
             variant="ghost"
-            onClick={() =>
-              setExpandedId((current) => (current === row.id ? null : row.id))
-            }
+            aria-label={`Abrir ficha de ${row.full_name ?? row.id}`}
           >
-            {expandedId === row.id ? "Cerrar" : "Ver ficha"}
-          </Button>
+            Abrir ficha
+          </ButtonLink>
           <ConfirmDialog
             trigger={
               <Button size="sm" variant="ghost" disabled={busyId === row.id}>
@@ -266,10 +218,6 @@ function ConsultantsPanel() {
     },
   ];
 
-  const expanded = data.consultants.find(
-    (consultant) => consultant.id === expandedId,
-  );
-
   // El gráfico solo aporta comparando: 2+ consultores y algún coste real.
   const costChartData = data.consultants
     .filter((consultant) => consultant.ai.cost_usd > 0)
@@ -278,23 +226,33 @@ function ConsultantsPanel() {
       name: consultant.full_name ?? consultant.id,
       cost: Number(consultant.ai.cost_usd.toFixed(2)),
     }));
+  const activeConsultants = data.consultants.filter((consultant) => consultant.is_active).length;
+  const assignmentCount = data.consultants.reduce(
+    (total, consultant) => total + consultant.assignments.length,
+    0,
+  );
 
   return (
-    <div className="grid gap-6">
-      <ConsultantCreateForm
-        onCreated={async (msg) => {
-          setNotice(msg);
-          load();
-        }}
-      />
-
+    <div className="admin-module-body">
       {notice ? <Banner tone="success">{notice}</Banner> : null}
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
+      <div className="admin-data-summary">
+        <Metric card label="Consultores" value={String(data.consultants.length)} />
+        <Metric card label="Con acceso activo" value={String(activeConsultants)} tone="success" />
+        <Metric card label="Desactivados" value={String(data.consultants.length - activeConsultants)} />
+        <Metric card label="Asignaciones de clientes" value={String(assignmentCount)} />
+      </div>
+
       <Card
         kicker="Panel platform admin"
-        title="Consultores"
-        description={`Uso de IA y clientes por consultor. Ventana: últimos ${data.window_days} días.`}
+        title="Directorio de consultores"
+        description={`Acceso, cartera y uso de IA · últimos ${data.window_days} días.`}
+        actions={
+          <Button onClick={() => setCreating((value) => !value)}>
+            {creating ? "Cerrar alta" : "Invitar consultor"}
+          </Button>
+        }
       >
         {costChartData.length >= 2 ? (
           <div className="mb-6">
@@ -320,225 +278,32 @@ function ConsultantsPanel() {
         />
       </Card>
 
-      {expanded ? (
-        <AssignmentEditor
-          consultant={expanded}
-          organizations={data.organizations}
-          organizationStats={data.organization_stats}
-          windowDays={data.window_days}
-          onChanged={load}
-        />
-      ) : null}
+      <Drawer isOpen={creating} onOpenChange={setCreating}>
+        <Drawer.Backdrop>
+          <Drawer.Content placement="right" className="w-full max-w-3xl">
+            <Drawer.Dialog aria-label="Invitar consultor">
+              <Drawer.Header className="admin-detail-header">
+                <div className="min-w-0">
+                  <Drawer.Heading>Invitar consultor</Drawer.Heading>
+                  <p className="mt-1 text-sm text-muted">Crea su acceso y prepara la asignación de clientes</p>
+                </div>
+                <Drawer.CloseTrigger />
+              </Drawer.Header>
+              <Drawer.Body className="admin-detail-body">
+                <ConsultantCreateForm
+                  onCreated={async (msg) => {
+                    setNotice(msg);
+                    setCreating(false);
+                    load();
+                  }}
+                />
+              </Drawer.Body>
+            </Drawer.Dialog>
+          </Drawer.Content>
+        </Drawer.Backdrop>
+      </Drawer>
+
     </div>
-  );
-}
-
-function AssignmentEditor({
-  consultant,
-  organizations,
-  organizationStats,
-  windowDays,
-  onChanged,
-}: {
-  consultant: Consultant;
-  organizations: OrganizationOption[];
-  organizationStats: Record<string, AiStats>;
-  windowDays: number;
-  onChanged: () => void;
-}) {
-  const [pendingOrgId, setPendingOrgId] = useState("");
-  const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState(consultant.full_name ?? "");
-  const [savingName, setSavingName] = useState(false);
-
-  async function saveName() {
-    setSavingName(true);
-    setError(null);
-    try {
-      const response = await apiFetch(`/v1/admin/consultants/${consultant.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ full_name: name }),
-      });
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      onChanged();
-    } catch {
-      setError("No se pudo guardar el nombre. Revisa la conexión e inténtalo de nuevo.");
-    } finally {
-      setSavingName(false);
-    }
-  }
-
-  const assignedIds = new Set(
-    consultant.assignments.map((assignment) => assignment.organization_id),
-  );
-  const unassigned = organizations.filter((org) => !assignedIds.has(org.id));
-
-  async function setAssignment(organizationId: string, isActive: boolean) {
-    setBusyOrgId(organizationId);
-    setError(null);
-    try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organizationId}/assignments`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            consultant_user_id: consultant.id,
-            is_active: isActive,
-          }),
-        },
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setPendingOrgId("");
-      onChanged();
-    } catch {
-      setError("No se pudo guardar el cambio. Revisa la conexión e inténtalo de nuevo.");
-    } finally {
-      setBusyOrgId(null);
-    }
-  }
-
-  const clientColumns: TableColumnDef<AssignedOrg & { id: string }>[] = [
-    {
-      key: "display_name",
-      label: "Cliente",
-      render: (row) => (
-        <span className="font-medium">
-          {row.display_name}
-          {row.is_primary ? (
-            <Badge tone="brand" className="ml-2">
-              principal
-            </Badge>
-          ) : null}
-        </span>
-      ),
-    },
-    {
-      key: "status",
-      label: "Estado",
-      render: (row) => (
-        <Badge tone={organizationStatusTone(row.status)}>
-          {displayValue(row.status)}
-        </Badge>
-      ),
-    },
-    {
-      key: "cost",
-      label: "Coste IA",
-      render: (row) =>
-        formatCost(organizationStats[row.organization_id]?.cost_usd ?? 0),
-    },
-    {
-      key: "runs",
-      label: "Ejecuciones",
-      render: (row) =>
-        String(organizationStats[row.organization_id]?.run_count ?? 0),
-    },
-    {
-      key: "agents",
-      label: "Agentes más usados",
-      render: (row) => (
-        <span className="text-xs text-muted">
-          {topAgentsLabel(organizationStats[row.organization_id]?.top_agents ?? [])}
-        </span>
-      ),
-    },
-    {
-      key: "actions",
-      label: "",
-      render: (row) => (
-        <div className="flex justify-end gap-2">
-          <VerComoButton
-            organizationId={row.organization_id}
-            displayName={row.display_name}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busyOrgId === row.organization_id}
-            onClick={() => void setAssignment(row.organization_id, false)}
-          >
-            {busyOrgId === row.organization_id ? "Quitando..." : "Quitar"}
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
-  return (
-    <Card
-      kicker={`Clientes · últimos ${windowDays} días`}
-      title={consultant.full_name ?? consultant.id}
-    >
-      <div className="grid gap-4">
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-
-        <div className="flex flex-wrap items-end gap-3 border-b border-separator pb-4">
-          <Field label="Nombre del consultor">
-            <Input
-              className="w-64"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
-          <Button
-            size="sm"
-            disabled={savingName || name.trim().length === 0}
-            onClick={() => void saveName()}
-          >
-            {savingName ? "Guardando..." : "Guardar nombre"}
-          </Button>
-        </div>
-
-        {consultant.consulting_organization_id ? (
-          <PlanEditor
-            subjectType="organization"
-            subjectId={consultant.consulting_organization_id}
-            plan={consultant.plan}
-            onSaved={onChanged}
-          />
-        ) : null}
-
-        <Table
-          ariaLabel={`Clientes de ${consultant.full_name ?? consultant.id}`}
-          columns={clientColumns}
-          rows={consultant.assignments.map((assignment) => ({
-            ...assignment,
-            id: assignment.organization_id,
-          }))}
-          emptyLabel="Sin clientes asignados."
-        />
-
-        <div className="flex flex-wrap items-end gap-3 border-t border-separator pt-4">
-          <Select
-            className="w-64"
-            aria-label="Cliente a asignar"
-            placeholder="Elegir cliente..."
-            value={pendingOrgId}
-            onChange={setPendingOrgId}
-            options={unassigned.map((org) => ({
-              value: org.id,
-              label: org.display_name,
-            }))}
-          />
-          <Button
-            size="sm"
-            disabled={!pendingOrgId || busyOrgId === pendingOrgId}
-            onClick={() => void setAssignment(pendingOrgId, true)}
-          >
-            Asignar cliente
-          </Button>
-        </div>
-      </div>
-    </Card>
   );
 }
 

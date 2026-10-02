@@ -5,6 +5,7 @@ import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { createLogger } from "@e-nora/observability";
 import {
   requireOperationalOrganization,
+  requireOwnOrganizationAccess,
   isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
@@ -35,6 +36,36 @@ const logger = createLogger("meta");
 const CREDENTIAL_KIND = "meta_user_access_token";
 const PROVIDER = "meta_ads";
 const META_STALE_SYNCING_MS = 10 * 60 * 1000;
+const ADMIN_ONBOARDING_RETURN_TO = "/admin/onboarding";
+
+function hasAdminOnboardingReturn(metadata: unknown) {
+  return typeof metadata === "object" && metadata !== null &&
+    (metadata as Record<string, unknown>).onboarding_return_to === ADMIN_ONBOARDING_RETURN_TO;
+}
+
+function metaOnboardingRedirect(env: ApiEnv, result: string) {
+  const url = new URL(ADMIN_ONBOARDING_RETURN_TO, env.WEB_ORIGIN);
+  url.searchParams.set("meta", result);
+  return url.toString();
+}
+
+async function redirectMetaOnboardingError(
+  supabase: SupabaseClient,
+  env: ApiEnv,
+  connection: { id: string; metadata: unknown },
+  message: string,
+): Promise<Result | null> {
+  if (!hasAdminOnboardingReturn(connection.metadata)) return null;
+  await supabase
+    .from("integration_connections")
+    .update({
+      status: "error",
+      last_error_at: new Date().toISOString(),
+      last_error_message: message.slice(0, 500),
+    })
+    .eq("id", connection.id);
+  return { ok: true, data: { redirectUrl: metaOnboardingRedirect(env, "error") } };
+}
 
 type Result =
   | { ok: true; data: { redirectUrl: string } }
@@ -96,7 +127,7 @@ function canManageOrganization(
   authContext: AuthContext,
   organizationId: string,
 ) {
-  const operational = requireOperationalOrganization(
+  const operational = requireOwnOrganizationAccess(
     authContext,
     organizationId,
   );
@@ -188,6 +219,7 @@ export async function createMetaConnectionAuthUrl(
   env: ApiEnv,
   authContext: AuthContext,
   organizationId: string,
+  onboardingReturnTo?: string,
 ): Promise<Result> {
   if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
     return {
@@ -210,7 +242,7 @@ export async function createMetaConnectionAuthUrl(
     };
   }
 
-  const operational = requireOperationalOrganization(
+  const operational = requireOwnOrganizationAccess(
     authContext,
     organizationId,
   );
@@ -263,7 +295,13 @@ export async function createMetaConnectionAuthUrl(
         .from("integration_connections")
         .update({
           status: "pending",
-          metadata: { state, source: "oauth_start" },
+          metadata: {
+            state,
+            source: "oauth_start",
+            ...(onboardingReturnTo === ADMIN_ONBOARDING_RETURN_TO
+              ? { onboarding_return_to: onboardingReturnTo }
+              : {}),
+          },
         })
         .eq("id", existingConnection.id)
     : // El registro pendiente necesita una clave para el insert, pero no debe
@@ -275,7 +313,13 @@ export async function createMetaConnectionAuthUrl(
         provider_account_id: `pending:${state}`,
         provider_account_name: "Meta Ads",
         status: "pending",
-        metadata: { state, source: "oauth_start" },
+        metadata: {
+          state,
+          source: "oauth_start",
+          ...(onboardingReturnTo === ADMIN_ONBOARDING_RETURN_TO
+            ? { onboarding_return_to: onboardingReturnTo }
+            : {}),
+        },
       });
 
   if (error) {
@@ -468,15 +512,34 @@ export async function discoverMetaAssets(
     }
   }
 
-  const adAccounts = await metaGraphGetAll<MetaAdAccountNode>(
-    "me/adaccounts",
-    accessToken,
-    {
-      fields:
-        "id,account_id,name,account_status,disable_reason,currency,timezone_name,timezone_offset_hours_utc,amount_spent,balance,spend_cap,min_daily_budget,business,created_time",
-    },
-    env.META_APP_SECRET,
-  );
+  const adAccountFields =
+    "id,account_id,name,account_status,disable_reason,currency,timezone_name,timezone_offset_hours_utc,amount_spent,balance,spend_cap,min_daily_budget,business,created_time";
+  const adAccountFieldsWithoutBusiness =
+    "id,account_id,name,account_status,disable_reason,currency,timezone_name,timezone_offset_hours_utc,amount_spent,balance,spend_cap,min_daily_budget,created_time";
+  let adAccounts: MetaAdAccountNode[];
+  try {
+    adAccounts = await metaGraphGetAll<MetaAdAccountNode>(
+      "me/adaccounts",
+      accessToken,
+      { fields: adAccountFields },
+      env.META_APP_SECRET,
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (!/business_management\s+permission/i.test(detail)) throw error;
+
+    logger.info("meta_ad_account_business_field_unavailable", {
+      connection_id: connectionId,
+      organization_id: organizationId,
+      detail,
+    });
+    adAccounts = await metaGraphGetAll<MetaAdAccountNode>(
+      "me/adaccounts",
+      accessToken,
+      { fields: adAccountFieldsWithoutBusiness },
+      env.META_APP_SECRET,
+    );
+  }
 
   for (const account of adAccounts) {
     const { error } = await supabase.from("meta_ad_accounts").upsert(
@@ -582,11 +645,13 @@ export async function listMetaAssets(
   authContext: AuthContext,
   organizationId: string,
 ) {
-  if (!hasOrganizationAccess(authContext, organizationId)) {
+  const ownAccess = requireOwnOrganizationAccess(authContext, organizationId);
+  if (!ownAccess.ok) {
     return {
       ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
+      statusCode: ownAccess.statusCode,
+      error: ownAccess.error,
+      message: "Las cuentas publicitarias solo son visibles desde su organización.",
     };
   }
 
@@ -954,7 +1019,7 @@ export async function handleMetaOAuthCallback(
       const supabase = createServiceClient(env);
       const { data: pending } = await supabase
         .from("integration_connections")
-        .select("id")
+        .select("id, metadata")
         .eq("provider", PROVIDER)
         .eq("status", "pending")
         .contains("metadata", { state })
@@ -968,6 +1033,12 @@ export async function handleMetaOAuthCallback(
             last_error_message: `meta_oauth_denied:${oauthError}`,
           })
           .eq("id", pending.id);
+        if (hasAdminOnboardingReturn(pending.metadata)) {
+          return {
+            ok: true,
+            data: { redirectUrl: metaOnboardingRedirect(env, "denied") },
+          };
+        }
       }
     }
     return {
@@ -1010,6 +1081,7 @@ export async function handleMetaOAuthCallback(
   if (!pending) {
     return { ok: false, statusCode: 400, error: "invalid_meta_oauth_state" };
   }
+  const pendingMetadata = pending.metadata;
 
   let token;
   try {
@@ -1025,6 +1097,13 @@ export async function handleMetaOAuthCallback(
       redirect_uri: appEnv.META_REDIRECT_URI,
       detail,
     });
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase,
+      env,
+      pending,
+      `meta_token_exchange_failed: ${detail}`,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 502,
@@ -1037,15 +1116,27 @@ export async function handleMetaOAuthCallback(
   try {
     debugToken = await debugMetaAccessToken(appEnv, token.accessToken);
   } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown_error";
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase,
+      env,
+      pending,
+      `meta_token_debug_failed: ${detail}`,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 502,
       error: "meta_token_debug_failed",
-      detail: error instanceof Error ? error.message : "unknown_error",
+      detail,
     };
   }
 
   if (debugToken.appId && debugToken.appId !== appEnv.META_APP_ID) {
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase, env, pending, "meta_token_app_mismatch",
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 403,
@@ -1070,6 +1161,13 @@ export async function handleMetaOAuthCallback(
         last_error_message: `meta_permissions_missing:${missingScopes.join(",")}`,
       })
       .eq("id", pending.id);
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase,
+      env,
+      pending,
+      `meta_permissions_missing:${missingScopes.join(",")}`,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 403,
@@ -1090,6 +1188,10 @@ export async function handleMetaOAuthCallback(
 
   const verifiedIdentity = getVerifiedMetaIdentity(me);
   if (isErr(verifiedIdentity)) {
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase, env, pending, verifiedIdentity.error,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 502,
@@ -1108,11 +1210,19 @@ export async function handleMetaOAuthCallback(
       debugToken.scopes.join(","),
     );
   } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown_error";
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase,
+      env,
+      pending,
+      `meta_credential_store_failed: ${detail}`,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 500,
       error: "meta_credential_store_failed",
-      detail: error instanceof Error ? error.message : "unknown_error",
+      detail,
     };
   }
 
@@ -1135,6 +1245,11 @@ export async function handleMetaOAuthCallback(
       })
       .eq("id", pending.id);
 
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase, env, pending, `meta_discovery_failed: ${detail}`,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
+
     return {
       ok: false,
       statusCode: 502,
@@ -1153,11 +1268,25 @@ export async function handleMetaOAuthCallback(
       scopes: debugToken.scopes,
       connected_at: now,
       last_sync_at: now,
-      metadata: { state, source: "oauth_start", discovery },
+      metadata: {
+        ...(typeof pendingMetadata === "object" && pendingMetadata !== null
+          ? (pendingMetadata as Record<string, unknown>)
+          : {}),
+        state,
+        source: "oauth_start",
+        discovery,
+      },
     })
     .eq("id", pending.id);
 
   if (updateError) {
+    const onboardingRedirect = await redirectMetaOnboardingError(
+      supabase,
+      env,
+      pending,
+      `meta_connection_update_failed: ${updateError.message}`,
+    );
+    if (onboardingRedirect) return onboardingRedirect;
     return {
       ok: false,
       statusCode: 500,
@@ -1201,7 +1330,11 @@ export async function handleMetaOAuthCallback(
 
   return {
     ok: true,
-    data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=connected` },
+    data: {
+      redirectUrl: hasAdminOnboardingReturn(pendingMetadata)
+        ? metaOnboardingRedirect(env, "connected")
+        : `${env.WEB_ORIGIN}/integraciones?meta=connected`,
+    },
   };
 }
 

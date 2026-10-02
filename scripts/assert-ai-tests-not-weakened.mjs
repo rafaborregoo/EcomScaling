@@ -48,8 +48,17 @@ for (const file of headTestFiles()) {
 
 const datasetBefore = headVersion(dataset);
 const datasetNow = readFileSync(path.join(root, dataset), "utf8");
-if (datasetBefore !== null && count(datasetNow, CASE) < count(datasetBefore, CASE)) {
-  problems.push(`${dataset}: casos ${count(datasetBefore, CASE)} -> ${count(datasetNow, CASE)}`);
+const datasetCaseCount = (source) => {
+  // The dataset used to list one literal per agent. It now imports the active
+  // catalog and builds one fixture per entry, so count that catalog instead.
+  if (source.includes("AGENT_EVAL_AGENT_CODES")) {
+    const catalogPath = path.join(root, aiSrc, "agent-eval-catalog.ts");
+    return count(readFileSync(catalogPath, "utf8"), CASE);
+  }
+  return count(source, CASE);
+};
+if (datasetBefore !== null && datasetCaseCount(datasetNow) < datasetCaseCount(datasetBefore)) {
+  problems.push(`${dataset}: casos ${datasetCaseCount(datasetBefore)} -> ${datasetCaseCount(datasetNow)}`);
 }
 
 function headTestFiles() {

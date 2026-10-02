@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
@@ -12,9 +13,7 @@ import {
 import { apiFetch } from "@/lib/bootstrap";
 import {
   Badge,
-  Banner,
   Button,
-  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
@@ -24,6 +23,7 @@ import {
   toast,
 } from "@/components/ui";
 import type { BootstrapResponse } from "@/lib/bootstrap";
+import { StatusStrip } from "@/components/trabajo-ui";
 
 /**
  * Sin cliente activo esta página era una tarjeta muerta con un "Volver al
@@ -48,17 +48,10 @@ function ProposalsPortfolio() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Heading>Decisiones del consultor IA</Heading>
-        <p className="mt-1 max-w-2xl text-sm text-muted">
-          Lo que los agentes han propuesto en toda la cartera y sigue sin
-          decidir.
-        </p>
-      </div>
+      <Heading>Recomendaciones IA · cartera</Heading>
 
       <Card
         title="Propuestas esperando decisión"
-        description="Ordenadas por cuánta atención necesita el cliente, no por antigüedad."
         actions={
           pending.length > 0 ? (
             <Badge tone="warn">{pending.length} clientes</Badge>
@@ -157,19 +150,15 @@ function CalendarLoad({ organizationId }: { organizationId: string }) {
 
   if (count === null) return null;
   return (
-    <Banner tone={count > 0 ? "success" : "warn"} className="text-sm">
-      {count > 0 ? (
-        <>
-          Ya hay <strong>{count} acciones</strong> planificadas para los
-          próximos 30 días. Apruébalo sabiendo lo que ya está comprometido.
-        </>
-      ) : (
-        <>
-          No hay nada planificado en los próximos 30 días: lo que apruebes aquí
-          será el plan.
-        </>
-      )}
-    </Banner>
+    <StatusStrip
+      items={[
+        {
+          value: count,
+          label: "Acciones ya planificadas · 30 días",
+          tone: count ? undefined : "warn",
+        },
+      ]}
+    />
   );
 }
 
@@ -182,36 +171,17 @@ function RecommendationsContent({
   const consultant = ["consultant", "platform_admin"].includes(
     bootstrap.profile.platform_role,
   );
-  if (!consultant)
-    return (
-      <Card
-        title="Recomendaciones del consultor IA"
-        description="Esta vista es interna del consultor."
-      >
-        <ButtonLink href="/dashboard">Volver al dashboard</ButtonLink>
-      </Card>
-    );
+  const router = useRouter();
+  // Vista interna del consultor: el cliente vuelve a su agenda.
+  useEffect(() => {
+    if (!consultant) router.replace("/planificacion/calendario");
+  }, [consultant, router]);
+  if (!consultant) return null;
   if (!organizationId) return <ProposalsPortfolio />;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Heading>Decisiones del consultor IA</Heading>
-          <p className="mt-1 max-w-2xl text-sm text-muted">
-            La IA cruza los datos conectados y propone el siguiente trabajo. El
-            consultor revisa y aprueba antes de crear tareas.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <ButtonLink href="/planificacion" variant="secondary">
-            Resumen
-          </ButtonLink>
-          <ButtonLink href="/planificacion/calendario" variant="secondary">
-            Calendario
-          </ButtonLink>
-        </div>
-      </div>
+      <Heading>Recomendaciones IA</Heading>
 
       <CalendarLoad organizationId={organizationId} />
 

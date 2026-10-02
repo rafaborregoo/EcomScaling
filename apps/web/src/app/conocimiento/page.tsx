@@ -343,6 +343,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <ClientRules
               organizationId={organizationId}
               canManage={canManageKnowledge}
+              documents={documents}
             />
           ) : null,
 

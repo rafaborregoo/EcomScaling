@@ -85,7 +85,7 @@ export default function OnboardingPage() {
         <BrandLogo />
       </header>
 
-      <div className="mx-auto flex max-w-lg flex-col gap-6 px-6 py-10">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-12 sm:px-8 lg:py-16">
         {!userId ? (
           <Card
             title="Enlace no válido"
@@ -176,7 +176,7 @@ function PasswordStep({
       title="Crea tu contraseña"
       description="Es lo primero. La usarás para entrar a partir de ahora."
     >
-      <div className="mt-4 grid gap-4">
+      <div className="mt-6 grid gap-6">
         <Field label="Contraseña">
           <PasswordInput
             autoComplete="new-password"
@@ -315,7 +315,7 @@ function ProfileStep({
       title="Tu perfil"
       description="Puedes cambiar el nombre que te asignaron y elegir un avatar."
     >
-      <div className="mt-4 grid gap-5">
+      <div className="mt-6 grid gap-6">
         <Field label="Nombre personal">
           <Input
             value={name}

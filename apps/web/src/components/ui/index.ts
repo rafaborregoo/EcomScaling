@@ -107,6 +107,7 @@ export {
   PanelLeftIcon,
   PlusIcon,
   RetryIcon,
+  SearchIcon,
   SettingsIcon,
   SlidersIcon,
   SparklesIcon,

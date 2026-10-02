@@ -1,0 +1,169 @@
+/* Emails de Klaviyo: solo lo que Productos/Promociones no tienen (vista
+   previa de bandeja, pasos de un flujo, barra de clics). El resto de clases
+   viene de ../shopify/productos/catalogo.module.css. */
+
+/* ---------- tarjeta: vista previa de la bandeja en vez de foto ---------- */
+.cover {
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-height: 132px;
+  padding: 44px 16px 14px;
+  background: var(--sunken);
+}
+.cover.off {
+  opacity: 0.7;
+}
+.st {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+.warn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.inbox {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.inbox b {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+.inbox span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink-3);
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+/* ---------- ficha: tarjeta oscura con la vista previa del email ---------- */
+.fLeft {
+  display: grid;
+  align-content: space-between;
+  gap: 18px;
+  min-height: 300px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--hero-2);
+}
+.fKind {
+  color: var(--hero-muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mail {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--hero-3);
+}
+.mail .from {
+  color: var(--hero-muted);
+  font-size: 11.5px;
+}
+.mail .subj {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--hero-ink);
+}
+.mail .pre {
+  color: var(--hero-muted);
+  font-size: 13px;
+}
+.steps {
+  display: grid;
+  gap: 8px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  color: var(--hero-muted);
+  font-size: 12.5px;
+}
+.step b {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--hero-3);
+  color: var(--hero-ink);
+  font-size: 11px;
+}
+.step strong {
+  display: block;
+  color: var(--hero-ink);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* ---------- ficha: comparativa con la media de la cuenta ---------- */
+.cmp {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+.cmpR {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 70px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.cmpR span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+.meter {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.meter b {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* ---------- ficha: enlaces ---------- */
+.linkRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 64px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12.5px;
+}
+.linkRow span:first-child {
+  overflow-wrap: anywhere;
+}
+.linkRow span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}

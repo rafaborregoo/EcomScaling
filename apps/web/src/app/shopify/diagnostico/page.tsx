@@ -328,7 +328,7 @@ const productColumns: TableColumnDef<ProductRow>[] = [
 
 type OrderRow = ShopifyOverview["samples"]["orders"][number];
 
-function orderColumns(currency: string): TableColumnDef<OrderRow>[] {
+function orderColumns(currency: string | null): TableColumnDef<OrderRow>[] {
   return [
     {
       key: "order_name",
@@ -378,7 +378,7 @@ function orderColumns(currency: string): TableColumnDef<OrderRow>[] {
 
 type InventoryRow = ShopifyOverview["samples"]["inventory"][number];
 
-function inventoryColumns(currency: string): TableColumnDef<InventoryRow>[] {
+function inventoryColumns(currency: string | null): TableColumnDef<InventoryRow>[] {
   return [
     {
       key: "sku",
@@ -406,7 +406,7 @@ function inventoryColumns(currency: string): TableColumnDef<InventoryRow>[] {
       label: "Coste unitario",
       render: (row) => (
         <span className="font-mono">
-          {row.current_unit_cost
+          {row.current_unit_cost != null
             ? formatMoney(
                 row.current_unit_cost,
                 row.cost_currency_code ?? currency,
@@ -508,7 +508,7 @@ function ShopifyDiagnosticoView({
     );
   }
 
-  const currency = overview.store?.currency_code ?? "EUR";
+  const currency = overview.store?.currency_code ?? null;
   const authorizedScopes = new Set(overview.authorized_scopes);
   const activeDatasets = overview.datasets.filter(
     (dataset) => dataset.status === "active",

@@ -5,6 +5,11 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import { createLogger } from "@e-nora/observability";
 import { verifyShopifyWebhookHmac } from "./shopify-webhooks.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
+import { isMissingShopifyNetMetricsSchema } from "./shopify-order-line-net.js";
+import {
+  isMissingShopifyProductMetadataSchema,
+  normalizeShopifyProductTags,
+} from "./shopify-product-metadata.js";
 import {
   recordShopifyOrderTracking,
   recordShopifyRefundTracking,
@@ -79,6 +84,165 @@ function normalizeMoney(value: string | number | null | undefined) {
     return Number(value);
   }
   return 0;
+}
+
+function isShopifyProductMediaSchemaMissing(error: { code?: string; message?: string }) {
+  const message = error.message ?? "";
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    (error.code === "PGRST204" && message.includes("shopify_product_media")) ||
+    message.includes("shopify_product_media") &&
+      (message.includes("does not exist") || message.includes("schema cache"))
+  );
+}
+
+function isShopifyDiscountApplicationsSchemaMissing(error: { code?: string; message?: string }) {
+  const message = error.message ?? "";
+  return error.code === "42P01" || error.code === "PGRST205" ||
+    (error.code === "PGRST204" && message.includes("shopify_order_discount_applications")) ||
+    ((error.code === "42703" || error.code === "PGRST204") &&
+      /store_id|amount_coverage/.test(message));
+}
+
+async function syncOrderDiscountApplications(
+  supabase: SupabaseClient,
+  ctx: ConnectionContext,
+  orderId: string,
+  payload: Record<string, unknown>,
+) {
+  if (!Array.isArray(payload.discount_applications)) return;
+
+  if (!Array.isArray(payload.line_items) || !Array.isArray(payload.shipping_lines)) {
+    logger.info("Shopify discount applications skipped because order lines were absent", {
+      connection_id: ctx.connectionId,
+      organization_id: ctx.organizationId,
+      store_id: ctx.storeId,
+      order_id: orderId,
+    });
+    return;
+  }
+
+  const lineItems = payload.line_items as Array<Record<string, unknown>>;
+  const shippingLines = payload.shipping_lines as Array<Record<string, unknown>>;
+  const allocationArrays = [...lineItems, ...shippingLines].map((line) =>
+    line.discount_allocations,
+  );
+  if (allocationArrays.some((allocations) => !Array.isArray(allocations))) {
+    // Preserve previously captured exact allocations when the webhook payload
+    // is partial; a missing array is not evidence that a discount was unused.
+    logger.info("Shopify discount applications skipped because allocations were absent", {
+      connection_id: ctx.connectionId,
+      organization_id: ctx.organizationId,
+      store_id: ctx.storeId,
+      order_id: orderId,
+    });
+    return;
+  }
+
+  const applicationValues = payload.discount_applications as Array<unknown>;
+  const amountsByIndex = new Map<number, number>();
+  let allocationsComplete = true;
+  for (const allocationArray of allocationArrays as Array<unknown[]>) {
+    for (const value of allocationArray) {
+      if (!value || typeof value !== "object") {
+        allocationsComplete = false;
+        continue;
+      }
+      const allocation = value as Record<string, unknown>;
+      const index = allocation.discount_application_index;
+      const amountSet = allocation.amount_set as RestMoneySet;
+      const amount = amountSet?.shop_money?.amount ?? allocation.amount as string | number | null | undefined;
+      const numericAmount = typeof amount === "number"
+        ? amount
+        : typeof amount === "string" && amount.trim()
+          ? Number(amount)
+          : Number.NaN;
+      if (
+        typeof index !== "number" || !Number.isSafeInteger(index) ||
+        index < 0 || index >= applicationValues.length ||
+        !Number.isFinite(numericAmount)
+      ) {
+        allocationsComplete = false;
+        continue;
+      }
+      amountsByIndex.set(index, (amountsByIndex.get(index) ?? 0) + numericAmount);
+    }
+  }
+
+  const rows = applicationValues.map((value, position) => {
+    const application = value && typeof value === "object"
+      ? value as Record<string, unknown>
+      : {};
+    return {
+      organization_id: ctx.organizationId,
+      store_id: ctx.storeId,
+      order_id: orderId,
+      code: typeof application.code === "string" ? application.code : null,
+      title: typeof application.title === "string" ? application.title : null,
+      allocation_method: typeof application.allocation_method === "string"
+        ? application.allocation_method
+        : null,
+      target_type: typeof application.target_type === "string"
+        ? application.target_type
+        : null,
+      amount: amountsByIndex.get(position) ?? 0,
+      amount_coverage: allocationsComplete ? "complete" : "partial",
+      position,
+    };
+  });
+
+  if (rows.length) {
+    const { error } = await supabase
+      .from("shopify_order_discount_applications")
+      .upsert(rows, { onConflict: "order_id,position" });
+    if (error) {
+      if (isShopifyDiscountApplicationsSchemaMissing(error)) {
+        logger.info("Shopify discount application migration is pending; kept prior application data", {
+          connection_id: ctx.connectionId,
+          organization_id: ctx.organizationId,
+          store_id: ctx.storeId,
+        });
+        return;
+      }
+      throw new Error(`shopify_webhook_discount_applications_upsert_failed: ${error.message}`);
+    }
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .from("shopify_order_discount_applications")
+    .select("id, position")
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("order_id", orderId);
+  if (readError) {
+    if (isShopifyDiscountApplicationsSchemaMissing(readError)) {
+      logger.info("Shopify discount application scope migration is pending", {
+        connection_id: ctx.connectionId,
+        organization_id: ctx.organizationId,
+        store_id: ctx.storeId,
+      });
+      return;
+    }
+    throw new Error(`shopify_webhook_discount_applications_read_failed: ${readError.message}`);
+  }
+
+  const activePositions = new Set(rows.map((row) => row.position));
+  const staleIds = (existing ?? [])
+    .filter((row) => !activePositions.has(row.position))
+    .map((row) => row.id);
+  if (!staleIds.length) return;
+
+  const { error: deleteError } = await supabase
+    .from("shopify_order_discount_applications")
+    .delete()
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("order_id", orderId)
+    .in("id", staleIds);
+  if (deleteError && !isShopifyDiscountApplicationsSchemaMissing(deleteError)) {
+    throw new Error(`shopify_webhook_discount_applications_retire_failed: ${deleteError.message}`);
+  }
 }
 
 /**
@@ -195,10 +359,11 @@ async function processProductUpdate(
       ? payload.admin_graphql_api_id
       : gid("Product", payload.id);
 
-  const { data: productRow, error: productError } = await supabase
-    .from("shopify_products")
-    .upsert(
-      {
+  const descriptionHtml = typeof payload.body_html === "string" ? payload.body_html : undefined;
+  const tags = typeof payload.tags === "string" || Array.isArray(payload.tags)
+    ? normalizeShopifyProductTags(payload.tags)
+    : undefined;
+  const productRowPayload = {
         organization_id: ctx.organizationId,
         store_id: ctx.storeId,
         external_product_id: externalProductId,
@@ -206,15 +371,41 @@ async function processProductUpdate(
         handle: (payload.handle as string | undefined) ?? null,
         vendor: (payload.vendor as string | undefined) ?? null,
         product_type: (payload.product_type as string | undefined) ?? null,
+        ...(descriptionHtml !== undefined ? { description_html: descriptionHtml } : {}),
+        ...(tags !== undefined ? { tags } : {}),
+        ...(descriptionHtml !== undefined || tags !== undefined ? { metadata_coverage: "partial" } : {}),
         status: (payload.status as string | undefined) ?? null,
         published_at: (payload.published_at as string | undefined) ?? null,
         external_created_at: (payload.created_at as string | undefined) ?? null,
         external_updated_at: (payload.updated_at as string | undefined) ?? null,
-      },
-      { onConflict: "store_id,external_product_id" },
-    )
+  };
+  let { data: productRow, error: productError } = await supabase
+    .from("shopify_products")
+    .upsert(productRowPayload, { onConflict: "store_id,external_product_id" })
     .select("id")
     .single();
+
+  if (productError && isMissingShopifyProductMetadataSchema(productError)) {
+    const {
+      description_html: _descriptionHtml,
+      tags: _tags,
+      metadata_coverage: _metadataCoverage,
+      ...legacyPayload
+    } = productRowPayload;
+    const retry = await supabase
+      .from("shopify_products")
+      .upsert(legacyPayload, { onConflict: "store_id,external_product_id" })
+      .select("id")
+      .single();
+    productRow = retry.data;
+    productError = retry.error;
+    if (!productError) {
+      logger.info("Shopify product metadata migration is pending; stored core webhook fields", {
+        connection_id: ctx.connectionId,
+        organization_id: ctx.organizationId,
+      });
+    }
+  }
 
   if (productError || !productRow) {
     throw new Error(
@@ -225,6 +416,16 @@ async function processProductUpdate(
   const variants = Array.isArray(payload.variants)
     ? (payload.variants as Array<Record<string, unknown>>)
     : [];
+  const optionNamesByPosition = new Map<number, string>();
+  if (Array.isArray(payload.options)) {
+    for (const option of payload.options as Array<Record<string, unknown>>) {
+      const position = typeof option.position === "number" ? option.position : null;
+      const name = typeof option.name === "string" ? option.name.trim() : "";
+      if (position !== null && position >= 1 && position <= 3 && name) {
+        optionNamesByPosition.set(position, name);
+      }
+    }
+  }
 
   if (!variants.length) {
     return;
@@ -232,13 +433,24 @@ async function processProductUpdate(
 
   const variantRows = variants.map((variant) => ({
     organization_id: ctx.organizationId,
+    store_id: ctx.storeId,
     product_id: productRow.id,
     external_variant_id:
       typeof variant.admin_graphql_api_id === "string"
         ? variant.admin_graphql_api_id
         : gid("ProductVariant", variant.id),
     title: (variant.title as string | undefined) ?? null,
+    selected_options: [1, 2, 3].flatMap((position) => {
+      const name = optionNamesByPosition.get(position);
+      const value = variant[`option${position}`];
+      return name && typeof value === "string" && value.trim() && !(name === "Title" && value === "Default Title")
+        ? [{ name, value: value.trim() }]
+        : [];
+    }),
     barcode: (variant.barcode as string | undefined) ?? null,
+    ...(Object.hasOwn(variant, "image_id")
+      ? { external_image_id: shopifyNumericId(variant.image_id, "MediaImage") }
+      : {}),
     current_price: (variant.price as string | undefined) ?? null,
     compare_at_price: (variant.compare_at_price as string | undefined) ?? null,
     position: (variant.position as number | undefined) ?? null,
@@ -256,6 +468,174 @@ async function processProductUpdate(
   if (variantError) {
     throw new Error(variantError.message);
   }
+
+  // Shopify sends the current product image set in product webhooks. Only
+  // reconcile when the field is present; partial payloads must not clear a
+  // gallery that was previously synchronized.
+  if (Array.isArray(payload.images)) {
+    const syncedAt = new Date().toISOString();
+    const imageRows = payload.images
+      .map((value, index) => {
+        const image = value as Record<string, unknown>;
+        const externalMediaId = shopifyNumericId(
+          image.admin_graphql_api_id ?? image.id,
+          "MediaImage",
+        );
+        const sourceUrl = typeof image.src === "string" ? image.src.trim() : "";
+        if (!externalMediaId || !sourceUrl) return null;
+        return {
+          organization_id: ctx.organizationId,
+          store_id: ctx.storeId,
+          product_id: productRow.id,
+          external_media_id: externalMediaId,
+          media_content_type: "IMAGE",
+          source_url: sourceUrl,
+          alt_text: typeof image.alt === "string" && image.alt.trim() ? image.alt.trim() : null,
+          width: typeof image.width === "number" ? image.width : null,
+          height: typeof image.height === "number" ? image.height : null,
+          position: typeof image.position === "number" && image.position > 0 ? image.position - 1 : index,
+          is_active: true,
+          last_seen_at: syncedAt,
+          updated_at: syncedAt,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    let mediaSchemaAvailable = true;
+    if (imageRows.length) {
+      const { error: imageUpsertError } = await supabase
+        .from("shopify_product_media")
+        .upsert(imageRows, { onConflict: "product_id,external_media_id" });
+      if (imageUpsertError && isShopifyProductMediaSchemaMissing(imageUpsertError)) {
+        mediaSchemaAvailable = false;
+      } else if (imageUpsertError) {
+        throw new Error(imageUpsertError.message);
+      }
+    }
+
+    if (mediaSchemaAvailable) {
+      const { data: existingImages, error: existingImagesError } = await supabase
+        .from("shopify_product_media")
+        .select("id, external_media_id")
+        .eq("organization_id", ctx.organizationId)
+        .eq("store_id", ctx.storeId)
+        .eq("product_id", productRow.id);
+      if (existingImagesError && isShopifyProductMediaSchemaMissing(existingImagesError)) {
+        mediaSchemaAvailable = false;
+      } else if (existingImagesError) {
+        throw new Error(existingImagesError.message);
+      } else {
+        const activeImageIds = new Set(imageRows.map((row) => row.external_media_id));
+        const staleIds = (existingImages ?? [])
+          .filter((image) => !activeImageIds.has(image.external_media_id))
+          .map((image) => image.id);
+        if (staleIds.length) {
+          const { error: retireError } = await supabase
+            .from("shopify_product_media")
+            .update({ is_active: false, updated_at: syncedAt })
+            .eq("organization_id", ctx.organizationId)
+            .eq("store_id", ctx.storeId)
+            .eq("product_id", productRow.id)
+            .in("id", staleIds);
+          if (retireError && !isShopifyProductMediaSchemaMissing(retireError)) {
+            throw new Error(retireError.message);
+          }
+          if (retireError) mediaSchemaAvailable = false;
+        }
+      }
+    }
+    if (!mediaSchemaAvailable) {
+      logger.info("Shopify product media migration is pending; product webhook stored without gallery fields", {
+        connection_id: ctx.connectionId,
+        organization_id: ctx.organizationId,
+        store_id: ctx.storeId,
+      });
+    }
+  }
+}
+
+async function processProductDelete(
+  supabase: SupabaseClient,
+  ctx: ConnectionContext,
+  payload: Record<string, unknown>,
+) {
+  const externalProductId = shopifyNumericId(
+    payload.admin_graphql_api_id ?? payload.id,
+    "Product",
+  );
+  if (!externalProductId) throw new Error("shopify_product_delete_missing_id");
+
+  const { data: product, error: productError } = await supabase
+    .from("shopify_products")
+    .select("id")
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("external_product_id", externalProductId)
+    .maybeSingle();
+  if (productError) throw new Error(productError.message);
+  if (!product) return;
+
+  const deletedAt = new Date().toISOString();
+  const { error: updateProductError } = await supabase
+    .from("shopify_products")
+    .update({ status: "DELETED", external_updated_at: deletedAt })
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("id", product.id);
+  if (updateProductError) throw new Error(updateProductError.message);
+
+  const { error: variantError } = await supabase
+    .from("shopify_variants")
+    .update({ is_active: false })
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("product_id", product.id);
+  if (variantError) throw new Error(variantError.message);
+
+  const productVariants: Array<{ id: string }> = [];
+  for (let page = 0; ; page += 1) {
+    const { data, error: variantReadError } = await supabase
+      .from("shopify_variants")
+      .select("id")
+      .eq("organization_id", ctx.organizationId)
+      .eq("store_id", ctx.storeId)
+      .eq("product_id", product.id)
+      .order("id", { ascending: true })
+      .range(page * 500, page * 500 + 499);
+    if (variantReadError) throw new Error(variantReadError.message);
+    const rows = (data ?? []) as typeof productVariants;
+    productVariants.push(...rows);
+    if (rows.length < 500) break;
+  }
+  const variantIds = productVariants.map((variant) => variant.id);
+  for (let offset = 0; offset < variantIds.length; offset += 100) {
+    const variantIdBatch = variantIds.slice(offset, offset + 100);
+    const { error: parentBundleError } = await supabase
+      .from("shopify_product_bundle_components")
+      .update({ is_active: false, updated_at: deletedAt })
+      .eq("organization_id", ctx.organizationId)
+      .eq("store_id", ctx.storeId)
+      .in("parent_variant_id", variantIdBatch);
+    if (parentBundleError) throw new Error(parentBundleError.message);
+
+    const { error: componentBundleError } = await supabase
+      .from("shopify_product_bundle_components")
+      .update({ is_active: false, updated_at: deletedAt })
+      .eq("organization_id", ctx.organizationId)
+      .eq("store_id", ctx.storeId)
+      .in("component_variant_id", variantIdBatch);
+    if (componentBundleError) throw new Error(componentBundleError.message);
+  }
+
+  const { error: mediaError } = await supabase
+    .from("shopify_product_media")
+    .update({ is_active: false, updated_at: deletedAt })
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
+    .eq("product_id", product.id);
+  if (mediaError && !isShopifyProductMediaSchemaMissing(mediaError)) {
+    throw new Error(mediaError.message);
+  }
 }
 
 async function processInventoryLevelUpdate(
@@ -269,18 +649,23 @@ async function processInventoryLevelUpdate(
   );
   const externalLocationId = gid("Location", payload.location_id);
 
-  const { data: inventoryItem } = await supabase
+  const { data: inventoryItem, error: inventoryItemError } = await supabase
     .from("shopify_inventory_items")
     .select("id")
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
     .eq("external_inventory_item_id", externalInventoryItemId)
     .maybeSingle();
+  if (inventoryItemError) throw new Error(inventoryItemError.message);
 
-  const { data: location } = await supabase
+  const { data: location, error: locationError } = await supabase
     .from("shopify_locations")
     .select("id")
+    .eq("organization_id", ctx.organizationId)
     .eq("store_id", ctx.storeId)
     .eq("external_location_id", externalLocationId)
     .maybeSingle();
+  if (locationError) throw new Error(locationError.message);
 
   if (!inventoryItem || !location) {
     logger.info(
@@ -408,12 +793,15 @@ async function processOrderCreateOrUpdate(
 
   await recordShopifyOrderTracking(supabase, {
     organizationId: ctx.organizationId,
+    storeId: ctx.storeId,
     payload,
   });
 
   const lineItems = Array.isArray(payload.line_items)
     ? (payload.line_items as Array<Record<string, unknown>>)
     : [];
+
+  await syncOrderDiscountApplications(supabase, ctx, orderRow.id, payload);
 
   if (!lineItems.length) {
     return;
@@ -431,18 +819,22 @@ async function processOrderCreateOrUpdate(
     ),
   ];
 
-  const { data: variantRefs } = variantGids.length
+  const { data: variantRefs, error: variantRefsError } = variantGids.length
     ? await supabase
         .from("shopify_variants")
         .select("id, external_variant_id, product_id")
+        .eq("organization_id", ctx.organizationId)
+        .eq("store_id", ctx.storeId)
         .in("external_variant_id", variantGids)
-    : {
+      : {
         data: [] as Array<{
           id: string;
           external_variant_id: string;
           product_id: string;
         }>,
+        error: null,
       };
+  if (variantRefsError) throw new Error(variantRefsError.message);
   const variantMap = new Map(
     (variantRefs ?? []).map((variant) => [
       variant.external_variant_id,
@@ -456,6 +848,16 @@ async function processOrderCreateOrUpdate(
         ? variantMap.get(gid("ProductVariant", item.variant_id))
         : null;
 
+    const quantityOriginal = (item.quantity as number | undefined) ?? 0;
+    const quantityCurrent =
+      (item.current_quantity as number | undefined) ?? quantityOriginal;
+    const originalLineTotal =
+      normalizeMoney(item.price as string | undefined) * quantityOriginal;
+    const discountTotal = normalizeMoney(item.total_discount as string | undefined);
+    const currentRatio = quantityOriginal > 0
+      ? Math.min(1, Math.max(0, quantityCurrent / quantityOriginal))
+      : 0;
+
     return {
       organization_id: ctx.organizationId,
       order_id: orderRow.id,
@@ -468,29 +870,58 @@ async function processOrderCreateOrUpdate(
       title: (item.title as string | undefined) ?? "Sin titulo",
       sku_snapshot: (item.sku as string | undefined) ?? null,
       vendor_snapshot: (item.vendor as string | undefined) ?? null,
-      quantity_original: (item.quantity as number | undefined) ?? 0,
-      quantity_current:
-        (item.current_quantity as number | undefined) ??
-        (item.quantity as number | undefined) ??
-        0,
+      quantity_original: quantityOriginal,
+      quantity_current: quantityCurrent,
       unit_price: normalizeMoney(item.price as string | undefined),
-      original_line_total:
-        normalizeMoney(item.price as string | undefined) *
-        ((item.quantity as number | undefined) ?? 0),
-      discount_total: normalizeMoney(item.total_discount as string | undefined),
-      current_line_total:
-        normalizeMoney(item.price as string | undefined) *
-        ((item.quantity as number | undefined) ?? 0),
+      original_line_total: originalLineTotal,
+      discount_total: discountTotal,
+      current_line_total: originalLineTotal,
+      net_quantity: quantityCurrent,
+      net_revenue: Math.max(0, (originalLineTotal - discountTotal) * currentRatio),
+      net_metrics_source: "shopify_rest_estimate",
     };
   });
 
-  const { error: lineItemError } = await supabase
+  let { error: lineItemError } = await supabase
     .from("shopify_order_items")
     .upsert(lineItemRows, { onConflict: "order_id,external_line_item_id" });
+
+  if (lineItemError && isMissingShopifyNetMetricsSchema(lineItemError.message)) {
+    const legacyLineItemRows = lineItemRows.map((row) => {
+      const {
+        net_quantity: _netQuantity,
+        net_revenue: _netRevenue,
+        net_metrics_source: _netMetricsSource,
+        ...legacyRow
+      } = row;
+      return legacyRow;
+    });
+    const retry = await supabase
+      .from("shopify_order_items")
+      .upsert(legacyLineItemRows, { onConflict: "order_id,external_line_item_id" });
+    lineItemError = retry.error;
+    if (!lineItemError) {
+      logger.info("Shopify line net metrics migration is pending; stored legacy webhook order-line fields", {
+        connection_id: ctx.connectionId,
+        organization_id: ctx.organizationId,
+      });
+    }
+  }
 
   if (lineItemError) {
     throw new Error(lineItemError.message);
   }
+
+  const { data: syncedOrderItems, error: syncedOrderItemsError } = await supabase
+    .from("shopify_order_items")
+    .select("id")
+    .eq("organization_id", ctx.organizationId)
+    .eq("order_id", orderRow.id);
+  if (syncedOrderItemsError) throw new Error(syncedOrderItemsError.message);
+  await applyRefundAggregatesToOrderItems(
+    supabase,
+    (syncedOrderItems ?? []).map((item) => item.id),
+  );
 }
 
 async function processRefundCreate(
@@ -500,20 +931,24 @@ async function processRefundCreate(
 ) {
   const externalOrderId = gid("Order", payload.order_id);
 
-  const { data: order } = await supabase
+  const { data: order, error: orderLookupError } = await supabase
     .from("shopify_order_facts")
     .select("id, currency_code, current_total_price")
+    .eq("organization_id", ctx.organizationId)
     .eq("store_id", ctx.storeId)
     .eq("external_order_id", externalOrderId)
     .maybeSingle();
+  if (orderLookupError) {
+    throw new Error(`shopify_webhook_refund_order_lookup_failed: ${orderLookupError.message}`);
+  }
 
   if (!order) {
-    logger.info("Shopify refund webhook skipped - order not synced yet", {
+    logger.info("Shopify refund webhook deferred - order not synced yet", {
       connection_id: ctx.connectionId,
       organization_id: ctx.organizationId,
       external_order_id: externalOrderId,
     });
-    return;
+    throw new Error("shopify_webhook_refund_order_not_synced");
   }
 
   const externalRefundId =
@@ -558,6 +993,7 @@ async function processRefundCreate(
 
   await recordShopifyRefundTracking(supabase, {
     organizationId: ctx.organizationId,
+    storeId: ctx.storeId,
     payload,
   });
 
@@ -565,10 +1001,14 @@ async function processRefundCreate(
   // `shopify_order_facts` se queda con el importe bruto y el check
   // `order_facts_net_sales_coherente` rechazaria cualquier escritura
   // posterior, que es justamente como se nota que falta.
-  const { data: refundsDelPedido } = await supabase
+  const { data: refundsDelPedido, error: refundsReadError } = await supabase
     .from("shopify_refunds")
     .select("total_refunded")
+    .eq("organization_id", ctx.organizationId)
     .eq("order_id", order.id);
+  if (refundsReadError) {
+    throw new Error(`shopify_webhook_refunds_read_failed: ${refundsReadError.message}`);
+  }
   const totalDevuelto = (refundsDelPedido ?? []).reduce(
     (total, row) => total + normalizeMoney(row.total_refunded),
     0,
@@ -580,6 +1020,8 @@ async function processRefundCreate(
       net_sales:
         normalizeMoney(order.current_total_price) - totalDevuelto,
     })
+    .eq("organization_id", ctx.organizationId)
+    .eq("store_id", ctx.storeId)
     .eq("id", order.id);
   if (netError) {
     throw new Error(netError.message);
@@ -589,10 +1031,14 @@ async function processRefundCreate(
     return;
   }
 
-  const { data: orderItemRefs } = await supabase
+  const { data: orderItemRefs, error: orderItemRefsError } = await supabase
     .from("shopify_order_items")
     .select("id, external_line_item_id")
+    .eq("organization_id", ctx.organizationId)
     .eq("order_id", order.id);
+  if (orderItemRefsError) {
+    throw new Error(`shopify_webhook_refund_order_items_read_failed: ${orderItemRefsError.message}`);
+  }
   const orderItemMap = new Map(
     (orderItemRefs ?? []).map((item) => [item.external_line_item_id, item.id]),
   );
@@ -741,6 +1187,18 @@ async function processShopifyReturn(
     throw new Error(returnError?.message ?? "shopify_return_upsert_failed");
   }
 
+  const { data: orderItemRefs, error: orderItemRefsError } = await supabase
+    .from("shopify_order_items")
+    .select("id, external_line_item_id")
+    .eq("organization_id", ctx.organizationId)
+    .eq("order_id", order.id);
+  if (orderItemRefsError) {
+    throw new Error(`shopify_return_order_items_read_failed: ${orderItemRefsError.message}`);
+  }
+  const orderItemIdByExternalId = new Map(
+    (orderItemRefs ?? []).map((item) => [item.external_line_item_id, item.id]),
+  );
+
   const fulfillmentExternalIds: string[] = [];
   for (const fulfillment of returned.order?.fulfillments.nodes ?? []) {
     fulfillmentExternalIds.push(fulfillment.id);
@@ -759,10 +1217,14 @@ async function processShopifyReturn(
 
   const lines = returned.returnLineItems.nodes.map((item) => {
     const fulfillmentLineItemId = item.fulfillmentLineItem?.id ?? null;
+    const externalLineItemId = item.fulfillmentLineItem?.lineItem.id ?? null;
     const reason = normalizeShopifyReturnReason(item.returnReason);
     return {
       organization_id: ctx.organizationId,
       return_id: returnRow.id,
+      order_item_id: externalLineItemId
+        ? orderItemIdByExternalId.get(externalLineItemId) ?? null
+        : null,
       external_return_line_item_id: item.id,
       external_fulfillment_line_item_id: fulfillmentLineItemId,
       fulfillment_id: fulfillmentLineItemId ? fulfillmentLineToLocalFulfillment.get(fulfillmentLineItemId) ?? null : null,
@@ -771,10 +1233,46 @@ async function processShopifyReturn(
       // customerNote/returnReasonNote deliberately are not requested or stored.
     };
   });
+
+  const { data: existingLines, error: existingLinesError } = await supabase
+    .from("shopify_return_line_items")
+    .select("id, external_return_line_item_id")
+    .eq("organization_id", ctx.organizationId)
+    .eq("return_id", returnRow.id);
+  if (existingLinesError) {
+    throw new Error(`shopify_return_lines_read_failed: ${existingLinesError.message}`);
+  }
+
   if (lines.length) {
     const { error: linesError } = await supabase.from("shopify_return_line_items")
       .upsert(lines, { onConflict: "return_id,external_return_line_item_id" });
     if (linesError) throw new Error(linesError.message);
+  }
+
+  const activeReturnLineIds = new Set(lines.map((line) => line.external_return_line_item_id));
+  const staleReturnLineIds = (existingLines ?? [])
+    .filter((line) => !activeReturnLineIds.has(line.external_return_line_item_id))
+    .map((line) => line.id);
+  if (staleReturnLineIds.length) {
+    const { error: retireError } = await supabase
+      .from("shopify_return_line_items")
+      .delete()
+      .eq("organization_id", ctx.organizationId)
+      .eq("return_id", returnRow.id)
+      .in("id", staleReturnLineIds);
+    if (retireError) throw new Error(`shopify_return_lines_retire_failed: ${retireError.message}`);
+  }
+
+  const unlinkedLines = lines.filter((line) => !line.order_item_id).length;
+  if (unlinkedLines) {
+    logger.info("Shopify return lines were stored without product attribution", {
+      connection_id: ctx.connectionId,
+      organization_id: ctx.organizationId,
+      store_id: ctx.storeId,
+      return_id: returnRow.id,
+      unlinked_lines: unlinkedLines,
+      return_lines: lines.length,
+    });
   }
 }
 
@@ -811,7 +1309,9 @@ const TOPIC_HANDLERS: Record<
   "returns/cancel": { scope: "orders", handle: processShopifyReturn },
   "returns/decline": { scope: "orders", handle: processShopifyReturn },
   "returns/reopen": { scope: "orders", handle: processShopifyReturn },
+  "products/create": { scope: "catalog", handle: processProductUpdate },
   "products/update": { scope: "catalog", handle: processProductUpdate },
+  "products/delete": { scope: "catalog", handle: processProductDelete },
   "inventory_levels/update": {
     scope: "inventory",
     handle: processInventoryLevelUpdate,
@@ -832,7 +1332,9 @@ async function processAppUninstalled(
   await supabase
     .from("integration_connections")
     .update({ status: "disconnected" })
-    .eq("id", ctx.connectionId);
+    .eq("id", ctx.connectionId)
+    .eq("organization_id", ctx.organizationId)
+    .eq("provider", "shopify");
 }
 
 async function processCustomersRedact(
@@ -853,6 +1355,7 @@ async function processCustomersRedact(
   await supabase
     .from("shopify_customers")
     .delete()
+    .eq("organization_id", ctx.organizationId)
     .eq("store_id", ctx.storeId)
     .eq("external_customer_id", externalCustomerId);
 }
@@ -869,7 +1372,9 @@ async function processShopRedact(
   await supabase
     .from("integration_connections")
     .update({ status: "disconnected" })
-    .eq("id", ctx.connectionId);
+    .eq("id", ctx.connectionId)
+    .eq("organization_id", ctx.organizationId)
+    .eq("provider", "shopify");
 }
 
 const COMPLIANCE_TOPIC_HANDLERS: Record<
@@ -961,9 +1466,6 @@ export async function handleShopifyWebhookRequest(
     return { statusCode: 200, body: { status: "ignored_unknown_topic" } };
   }
 
-  const handle = syncHandlerEntry?.handle ?? complianceHandler;
-  const scope = syncHandlerEntry?.scope;
-
   const supabase = createServiceClient(env);
   const ctx = await resolveConnectionContext(supabase, shopDomain);
 
@@ -994,7 +1496,7 @@ export async function handleShopifyWebhookRequest(
       external_event_id: webhookId ?? null,
       fingerprint,
       signature_valid: true,
-      status: "received",
+      status: "queued",
       payload: persistedPayload,
       headers: {
         "x-shopify-shop-domain": shopDomain,
@@ -1013,7 +1515,7 @@ export async function handleShopifyWebhookRequest(
       const { data: existingEvent, error: existingEventError } = await supabase
         .schema("private")
         .from("webhook_events")
-        .select("id, status, received_at")
+        .select("id, status, received_at, retry_count")
         .eq("provider", "shopify")
         .eq("connection_id", ctx.connectionId)
         .eq("fingerprint", fingerprint)
@@ -1038,8 +1540,11 @@ export async function handleShopifyWebhookRequest(
       const staleReceived =
         existingEvent.status === "received" &&
         Number.isFinite(receivedAt) &&
-        Date.now() - receivedAt >= 5 * 60 * 1000;
-      const retryable = existingEvent.status === "failed" || staleReceived;
+        Date.now() - receivedAt >= 15 * 60 * 1000;
+      const retryable =
+        staleReceived ||
+        (existingEvent.status === "failed" &&
+          Number(existingEvent.retry_count ?? 0) < WEBHOOK_DRAIN_MAX_ATTEMPTS);
 
       if (!retryable) {
         return { statusCode: 200, body: { status: "duplicate" } };
@@ -1049,7 +1554,7 @@ export async function handleShopifyWebhookRequest(
       const { data: claimedEvent, error: claimError } = await supabase
         .schema("private")
         .from("webhook_events")
-        .update({ status: "received", processed_at: null, error_message: null })
+        .update({ status: "queued", processed_at: null, error_message: null })
         .eq("id", existingEvent.id)
         .eq("status", expectedStatus)
         .select("id")
@@ -1086,81 +1591,30 @@ export async function handleShopifyWebhookRequest(
     }
   }
 
-  try {
-    await handle!(supabase, ctx, persistedPayload, env);
-
-    await supabase
-      .schema("private")
-      .from("webhook_events")
-      .update({ status: "processed", processed_at: new Date().toISOString() })
-      .eq("connection_id", ctx.connectionId)
-      .eq("fingerprint", fingerprint)
-      .eq("provider", "shopify");
-
-    if (scope) {
-      await recordBlockRun(
-        supabase,
-        ctx.connectionId,
-        ctx.organizationId,
-        scope,
-        "succeeded",
-      );
-    }
-
-    return { statusCode: 200, body: { status: "processed" } };
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "shopify_webhook_processing_failed";
-
-    await supabase
-      .schema("private")
-      .from("webhook_events")
-      .update({
-        status: "failed",
-        processed_at: new Date().toISOString(),
-        error_message: message,
-      })
-      .eq("connection_id", ctx.connectionId)
-      .eq("fingerprint", fingerprint)
-      .eq("provider", "shopify");
-
-    if (scope) {
-      await recordBlockRun(
-        supabase,
-        ctx.connectionId,
-        ctx.organizationId,
-        scope,
-        "failed",
-        message,
-      );
-    }
-
-    logger.error("Shopify webhook processing failed", {
-      shop_domain: shopDomain,
-      organization_id: ctx.organizationId,
-      topic,
-      error: message,
-    });
-
-    return { statusCode: 500, body: { error: "webhook_processing_failed" } };
-  }
+  return { statusCode: 200, body: { status: "queued" } };
 }
 
 /**
- * Drenaje de reintentos (D01 detectaba los webhooks fallidos y nadie los
- * reprocesaba). Shopify reintenta un webhook ~48 h; lo que falla despues, o lo
- * que se quedo en `received` porque el proceso murio a mitad, se reprocesa aqui
- * con el payload guardado y los mismos handlers. Tope de intentos para que un
- * evento envenenado no se reintente para siempre.
+ * Procesa eventos persistidos en tandas acotadas. La API solo valida y encola;
+ * este drenaje se ejecuta en el worker compartiendo concurrencia y rate limit
+ * con las sincronizaciones de tiendas.
  */
 export const WEBHOOK_DRAIN_MAX_ATTEMPTS = 5;
 
 export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
   const supabase = createServiceClient(env);
   const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const batchLimit = Math.max(1, Math.min(25, Math.floor(limit) || 1));
   const summary = { candidates: 0, processed: 0, failed: 0, skipped: 0 };
+
+  const { error: recoverError } = await supabase
+    .schema("private")
+    .from("webhook_events")
+    .update({ status: "queued", claimed_at: null })
+    .eq("provider", "shopify")
+    .eq("status", "processing")
+    .lt("claimed_at", staleBefore);
+  if (recoverError) throw new Error(`webhook_drain_recover_failed: ${recoverError.message}`);
 
   const { data: events, error } = await supabase
     .schema("private")
@@ -1168,34 +1622,47 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
     .select("id, connection_id, topic, status, payload, retry_count")
     .eq("provider", "shopify")
     .lt("retry_count", WEBHOOK_DRAIN_MAX_ATTEMPTS)
-    .or(`status.eq.failed,and(status.eq.received,received_at.lt.${staleBefore})`)
+    .or(`status.eq.queued,status.eq.failed,and(status.eq.received,received_at.lt.${staleBefore})`)
     .order("received_at", { ascending: true })
-    .limit(limit);
+    .limit(batchLimit);
   if (error) throw new Error(`webhook_drain_load_failed: ${error.message}`);
 
   for (const event of events ?? []) {
     summary.candidates += 1;
-    const entry = TOPIC_HANDLERS[event.topic as string];
-    const handle = entry?.handle ?? COMPLIANCE_TOPIC_HANDLERS[event.topic as string];
-    const ctx = event.connection_id
-      ? await resolveConnectionContextById(supabase, event.connection_id as string)
-      : null;
-    if (!handle || !ctx) {
-      summary.skipped += 1;
-      continue;
-    }
-
-    // Reclamo condicionado al estado leido: si otro proceso lo cogio, se salta.
+    // Reclamo CAS antes de cualquier efecto; los reintentos concurrentes no
+    // pueden aplicar dos veces un mismo evento.
     const attempts = Number(event.retry_count ?? 0) + 1;
-    const { data: claimed } = await supabase
+    const { data: claimed, error: claimError } = await supabase
       .schema("private")
       .from("webhook_events")
-      .update({ status: "queued", retry_count: attempts })
+      .update({ status: "processing", claimed_at: new Date().toISOString(), retry_count: attempts })
       .eq("id", event.id as string)
       .eq("status", event.status as string)
       .select("id")
       .maybeSingle();
+    if (claimError) throw new Error(`webhook_drain_claim_failed: ${claimError.message}`);
     if (!claimed) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    const entry = TOPIC_HANDLERS[event.topic as string];
+    const complianceHandler = COMPLIANCE_TOPIC_HANDLERS[event.topic as string];
+    const handle = entry?.handle ?? complianceHandler;
+    const ctx = event.connection_id
+      ? await resolveConnectionContextById(supabase, event.connection_id as string, Boolean(complianceHandler))
+      : null;
+    if (!handle || !ctx) {
+      await supabase
+        .schema("private")
+        .from("webhook_events")
+        .update({
+          status: "ignored_duplicate",
+          processed_at: new Date().toISOString(),
+          error_message: !handle ? "shopify_webhook_handler_unavailable" : "shopify_connection_inactive",
+        })
+        .eq("id", event.id as string)
+        .eq("status", "processing");
       summary.skipped += 1;
       continue;
     }
@@ -1205,8 +1672,9 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
       await supabase
         .schema("private")
         .from("webhook_events")
-        .update({ status: "processed", processed_at: new Date().toISOString(), error_message: null })
-        .eq("id", event.id as string);
+        .update({ status: "processed", processed_at: new Date().toISOString(), claimed_at: null, error_message: null })
+        .eq("id", event.id as string)
+        .eq("status", "processing");
       if (entry?.scope) {
         await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, entry.scope, "succeeded");
       }
@@ -1216,8 +1684,9 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
       await supabase
         .schema("private")
         .from("webhook_events")
-        .update({ status: "failed", processed_at: new Date().toISOString(), error_message: message })
-        .eq("id", event.id as string);
+        .update({ status: "failed", processed_at: new Date().toISOString(), claimed_at: null, error_message: message })
+        .eq("id", event.id as string)
+        .eq("status", "processing");
       summary.failed += 1;
       logger.error("Shopify webhook retry failed", {
         organization_id: ctx.organizationId,
@@ -1234,18 +1703,21 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
 async function resolveConnectionContextById(
   supabase: SupabaseClient,
   connectionId: string,
+  allowInactive = false,
 ): Promise<ConnectionContext | null> {
-  const { data: connection } = await supabase
+  const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
     .select("id, organization_id, status, provider_account_id")
     .eq("id", connectionId)
     .maybeSingle();
-  if (!connection || !acceptsWebhookIngest(connection.status)) return null;
-  const { data: store } = await supabase
+  if (connectionError) throw new Error(`shopify_webhook_connection_lookup_failed: ${connectionError.message}`);
+  if (!connection || (!allowInactive && !acceptsWebhookIngest(connection.status))) return null;
+  const { data: store, error: storeError } = await supabase
     .from("shopify_stores")
     .select("id")
     .eq("connection_id", connection.id)
     .maybeSingle();
+  if (storeError) throw new Error(`shopify_webhook_store_lookup_failed: ${storeError.message}`);
   if (!store || !connection.provider_account_id) return null;
   return { connectionId: connection.id, organizationId: connection.organization_id, storeId: store.id, shopDomain: connection.provider_account_id };
 }

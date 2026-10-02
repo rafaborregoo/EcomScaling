@@ -1,0 +1,217 @@
+/* Mesa del consultor en Mi Camino: grafito + mandarina, igual que su panel.
+   Se re-declaran también los tokens de HeroUI/Tailwind (--accent y
+   --color-accent se resuelven en :root, hay que pisar los dos) para que el
+   árbol, los botones y las tarjetas de debajo del mapa hereden la paleta. */
+
+.desk {
+  --accent: #ff8a5b;
+  --accent-hover: #f5733f;
+  --accent-foreground: #2b0e02;
+  --accent-soft: #ffe7dc;
+  --accent-soft-foreground: #8a3310;
+  --focus: #ff8a5b;
+  --color-accent: #ff8a5b;
+  --color-accent-hover: #f5733f;
+  --color-accent-foreground: #2b0e02;
+  --color-accent-soft: #ffe7dc;
+  --color-accent-soft-foreground: #8a3310;
+  --color-focus: #ff8a5b;
+  --color-brand: #8a3310;
+  --color-brand-bright: #ff8a5b;
+  --color-brand-deep: #8a3310;
+  --color-brand-tint: #ffe7dc;
+
+  --ink: #16181b;
+  --ink-2: #474b51;
+  --ink-3: #686c72;
+  --line: #dadad5;
+  --line-2: #ebebe7;
+  --surface: #ffffff;
+  --surface-2: #f7f7f5;
+  --sunken: #e7e7e3;
+  --bad: #c22e4b;
+
+  display: grid;
+  gap: 20px;
+  color: var(--ink);
+  font-family: var(--font-plex-sans), system-ui, sans-serif;
+}
+
+/* ---------- barra de trabajo ---------- */
+.work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 16px;
+  align-items: end;
+}
+.name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+.chipGood {
+  background: #dcf1e8;
+  color: #12805f;
+}
+.chipAcc {
+  background: var(--accent-soft);
+  color: var(--accent-soft-foreground);
+}
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ---------- salud ---------- */
+.health {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.health > div {
+  background: var(--surface);
+  padding: 11px 14px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.health b {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.health b.text {
+  font-size: 14px;
+}
+.health span {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.health .bad b {
+  color: var(--bad);
+}
+
+/* ---------- pestañas ---------- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  box-shadow: inset 0 -1px 0 var(--line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* ---------- acciones del hito ---------- */
+.hitoActs {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* ---------- semanas del seguimiento ---------- */
+.weeks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.weeks button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.weeks button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+.weeks .failed {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--line));
+}
+
+@media (max-width: 980px) {
+  .health {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .work {
+    grid-template-columns: 1fr;
+  }
+  .tools {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 560px) {
+  .health {
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -44,6 +44,7 @@ export type MetaCreativeRow = {
   campaign_name: string;
   effective_status: string | null;
   spend: number;
+  spend_currency: string | null;
   impressions: number;
   outbound_clicks: number | null;
   outbound_ctr: number | null;
@@ -104,8 +105,9 @@ export type MetaInsightsData = {
     dimension: string;
     ranking_value: string;
     ads: number;
-    spend: number;
+    spend: number | null;
     spend_share: number | null;
+    currency_code: string | null;
   }>;
   learning: Array<{
     ad_set_id: string;

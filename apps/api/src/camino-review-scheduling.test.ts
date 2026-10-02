@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { caminoReviewCalendarWindows, caminoReviewWeekStart, isCaminoReviewClaimStale } from "./camino-review-scheduling.js";
+import { caminoReviewCalendarWindows, caminoReviewWeekStart, canRetryCaminoReview, isCaminoReviewClaimStale } from "./camino-review-scheduling.js";
 
 test("la clave de revisión es el lunes UTC, estable durante toda la semana y entre zonas horarias", () => {
   assert.equal(caminoReviewWeekStart(new Date("2026-09-28T00:00:00.000Z")), "2026-09-28");
@@ -23,4 +23,12 @@ test("solo libera claims running con updated_at válido y anterior al lease de 3
   assert.equal(isCaminoReviewClaimStale("2026-09-28T11:30:00.000Z", now), false);
   assert.equal(isCaminoReviewClaimStale("invalid", now), false);
   assert.equal(isCaminoReviewClaimStale(null, now), false);
+});
+
+test("el reintento manual solo está disponible para fallo o lease caducado", () => {
+  const now = Date.parse("2026-09-28T12:00:00.000Z");
+  assert.equal(canRetryCaminoReview("failed", "2026-09-28T11:59:00Z", now), true);
+  assert.equal(canRetryCaminoReview("running", "2026-09-28T11:29:59Z", now), true);
+  assert.equal(canRetryCaminoReview("running", "2026-09-28T11:31:00Z", now), false);
+  assert.equal(canRetryCaminoReview("succeeded", "2026-09-28T10:00:00Z", now), false);
 });

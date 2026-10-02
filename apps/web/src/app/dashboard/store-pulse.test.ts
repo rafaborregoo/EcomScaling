@@ -79,16 +79,16 @@ test("sin configuración financiera el beneficio no manda ni se enseña", () => 
 
   // ...ni se enseña como cifra.
   assert.equal(
-    canShowProfit({ hasFinancialSettings: false, itemsWithoutCost: 0 }),
+    canShowProfit({ hasFinancialSettings: false, itemsWithoutCost: 0, linesWithoutNetMetrics: 0 }),
     false,
   );
   assert.equal(
-    canShowProfit({ hasFinancialSettings: true, itemsWithoutCost: 4 }),
+    canShowProfit({ hasFinancialSettings: true, itemsWithoutCost: 4, linesWithoutNetMetrics: 0 }),
     false,
     "con productos sin coste el margen está incompleto",
   );
   assert.equal(
-    canShowProfit({ hasFinancialSettings: true, itemsWithoutCost: 0 }),
+    canShowProfit({ hasFinancialSettings: true, itemsWithoutCost: 0, linesWithoutNetMetrics: 0 }),
     true,
   );
 });

@@ -107,10 +107,12 @@ export type ClientDeskData = {
     has_financial_settings: boolean;
     shopify_connected: boolean;
     meta_connected: boolean;
-    net_sales: number;
+    net_sales: number | null;
     orders: number;
-    meta_spend: number;
-    meta_purchase_value: number;
+    shopify_currency_code: string | null;
+    meta_currency_code: string | null;
+    meta_spend: number | null;
+    meta_purchase_value: number | null;
     roas: number | null;
     prev_net_sales: number | null;
     prev_orders: number | null;
@@ -890,13 +892,15 @@ export function PortfolioPulse({
   isLoading,
 }: {
   business: {
-    net_sales: number;
+    net_sales: number | null;
     orders: number;
-    meta_spend: number;
+    meta_spend: number | null;
     roas: number | null;
-    prev_net_sales: number;
+    shopify_currency_code: string | null;
+    meta_currency_code: string | null;
+    prev_net_sales: number | null;
     prev_orders: number;
-    prev_meta_spend: number;
+    prev_meta_spend: number | null;
   } | null;
   windowDays: number;
   isLoading: boolean;
@@ -914,8 +918,8 @@ export function PortfolioPulse({
           <Metric
             size="sm"
             label="Ventas netas"
-            value={formatMoney(business.net_sales)}
-            hint={`Periodo anterior: ${formatMoney(business.prev_net_sales)}`}
+            value={business.shopify_currency_code && business.net_sales != null ? formatMoney(business.net_sales, business.shopify_currency_code) : "Moneda no comparable"}
+            hint={`Periodo anterior: ${business.shopify_currency_code && business.prev_net_sales != null ? formatMoney(business.prev_net_sales, business.shopify_currency_code) : "Moneda no comparable"}`}
           />
           <Metric
             size="sm"
@@ -926,8 +930,8 @@ export function PortfolioPulse({
           <Metric
             size="sm"
             label="Inversión Meta"
-            value={formatMoney(business.meta_spend)}
-            hint={`Periodo anterior: ${formatMoney(business.prev_meta_spend)}`}
+            value={business.meta_currency_code && business.meta_spend != null ? formatMoney(business.meta_spend, business.meta_currency_code) : "Moneda no comparable"}
+            hint={`Periodo anterior: ${business.meta_currency_code && business.prev_meta_spend != null ? formatMoney(business.prev_meta_spend, business.meta_currency_code) : "Moneda no comparable"}`}
           />
           <Metric
             size="sm"
@@ -1084,8 +1088,14 @@ export function ClientDesk({
   onBack: () => void;
   onReviewed: () => void;
 }) {
-  const currency = client.currency_code ?? "EUR";
-  const money = (value: number) => formatMoney(value, currency);
+  const shopifyMoney = (value: number | null) =>
+    value == null || !client.business?.shopify_currency_code
+      ? "Moneda no comparable"
+      : formatMoney(value, client.business.shopify_currency_code);
+  const metaMoney = (value: number | null) =>
+    value == null || !client.business?.meta_currency_code
+      ? "Moneda no comparable"
+      : formatMoney(value, client.business.meta_currency_code);
   const business = client.business;
   const primary = actions[0] ?? null;
   const sinceLabel =
@@ -1158,12 +1168,12 @@ export function ClientDesk({
               <Metric
                 label="Ventas netas"
                 value={
-                  business.shopify_connected ? money(business.net_sales) : "—"
+                  business.shopify_connected ? shopifyMoney(business.net_sales) : "—"
                 }
                 hint={
-                  business.shopify_connected
-                    ? deltaLabel(business.net_sales, business.prev_net_sales, money)
-                    : "Shopify sin conectar"
+                  business.shopify_connected && business.shopify_currency_code && business.net_sales != null && business.prev_net_sales != null
+                    ? deltaLabel(business.net_sales, business.prev_net_sales, (value) => formatMoney(value, business.shopify_currency_code))
+                    : business.shopify_connected ? "Moneda no comparable" : "Shopify sin conectar"
                 }
               />
               <Metric
@@ -1182,8 +1192,8 @@ export function ClientDesk({
               <Metric
                 label="Ticket medio"
                 value={
-                  business.shopify_connected && business.orders > 0
-                    ? money(business.net_sales / business.orders)
+                  business.shopify_connected && business.net_sales != null && business.orders > 0
+                    ? shopifyMoney(business.net_sales / business.orders)
                     : "—"
                 }
                 hint={
@@ -1195,16 +1205,16 @@ export function ClientDesk({
               <Metric
                 label="Inversión Meta"
                 value={
-                  business.meta_connected ? money(business.meta_spend) : "—"
+                  business.meta_connected ? metaMoney(business.meta_spend) : "—"
                 }
                 hint={
-                  business.meta_connected
+                  business.meta_connected && business.meta_currency_code && business.meta_spend != null && business.prev_meta_spend != null
                     ? deltaLabel(
                         business.meta_spend,
                         business.prev_meta_spend,
-                        money,
+                        (value) => formatMoney(value, business.meta_currency_code),
                       )
-                    : "Meta Ads sin conectar"
+                    : business.meta_connected ? "Moneda no comparable" : "Meta Ads sin conectar"
                 }
               />
               <Metric
@@ -1218,7 +1228,7 @@ export function ClientDesk({
                 hint={
                   business.roas == null
                     ? "Sin inversión o sin conexión en el periodo"
-                    : "EUR atribuidos por Meta / inversión Meta"
+                    : `Ingresos atribuidos en ${business.meta_currency_code} / inversión Meta en ${business.meta_currency_code}`
                 }
               />
               <Metric
@@ -1286,7 +1296,7 @@ export function ClientDesk({
               : deltaLabel(
                   client.changes.net_sales_delta,
                   0,
-                  money,
+                  shopifyMoney,
                 ).replace(" vs. periodo anterior", " respecto al periodo anterior")}
           </li>
           <li>
@@ -1302,7 +1312,7 @@ export function ClientDesk({
               : deltaLabel(
                   client.changes.meta_spend_delta,
                   0,
-                  money,
+                  metaMoney,
                 ).replace(" vs. periodo anterior", " respecto al periodo anterior")}
           </li>
           <li>

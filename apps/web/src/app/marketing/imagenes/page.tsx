@@ -11,7 +11,6 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   CircleCheckIcon,
   ClockIcon,
   CloseIcon,
@@ -20,17 +19,19 @@ import {
   ErrorBlock,
   EYEBROW,
   Field,
-  Heading,
+  Input,
   Link,
   LoadingBlock,
   PencilIcon,
   ProgressCircle,
   RetryIcon,
+  SearchIcon,
   Textarea,
   toast,
   TrashIcon,
   type Tone,
 } from "@/components/ui";
+import styles from "./imagenes.module.css";
 
 type ImageStatus = "queued" | "analyzing" | "analyzed" | "failed";
 
@@ -77,6 +78,10 @@ type MetaImageCandidate = {
   created_at: string;
   available: boolean;
 };
+
+/** Filtros de estado. "sinindexar" es el único que no se deduce de `status`:
+ *  la imagen está analizada pero todavía no entró en el contexto de A11. */
+type StatusFilter = "all" | "working" | "failed" | "unindexed";
 
 const statusLabel: Record<ImageStatus, string> = {
   queued: "En cola",
@@ -125,6 +130,18 @@ function StatusBadge({ status }: { status: ImageStatus }) {
   );
 }
 
+/** Texto bajo el nombre en la rejilla: lo que A11 vio, o por qué todavía no. */
+function cardSummary(image: BankImage): string {
+  if (image.status === "analyzed") {
+    return image.analysis?.description ?? "Ficha lista.";
+  }
+  if (image.status === "failed") {
+    return image.error_reason ?? "No se pudo analizar.";
+  }
+  if (image.status === "analyzing") return "A11 la está describiendo…";
+  return "En cola; se analiza en segundo plano.";
+}
+
 function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
   const activeMembership = bootstrap.memberships.find(
@@ -153,6 +170,9 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [importingMetaAssetId, setImportingMetaAssetId] = useState<string | null>(null);
   const [metaImportError, setMetaImportError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<"all" | "instagram" | "meta">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [query, setQuery] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -244,12 +264,49 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }, [hasPending, load]);
 
   const expanded = images.find((image) => image.id === expandedId) ?? null;
-  const visibleImages = useMemo(
-    () => sourceFilter === "all"
-      ? images
-      : images.filter((image) => image.sources?.some((source) => source.channel === sourceFilter)),
-    [images, sourceFilter],
-  );
+
+  // El buscador entra en el análisis, que es lo que hace útil al banco: sin
+  // esto, la descripción, el texto de la imagen y el uso sugerido se escriben
+  // y no los lee nadie.
+  const visibleImages = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return images.filter((image) => {
+      if (
+        sourceFilter !== "all" &&
+        !image.sources?.some((source) => source.channel === sourceFilter)
+      ) {
+        return false;
+      }
+      if (statusFilter === "working" && image.status !== "queued" && image.status !== "analyzing") {
+        return false;
+      }
+      if (statusFilter === "failed" && image.status !== "failed") return false;
+      if (
+        statusFilter === "unindexed" &&
+        !(image.status === "analyzed" && !image.knowledge_document_id)
+      ) {
+        return false;
+      }
+      if (!needle) return true;
+      const analysis = image.analysis;
+      return [
+        image.original_filename,
+        analysis?.description,
+        analysis?.style,
+        analysis?.composition,
+        analysis?.ocr_text,
+        analysis?.suggested_use,
+        analysis?.alt_text,
+        ...(analysis?.objects ?? []),
+        ...(analysis?.inferences ?? []),
+        ...(analysis?.colors ?? []).map((color) => color.label),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [images, sourceFilter, statusFilter, query]);
 
   // Al abrir el detalle: lleva el foco al panel y desplázalo a la vista.
   useEffect(() => {
@@ -257,7 +314,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setEditingMarkdown(false);
     const frame = requestAnimationFrame(() => {
       detailRef.current?.focus();
-      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
   }, [expandedId]);
@@ -442,6 +499,35 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }, [images]);
 
   const inProcess = counts.queued + counts.analyzing + uploading.length;
+  const unindexedCount = useMemo(
+    () =>
+      images.filter(
+        (image) => image.status === "analyzed" && !image.knowledge_document_id,
+      ).length,
+    [images],
+  );
+  const indexedCount = useMemo(
+    () => images.filter((image) => image.knowledge_document_id).length,
+    [images],
+  );
+
+  // Un filtro con cero resultados es ruido: solo se ofrece lo que existe.
+  const statusFilters = (
+    [
+      ["all", "Todas", images.length],
+      ["working", "En proceso", inProcess],
+      ["failed", "Con error", counts.failed],
+      ["unindexed", "Sin indexar", unindexedCount],
+    ] as const
+  ).filter(([key, , count]) => count > 0 || key === statusFilter);
+
+  const isFiltered = query.trim() !== "" || statusFilter !== "all" || sourceFilter !== "all";
+
+  function clearFilters() {
+    setQuery("");
+    setStatusFilter("all");
+    setSourceFilter("all");
+  }
 
   if (!organizationId) {
     return (
@@ -462,586 +548,655 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-6 sm:space-y-8">
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Heading size="lg">Banco de imágenes</Heading>
-          <Link href="/marketing?section=crear" className="text-sm">
-            ← Volver a Marketing
-          </Link>
+    <div className={styles.page}>
+      <header className={styles.top}>
+        <div className="min-w-0">
+          <p className={styles.crumb}>Marketing / Contenido</p>
+          <p className={styles.title}>Banco de imágenes</p>
         </div>
-        <p className="mt-2 max-w-3xl text-sm text-muted">
-          Reúne imágenes propias y creatividades estáticas de Meta. Cada archivo
-          se copia al almacenamiento de la tienda antes de analizarse; el banco
-          conserva sus canales de origen y no mezcla observaciones visuales con
-          métricas de rendimiento.
-        </p>
-      </div>
-
-      <Card
-        title="Importar imágenes"
-        description="PNG, JPG, GIF o WebP · hasta 5 MB cada una. Puedes soltar varias a la vez."
-      >
-        <button
-          type="button"
-          aria-label="Importar imágenes: suelta archivos aquí o pulsa para elegir"
-          aria-describedby="image-bank-dropzone-hint"
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(event) => {
-            event.preventDefault();
-            setIsDragging(false);
-            void uploadFiles(Array.from(event.dataTransfer.files));
-          }}
-          className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 border border-dashed p-8 text-center text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-            isDragging
-              ? "border-accent bg-accent/5"
-              : "border-separator hover:border-muted"
-          }`}
-        >
-          <span className="font-medium">
-            Suelta imágenes aquí o pulsa para elegir
-          </span>
-          <span id="image-bank-dropzone-hint" className="text-xs text-muted">
-            {uploading.length > 0
-              ? `Subiendo ${uploading.length}…`
-              : "Se procesan una a una en segundo plano"}
-          </span>
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ACCEPT}
-          multiple
-          className="sr-only"
-          tabIndex={-1}
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? []);
-            event.target.value = "";
-            void uploadFiles(files);
-          }}
-        />
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              if (metaCandidates === null) void loadMetaCandidates();
-              else setMetaCandidates(null);
-            }}
-            disabled={loadingMetaCandidates}
-          >
-            {loadingMetaCandidates
-              ? "Cargando Meta…"
-              : metaCandidates === null
-                ? "Elegir imágenes de Meta"
-                : "Cerrar selección de Meta"}
-          </Button>
-          <span className="text-xs text-muted">
-            Se ofrecen imágenes y fotogramas de portada de vídeo sincronizados; no se importa el vídeo completo.
-          </span>
-        </div>
-        {metaImportError ? <ErrorBlock>{metaImportError}</ErrorBlock> : null}
-        {metaCandidates ? (
-          <div className="mt-4 space-y-3 border-t border-separator pt-4">
-            {metaCandidates.length === 0 ? (
-              <EmptyState
-                title="No hay recursos visuales de Meta disponibles"
-                hint="Sincroniza una cuenta publicitaria y comprueba que tenga imágenes o vídeos con una miniatura disponible."
-              />
-            ) : (
-              <>
-                <p className="text-xs text-muted">
-                  Se muestran hasta 100 imágenes y miniaturas sincronizadas más recientes. Las URL temporales no se muestran ni se guardan; importar un vídeo conserva solo una imagen fija.
-                </p>
-                <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
-                  {metaCandidates.map((candidate) => (
-                    <li
-                      key={candidate.id}
-                      className="flex min-w-0 items-center justify-between gap-3 border border-separator p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {candidate.label || candidate.creative_name || "Creatividad de Meta"}
-                        </p>
-                        <p className="truncate text-xs text-muted">
-                          {candidate.creative_name ?? "Anuncio"} · {candidate.visual_kind === "video_thumbnail" ? "miniatura de vídeo" : "imagen"} · pieza {candidate.position + 1}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => void importMetaCandidate(candidate)}
-                        disabled={!candidate.available || importingMetaAssetId !== null}
-                      >
-                        {importingMetaAssetId === candidate.id ? "Importando…" : candidate.visual_kind === "video_thumbnail" ? "Importar miniatura" : "Importar imagen"}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-        ) : null}
         {images.length > 0 ? (
-          <p
-            role="status"
-            aria-live="polite"
-            className="mt-3 text-xs text-muted"
-          >
-            {counts.analyzed} analizada{counts.analyzed === 1 ? "" : "s"}
-            {inProcess > 0 ? ` · ${inProcess} en proceso` : ""}
-            {counts.failed > 0 ? ` · ${counts.failed} con error` : ""}
+          <p className={styles.count}>
+            {images.length} {images.length === 1 ? "imagen" : "imágenes"}
+            {indexedCount > 0 ? ` · ${indexedCount} en el contexto de A11` : ""}
           </p>
         ) : null}
-      </Card>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            aria-expanded={importOpen}
+            onClick={() => setImportOpen((open) => !open)}
+          >
+            {importOpen ? "Cerrar" : "Importar imágenes"}
+          </Button>
+        </div>
+      </header>
 
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      {images.length > 0 || isFiltered ? (
+        <div className={styles.toolbar}>
+          <div className={styles.search}>
+            <SearchIcon aria-hidden className={styles.searchIcon} />
+            <Input
+              type="search"
+              value={query}
+              aria-label="Buscar en el banco"
+              placeholder="Busca por lo que se ve: mantel, lino, primer plano…"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
 
-      <Card
-        title="Imágenes del banco"
-        description="El análisis describe el contenido visual; la procedencia indica si se importó desde Instagram o Meta. Puedes editar o borrar cada ficha."
-      >
-        {images.length > 0 ? (
-          <div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Filtrar por canal de origen">
-            <span className="mr-1 text-xs text-muted">Origen</span>
-            {([
-              ["all", "Todos"],
-              ["instagram", "Instagram"],
-              ["meta", "Meta"],
-            ] as const).map(([filter, label]) => (
-              <Button
-                key={filter}
+          <div className={styles.seg} role="group" aria-label="Filtrar por estado">
+            {statusFilters.map(([key, label, count]) => (
+              <button
+                key={key}
                 type="button"
-                size="sm"
-                variant={sourceFilter === filter ? "primary" : "secondary"}
-                aria-pressed={sourceFilter === filter}
-                onClick={() => {
-                  setSourceFilter(filter);
-                  setExpandedId(null);
-                }}
+                className={styles.segBtn}
+                aria-pressed={statusFilter === key}
+                onClick={() => setStatusFilter(key)}
               >
                 {label}
-              </Button>
+                <span className={styles.segCount}>{count}</span>
+              </button>
             ))}
           </div>
-        ) : null}
-        {isLoading ? (
-          <LoadingBlock label="Cargando banco…" />
-        ) : images.length === 0 && uploading.length === 0 ? (
-          <EmptyState
-            title="Sin imágenes todavía"
-            hint="Importa la primera para empezar a construir el contexto."
-          />
-        ) : (
-          <div className="space-y-6">
-            {visibleImages.length === 0 && uploading.length === 0 ? (
-              <EmptyState
-                title="No hay imágenes de este origen"
-                hint="Prueba otro canal o importa creatividades estáticas desde Meta."
-              />
-            ) : null}
-            <ul className="grid list-none grid-cols-1 gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
-              {uploading.map((name) => (
-                <li
-                  key={`uploading-${name}`}
-                  className="flex flex-col overflow-hidden border border-separator"
-                >
-                  <div className="flex h-40 items-center justify-center bg-surface">
-                    <ProgressCircle
-                      isIndeterminate
-                      aria-label={`Subiendo ${name}`}
-                      size="sm"
-                    />
-                  </div>
-                  <div className="space-y-1 p-3">
-                    <span className="line-clamp-1 text-sm font-medium">
-                      {name}
-                    </span>
-                    <p className="text-xs text-muted">Subiendo…</p>
-                  </div>
-                </li>
-              ))}
-              {visibleImages.map((image) => {
-                const selected = expandedId === image.id;
-                return (
-                  <li key={image.id}>
-                    <button
-                      type="button"
-                      aria-expanded={selected}
-                      aria-controls="image-bank-detail"
-                      aria-label={`${image.original_filename}. Estado: ${statusLabel[image.status]}. Abrir detalle.`}
-                      onClick={() =>
-                        selected ? closeDetail() : openDetail(image)
-                      }
-                      className={`flex w-full flex-col overflow-hidden border text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-                        selected
-                          ? "border-accent"
-                          : "border-separator hover:border-muted"
-                      }`}
-                    >
-                      <span className="relative block h-40 overflow-hidden border-b border-separator bg-white">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={image.public_url}
-                          alt={
-                            image.analysis?.alt_text ?? image.original_filename
-                          }
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                        />
-                        {image.status === "analyzing" ? (
-                          <span className="absolute inset-0 flex items-center justify-center bg-white/70">
-                            <ProgressCircle
-                              isIndeterminate
-                              aria-hidden
-                              size="sm"
-                            />
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="block space-y-1 p-3">
-                        <span className="flex items-start justify-between gap-2">
-                          <span className="line-clamp-1 text-sm font-medium">
-                            {image.original_filename}
-                          </span>
-                          <StatusBadge status={image.status} />
-                        </span>
-                        <span className="flex flex-wrap gap-1">
-                          {(image.sources ?? []).map((source) => (
-                            <Badge key={`${image.id}-${source.channel}-${source.source_kind}`} tone="neutral">
-                              {source.channel === "meta" ? "Meta" : "Instagram"}
-                            </Badge>
-                          ))}
-                        </span>
-                        <span className="line-clamp-2 block text-xs text-muted">
-                          {image.status === "analyzed"
-                            ? (image.analysis?.description ?? "Ficha lista")
-                            : image.status === "failed"
-                              ? (image.error_reason ?? "No se pudo analizar")
-                              : "Pendiente de análisis"}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
 
-            {expanded ? (
-              <div
-                id="image-bank-detail"
-                ref={detailRef}
-                tabIndex={-1}
-                role="region"
-                aria-label={`Detalle de ${expanded.original_filename}`}
-                className="scroll-mt-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          <div
+            className={`${styles.seg} ml-auto`}
+            role="group"
+            aria-label="Filtrar por origen"
+          >
+            {(
+              [
+                ["all", "Todas"],
+                ["instagram", "Instagram"],
+                ["meta", "Meta"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={styles.segBtn}
+                aria-pressed={sourceFilter === key}
+                onClick={() => setSourceFilter(key)}
               >
-                <Card
-                  kicker={
-                    expanded.knowledge_document_id
-                      ? "En el contexto de Marketing"
-                      : "Analizada · aún sin indexar en contexto"
-                  }
-                  title={expanded.original_filename}
-                  actions={
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={expanded.status} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {importOpen ? (
+        <div className={styles.importPanel}>
+          <button
+            type="button"
+            aria-label="Importar imágenes: suelta archivos aquí o pulsa para elegir"
+            aria-describedby="image-bank-dropzone-hint"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragging(false);
+              void uploadFiles(Array.from(event.dataTransfer.files));
+            }}
+            className={`flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-white p-8 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+              isDragging ? "border-accent bg-accent-soft" : "border-edge hover:border-muted"
+            }`}
+          >
+            <span className="text-sm font-medium">
+              Suelta imágenes aquí o pulsa para elegir
+            </span>
+            <span id="image-bank-dropzone-hint" className="text-xs text-muted">
+              {uploading.length > 0
+                ? `Subiendo ${uploading.length}…`
+                : "PNG, JPG, GIF o WebP · hasta 5 MB cada una · se analizan en segundo plano"}
+            </span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPT}
+            multiple
+            className="sr-only"
+            tabIndex={-1}
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = "";
+              void uploadFiles(files);
+            }}
+          />
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (metaCandidates === null) void loadMetaCandidates();
+                else setMetaCandidates(null);
+              }}
+              disabled={loadingMetaCandidates}
+            >
+              {loadingMetaCandidates
+                ? "Cargando Meta…"
+                : metaCandidates === null
+                  ? "Traer imágenes de Meta"
+                  : "Cerrar lista de Meta"}
+            </Button>
+            <span className="text-xs text-muted">
+              Imágenes y fotogramas de portada ya sincronizados. El vídeo completo no se
+              importa: solo la imagen fija.
+            </span>
+          </div>
+
+          {metaImportError ? (
+            <div className="mt-3">
+              <ErrorBlock>{metaImportError}</ErrorBlock>
+            </div>
+          ) : null}
+
+          {metaCandidates ? (
+            <div className="mt-4 space-y-3 border-t border-edge pt-4">
+              {metaCandidates.length === 0 ? (
+                <EmptyState
+                  title="No hay recursos visuales de Meta disponibles"
+                  hint="Sincroniza una cuenta publicitaria y comprueba que tenga imágenes o vídeos con una miniatura disponible."
+                />
+              ) : (
+                <>
+                  <p className="text-xs text-muted">
+                    Hasta 100 recursos sincronizados más recientes. Meta no expone una
+                    miniatura estable, así que aquí van por nombre; al importar, la imagen se
+                    copia a tu almacenamiento y ya se ve en el banco.
+                  </p>
+                  <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2 xl:grid-cols-3">
+                    {metaCandidates.map((candidate) => (
+                      <li
+                        key={candidate.id}
+                        className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-edge bg-white p-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {candidate.label || candidate.creative_name || "Creatividad de Meta"}
+                          </p>
+                          <p className="truncate text-xs text-muted">
+                            {candidate.visual_kind === "video_thumbnail"
+                              ? "Miniatura de vídeo"
+                              : "Imagen"}{" "}
+                            · pieza {candidate.position + 1}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void importMetaCandidate(candidate)}
+                          disabled={!candidate.available || importingMetaAssetId !== null}
+                        >
+                          {importingMetaAssetId === candidate.id ? "Importando…" : "Importar"}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className={styles.banners}>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      </div>
+
+      <div className={styles.work}>
+        <section className={styles.gallery} aria-label="Imágenes del banco">
+          {isLoading ? (
+            <LoadingBlock label="Cargando banco…" />
+          ) : images.length === 0 && uploading.length === 0 ? (
+            <div className="mx-auto max-w-xl py-12">
+              <EmptyState
+                title="Sin imágenes todavía"
+                hint="Cada imagen que subas se copia a tu almacenamiento, A11 la describe (qué se ve, colores, texto dentro de la imagen) y queda buscable para escribir con ella."
+              />
+              <div className="mt-4 flex justify-center">
+                <Button type="button" onClick={() => setImportOpen(true)}>
+                  Importar las primeras imágenes
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className={styles.resultLine}>
+                <span>
+                  {isFiltered
+                    ? `${visibleImages.length} ${visibleImages.length === 1 ? "imagen" : "imágenes"}${query.trim() ? ` para «${query.trim()}»` : ""}`
+                    : "La búsqueda entra en la descripción, los objetos y el texto de cada imagen"}
+                </span>
+                {isFiltered ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+                    Quitar filtros
+                  </Button>
+                ) : null}
+              </div>
+
+              {visibleImages.length === 0 && uploading.length === 0 ? (
+                <EmptyState
+                  title="Nada encaja con esta búsqueda"
+                  hint="Prueba con una palabra de lo que se ve en la foto, no solo con el nombre del archivo."
+                />
+              ) : null}
+
+              <ul className={styles.grid}>
+                {uploading.map((name) => (
+                  <li key={`uploading-${name}`}>
+                    <div className={styles.card}>
+                      <div className={styles.media}>
+                        <ProgressCircle
+                          isIndeterminate
+                          aria-label={`Subiendo ${name}`}
+                          size="sm"
+                        />
+                      </div>
+                      <div className={styles.cardBody}>
+                        <div className={styles.cardName}>
+                          <span>{name}</span>
+                        </div>
+                        <p className={styles.cardSub}>Subiendo…</p>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+
+                {visibleImages.map((image) => {
+                  const selected = expandedId === image.id;
+                  const needsIndex =
+                    image.status === "analyzed" && !image.knowledge_document_id;
+                  return (
+                    <li key={image.id}>
+                      <button
+                        type="button"
+                        aria-expanded={selected}
+                        aria-controls="image-bank-detail"
+                        aria-label={`${image.original_filename}. Estado: ${statusLabel[image.status]}. Abrir ficha.`}
+                        onClick={() => (selected ? closeDetail() : openDetail(image))}
+                        className={styles.card}
+                      >
+                        <span className={styles.media}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={image.public_url}
+                            alt={image.analysis?.alt_text ?? image.original_filename}
+                            loading="lazy"
+                          />
+                          {image.status === "analyzing" ? (
+                            <span className={styles.mediaBusy}>
+                              <ProgressCircle isIndeterminate aria-hidden size="sm" />
+                            </span>
+                          ) : null}
+                          {/* Estado solo cuando hay algo que mirar: una marca verde en
+                              cada tarjeta analizada no informa de nada. */}
+                          {image.status !== "analyzed" ? (
+                            <span className={styles.mark} data-s={image.status}>
+                              {statusLabel[image.status]}
+                            </span>
+                          ) : null}
+                          {(image.sources ?? []).length > 0 ? (
+                            <span className={styles.origins}>
+                              {(image.sources ?? []).map((source) => (
+                                <span
+                                  key={`${image.id}-${source.channel}-${source.source_kind}`}
+                                  className={styles.origin}
+                                >
+                                  {source.channel === "meta" ? "Meta" : "Instagram"}
+                                </span>
+                              ))}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className={styles.cardBody}>
+                          <span className={styles.cardName}>
+                            {needsIndex ? (
+                              <span
+                                className={styles.pendingIndex}
+                                title="Analizada, aún sin indexar en el contexto"
+                              />
+                            ) : null}
+                            <span>{image.original_filename}</span>
+                          </span>
+                          <span className={styles.cardSub} data-s={image.status}>
+                            {cardSummary(image)}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </section>
+
+        {expanded ? (
+          <aside
+            id="image-bank-detail"
+            ref={detailRef}
+            tabIndex={-1}
+            className={styles.detail}
+            aria-label={`Ficha de ${expanded.original_filename}`}
+          >
+            <div className={styles.detailHead}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">
+                  {expanded.original_filename}
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  {expanded.knowledge_document_id
+                    ? "En el contexto de Marketing: A11 puede proponerla al escribir."
+                    : expanded.status === "analyzed"
+                      ? "Analizada, aún sin indexar: A11 todavía no la ve."
+                      : "Todavía no entra en el contexto."}
+                </p>
+              </div>
+              <StatusBadge status={expanded.status} />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Cerrar ficha"
+                onClick={closeDetail}
+              >
+                <CloseIcon aria-hidden />
+              </Button>
+            </div>
+
+            <div className={styles.detailPreview}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={expanded.public_url}
+                alt={expanded.analysis?.alt_text ?? expanded.original_filename}
+              />
+            </div>
+
+            <div className={styles.detailActions}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={
+                  busyId === expanded.id ||
+                  expanded.status === "queued" ||
+                  expanded.status === "analyzing"
+                }
+                onClick={() => void retryImage(expanded.id)}
+              >
+                <span className="flex items-center gap-2">
+                  <RetryIcon aria-hidden />
+                  {expanded.status === "failed" ? "Reintentar" : "Volver a analizar"}
+                </span>
+              </Button>
+              <ConfirmDialog
+                status="danger"
+                title="Eliminar imagen"
+                description="Se borra la imagen y su ficha del contexto. El generador de contenido dejará de usarla. No se puede deshacer."
+                confirmLabel="Eliminar"
+                onConfirm={() => void deleteImage(expanded.id)}
+                trigger={
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    disabled={busyId === expanded.id}
+                  >
+                    <span className="flex items-center gap-2">
+                      <TrashIcon aria-hidden />
+                      Eliminar
+                    </span>
+                  </Button>
+                }
+              />
+            </div>
+
+            <div className={styles.detailBody}>
+              {expanded.status === "failed" ? (
+                <Banner tone="danger" className="text-sm">
+                  {expanded.error_reason ?? "El análisis falló. Reintenta cuando quieras."}
+                </Banner>
+              ) : null}
+
+              {expanded.analysis ? (
+                <>
+                  <div>
+                    <p className={EYEBROW}>Qué se ve</p>
+                    <p className="mt-1 text-[13px] leading-relaxed">
+                      {expanded.analysis.description}
+                    </p>
+                  </div>
+
+                  {expanded.analysis.objects.length > 0 ? (
+                    <div>
+                      <p className={EYEBROW}>Objetos · pulsa para buscar</p>
+                      <ul className="mt-1 flex list-none flex-wrap gap-2 p-0">
+                        {expanded.analysis.objects.map((object) => (
+                          <li key={object}>
+                            {/* El análisis deja de ser un texto muerto: cada objeto
+                                filtra el banco. */}
+                            <button
+                              type="button"
+                              className="rounded-md border border-edge px-2 py-1 text-xs transition-colors hover:border-accent"
+                              onClick={() => {
+                                setQuery(object);
+                                setStatusFilter("all");
+                                setSourceFilter("all");
+                              }}
+                            >
+                              {object}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {expanded.analysis.colors.length > 0 ? (
+                    <div>
+                      <p className={EYEBROW}>Colores</p>
+                      <ul className="mt-1 flex list-none flex-wrap gap-x-4 gap-y-2 p-0">
+                        {expanded.analysis.colors.map((color) => (
+                          <li
+                            key={color.hex + color.label}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <span
+                              aria-hidden
+                              className="inline-block size-4 shrink-0 rounded-md border border-edge"
+                              style={{ backgroundColor: color.hex }}
+                            />
+                            {color.label}
+                            <span className="tabular-nums text-muted">{color.hex}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {expanded.analysis.ocr_text.trim() ? (
+                    <div>
+                      <p className={EYEBROW}>Texto dentro de la imagen</p>
+                      <p className="mt-1 whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 text-[13px] leading-relaxed">
+                        {expanded.analysis.ocr_text}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <p className={EYEBROW}>Composición</p>
+                    <p className="mt-1 text-[13px] leading-relaxed">
+                      {expanded.analysis.composition ??
+                        "No incluido en el análisis anterior."}
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      Proporción estimada:{" "}
+                      {expanded.analysis.aspect_ratio_estimate ?? "no disponible"} ·{" "}
+                      {expanded.analysis.style}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className={EYEBROW}>Para qué sirve</p>
+                    <p className="mt-1 text-[13px] leading-relaxed">
+                      {expanded.analysis.suggested_use}
+                    </p>
+                  </div>
+
+                  {(expanded.analysis.inferences?.length ?? 0) > 0 ? (
+                    <div>
+                      <p className={EYEBROW}>Inferencias visuales · revisar</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-[13px] text-muted">
+                        {expanded.analysis.inferences?.map((inference, index) => (
+                          <li key={`${index}-${inference}`}>{inference}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <p className={EYEBROW}>Alt text</p>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted">
+                      {expanded.analysis.alt_text}
+                    </p>
+                  </div>
+                </>
+              ) : expanded.status !== "failed" ? (
+                <p className="text-[13px] text-muted">
+                  {expanded.status === "analyzing"
+                    ? "A11 la está describiendo. La ficha aparece aquí en cuanto termine."
+                    : "En cola. Se analiza en segundo plano; puedes seguir trabajando."}
+                </p>
+              ) : null}
+
+              {expanded.markdown !== null ? (
+                <div className="space-y-2 border-t border-edge pt-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={EYEBROW}>Ficha que lee A11</p>
+                    {!editingMarkdown ? (
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        aria-label="Cerrar detalle"
-                        title="Cerrar"
-                        onClick={closeDetail}
+                        onClick={() => {
+                          setMarkdownDraft(expanded.markdown ?? "");
+                          setEditingMarkdown(true);
+                        }}
                       >
-                        <CloseIcon aria-hidden />
+                        <span className="flex items-center gap-2">
+                          <PencilIcon aria-hidden />
+                          Editar
+                        </span>
                       </Button>
-                    </div>
-                  }
-                >
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-                    <div className="space-y-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={expanded.public_url}
-                        alt={
-                          expanded.analysis?.alt_text ??
-                          expanded.original_filename
-                        }
-                        className="w-full border border-separator object-contain"
-                      />
+                    ) : null}
+                  </div>
+
+                  {editingMarkdown ? (
+                    <div className="space-y-2">
+                      <Field label="Ficha (markdown)">
+                        <Textarea
+                          className="mt-1 min-h-56 font-mono text-xs"
+                          value={markdownDraft}
+                          onChange={(event) => setMarkdownDraft(event.target.value)}
+                          maxLength={20000}
+                        />
+                      </Field>
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"
-                          variant="secondary"
                           size="sm"
                           disabled={
                             busyId === expanded.id ||
-                            expanded.status === "queued" ||
-                            expanded.status === "analyzing"
+                            markdownDraft.trim() === (expanded.markdown ?? "").trim()
                           }
-                          onClick={() => void retryImage(expanded.id)}
+                          onClick={() => void saveMarkdown(expanded.id)}
                         >
-                          <span className="flex items-center gap-1.5">
-                            <RetryIcon aria-hidden />
-                            {expanded.status === "failed"
-                              ? "Reintentar análisis"
-                              : "Volver a analizar"}
-                          </span>
+                          {busyId === expanded.id ? "Guardando…" : "Guardar ficha"}
                         </Button>
-                        <ConfirmDialog
-                          status="danger"
-                          title="Eliminar imagen"
-                          description="Se borra la imagen y su ficha del contexto de Instagram. El generador de contenido dejará de usarla. No se puede deshacer."
-                          confirmLabel="Eliminar"
-                          onConfirm={() => void deleteImage(expanded.id)}
-                          trigger={
-                            <Button
-                              type="button"
-                              variant="danger"
-                              size="sm"
-                              disabled={busyId === expanded.id}
-                            >
-                              <span className="flex items-center gap-1.5">
-                                <TrashIcon aria-hidden />
-                                Eliminar
-                              </span>
-                            </Button>
-                          }
-                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={busyId === expanded.id}
+                          onClick={() => {
+                            setMarkdownDraft(expanded.markdown ?? "");
+                            setEditingMarkdown(false);
+                          }}
+                        >
+                          Cancelar
+                        </Button>
                       </div>
                     </div>
+                  ) : (
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 font-mono text-xs leading-relaxed">
+                      {expanded.markdown}
+                    </pre>
+                  )}
+                </div>
+              ) : null}
 
-                    <div className="space-y-4">
-                      {expanded.status === "failed" ? (
-                        <Banner tone="danger" className="text-sm">
-                          {expanded.error_reason ??
-                            "El análisis falló. Reintenta cuando quieras."}
-                        </Banner>
-                      ) : null}
-
-                      {expanded.analysis ? (
-                        <div className="space-y-3 text-sm">
-                          <div>
-                            <p className={EYEBROW}>Descripción</p>
-                            <p className="mt-1">
-                              {expanded.analysis.description}
-                            </p>
-                          </div>
-                          <div>
-                            <p className={EYEBROW}>Estilo</p>
-                            <p className="mt-1">{expanded.analysis.style}</p>
-                          </div>
-                          <div>
-                            <p className={EYEBROW}>Composición</p>
-                            <p className="mt-1">{expanded.analysis.composition ?? "No incluido en el análisis anterior."}</p>
-                            <p className="mt-1 text-xs text-muted">
-                              Proporción visual estimada: {expanded.analysis.aspect_ratio_estimate ?? "no disponible"}
-                            </p>
-                          </div>
-                          {expanded.analysis.objects.length > 0 ? (
-                            <div>
-                              <p className={EYEBROW}>Objetos</p>
-                              <ul className="mt-1 flex list-none flex-wrap gap-1.5 p-0">
-                                {expanded.analysis.objects.map((object) => (
-                                  <li key={object}>
-                                    <Badge tone="neutral">{object}</Badge>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-                          {expanded.analysis.colors.length > 0 ? (
-                            <div>
-                              <p className={EYEBROW}>Colores</p>
-                              <ul className="mt-1 flex list-none flex-wrap gap-x-4 gap-y-1.5 p-0">
-                                {expanded.analysis.colors.map((color) => (
-                                  <li
-                                    key={color.hex + color.label}
-                                    className="flex items-center gap-1.5 text-xs"
-                                  >
-                                    <span
-                                      aria-hidden
-                                      className="inline-block h-4 w-4 shrink-0 border border-separator"
-                                      style={{ backgroundColor: color.hex }}
-                                    />
-                                    {color.label} · {color.hex}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-                          {expanded.analysis.ocr_text.trim() ? (
-                            <div>
-                              <p className={EYEBROW}>Texto en la imagen</p>
-                              <p className="mt-1 whitespace-pre-wrap">
-                                {expanded.analysis.ocr_text}
-                              </p>
-                            </div>
-                          ) : null}
-                          <div>
-                            <p className={EYEBROW}>Uso potencial</p>
-                            <p className="mt-1">
-                              {expanded.analysis.suggested_use}
-                            </p>
-                          </div>
-                          {(expanded.analysis.inferences?.length ?? 0) > 0 ? (
-                            <div>
-                              <p className={EYEBROW}>Inferencias visuales · revisar</p>
-                              <ul className="mt-1 list-disc space-y-1 pl-5 text-muted">
-                                {expanded.analysis.inferences?.map((inference, index) => (
-                                  <li key={`${index}-${inference}`}>{inference}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-                          <div>
-                            <p className={EYEBROW}>Alt text</p>
-                            <p className="mt-1">{expanded.analysis.alt_text}</p>
-                          </div>
-                        </div>
-                      ) : expanded.status !== "failed" ? (
-                        <p className="text-sm text-muted">
-                          Esperando el análisis…
-                        </p>
-                      ) : null}
-
-                      {expanded.markdown !== null ? (
-                        <div className="space-y-2 border-t border-separator pt-4">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className={EYEBROW}>Ficha en el contexto</p>
-                            {!editingMarkdown ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setMarkdownDraft(expanded.markdown ?? "");
-                                  setEditingMarkdown(true);
-                                }}
-                              >
-                                <span className="flex items-center gap-1.5">
-                                  <PencilIcon aria-hidden />
-                                  Editar ficha
-                                </span>
-                              </Button>
-                            ) : null}
-                          </div>
-
-                          {editingMarkdown ? (
-                            <div className="space-y-2">
-                              <Field label="Ficha (markdown)">
-                                <Textarea
-                                  className="mt-1 min-h-56 font-mono text-xs"
-                                  value={markdownDraft}
-                                  onChange={(event) =>
-                                    setMarkdownDraft(event.target.value)
-                                  }
-                                  maxLength={20000}
-                                />
-                              </Field>
-                              <div className="flex flex-wrap gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  disabled={
-                                    busyId === expanded.id ||
-                                    markdownDraft.trim() ===
-                                      (expanded.markdown ?? "").trim()
-                                  }
-                                  onClick={() => void saveMarkdown(expanded.id)}
-                                >
-                                  {busyId === expanded.id
-                                    ? "Guardando…"
-                                    : "Guardar ficha"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={busyId === expanded.id}
-                                  onClick={() => {
-                                    setMarkdownDraft(expanded.markdown ?? "");
-                                    setEditingMarkdown(false);
-                                  }}
-                                >
-                                  Cancelar
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <pre className="max-h-64 overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 text-xs leading-5">
-                              {expanded.markdown}
-                            </pre>
-                          )}
-                        </div>
-                      ) : null}
-
-                      <div className="space-y-2 border-t border-separator pt-4">
-                        <p className={EYEBROW}>Piezas con texto</p>
-                        {expanded.status !== "analyzed" ? (
-                          <p className="text-xs text-muted">
-                            Disponible cuando la imagen esté analizada.
-                          </p>
-                        ) : (
-                          <>
-                            <p className="text-xs text-muted">
-                              Crea una pieza para poner texto encima (borrador de
-                              IA, caption y export a PNG). Elige el formato:
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {(
-                                [
-                                  ["single", "Imagen única"],
-                                  ["carousel", "Carrusel"],
-                                  ["story", "Historia"],
-                                ] as const
-                              ).map(([value, label]) => (
-                                <Button
-                                  key={value}
-                                  type="button"
-                                  size="sm"
-                                  variant="secondary"
-                                  disabled={creatingPiece}
-                                  onClick={() =>
-                                    void createPiece(expanded.id, value)
-                                  }
-                                >
-                                  {label}
-                                </Button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                        {expanded.status === "analyzed" &&
-                        overlays.length > 0 ? (
-                          <ul className="space-y-1 pt-1">
-                            {overlays.map((overlay) => (
-                              <li key={overlay.id}>
-                                <Link
-                                  href={`/marketing/imagenes/${overlay.id}`}
-                                  className="text-sm"
-                                >
-                                  {overlay.name}
-                                </Link>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
+              <div className="space-y-2 border-t border-edge pt-4">
+                <p className={EYEBROW}>Piezas con texto</p>
+                {expanded.status !== "analyzed" ? (
+                  <p className="text-xs text-muted">
+                    Disponible cuando la imagen esté analizada.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted">
+                      Pon texto encima: borrador de IA, caption y export a PNG.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["single", "Imagen única"],
+                          ["carousel", "Carrusel"],
+                          ["story", "Historia"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={creatingPiece}
+                          onClick={() => void createPiece(expanded.id, value)}
+                        >
+                          {label}
+                        </Button>
+                      ))}
                     </div>
-                  </div>
-                </Card>
+                  </>
+                )}
+                {expanded.status === "analyzed" && overlays.length > 0 ? (
+                  <ul className="space-y-1 pt-1">
+                    {overlays.map((overlay) => (
+                      <li key={overlay.id}>
+                        <Link
+                          href={`/marketing/imagenes/${overlay.id}`}
+                          className="text-sm"
+                        >
+                          {overlay.name}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        )}
-      </Card>
+            </div>
+          </aside>
+        ) : null}
+      </div>
     </div>
   );
 }

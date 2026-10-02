@@ -1,0 +1,524 @@
+/* Crear el camino: misma paleta que el mapa y la vista de rutas (cliente
+   petróleo/azafrán, consultor grafito/mandarina). */
+
+.root {
+  --surface: #ffffff;
+  --surface-2: #f4f7f7;
+  --sunken: #e2e9ea;
+  --hero: #0b2a33;
+  --hero-2: #123c48;
+  --hero-line: #24505b;
+  --hero-muted: #a9c2c7;
+  --ink: #0b2a33;
+  --ink-2: #46626a;
+  --ink-3: #5c757b;
+  --line: #d3dee0;
+  --line-2: #e5eced;
+  --accent: #f2b705;
+  --accent-soft: #fcf0c4;
+  --accent-ink: #6e5000;
+  --on-accent: #1d1500;
+  --good: #11806a;
+  --good-soft: #daf0e9;
+  --warn: #c0600e;
+  --warn-soft: #fbe8d5;
+
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-family: var(--font-plex-sans), system-ui, sans-serif;
+  color: var(--ink);
+}
+.consultant {
+  --hero: #17191c;
+  --hero-2: #24272b;
+  --hero-line: #33373c;
+  --hero-muted: #b7bac0;
+  --ink: #16181b;
+  --ink-2: #474b51;
+  --line: #dadad5;
+  --accent: #ff8a5b;
+  --accent-soft: #ffe9df;
+  --accent-ink: #8a3a14;
+  --on-accent: #2b0e02;
+}
+
+/* ---------- cabecera oscura con los tres modos ---------- */
+.head {
+  background: linear-gradient(135deg, var(--hero), var(--hero-2));
+  color: #fff;
+  padding: 22px 22px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px 20px;
+  align-items: start;
+}
+.headText {
+  display: grid;
+  gap: 4px;
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hero-muted);
+}
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.desc {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--hero-muted);
+  max-width: 62ch;
+}
+.currency {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hero-muted);
+}
+.currency select {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--hero-line);
+  background: var(--hero-2);
+  color: #fff;
+  font: 600 13px var(--font-plex-sans), system-ui, sans-serif;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.modes {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.mode {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 2px 10px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--hero-line);
+  background: color-mix(in srgb, var(--hero-2) 80%, transparent);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.mode:hover {
+  transform: translateY(-2px);
+  border-color: var(--hero-muted);
+}
+.modeActive,
+.modeActive:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.modeIcon {
+  grid-row: 1 / 3;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.modeActive .modeIcon {
+  background: rgba(0, 0, 0, 0.1);
+}
+.modeLabel {
+  font-size: 14px;
+  font-weight: 600;
+}
+.modeHint {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.75;
+}
+
+.body {
+  padding: 20px 22px 24px;
+}
+.flow {
+  display: grid;
+  gap: 16px;
+}
+
+/* ---------- controles ---------- */
+.controls {
+  display: grid;
+  grid-template-columns: minmax(200px, 0.8fr) minmax(0, 1.4fr) auto;
+  gap: 16px;
+  align-items: end;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+}
+.control {
+  display: grid;
+  gap: 6px;
+}
+.controlLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.controlLabel b {
+  color: var(--ink);
+}
+.range {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.rangeScale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.hintLine {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* ---------- propuesta ---------- */
+.proposalHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.proposalHead > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.proposalName {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.aiTag {
+  display: inline-grid;
+  place-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+.pillGood {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.pillWarn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.diagnosis {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  font-style: italic;
+  max-width: 75ch;
+}
+.goal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 16px;
+  align-items: end;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+.goalLine {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.goalWhy {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.goalInput {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+.phaseCards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.phaseCard {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--accent);
+}
+.phaseCard p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.phaseNo {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---------- plantilla ---------- */
+.drop {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 28px 16px;
+  border-radius: 16px;
+  border: 2px dashed var(--line);
+  background: var(--surface-2);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.drop:hover,
+.dropOver {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.drop span {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.dropIcon {
+  font-size: 26px !important;
+  color: var(--accent-ink) !important;
+}
+.drop:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.issues,
+.warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.warnings {
+  padding: 10px 12px 10px 28px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--ink);
+}
+
+/* ---------- a mano ---------- */
+.nameField {
+  display: grid;
+  gap: 6px;
+  max-width: 520px;
+}
+.builder {
+  display: grid;
+  gap: 10px;
+}
+.builderPhases {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.builderPhase {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: grid;
+  gap: 10px;
+}
+.builderPhaseHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.builderMilestones {
+  margin: 0;
+  padding: 0 0 0 6px;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  border-left: 2px dashed var(--line);
+}
+.builderMilestone {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding-left: 10px;
+}
+.stopDot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.builderFields {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.builderRow {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) 150px;
+  gap: 6px;
+}
+.targetField {
+  position: relative;
+  display: block;
+}
+.targetField small {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+.remove {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.remove:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+.addLink {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  padding: 2px 0 0 54px;
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.addPhase {
+  justify-self: start;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px dashed var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.addPhase:hover {
+  border-color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .modes {
+    grid-template-columns: 1fr;
+  }
+  .controls {
+    grid-template-columns: 1fr;
+  }
+  .goal {
+    grid-template-columns: 1fr;
+  }
+  .builderRow {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .head {
+    grid-template-columns: 1fr;
+    padding: 18px 16px;
+  }
+  .body {
+    padding: 16px;
+  }
+  .builderRow {
+    grid-template-columns: 1fr;
+  }
+  .builderMilestone {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    padding-left: 6px;
+  }
+}

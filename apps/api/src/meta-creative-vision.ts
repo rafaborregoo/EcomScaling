@@ -3,6 +3,27 @@ export const A23_MAX_VISION_IMAGE_BYTES = 1_350_000;
 export const A23_PRIVATE_IMAGE_BUCKET = "marketing-source-assets";
 export const A23_PRIVATE_IMAGE_PREFIX = "marketing-visual-bank/";
 
+export type A23VisualFailureStage =
+  | "ad_assignment_metadata"
+  | "creative_asset_metadata"
+  | "private_bank_linkage"
+  | "image_bank_metadata"
+  | "private_storage_read"
+  | "unexpected";
+
+export function a23VisualFailureCoverage(
+  stage: A23VisualFailureStage,
+  adsConsidered: number,
+) {
+  return {
+    status: "visual_evidence_unavailable" as const,
+    ads_considered: Math.max(0, Math.floor(adsConsidered)),
+    images_attached: 0 as const,
+    failure_stage: stage,
+    note: "No se pudo verificar la evidencia visual; esto no significa que el anuncio carezca de activos importados.",
+  };
+}
+
 export type A23PerformanceCandidate = { ad_id?: unknown; spend?: unknown };
 
 export function selectA23VisionAdIds(

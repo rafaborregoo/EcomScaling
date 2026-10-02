@@ -57,6 +57,13 @@ export const KLAVIYO_CAPABILITIES: readonly KlaviyoCapability[] = [
     required: true,
   },
   {
+    key: "events:read",
+    scope: "events:read",
+    label: "Events (Read)",
+    probePath: "/events/?page[size]=1",
+    required: true,
+  },
+  {
     key: "metrics:read",
     scope: "metrics:read",
     label: "Metrics (Read)",
@@ -88,6 +95,24 @@ export const KLAVIYO_CAPABILITIES: readonly KlaviyoCapability[] = [
     scope: "templates:write",
     label: "Templates (Full access)",
     probePath: "/templates/00000000-0000-0000-0000-000000000000/",
+    method: "PATCH",
+    required: false,
+  },
+  {
+    /** Programar y cancelar campañas desde Marketing. Mismo sondeo sin escritura. */
+    key: "campaigns:write",
+    scope: "campaigns:write",
+    label: "Campaigns (Full access)",
+    probePath: "/campaigns/00000000-0000-0000-0000-000000000000/",
+    method: "PATCH",
+    required: false,
+  },
+  {
+    /** Crear flows diseñados en Marketing → Flows. Mismo sondeo sin escritura. */
+    key: "flows:write",
+    scope: "flows:write",
+    label: "Flows (Full access)",
+    probePath: "/flows/00000000-0000-0000-0000-000000000000/",
     method: "PATCH",
     required: false,
   },

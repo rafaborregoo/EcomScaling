@@ -30,6 +30,7 @@ import {
   type StoreProviderView,
   type StoreView,
 } from "../../store-view-model";
+import hub from "../../hub.module.css";
 
 // Una tienda y sus tres conexiones.
 //
@@ -224,13 +225,19 @@ function StoreDetail({
   // otra, el resto del programa (dashboard, marketing, tareas) estaria hablando
   // de una tienda distinta a la que tienes abierta.
   useEffect(() => {
-    if (connectionId && connectionId !== activeConnectionId) {
+    const belongsToOwnStore = Boolean(
+      payload &&
+        buildStoreViews(payload, scope).some(
+          (store) => store.connectionId === connectionId,
+        ),
+    );
+    if (connectionId && belongsToOwnStore && connectionId !== activeConnectionId) {
       setConnectionId(connectionId);
     }
     // Solo al aterrizar: si dependiera de activeConnectionId, cambiar de tienda
     // en el encabezado te devolveria a esta.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId]);
+  }, [connectionId, payload, scope]);
 
   if (isLoading) {
     return <AsyncState status="loading" loadingLabel="Cargando la tienda..." />;
@@ -269,18 +276,16 @@ function StoreDetail({
     klaviyo: "klaviyo",
   };
 
-  // El cliente owner/manager puede gestionar su tienda. El consultor asignado
-  // también puede hacerlo desde la cartera; el servidor vuelve a validar el
-  // permiso en la operación destructiva.
+  // Solo el owner/manager de una tienda propia y platform admin pueden
+  // modificarla. La asignación de consultor no da acceso a esta ficha.
   const canManageStore =
-    ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role) ||
+    bootstrap.profile.platform_role === "platform_admin" ||
     bootstrap.memberships.some(
       (membership) =>
         membership.organization_id === organization?.id &&
         ["owner", "manager"].includes(membership.role),
     );
-  // La ruta de asignacion de cuentas requiere permiso de escritura del owner,
-  // manager o platform admin; el consultor puede ver, pero no reasignar.
+  // La asignacion de cuentas requiere permiso de escritura propio.
   const canManageStoreScope =
     bootstrap.profile.platform_role === "platform_admin" ||
     bootstrap.memberships.some(
@@ -365,17 +370,32 @@ function StoreDetail({
   }
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className={hub.page}>
       <BackToStores />
 
-      <Card
-        title={store.name}
-        description={store.domain}
-        actions={
+      <section className={hub.providerHead}>
+        <header className={hub.band}>
+          <span className={hub.bandLogo}>
+            <ProviderIcon provider="shopify" size={26} />
+          </span>
+          <div className={hub.bandText}>
+            <p>Tienda</p>
+            <h1>{store.name}</h1>
+          </div>
+          <div className={hub.bandState}>
+            <span className={hub.st} data-s={store.severity === 0 ? "ok" : healthTone(store.status) === "danger" ? "bad" : "warn"}>
+              <i aria-hidden />
+              {store.status === "syncing"
+                ? "Sincronizando"
+                : store.severity === 0
+                  ? "Al d\u00eda"
+                  : "Necesita atenci\u00f3n"}
+            </span>
+            <small>{store.domain}</small>
+          </div>
+        </header>
+        <div className={hub.providerBody}>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={healthTone(store.status)} variant="solid">
-              {store.severity === 0 ? "Al día" : "Necesita atención"}
-            </Badge>
             <ButtonLink variant="secondary" href="/shopify">
               Ver datos de la tienda
             </ButtonLink>
@@ -410,12 +430,12 @@ function StoreDetail({
               </Button>
             ) : null}
           </div>
-        }
-      >
         <p className="max-w-prose text-sm leading-6 text-muted">
-          {store.severity === 0
-            ? "Las conexiones de esta tienda están trayendo datos con normalidad."
-            : "Algo de esta tienda no está trayendo datos. Abajo está qué es y qué hacer."}
+          {store.status === "syncing"
+            ? "Shopify está trayendo datos ahora. La sincronización todavía no ha terminado."
+            : store.severity === 0
+              ? "Las conexiones de esta tienda están trayendo datos con normalidad."
+              : "Algo de esta tienda no está trayendo datos. Abajo está qué es y qué hacer."}
         </p>
 
         {/* Sin fila en shopify_stores no hay a que colgar las cuentas de Meta y
@@ -427,8 +447,8 @@ function StoreDetail({
             Shopify y vuelve.
           </Banner>
         ) : null}
-
-      </Card>
+        </div>
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {store.providers.map((provider) => {

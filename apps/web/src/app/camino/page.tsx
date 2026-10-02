@@ -39,12 +39,19 @@ import { CaminoProposal } from "@/components/camino-proposal";
 import { StrategicPlanImport } from "@/components/strategic-plan-import";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { clientNextStep } from "./next-step";
+import { CaminoMap, type DiscussTopic } from "./camino-map";
+import { DiscussModal } from "@/components/discuss-modal";
+import { PhaseTasks } from "./phase-tasks";
+import s from "./camino-map.module.css";
+import d from "./camino-desk.module.css";
+import { CaminoRoutesView, type CaminoRoute } from "./camino-routes-view";
+import { CAMINO_CURRENCIES, CaminoCreatePanel } from "./camino-create-panel";
+import { ACTIVE_CONNECTION_STORAGE_KEY } from "@/components/active-connection";
 import { CaminoProposalDecision, type StoredCaminoProposal } from "./proposal-decision";
 import { isPast } from "@/lib/elapsed";
 import {
   AsyncState,
   Badge,
-  BarChart,
   Button,
   ButtonLink,
   Card,
@@ -113,6 +120,7 @@ type Plan = {
   name: string;
   description: string | null;
   horizon_months?: number | null;
+  currency_code?: string | null;
   goal?: {
     metric_key: string;
     metric_label: string;
@@ -146,6 +154,8 @@ type CaminoWeeklyReviewRecord = {
   period_start: string;
   period_end: string;
   created_at: string;
+  status?: "running" | "succeeded" | "failed";
+  can_retry?: boolean;
   proposals?: StoredCaminoProposal[];
   output: {
     executive_summary: string;
@@ -181,6 +191,7 @@ type ObjectiveCatalogEntry = {
 
 type Objective = {
   id: string;
+  milestone_id: string | null;
   metric_key: string;
   label: string;
   unit: ObjectiveCatalogEntry["unit"];
@@ -218,11 +229,28 @@ function formatObjectiveValue(
 function formatPlanGoalValue(
   value: number,
   goal: NonNullable<Plan["goal"]>,
+  // Moneda elegida para el camino; manda sobre la que informó la tienda.
+  currency: string,
 ) {
-  if (goal.unit === "money" && !goal.currency_code) {
-    return `${value} (moneda no disponible)`;
-  }
-  return formatObjectiveValue(value, goal.unit, goal.currency_code ?? "EUR");
+  return formatObjectiveValue(value, goal.unit, currency);
+}
+
+const CURRENCY_OPTIONS = CAMINO_CURRENCIES.map((code) => ({ value: code, label: code }));
+
+// Mensaje ya escrito al abrir el chat desde un hito: dice de qué hito se habla
+// y cómo va, para que la conversación arranque con contexto. Se puede editar.
+function discussDraft(topic: DiscussTopic, fromConsultant: boolean) {
+  const due = topic.targetDate
+    ? ` (${topic.late ? "vencía" : "vence"} el ${new Date(`${topic.targetDate.slice(0, 10)}T00:00:00`).toLocaleDateString("es-ES", { day: "numeric", month: "long" })})`
+    : "";
+  const progress = topic.totalTasks
+    ? ` ${fromConsultant ? "Lleváis" : "Llevamos"} ${topic.doneTasks} de ${topic.totalTasks} tareas hechas${topic.late ? " y va con retraso" : ""}.`
+    : topic.late
+      ? " Va con retraso."
+      : "";
+  return fromConsultant
+    ? `Hola, te escribo sobre el hito ${topic.code} «${topic.name}»${due}.${progress} `
+    : `Hola, quería revisar contigo el hito ${topic.code} «${topic.name}»${due}.${progress} `;
 }
 
 type InternalNote = {
@@ -1160,6 +1188,8 @@ function MilestoneInternalNotes({
 // /objectives, ningun calculo de metricas se duplica en el cliente.
 function ObjectiveCard({
   objective,
+  currency,
+  milestoneLabel,
   canManage,
   isRemoving,
   isSavingActual,
@@ -1167,6 +1197,8 @@ function ObjectiveCard({
   onSetActual,
 }: {
   objective: Objective;
+  currency: string;
+  milestoneLabel: string | null;
   canManage: boolean;
   isRemoving: boolean;
   isSavingActual: boolean;
@@ -1190,21 +1222,22 @@ function ObjectiveCard({
   );
 
   return (
-    <div className="rounded-md border border-separator p-4">
-      <div className="flex items-start justify-between gap-3">
+    <article className={s.objectiveRow}>
+      <div className={s.objectiveIdentity}>
         <div>
-          <p className="text-sm font-semibold text-foreground">
-            Objetivo{" "}
+          <h3 className={s.objectiveName}>{objective.label}</h3>
+          <p className={s.objectivePeriod}>
             {OBJECTIVE_PERIOD_LABELS[objective.period] ?? objective.period}
-            {isManual ? " · manual" : ""}
+            {isManual ? " · Manual" : " · Indicador conectado"}
+            {milestoneLabel ? ` · ${milestoneLabel}` : " · Sin hito"}
           </p>
-          <p className="mt-1 font-medium">{objective.label}</p>
         </div>
         <Badge tone={info.tone}>{info.label}</Badge>
       </div>
+      <div className={s.objectiveMeasure}>
       {isManual && isEditingActual ? (
         <form
-          className="mt-3 flex items-end gap-2"
+          className={s.objectiveActualForm}
           onSubmit={(event) => {
             event.preventDefault();
             const value = Number(actualDraft);
@@ -1238,14 +1271,14 @@ function ObjectiveCard({
           </Button>
         </form>
       ) : (
-        <div className="mt-3 flex items-baseline gap-2">
-          <p className="font-mono text-2xl tracking-tight">
+        <div className={s.objectiveValueLine}>
+          <p className={s.objectiveValue}>
             {objective.actual_value !== null
-              ? formatObjectiveValue(objective.actual_value, objective.unit)
+              ? formatObjectiveValue(objective.actual_value, objective.unit, currency)
               : "—"}
           </p>
-          <p className="text-sm text-muted">
-            de {formatObjectiveValue(objective.target_value, objective.unit)}{" "}
+          <p className={s.objectiveTarget}>
+            de {formatObjectiveValue(objective.target_value, objective.unit, currency)}{" "}
             objetivo
           </p>
           {isManual && canManage ? (
@@ -1280,14 +1313,14 @@ function ObjectiveCard({
         <ProgressBar
           value={Math.min(100, progress)}
           aria-label={`Progreso de ${objective.label}`}
-          className="mt-2"
+          className={s.objectiveProgress}
         >
           <ProgressBar.Track>
             <ProgressBar.Fill />
           </ProgressBar.Track>
         </ProgressBar>
       ) : (
-        <p className="mt-2 text-xs text-muted">
+        <p className={s.objectiveNoData}>
           {isManual
             ? "Introduce el valor actual para ver el progreso."
             : "Sin datos todavía para esta métrica en los últimos 30 días."}
@@ -1295,7 +1328,7 @@ function ObjectiveCard({
       )}
       {canManage ? (
         <Button
-          className="mt-3"
+          className={s.objectiveRemove}
           size="sm"
           variant="ghost"
           disabled={isRemoving}
@@ -1304,39 +1337,49 @@ function ObjectiveCard({
           {isRemoving ? "Quitando..." : "Quitar objetivo"}
         </Button>
       ) : null}
-    </div>
+      </div>
+    </article>
   );
 }
 
 function AddObjectiveModal({
   isOpen,
   catalog,
-  existingKeys,
+  existing,
+  milestones,
   onClose,
   onSubmit,
 }: {
   isOpen: boolean;
   catalog: ObjectiveCatalogEntry[];
-  existingKeys: string[];
+  existing: Objective[];
+  milestones: Array<{ id: string; label: string }>;
   onClose: () => void;
   onSubmit: (payload: {
     metricKey: string;
     targetValue: number;
     period: string;
+    milestoneId: string | null;
   }) => Promise<boolean>;
 }) {
   const available = catalog;
   const [metricKey, setMetricKey] = useState(available[0]?.key ?? "");
+  const [milestoneId, setMilestoneId] = useState("");
   const [targetValue, setTargetValue] = useState("");
   const [period, setPeriod] = useState("monthly");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const alreadySet = existingKeys.includes(metricKey);
+  const alreadySet = existing.some(
+    (objective) =>
+      objective.metric_key === metricKey &&
+      (objective.milestone_id ?? "") === milestoneId,
+  );
 
   // Cada apertura arranca en limpio: sin esto, un intento abandonado deja los
   // valores tecleados para la siguiente vez que se abre el modal.
   useEffect(() => {
     if (isOpen) {
       setMetricKey(available[0]?.key ?? "");
+      setMilestoneId("");
       setTargetValue("");
       setPeriod("monthly");
     }
@@ -1347,7 +1390,12 @@ function AddObjectiveModal({
     const value = Number(targetValue);
     if (!metricKey || !Number.isFinite(value) || value < 0) return;
     setIsSubmitting(true);
-    const created = await onSubmit({ metricKey, targetValue: value, period });
+    const created = await onSubmit({
+      metricKey,
+      targetValue: value,
+      period,
+      milestoneId: milestoneId || null,
+    });
     setIsSubmitting(false);
     if (created) {
       setTargetValue("");
@@ -1376,6 +1424,20 @@ function AddObjectiveModal({
                         value: entry.key,
                         label: entry.label,
                       }))}
+                    />
+                  </Field>
+                  <Field label="Hito">
+                    <Select
+                      className="mt-2"
+                      value={milestoneId}
+                      onChange={setMilestoneId}
+                      options={[
+                        { value: "", label: "Sin hito (no lo ve el cliente)" },
+                        ...milestones.map((milestone) => ({
+                          value: milestone.id,
+                          label: milestone.label,
+                        })),
+                      ]}
                     />
                   </Field>
                   {alreadySet ? (
@@ -1432,14 +1494,21 @@ function AddObjectiveModal({
 
 function ObjectivesPanel({
   organizationId,
+  objectivesQuery,
+  milestones,
+  currency,
   canManage,
+  variant,
 }: {
   organizationId: string;
+  currency: string;
+  // La consulta vive en PlanContent: la misma respuesta alimenta el mapa.
+  objectivesQuery: ReturnType<typeof useCachedQuery<ObjectivesResponse>>;
+  milestones: Array<{ id: string; label: string }>;
   canManage: boolean;
+  variant: "client" | "consultant";
 }) {
-  const objectivesQuery = useCachedQuery<ObjectivesResponse>(
-    `/v1/organizations/${organizationId}/objectives`,
-  );
+  const milestoneLabels = new Map(milestones.map((m) => [m.id, m.label]));
   const data = objectivesQuery.data ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
   const error =
@@ -1462,6 +1531,7 @@ function ObjectivesPanel({
     metricKey: string;
     targetValue: number;
     period: string;
+    milestoneId: string | null;
   }) {
     try {
       const response = await apiFetch(
@@ -1528,11 +1598,18 @@ function ObjectivesPanel({
   }
 
   return (
-    <Card
-      title="Objetivos"
-      description="Progreso calculado sobre los últimos 30 días."
-      actions={
-        canManage ? (
+    <section
+      className={[
+        s.objectivesPanel,
+        variant === "consultant" ? s.objectivesConsultant : "",
+      ].join(" ")}
+      aria-labelledby="business-objectives-title"
+    >
+      <header className={s.objectivesHeader}>
+        <div>
+          <h2 id="business-objectives-title">Objetivos por hito</h2>
+        </div>
+        {canManage ? (
           <Button
             variant="secondary"
             size="sm"
@@ -1540,13 +1617,12 @@ function ObjectivesPanel({
             onClick={() => setIsAdding(true)}
           >
             <PlusIcon aria-hidden />
-            Objetivo
+            Añadir objetivo
           </Button>
-        ) : null
-      }
-    >
+        ) : null}
+      </header>
       {error ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-separator bg-surface px-3 py-2 text-xs text-muted">
+        <div className={s.objectiveNotice}>
           <span>{error}</span>
           <Button size="sm" variant="ghost" onClick={() => void load()}>
             Reintentar
@@ -1555,15 +1631,21 @@ function ObjectivesPanel({
       ) : null}
 
       {isLoading ? (
-        <div className="mt-3">
+        <div className={s.objectiveLoading}>
           <LoadingBlock label="Cargando objetivos..." />
         </div>
       ) : data && data.objectives.length > 0 ? (
-        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className={s.objectiveRows}>
           {data.objectives.map((objective) => (
             <ObjectiveCard
               key={objective.id}
               objective={objective}
+              currency={currency}
+              milestoneLabel={
+                objective.milestone_id
+                  ? (milestoneLabels.get(objective.milestone_id) ?? "Hito de otro camino")
+                  : null
+              }
               canManage={canManage}
               isRemoving={removingId === objective.id}
               isSavingActual={savingActualId === objective.id}
@@ -1575,7 +1657,7 @@ function ObjectivesPanel({
           ))}
         </div>
       ) : (
-        <p className="mt-3 text-sm text-muted">
+        <p className={s.objectiveEmpty}>
           {canManage
             ? "Sin objetivos. Añade el primero con «+ Objetivo»."
             : "Tu consultor todavía no ha definido objetivos para este negocio."}
@@ -1586,14 +1668,13 @@ function ObjectivesPanel({
         <AddObjectiveModal
           isOpen={isAdding}
           catalog={data.catalog}
-          existingKeys={data.objectives.map(
-            (objective) => objective.metric_key,
-          )}
+          existing={data.objectives}
+          milestones={milestones}
           onClose={() => setIsAdding(false)}
           onSubmit={addObjective}
         />
       ) : null}
-    </Card>
+    </section>
   );
 }
 
@@ -1654,7 +1735,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   // Tienda activa del selector: el camino se propone para la tienda que el
   // consultor tiene delante, no para el agregado del cliente.
-  const { connectionId } = useActiveConnection();
+  const { connectionId, setConnectionId } = useActiveConnection();
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
@@ -1681,9 +1762,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [payload, setPayload] = useState<PlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [planName, setPlanName] = useState("");
-  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
+  const [retryingReviewId, setRetryingReviewId] = useState<string | null>(null);
   const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(
     null,
   );
@@ -1698,6 +1777,19 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     string | null
   >(null);
   const [isAddingPhase, setIsAddingPhase] = useState(false);
+  // El cliente ve el camino como mapa; el árbol (para editarlo) queda detrás
+  // de un botón para quien puede gestionar el plan.
+  const [showEditor, setShowEditor] = useState(false);
+  // Mesa del consultor: pestaña abierta y semana de
+  // la revisión que se está leyendo.
+  const [deskTab, setDeskTab] = useState<"editor" | "seguimiento" | "objetivos" | "ia">("editor");
+
+  const [reviewIndex, setReviewIndex] = useState(0);
+  // Hito del que se va a hablar: abre el chat en un modal con el mensaje escrito.
+  const [discuss, setDiscuss] = useState<DiscussTopic | null>(null);
+  // "Todas las tiendas" con varias tiendas abre la vista general; el camino
+  // general (sin tienda) se abre desde ella y se recuerda por organización.
+  const [generalFor, setGeneralFor] = useState<string | null>(null);
   // Colapso por fase (A+B): cada fase es una tarjeta plegable con su progreso
   // en la cabecera. Por defecto solo la fase activa arranca abierta; el valor
   // explicito en este mapa gana en cuanto el usuario pliega/despliega una.
@@ -1705,6 +1797,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     {},
   );
   const organizationId = organization?.id ?? null;
+  const routesQuery = useCachedQuery<{ routes: CaminoRoute[] }>(
+    organizationId && !connectionId ? `/v1/organizations/${organizationId}/strategic-plan/routes` : null,
+  );
+  const objectivesQuery = useCachedQuery<ObjectivesResponse>(
+    organizationId
+      ? `/v1/organizations/${organizationId}/objectives${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`
+      : null,
+  );
 
   // Raton: `distance` para que un clic normal no arrastre. Tactil: NO vale
   // `distance` -- el asa lleva `touch-none`, asi que apoyar el pulgar encima
@@ -1759,6 +1859,28 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadPlan();
   }, [loadPlan]);
 
+  async function retryWeeklyReview(planId: string, reviewId: string) {
+    if (!organizationId) return;
+    setRetryingReviewId(reviewId);
+    try {
+      const query = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/strategic-plan/${planId}/weekly-review/retry${query}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      toast.success("Revisión semanal completada.");
+      await loadPlan(true);
+    } catch {
+      toast.danger("No se pudo reintentar la revisión. Comprueba la conexión e inténtalo de nuevo.");
+    } finally {
+      setRetryingReviewId(null);
+    }
+  }
+
   async function submitPlanMutation(
     path: string,
     init: RequestInit,
@@ -1778,39 +1900,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         "No se pudo completar la operación del plan por un error de red. Reintenta.",
       );
       return false;
-    }
-  }
-
-  async function createPlan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!organization) return;
-
-    // El camino nace vacío (solo nombre); las fases, hitos y tareas se añaden
-    // luego con la misma UI interactiva que un plan ya creado.
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/strategic-plan`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: planName.trim(), phases: [], connectionId: connectionId || null }),
-        },
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setPlanName("");
-      toast.success("Camino creado. Añade la primera fase.");
-      void loadPlan();
-    } catch {
-      setError(
-        "No se pudo crear el camino por un error de red. Revisa la conexión y reintenta.",
-      );
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -2098,25 +2187,321 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ["pending", "in_progress"].includes(task.status),
   ).length;
 
+  // El mapa es lo que ve el cliente, y el consultor ve exactamente lo mismo
+  // arriba; debajo conserva siempre el árbol, que es donde construye el plan.
+  // El cliente abre el editor con un botón.
+  const showMap = Boolean(plan) && phases.length > 0;
+  const showDetail = !showMap || showEditor || isConsultantView;
+  // El consultor trabaja en pestañas bajo el mapa; el cliente lo ve todo seguido.
+  const desk = isConsultantView && Boolean(plan);
+  const onTab = (tab: typeof deskTab) => !desk || deskTab === tab;
+  const pendingProposals = (weeklyReviews.find((review) => review.output)?.proposals ?? []).filter(
+    (proposal) => proposal.status === "pending",
+  ).length;
+
+  // Ficha del hito del consultor: todo lo que antes vivía en la fila del árbol.
+  function renderDeskMilestone(milestoneId: string) {
+    const milestone = allMilestones.find((item) => item.id === milestoneId);
+    if (!milestone || !organizationId) return null;
+    const isEditing = editingMilestoneId === milestone.id;
+    const isAddingTask = addingTaskMilestoneId === milestone.id;
+    return (
+      <div className={d.hitoActs}>
+        <div className={d.row}>
+          <Button size="sm" variant={milestone.status === "completed" ? "secondary" : "primary"} onClick={() => toggleMilestoneComplete(milestone)}>
+            {milestone.status === "completed" ? "Reabrir" : "Marcar completado"}
+          </Button>
+          {milestone.status === "pending" ? (
+            <Button size="sm" variant="secondary" onClick={() => void changeMilestoneStatus(milestone.id, "in_progress")}>
+              Empezar
+            </Button>
+          ) : null}
+          {["pending", "in_progress"].includes(milestone.status) ? (
+            <Button size="sm" variant="secondary" onClick={() => void changeMilestoneStatus(milestone.id, "skipped")}>
+              Omitir
+            </Button>
+          ) : null}
+          <Button size="sm" variant="secondary" onClick={() => setEditingMilestoneId(isEditing ? null : milestone.id)}>
+            {isEditing ? "Cerrar edición" : "Editar"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setDeskTab("objetivos")}>
+            Métrica y meta
+          </Button>
+          {!isAddingTask ? (
+            <Button size="sm" variant="ghost" onClick={() => setAddingTaskMilestoneId(milestone.id)}>
+              <PlusIcon aria-hidden />
+              Tarea
+            </Button>
+          ) : null}
+        </div>
+        {isEditing ? (
+          <NameDescriptionForm
+            initialName={milestone.name}
+            initialDescription={milestone.description ?? ""}
+            initialTargetDate={milestone.target_date ?? ""}
+            showTargetDate
+            submitLabel="Guardar"
+            onCancel={() => setEditingMilestoneId(null)}
+            onSubmit={async (payload) => {
+              if (await editMilestone(milestone.id, payload)) setEditingMilestoneId(null);
+            }}
+          />
+        ) : null}
+        {isAddingTask ? (
+          <AddTaskForm
+            onCancel={() => setAddingTaskMilestoneId(null)}
+            onSubmit={async (payload) => {
+              if (await addMilestoneTask(milestone.id, payload)) setAddingTaskMilestoneId(null);
+            }}
+          />
+        ) : null}
+        <MilestoneInternalNotes organizationId={organizationId} milestoneId={milestone.id} />
+      </div>
+    );
+  }
+  const planCurrency =
+    plan?.currency_code ?? plan?.goal?.currency_code ?? organization?.currency_code ?? "EUR";
+
+  async function changePlanCurrency(currencyCode: string) {
+    if (!organizationId || !plan) return;
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/strategic-plan/${plan.id}/currency`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currency_code: currencyCode }),
+      });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success(`Las cifras del camino se muestran ahora en ${currencyCode}.`);
+      await loadPlan(true);
+    } catch {
+      setError("No se pudo cambiar la moneda del camino. Reintenta.");
+    }
+  }
+  const milestoneOptions = phases.flatMap((phase, pi) =>
+    phase.strategic_plan_milestones
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((milestone, mi) => ({ id: milestone.id, label: `Hito ${pi + 1}.${mi + 1} · ${milestone.name}` })),
+  );
+
+  const allRoutes = routesQuery.data?.routes ?? [];
+  const storeRoutes = allRoutes.filter((route) => route.store_id);
+  const multiStore = !connectionId && storeRoutes.length >= 2;
+  const showGeneral = generalFor !== null && generalFor === organizationId;
+
+  if (!connectionId && routesQuery.isLoading) {
+    return (
+      <div className="portal-page">
+        <LoadingBlock label="Cargando los caminos de tus tiendas..." />
+      </div>
+    );
+  }
+
+  if (multiStore && !showGeneral) {
+    const general = allRoutes.find((route) => !route.store_id && route.plan) ?? null;
+    const cards = [...storeRoutes, ...(general ? [general] : [])].map((route) => ({
+      key: route.store_id ?? "general",
+      title: route.store_name ?? (route.store_id ? "Tienda" : "Camino general"),
+      subtitle: route.store_id ? "Tienda Shopify" : "Toda la marca, sin tienda concreta",
+      route,
+    }));
+    return (
+      <div className="portal-page">
+        <CaminoRoutesView
+          variant={isConsultantView ? "consultant" : "client"}
+          eyebrow={`Todas las tiendas · ${organization?.display_name ?? ""}`}
+          title={isConsultantView ? "Caminos de este cliente" : "Tus caminos"}
+          description="Cada tienda tiene su propio camino y su propia meta. Aquí se ve de un vistazo dónde está cada una y cuál necesita atención primero; las metas no se suman porque miden cosas distintas."
+          sections={[{ title: null, cards }]}
+          openLabel={isConsultantView ? "Abrir el camino" : "Abrir el mapa"}
+          onOpen={(route) => (route.connection_id ? setConnectionId(route.connection_id) : setGeneralFor(organizationId))}
+          footnote="Primero las tiendas que van tarde. Al abrir una tienda cambia también el selector de tienda de arriba."
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className={`portal-page space-y-5 sm:space-y-6 ${desk ? d.desk : ""}`}>
+      {desk && plan ? (
+        <>
+          <header className={d.work}>
+            <div>
+              <h1 className={d.name}>{plan.name}</h1>
+              <div className={d.chips}>
+                <span className={`${d.chip} ${plan.status === "active" ? d.chipGood : plan.status === "draft" ? d.chipAcc : ""}`}>
+                  {displayValue(plan.status)}
+                </span>
+                <span className={d.chip}>Versión {plan.version}</span>
+                {plan.horizon_months ? (
+                  <span className={d.chip}>
+                    {plan.horizon_months} {plan.horizon_months === 1 ? "mes" : "meses"}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className={d.tools}>
+              <Select
+                className="w-24"
+                aria-label="Moneda del camino"
+                value={planCurrency}
+                onChange={(value) => void changePlanCurrency(value)}
+                options={
+                  CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
+                    ? CURRENCY_OPTIONS
+                    : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
+                }
+              />
+              <StrategicPlanImport organizationId={organizationId ?? ""} connectionId={connectionId || null} onImported={() => loadPlan()} />
+              {plan.status === "draft" ? (
+                <Button type="button" onClick={() => void activatePlan(plan.id)}>
+                  Activar camino
+                </Button>
+              ) : null}
+            </div>
+          </header>
+          {totalMilestones > 0 ? (
+            <section className={d.health} aria-label="Salud del camino">
+              <div>
+                <b>{Math.round((doneMilestones / totalMilestones) * 100)} %</b>
+                <span>
+                  Progreso · {doneMilestones} de {totalMilestones} hitos
+                </span>
+              </div>
+              <div>
+                <b className={d.text}>{activePhase?.name ?? "Ninguna"}</b>
+                <span>Fase activa</span>
+              </div>
+              <div>
+                <b className={d.text}>{focusMilestone?.name ?? "Ninguno"}</b>
+                <span>Hito en curso{focusMilestone?.target_date ? ` · ${focusMilestone.target_date}` : ""}</span>
+              </div>
+              <div className={overdueMilestones > 0 ? d.bad : ""}>
+                <b>{overdueMilestones}</b>
+                <span>Hitos fuera de fecha</span>
+              </div>
+              <div>
+                <b>{openPlanTasks}</b>
+                <span>Tareas abiertas · {planTasks.length} en total</span>
+              </div>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+      {multiStore && showGeneral ? (
+        <div>
+          <Button type="button" variant="secondary" onClick={() => setGeneralFor(null)}>
+            ← Todas las tiendas
+          </Button>
+        </div>
+      ) : null}
       {/* Para el cliente lo primero es qué toca hoy; las cifras del plan y el
           árbol vienen después. El consultor abre la pantalla a asesorar, y para
           eso el panel de siempre manda. */}
-      {!isConsultantView && plan ? (
+      {showMap && plan ? (
+        <CaminoMap
+          planStatus={plan.status}
+          goal={plan.goal}
+          phases={phases}
+          objectives={objectivesQuery.data?.objectives ?? []}
+          formatObjective={(value, unit) => formatObjectiveValue(value, unit, planCurrency)}
+          variant={desk ? "consultant" : "client"}
+          renderMilestoneExtra={desk ? renderDeskMilestone : undefined}
+          onDiscuss={setDiscuss}
+          review={desk ? null : (weeklyReviews.find((review) => review.output) ?? null)}
+          canResolveTasks={canResolveTasks}
+          sourceLabels={TASK_SOURCE_LABELS}
+          formatGoal={(value) => (plan.goal ? formatPlanGoalValue(value, plan.goal, planCurrency) : String(value))}
+          onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
+          renderChangeDecision={(index) => {
+            const latest = weeklyReviews.find((review) => review.output);
+            const stored = latest?.proposals?.find((proposal) => proposal.proposal_index === index);
+            return stored && organizationId ? (
+              <CaminoProposalDecision key={stored.id} organizationId={organizationId} planId={plan.id} record={stored} canManage={canManage} onUpdated={() => void loadPlan(true)} />
+            ) : null;
+          }}
+        />
+      ) : !isConsultantView && plan ? (
         <ClientNextStep plan={plan} phases={phases} />
       ) : null}
 
-      {plan?.status === "active" ? (
-        <Card
-          title="Seguimiento semanal de Mi Camino"
-          description="Revisiones basadas en el avance observado. Las recomendaciones no modifican el plan ni crean tareas por sí solas."
-        >
+      {showMap && activePhase ? (
+        <PhaseTasks
+          phaseName={activePhase.name}
+          phaseIndex={phases.indexOf(activePhase)}
+          milestones={activePhase.strategic_plan_milestones}
+          canResolveTasks={canResolveTasks}
+          onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
+          onDiscuss={setDiscuss}
+          viewerUserId={bootstrap.profile.id}
+          viewerIsClient={!isConsultantView}
+        />
+      ) : null}
+
+      {desk ? (
+        <div className={d.tabs} role="tablist" aria-label="Mesa del consultor">
+          {(
+            [
+              ["editor", "Editor del camino"],
+              ["seguimiento", "Seguimiento IA"],
+              ["objetivos", "Objetivos"],
+              ["ia", "Nueva versión con IA"],
+            ] as const
+          ).map(([key, label]) => (
+            <button key={key} type="button" role="tab" aria-selected={deskTab === key} onClick={() => setDeskTab(key)}>
+              {label}
+              {key === "seguimiento" && pendingProposals > 0 ? <span className={d.count}>{pendingProposals}</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {showMap && canManage && !isConsultantView ? (
+        <div className="flex justify-end">
+          <Button type="button" variant="secondary" onClick={() => setShowEditor((open) => !open)}>
+            {showEditor ? "Ocultar el editor" : "Editar el camino"}
+          </Button>
+        </div>
+      ) : null}
+
+      {plan?.status === "active" && showDetail && onTab("seguimiento") ? (
+        <Card title={desk ? undefined : "Seguimiento semanal"}>
+          {desk && weeklyReviews.length > 1 ? (
+            <div className={d.weeks} role="group" aria-label="Semana">
+              {weeklyReviews.slice(0, 4).map((review, index) => (
+                <button
+                  key={review.id}
+                  type="button"
+                  aria-pressed={reviewIndex === index}
+                  className={review.status === "failed" ? d.failed : undefined}
+                  onClick={() => setReviewIndex(index)}
+                >
+                  {new Date(review.period_start).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                  {review.status === "failed" ? " · falló" : ""}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {weeklyReviews.length ? (
             <div className="mt-3 space-y-4">
-              {weeklyReviews.slice(0, 4).map((review) => {
+              {weeklyReviews.slice(0, 4).filter((_, index) => !desk || index === reviewIndex).map((review) => {
                 const content = review.output;
-                if (!content) return null;
+                if (review.status !== "succeeded" || !content) return (
+                  <article key={review.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator bg-surface p-4">
+                    <div>
+                      <p className="text-sm font-medium">{review.status === "failed" ? "No se pudo generar la revisión semanal" : "Revisión semanal en curso"}</p>
+                      <p className="mt-1 text-xs text-muted">Semana del {new Date(review.period_start).toLocaleDateString("es-ES")}. El Camino sigue sin cambios.</p>
+                    </div>
+                    {canManage && review.can_retry && plan ? (
+                      <Button size="sm" variant="secondary" onClick={() => void retryWeeklyReview(plan.id, review.id)} disabled={retryingReviewId === review.id}>
+                        {retryingReviewId === review.id ? "Reintentando…" : "Reintentar revisión"}
+                      </Button>
+                    ) : review.status === "running" ? <Badge tone="neutral">En curso</Badge> : null}
+                  </article>
+                );
                 return (
                   <article key={review.id} className="rounded-lg border border-separator bg-surface p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2130,24 +2515,24 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <div className="rounded-md bg-surface-subtle px-3 py-2">
                           <p className="text-[11px] text-muted">Medido</p>
-                          <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.observed_value, plan.goal)}</p>
+                          <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.observed_value, plan.goal, planCurrency)}</p>
                         </div>
                         {content.goal_progress.comparison_value !== null ? (
                           <div className="rounded-md bg-surface-subtle px-3 py-2">
                             <p className="text-[11px] text-muted">Periodo anterior</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.comparison_value, plan.goal)}</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.comparison_value, plan.goal, planCurrency)}</p>
                           </div>
                         ) : null}
                         {content.goal_progress.expected_value != null ? (
                           <div className="rounded-md bg-surface-subtle px-3 py-2">
                             <p className="text-[11px] text-muted">Ritmo de referencia</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.expected_value, plan.goal)}</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.expected_value, plan.goal, planCurrency)}</p>
                           </div>
                         ) : null}
                         {content.goal_progress.target_value != null ? (
                           <div className="rounded-md bg-surface-subtle px-3 py-2">
                             <p className="text-[11px] text-muted">Objetivo</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.target_value, plan.goal)}</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.target_value, plan.goal, planCurrency)}</p>
                           </div>
                         ) : null}
                       </div>
@@ -2223,7 +2608,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Card>
       ) : null}
 
-      {plan && totalMilestones > 0 ? (
+      {plan && totalMilestones > 0 && showDetail && !desk ? (
         <ModuleSummary
           metrics={[
             {
@@ -2257,10 +2642,16 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : null}
 
-      {organizationId ? (
+      {/* Los objetivos se ven en el mapa, dentro de su hito. El panel es la
+          herramienta para asignarlos y solo sale al editar el camino. */}
+      {organizationId && plan && showDetail && onTab("objetivos") ? (
         <ObjectivesPanel
           organizationId={organizationId}
+          objectivesQuery={objectivesQuery}
+          milestones={milestoneOptions}
+          currency={planCurrency}
           canManage={canManage}
+          variant={isConsultantView ? "consultant" : "client"}
         />
       ) : null}
 
@@ -2269,7 +2660,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           para una que si lo tiene es el borrador de partida que el consultor
           edita despues en el arbol. Va antes del plan porque cuando no hay
           plan es lo unico que hay que hacer en esta pantalla. */}
-      {organizationId && canManage ? (
+      {organizationId && canManage && plan && onTab("ia") ? (
         <CaminoProposal
           organizationId={organizationId}
           connectionId={connectionId || undefined}
@@ -2285,16 +2676,31 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {isLoading ? (
         <AsyncState status="loading" loadingLabel="Cargando plan..." />
       ) : plan ? (
+        showDetail && onTab("editor") ? (
         <>
           <Card
-            kicker={`v${plan.version}${plan.horizon_months ? ` · ${plan.horizon_months} ${plan.horizon_months === 1 ? "mes" : "meses"}` : ""} · ${displayValue(plan.status)}`}
-            title={plan.name}
-            description={plan.description ?? undefined}
-            actions={
+            kicker={desk ? undefined : `v${plan.version}${plan.horizon_months ? ` · ${plan.horizon_months} ${plan.horizon_months === 1 ? "mes" : "meses"}` : ""} · ${displayValue(plan.status)}`}
+            title={desk ? "Fases e hitos" : plan.name}
+            description={desk ? undefined : (plan.description ?? undefined)}
+            actions={desk ? undefined : (
               <div className="flex items-center gap-2">
+                {canManage ? (
+                  <Select
+                    className="w-24"
+                    aria-label="Moneda del camino"
+                    value={planCurrency}
+                    onChange={(value) => void changePlanCurrency(value)}
+                    options={
+                      CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
+                        ? CURRENCY_OPTIONS
+                        : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
+                    }
+                  />
+                ) : null}
                 {canManage ? (
                   <StrategicPlanImport
                     organizationId={organizationId ?? ""}
+                    connectionId={connectionId || null}
                     onImported={() => loadPlan()}
                   />
                 ) : null}
@@ -2307,14 +2713,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </Button>
                 ) : null}
               </div>
-            }
+            )}
           >
             {plan.goal ? (
               <div className="mb-4 rounded-lg border border-separator bg-surface-subtle p-3">
-                <p className="text-xs font-medium text-muted">Objetivo del Camino</p>
+                <p className="text-xs font-medium text-muted">Meta del camino</p>
                 <p className="mt-1 text-sm font-semibold">
-                  {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal)}
-                  {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal)}`}
+                  {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal, planCurrency)}
+                  {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal, planCurrency)}`}
                 </p>
                 {plan.goal.baseline_window_days ? (
                   <p className="mt-1 text-xs text-muted">
@@ -2328,7 +2734,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ) : null}
               </div>
             ) : null}
-            {totalMilestones > 0 ? (
+            {totalMilestones > 0 && !desk ? (
               <ProgressBar
                 value={(doneMilestones / totalMilestones) * 100}
                 aria-label="Progreso del plan"
@@ -2344,7 +2750,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </ProgressBar.Track>
               </ProgressBar>
             ) : null}
-            {activePhase ? (
+            {activePhase && !desk ? (
               <p className="mt-2 text-sm">
                 {isConsultantView ? "El cliente está en" : "Estás en"} la fase{" "}
                 <strong className="font-semibold">{activePhase.name}</strong>
@@ -2764,7 +3170,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </ol>
           </div>
         </>
-      ) : !canManage ? (
+        ) : null
+      ) : error ? null : !canManage ? (
         <EmptyState
           title="Aún no hay un camino"
           hint={
@@ -2773,242 +3180,112 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               : "Tu consultor todavía no ha publicado un plan para esta organización."
           }
         />
-      ) : isCreatingPlan ? (
-        <EmptyState
-          title="Nuevo camino"
-          hint="Ponle nombre. Después añades fases, hitos y tareas paso a paso."
-          action={
-            <form
-              className="flex w-full max-w-sm flex-col gap-2 sm:flex-row"
-              onSubmit={createPlan}
-            >
-              <Input
-                aria-label="Nombre del camino"
-                value={planName}
-                onChange={(event) => setPlanName(event.target.value)}
-                placeholder="p. ej. Escalar a 50k/mes"
-                autoFocus
-                required
-              />
-              <div className="flex gap-2">
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || !planName.trim()}
-                >
-                  {isSubmitting ? "Creando..." : "Crear"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setIsCreatingPlan(false)}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </form>
-          }
-        />
       ) : (
-        /* El consultor dibuja el camino: es su oficio. Al cliente pedirle
-           "fases, hitos y tareas" sobre un campo en blanco es pedirle que sea
-           su propio consultor de estrategia -- la propuesta de la IA de arriba
-           es su punto de partida, y escribirlo a mano sigue disponible. */
-        <EmptyState
-          title="Aún no hay un camino"
-          hint={
-            isConsultantView
-              ? "Crea el camino estratégico de esta empresa: fases, hitos y tareas."
-              : "Pídele una propuesta a la IA aquí arriba: analiza tus datos y dibuja las fases y los hitos. También puedes escribirlo tú."
+        <CaminoCreatePanel
+          variant={isConsultantView ? "consultant" : "client"}
+          title={
+            isConsultantView && organization
+              ? `Crea el camino de ${organization.display_name}`
+              : connectionId
+                ? "Crea el camino de esta tienda"
+                : "Crea el camino"
           }
-          action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button
-                type="button"
-                variant={isConsultantView ? "primary" : "secondary"}
-                onClick={() => setIsCreatingPlan(true)}
-              >
-                {isConsultantView ? "Crear camino" : "Prefiero escribirlo yo"}
-              </Button>
-              {isConsultantView && organizationId ? (
-                <StrategicPlanImport
-                  organizationId={organizationId}
-                  onImported={() => loadPlan()}
-                />
-              ) : null}
-            </div>
-          }
+          organizationId={organizationId ?? ""}
+          connectionId={connectionId || null}
+          defaultCurrency={organization?.currency_code ?? "EUR"}
+          catalog={objectivesQuery.data?.catalog ?? []}
+          onCreated={() => {
+            void loadPlan();
+            objectivesQuery.reload();
+          }}
         />
       )}
+
+      <DiscussModal
+        organizationId={organizationId}
+        title={discuss ? `Hito ${discuss.code} · ${discuss.name}` : null}
+        draft={discuss ? discussDraft(discuss, isConsultantView) : ""}
+        viewerIsClient={!isConsultantView}
+        onClose={() => setDiscuss(null)}
+      />
     </div>
   );
 }
 
-// --- Estado "vista general" de /camino (consultor sin cliente activo):
-// listado de todos los clientes con su salud y por donde va su plan. ---
+// --- Vista general de /camino para el consultor (sin cliente activo): el
+// camino de cada tienda de su cartera y de sus tiendas propias. ---
 
-type ConsultantPlanRow = {
-  organization_id: string;
-  display_name: string;
-  health_tier: "urgente" | "revisar" | "vigilar" | "al_dia";
-  health_score: number;
-  overdue_tasks: number;
-  critical_alerts: number;
-  plan: {
-    id: string;
-    name: string;
-    status: string;
-    version: number;
-    phase_count: number;
-    active_phase: string | null;
-    milestones_total: number;
-    milestones_done: number;
-    progress_pct: number;
-  } | null;
+type ConsultantPlansResponse = {
+  portfolio?: Array<{ organization_id: string; display_name: string; is_own_store?: boolean; health_score: number }>;
+  routes?: CaminoRoute[];
 };
 
-const PLAN_HEALTH_META: Record<
-  ConsultantPlanRow["health_tier"],
-  { label: string; tone: Tone }
-> = {
-  urgente: { label: "Urgente", tone: "danger" },
-  revisar: { label: "Revisar", tone: "warn" },
-  vigilar: { label: "Vigilar", tone: "neutral" },
-  al_dia: { label: "Al día", tone: "success" },
-};
+// Abre el camino de una tienda concreta: la tienda activa se guarda por
+// organización y el shell la aplica en cuanto cambia de cliente.
+function openStoreCamino(organizationId: string, connectionId: string | null, setOrganizationId: (id: string) => void) {
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_CONNECTION_STORAGE_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[organizationId] = connectionId ?? "";
+    window.localStorage.setItem(ACTIVE_CONNECTION_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /* sin almacenamiento: se abre con la tienda por defecto */
+  }
+  setOrganizationId(organizationId);
+}
 
 function ConsultantPlansView() {
   const { setOrganizationId } = useActiveOrganization();
-  const plansQuery = useCachedQuery<{ portfolio?: ConsultantPlanRow[] }>(
-    "/v1/consultant/plans",
-  );
-  const rows = plansQuery.data?.portfolio ?? null;
-  const error = plansQuery.error
-    ? "No se pudo cargar el estado de los planes. Revisa la conexión e inténtalo de nuevo."
-    : null;
-  const isLoading = plansQuery.isLoading;
+  const plansQuery = useCachedQuery<ConsultantPlansResponse>("/v1/consultant/plans");
+  const data = plansQuery.data;
 
-  if (isLoading && !rows) {
+  if (plansQuery.isLoading && !data) {
     return (
       <div className="portal-page">
-        <LoadingBlock label="Cargando planes de la cartera..." />
+        <LoadingBlock label="Cargando los caminos de tu cartera..." />
       </div>
     );
   }
-  if (error) {
+  if (plansQuery.error && !data) {
     return (
       <div className="portal-page">
-        <ErrorBlock>{error}</ErrorBlock>
+        <ErrorBlock>No se pudieron cargar los caminos. Revisa la conexión e inténtalo de nuevo.</ErrorBlock>
       </div>
     );
   }
-  if (!rows) return null;
+  if (!data) return null;
 
-  const sorted = [...rows].sort((a, b) => b.health_score - a.health_score);
-  const withoutPlan = rows.filter((row) => !row.plan).length;
+  const orgs = new Map((data.portfolio ?? []).map((row) => [row.organization_id, row]));
+  const cards = (data.routes ?? []).map((route) => ({
+    key: `${route.organization_id}|${route.store_id ?? ""}`,
+    title: orgs.get(route.organization_id)?.display_name ?? "Cliente",
+    subtitle: route.store_name ?? (route.store_id ? "Tienda" : "Camino general"),
+    route,
+    own: Boolean(orgs.get(route.organization_id)?.is_own_store),
+  }));
 
-  // El gráfico solo aporta comparando: 2+ clientes con plan.
-  const progressChartData = sorted
-    .filter((row) => row.plan)
-    .map((row) => ({
-      name: row.display_name,
-      progress: row.plan?.progress_pct ?? 0,
-    }));
+  if (cards.length === 0) {
+    return (
+      <div className="portal-page">
+        <EmptyState title="Aún no tienes clientes asignados" hint="Cuando se te asigne una organización, su camino aparecerá aquí." />
+      </div>
+    );
+  }
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
-      <Card
-        title="Mi Camino · toda la cartera"
-        description={`${rows.length} clientes · ${withoutPlan} sin plan estratégico. Elige uno para trabajar su plan.`}
-      >
-        {progressChartData.length >= 2 ? (
-          <div className="mb-6">
-            <p className="text-sm font-semibold text-foreground">
-              Progreso del plan por cliente (%)
-            </p>
-            <div className="mt-2">
-              <BarChart
-                data={progressChartData}
-                xKey="name"
-                series={[{ key: "progress", label: "Progreso" }]}
-                horizontal
-                height={Math.min(
-                  280,
-                  Math.max(88, progressChartData.length * 30),
-                )}
-                valueFormatter={(value) => `${Math.round(value)}%`}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        {sorted.length === 0 ? (
-          <EmptyState
-            title="Aún no tienes clientes asignados"
-            hint="Cuando se te asigne una organización, su plan aparecerá aquí."
-          />
-        ) : (
-          <List>
-            {sorted.map((row) => (
-              <List.Item
-                as="button"
-                key={row.organization_id}
-                type="button"
-                onClick={() => setOrganizationId(row.organization_id)}
-                className="grid w-full gap-2 py-3 text-left hover:bg-surface md:grid-cols-[1.4fr_1fr_1.6fr] md:items-center"
-              >
-                <div className="flex items-center gap-2">
-                  <Badge tone={PLAN_HEALTH_META[row.health_tier].tone}>
-                    {PLAN_HEALTH_META[row.health_tier].label}
-                  </Badge>
-                  <span className="font-medium">{row.display_name}</span>
-                </div>
-
-                <div className="text-xs text-muted">
-                  {row.plan ? (
-                    <>
-                      <span className="text-foreground">{row.plan.name}</span>
-                      {" · "}
-                      {displayValue(row.plan.status)}
-                      {row.plan.active_phase ? (
-                        <>
-                          {" · fase: "}
-                          {row.plan.active_phase}
-                        </>
-                      ) : null}
-                    </>
-                  ) : (
-                    <Badge tone="warn">Sin plan estratégico</Badge>
-                  )}
-                </div>
-
-                <div>
-                  {row.plan ? (
-                    <>
-                      <ProgressBar value={row.plan.progress_pct} />
-                      <p className="mt-1 text-xs text-muted">
-                        {row.plan.milestones_done}/{row.plan.milestones_total}{" "}
-                        hitos ({row.plan.progress_pct}%)
-                        {row.overdue_tasks > 0
-                          ? ` · ${row.overdue_tasks} tareas vencidas`
-                          : ""}
-                        {row.critical_alerts > 0
-                          ? ` · ${row.critical_alerts} alertas críticas`
-                          : ""}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted">
-                      {row.overdue_tasks > 0
-                        ? `${row.overdue_tasks} tareas vencidas`
-                        : "—"}
-                    </p>
-                  )}
-                </div>
-              </List.Item>
-            ))}
-          </List>
-        )}
-      </Card>
+    <div className="portal-page">
+      <CaminoRoutesView
+        variant="consultant"
+        eyebrow="Mi Camino · tu cartera"
+        title="Caminos de tus clientes"
+        description="Un camino por tienda. Primero lo que va tarde; las metas de cada tienda van por separado porque miden cosas distintas."
+        sections={[
+          { title: "Clientes", cards: cards.filter((card) => !card.own) },
+          { title: "Tus tiendas", cards: cards.filter((card) => card.own) },
+        ]}
+        openLabel="Abrir el camino"
+        onOpen={(route) => openStoreCamino(route.organization_id, route.connection_id, setOrganizationId)}
+      />
     </div>
   );
 }

@@ -1,0 +1,73 @@
+name: External platform uptime
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check public API, DNS and TLS
+        id: probe
+        env:
+          API_BASE_URL: ${{ secrets.PLATFORM_API_BASE_URL }}
+          MONITOR_TOKEN: ${{ secrets.PLATFORM_MONITOR_TOKEN }}
+        run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$MONITOR_TOKEN" ]; then
+            echo "Monitor skipped: configure PLATFORM_API_BASE_URL and PLATFORM_MONITOR_TOKEN."
+            exit 0
+          fi
+
+          host="$(python -c 'import os,urllib.parse; print(urllib.parse.urlparse(os.environ["API_BASE_URL"]).hostname or "")')"
+          dns_ok=false
+          if [ -n "$host" ] && getent ahosts "$host" >/dev/null; then dns_ok=true; fi
+
+          start="$(date +%s%3N)"
+          result="$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' "$API_BASE_URL/health/ready" 2>/dev/null || true)"
+          end="$(date +%s%3N)"
+          latency_ms=$((end-start))
+          http_status=0
+          case "$result" in *[!0-9]*|'') http_status=0 ;; *) http_status="$result" ;; esac
+          ok=false
+          if [ "$dns_ok" = true ] && [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ]; then ok=true; fi
+
+          tls_days=-1
+          if [ -n "$host" ]; then
+            cert_end="$(echo | timeout 10 openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2 || true)"
+            if [ -n "$cert_end" ]; then
+              cert_epoch="$(date -d "$cert_end" +%s 2>/dev/null || echo 0)"
+              if [ "$cert_epoch" -gt 0 ]; then tls_days=$(((cert_epoch-$(date +%s))/86400)); fi
+            fi
+          fi
+
+          checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          payload="$(PROBE_OK="$ok" CHECKED_AT="$checked_at" LATENCY_MS="$latency_ms" DNS_OK="$dns_ok" TLS_DAYS="$tls_days" HTTP_STATUS="$http_status" python -c 'import json,os; days=int(os.environ["TLS_DAYS"]); print(json.dumps({"ok":os.environ["PROBE_OK"]=="true","checked_at":os.environ["CHECKED_AT"],"latency_ms":int(os.environ["LATENCY_MS"]),"dns_ok":os.environ["DNS_OK"]=="true","tls_days_remaining":days if days >= 0 else None,"http_status":int(os.environ["HTTP_STATUS"])}))')"
+          curl --silent --show-error --max-time 10 -X POST "$API_BASE_URL/health/external-probe" \
+            -H "Authorization: Bearer $MONITOR_TOKEN" -H 'Content-Type: application/json' --data "$payload" || true
+
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          echo "tls_days=$tls_days" >> "$GITHUB_OUTPUT"
+          echo "checked_at=$checked_at" >> "$GITHUB_OUTPUT"
+          echo "latency_ms=$latency_ms" >> "$GITHUB_OUTPUT"
+          echo "dns_ok=$dns_ok" >> "$GITHUB_OUTPUT"
+          echo "http_status=$http_status" >> "$GITHUB_OUTPUT"
+          echo "API health: HTTP $http_status, DNS $dns_ok, latency ${latency_ms}ms, TLS ${tls_days}d" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify on outage or expiring certificate
+        if: always() && (steps.probe.outputs.ok == 'false' || (steps.probe.outputs.tls_days != '' && fromJSON(steps.probe.outputs.tls_days) >= 0 && fromJSON(steps.probe.outputs.tls_days) <= 14))
+        env:
+          ALERT_WEBHOOK: ${{ secrets.PLATFORM_ALERT_WEBHOOK_URL }}
+          API_BASE_URL: ${{ secrets.PLATFORM_API_BASE_URL }}
+          PROBE_OK: ${{ steps.probe.outputs.ok }}
+          TLS_DAYS: ${{ steps.probe.outputs.tls_days }}
+        run: |
+          if [ -z "$ALERT_WEBHOOK" ]; then echo "No notification webhook configured."; exit 0; fi
+          message="External platform alert: $API_BASE_URL health=$PROBE_OK, TLS days remaining=$TLS_DAYS"
+          curl --silent --show-error --max-time 10 -H 'Content-Type: application/json' \
+            --data "$(MESSAGE="$message" python -c 'import json,os; print(json.dumps({"text":os.environ["MESSAGE"],"content":os.environ["MESSAGE"]}))')" \
+            "$ALERT_WEBHOOK"

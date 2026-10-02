@@ -15,6 +15,7 @@ Calcular `Attribution` de forma determinista, reproducible y auditable.
 - Aplicar attribution_window configurada.
 - Resolver touchpoints de forma determinista.
 - Guardar attributed_order_ids y credit.
+- Cross-channel: aplicar `conocimiento/fase-10/04-policies-guardrails/10.04-guardrails-cross-channel-attribution.md` (G-XCA-011) cuando el resultado se combine con otras fuentes.
 
 ---
 

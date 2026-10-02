@@ -960,25 +960,25 @@ function BillingPanel() {
     },
   ];
 
+  const activeCount = data.subscriptions.filter((subscription) => VIGENTES.has(subscription.status)).length;
+  const stripeCount = data.subscriptions.filter((subscription) => Boolean(subscription.external_subscription_id)).length;
+  const grantedCount = data.subscriptions.length - stripeCount;
+
   return (
-    <div className="grid gap-6">
-      <FiscalInvoicingPanel />
-
-      <GrantForm
-        consultants={directorio?.consultants ?? []}
-        organizations={directorio?.organizations ?? []}
-        onGranted={(mensaje) => {
-          setNotice(mensaje);
-          reload();
-        }}
-      />
-
+    <div className="admin-module-body">
       {notice ? <Banner tone="success">{notice}</Banner> : null}
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
+      <div className="admin-data-summary">
+        <Metric card label="Planes registrados" value={String(data.subscriptions.length)} />
+        <Metric card label="Planes vigentes" value={String(activeCount)} tone="success" />
+        <Metric card label="Gestionados por Stripe" value={String(stripeCount)} />
+        <Metric card label="Concedidos manualmente" value={String(grantedCount)} />
+      </div>
+
       <Card
         kicker="Panel platform admin"
-        title="Planes"
+        title="Suscripciones y acceso"
         description="Los de Stripe llegan solos por webhook y se cancelan allí. Los concedidos se retiran aquí."
       >
         <Table
@@ -988,6 +988,21 @@ function BillingPanel() {
           emptyLabel="Todavía no hay ningún plan."
         />
       </Card>
+
+      <details className="admin-settings-disclosure">
+        <summary>Configuración fiscal y acciones de facturación</summary>
+        <div className="admin-settings-disclosure-content">
+          <FiscalInvoicingPanel />
+          <GrantForm
+            consultants={directorio?.consultants ?? []}
+            organizations={directorio?.organizations ?? []}
+            onGranted={(mensaje) => {
+              setNotice(mensaje);
+              reload();
+            }}
+          />
+        </div>
+      </details>
     </div>
   );
 }

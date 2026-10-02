@@ -1,6 +1,29 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { resolveMetaSpecialistStoreScope } from "./marketing-store-scope.js";
+
+test("A23-A25 never widen an implicit or invalid account selection to all stores", () => {
+  const stores = [
+    { id: "store-1", shop_name: "Store One", connection_id: "connection-1" },
+    { id: "store-2", shop_name: "Store Two", connection_id: "connection-2" },
+  ];
+  assert.deepEqual(resolveMetaSpecialistStoreScope(null, stores), {
+    ok: false, statusCode: 409, error: "meta_store_selection_required",
+  });
+  assert.deepEqual(resolveMetaSpecialistStoreScope(null, [stores[0]!]), {
+    ok: true, storeId: "store-1", storeLabel: 'la tienda "Store One"',
+  });
+  assert.deepEqual(resolveMetaSpecialistStoreScope("connection-2", stores), {
+    ok: true, storeId: "store-2", storeLabel: 'la tienda "Store Two"',
+  });
+  assert.deepEqual(resolveMetaSpecialistStoreScope("unknown", stores), {
+    ok: false, statusCode: 404, error: "marketing_store_not_found",
+  });
+  assert.deepEqual(resolveMetaSpecialistStoreScope(null, [], "database unavailable"), {
+    ok: false, statusCode: 503, error: "marketing_store_scope_unavailable", detail: "database unavailable",
+  });
+});
 
 test("A24 review issues are scoped to the selected store and carry account/ad freshness", async () => {
   const sql = await readFile(new URL("../../../supabase/migrations/20261115540000_a24_scoped_review_issues.sql", import.meta.url), "utf8");
@@ -104,11 +127,16 @@ test("A24 persists one versioned store-window gate and A14/A23/A25 fail closed w
   const migration = await readFile(new URL("../../../supabase/migrations/20261115570000_a24_meta_measurement_verdict_cache.sql", import.meta.url), "utf8");
   assert.match(runtime, /buildMetaMeasurementVerdict\(/);
   assert.match(runtime, /saveMetaMeasurementVerdict\(/);
-  assert.match(runtime, /loadMetaMeasurementVerdict\(supabase, organizationId, storeId, periodStart, now\)/);
+  assert.match(runtime, /loadMetaMeasurementVerdict\(\s*supabase,\s*organizationId,\s*storeId,\s*periodStart,\s*now,?\s*\)/);
   assert.match(runtime, /from\("meta_measurement_verdict_cache"\)/);
-  const gateIndex = runtime.indexOf('"a24_medicion_meta",\n  // A13/A14');
-  assert.ok(gateIndex > 0, "A24 should be prioritized before A14 and the other Meta specialists");
-  assert.ok(gateIndex < runtime.indexOf('"a14_operativa_meta"', gateIndex));
+  const orchestrationStart = runtime.indexOf("const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES");
+  const orchestrationEnd = runtime.indexOf("] as const", orchestrationStart);
+  const orchestration = runtime.slice(orchestrationStart, orchestrationEnd);
+  const gateIndex = orchestration.indexOf('"a24_medicion_meta"');
+  assert.ok(gateIndex > 0, "A24 should be present in the orchestrator");
+  assert.ok(gateIndex < orchestration.indexOf('"a14_operativa_meta"', gateIndex));
+  assert.ok(gateIndex < orchestration.indexOf('"a23_creatividad_meta"', gateIndex));
+  assert.ok(gateIndex < orchestration.indexOf('"a25_cambios_meta"', gateIndex));
   assert.match(verdict, /usable_with_attribution_limits/);
   assert.match(verdict, /fresh_verdict_unavailable/);
   assert.match(migration, /enable row level security/);

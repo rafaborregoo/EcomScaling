@@ -66,15 +66,89 @@ type TemplateRow = {
   category: string;
 };
 
-type Detection = {
+export type Detection = {
   fingerprint: string;
   metricValue: number;
   thresholdValue: number | null;
+  storeId?: string;
   sourceEntityType?: string;
   sourceEntityId?: string;
   contextData?: Record<string, unknown>;
   templateValues: Record<string, string | number | null | undefined>;
 };
+
+type ShopifyAlertStore = {
+  id: string;
+  shop_name: string;
+  connection_id?: string | null;
+};
+
+export function buildShopifyStockOutDetection({
+  organizationId,
+  store,
+  outOfStockItems,
+  threshold,
+}: {
+  organizationId: string;
+  store: ShopifyAlertStore;
+  outOfStockItems: number;
+  threshold: number;
+}): Detection | null {
+  if (outOfStockItems <= threshold) return null;
+  return {
+    fingerprint: `shopify_stock_out:${organizationId}:${store.id}`,
+    storeId: store.id,
+    metricValue: outOfStockItems,
+    thresholdValue: threshold,
+    sourceEntityType: "shopify_store",
+    sourceEntityId: store.id,
+    contextData: { store_name: store.shop_name },
+    templateValues: {
+      metric_value: outOfStockItems,
+      store_name: store.shop_name,
+    },
+  };
+}
+
+export function buildShopifyRevenueDropDetection({
+  organizationId,
+  store,
+  currentNetSales,
+  previousNetSales,
+  threshold,
+  weekKey,
+}: {
+  organizationId: string;
+  store: ShopifyAlertStore;
+  currentNetSales: number;
+  previousNetSales: number;
+  threshold: number;
+  weekKey: string;
+}): Detection | null {
+  if (previousNetSales <= 0) return null;
+  const changePct = ((currentNetSales - previousNetSales) / previousNetSales) * 100;
+  if (changePct >= threshold) return null;
+  return {
+    fingerprint: `shopify_revenue_drop:${organizationId}:${store.id}:${weekKey}`,
+    storeId: store.id,
+    metricValue: Math.round(changePct * 100) / 100,
+    thresholdValue: threshold,
+    sourceEntityType: "shopify_store",
+    sourceEntityId: store.id,
+    contextData: {
+      store_name: store.shop_name,
+      current_net_sales: currentNetSales,
+      previous_net_sales: previousNetSales,
+    },
+    templateValues: {
+      store_name: store.shop_name,
+      metric_value_abs: Math.abs(Math.round(changePct)),
+      threshold_abs: Math.abs(threshold),
+      context_current: currentNetSales.toFixed(2),
+      context_previous: previousNetSales.toFixed(2),
+    },
+  };
+}
 
 /**
  * Crea o refresca una alerta viva (idempotente por organizacion+fingerprint) y
@@ -103,7 +177,12 @@ async function upsertAlertWithTask(
   if (existing) {
     const { error } = await supabase
       .from("alerts")
-      .update({ last_detected_at: now, metric_value: detection.metricValue })
+      .update({
+        last_detected_at: now,
+        metric_value: detection.metricValue,
+        store_id: detection.storeId ?? null,
+        context_data: detection.contextData ?? null,
+      })
       .eq("id", existing.id);
 
     if (error) {
@@ -117,6 +196,7 @@ async function upsertAlertWithTask(
     .from("alerts")
     .insert({
       organization_id: organizationId,
+      store_id: detection.storeId ?? null,
       rule_template_id: template.id,
       source_entity_type: detection.sourceEntityType ?? null,
       source_entity_id: detection.sourceEntityId ?? null,
@@ -155,6 +235,7 @@ async function upsertAlertWithTask(
       .from("tasks")
       .insert({
         organization_id: organizationId,
+        store_id: detection.storeId ?? null,
         alert_id: alert.id,
         source: "alert",
         assigned_to: assigneeId,
@@ -195,6 +276,7 @@ async function upsertAlertWithTask(
       const milestoneId = await findCurrentMilestoneId(
         supabase,
         organizationId,
+        detection.storeId ?? null,
       );
       if (milestoneId) {
         await supabase.from("milestone_task_links").insert({
@@ -284,6 +366,7 @@ async function resolveStaleAlerts(
   supabase: SupabaseClient,
   organizationId: string,
   templateId: string,
+  storeId: string | null,
   liveFingerprints: string[],
 ) {
   let query = supabase
@@ -292,6 +375,8 @@ async function resolveStaleAlerts(
     .eq("organization_id", organizationId)
     .eq("rule_template_id", templateId)
     .in("status", ["open", "acknowledged"]);
+
+  query = storeId ? query.eq("store_id", storeId) : query.is("store_id", null);
 
   if (liveFingerprints.length > 0) {
     query = query.not(
@@ -306,6 +391,34 @@ async function resolveStaleAlerts(
   if (error) {
     throw new Error(`alert_autoresolve_failed: ${error.message}`);
   }
+}
+
+async function persistAlertScope(
+  supabase: SupabaseClient,
+  organizationId: string,
+  template: TemplateRow,
+  storeId: string | null,
+  detections: Detection[],
+  summary: { alerts_created: number; alerts_refreshed: number },
+) {
+  for (const detection of detections) {
+    const result = await upsertAlertWithTask(
+      supabase,
+      organizationId,
+      template,
+      detection,
+    );
+    if (result.created) summary.alerts_created += 1;
+    else summary.alerts_refreshed += 1;
+  }
+
+  await resolveStaleAlerts(
+    supabase,
+    organizationId,
+    template.id,
+    storeId,
+    detections.map((detection) => detection.fingerprint),
+  );
 }
 
 /**
@@ -350,6 +463,26 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
     alerts_refreshed: 0,
   };
 
+  const hasShopifyRules = (templates ?? []).some(
+    (template) =>
+      template.code === "shopify_stock_out" ||
+      template.code === "shopify_revenue_drop" ||
+      template.code === "integration_sync_failed",
+  );
+  let shopifyStores: ShopifyAlertStore[] = [];
+  if (hasShopifyRules) {
+    const { data, error } = await supabase
+      .from("shopify_stores")
+      .select("id, shop_name, connection_id")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+    if (error) {
+      throw new Error(`rule_shopify_stores_lookup_failed: ${error.message}`);
+    }
+    shopifyStores = (data ?? []) as ShopifyAlertStore[];
+  }
+
   for (const rawTemplate of (templates ?? []) as TemplateRow[]) {
     const override = overrideByTemplate.get(rawTemplate.id);
 
@@ -375,26 +508,33 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
     const detections: Detection[] = [];
 
     if (template.code === "shopify_stock_out") {
-      const { data, error } = await supabase.rpc("shopify_stock_summary", {
-        target_organization_id: organizationId,
-        low_stock_threshold: 5,
-        target_store_id: null,
-      });
-
-      if (error) {
-        throw new Error(`rule_stock_summary_failed: ${error.message}`);
-      }
-
-      const outOfStock = Number(data?.[0]?.out_of_stock_items ?? 0);
-
-      if (outOfStock > (template.default_condition.threshold ?? 0)) {
-        detections.push({
-          fingerprint: `shopify_stock_out:${organizationId}`,
-          metricValue: outOfStock,
-          thresholdValue: template.default_condition.threshold ?? 0,
-          templateValues: { metric_value: outOfStock },
+      for (const store of shopifyStores) {
+        const { data, error } = await supabase.rpc("shopify_stock_summary", {
+          target_organization_id: organizationId,
+          low_stock_threshold: 5,
+          target_store_id: store.id,
         });
+
+        if (error) {
+          throw new Error(`rule_stock_summary_failed: ${error.message}`);
+        }
+
+        const detection = buildShopifyStockOutDetection({
+          organizationId,
+          store,
+          outOfStockItems: Number(data?.[0]?.out_of_stock_items ?? 0),
+          threshold: template.default_condition.threshold ?? 0,
+        });
+        await persistAlertScope(
+          supabase,
+          organizationId,
+          template,
+          store.id,
+          detection ? [detection] : [],
+          summary,
+        );
       }
+      continue;
     } else if (template.code === "integration_sync_failed") {
       const { data, error } = await supabase
         .from("integration_connections")
@@ -407,15 +547,20 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
       }
 
       for (const connection of data ?? []) {
+        const shopifyStore = connection.provider === "shopify"
+          ? shopifyStores.find((store) => store.connection_id === connection.id)
+          : undefined;
         detections.push({
           fingerprint: `integration_sync_failed:${connection.id}`,
           metricValue: 1,
           thresholdValue: 0,
+          ...(shopifyStore ? { storeId: shopifyStore.id } : {}),
           sourceEntityType: "integration_connection",
           sourceEntityId: connection.id,
           contextData: {
             provider: connection.provider,
             error: connection.last_error_message,
+            ...(shopifyStore ? { store_name: shopifyStore.shop_name } : {}),
           },
           templateValues: {
             context_provider:
@@ -424,6 +569,37 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
           },
         });
       }
+
+      const storeDetections = new Map(
+        shopifyStores.map((store) => [store.id, [] as Detection[]]),
+      );
+      const organizationDetections: Detection[] = [];
+      for (const detection of detections) {
+        if (detection.storeId && storeDetections.has(detection.storeId)) {
+          storeDetections.get(detection.storeId)?.push(detection);
+        } else {
+          organizationDetections.push(detection);
+        }
+      }
+      for (const store of shopifyStores) {
+        await persistAlertScope(
+          supabase,
+          organizationId,
+          template,
+          store.id,
+          storeDetections.get(store.id) ?? [],
+          summary,
+        );
+      }
+      await persistAlertScope(
+        supabase,
+        organizationId,
+        template,
+        null,
+        organizationDetections,
+        summary,
+      );
+      continue;
     } else if (template.code === "shopify_revenue_drop") {
       const now = Date.now();
       const day = 24 * 60 * 60 * 1000;
@@ -431,74 +607,58 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
       const previousStart = new Date(now - 14 * day).toISOString();
       const nowIso = new Date(now).toISOString();
 
-      const [currentResult, previousResult] = await Promise.all([
-        supabase.rpc("shopify_sales_summary", {
-          target_organization_id: organizationId,
-          period_start: currentStart,
-          period_end: nowIso,
-          target_store_id: null,
-        }),
-        supabase.rpc("shopify_sales_summary", {
-          target_organization_id: organizationId,
-          period_start: previousStart,
-          period_end: currentStart,
-          target_store_id: null,
-        }),
-      ]);
+      const threshold = template.default_condition.threshold ?? -30;
+      const weekKey = new Date(now).toISOString().slice(0, 10);
 
-      if (currentResult.error || previousResult.error) {
-        throw new Error(
-          `rule_revenue_drop_failed: ${currentResult.error?.message ?? previousResult.error?.message}`,
+      for (const store of shopifyStores) {
+        const [currentResult, previousResult] = await Promise.all([
+          supabase.rpc("shopify_sales_summary", {
+            target_organization_id: organizationId,
+            period_start: currentStart,
+            period_end: nowIso,
+            target_store_id: store.id,
+          }),
+          supabase.rpc("shopify_sales_summary", {
+            target_organization_id: organizationId,
+            period_start: previousStart,
+            period_end: currentStart,
+            target_store_id: store.id,
+          }),
+        ]);
+
+        if (currentResult.error || previousResult.error) {
+          throw new Error(
+            `rule_revenue_drop_failed: ${currentResult.error?.message ?? previousResult.error?.message}`,
+          );
+        }
+
+        const detection = buildShopifyRevenueDropDetection({
+          organizationId,
+          store,
+          currentNetSales: Number(currentResult.data?.[0]?.net_sales ?? 0),
+          previousNetSales: Number(previousResult.data?.[0]?.net_sales ?? 0),
+          threshold,
+          weekKey,
+        });
+        await persistAlertScope(
+          supabase,
+          organizationId,
+          template,
+          store.id,
+          detection ? [detection] : [],
+          summary,
         );
       }
-
-      const current = Number(currentResult.data?.[0]?.net_sales ?? 0);
-      const previous = Number(previousResult.data?.[0]?.net_sales ?? 0);
-      const threshold = template.default_condition.threshold ?? -30;
-
-      if (previous > 0) {
-        const changePct = ((current - previous) / previous) * 100;
-
-        if (changePct < threshold) {
-          const weekKey = new Date(now).toISOString().slice(0, 10);
-          detections.push({
-            fingerprint: `shopify_revenue_drop:${organizationId}:${weekKey}`,
-            metricValue: Math.round(changePct * 100) / 100,
-            thresholdValue: threshold,
-            contextData: {
-              current_net_sales: current,
-              previous_net_sales: previous,
-            },
-            templateValues: {
-              metric_value_abs: Math.abs(Math.round(changePct)),
-              threshold_abs: Math.abs(threshold),
-              context_current: current.toFixed(2),
-              context_previous: previous.toFixed(2),
-            },
-          });
-        }
-      }
+      continue;
     }
 
-    for (const detection of detections) {
-      const result = await upsertAlertWithTask(
-        supabase,
-        organizationId,
-        template,
-        detection,
-      );
-      if (result.created) {
-        summary.alerts_created += 1;
-      } else {
-        summary.alerts_refreshed += 1;
-      }
-    }
-
-    await resolveStaleAlerts(
+    await persistAlertScope(
       supabase,
       organizationId,
-      template.id,
-      detections.map((detection) => detection.fingerprint),
+      template,
+      null,
+      detections,
+      summary,
     );
   }
 

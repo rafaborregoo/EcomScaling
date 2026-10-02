@@ -9,7 +9,7 @@ import { z } from "zod";
  * el token viejo conserva los permisos que se concedieron entonces.
  */
 export const DEFAULT_KLAVIYO_SCOPES =
-  "accounts:read events:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write";
+  "accounts:read events:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write campaigns:write";
 
 const apiEnvSchema = z.object({
   API_HOST: z.string().default("0.0.0.0"),
@@ -85,6 +85,9 @@ const apiEnvSchema = z.object({
   // planes se conceden a mano desde /admin/facturacion.
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Solo el precio configurado aqui usa Managed Payments. Asi, los planes
+  // actuales mantienen su facturacion VERI*FACTU y su version API habitual.
+  STRIPE_MANAGED_PAYMENTS_PRICE_ID: z.string().startsWith("price_").optional(),
   // Stripe versiona por fecha (mas sufijo de nombre, p.ej. 2025-03-31.basil).
   // Fijarla es lo que evita que un cambio suyo mueva el payload bajo los pies
   // -- y en concreto donde vive current_period_end, que cambio de sitio.
@@ -204,6 +207,7 @@ export type LoadedApiEnv = {
   FATHOM_WEBHOOK_SECRET?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_MANAGED_PAYMENTS_PRICE_ID?: string;
   STRIPE_API_VERSION?: string;
   VERIFACTU_CERT_PFX_BASE64?: string;
   VERIFACTU_CERT_PASSWORD?: string;
@@ -442,6 +446,12 @@ export function loadApiEnv(
       : {}),
     ...(env.STRIPE_WEBHOOK_SECRET
       ? { STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET }
+      : {}),
+    ...(env.STRIPE_MANAGED_PAYMENTS_PRICE_ID
+      ? {
+          STRIPE_MANAGED_PAYMENTS_PRICE_ID:
+            env.STRIPE_MANAGED_PAYMENTS_PRICE_ID,
+        }
       : {}),
     ...(env.STRIPE_API_VERSION
       ? { STRIPE_API_VERSION: env.STRIPE_API_VERSION }

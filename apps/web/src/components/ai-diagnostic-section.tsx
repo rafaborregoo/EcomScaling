@@ -51,6 +51,39 @@ type DiagnosticOutput = {
   sections?: MonitorSection[];
   findings: Finding[];
   recommendations: Recommendation[];
+  creative_decisions?: Array<{
+    action: "observe" | "test_variant" | "investigate_landing_offer" | "propose_pause";
+    signal: string;
+    window: string;
+    spend_implicated: number | null;
+    spend_currency: string | null;
+    uncertainty: string;
+    hypothesis: string;
+    success_criterion: string;
+    measurement_verdict: "usable_with_attribution_limits" | "restricted" | "not_assessable" | "unknown";
+  }>;
+  flow_architecture?: {
+    decision: "no_change" | "needs_validation" | "design_proposal";
+    summary: string;
+    candidates: Array<{
+      action: "create" | "adjust" | "retire" | "measure";
+      name: string;
+      objective: string;
+      entry_trigger: string;
+      trigger_verification: "verified" | "unverified" | "not_available";
+      entry_conditions: string[];
+      exit_conditions: string[];
+      exclusions: string[];
+      sequence: Array<{ step: number; channel: "email" | "sms" | "push" | "wait" | "branch" | "other"; delay: string; purpose: string }>;
+      cadence: string;
+      priority: "low" | "medium" | "high";
+      primary_kpi: string;
+      stop_rule: string;
+      evidence: Array<{ source: string; period: string; sample_size: number | null; coverage: "complete" | "partial" | "insufficient" | "not_available" }>;
+      data_gaps: string[];
+      conflicts: Array<{ existing_flow_or_campaign: string; conflict: string; resolution: string }>;
+    }>;
+  };
   proposed_writes: Array<{
     kind: string;
     title: string;
@@ -66,6 +99,11 @@ type DiagnosticOutput = {
       baseline: number | null;
       target: number | null;
       evaluation_window: string;
+    };
+    initiative_change?: {
+      action: "replace" | "retire";
+      previous_task_id: string;
+      previous_task_title: string;
     };
   }>;
   confidence: "low" | "medium" | "high";
@@ -930,6 +968,12 @@ export function AiDiagnosticSection({
                         {humanizeAgentText(write.initiative_measurement.metric_name)} · base {write.initiative_measurement.baseline === null ? "no disponible" : `${write.initiative_measurement.baseline}${write.initiative_measurement.unit ? ` ${write.initiative_measurement.unit}` : ""}`} · objetivo {write.initiative_measurement.target === null ? "sin definir" : `${write.initiative_measurement.target}${write.initiative_measurement.unit ? ` ${write.initiative_measurement.unit}` : ""}`} · {humanizeAgentText(write.initiative_measurement.evaluation_window)}
                       </p>
                     ) : null}
+                    {write.initiative_change ? (
+                      <p className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-xs text-muted">
+                        <span className="font-medium text-foreground">Cambio mensual: </span>
+                        {write.initiative_change.action === "retire" ? "retirar" : "sustituir"} «{humanizeAgentText(write.initiative_change.previous_task_title)}». Si se aprueba, la iniciativa anterior quedará cancelada con su historial y, al sustituirla, se creará una versión enlazada.
+                      </p>
+                    ) : null}
                     {selectable ? (
                       <div className="mt-3 flex items-center justify-between gap-3 border-t border-separator pt-2">
                         <span className="text-xs text-muted">
@@ -1082,6 +1126,56 @@ export function AiDiagnosticSection({
           <p className="text-sm text-muted">{tasksFeedback}</p>
         ) : null;
 
+      const creativeDecisions = diagnostic.output.creative_decisions ?? [];
+      const creativeDecisionBlock = creativeDecisions.length ? (
+        <section aria-label="Decisiones sobre creatividades" className="space-y-3">
+          <h3 className="text-base font-semibold text-foreground">Qué hacer con las creatividades</h3>
+          <ul className="grid gap-3 lg:grid-cols-2">
+            {creativeDecisions.map((decision, index) => {
+              const actionLabels = {
+                observe: "Seguir observando",
+                test_variant: "Probar una variante",
+                investigate_landing_offer: "Investigar oferta o landing",
+                propose_pause: "Propuesta de pausa · requiere aprobación",
+              } as const;
+              const gateLabels = {
+                usable_with_attribution_limits: "Medición utilizable con límites",
+                restricted: "Medición restringida",
+                not_assessable: "No evaluable",
+                unknown: "Medición desconocida",
+              } as const;
+              const spend = decision.spend_implicated === null
+                ? "Importe no disponible"
+                : decision.spend_currency
+                  ? new Intl.NumberFormat("es-ES", {
+                      style: "currency",
+                      currency: decision.spend_currency,
+                    }).format(decision.spend_implicated)
+                  : "Importe sin divisa verificada";
+              return (
+                <li key={`${decision.action}-${index}`} className="rounded-lg border border-edge/60 bg-surface p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={decision.action === "propose_pause" ? "warn" : "neutral"}>
+                      {actionLabels[decision.action]}
+                    </Badge>
+                    <Badge tone={decision.measurement_verdict === "usable_with_attribution_limits" ? "neutral" : "warn"}>
+                      {gateLabels[decision.measurement_verdict]}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-foreground">{humanizeAgentText(decision.signal)}</p>
+                  <dl className="mt-3 grid gap-2 border-t border-separator pt-3 text-xs">
+                    <div><dt className="font-medium text-foreground">Ventana y gasto</dt><dd className="text-muted">{humanizeAgentText(decision.window)} · {spend}</dd></div>
+                    <div><dt className="font-medium text-foreground">Incertidumbre</dt><dd className="text-muted">{humanizeAgentText(decision.uncertainty)}</dd></div>
+                    <div><dt className="font-medium text-foreground">Hipótesis</dt><dd className="text-muted">{humanizeAgentText(decision.hypothesis)}</dd></div>
+                    <div><dt className="font-medium text-foreground">Cómo medir el éxito</dt><dd className="text-muted">{humanizeAgentText(decision.success_criterion)}</dd></div>
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null;
+
       return (
         <div className="space-y-5">
           {/* En "tasks" el veredicto de riesgos y el analisis en prosa no
@@ -1103,6 +1197,52 @@ export function AiDiagnosticSection({
               {diagnostic.output.headline}
             </p>
           ) : null}
+
+          {diagnostic.output.flow_architecture ? (() => {
+            const architecture = diagnostic.output.flow_architecture;
+            const decisionLabel = {
+              no_change: "Sin cambio propuesto",
+              needs_validation: "Falta validar datos",
+              design_proposal: "Diseño para revisar",
+            }[architecture.decision];
+            const actionLabels = { create: "Crear", adjust: "Ajustar", retire: "Retirar", measure: "Medir" };
+            const verificationLabels = { verified: "evento verificado", unverified: "evento por verificar", not_available: "evento no disponible" };
+            const coverageLabels = { complete: "completa", partial: "parcial", insufficient: "insuficiente", not_available: "no disponible" };
+            return (
+              <section aria-labelledby="flow-architecture-title" className="rounded-lg border border-edge/60 bg-surface p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 id="flow-architecture-title" className="text-base font-semibold text-foreground">Diseño revisable del flujo</h3>
+                  <Badge tone={architecture.decision === "design_proposal" ? "neutral" : "warn"}>{decisionLabel}</Badge>
+                </div>
+                <p className="mt-2 text-sm text-muted">{humanizeAgentText(architecture.summary)}</p>
+                {architecture.candidates.length ? (
+                  <ol className="mt-4 space-y-4">
+                    {architecture.candidates.map((candidate, index) => (
+                      <li key={`${candidate.action}-${candidate.name}-${index}`} className="rounded-lg border border-edge/60 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone={candidate.priority === "high" ? "warn" : "neutral"}>{actionLabels[candidate.action]}</Badge>
+                          <Badge tone="neutral">Prioridad {priorityLabelsEs[candidate.priority]}</Badge>
+                          <Badge tone={candidate.trigger_verification === "verified" ? "neutral" : "warn"}>{verificationLabels[candidate.trigger_verification]}</Badge>
+                        </div>
+                        <h4 className="mt-2 font-semibold text-foreground">{humanizeAgentText(candidate.name)}</h4>
+                        <p className="mt-1 text-sm text-muted">{humanizeAgentText(candidate.objective)}</p>
+                        <dl className="mt-3 grid gap-3 border-t border-separator pt-3 text-sm sm:grid-cols-2">
+                          <div><dt className="font-medium text-foreground">Entrada</dt><dd className="text-muted">{humanizeAgentText(candidate.entry_trigger)}{candidate.entry_conditions.length ? ` · ${candidate.entry_conditions.map(humanizeAgentText).join("; ")}` : ""}</dd></div>
+                          <div><dt className="font-medium text-foreground">Salida y exclusiones</dt><dd className="text-muted">{[...candidate.exit_conditions, ...candidate.exclusions].map(humanizeAgentText).join("; ") || "Por definir y validar antes de activar"}</dd></div>
+                          <div><dt className="font-medium text-foreground">Cadencia</dt><dd className="text-muted">{humanizeAgentText(candidate.cadence)}</dd></div>
+                          <div><dt className="font-medium text-foreground">KPI y parada</dt><dd className="text-muted">{humanizeAgentText(candidate.primary_kpi)} · {humanizeAgentText(candidate.stop_rule)}</dd></div>
+                        </dl>
+                        {candidate.sequence.length ? <ol className="mt-3 list-inside list-decimal text-sm text-muted">{candidate.sequence.map((step) => <li key={step.step}>{step.channel}: {humanizeAgentText(step.purpose)} ({humanizeAgentText(step.delay)})</li>)}</ol> : null}
+                        {candidate.evidence.length ? <p className="mt-3 text-xs text-muted">Evidencia: {candidate.evidence.map((item) => `${humanizeAgentText(item.source)}, ${humanizeAgentText(item.period)}, muestra ${item.sample_size ?? "no disponible"}, cobertura ${coverageLabels[item.coverage]}`).join(" · ")}</p> : null}
+                        {candidate.data_gaps.length ? <p className="mt-2 text-xs text-muted">Por validar: {candidate.data_gaps.map(humanizeAgentText).join("; ")}</p> : null}
+                        {candidate.conflicts.length ? <ul className="mt-2 list-inside list-disc text-xs text-muted">{candidate.conflicts.map((item, conflictIndex) => <li key={`${item.existing_flow_or_campaign}-${conflictIndex}`}>Conflicto con {humanizeAgentText(item.existing_flow_or_campaign)}: {humanizeAgentText(item.conflict)}. Revisar: {humanizeAgentText(item.resolution)}</li>)}</ul> : null}
+                      </li>
+                    ))}
+                  </ol>
+                ) : <p className="mt-3 text-sm text-muted">No hay candidatos con evidencia suficiente.</p>}
+              </section>
+            );
+          })() : null}
 
           {diagnostic.output.sections?.length ? (
             <div className="grid gap-x-5 gap-y-6 lg:grid-cols-2">
@@ -1207,6 +1347,8 @@ export function AiDiagnosticSection({
           ) : null}
 
           {proposedBlock}
+
+          {creativeDecisionBlock}
 
           {renderPreview ? <A26EmailRenderPreview organizationId={organizationId} runId={diagnostic.run_id} /> : null}
 

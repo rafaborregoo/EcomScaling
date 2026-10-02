@@ -18,12 +18,14 @@ import {
   Card,
   IconChevronLeft,
   IntegrationActivationChecklist,
-  IntegrationStatusBadge,
   InfoIcon,
   Link,
   Modal,
   ProviderIcon,
 } from "@/components/ui";
+import { explainHealth } from "./store-view-model";
+import { signalOf } from "./hub-model";
+import hub from "./hub.module.css";
 
 // --- Tipos de la respuesta del backend ------------------------------------
 
@@ -40,12 +42,16 @@ export type IntegrationActivation = {
 
 export type IntegrationSyncRun = {
   sync_type: string;
+  /** El bloque (orders, catalog, insights…); null en pasadas de conexión entera. */
+  sync_scope?: string | null;
   status: string;
   records_read: number;
   records_written: number;
   records_failed: number;
+  started_at?: string | null;
   finished_at: string | null;
   error_message: string | null;
+  created_at?: string;
 };
 
 /** Una conexion = una tienda del proveedor, con su propio estado. El backend
@@ -67,6 +73,8 @@ export type IntegrationConnection = {
   last_sync_at: string | null;
   last_error_message: string | null;
   latest_sync: IntegrationSyncRun | null;
+  /** Las ~30 últimas, la más reciente primero (una por bloque y pasada). */
+  recent_syncs?: IntegrationSyncRun[];
   health: IntegrationHealth;
   activation: IntegrationActivation;
 };
@@ -146,6 +154,7 @@ export type KlaviyoMetricsResponse = {
     metric_type: string | null;
     is_conversion_candidate: boolean;
     selected: boolean;
+    integration?: string | null;
   }>;
 };
 
@@ -216,6 +225,12 @@ export function integrationErrorMessage(
 }
 
 function integrationErrorSummary(message: string): string {
+  if (
+    /klaviyo_api_error:PERMISSION_MISSING:403/i.test(message) &&
+    /events:read/i.test(message)
+  ) {
+    return "Falta events:read. Reautoriza Klaviyo y acepta el permiso para que la sincronización pueda continuar.";
+  }
   if (message.includes("token_refresh")) {
     return "No hemos podido renovar el acceso a la cuenta. Vuelve a autorizarla o reintenta la sincronización.";
   }
@@ -341,7 +356,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
   const error = organizationId
     ? integrationsQuery.error
     : noOwnStore
-      ? "Las integraciones son de cada tienda: solo se ven aquí si tienes una propia. Las de un cliente se gestionan desde su panel."
+      ? "No tienes una tienda propia activa. Las integraciones de tus clientes no están disponibles en tu cuenta."
       : "No hay organización activa.";
   const isLoading = organizationId ? integrationsQuery.isLoading : false;
   const reload = integrationsQuery.reload;
@@ -474,7 +489,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         setPending(null);
       }
     },
-    retrySync: (provider: "shopify" | "klaviyo", connectionId: string) =>
+    retrySync: (provider: "shopify" | "klaviyo" | "meta", connectionId: string) =>
       withPending(`retry-${provider}`, async () => {
         const response = await apiFetch(
           `/v1/organizations/${organizationId}/${provider}/sync?connectionId=${encodeURIComponent(connectionId)}`,
@@ -511,7 +526,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
 export function BackToHub() {
   return (
     <Link
-      className="inline-flex items-center gap-1 text-sm font-medium text-muted no-underline hover:text-foreground hover:underline"
+      className={hub.back}
       href="/integraciones"
     >
       <IconChevronLeft aria-hidden /> Todas las integraciones
@@ -567,9 +582,9 @@ export function InfoModalButton({
   );
 }
 
-/** Tarjeta de cabecera de cada subpagina: estado, salud, checklist de
- * activación y el banner de configuración que corresponda. Sustituye a los
- * cuatro-cinco banners sueltos que antes se apilaban en texto plano. */
+/** Cabecera de cada subpágina, con la banda del hub: logo, estado de la
+ * conexión y cuenta. Debajo, lo que falta para activarla y el aviso de
+ * configuración del servidor que corresponda. */
 export function ProviderStatusCard({
   provider,
   children,
@@ -578,105 +593,72 @@ export function ProviderStatusCard({
   children?: ReactNode;
 }) {
   const cfg = provider.configuration.status;
-  const visual = {
-    shopify: {
-      rail: "border-[#168446]",
-      icon: "border-[#b7dfc4] bg-[#effaf2]",
-      label: "Datos de la tienda",
-    },
-    meta_ads: {
-      rail: "border-channel-meta",
-      icon: "border-[#d9c8fa] bg-channel-meta-soft",
-      label: "Rendimiento publicitario",
-    },
-    klaviyo: {
-      rail: "border-channel-email",
-      icon: "border-[#cddafe] bg-channel-email-soft",
-      label: "Email y SMS",
-    },
-    instagram: {
-      rail: "border-channel-instagram",
-      icon: "border-[#fac9df] bg-channel-instagram-soft",
-      label: "Contenido e insights",
-    },
-  }[provider.id] ?? {
-    rail: "border-accent",
-    icon: "border-accent bg-accent-soft",
-    label: "Fuente de datos",
-  };
+  const connection = provider.connection;
+  const explanation = explainHealth(provider.health, connection);
+  const signal = provider.available
+    ? signalOf(connection?.health.status ?? null, Boolean(connection))
+    : "off";
+  const label =
+    {
+      shopify: "Datos de la tienda",
+      meta_ads: "Rendimiento publicitario",
+      klaviyo: "Email y SMS",
+      instagram: "Contenido e insights",
+    }[provider.id] ?? "Fuente de datos";
   return (
-    <Card
-      className={`border ${visual.rail}`}
-      title={
-        <span className="inline-flex min-w-0 items-center gap-3">
-          <span
-            className={`flex size-10 shrink-0 items-center justify-center border ${visual.icon}`}
-          >
-            <ProviderIcon provider={provider.id} size={23} />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-xs font-medium text-muted">
-              {visual.label}
-            </span>
-            <span className="block text-xl font-semibold tracking-tight">
-              {provider.name}
-            </span>
-          </span>
+    <section className={hub.providerHead}>
+      <header className={hub.band}>
+        <span className={hub.bandLogo}>
+          <ProviderIcon provider={provider.id} size={26} />
         </span>
-      }
-      description={provider.description}
-      actions={
-        <IntegrationStatusBadge
-          available={provider.available}
-          configurationStatus={provider.configuration.status}
-          connectionStatus={provider.connection?.status}
-          healthStatus={provider.health.status}
+        <div className={hub.bandText}>
+          <p>{label}</p>
+          <h1>{provider.name}</h1>
+        </div>
+        <div className={hub.bandState}>
+          <span className={hub.st} data-s={signal}>
+            <i aria-hidden />
+            {!provider.available
+              ? "Aún no disponible"
+              : connection
+                ? explanation.label
+                : "Sin conectar"}
+          </span>
+          {connection?.provider_account_name || connection?.provider_account_id ? (
+            <small>
+              {connection.provider_account_name ?? connection.provider_account_id}
+            </small>
+          ) : null}
+        </div>
+      </header>
+      <div className={hub.providerBody}>
+        <p className={hub.note}>{provider.description}</p>
+        <IntegrationActivationChecklist
+          ready={provider.activation.ready}
+          missing={provider.activation.missing}
         />
-      }
-    >
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-separator pt-4 text-xs">
-        <span className="text-muted">Estado de los datos</span>
-        <Badge tone={healthTone(provider.health.status)}>
-          {healthLabel(provider.health.status)}
-        </Badge>
-        {provider.connection?.provider_account_name ? (
-          <span className="min-w-0 truncate text-muted">
-            · {provider.connection.provider_account_name}
-          </span>
+        {!provider.available ? (
+          <Banner tone="warn">
+            <span className="font-medium">Disponible más adelante.</span> El
+            conector no se activa hasta que haya credenciales y sincronización
+            real. No se muestran datos simulados.
+          </Banner>
+        ) : cfg === "credentials_missing" ? (
+          <Banner tone="warn">
+            Faltan las credenciales de la app del proveedor en el servidor.
+            Cuando se configuren, esta página habilitará OAuth y sincronización
+            real.
+          </Banner>
+        ) : cfg === "feature_disabled" ? (
+          <Banner tone="warn">
+            El conector está configurado pero su feature flag{" "}
+            <span className="font-mono">{provider.feature_flag}</span> está
+            desactivado. No se llamará al proveedor hasta habilitarlo.
+          </Banner>
         ) : null}
-        {provider.connection?.provider_account_id ? (
-          <span className="break-all font-mono text-muted">
-            · {provider.connection.provider_account_id}
-          </span>
-        ) : null}
+        {children}
       </div>
-
-      <IntegrationActivationChecklist
-        ready={provider.activation.ready}
-        missing={provider.activation.missing}
-      />
-
-      {!provider.available ? (
-        <Banner className="mt-3" tone="warn">
-          <span className="font-medium">Disponible más adelante.</span> La
-          interfaz ya está lista, pero el conector no se activa hasta que haya
-          credenciales y sincronización real. No se muestran datos simulados.
-        </Banner>
-      ) : cfg === "credentials_missing" ? (
-        <Banner className="mt-3" tone="warn">
-          Faltan las credenciales de la app del proveedor en el servidor. Cuando
-          se configuren, esta página habilitará OAuth y sincronización real.
-        </Banner>
-      ) : cfg === "feature_disabled" ? (
-        <Banner className="mt-3" tone="warn">
-          El conector está configurado pero su feature flag{" "}
-          <span className="font-mono">{provider.feature_flag}</span> está
-          desactivado. No se llamará al proveedor hasta habilitarlo.
-        </Banner>
-      ) : null}
-
-      {children}
-    </Card>
+    </section>
   );
 }
 
@@ -926,6 +908,9 @@ export function LastErrorBanner({
 }) {
   const message = integrationErrorMessage(provider);
   if (!message) return null;
+  const needsKlaviyoEventsPermission =
+    /klaviyo_api_error:PERMISSION_MISSING:403/i.test(message) &&
+    /events:read/i.test(message);
   return (
     <Banner className="border-danger" tone="danger">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -935,7 +920,14 @@ export function LastErrorBanner({
           </span>
           <span>{integrationErrorSummary(message)}</span>
         </span>
-        {onRetry ? (
+        {needsKlaviyoEventsPermission ? (
+          <Link
+            className="inline-flex min-h-9 items-center rounded-md border border-current px-3 text-sm font-medium no-underline hover:underline"
+            href="/integraciones/klaviyo"
+          >
+            Reautorizar Klaviyo
+          </Link>
+        ) : onRetry ? (
           <Button size="sm" type="button" onClick={onRetry} disabled={retrying}>
             {retrying ? "Reintentando..." : "Reintentar sincronización"}
           </Button>

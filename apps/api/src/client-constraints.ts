@@ -44,6 +44,78 @@ const CONSTRAINT_MAX_LENGTH = 400;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+type ConstraintFields = {
+  statement?: unknown;
+  category?: unknown;
+  validUntil?: unknown;
+};
+
+type ParsedFields =
+  | {
+      ok: true;
+      fields: { statement: string; category: string; validUntil: string | null };
+    }
+  | { ok: false; statusCode: number; error: string; message?: string };
+
+// Misma validacion para crear y para editar: una regla entra entera en cada
+// turno, asi que un texto largo, un tema inventado o una fecha pasada se
+// rechazan igual en las dos rutas. En edicion (partial) solo se valida lo que
+// viene; lo ausente se queda como esta.
+function parseConstraintFields(
+  payload: ConstraintFields,
+  partial: boolean,
+): ParsedFields {
+  const hasStatement = payload.statement !== undefined;
+  const statement =
+    typeof payload.statement === "string" ? payload.statement.trim() : "";
+  if ((!partial || hasStatement) && !statement) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "statement_requerido",
+      message: "Escribe la regla.",
+    };
+  }
+  if (statement.length > CONSTRAINT_MAX_LENGTH) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "statement_demasiado_largo",
+      message: `Una regla no puede pasar de ${CONSTRAINT_MAX_LENGTH} caracteres: entra en el contexto de cada respuesta del copiloto. Si necesitas mas espacio, es un documento.`,
+    };
+  }
+
+  const category =
+    typeof payload.category === "string" ? payload.category : "operations";
+  if (
+    (!partial || payload.category !== undefined) &&
+    !(CONSTRAINT_CATEGORIES as readonly string[]).includes(category)
+  ) {
+    return { ok: false, statusCode: 400, error: "categoria_invalida" };
+  }
+
+  const validUntil =
+    typeof payload.validUntil === "string" && payload.validUntil.trim()
+      ? payload.validUntil.trim()
+      : null;
+  if (validUntil !== null && !ISO_DATE.test(validUntil)) {
+    return { ok: false, statusCode: 400, error: "fecha_invalida" };
+  }
+  // El check de DB (`valid_until >= valid_from`) rechazaria esto con un 500
+  // opaco; y una fecha ya pasada nace muerta: no se inyectaria jamas.
+  const today = new Date().toISOString().slice(0, 10);
+  if (validUntil !== null && validUntil < today) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "fecha_pasada",
+      message: "Esa fecha ya pasó: la regla no llegaria a aplicarse nunca.",
+    };
+  }
+
+  return { ok: true, fields: { statement, category, validUntil } };
+}
+
 export async function listClientConstraints(
   env: ApiEnv,
   authorization: string,
@@ -74,9 +146,23 @@ export async function listClientConstraints(
     };
   }
 
+  // Tiendas del cliente, para el selector "Aplica a" y para nombrar la tienda
+  // de cada regla. Si falla la lectura, la lista de reglas sigue siendo valida.
+  const { data: stores } = await supabase
+    .from("shopify_stores")
+    .select("id, shop_name")
+    .eq("organization_id", organizationId);
+
   return {
     ok: true as const,
-    data: { organization_id: organizationId, constraints: data ?? [] },
+    data: {
+      organization_id: organizationId,
+      constraints: data ?? [],
+      stores: (stores ?? []).map((store) => ({
+        id: store.id as string,
+        label: (store.shop_name as string | null) ?? "Tienda",
+      })),
+    },
   };
 }
 
@@ -94,53 +180,26 @@ export async function createClientConstraint(
   const gate = requireKnowledgeManager(context, organizationId);
   if (gate.ok === false) return gate;
 
-  const statement =
-    typeof payload.statement === "string" ? payload.statement.trim() : "";
-  if (!statement) {
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "statement_requerido",
-      message: "Escribe la regla.",
-    };
-  }
-  if (statement.length > CONSTRAINT_MAX_LENGTH) {
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "statement_demasiado_largo",
-      message: `Una regla no puede pasar de ${CONSTRAINT_MAX_LENGTH} caracteres: entra en el contexto de cada respuesta del copiloto. Si necesitas mas espacio, es un documento.`,
-    };
-  }
-
-  const category =
-    typeof payload.category === "string" ? payload.category : "operations";
-  if (!(CONSTRAINT_CATEGORIES as readonly string[]).includes(category)) {
-    return { ok: false as const, statusCode: 400, error: "categoria_invalida" };
-  }
-
-  const validUntil =
-    typeof payload.validUntil === "string" && payload.validUntil.trim()
-      ? payload.validUntil.trim()
-      : null;
-  if (validUntil !== null && !ISO_DATE.test(validUntil)) {
-    return { ok: false as const, statusCode: 400, error: "fecha_invalida" };
-  }
-  // El check de DB (`valid_until >= valid_from`) rechazaria esto con un 500
-  // opaco; y una fecha ya pasada nace muerta: no se inyectaria jamas.
-  const today = new Date().toISOString().slice(0, 10);
-  if (validUntil !== null && validUntil < today) {
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "fecha_pasada",
-      message: "Esa fecha ya pasó: la regla no llegaria a aplicarse nunca.",
-    };
-  }
+  const parsed = parseConstraintFields(payload, false);
+  if (parsed.ok === false) return parsed;
+  const { statement, category, validUntil } = parsed.fields;
 
   const storeId = typeof payload.storeId === "string" ? payload.storeId : null;
 
   const supabase = createServiceClient(env);
+
+  // Una tienda de otra organizacion colgaria la regla de un scope ajeno.
+  if (storeId !== null) {
+    const { data: store } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("id", storeId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (!store) {
+      return { ok: false as const, statusCode: 400, error: "tienda_invalida" };
+    }
+  }
 
   // `loadCriticalClientConstraints` filtra `priority = 'critical'`: una regla
   // guardada como 'normal' iria a una tabla que no lee nadie y no haria nada.
@@ -183,21 +242,42 @@ export async function createClientConstraint(
 }
 
 /**
- * Activar / desactivar. No se borra: el historico de que se le pidio al
- * copiloto y cuando dejo de pedirse es parte de la trazabilidad del consultor.
+ * Editar una regla: activar / desactivar, texto, tema y fecha de fin (null la
+ * quita). No se borra: el historico de que se le pidio al copiloto y cuando
+ * dejo de pedirse es parte de la trazabilidad del consultor.
  */
-export async function setClientConstraintStatus(
+export async function updateClientConstraint(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
   constraintId: string,
-  status: unknown,
+  payload: ConstraintFields & { status?: unknown },
 ) {
   const gate = requireKnowledgeManager(context, organizationId);
   if (gate.ok === false) return gate;
 
-  if (status !== "active" && status !== "inactive") {
-    return { ok: false as const, statusCode: 400, error: "status_invalido" };
+  const patch: {
+    status?: "active" | "inactive";
+    statement?: string;
+    category?: string;
+    valid_until?: string | null;
+  } = {};
+
+  if (payload.status !== undefined) {
+    if (payload.status !== "active" && payload.status !== "inactive") {
+      return { ok: false as const, statusCode: 400, error: "status_invalido" };
+    }
+    patch.status = payload.status;
+  }
+
+  const parsed = parseConstraintFields(payload, true);
+  if (parsed.ok === false) return parsed;
+  if (payload.statement !== undefined) patch.statement = parsed.fields.statement;
+  if (payload.category !== undefined) patch.category = parsed.fields.category;
+  if (payload.validUntil !== undefined) patch.valid_until = parsed.fields.validUntil;
+
+  if (Object.keys(patch).length === 0) {
+    return { ok: false as const, statusCode: 400, error: "sin_cambios" };
   }
 
   const supabase = createServiceClient(env);
@@ -206,10 +286,10 @@ export async function setClientConstraintStatus(
   // pasaria el gate de ESTA organizacion y editaria la regla de otra.
   const { data, error } = await supabase
     .from("client_constraints")
-    .update({ status })
+    .update(patch)
     .eq("id", constraintId)
     .eq("organization_id", organizationId)
-    .select("id, status")
+    .select("id, category, statement, status, valid_from, valid_until")
     .maybeSingle();
 
   if (error) {
@@ -234,7 +314,7 @@ export async function setClientConstraintStatus(
     action: "knowledge.update_constraint",
     entityType: "client_constraint",
     entityId: constraintId,
-    newData: { status },
+    newData: patch,
   });
 
   return { ok: true as const, data };

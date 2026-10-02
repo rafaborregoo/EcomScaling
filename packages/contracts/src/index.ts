@@ -171,6 +171,12 @@ export type ShopifyScopeInfo = {
 export const SHOPIFY_SCOPES_USED: readonly ShopifyScopeInfo[] = [
   { scope: "read_orders", label: "Pedidos", required: true },
   { scope: "read_products", label: "Productos y variantes", required: true },
+  {
+    scope: "read_files",
+    label: "Imágenes y contenido multimedia de productos",
+    required: false,
+    note: "Sin este permiso no se completa la galería; el catálogo básico sigue disponible.",
+  },
   { scope: "read_inventory", label: "Inventario", required: true },
   { scope: "read_locations", label: "Ubicaciones de stock", required: true },
   { scope: "read_customers", label: "Clientes y cohortes", required: true },
@@ -371,3 +377,4 @@ export * from "./learning-blocks-domain.js";
 export * from "./learning-blocks-knowledge.js";
 export * from "./learning-blocks-governance.js";
 export * from "./copilot-navigation.js";
+export * from "./cross-channel-attribution.js";

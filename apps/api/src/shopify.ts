@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import {
-  requireOperationalOrganization,
+  requireOwnOrganizationAccess,
   isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
@@ -17,8 +17,11 @@ import {
 } from "./shopify-oauth.js";
 import {
   createIntegrationAdapters,
-  toIntegrationConnection,
 } from "./integration-adapters.js";
+import {
+  enqueueShopifySync,
+  ShopifySyncQueueSaturatedError,
+} from "./shopify-sync-queue.js";
 import {
   resolveCredentialSecret,
   saveShopifyTokens,
@@ -49,7 +52,7 @@ type Result =
     };
 
 type SyncTriggerResult =
-  | { ok: true; data: { status: string; connectionId: string } }
+  | { ok: true; data: { status: string; connectionId: string; queueJobId: string } }
   | {
       ok: false;
       statusCode: number;
@@ -95,6 +98,46 @@ function parseState(metadata: unknown) {
   }
 
   return null;
+}
+
+function parseOnboardingReturn(metadata: unknown) {
+  if (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "onboarding_return_to" in metadata &&
+    (metadata as Record<string, unknown>).onboarding_return_to === "/admin/onboarding"
+  ) {
+    return "/admin/onboarding" as const;
+  }
+  return null;
+}
+
+function onboardingResultUrl(
+  webOrigin: string,
+  result: string,
+  shop?: string | null,
+) {
+  const url = new URL("/admin/onboarding", webOrigin);
+  url.searchParams.set("shopify", result);
+  if (shop) url.searchParams.set("tienda", shop);
+  return url.toString();
+}
+
+async function findOnboardingReturnForState(
+  supabase: SupabaseClient,
+  state: string | null,
+) {
+  if (!state) return null;
+  const { data } = await supabase
+    .from("integration_connections")
+    .select("id, metadata")
+    .eq("provider", "shopify")
+    .eq("status", "pending")
+    .order("updated_at", { ascending: false })
+    .limit(25);
+  const pending = (data ?? []).find((connection) => parseState(connection.metadata) === state);
+  if (!pending || !parseOnboardingReturn(pending.metadata)) return null;
+  return pending;
 }
 
 function parseAppMode(metadata: unknown): ShopifyAppMode {
@@ -198,6 +241,7 @@ export async function createShopifyConnectionAuthUrl(
   organizationId: string,
   shopDomainInput: string,
   appMode: ShopifyAppMode = "public",
+  onboardingReturnTo?: string,
 ): Promise<Result> {
   if (!isIntegrationFeatureEnabled("shopify", env.INTEGRATION_FEATURE_FLAGS)) {
     return {
@@ -241,7 +285,7 @@ export async function createShopifyConnectionAuthUrl(
     };
   }
 
-  const operational = requireOperationalOrganization(
+  const operational = requireOwnOrganizationAccess(
     authContext,
     organizationId,
   );
@@ -286,6 +330,9 @@ export async function createShopifyConnectionAuthUrl(
         shop_domain: shopDomain,
         source: "oauth_start",
         app_mode: appMode,
+        ...(onboardingReturnTo === "/admin/onboarding"
+          ? { onboarding_return_to: onboardingReturnTo }
+          : {}),
       },
     },
     { onConflict: "organization_id,provider,provider_account_id" },
@@ -354,7 +401,7 @@ export async function triggerShopifySync(
     };
   }
 
-  const operational = requireOperationalOrganization(
+  const operational = requireOwnOrganizationAccess(
     authContext,
     organizationId,
   );
@@ -456,69 +503,36 @@ export async function triggerShopifySync(
     };
   }
 
-  const { data: claimedConnection, error: statusUpdateError } = await supabase
-    .from("integration_connections")
-    .update({ status: "syncing" })
-    .eq("id", connection.id)
-    .eq("status", connectionStatus)
-    .select("id")
-    .maybeSingle();
-
-  if (statusUpdateError) {
-    return {
-      ok: false,
-      statusCode: 500,
-      error: "shopify_sync_trigger_failed",
-      detail: statusUpdateError.message,
-    };
-  }
-  if (!claimedConnection) {
-    return {
-      ok: false,
-      statusCode: 409,
-      error: "shopify_sync_already_running",
-      message:
-        "Otra sincronización de Shopify comenzó antes de completar esta solicitud.",
-    };
-  }
-
-  const shopifySyncAdapter = createIntegrationAdapters(env).shopify;
-  void shopifySyncAdapter
-    .runInitialSync({
-      mode: "initial",
-      connection: toIntegrationConnection({
-        id: connection.id,
-        organization_id: connection.organization_id,
-        provider: "shopify",
-        status: connectionStatus,
-      }),
-    })
-    .catch(async (error: unknown) => {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "shopify_manual_sync_background_failed";
-      await supabase
-        .from("integration_connections")
-        .update({
-          status: "error",
-          last_error_at: new Date().toISOString(),
-          last_error_message: message,
-        })
-        .eq("id", connection.id);
-
-      console.error("Shopify manual sync failed", {
-        connection_id: connection.id,
-        organization_id: organizationId,
-        error: message,
-      });
+  let queued: Awaited<ReturnType<typeof enqueueShopifySync>>;
+  try {
+    queued = await enqueueShopifySync(env, {
+      kind: "sync",
+      connectionId: connection.id,
+      organizationId: connection.organization_id,
+      syncType: "manual",
+      source: "manual",
     });
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 503,
+      error:
+        error instanceof ShopifySyncQueueSaturatedError
+          ? "shopify_sync_queue_saturated"
+          : "shopify_sync_queue_unavailable",
+      ...(error instanceof ShopifySyncQueueSaturatedError
+        ? { message: "La cola Shopify está llena temporalmente. Vuelve a intentarlo más tarde." }
+        : {}),
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
 
   return {
     ok: true,
     data: {
-      status: "syncing",
+      status: queued.status,
       connectionId: connection.id,
+      queueJobId: queued.jobId,
     },
   };
 }
@@ -536,6 +550,25 @@ export async function handleShopifyOAuthCallback(
   const state = typeof query.state === "string" ? query.state : null;
 
   if (typeof query.error === "string") {
+    const supabase = createServiceClient(env);
+    const pending = await findOnboardingReturnForState(
+      supabase,
+      typeof query.state === "string" ? query.state : null,
+    );
+    if (pending) {
+      await supabase
+        .from("integration_connections")
+        .update({
+          status: "error",
+          last_error_at: new Date().toISOString(),
+          last_error_message: "shopify_authorization_denied",
+        })
+        .eq("id", pending.id);
+      return {
+        ok: true,
+        data: { redirectUrl: onboardingResultUrl(env.WEB_ORIGIN, "denied") },
+      };
+    }
     return {
       ok: true,
       data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=denied` },
@@ -658,6 +691,12 @@ export async function handleShopifyOAuthCallback(
         last_error_message: `shopify_token_exchange_failed: ${detail}`,
       })
       .eq("id", pendingConnection.id);
+    if (parseOnboardingReturn(pendingConnection.metadata)) {
+      return {
+        ok: true,
+        data: { redirectUrl: onboardingResultUrl(env.WEB_ORIGIN, "error", shop) },
+      };
+    }
     return {
       ok: false,
       statusCode: 502,
@@ -722,10 +761,13 @@ export async function handleShopifyOAuthCallback(
     // Vuelve al portal en vez de escupir JSON: aqui el usuario esta en mitad
     // de un OAuth, en su navegador, y lo que tiene que ver es una frase que
     // entienda, no un cuerpo de error.
+    const onboardingReturnTo = parseOnboardingReturn(pendingConnection.metadata);
     return {
       ok: true,
       data: {
-        redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=ya_conectada&tienda=${encodeURIComponent(shop)}`,
+        redirectUrl: onboardingReturnTo
+          ? onboardingResultUrl(env.WEB_ORIGIN, "already_claimed", shop)
+          : `${env.WEB_ORIGIN}/integraciones?shopify=ya_conectada&tienda=${encodeURIComponent(shop)}`,
       },
     };
   }
@@ -761,6 +803,12 @@ export async function handleShopifyOAuthCallback(
     .eq("id", pendingConnection.id);
 
   if (connectionUpdateError) {
+    if (parseOnboardingReturn(pendingConnection.metadata)) {
+      return {
+        ok: true,
+        data: { redirectUrl: onboardingResultUrl(env.WEB_ORIGIN, "error", shop) },
+      };
+    }
     return {
       ok: false,
       statusCode: 500,
@@ -781,6 +829,12 @@ export async function handleShopifyOAuthCallback(
     // Sin fallback a metadata: el token expiring necesita access+refresh+ambas fechas
     // de forma consistente para poder renovarse despues, asi que una escritura parcial
     // es peor que fallar claro y dejar reintentar la conexion.
+    if (parseOnboardingReturn(pendingConnection.metadata)) {
+      return {
+        ok: true,
+        data: { redirectUrl: onboardingResultUrl(env.WEB_ORIGIN, "error", shop) },
+      };
+    }
     return {
       ok: false,
       statusCode: 500,
@@ -810,6 +864,12 @@ export async function handleShopifyOAuthCallback(
     );
 
   if (syncRunInsertError) {
+    if (parseOnboardingReturn(pendingConnection.metadata)) {
+      return {
+        ok: true,
+        data: { redirectUrl: onboardingResultUrl(env.WEB_ORIGIN, "error", shop) },
+      };
+    }
     return {
       ok: false,
       statusCode: 500,
@@ -847,36 +907,41 @@ export async function handleShopifyOAuthCallback(
     });
   });
 
-  const shopifySyncAdapter = createIntegrationAdapters(env).shopify;
-  void shopifySyncAdapter
-    .runInitialSync({
-      mode: "initial",
-      connection: toIntegrationConnection({
-        id: pendingConnection.id,
-        organization_id: pendingConnection.organization_id,
-        provider: "shopify",
-        status: "pending",
-      }),
-    })
-    .catch((error: unknown) => {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "shopify_initial_sync_background_failed";
-      console.error("Shopify initial sync failed", {
-        connection_id: pendingConnection.id,
-        organization_id: pendingConnection.organization_id,
-        error: message,
-      });
+  let initialSyncQueued = true;
+  try {
+    await enqueueShopifySync(env, {
+      kind: "sync",
+      connectionId: pendingConnection.id,
+      organizationId: pendingConnection.organization_id,
+      syncType: "initial_import",
+      source: "oauth",
     });
-
+  } catch (error) {
+    initialSyncQueued = false;
+    const message = error instanceof Error ? error.message : String(error);
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: `${error instanceof ShopifySyncQueueSaturatedError ? "shopify_sync_queue_saturated" : "shopify_sync_queue_unavailable"}: ${message}`,
+      })
+      .eq("id", pendingConnection.id);
+    console.error("Shopify initial sync enqueue failed", {
+      connection_id: pendingConnection.id,
+      organization_id: pendingConnection.organization_id,
+      error: message,
+    });
+  }
   // Los permisos que faltan viajan en la URL. Sin esto, el aviso de vuelta
   // decia "Shopify no concedio permisos imprescindibles" sin nombrar ninguno, y
   // la unica salida que ofrecia -- reinstalar aceptandolo todo -- no arregla
   // nada cuando el permiso ni siquiera esta en el TOML de la app: Shopify no
   // puede conceder lo que no tiene declarado, por mucho que aceptes.
   const resultado =
-    missingRequired.length > 0
+    !initialSyncQueued
+      ? "error"
+      : missingRequired.length > 0
       ? "missing_scopes"
       : missingScopes.length > 0
         ? "connected_partial"
@@ -886,10 +951,14 @@ export async function handleShopifyOAuthCallback(
       ? `&faltan=${encodeURIComponent(missingScopes.map((item) => item.scope).join(","))}`
       : "";
 
+  const onboardingReturnTo = parseOnboardingReturn(pendingConnection.metadata);
+
   return {
     ok: true,
     data: {
-      redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=${resultado}${faltan}`,
+      redirectUrl: onboardingReturnTo
+        ? onboardingResultUrl(env.WEB_ORIGIN, resultado, shop)
+        : `${env.WEB_ORIGIN}/integraciones?shopify=${resultado}${faltan}`,
     },
   };
 }

@@ -2,8 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   labelOrganizationAlertsForStore,
+  operationalMetricValue,
   partitionOpenTasksForStore,
 } from "./shopify-operational-context.js";
+
+test("A13 keeps a metric RPC failure distinct from a successful empty result", () => {
+  assert.deepEqual(operationalMetricValue(null, new Error("database unavailable")), {
+    status: "unavailable",
+    reason: "rpc_error",
+  });
+  assert.deepEqual(operationalMetricValue([], null), { status: "no_data" });
+  assert.deepEqual(operationalMetricValue([{ sales: 12 }], null), { sales: 12 });
+});
 
 test("A13 separates selected-store tasks from unattributed tasks and excludes another store", () => {
   const result = partitionOpenTasksForStore(

@@ -112,10 +112,10 @@ const BY_REASON: Record<string, Explanation> = {
     fix: "connect",
   },
   connection_error: {
-    label: "Hay que reconectar",
+    label: "Conexión con error",
     detail:
-      "La plataforma está rechazando nuestras llamadas. Casi siempre es el permiso caducado: reconectando se arregla.",
-    fix: "reconnect",
+      "La última solicitud no terminó bien. Revisa el detalle técnico y reintenta; solo hace falta reconectar si el error menciona permisos o autorización.",
+    fix: "retry",
   },
   sync_stuck: {
     label: "Atascada",
@@ -258,7 +258,29 @@ export function explainError(
   const known = BY_ERROR_CODE[message.toLowerCase()];
   if (known) return { text: known, technical: message };
 
-  if (looksLikeErrorCode(message)) {
+  if (
+    /klaviyo_api_error:PERMISSION_MISSING:403/i.test(message) &&
+    /events:read/i.test(message)
+  ) {
+    return {
+      text: "Klaviyo no concedió el permiso para leer eventos. Reautoriza Klaviyo y acepta events:read para reanudar la sincronización.",
+      technical: message,
+    };
+  }
+
+  if (
+    /catalog:\s*shopify_variant_media_upsert_failed:/i.test(message) &&
+    /organization_id/i.test(message)
+  ) {
+    return {
+      text: "La última sincronización intentó guardar la imagen de una variante sin su organización. Hay que actualizar el worker de Shopify y repetir la sincronización.",
+      technical: message,
+    };
+  }
+
+  // «catalog: shopify_variant_media_upsert_failed: null value…»: bloque + codigo
+  // + texto de la base de datos. Tampoco es una frase para nadie.
+  if (looksLikeErrorCode(message) || /^[a-z_]+:s*[a-z0-9_]+:/.test(message)) {
     return {
       text: "La plataforma devolvió un error técnico que todavía no sabemos traducir.",
       technical: message,

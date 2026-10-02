@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const migrationUrl = new URL("../../../supabase/migrations/20261115700000_a20_product_repeat_health.sql", import.meta.url);
+const promptMigrationUrl = new URL("../../../supabase/migrations/20261115150000_ai_a20_customer_health_tool_and_prompt.sql", import.meta.url);
 const runtimeUrl = new URL("./ai-runtime.ts", import.meta.url);
 
 test("la RPC de A20 esta limitada a tienda, solo lectura y devuelve cohortes maduras sin hashes", async () => {
@@ -24,7 +25,7 @@ test("la RPC de A20 esta limitada a tienda, solo lectura y devuelve cohortes mad
 });
 
 test("el executor A20 exige tienda y sincronizacion Shopify fresca antes de ejecutar el analisis historico", async () => {
-  const source = await readFile(runtimeUrl, "utf8");
+  const source = (await readFile(runtimeUrl, "utf8")).replace(/\r\n/g, "\n");
   const registration = source.slice(
     source.indexOf('registerScopedReadTool(\n    "shopify_product_repurchase_health"'),
     source.indexOf('registerScopedReadTool(\n    "shopify_demand_sources"'),
@@ -34,4 +35,18 @@ test("el executor A20 exige tienda y sincronizacion Shopify fresca antes de ejec
   assert.match(registration, /48 \* 60 \* 60 \* 1000/);
   assert.match(registration, /recordProtectedDataAccess/);
   assert.match(registration, /shopify_product_repurchase_summary/);
+});
+
+test("A20 fija tienda activa y limita tareas/fases; el prompt delega diseño Klaviyo", async () => {
+  const source = (await readFile(runtimeUrl, "utf8")).replace(/\r\n/g, "\n");
+  const runStart = source.indexOf("export async function runRetencionClientesAgent");
+  const cacheStart = source.indexOf("export async function getRetencionClientesDiagnostic", runStart);
+  const run = source.slice(runStart, cacheStart);
+  const cache = source.slice(cacheStart, source.indexOf("export function agentRpcEvidence", cacheStart));
+  const promptMigration = await readFile(promptMigrationUrl, "utf8");
+  assert.match(run, /resolveStrictStoreScope/);
+  assert.match(cache, /resolveStrictStoreScope/);
+  assert.match(run, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
+  assert.match(run, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
+  assert.match(promptMigration, /A20 define el objetivo\/segmento; A12\/A28 diseñan/);
 });

@@ -12,7 +12,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createClientConstraint } from "./client-constraints.js";
+import { createClientConstraint, updateClientConstraint } from "./client-constraints.js";
 import type { AuthContext } from "./auth-context.js";
 
 const ORG = "org-reglas";
@@ -119,4 +119,21 @@ test("quien no gestiona conocimiento tampoco escribe reglas", async () => {
     statement: "Margen minimo del 35%.",
   });
   assert.equal(failure(ajena), "organization_access_denied");
+});
+
+test("editar una regla aplica los mismos limites que crearla", async () => {
+  const id = "00000000-0000-0000-0000-000000000001";
+  const run = (payload: Parameters<typeof updateClientConstraint>[4]) =>
+    updateClientConstraint(env, consultant, ORG, id, payload).then((r) => (r.ok === false ? r.error : null));
+
+  assert.equal(await run({ statement: "   " }), "statement_requerido");
+  assert.equal(await run({ statement: "x".repeat(401) }), "statement_demasiado_largo");
+  assert.equal(await run({ category: "inventada" }), "categoria_invalida");
+  assert.equal(await run({ validUntil: "31/12/2026" }), "fecha_invalida");
+  assert.equal(await run({ validUntil: "2000-01-01" }), "fecha_pasada");
+  assert.equal(await run({ status: "borrada" }), "status_invalido");
+  assert.equal(await run({}), "sin_cambios");
+
+  const denied = await updateClientConstraint(env, contextFor("member", "viewer"), ORG, id, { status: "inactive" });
+  assert.equal(denied.ok === false ? denied.error : null, "knowledge_access_denied");
 });

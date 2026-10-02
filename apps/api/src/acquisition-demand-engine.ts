@@ -11,8 +11,12 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import {
+  gateShopifyNetMetricsObservation,
+  shopifyNetMetricsQualityFacts,
+} from "./shopify-net-metrics-coverage.js";
 
-const ACQUISITION_DEMAND_SOURCE_VERSION = "f6-p03.v1";
+const ACQUISITION_DEMAND_SOURCE_VERSION = "f6-p03.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type AcquisitionDemandEvidence = {
@@ -20,7 +24,7 @@ export type AcquisitionDemandEvidence = {
   funnel?: { available: boolean; sessions?: number | null; conversion_rate?: number | null } | null;
   recurrence?: { available: boolean; new_orders?: number | null; returning_orders?: number | null; unknown_orders?: number | null; repeat_order_rate?: number | null } | null;
   customerValue?: { available: boolean; customers?: number | null; orders_with_customer?: number | null; guest_orders?: number | null; avg_revenue_per_customer?: number | null } | null;
-  margin?: { available: boolean; gross_margin?: number | null; contribution?: number | null; items_with_cost?: number | null; items_without_cost?: number | null } | null;
+  margin?: { available: boolean; gross_margin?: number | null; contribution?: number | null; items_with_cost?: number | null; items_without_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   // `cac_blended`, `ads_spend` y `new_customers` vienen en la misma fila de
   // `shopify_financial_summary` que el resto: el motor ya las recibia y no las
   // leia, asi que `acquisition.cac.observed` salia UNKNOWN teniendo el dato
@@ -88,11 +92,15 @@ export function applyAcquisitionDemandEvidence(
   const facts: Record<string, PlaybookTriState> = {
     ...context.facts,
     ...acquisitionFacts(),
+    ...shopifyNetMetricsQualityFacts(evidence.margin),
     "acquisition.sales.observed": observed(evidence.sales?.available, evidence.sales?.orders_count ?? evidence.sales?.net_sales ?? evidence.sales?.revenue),
     "acquisition.sample.observed": observed(evidence.sales?.available ?? evidence.funnel?.available, evidence.sales?.orders_count ?? evidence.funnel?.sessions),
     "acquisition.new_customer_orders.observed": observed(evidence.recurrence?.available, evidence.recurrence?.new_orders),
     "acquisition.returning_customers.observed": observed(evidence.recurrence?.available, evidence.recurrence?.returning_orders),
-    "acquisition.economics.observed": observed(evidence.margin?.available ?? evidence.financial?.available, evidence.margin?.gross_margin ?? evidence.margin?.contribution ?? evidence.financial?.net_profit),
+    "acquisition.economics.observed": gateShopifyNetMetricsObservation(
+      evidence.margin,
+      observed(evidence.margin?.available ?? evidence.financial?.available, evidence.margin?.gross_margin ?? evidence.margin?.contribution ?? evidence.financial?.net_profit),
+    ),
     "acquisition.customer_quality.observed": observed(evidence.customerValue?.available ?? evidence.recurrence?.available, evidence.customerValue?.customers ?? evidence.recurrence?.repeat_order_rate),
     "acquisition.cac.observed": observed(evidence.financial?.available, evidence.financial?.cac_blended),
     "acquisition.spend.observed": observed(evidence.financial?.available, evidence.financial?.ads_spend),
@@ -124,7 +132,7 @@ async function enrichAcquisitionDemand(supabase: any, context: PlaybookFramework
     funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate_shopify },
     recurrence: recurrenceResult.error ? { available: false } : { available: true, new_orders: first(recurrenceResult)?.new_orders, returning_orders: first(recurrenceResult)?.returning_orders, unknown_orders: first(recurrenceResult)?.unknown_orders, repeat_order_rate: first(recurrenceResult)?.repeat_order_rate },
     customerValue: customerValueResult.error ? { available: false } : { available: true, customers: first(customerValueResult)?.customers, orders_with_customer: first(customerValueResult)?.orders_with_customer, guest_orders: first(customerValueResult)?.guest_orders, avg_revenue_per_customer: first(customerValueResult)?.avg_revenue_per_customer },
-    margin: marginResult.error ? { available: false } : { available: true, gross_margin: first(marginResult)?.gross_margin, contribution: first(financialResult)?.contribution_per_order, items_with_cost: first(marginResult)?.items_with_cost, items_without_cost: first(marginResult)?.items_without_cost },
+    margin: marginResult.error ? { available: false } : { available: true, gross_margin: first(marginResult)?.gross_margin, contribution: first(financialResult)?.contribution_per_order, items_with_cost: first(marginResult)?.items_with_cost, items_without_cost: first(marginResult)?.items_without_cost, lines_with_exact_metrics: first(marginResult)?.lines_with_exact_metrics, lines_with_estimated_metrics: first(marginResult)?.lines_with_estimated_metrics, lines_without_metrics: first(marginResult)?.lines_without_metrics },
     financial: financialResult.error ? { available: false } : { available: true, net_profit: first(financialResult)?.net_profit, break_even_monthly_revenue: first(financialResult)?.break_even_monthly_revenue, has_settings: first(financialResult)?.has_settings, cac_blended: first(financialResult)?.cac_blended, ads_spend: first(financialResult)?.ads_spend, new_customers: first(financialResult)?.new_customers },
     stock: stockResult.error ? { available: false } : { available: true, tracked_items: first(stockResult)?.tracked_items },
     measurement: dailyResult.error ? { available: false } : { available: true, days: Array.isArray(dailyResult.data) ? dailyResult.data.length : null },

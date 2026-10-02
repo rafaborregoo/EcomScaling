@@ -65,10 +65,39 @@ export const STRIPE_INVOICE_EVENTS = [
   "charge.refunded",
 ] as const;
 
+/** Checkout se registra como snapshot; la suscripcion sigue otorgando acceso. */
+export const STRIPE_CHECKOUT_EVENTS = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+] as const;
+
 export const STRIPE_HANDLED_EVENTS = [
   ...STRIPE_SUBSCRIPTION_EVENTS,
   ...STRIPE_INVOICE_EVENTS,
+  ...STRIPE_CHECKOUT_EVENTS,
 ] as const;
+
+/** Reconoce las referencias de precio en formatos antiguos y nuevos de Stripe. */
+export function stripeInvoiceUsesPrice(
+  invoice: Record<string, unknown>,
+  expectedPriceId: string | undefined,
+): boolean {
+  if (!expectedPriceId) return false;
+  const lines = invoice.lines as { data?: unknown[] } | undefined;
+  return (lines?.data ?? []).some((rawLine) => {
+    if (!rawLine || typeof rawLine !== "object") return false;
+    const line = rawLine as Record<string, unknown>;
+    const pricing = line.pricing as
+      { price_details?: { price?: unknown } } | undefined;
+    const ids = [line.price, pricing?.price_details?.price].map((value) => {
+      if (typeof value === "string") return value;
+      if (!value || typeof value !== "object") return null;
+      const id = (value as Record<string, unknown>).id;
+      return typeof id === "string" ? id : null;
+    });
+    return ids.includes(expectedPriceId);
+  });
+}
 
 export type StripeWebhookEnvelope = {
   id: string;

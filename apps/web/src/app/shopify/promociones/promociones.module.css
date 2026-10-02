@@ -1,0 +1,292 @@
+/* Promociones: solo lo que Productos no tiene (cupon, ticket, regla, medidores).
+   El resto de clases viene de ../productos/catalogo.module.css. */
+
+/* ---------- tarjeta: el cupon ocupa el sitio de la foto ---------- */
+.coupon {
+  position: relative;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  aspect-ratio: 16 / 9;
+  padding: 14px;
+  background: var(--sunken);
+  text-align: center;
+}
+.coupon::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  border-bottom: 2px dashed var(--line);
+}
+.coupon.off {
+  color: var(--ink-3);
+}
+.big {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.kind {
+  color: var(--ink-2);
+  font-size: 11.5px;
+}
+.st {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+.warn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.code {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px dashed var(--ink-3);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.limit {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.meter {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--sunken);
+}
+.meter b {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* ---------- ficha: ticket dentro del hero oscuro ---------- */
+.ticket {
+  position: relative;
+  display: grid;
+  align-content: space-between;
+  gap: 22px;
+  min-height: 300px;
+  padding: 22px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--hero-2);
+}
+.ticket .kind {
+  color: var(--hero-muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ticketBig {
+  font-size: clamp(44px, 6vw, 68px);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.ticketBig small {
+  display: block;
+  margin-top: 8px;
+  color: var(--hero-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.tl {
+  display: grid;
+  gap: 6px;
+  color: var(--hero-muted);
+  font-size: 11.5px;
+}
+.track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hero-line);
+}
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.now {
+  position: absolute;
+  top: -5px;
+  width: 2px;
+  height: 16px;
+  background: var(--hero-ink);
+}
+.ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tCodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 18px;
+  border-top: 2px dashed var(--hero-line);
+}
+.tCode {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 12px;
+  border: 1.5px dashed var(--hero-muted);
+  border-radius: 10px;
+  color: var(--hero-ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.tCode button {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--hero-line);
+  color: var(--hero-ink);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.tAuto {
+  color: var(--hero-muted);
+  font-size: 13px;
+}
+.lead {
+  max-width: 62ch;
+  color: var(--hero-muted);
+  font-size: 14px;
+}
+
+/* ---------- ficha: regla ---------- */
+.rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+.side {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.side.gets {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--store) 12%, var(--surface));
+}
+.side h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.side li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.arrow {
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: 20px;
+}
+.conds {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.cond {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+/* ---------- ficha: comparativas y listas ---------- */
+.cmp {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+.cmpR {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 76px;
+  gap: 8px;
+  align-items: center;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.cmpR span:last-child {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.prodRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.prodRow .meter {
+  grid-column: 1 / -1;
+}
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .conds {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .rule {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .arrow {
+    transform: rotate(90deg);
+  }
+  .conds {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

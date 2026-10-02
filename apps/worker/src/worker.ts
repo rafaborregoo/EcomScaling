@@ -1,9 +1,15 @@
 import { Queue, Worker } from "bullmq";
 import {
   describeEnvironmentTargetRisk,
+  loadApiEnv,
   loadWorkerEnv,
   shouldBlockOnEnvironmentRisk,
 } from "@e-nora/config";
+import { runShopifyQueueJob } from "@e-nora/api/shopify-queue-worker";
+import type { ShopifyQueueWorkerJob } from "@e-nora/api/shopify-queue-worker";
+import {
+  SHOPIFY_SYNC_QUEUE_NAME,
+} from "@e-nora/api/shopify-sync-queue";
 import { createLogger } from "@e-nora/observability";
 import {
   SHOPIFY_RECONCILE_CRON,
@@ -47,6 +53,7 @@ const connection = {
   ...(redisUrl.password
     ? { password: decodeURIComponent(redisUrl.password) }
     : {}),
+  ...(redisUrl.protocol === "rediss:" ? { tls: {} } : {}),
 };
 
 async function runShopifyReconcile(
@@ -170,6 +177,18 @@ async function runInstagramImageQueue(
 }
 
 const queue = new Queue("ecomscaling-default", { connection });
+const shopifyQueueControl = new Queue(SHOPIFY_SYNC_QUEUE_NAME, { connection });
+await shopifyQueueControl.setGlobalConcurrency(1);
+await shopifyQueueControl.setGlobalRateLimit(1, 5_000);
+await shopifyQueueControl.add(
+  "shopify-webhook-drain",
+  { kind: "webhook_drain" },
+  {
+    repeat: { pattern: "* * * * *", tz: "Europe/Madrid" },
+    jobId: "shopify-webhook-drain-repeat",
+  },
+);
+logger.info("Scheduled Shopify webhook drain every minute (shared Shopify queue)");
 
 const staleRepeatables = await queue.getRepeatableJobs();
 for (const repeatable of staleRepeatables) {
@@ -322,5 +341,54 @@ worker.on("failed", (job, error) => {
         : error,
   });
 });
+
+const shopifySyncWorker = new Worker<ShopifyQueueWorkerJob>(
+  SHOPIFY_SYNC_QUEUE_NAME,
+  async (job) => {
+    const context = createWorkerJobContext(job.name, job.id ?? null);
+    recordWorkerJobMetric("shopify-sync", "started");
+    logger.info("Processing queued Shopify job", workerJobMeta(context, {
+      attempt: job.attemptsMade,
+      connection_id: job.data.kind === "sync" ? job.data.connectionId : undefined,
+      sync_type: job.data.kind === "sync"
+        ? job.data.syncType
+        : job.data.kind === "webhook_drain"
+          ? "webhook_drain"
+          : "reconcile_finalize",
+    }));
+    const apiEnv = loadApiEnv(process.env);
+    return runShopifyQueueJob(apiEnv, job.data);
+  },
+  { connection, concurrency: 1 },
+);
+
+shopifySyncWorker.on("completed", (job) => {
+  const context = createWorkerJobContext(job.name, job.id ?? null);
+  recordWorkerJobMetric("shopify-sync", "completed");
+  logger.info("Completed queued Shopify job", workerJobMeta(context, {
+    connection_id: job.data.kind === "sync" ? job.data.connectionId : undefined,
+  }));
+});
+
+shopifySyncWorker.on("failed", (job, error) => {
+  const context = createWorkerJobContext(job?.name ?? "shopify-sync", job?.id ?? null);
+  recordWorkerJobMetric("shopify-sync", "failed");
+  logger.error("Queued Shopify job failed", {
+    ...workerJobMeta(context),
+    connection_id: job?.data.kind === "sync" ? job.data.connectionId : undefined,
+    error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error,
+  });
+});
+
+const heartbeatKey = "ecomscaling:worker:heartbeat";
+const publishWorkerHeartbeat = async () => {
+  const client = await queue.client;
+  await client.set(heartbeatKey, new Date().toISOString(), { EX: 60 });
+};
+await publishWorkerHeartbeat();
+const workerHeartbeatTimer = setInterval(() => {
+  void publishWorkerHeartbeat().catch(() => undefined);
+}, 15_000);
+workerHeartbeatTimer.unref();
 
 logger.info("Worker started");

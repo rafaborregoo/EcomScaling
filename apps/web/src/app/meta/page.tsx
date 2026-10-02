@@ -5,7 +5,9 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { MetaInsightsSections } from "./insights-sections";
+import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
+import { ClientMeta } from "../dashboard/client-meta";
+import { MetaTrustStrip } from "./trust-strip";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   Badge,
@@ -14,11 +16,9 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  Heading,
   Link,
   List,
   LoadingBlock,
-  Select,
   type Tone,
 } from "@/components/ui";
 
@@ -35,14 +35,7 @@ type TriagedMetaAccount = {
   blind: boolean;
 };
 
-const periodOptions: Array<{ days: number | "all"; label: string }> = [
-  { days: 7, label: "7 días" },
-  { days: 30, label: "30 días" },
-  { days: 90, label: "90 días" },
-  { days: 180, label: "6 meses" },
-  { days: 365, label: "1 año" },
-  { days: "all", label: "Todo" },
-];
+const PERIODS: Array<number | "all"> = [7, 30, 90, 180, 365, "all"];
 
 const LEVEL_PRESENTATION: Record<
   TriagedMetaAccount["level"],
@@ -212,10 +205,14 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
   const { connectionId } = useActiveConnection();
   const [periodDays, setPeriodDays] = useState<number | "all">(30);
+  const { consultant } = useAssignedConsultant(organizationId ?? null);
 
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
+  const organization = bootstrap.memberships.find(
+    (membership) => membership.organization_id === organizationId,
+  )?.organization;
 
   const [connected, setConnected] = useState<boolean | null>(null);
 
@@ -269,30 +266,7 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="grid gap-4">
-      <Card>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <Heading level={2}>Meta Ads</Heading>
-            <p className="text-sm text-muted">
-              Qué está funcionando, qué está roto y qué se tocó.
-            </p>
-          </div>
-          <Select
-            className="w-full sm:w-40"
-            aria-label="Periodo"
-            value={String(periodDays)}
-            onChange={(value) =>
-              setPeriodDays(value === "all" ? "all" : Number(value))
-            }
-            options={periodOptions.map((option) => ({
-              value: String(option.days),
-              label: option.label,
-            }))}
-          />
-        </div>
-      </Card>
-
+    <div className="portal-page grid gap-5 sm:gap-6">
       {connected === false ? (
         <Banner tone="warn" className="text-sm">
           Este cliente no tiene Meta conectado. Se conecta desde{" "}
@@ -300,11 +274,24 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Banner>
       ) : null}
 
-      <MetaInsightsSections
+      <ClientMeta
         organizationId={organizationId}
-        connectionId={connectionId}
-        periodDays={periodDays}
-        showInternals={isConsultant}
+        organizationName={organization?.display_name ?? "Meta Ads"}
+        connectionId={connectionId || null}
+        userId={bootstrap.user.id}
+        consultant={consultant}
+        asConsultant={isConsultant}
+        days={periodDays}
+        onDaysChange={setPeriodDays}
+        periods={PERIODS}
+        hideFullLink
+        afterHero={
+          <MetaTrustStrip
+            organizationId={organizationId}
+            connectionId={connectionId || null}
+            days={periodDays}
+          />
+        }
       />
 
       {/* Los tres especialistas, en el mismo orden que los bloques de arriba y
@@ -312,10 +299,8 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           creatividad describe otra cosa.
 
           `areas` cierra el circulo: cada hallazgo vuelve al bloque de datos que
-          lo prueba. El mapa vive aqui porque esta pagina es la unica que sabe
-          que secciones ha montado -- `publicos` solo existe para el consultor,
-          y darle esa clave al cliente lo mandaria a un ancla que no esta en su
-          version de la pantalla. */}
+          lo prueba. */}
+      <div id="meta-ia" className="grid gap-5 sm:gap-6">
       <AiDiagnosticSection
         organizationId={organizationId}
         title="Medición y entrega"
@@ -326,12 +311,12 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         days={30}
         showInternals={isConsultant}
         areas={{
-          medicion: { label: "Ver el píxel", href: "#meta-medicion" },
+          medicion: { label: "Ver el píxel", href: "#meta-measure" },
           aprendizaje: {
             label: "Ver los conjuntos en aprendizaje",
-            href: "#meta-aprendizaje",
+            href: "#meta-learn",
           },
-          general: { label: "Ver la vista general", href: "#meta-general" },
+          general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
         }}
       />
       <AiDiagnosticSection
@@ -346,10 +331,10 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         areas={{
           creatividades: {
             label: "Ver las creatividades",
-            href: "#meta-creatividades",
+            href: "#meta-ads",
           },
-          reparto: { label: "Ver dónde va el dinero", href: "#meta-reparto" },
-          general: { label: "Ver la vista general", href: "#meta-general" },
+          reparto: { label: "Ver dónde va el dinero", href: "#meta-ads" },
+          general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
         }}
       />
       <AiDiagnosticSection
@@ -362,18 +347,12 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         days={30}
         showInternals={isConsultant}
         areas={{
-          cambios: { label: "Ver qué se tocó", href: "#meta-cambios" },
-          ...(isConsultant
-            ? {
-                publicos: {
-                  label: "Ver los públicos",
-                  href: "#meta-publicos",
-                },
-              }
-            : {}),
-          general: { label: "Ver la vista general", href: "#meta-general" },
+          cambios: { label: "Ver qué se tocó", href: "#meta-changes" },
+          publicos: { label: "Ver los públicos", href: "#meta-measure" },
+          general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
         }}
       />
+      </div>
     </div>
   );
 }

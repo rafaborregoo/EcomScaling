@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -11,13 +12,13 @@ import {
   Badge,
   Banner,
   Button,
-  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
   Heading,
   LoadingBlock,
   Select,
+  Sparkline,
   Table,
   toast,
 } from "@/components/ui";
@@ -57,6 +58,14 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [loading, setLoading] = useState(true);
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const isConsultant = ["consultant", "platform_admin"].includes(
+    bootstrap.profile.platform_role,
+  );
+  // Vista interna del consultor: el cliente vuelve a su agenda.
+  useEffect(() => {
+    if (!isConsultant) router.replace("/planificacion/calendario");
+  }, [isConsultant, router]);
 
   const load = useCallback(async () => {
     if (!organizationId) {
@@ -207,15 +216,7 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     URL.revokeObjectURL(link.href);
   }
 
-  if (
-    bootstrap.profile.platform_role !== "consultant" &&
-    bootstrap.profile.platform_role !== "platform_admin"
-  )
-    return (
-      <Card title="Tracking del consultor">
-        <ButtonLink href="/dashboard">Volver al dashboard</ButtonLink>
-      </Card>
-    );
+  if (!isConsultant) return null;
   if (!organizationId)
     return (
       <Banner tone="warn">
@@ -226,33 +227,22 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const withComparison = withDeltas(rows);
   const bounds = lastClosedPeriod(period);
+  // Del más antiguo al más reciente: la línea se lee de izquierda a derecha.
+  const salesSeries = withComparison
+    .map((row) => row.net_sales)
+    .filter((value): value is number => value != null)
+    .reverse();
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Heading>Seguimiento de resultados</Heading>
-          <p className="mt-1 text-sm text-muted">
-            Cada snapshot congela un periodo cerrado. Es contra esto contra lo
-            que se mide si un plan funcionó.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <ButtonLink href="/planificacion" variant="secondary">
-            Resumen
-          </ButtonLink>
-          <ButtonLink href="/planificacion/calendario" variant="secondary">
-            Calendario
-          </ButtonLink>
-        </div>
-      </div>
+      <Heading>Tracking</Heading>
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <Card
-        title="Capturar el último periodo cerrado"
-        description="Toma las cifras ya sincronizadas de Shopify y Meta. Volver a capturar el mismo periodo lo actualiza, no lo duplica."
-      >
+      {/* Barra de captura: toma las cifras ya sincronizadas; volver a
+          capturar el mismo periodo lo actualiza, no lo duplica. */}
+      <Card>
         <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold">Capturar periodo cerrado</span>
           <Select
             className="w-48"
             aria-label="Periodo a capturar"
@@ -270,15 +260,16 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             {bounds.start} → {bounds.end}
           </span>
         </div>
-        <p className="mt-2 text-xs text-muted">
-          Se cierra el periodo anterior, no el que está en curso: una foto a
-          medias cambia mañana y deja de servir para comparar.
-        </p>
       </Card>
+
+      {salesSeries.length >= 2 ? (
+        <Card title="Ventas netas por periodo">
+          <Sparkline data={salesSeries} height={72} />
+        </Card>
+      ) : null}
 
       <Card
         title="Histórico"
-        description={`${rows.length} periodos registrados en el alcance seleccionado.`}
         actions={
           <Button
             variant="secondary"

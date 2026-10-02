@@ -1393,6 +1393,8 @@ export type Database = {
           created_at: string
           id: string
           organization_id: string
+          scope_kind: string
+          scope_store_id: string | null
           title: string | null
           updated_at: string
           user_id: string
@@ -1402,6 +1404,8 @@ export type Database = {
           created_at?: string
           id?: string
           organization_id: string
+          scope_kind?: string
+          scope_store_id?: string | null
           title?: string | null
           updated_at?: string
           user_id: string
@@ -1411,6 +1415,8 @@ export type Database = {
           created_at?: string
           id?: string
           organization_id?: string
+          scope_kind?: string
+          scope_store_id?: string | null
           title?: string | null
           updated_at?: string
           user_id?: string
@@ -1668,6 +1674,7 @@ export type Database = {
           source_entity_id: string | null
           source_entity_type: string | null
           status: Database["public"]["Enums"]["alert_status"]
+          store_id: string | null
           threshold_value: number | null
           title: string
           updated_at: string
@@ -1693,6 +1700,7 @@ export type Database = {
           source_entity_id?: string | null
           source_entity_type?: string | null
           status?: Database["public"]["Enums"]["alert_status"]
+          store_id?: string | null
           threshold_value?: number | null
           title: string
           updated_at?: string
@@ -1718,6 +1726,7 @@ export type Database = {
           source_entity_id?: string | null
           source_entity_type?: string | null
           status?: Database["public"]["Enums"]["alert_status"]
+          store_id?: string | null
           threshold_value?: number | null
           title?: string
           updated_at?: string
@@ -1756,6 +1765,13 @@ export type Database = {
             columns: ["rule_template_id"]
             isOneToOne: false
             referencedRelation: "alert_rule_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alerts_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
         ]
@@ -13303,6 +13319,9 @@ export type Database = {
         Row: {
           applies_once_per_customer: boolean | null
           code: string | null
+          codes: string[]
+          codes_coverage: string
+          configuration_coverage: string
           created_at: string
           discount_class: string | null
           ends_at: string | null
@@ -13312,18 +13331,24 @@ export type Database = {
           id: string
           organization_id: string
           starts_at: string | null
+          summary: string | null
+          rule_data: Json | null
           status: string | null
           store_id: string
           title: string | null
           updated_at: string
           usage_count: number
           usage_limit: number | null
+          uses_per_order_limit: number | null
           value: number | null
           value_type: string | null
         }
         Insert: {
           applies_once_per_customer?: boolean | null
           code?: string | null
+          codes?: string[]
+          codes_coverage?: string
+          configuration_coverage?: string
           created_at?: string
           discount_class?: string | null
           ends_at?: string | null
@@ -13333,18 +13358,24 @@ export type Database = {
           id?: string
           organization_id: string
           starts_at?: string | null
+          summary?: string | null
+          rule_data?: Json | null
           status?: string | null
           store_id: string
           title?: string | null
           updated_at?: string
           usage_count?: number
           usage_limit?: number | null
+          uses_per_order_limit?: number | null
           value?: number | null
           value_type?: string | null
         }
         Update: {
           applies_once_per_customer?: boolean | null
           code?: string | null
+          codes?: string[]
+          codes_coverage?: string
+          configuration_coverage?: string
           created_at?: string
           discount_class?: string | null
           ends_at?: string | null
@@ -13354,12 +13385,15 @@ export type Database = {
           id?: string
           organization_id?: string
           starts_at?: string | null
+          summary?: string | null
+          rule_data?: Json | null
           status?: string | null
           store_id?: string
           title?: string | null
           updated_at?: string
           usage_count?: number
           usage_limit?: number | null
+          uses_per_order_limit?: number | null
           value?: number | null
           value_type?: string | null
         }
@@ -13377,6 +13411,106 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_discount_targets: {
+        Row: {
+          created_at: string
+          discount_id: string
+          external_target_id: string
+          id: string
+          is_active: boolean
+          last_seen_at: string
+          organization_id: string
+          parent_external_product_id: string | null
+          rule_side: string
+          store_id: string
+          target_title: string | null
+          target_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          discount_id: string
+          external_target_id: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          organization_id: string
+          parent_external_product_id?: string | null
+          rule_side: string
+          store_id: string
+          target_title?: string | null
+          target_type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          discount_id?: string
+          external_target_id?: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          organization_id?: string
+          parent_external_product_id?: string | null
+          rule_side?: string
+          store_id?: string
+          target_title?: string | null
+          target_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_discount_targets_discount_fkey"
+            columns: ["organization_id", "store_id", "discount_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_discounts"
+            referencedColumns: ["organization_id", "store_id", "id"]
+          },
+        ]
+      }
+      shopify_discount_target_sync_coverage: {
+        Row: {
+          discounts_scanned: number
+          error_code: string | null
+          last_synced_at: string
+          organization_id: string
+          rule_side: string
+          status: string
+          store_id: string
+          targets_scanned: number
+          updated_at: string
+        }
+        Insert: {
+          discounts_scanned?: number
+          error_code?: string | null
+          last_synced_at: string
+          organization_id: string
+          rule_side: string
+          status: string
+          store_id: string
+          targets_scanned?: number
+          updated_at?: string
+        }
+        Update: {
+          discounts_scanned?: number
+          error_code?: string | null
+          last_synced_at?: string
+          organization_id?: string
+          rule_side?: string
+          status?: string
+          store_id?: string
+          targets_scanned?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_discount_target_coverage_store_fkey"
+            columns: ["organization_id", "store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -13723,6 +13857,7 @@ export type Database = {
           province_code_of_origin: string | null
           requires_shipping: boolean
           sku: string | null
+          store_id: string
           tracked: boolean
           updated_at: string
           variant_id: string
@@ -13742,6 +13877,7 @@ export type Database = {
           province_code_of_origin?: string | null
           requires_shipping?: boolean
           sku?: string | null
+          store_id: string
           tracked?: boolean
           updated_at?: string
           variant_id: string
@@ -13761,6 +13897,7 @@ export type Database = {
           province_code_of_origin?: string | null
           requires_shipping?: boolean
           sku?: string | null
+          store_id?: string
           tracked?: boolean
           updated_at?: string
           variant_id?: string
@@ -13771,6 +13908,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_inventory_items_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
           {
@@ -13988,6 +14132,7 @@ export type Database = {
         Row: {
           allocation_method: string | null
           amount: number
+          amount_coverage: string
           code: string | null
           created_at: string
           discount_id: string | null
@@ -13995,6 +14140,7 @@ export type Database = {
           order_id: string
           organization_id: string
           position: number
+          store_id: string
           target_type: string | null
           title: string | null
           updated_at: string
@@ -14002,6 +14148,7 @@ export type Database = {
         Insert: {
           allocation_method?: string | null
           amount?: number
+          amount_coverage?: string
           code?: string | null
           created_at?: string
           discount_id?: string | null
@@ -14009,6 +14156,7 @@ export type Database = {
           order_id: string
           organization_id: string
           position?: number
+          store_id: string
           target_type?: string | null
           title?: string | null
           updated_at?: string
@@ -14016,6 +14164,7 @@ export type Database = {
         Update: {
           allocation_method?: string | null
           amount?: number
+          amount_coverage?: string
           code?: string | null
           created_at?: string
           discount_id?: string | null
@@ -14023,6 +14172,7 @@ export type Database = {
           order_id?: string
           organization_id?: string
           position?: number
+          store_id?: string
           target_type?: string | null
           title?: string | null
           updated_at?: string
@@ -14047,6 +14197,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_order_discount_applications_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
         ]
@@ -14221,11 +14378,20 @@ export type Database = {
       }
       shopify_order_items: {
         Row: {
+          bundle_group_coverage: string | null
+          bundle_group_id: string | null
+          bundle_parent_external_product_id: string | null
+          bundle_parent_external_variant_id: string | null
+          bundle_parent_quantity: number | null
+          bundle_parent_title: string | null
           created_at: string
           current_line_total: number
           discount_total: number
           external_line_item_id: string
           id: string
+          net_metrics_source: string | null
+          net_quantity: number | null
+          net_revenue: number | null
           order_id: string
           organization_id: string
           original_line_total: number
@@ -14242,11 +14408,20 @@ export type Database = {
           vendor_snapshot: string | null
         }
         Insert: {
+          bundle_group_coverage?: string | null
+          bundle_group_id?: string | null
+          bundle_parent_external_product_id?: string | null
+          bundle_parent_external_variant_id?: string | null
+          bundle_parent_quantity?: number | null
+          bundle_parent_title?: string | null
           created_at?: string
           current_line_total?: number
           discount_total?: number
           external_line_item_id: string
           id?: string
+          net_metrics_source?: string | null
+          net_quantity?: number | null
+          net_revenue?: number | null
           order_id: string
           organization_id: string
           original_line_total?: number
@@ -14263,11 +14438,20 @@ export type Database = {
           vendor_snapshot?: string | null
         }
         Update: {
+          bundle_group_coverage?: string | null
+          bundle_group_id?: string | null
+          bundle_parent_external_product_id?: string | null
+          bundle_parent_external_variant_id?: string | null
+          bundle_parent_quantity?: number | null
+          bundle_parent_title?: string | null
           created_at?: string
           current_line_total?: number
           discount_total?: number
           external_line_item_id?: string
           id?: string
+          net_metrics_source?: string | null
+          net_quantity?: number | null
+          net_revenue?: number | null
           order_id?: string
           organization_id?: string
           original_line_total?: number
@@ -14400,18 +14584,21 @@ export type Database = {
         Row: {
           collection_id: string
           created_at: string
+          last_seen_at: string | null
           organization_id: string
           product_id: string
         }
         Insert: {
           collection_id: string
           created_at?: string
+          last_seen_at?: string | null
           organization_id: string
           product_id: string
         }
         Update: {
           collection_id?: string
           created_at?: string
+          last_seen_at?: string | null
           organization_id?: string
           product_id?: string
         }
@@ -14436,6 +14623,191 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "shopify_products"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_product_media: {
+        Row: {
+          alt_text: string | null
+          created_at: string
+          external_media_id: string
+          height: number | null
+          id: string
+          is_active: boolean
+          last_seen_at: string
+          media_content_type: string
+          organization_id: string
+          position: number
+          product_id: string
+          source_url: string | null
+          store_id: string
+          updated_at: string
+          width: number | null
+        }
+        Insert: {
+          alt_text?: string | null
+          created_at?: string
+          external_media_id: string
+          height?: number | null
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          media_content_type: string
+          organization_id: string
+          position?: number
+          product_id: string
+          source_url?: string | null
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          alt_text?: string | null
+          created_at?: string
+          external_media_id?: string
+          height?: number | null
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          media_content_type?: string
+          organization_id?: string
+          position?: number
+          product_id?: string
+          source_url?: string | null
+          store_id?: string
+          updated_at?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_product_media_product_scope_fkey"
+            columns: ["organization_id", "store_id", "product_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_products"
+            referencedColumns: ["organization_id", "store_id", "id"]
+          },
+          {
+            foreignKeyName: "shopify_product_media_store_org_fkey"
+            columns: ["organization_id", "store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      shopify_product_bundle_components: {
+        Row: {
+          component_quantity: number
+          component_variant_id: string | null
+          created_at: string
+          external_component_variant_id: string
+          external_parent_variant_id: string
+          id: string
+          is_active: boolean
+          last_seen_at: string
+          organization_id: string
+          parent_variant_id: string
+          store_id: string
+          updated_at: string
+          verification_status: string
+        }
+        Insert: {
+          component_quantity: number
+          component_variant_id?: string | null
+          created_at?: string
+          external_component_variant_id: string
+          external_parent_variant_id: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          organization_id: string
+          parent_variant_id: string
+          store_id: string
+          updated_at?: string
+          verification_status: string
+        }
+        Update: {
+          component_quantity?: number
+          component_variant_id?: string | null
+          created_at?: string
+          external_component_variant_id?: string
+          external_parent_variant_id?: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          organization_id?: string
+          parent_variant_id?: string
+          store_id?: string
+          updated_at?: string
+          verification_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_product_bundle_components_component_fkey"
+            columns: ["organization_id", "store_id", "component_variant_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_variants"
+            referencedColumns: ["organization_id", "store_id", "id"]
+          },
+          {
+            foreignKeyName: "shopify_product_bundle_components_parent_fkey"
+            columns: ["organization_id", "store_id", "parent_variant_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_variants"
+            referencedColumns: ["organization_id", "store_id", "id"]
+          },
+          {
+            foreignKeyName: "shopify_product_bundle_components_store_fkey"
+            columns: ["organization_id", "store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      shopify_bundle_sync_coverage: {
+        Row: {
+          bundle_variants_count: number
+          components_count: number
+          error_code: string | null
+          last_synced_at: string
+          organization_id: string
+          status: string
+          store_id: string
+          unresolved_components_count: number
+          updated_at: string
+          variants_scanned: number
+        }
+        Insert: {
+          bundle_variants_count?: number
+          components_count?: number
+          error_code?: string | null
+          last_synced_at: string
+          organization_id: string
+          status: string
+          store_id: string
+          unresolved_components_count?: number
+          updated_at?: string
+          variants_scanned?: number
+        }
+        Update: {
+          bundle_variants_count?: number
+          components_count?: number
+          error_code?: string | null
+          last_synced_at?: string
+          organization_id?: string
+          status?: string
+          store_id?: string
+          unresolved_components_count?: number
+          updated_at?: string
+          variants_scanned?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_bundle_sync_coverage_store_fkey"
+            columns: ["organization_id", "store_id"]
+            isOneToOne: true
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["organization_id", "id"]
           },
         ]
       }
@@ -14910,6 +15282,7 @@ export type Database = {
           created_at: string
           current_price: number | null
           external_created_at: string | null
+          external_image_id: string | null
           external_updated_at: string | null
           external_variant_id: string
           id: string
@@ -14918,6 +15291,8 @@ export type Database = {
           organization_id: string
           position: number | null
           product_id: string
+          selected_options: Json
+          store_id: string
           taxable: boolean | null
           title: string | null
           updated_at: string
@@ -14928,6 +15303,7 @@ export type Database = {
           created_at?: string
           current_price?: number | null
           external_created_at?: string | null
+          external_image_id?: string | null
           external_updated_at?: string | null
           external_variant_id: string
           id?: string
@@ -14936,6 +15312,8 @@ export type Database = {
           organization_id: string
           position?: number | null
           product_id: string
+          selected_options?: Json
+          store_id: string
           taxable?: boolean | null
           title?: string | null
           updated_at?: string
@@ -14946,6 +15324,7 @@ export type Database = {
           created_at?: string
           current_price?: number | null
           external_created_at?: string | null
+          external_image_id?: string | null
           external_updated_at?: string | null
           external_variant_id?: string
           id?: string
@@ -14954,6 +15333,8 @@ export type Database = {
           organization_id?: string
           position?: number | null
           product_id?: string
+          selected_options?: Json
+          store_id?: string
           taxable?: boolean | null
           title?: string | null
           updated_at?: string
@@ -14964,6 +15345,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_variants_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
           {
@@ -16990,6 +17378,17 @@ export type Database = {
         }
         Returns: Json
       }
+      approve_a18_monthly_initiative_change: {
+        Args: {
+          p_action: string
+          p_actor_user_id: string
+          p_organization_id: string
+          p_previous_task_id: string
+          p_replacement?: Json | null
+          p_store_id: string | null
+        }
+        Returns: Json
+      }
       billable_store_count: {
         Args: { target_organization_id: string }
         Returns: number
@@ -17486,6 +17885,7 @@ export type Database = {
           quality_ranking: string
           roas: number
           spend: number
+          spend_currency: string | null
           thruplay_rate: number
           video_plays: number
         }[]
@@ -17550,8 +17950,9 @@ export type Database = {
           ads: number
           dimension: string
           ranking_value: string
-          spend: number
-          spend_share: number
+          spend: number | null
+          spend_share: number | null
+          currency_code: string | null
         }[]
       }
       meta_learning_phase_status: {
@@ -17929,17 +18330,47 @@ export type Database = {
           tracking_company: string
         }[]
       }
+      shopify_return_delay_comparison: {
+        Args: {
+          minimum_sample?: number
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string | null
+        }
+        Returns: {
+          tracking_company: string
+          location_id: string | null
+          location_name: string | null
+          mature_late_orders: number
+          mature_ontime_orders: number
+          excluded_multi_fulfillment_orders: number
+          late_known_return_status_orders: number
+          ontime_known_return_status_orders: number
+          late_return_signal_orders: number
+          ontime_return_signal_orders: number
+          late_return_status_coverage_pct: number | null
+          ontime_return_status_coverage_pct: number | null
+          late_return_signal_rate_pct: number | null
+          ontime_return_signal_rate_pct: number | null
+          difference_percentage_points: number | null
+          sample_reliable: boolean
+          comparison_status: string
+        }[]
+      }
       shopify_discount_cost_by_code: {
         Args: {
           period_end: string
           period_start: string
           result_limit?: number
           target_organization_id: string
-          target_store_id: string
+          target_store_id: string | null
         }
         Returns: {
+          attributed_discount_total: number | null
+          attribution_coverage: string
           code: string
-          discount_share: number
+          discount_share: number | null
           new_customers: number
           order_discount_total: number
           order_revenue: number
@@ -18069,6 +18500,9 @@ export type Database = {
               items_with_cost: number
               items_with_estimated_cost: number
               items_without_cost: number
+              lines_with_estimated_metrics: number
+              lines_with_exact_metrics: number
+              lines_without_metrics: number
               margin_pct: number
               revenue: number
             }[]
@@ -18086,6 +18520,9 @@ export type Database = {
           refunded_amount: number
           return_rate: number
           revenue: number
+          lines_with_estimated_metrics: number
+          lines_with_exact_metrics: number
+          lines_without_metrics: number
           title: string
           top_return_reason: string
           units_returned: number
@@ -18198,9 +18635,45 @@ export type Database = {
               product_id: string
               quantity_sold: number
               revenue: number
+              lines_with_estimated_metrics: number
+              lines_with_exact_metrics: number
+              lines_without_metrics: number
               title: string
-            }[]
+          }[]
           }
+      shopify_product_variant_activity: {
+        Args: {
+          target_organization_id: string
+          target_period_end: string
+          target_period_start: string
+          target_product_ids: string[]
+          target_store_id: string
+        }
+        Returns: {
+          last_order_at: string | null
+          orders_count: number
+          product_id: string
+          units_ordered: number
+          units_refunded: number
+          variant_id: string | null
+        }[]
+      }
+      shopify_product_bundle_activity: {
+        Args: {
+          target_organization_id: string
+          target_period_end: string
+          target_period_start: string
+          target_parent_product_ids: string[]
+          target_store_id: string
+        }
+        Returns: {
+          bundle_group_count: number
+          bundles_sold: number
+          last_order_at: string | null
+          parent_product_id: string
+          unclassified_line_count: number
+        }[]
+      }
         | {
             Args: {
               period_end: string
@@ -18213,6 +18686,9 @@ export type Database = {
               product_id: string
               quantity_sold: number
               revenue: number
+              lines_with_estimated_metrics: number
+              lines_with_exact_metrics: number
+              lines_without_metrics: number
               title: string
             }[]
           }

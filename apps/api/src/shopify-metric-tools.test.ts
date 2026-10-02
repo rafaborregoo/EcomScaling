@@ -119,7 +119,7 @@ function funcionesSql() {
 test("las tools nuevas de embudo, margen y gasto estan registradas y declaradas", () => {
   const registradas = toolsRegistradas();
   const declaradas = toolsDeclaradas();
-  for (const tool of ["shopify_funnel_health", "shopify_margin_health", "meta_spend_detail"]) {
+  for (const tool of ["shopify_funnel_health", "shopify_margin_health", "meta_spend_detail", "shopify_return_delay_comparison"]) {
     assert.ok(registradas.has(tool), `${tool} no esta registrada en ai-runtime.ts`);
     assert.ok(declaradas.has(tool), `${tool} no esta en readTools de tool-layer.ts`);
   }

@@ -73,7 +73,7 @@ function LoginPageContent() {
     <main className="grid min-h-dvh bg-white text-foreground lg:grid-cols-2">
       {/* Panel de marca (oculto en móvil) */}
       <aside className="hidden flex-col justify-between border-r border-separator p-10 lg:flex">
-        <BrandLogo />
+        <BrandLogo variant="completo" className="h-16 w-auto" />
         <div>
           <Heading level={2} size="lg" className="max-w-xl">
             El centro operativo para escalar tiendas ecommerce.

@@ -5,6 +5,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { AsyncState, IconChevronLeft, Link } from "@/components/ui";
 import { StoreScopeCard } from "../store-scope-card";
+import hub from "../hub.module.css";
 
 // A que tienda pertenece cada cuenta de Meta y de Klaviyo.
 //
@@ -40,9 +41,9 @@ function StoreScopeSection({ bootstrap }: { bootstrap: BootstrapResponse }) {
     : (ownMemberships[0]?.organization_id ?? null);
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className={hub.page}>
       <Link
-        className="inline-flex items-center gap-1 text-sm"
+        className={hub.back}
         href="/integraciones"
       >
         <IconChevronLeft aria-hidden /> Todas las tiendas
@@ -54,7 +55,7 @@ function StoreScopeSection({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <AsyncState
           status="empty"
           emptyTitle="No hay tienda propia"
-          emptyHint="Esto reparte las cuentas de una tienda tuya. Las de un cliente se gestionan desde su panel, no desde aquí."
+          emptyHint="Esta pantalla solo muestra las cuentas de tus tiendas. Las cuentas de los clientes no están disponibles en tu portal."
         />
       )}
     </div>

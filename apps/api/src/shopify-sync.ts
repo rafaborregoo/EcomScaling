@@ -2,16 +2,27 @@ import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@e-nora/config";
+import type { Json } from "@e-nora/db";
 import { createLogger } from "@e-nora/observability";
 import { ShopifyGraphError, shopifyGraphql } from "./shopify-client.js";
 import {
-  fetchBulkResult,
-  groupBulkLinesByParent,
+  forEachBulkRootChildrenBatch,
+  forEachBulkRootBatch,
+  forEachBulkResultBatch,
   runBulkOperation,
   type BulkLine,
 } from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
+import { sumShopifyLineDiscountAllocations } from "./shopify-order-line-money.js";
+import { isMissingShopifyNetMetricsSchema, withoutShopifyNetMetrics } from "./shopify-order-line-net.js";
+import { aggregateShopifyDiscountAllocations, type ShopifyDiscountAllocation } from "./shopify-discount-allocations.js";
+import {
+  buildShopifyProductMediaRows,
+  type ShopifyProductMediaLine,
+} from "./shopify-product-media.js";
+import { isMissingShopifyProductMetadataSchema } from "./shopify-product-metadata.js";
 import { explainShopifyError } from "./shopify-permissions.js";
+import { mapWithConcurrency } from "./async-concurrency.js";
 import {
   ShopifyReportsScopeError,
   syncShopifySessions,
@@ -62,6 +73,9 @@ type BulkProductLine = BulkLine & {
   handle?: string | null;
   vendor?: string | null;
   productType?: string | null;
+  descriptionHtml?: string | null;
+  tags?: string[] | null;
+  category?: { id?: string | null; name?: string | null; fullName?: string | null } | null;
   status?: string | null;
   publishedAt?: string | null;
   createdAt?: string | null;
@@ -69,7 +83,9 @@ type BulkProductLine = BulkLine & {
 };
 
 type BulkVariantLine = BulkLine & {
+  product?: { id?: string | null } | null;
   title?: string | null;
+  selectedOptions?: Array<{ name?: string | null; value?: string | null }> | null;
   barcode?: string | null;
   price?: string | null;
   compareAtPrice?: string | null;
@@ -91,6 +107,15 @@ type BulkVariantLine = BulkLine & {
       weight?: { value?: number | null; unit?: string | null } | null;
     } | null;
   } | null;
+};
+
+type BulkBundleComponentLine = BulkLine & {
+  quantity?: number | null;
+  productVariant?: { id?: string | null } | null;
+};
+
+type BulkBundleParentVariantLine = BulkLine & {
+  requiresComponents?: boolean | null;
 };
 
 type BulkInventoryLevelLine = BulkLine & {
@@ -180,8 +205,13 @@ type CustomerVisitLine = {
 type BulkDiscountApplicationLine = BulkLine & {
   allocationMethod?: string | null;
   targetType?: string | null;
+  index?: number | null;
   code?: string | null;
   title?: string | null;
+};
+
+type BulkShippingLine = BulkLine & {
+  discountAllocations?: ShopifyDiscountAllocation[] | null;
 };
 
 /**
@@ -210,10 +240,22 @@ type BulkLineItemLine = BulkLine & {
   quantity?: number | null;
   currentQuantity?: number | null;
   variant?: { id: string } | null;
+  lineItemGroup?: {
+    id?: string | null;
+    productId?: string | null;
+    variantId?: string | null;
+    quantity?: number | null;
+    title?: string | null;
+  } | null;
   originalUnitPriceSet?: MoneySet;
-  discountedTotalSet?: MoneySet;
   originalTotalSet?: MoneySet;
+  priceAfterAllDiscountsBeforeTaxesSet?: MoneySet;
+  discountAllocations?: ShopifyDiscountAllocation[] | null;
 };
+
+function isShippingLineChild(child: BulkLine): child is BulkShippingLine {
+  return typeof child.id === "string" && child.id.includes("/ShippingLine/");
+}
 
 type BulkRefundLineItemLine = BulkLine & {
   quantity?: number | null;
@@ -268,6 +310,7 @@ type BulkDiscountNodeLine = BulkLine & {
   discount?: {
     __typename?: string | null;
     title?: string | null;
+    summary?: string | null;
     status?: string | null;
     startsAt?: string | null;
     endsAt?: string | null;
@@ -275,13 +318,101 @@ type BulkDiscountNodeLine = BulkLine & {
     usageLimit?: number | null;
     appliesOncePerCustomer?: boolean | null;
     asyncUsageCount?: number | null;
-    customerGets?: { value?: BulkDiscountValue | null } | null;
+    usesPerOrderLimit?: number | null;
+    context?: { __typename?: string | null } | null;
+    combinesWith?: {
+      orderDiscounts?: boolean | null;
+      productDiscounts?: boolean | null;
+      shippingDiscounts?: boolean | null;
+    } | null;
+    minimumRequirement?: unknown;
+    customerBuys?: unknown;
+    customerGets?: {
+      appliesOnOneTimePurchase?: boolean | null;
+      appliesOnSubscription?: boolean | null;
+      items?: { __typename?: string | null } | null;
+      value?: BulkDiscountValue | null;
+    } | null;
   } | null;
 };
 
 type BulkDiscountCodeLine = BulkLine & {
   code?: string | null;
 };
+
+type BulkDiscountTargetNodeLine = BulkLine & {
+  discount?: {
+    __typename?: string | null;
+    customerGets?: { items?: BulkDiscountTargetItems | null } | null;
+    customerBuys?: { items?: BulkDiscountTargetItems | null } | null;
+  } | null;
+};
+
+type BulkDiscountTargetItems = {
+  __typename?: string | null;
+};
+
+type BulkDiscountTargetLine = BulkLine & {
+  title?: string | null;
+  product?: { id?: string | null } | null;
+};
+
+function buildDiscountTargetBulkQuery(side: "gets" | "buys") {
+  const targetItems = `items {
+    __typename
+    ... on DiscountProducts {
+      products { edges { node { id title } } }
+      productVariants { edges { node { id title product { id title } } } }
+    }
+    ... on DiscountCollections {
+      collections { edges { node { id title } } }
+    }
+  }`;
+  const getField = `customerGets { ${targetItems} }`;
+  const buyField = `customerBuys { ${targetItems} }`;
+  const typeFragments = side === "gets"
+    ? `... on DiscountCodeBasic { ${getField} }
+       ... on DiscountCodeBxgy { ${getField} }
+       ... on DiscountAutomaticBasic { ${getField} }
+       ... on DiscountAutomaticBxgy { ${getField} }`
+    : `... on DiscountCodeBxgy { ${buyField} }
+       ... on DiscountAutomaticBxgy { ${buyField} }`;
+  return `{
+    discountNodes {
+      edges {
+        node {
+          id
+          discount {
+            __typename
+            ${typeFragments}
+          }
+        }
+      }
+    }
+  }`;
+}
+
+const SHOPIFY_DISCOUNT_TYPES = new Set([
+  "DiscountCodeBasic",
+  "DiscountCodeBxgy",
+  "DiscountAutomaticBasic",
+  "DiscountAutomaticBxgy",
+  "DiscountCodeFreeShipping",
+  "DiscountAutomaticFreeShipping",
+  "DiscountCodeApp",
+  "DiscountAutomaticApp",
+]);
+
+export function isKnownShopifyDiscountType(discountType: string) {
+  return SHOPIFY_DISCOUNT_TYPES.has(discountType);
+}
+
+function classifyDiscountTargetId(id: string): "product" | "variant" | "collection" | null {
+  if (/^gid:\/\/shopify\/Product\/\d+$/.test(id)) return "product";
+  if (/^gid:\/\/shopify\/ProductVariant\/\d+$/.test(id)) return "variant";
+  if (/^gid:\/\/shopify\/Collection\/\d+$/.test(id)) return "collection";
+  return null;
+}
 
 type BulkMarketingEventLine = BulkLine & {
   type?: string | null;
@@ -774,12 +905,49 @@ async function finishSyncRun(
       records_read: counts.read,
       records_written: counts.written,
       records_failed: counts.failed,
-      ...(errorMessage ? { error_message: errorMessage } : {}),
+      // Sync runs can be reused by idempotency key. Clear an old warning/error
+      // when a later attempt for that run completes without one.
+      error_message: errorMessage ?? null,
     })
     .eq("id", syncRunId);
 }
 
 const UPSERT_BATCH_SIZE = 500;
+
+function isProductMediaCoverageSchemaMissing(error: { code?: string; message?: string }) {
+  return error.code === "42P01" || error.code === "PGRST205" ||
+    error.message?.includes("shopify_product_media_sync_coverage") === true;
+}
+
+function isMissingShopifyBundleGroupSchema(message: string) {
+  const mentionsBundleColumn = message.includes("bundle_group_") || message.includes("bundle_parent_");
+  return mentionsBundleColumn && (
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
+  );
+}
+
+function isMissingShopifyCollectionSyncMarker(message: string) {
+  return message.includes("last_seen_at") && (
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
+  );
+}
+
+function withoutShopifyBundleGroupFields(row: Record<string, unknown>) {
+  const {
+    bundle_group_coverage: _coverage,
+    bundle_group_id: _groupId,
+    bundle_parent_title: _parentTitle,
+    bundle_parent_external_product_id: _parentProductId,
+    bundle_parent_external_variant_id: _parentVariantId,
+    bundle_parent_quantity: _parentQuantity,
+    ...legacyRow
+  } = row;
+  return legacyRow;
+}
 
 function chunk<T>(rows: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -801,7 +969,53 @@ async function upsertBlockRows(
   }
 
   for (const batch of chunk(rows, UPSERT_BATCH_SIZE)) {
-    const { error } = await supabase.from(table).upsert(batch, { onConflict });
+    let { error } = await supabase.from(table).upsert(batch, { onConflict });
+
+    if (error && table === "shopify_order_items") {
+      let fallbackRows = batch;
+      for (let attempt = 0; error && attempt < 2; attempt += 1) {
+        const missingNetMetrics = isMissingShopifyNetMetricsSchema(error.message);
+        const missingBundleGroups = isMissingShopifyBundleGroupSchema(error.message);
+        if (!missingNetMetrics && !missingBundleGroups) break;
+        fallbackRows = fallbackRows.map((row) => {
+          const withoutNet = missingNetMetrics
+            ? withoutShopifyNetMetrics(row)
+            : row;
+          return missingBundleGroups
+            ? withoutShopifyBundleGroupFields(withoutNet)
+            : withoutNet;
+        });
+        const retry = await supabase.from(table).upsert(fallbackRows, { onConflict });
+        error = retry.error;
+        if (!error) {
+          block.warning = block.warning ?? "shopify_order_item_metrics_or_bundle_migration_pending";
+          logger.info("Shopify order-line metrics migration is pending; stored compatible order-line fields", {
+            rows: batch.length,
+            omitted_net_metrics: missingNetMetrics,
+            omitted_bundle_groups: missingBundleGroups,
+          });
+        }
+      }
+    }
+
+    if (error && table === "shopify_products" && isMissingShopifyProductMetadataSchema(error)) {
+      const legacyRows = batch.map(({
+        description_html,
+        tags,
+        shopify_category_id,
+        shopify_category_name,
+        metadata_coverage,
+        ...row
+      }) => row);
+      const retry = await supabase.from(table).upsert(legacyRows, { onConflict });
+      error = retry.error;
+      if (!error) {
+        block.warning = block.warning ?? "shopify_product_metadata_migration_pending";
+        logger.info("Shopify product metadata migration is pending; stored core product fields", {
+          rows: batch.length,
+        });
+      }
+    }
 
     if (error) {
       block.failed += batch.length;
@@ -819,24 +1033,140 @@ async function selectAll<T>(
   select: string,
   filterColumn: string,
   filterValues: string[],
+  organizationId: string,
+  scopeColumn: string,
+  scopeValues: string[],
 ): Promise<T[]> {
-  if (!filterValues.length) {
+  if (!filterValues.length || !scopeValues.length) {
     return [];
   }
 
   const results: T[] = [];
 
-  for (const batch of chunk(filterValues, UPSERT_BATCH_SIZE)) {
-    const { data } = await supabase
-      .from(table)
-      .select(select)
-      .in(filterColumn, batch);
-    if (data) {
-      results.push(...(data as T[]));
+  for (const scopeBatch of chunk(scopeValues, UPSERT_BATCH_SIZE)) {
+    for (const batch of chunk(filterValues, UPSERT_BATCH_SIZE)) {
+      const { data, error } = await supabase
+        .from(table)
+        .select(select)
+        .eq("organization_id", organizationId)
+        .in(filterColumn, batch)
+        .in(scopeColumn, scopeBatch);
+      if (error) {
+        throw new Error(`${table}_reference_read_failed: ${error.message}`);
+      }
+      results.push(...((data ?? []) as T[]));
     }
   }
 
   return results;
+}
+
+async function persistShopifyProductMediaSnapshot(
+  supabase: SupabaseClient,
+  storeId: string,
+  syncedProductIds: string[],
+  rows: ReturnType<typeof buildShopifyProductMediaRows>["rows"],
+) {
+  for (const batch of chunk(rows, UPSERT_BATCH_SIZE)) {
+    const { error } = await supabase
+      .from("shopify_product_media")
+      .upsert(batch, { onConflict: "product_id,external_media_id" });
+    if (error) throw new Error(`shopify_product_media_upsert_failed: ${error.message}`);
+  }
+
+  const activeMediaByProduct = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const active = activeMediaByProduct.get(row.product_id) ?? new Set<string>();
+    active.add(row.external_media_id);
+    activeMediaByProduct.set(row.product_id, active);
+  }
+
+  for (const productIds of chunk(syncedProductIds, 200)) {
+    const existing: Array<{ id: string; product_id: string; external_media_id: string }> = [];
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("shopify_product_media")
+        .select("id, product_id, external_media_id")
+        .eq("store_id", storeId)
+        .in("product_id", productIds)
+        .range(offset, offset + 999);
+      if (error) throw new Error(`shopify_product_media_read_failed: ${error.message}`);
+      const page = (data ?? []) as typeof existing;
+      existing.push(...page);
+      if (page.length < 1000) break;
+      offset += page.length;
+    }
+
+    const staleIds = existing
+      .filter((media) => !activeMediaByProduct.get(media.product_id)?.has(media.external_media_id))
+      .map((media) => media.id);
+    for (const staleBatch of chunk(staleIds, UPSERT_BATCH_SIZE)) {
+      const { error } = await supabase
+        .from("shopify_product_media")
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq("store_id", storeId)
+        .in("id", staleBatch);
+      if (error) throw new Error(`shopify_product_media_retire_failed: ${error.message}`);
+    }
+  }
+}
+
+async function writeShopifyProductMediaCoverage(input: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  storeId: string;
+  status: "running" | "complete" | "partial" | "failed";
+  attemptedAt: string;
+  fullSnapshot?: boolean;
+  productsScanned?: number;
+  imagesScanned?: number;
+  errorCode?: string | null;
+}) {
+  const { supabase, organizationId, storeId, status, attemptedAt } = input;
+  const { data: previous, error: readError } = await supabase
+    .from("shopify_product_media_sync_coverage")
+    .select("last_successful_full_sync_at, products_scanned, images_scanned")
+    .eq("organization_id", organizationId)
+    .eq("store_id", storeId)
+    .maybeSingle();
+
+  if (readError) {
+    if (isProductMediaCoverageSchemaMissing(readError)) return { available: false as const };
+    throw new Error(`shopify_product_media_coverage_read_failed: ${readError.message}`);
+  }
+
+  const completedFullSnapshot = status === "complete" && input.fullSnapshot === true;
+  const lastSuccessfulFullSyncAt = completedFullSnapshot
+    ? attemptedAt
+    : previous?.last_successful_full_sync_at ?? null;
+  const productsScanned = completedFullSnapshot
+    ? input.productsScanned ?? 0
+    : previous?.products_scanned ?? 0;
+  const imagesScanned = completedFullSnapshot
+    ? input.imagesScanned ?? 0
+    : previous?.images_scanned ?? 0;
+  const nextStatus = status === "complete" && !lastSuccessfulFullSyncAt ? "partial" : status;
+  const { error: writeError } = await supabase
+    .from("shopify_product_media_sync_coverage")
+    .upsert({
+      organization_id: organizationId,
+      store_id: storeId,
+      status: nextStatus,
+      products_scanned: productsScanned,
+      images_scanned: imagesScanned,
+      last_attempt_at: attemptedAt,
+      last_successful_full_sync_at: lastSuccessfulFullSyncAt,
+      error_code: nextStatus === "failed"
+        ? input.errorCode ?? "shopify_product_media_sync_failed"
+        : nextStatus === "partial" ? input.errorCode ?? null : null,
+      updated_at: attemptedAt,
+    }, { onConflict: "store_id" });
+  if (writeError) {
+    if (isProductMediaCoverageSchemaMissing(writeError)) return { available: false as const };
+    throw new Error(`shopify_product_media_coverage_write_failed: ${writeError.message}`);
+  }
+  return { available: true as const, status: nextStatus };
 }
 
 /**
@@ -1070,6 +1400,9 @@ export async function runShopifyInitialSync(
     const productsQueryFilter = updatedAtCutoff
       ? `(query: "updated_at:>='${updatedAtCutoff}'")`
       : "";
+    const variantsQueryFilter = updatedAtCutoff
+      ? `(query: "updated_at:>='${updatedAtCutoff}'")`
+      : "";
     const ordersQueryFilter = updatedAtCutoff
       ? `(query: "updated_at:>='${updatedAtCutoff}'")`
       : "";
@@ -1160,45 +1493,333 @@ export async function runShopifyInitialSync(
                 handle
                 vendor
                 productType
+                descriptionHtml
+                tags
+                category { id name fullName }
                 status
                 publishedAt
                 createdAt
                 updatedAt
-                variants {
-                  edges {
-                    node {
-                      id
-                      title
-                      barcode
-                      price
-                      compareAtPrice
-                      position
-                      taxable
-                      inventoryPolicy
-                      createdAt
-                      updatedAt
-                      inventoryItem {
+              }
+            }
+          }
+        }`,
+      );
+
+      const productUpsertFailureCount = blocks.catalog.failed;
+      const observedProductExternalIds = new Set<string>();
+      await forEachBulkResultBatch(bulkResult.url, UPSERT_BATCH_SIZE, async (batch) => {
+        const productRows = (batch as BulkProductLine[]).map((product) => ({
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          external_product_id: product.id,
+          title: product.title,
+          handle: product.handle ?? null,
+          vendor: product.vendor ?? null,
+          product_type: product.productType ?? null,
+          description_html: product.descriptionHtml ?? null,
+          tags: product.tags ?? [],
+          shopify_category_id: product.category?.id ?? null,
+          shopify_category_name: product.category?.fullName ?? product.category?.name ?? null,
+          metadata_coverage: "complete",
+          status: product.status ?? null,
+          published_at: product.publishedAt ?? null,
+          external_created_at: product.createdAt ?? null,
+          external_updated_at: product.updatedAt ?? null,
+        }));
+        blocks.catalog.read += productRows.length;
+        for (const product of productRows) {
+          observedProductExternalIds.add(product.external_product_id);
+        }
+        await upsertBlockRows(
+          supabase,
+          blocks.catalog,
+          "shopify_products",
+          productRows,
+          "store_id,external_product_id",
+        );
+      });
+      const productSnapshotComplete =
+        syncType !== "incremental" &&
+        blocks.catalog.failed === productUpsertFailureCount;
+
+      // Las variantes se exportan en una conexión raíz que también incluye
+      // productos sin cambios durante una sincronización incremental.
+      const syncedProductCount = observedProductExternalIds.size;
+
+      // En una importación completa, la ausencia en el bulk solo se considera
+      // borrado cuando la lectura y todos los upserts del snapshot acabaron.
+      // Nunca inferimos borrados durante un incremental o un bloque parcial.
+      if (productSnapshotComplete) {
+        for (let offset = 0; ; offset += UPSERT_BATCH_SIZE) {
+          const { data: productPage, error: productReadError } = await supabase
+            .from("shopify_products")
+            .select("id, external_product_id")
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .order("id", { ascending: true })
+            .range(offset, offset + UPSERT_BATCH_SIZE - 1);
+          if (productReadError) throw new Error(`shopify_product_reconcile_read_failed: ${productReadError.message}`);
+          const page = (productPage ?? []) as Array<{ id: string; external_product_id: string }>;
+          const staleBatch = page
+            .filter((product) => !observedProductExternalIds.has(product.external_product_id))
+            .map((product) => product.id);
+          if (staleBatch.length) {
+          const deletedAt = new Date().toISOString();
+          const { error } = await supabase
+            .from("shopify_products")
+            .update({ status: "DELETED", external_updated_at: deletedAt })
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .in("id", staleBatch);
+          if (error) throw new Error(`shopify_product_retire_failed: ${error.message}`);
+
+          const { error: variantError } = await supabase
+            .from("shopify_variants")
+            .update({ is_active: false })
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .in("product_id", staleBatch);
+          if (variantError) throw new Error(`shopify_product_variants_retire_failed: ${variantError.message}`);
+
+          for (let variantOffset = 0; ; variantOffset += 500) {
+            const { data, error: variantReadError } = await supabase
+              .from("shopify_variants")
+              .select("id")
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .in("product_id", staleBatch)
+              .range(variantOffset, variantOffset + 499);
+            if (variantReadError) throw new Error(`shopify_product_variant_read_failed: ${variantReadError.message}`);
+            const page = (data ?? []) as Array<{ id: string }>;
+            const variantIdBatch = page.map((variant) => variant.id);
+            for (const variantIds of chunk(variantIdBatch, 100)) {
+              const { error: parentBundleError } = await supabase
+                .from("shopify_product_bundle_components")
+                .update({ is_active: false, updated_at: deletedAt })
+                .eq("organization_id", connection.organization_id)
+                .eq("store_id", storeId)
+                .in("parent_variant_id", variantIds);
+              if (parentBundleError) throw new Error(`shopify_product_bundle_parent_retire_failed: ${parentBundleError.message}`);
+
+              const { error: componentBundleError } = await supabase
+                .from("shopify_product_bundle_components")
+                .update({ is_active: false, updated_at: deletedAt })
+                .eq("organization_id", connection.organization_id)
+                .eq("store_id", storeId)
+                .in("component_variant_id", variantIds);
+              if (componentBundleError) throw new Error(`shopify_product_bundle_component_retire_failed: ${componentBundleError.message}`);
+            }
+            if (page.length < 500) break;
+          }
+
+          const { error: mediaError } = await supabase
+            .from("shopify_product_media")
+            .update({ is_active: false, updated_at: deletedAt })
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .in("product_id", staleBatch);
+          if (mediaError) throw new Error(`shopify_product_media_retire_failed: ${mediaError.message}`);
+          }
+          if (page.length < UPSERT_BATCH_SIZE) break;
+        }
+      }
+
+      // Media es un subbloque independiente: un permiso/campo de galería que
+      // falte no debe impedir importar productos, variantes ni pedidos.
+      const mediaAttemptAt = new Date().toISOString();
+      try {
+        const coverage = await writeShopifyProductMediaCoverage({
+          supabase,
+          organizationId: connection.organization_id,
+          storeId,
+          status: "running",
+          attemptedAt: mediaAttemptAt,
+        });
+        if (!coverage.available) blocks.catalog.warning ??= "shopify_product_media_coverage_migration_pending";
+      } catch (coverageError) {
+        blocks.catalog.warning ??= "shopify_product_media_coverage_unavailable";
+        logger.error("Shopify product media coverage could not be marked running", {
+          connection_id: connectionId,
+          store_id: storeId,
+          error: coverageError instanceof Error ? coverageError.message : String(coverageError),
+        });
+      }
+      try {
+        accessToken = await getValidShopifyAccessToken(env, connectionId);
+        const mediaBulkResult = await runBulkOperation(
+          shopDomain,
+          accessToken,
+          `{
+            products${productsQueryFilter} {
+              edges {
+                node {
+                  id
+                  media {
+                    edges {
+                      node {
                         id
-                        sku
-                        tracked
-                        requiresShipping
-                        countryCodeOfOrigin
-                        provinceCodeOfOrigin
-                        harmonizedSystemCode
-                        unitCost { amount currencyCode }
-                        measurement { weight { value unit } }
-                        inventoryLevels {
-                          edges {
-                            node {
-                              id
-                              location { id name }
-                              quantities(names: ["available", "on_hand", "committed", "incoming"]) {
-                                id
-                                name
-                                quantity
-                              }
-                            }
-                          }
+                        mediaContentType
+                        ... on MediaImage {
+                          alt
+                          image { url width height }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+        );
+        let mediaProductsScanned = 0;
+        let mediaImagesScanned = 0;
+        let mediaProductReferencesMissing = 0;
+        await forEachBulkRootBatch(mediaBulkResult.url, 25, async (rootBatch) => {
+          const mediaProducts = rootBatch.map(({ root }) => root);
+          const productRefs = await selectAll<{ id: string; external_product_id: string }>(
+            supabase,
+            "shopify_products",
+            "id, external_product_id",
+            "external_product_id",
+            mediaProducts.map((product) => product.id),
+            connection.organization_id,
+            "store_id",
+            [storeId],
+          );
+          const productIdByExternalId = new Map(
+            productRefs.map((product) => [product.external_product_id, product.id]),
+          );
+          if (productIdByExternalId.size !== mediaProducts.length) {
+            mediaProductReferencesMissing += mediaProducts.length - productIdByExternalId.size;
+          }
+          const mediaByProductExternalId = new Map<string, BulkLine[]>();
+          for (const group of rootBatch) {
+            for (const [parentId, children] of group.childrenByParentId) {
+              mediaByProductExternalId.set(parentId, children);
+            }
+          }
+          const mediaSnapshot = buildShopifyProductMediaRows({
+            organizationId: connection.organization_id,
+            storeId,
+            syncedAt: new Date().toISOString(),
+            products: mediaProducts,
+            productIdByExternalId,
+            mediaByProductExternalId: mediaByProductExternalId as Map<
+              string,
+              ShopifyProductMediaLine[]
+            >,
+          });
+          mediaProductsScanned += mediaSnapshot.syncedProductIds.length;
+          mediaImagesScanned += mediaSnapshot.rows.length;
+          blocks.catalog.read += mediaSnapshot.rows.length;
+          await persistShopifyProductMediaSnapshot(
+            supabase,
+            storeId,
+            mediaSnapshot.syncedProductIds,
+            mediaSnapshot.rows,
+          );
+          blocks.catalog.written += mediaSnapshot.rows.length;
+        });
+        const fullMediaSnapshot = syncType !== "incremental";
+        const mediaCoverage = await writeShopifyProductMediaCoverage({
+          supabase,
+          organizationId: connection.organization_id,
+          storeId,
+          status: mediaProductReferencesMissing ? "partial" : "complete",
+          attemptedAt: new Date().toISOString(),
+          fullSnapshot: fullMediaSnapshot && mediaProductReferencesMissing === 0,
+          productsScanned: mediaProductsScanned,
+          imagesScanned: mediaImagesScanned,
+          errorCode: mediaProductReferencesMissing ? "shopify_media_product_reference_incomplete" : null,
+        });
+        if (!mediaCoverage.available) blocks.catalog.warning ??= "shopify_product_media_coverage_migration_pending";
+        if (mediaProductReferencesMissing) {
+          blocks.catalog.warning = "shopify_product_media_snapshot_partial: faltan referencias locales de producto; se conservaron imágenes anteriores";
+        }
+        logger.info("Shopify product media sync completed", {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          shop_domain: shopDomain,
+          products_synced: mediaProductsScanned,
+          images_synced: mediaImagesScanned,
+          products_without_local_reference: mediaProductReferencesMissing,
+          coverage_status: mediaCoverage.available ? mediaCoverage.status : "migration_pending",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "shopify_product_media_sync_failed";
+        blocks.catalog.failed += 1;
+        blocks.catalog.error = explainShopifyError(
+          message,
+          Array.isArray(connection.scopes) ? connection.scopes : [],
+        );
+        try {
+          const coverage = await writeShopifyProductMediaCoverage({
+            supabase,
+            organizationId: connection.organization_id,
+            storeId,
+            status: "failed",
+            attemptedAt: new Date().toISOString(),
+            errorCode: message.slice(0, 120),
+          });
+          if (!coverage.available) blocks.catalog.warning ??= "shopify_product_media_coverage_migration_pending";
+        } catch (coverageError) {
+          logger.error("Shopify product media failure coverage could not be saved", {
+            connection_id: connectionId,
+            store_id: storeId,
+            error: coverageError instanceof Error ? coverageError.message : String(coverageError),
+          });
+        }
+        logger.error("Shopify product media sync failed; base catalog remains available", {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          shop_domain: shopDomain,
+          error: message,
+        });
+      }
+
+      // La consulta por producto solo devuelve hasta 250 variantes por producto.
+      // Shopify ofrece productVariants como conexión raíz para exportar el catálogo
+      // completo, incluso cuando un producto supera ese tamaño.
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      const variantBulkResult = await runBulkOperation(
+        shopDomain,
+        accessToken,
+        `{
+          productVariants${variantsQueryFilter} {
+            edges {
+              node {
+                id
+                product { id }
+                title
+                selectedOptions { name value }
+                barcode
+                price
+                compareAtPrice
+                position
+                taxable
+                inventoryPolicy
+                createdAt
+                updatedAt
+                inventoryItem {
+                  id
+                  sku
+                  tracked
+                  requiresShipping
+                  countryCodeOfOrigin
+                  provinceCodeOfOrigin
+                  harmonizedSystemCode
+                  unitCost { amount currencyCode }
+                  measurement { weight { value unit } }
+                  inventoryLevels {
+                    edges {
+                      node {
+                        id
+                        location { id name }
+                        quantities(names: ["available", "on_hand", "committed", "incoming"]) {
+                          id
+                          name
+                          quantity
                         }
                       }
                     }
@@ -1209,253 +1830,532 @@ export async function runShopifyInitialSync(
           }
         }`,
       );
+      const variantUpsertFailureCount = blocks.catalog.failed;
+      const observedVariantIds = new Set<string>();
+      let exportedVariantCount = 0;
+      let mappedVariantCount = 0;
+      let inventoryItemCount = 0;
+      let inventoryLevelCount = 0;
+      await forEachBulkRootBatch(
+        variantBulkResult.url,
+        100,
+        async (rootBatch) => {
+          const variants = rootBatch.map((group) => group.root as BulkVariantLine);
+          const productExternalIds = [...new Set(variants.flatMap((variant) => variant.product?.id ? [variant.product.id] : []))];
+          const productRefs = await selectAll<{ id: string; external_product_id: string }>(
+            supabase,
+            "shopify_products",
+            "id, external_product_id",
+            "external_product_id",
+            productExternalIds,
+            connection.organization_id,
+            "store_id",
+            [storeId],
+          );
+          const productIdByExternalId = new Map(
+            productRefs.map((product) => [product.external_product_id, product.id]),
+          );
+          exportedVariantCount += variants.length;
+          const variantRows: Array<Record<string, unknown>> = [];
+          const variantByExternalId = new Map<string, {
+            variant: BulkVariantLine;
+            childrenByParentId: Map<string, BulkLine[]>;
+          }>();
+          for (let index = 0; index < rootBatch.length; index += 1) {
+            const group = rootBatch[index]!;
+            const variant = variants[index]!;
+            const externalProductId = variant.product?.id;
+            const productId = externalProductId ? productIdByExternalId.get(externalProductId) : null;
+            if (!productId) continue;
+            mappedVariantCount += 1;
+            observedVariantIds.add(variant.id);
+            variantByExternalId.set(variant.id, {
+              variant,
+              childrenByParentId: group.childrenByParentId,
+            });
+            const selectedOptions = (group.childrenByParentId.get(variant.id) ?? [])
+              .filter((line) => typeof line.name === "string" && typeof line.value === "string")
+              .map((line) => ({ name: line.name as string, value: line.value as string }));
+            const inlineSelectedOptions = (variant.selectedOptions ?? [])
+              .filter((option) => typeof option.name === "string" && option.name.trim() && typeof option.value === "string" && option.value.trim())
+              .map((option) => ({ name: option.name!.trim(), value: option.value!.trim() }));
+            variantRows.push({
+              organization_id: connection.organization_id,
+              store_id: storeId,
+              product_id: productId,
+              external_variant_id: variant.id,
+              title: variant.title ?? null,
+              selected_options: inlineSelectedOptions.length ? inlineSelectedOptions : selectedOptions,
+              barcode: variant.barcode ?? null,
+              current_price: variant.price ?? null,
+              compare_at_price: variant.compareAtPrice ?? null,
+              position: variant.position ?? null,
+              taxable: variant.taxable ?? null,
+              inventory_policy: variant.inventoryPolicy ?? null,
+              is_active: true,
+              external_created_at: variant.createdAt ?? null,
+              external_updated_at: variant.updatedAt ?? null,
+            });
+          }
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: productLines, childrenByParentId } =
-        groupBulkLinesByParent(lines);
+          blocks.catalog.read += variantRows.length;
+          await upsertBlockRows(
+            supabase,
+            blocks.catalog,
+            "shopify_variants",
+            variantRows,
+            "product_id,external_variant_id",
+          );
 
-      const productRows = (productLines as BulkProductLine[]).map(
-        (product) => ({
-          organization_id: connection.organization_id,
-          store_id: storeId,
-          external_product_id: product.id,
-          title: product.title,
-          handle: product.handle ?? null,
-          vendor: product.vendor ?? null,
-          product_type: product.productType ?? null,
-          status: product.status ?? null,
-          published_at: product.publishedAt ?? null,
-          external_created_at: product.createdAt ?? null,
-          external_updated_at: product.updatedAt ?? null,
-        }),
-      );
+          const variantRefs: Array<{ id: string; external_variant_id: string }> = [];
+          for (const variantBatch of chunk(variantRows, UPSERT_BATCH_SIZE)) {
+            const { data, error } = await supabase
+              .from("shopify_variants")
+              .select("id, external_variant_id")
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .in("product_id", [...new Set(variantBatch.map((row) => row.product_id as string))])
+              .in("external_variant_id", variantBatch.map((row) => row.external_variant_id as string));
+            if (error) throw new Error(`shopify_variant_reference_read_failed: ${error.message}`);
+            variantRefs.push(...((data ?? []) as typeof variantRefs));
+          }
+          if (variantRefs.length !== variantRows.length) {
+            blocks.catalog.failed += Math.max(0, variantRows.length - variantRefs.length);
+            blocks.catalog.error ??= "shopify_variant_reference_incomplete";
+          }
+          const variantIdByExternalId = new Map(
+            variantRefs.map((variant) => [variant.external_variant_id, variant.id]),
+          );
 
-      blocks.catalog.read += productRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.catalog,
-        "shopify_products",
-        productRows,
-        "store_id,external_product_id",
-      );
+          const inventoryRows: Array<Record<string, unknown>> = [];
+          const inventorySnapshotRows: Array<Record<string, unknown>> = [];
+          for (const { variant, childrenByParentId } of variantByExternalId.values()) {
+            const variantId = variantIdByExternalId.get(variant.id);
+            const inventoryItem = variant.inventoryItem;
+            if (!variantId || !inventoryItem) continue;
+            inventoryRows.push({
+              organization_id: connection.organization_id,
+              store_id: storeId,
+              variant_id: variantId,
+              external_inventory_item_id: inventoryItem.id,
+              sku: inventoryItem.sku ?? null,
+              tracked: inventoryItem.tracked ?? false,
+              requires_shipping: inventoryItem.requiresShipping ?? true,
+              country_code_of_origin: inventoryItem.countryCodeOfOrigin ?? null,
+              province_code_of_origin: inventoryItem.provinceCodeOfOrigin ?? null,
+              harmonized_system_code: inventoryItem.harmonizedSystemCode ?? null,
+              current_unit_cost: inventoryItem.unitCost?.amount ?? null,
+              cost_currency_code: inventoryItem.unitCost?.currencyCode ?? null,
+              measurement_data: inventoryItem.measurement ?? null,
+              external_updated_at: new Date().toISOString(),
+            });
+            for (const level of (childrenByParentId.get(inventoryItem.id) ?? []) as BulkInventoryLevelLine[]) {
+              const quantities = level.quantities ?? [];
+              const quantityMap = Object.fromEntries(quantities.map((quantity) => [quantity.name, quantity.quantity])) as Record<string, number>;
+              const locationId = locationMap.get(level.location.id);
+              if (!locationId) continue;
+              inventorySnapshotRows.push({
+                organization_id: connection.organization_id,
+                external_inventory_item_id: inventoryItem.id,
+                location_id: locationId,
+                external_inventory_level_id: level.id,
+                available_quantity: quantityMap.available ?? null,
+                on_hand_quantity: quantityMap.on_hand ?? null,
+                committed_quantity: quantityMap.committed ?? null,
+                incoming_quantity: quantityMap.incoming ?? null,
+                quantities_data: quantityMap,
+                is_active: true,
+                updated_at: new Date().toISOString(),
+              });
+            }
+          }
 
-      const productRefs = await selectAll<{
-        id: string;
-        external_product_id: string;
-      }>(
-        supabase,
-        "shopify_products",
-        "id, external_product_id",
-        "external_product_id",
-        productRows.map((row) => row.external_product_id),
-      );
-      const productMap = new Map(
-        productRefs.map((product) => [product.external_product_id, product.id]),
-      );
-
-      if (productLines.length && !childrenByParentId.size) {
-        logger.error(
-          "Shopify bulk grouping produced zero child lines for a non-empty product export",
-          {
-            connection_id: connectionId,
-            organization_id: connection.organization_id,
-            shop_domain: shopDomain,
-            product_lines: productLines.length,
-            total_lines: lines.length,
+          inventoryItemCount += inventoryRows.length;
+          inventoryLevelCount += inventorySnapshotRows.length;
+          blocks.inventory.read += inventoryRows.length;
+          await upsertBlockRows(
+            supabase,
+            blocks.inventory,
+            "shopify_inventory_items",
+            inventoryRows,
+            "store_id,external_inventory_item_id",
+          );
+          const inventoryRefs = await selectAll<{ id: string; external_inventory_item_id: string }>(
+            supabase,
+            "shopify_inventory_items",
+            "id, external_inventory_item_id",
+            "external_inventory_item_id",
+            inventoryRows.map((row) => row.external_inventory_item_id as string),
+            connection.organization_id,
+            "store_id",
+            [storeId],
+          );
+          if (inventoryRefs.length !== inventoryRows.length) {
+            blocks.inventory.failed += Math.max(0, inventoryRows.length - inventoryRefs.length);
+            blocks.inventory.error ??= "shopify_inventory_item_reference_incomplete";
+          }
+          const inventoryMap = new Map(inventoryRefs.map((item) => [item.external_inventory_item_id, item.id]));
+          const resolvedSnapshotRows = inventorySnapshotRows.flatMap((row) => {
+            const externalInventoryItemId = row.external_inventory_item_id as string;
+            const inventoryItemId = inventoryMap.get(externalInventoryItemId);
+            if (!inventoryItemId) return [];
+            const { external_inventory_item_id: _externalInventoryItemId, ...snapshotRow } = row;
+            return [{ ...snapshotRow, inventory_item_id: inventoryItemId }];
+          });
+          if (resolvedSnapshotRows.length !== inventorySnapshotRows.length) {
+            blocks.inventory.failed += Math.max(0, inventorySnapshotRows.length - resolvedSnapshotRows.length);
+            blocks.inventory.error ??= "shopify_inventory_snapshot_reference_incomplete";
+          }
+          blocks.inventory.read += resolvedSnapshotRows.length;
+          await upsertBlockRows(
+            supabase,
+            blocks.inventory,
+            "shopify_inventory_current_state",
+            resolvedSnapshotRows,
+            "inventory_item_id,location_id",
+          );
+        },
+        {
+          inlineParentIds: (line) => {
+            const inventoryItem = (line as BulkVariantLine).inventoryItem;
+            return inventoryItem?.id ? [inventoryItem.id] : [];
           },
-        );
-      }
+        },
+      );
 
-      const variantLines: Array<{
-        productId: string;
-        variant: BulkVariantLine;
-      }> = [];
-      for (const product of productLines as BulkProductLine[]) {
-        const productId = productMap.get(product.id);
-        if (!productId) {
-          continue;
-        }
-        for (const variant of (childrenByParentId.get(product.id) ??
-          []) as BulkVariantLine[]) {
-          variantLines.push({ productId, variant });
-        }
-      }
-
-      if (productMap.size && !variantLines.length) {
+      if (syncedProductCount && !exportedVariantCount) {
         logger.error(
           "Shopify bulk grouping found no variants for any synced product - __parentId matching likely broke",
           {
             connection_id: connectionId,
             organization_id: connection.organization_id,
             shop_domain: shopDomain,
-            products_synced: productMap.size,
+            products_synced: syncedProductCount,
           },
         );
       }
+      const variantSnapshotComplete =
+        syncType !== "incremental" &&
+        mappedVariantCount === exportedVariantCount &&
+        blocks.catalog.failed === variantUpsertFailureCount;
 
-      const variantRows = variantLines.map(({ productId, variant }) => ({
-        organization_id: connection.organization_id,
-        product_id: productId,
-        external_variant_id: variant.id,
-        title: variant.title ?? null,
-        barcode: variant.barcode ?? null,
-        current_price: variant.price ?? null,
-        compare_at_price: variant.compareAtPrice ?? null,
-        position: variant.position ?? null,
-        taxable: variant.taxable ?? null,
-        inventory_policy: variant.inventoryPolicy ?? null,
-        is_active: true,
-        external_created_at: variant.createdAt ?? null,
-        external_updated_at: variant.updatedAt ?? null,
-      }));
+      if (variantSnapshotComplete) {
+        for (let offset = 0; ; offset += UPSERT_BATCH_SIZE) {
+          const { data: variantPage, error: variantReadError } = await supabase
+            .from("shopify_variants")
+            .select("id, external_variant_id")
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .order("id", { ascending: true })
+            .range(offset, offset + UPSERT_BATCH_SIZE - 1);
+          if (variantReadError) throw new Error(`shopify_variant_reconcile_read_failed: ${variantReadError.message}`);
+          const page = (variantPage ?? []) as Array<{ id: string; external_variant_id: string }>;
+          const staleBatch = page
+            .filter((variant) => !observedVariantIds.has(variant.external_variant_id))
+            .map((variant) => variant.id);
+          if (staleBatch.length) {
+          const { error } = await supabase
+            .from("shopify_variants")
+            .update({ is_active: false })
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .in("id", staleBatch);
+          if (error) throw new Error(`shopify_variant_retire_failed: ${error.message}`);
 
-      blocks.catalog.read += variantRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.catalog,
-        "shopify_variants",
-        variantRows,
-        "product_id,external_variant_id",
-      );
+          for (const variantIdBatch of chunk(staleBatch, 100)) {
+            const { error: parentBundleError } = await supabase
+              .from("shopify_product_bundle_components")
+              .update({ is_active: false, updated_at: new Date().toISOString() })
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .in("parent_variant_id", variantIdBatch);
+            if (parentBundleError) throw new Error(`shopify_variant_bundle_parent_retire_failed: ${parentBundleError.message}`);
 
-      const variantRefs = await selectAll<{
-        id: string;
-        external_variant_id: string;
-      }>(
-        supabase,
-        "shopify_variants",
-        "id, external_variant_id",
-        "external_variant_id",
-        variantRows.map((row) => row.external_variant_id),
-      );
-      const variantMap = new Map(
-        variantRefs.map((variant) => [variant.external_variant_id, variant.id]),
-      );
-
-      const inventoryRows: Array<Record<string, unknown>> = [];
-      const inventorySnapshotRows: Array<Record<string, unknown>> = [];
-
-      for (const { variant } of variantLines) {
-        const variantId = variantMap.get(variant.id);
-        if (!variantId || !variant.inventoryItem) {
-          continue;
-        }
-
-        inventoryRows.push({
-          organization_id: connection.organization_id,
-          variant_id: variantId,
-          external_inventory_item_id: variant.inventoryItem.id,
-          sku: variant.inventoryItem.sku ?? null,
-          tracked: variant.inventoryItem.tracked ?? false,
-          requires_shipping: variant.inventoryItem.requiresShipping ?? true,
-          country_code_of_origin:
-            variant.inventoryItem.countryCodeOfOrigin ?? null,
-          province_code_of_origin:
-            variant.inventoryItem.provinceCodeOfOrigin ?? null,
-          harmonized_system_code:
-            variant.inventoryItem.harmonizedSystemCode ?? null,
-          current_unit_cost: variant.inventoryItem.unitCost?.amount ?? null,
-          cost_currency_code:
-            variant.inventoryItem.unitCost?.currencyCode ?? null,
-          measurement_data: variant.inventoryItem.measurement ?? null,
-          external_updated_at: new Date().toISOString(),
-        });
-
-        for (const level of (childrenByParentId.get(variant.inventoryItem.id) ??
-          []) as BulkInventoryLevelLine[]) {
-          const quantities = level.quantities ?? [];
-          const quantityMap = Object.fromEntries(
-            quantities.map((quantity) => [quantity.name, quantity.quantity]),
-          ) as Record<string, number>;
-
-          const locationId = locationMap.get(level.location.id);
-          if (!locationId) {
-            continue;
+            const { error: componentBundleError } = await supabase
+              .from("shopify_product_bundle_components")
+              .update({ is_active: false, updated_at: new Date().toISOString() })
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .in("component_variant_id", variantIdBatch);
+            if (componentBundleError) throw new Error(`shopify_variant_bundle_component_retire_failed: ${componentBundleError.message}`);
           }
-
-          inventorySnapshotRows.push({
-            organization_id: connection.organization_id,
-            external_inventory_item_id: variant.inventoryItem.id,
-            location_id: locationId,
-            external_inventory_level_id: level.id,
-            available_quantity: quantityMap.available ?? null,
-            on_hand_quantity: quantityMap.on_hand ?? null,
-            committed_quantity: quantityMap.committed ?? null,
-            incoming_quantity: quantityMap.incoming ?? null,
-            quantities_data: quantityMap,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          });
+          }
+          if (page.length < UPSERT_BATCH_SIZE) break;
         }
       }
 
-      if (
-        inventoryRows.length &&
-        locationMap.size &&
-        !inventorySnapshotRows.length
-      ) {
+      // Los packs nativos de Shopify exponen su composicion por variante.
+      // Solo se guardan relaciones confirmadas por la API; el nombre del
+      // producto nunca se usa para inferir componentes.
+      try {
+        accessToken = await getValidShopifyAccessToken(env, connectionId);
+        const bundleBulkResult = await runBulkOperation(
+          shopDomain,
+          accessToken,
+          `{
+            productVariants {
+              edges {
+                node {
+                  id
+                  requiresComponents
+                  productVariantComponents {
+                    edges {
+                      node {
+                        id
+                        quantity
+                        productVariant { id }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+        );
+        const bundleSnapshotAt = new Date().toISOString();
+        let bundleVariantsScanned = 0;
+        let requiredBundleVariantsCount = 0;
+        let bundleComponentsWritten = 0;
+        let unresolvedComponents = 0;
+        await forEachBulkRootBatch(bundleBulkResult.url, 100, async (rootBatch) => {
+          const bundleVariants = rootBatch.map(({ root }) => root as BulkBundleParentVariantLine);
+          const rootGroupByExternalId = new Map(rootBatch.map((group) => [group.root.id, group]));
+          const requiredBundleVariants = bundleVariants.filter((variant) => variant.requiresComponents === true);
+          bundleVariantsScanned += bundleVariants.length;
+          requiredBundleVariantsCount += requiredBundleVariants.length;
+          const externalVariantIds = new Set<string>();
+          for (const parent of requiredBundleVariants) {
+            externalVariantIds.add(parent.id);
+            const components = (rootGroupByExternalId.get(parent.id)?.childrenByParentId.get(parent.id) ?? []) as BulkBundleComponentLine[];
+            for (const component of components) {
+              if (component.productVariant?.id) externalVariantIds.add(component.productVariant.id);
+            }
+          }
+          const localVariantRefs = await selectAll<{ id: string; external_variant_id: string }>(
+            supabase,
+            "shopify_variants",
+            "id, external_variant_id",
+            "external_variant_id",
+            [...externalVariantIds],
+            connection.organization_id,
+            "store_id",
+            [storeId],
+          );
+          const localVariantIdByExternalId = new Map(
+            localVariantRefs.map((variant) => [variant.external_variant_id, variant.id]),
+          );
+          const bundleRowsByKey = new Map<string, Record<string, unknown>>();
+
+          for (const parent of requiredBundleVariants) {
+            const components = (rootGroupByExternalId.get(parent.id)?.childrenByParentId.get(parent.id) ?? []) as BulkBundleComponentLine[];
+            if (!components.length) unresolvedComponents += 1;
+            const parentVariantId = localVariantIdByExternalId.get(parent.id);
+            if (!parentVariantId) {
+              unresolvedComponents += Math.max(components.length, 1);
+              continue;
+            }
+
+            for (const component of components) {
+              const externalComponentVariantId = component.productVariant?.id;
+              if (!externalComponentVariantId) {
+                unresolvedComponents += 1;
+                continue;
+              }
+              const componentVariantId = localVariantIdByExternalId.get(externalComponentVariantId) ?? null;
+              if (!componentVariantId) unresolvedComponents += 1;
+              bundleRowsByKey.set(
+                `${parent.id}\u0000${externalComponentVariantId}`,
+                {
+                  organization_id: connection.organization_id,
+                  store_id: storeId,
+                  parent_variant_id: parentVariantId,
+                  component_variant_id: componentVariantId,
+                  external_parent_variant_id: parent.id,
+                  external_component_variant_id: externalComponentVariantId,
+                  component_quantity: Math.max(1, component.quantity ?? 1),
+                  verification_status: componentVariantId ? "confirmed" : "unresolved_component",
+                  is_active: true,
+                  last_seen_at: bundleSnapshotAt,
+                },
+              );
+            }
+          }
+
+          const bundleRows = [...bundleRowsByKey.values()];
+          for (const batch of chunk(bundleRows, UPSERT_BATCH_SIZE)) {
+            const { error } = await supabase
+              .from("shopify_product_bundle_components")
+              .upsert(batch, {
+                onConflict: "store_id,external_parent_variant_id,external_component_variant_id",
+              });
+            if (error) throw new Error(`shopify_bundle_components_upsert_failed: ${error.message}`);
+          }
+          bundleComponentsWritten += bundleRows.length;
+        });
+
+        // Una lectura parcial o con referencias sin resolver no puede retirar
+        // relaciones previas: la ausencia de una fila no prueba que el pack
+        // haya cambiado en Shopify.
+        const bundleSnapshotComplete = unresolvedComponents === 0;
+        if (bundleSnapshotComplete) {
+          const { error } = await supabase
+            .from("shopify_product_bundle_components")
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .eq("is_active", true)
+            .neq("last_seen_at", bundleSnapshotAt);
+          if (error) throw new Error(`shopify_bundle_components_retire_failed: ${error.message}`);
+        }
+
+        const status = unresolvedComponents > 0 ? "partial" : "complete";
+        const { error: coverageError } = await supabase
+          .from("shopify_bundle_sync_coverage")
+          .upsert(
+            {
+              organization_id: connection.organization_id,
+              store_id: storeId,
+              status,
+              variants_scanned: bundleVariantsScanned,
+              bundle_variants_count: requiredBundleVariantsCount,
+              components_count: bundleComponentsWritten,
+              unresolved_components_count: unresolvedComponents,
+              last_synced_at: new Date().toISOString(),
+              error_code: null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "store_id" },
+          );
+        if (coverageError) throw new Error(`shopify_bundle_coverage_upsert_failed: ${coverageError.message}`);
+
+        blocks.catalog.read += bundleVariantsScanned + bundleComponentsWritten;
+        blocks.catalog.written += bundleComponentsWritten;
+        if (status === "partial") {
+          blocks.catalog.warning = "shopify_bundle_coverage_partial: faltan referencias de componentes confirmadas en Shopify.";
+        }
+        logger.info("Shopify native bundle sync completed", {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          variants_scanned: bundleVariantsScanned,
+          bundle_variants: requiredBundleVariantsCount,
+          components_written: bundleComponentsWritten,
+          unresolved_components: unresolvedComponents,
+          coverage_status: status,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "shopify_bundle_sync_failed";
+        blocks.catalog.failed += 1;
+        blocks.catalog.error = message;
+        await supabase
+          .from("shopify_bundle_sync_coverage")
+          .upsert(
+            {
+              organization_id: connection.organization_id,
+              store_id: storeId,
+              status: "failed",
+              variants_scanned: 0,
+              bundle_variants_count: 0,
+              components_count: 0,
+              unresolved_components_count: 0,
+              last_synced_at: new Date().toISOString(),
+              error_code: message.slice(0, 120),
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "store_id" },
+          );
+        logger.error("Shopify native bundle sync failed; coverage is not complete", {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          error: message,
+        });
+      }
+
+      // Shopify sustituyo ProductVariant.image por media. Se consulta aparte
+      // para que el permiso de archivos no aumente la superficie de fallo del
+      // bulk principal de catálogo e inventario.
+      try {
+        accessToken = await getValidShopifyAccessToken(env, connectionId);
+        const variantMediaResult = await runBulkOperation(
+          shopDomain,
+          accessToken,
+          `{
+            productVariants${variantsQueryFilter} {
+              edges {
+                node {
+                  id
+                  media {
+                    edges {
+                      node { id mediaContentType }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+        );
+        await forEachBulkRootBatch(variantMediaResult.url, UPSERT_BATCH_SIZE, async (rootBatch) => {
+          const externalVariantIds = rootBatch.map(({ root }) => root.id);
+          const { data: variantRefs, error: variantRefsError } = await supabase
+            .from("shopify_variants")
+            .select("id, external_variant_id")
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .in("external_variant_id", externalVariantIds);
+          if (variantRefsError) throw new Error(`shopify_variant_reference_read_failed: ${variantRefsError.message}`);
+          const variantIdByExternalId = new Map(
+            ((variantRefs ?? []) as Array<{ id: string; external_variant_id: string }>)
+              .map((variant) => [variant.external_variant_id, variant.id]),
+          );
+          const variantImageRows = rootBatch.flatMap(({ root, childrenByParentId }) => {
+            const localVariantId = variantIdByExternalId.get(root.id);
+            if (!localVariantId) return [];
+            const image = childrenByParentId
+              .get(root.id)
+              ?.find((media) => media.mediaContentType === "IMAGE");
+            return [{ id: localVariantId, external_image_id: image?.id ?? null }];
+          });
+          if (!variantImageRows.length) return;
+          await mapWithConcurrency(variantImageRows, 8, async (row) => {
+            const { error } = await supabase
+              .from("shopify_variants")
+              .update({ external_image_id: row.external_image_id })
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .eq("id", row.id);
+            if (error) {
+              throw new Error(`shopify_variant_media_update_failed: ${error.message}`);
+            }
+          });
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "shopify_variant_media_sync_failed";
+        blocks.catalog.failed += 1;
+        blocks.catalog.error = explainShopifyError(
+          message,
+          Array.isArray(connection.scopes) ? connection.scopes : [],
+        );
+        logger.error("Shopify variant media sync failed; products and variants remain available", {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          shop_domain: shopDomain,
+          error: message,
+        });
+      }
+
+      if (inventoryItemCount && locationMap.size && !inventoryLevelCount) {
         logger.error(
           "Shopify bulk grouping found no inventory levels despite tracked items and known locations",
           {
             connection_id: connectionId,
             organization_id: connection.organization_id,
             shop_domain: shopDomain,
-            inventory_items: inventoryRows.length,
+            inventory_items: inventoryItemCount,
             locations_known: locationMap.size,
           },
         );
       }
-
-      blocks.inventory.read += inventoryRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.inventory,
-        "shopify_inventory_items",
-        inventoryRows,
-        "external_inventory_item_id",
-      );
-
-      const inventoryRefs = await selectAll<{
-        id: string;
-        external_inventory_item_id: string;
-      }>(
-        supabase,
-        "shopify_inventory_items",
-        "id, external_inventory_item_id",
-        "external_inventory_item_id",
-        inventoryRows.map((row) => row.external_inventory_item_id as string),
-      );
-      const inventoryMap = new Map(
-        inventoryRefs.map((item) => [item.external_inventory_item_id, item.id]),
-      );
-
-      const resolvedSnapshotRows = inventorySnapshotRows
-        .map((row) => {
-          const externalInventoryItemId =
-            typeof row.external_inventory_item_id === "string"
-              ? row.external_inventory_item_id
-              : null;
-          const inventoryItemId = externalInventoryItemId
-            ? inventoryMap.get(externalInventoryItemId)
-            : null;
-          const {
-            external_inventory_item_id: _externalInventoryItemId,
-            ...snapshotRow
-          } = row;
-          return inventoryItemId
-            ? { ...snapshotRow, inventory_item_id: inventoryItemId }
-            : null;
-        })
-        .filter(Boolean) as Array<Record<string, unknown>>;
-
-      blocks.inventory.read += resolvedSnapshotRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.inventory,
-        "shopify_inventory_current_state",
-        resolvedSnapshotRows,
-        "inventory_item_id,location_id",
-      );
 
       logger.info("Shopify catalog and inventory bulk sync completed", {
         connection_id: connectionId,
@@ -1530,15 +2430,27 @@ export async function runShopifyInitialSync(
                   estimatedDeliveryAt
                   trackingInfo { company number }
                 }
-                discountApplications(first: 10) {
+                discountApplications {
                   edges {
                     node {
+                      index
                       allocationMethod
                       targetType
                       ... on DiscountCodeApplication { code }
                       ... on ManualDiscountApplication { title }
                       ... on ScriptDiscountApplication { title }
                       ... on AutomaticDiscountApplication { title }
+                    }
+                  }
+                }
+                shippingLines {
+                  edges {
+                    node {
+                      id
+                      discountAllocations {
+                        allocatedAmountSet { shopMoney { amount currencyCode } }
+                        discountApplication { index }
+                      }
                     }
                   }
                 }`
@@ -1576,9 +2488,10 @@ export async function runShopifyInitialSync(
                       quantity
                       currentQuantity
                       variant { id }
+                      lineItemGroup { id productId variantId quantity title }
                       originalUnitPriceSet { shopMoney { amount } }
-                      discountedTotalSet { shopMoney { amount } }
                       originalTotalSet { shopMoney { amount } }
+                      ${withExtras ? "priceAfterAllDiscountsBeforeTaxesSet { shopMoney { amount } } discountAllocations { allocatedAmountSet { shopMoney { amount currencyCode } } discountApplication { index } }" : ""}
                     }
                   }
                 }
@@ -1606,9 +2519,16 @@ export async function runShopifyInitialSync(
             ),
         );
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: orderLines, childrenByParentId } =
-        groupBulkLinesByParent(lines);
+      let ordersResolved = 0;
+      let lineItemsScanned = 0;
+      await forEachBulkRootBatch(bulkResult.url, 25, async (rootBatch) => {
+      const orderLines = rootBatch.map(({ root }) => root);
+      const childrenByParentId = new Map<string, BulkLine[]>();
+      for (const group of rootBatch) {
+        for (const [parentId, children] of group.childrenByParentId) {
+          childrenByParentId.set(parentId, children);
+        }
+      }
 
       const orderRows = (orderLines as BulkOrderLine[]).map((order) => {
       const journey = order.customerJourneySummary;
@@ -1722,10 +2642,28 @@ export async function runShopifyInitialSync(
         "id, external_order_id",
         "external_order_id",
         orderRows.map((row) => row.external_order_id),
+        connection.organization_id,
+        "store_id",
+        [storeId],
       );
       const orderMap = new Map(
         orderRefs.map((order) => [order.external_order_id, order.id]),
       );
+      ordersResolved += orderMap.size;
+      const unresolvedOrderCount = orderRows.filter(
+        (row) => !orderMap.has(row.external_order_id),
+      ).length;
+      if (unresolvedOrderCount) {
+        blocks.orders.failed += unresolvedOrderCount;
+        blocks.orders.error = "shopify_order_reference_incomplete";
+        logger.error("Shopify orders were not all available for relationship sync", {
+          connection_id: connectionId,
+          store_id: storeId,
+          orders_in_batch: orderRows.length,
+          orders_resolved: orderMap.size,
+          orders_missing: unresolvedOrderCount,
+        });
+      }
 
       const lineItemsByOrderId: Array<{
         orderId: string;
@@ -1735,6 +2673,11 @@ export async function runShopifyInitialSync(
         orderId: string;
         application: BulkDiscountApplicationLine;
       }> = [];
+      const discountAllocationsByOrderAndIndex = new Map<string, number>();
+      const allocationGroupsByOrderId = new Map<
+        string,
+        Array<Array<ShopifyDiscountAllocation> | null | undefined>
+      >();
       for (const order of orderLines as BulkOrderLine[]) {
         const orderId = orderMap.get(order.id);
         if (!orderId) {
@@ -1747,25 +2690,26 @@ export async function runShopifyInitialSync(
         for (const child of childrenByParentId.get(order.id) ?? []) {
           if (isLineItemChild(child)) {
             lineItemsByOrderId.push({ orderId, lineItem: child });
+            const groups = allocationGroupsByOrderId.get(orderId) ?? [];
+            groups.push(child.discountAllocations);
+            allocationGroupsByOrderId.set(orderId, groups);
           } else if (isDiscountApplicationChild(child)) {
             discountApplicationsByOrderId.push({
               orderId,
               application: child,
             });
+          } else if (isShippingLineChild(child)) {
+            const groups = allocationGroupsByOrderId.get(orderId) ?? [];
+            groups.push(child.discountAllocations);
+            allocationGroupsByOrderId.set(orderId, groups);
           }
         }
-      }
-
-      if (orderMap.size && !lineItemsByOrderId.length) {
-        logger.error(
-          "Shopify bulk grouping found no line items for any synced order - __parentId matching likely broke",
-          {
-            connection_id: connectionId,
-            organization_id: connection.organization_id,
-            shop_domain: shopDomain,
-            orders_synced: orderMap.size,
-          },
+        const allocationsByIndex = aggregateShopifyDiscountAllocations(
+          allocationGroupsByOrderId.get(orderId) ?? [],
         );
+        for (const [index, amount] of allocationsByIndex) {
+          discountAllocationsByOrderAndIndex.set(`${orderId}:${index}`, amount);
+        }
       }
 
       const lineItemVariantRefs = await selectAll<{
@@ -1784,6 +2728,9 @@ export async function runShopifyInitialSync(
               .filter((id): id is string => Boolean(id)),
           ),
         ],
+        connection.organization_id,
+        "store_id",
+        [storeId],
       );
       const lineItemVariantMap = new Map(
         lineItemVariantRefs.map((variant) => [
@@ -1796,6 +2743,8 @@ export async function runShopifyInitialSync(
         const matchedVariant = lineItem.variant?.id
           ? lineItemVariantMap.get(lineItem.variant.id)
           : null;
+        const bundleGroup = lineItem.lineItemGroup;
+        const bundleGroupWasRead = "lineItemGroup" in lineItem;
 
         return {
           organization_id: connection.organization_id,
@@ -1814,16 +2763,57 @@ export async function runShopifyInitialSync(
           original_line_total: normalizeMoney(
             lineItem.originalTotalSet?.shopMoney?.amount,
           ),
-          discount_total: normalizeMoney(
-            lineItem.discountedTotalSet?.shopMoney?.amount,
+          // Shopify's discountedTotalSet is a post-discount price, not the
+          // discount amount. Use the actual allocations to keep this column
+          // consistent with REST webhooks and the margin RPC.
+          discount_total: sumShopifyLineDiscountAllocations(
+            lineItem.discountAllocations,
           ),
           current_line_total: normalizeMoney(
             lineItem.originalTotalSet?.shopMoney?.amount,
           ),
-          refunded_quantity: 0,
-          refunded_amount: 0,
+          ...(bundleGroupWasRead
+            ? !bundleGroup
+              ? {
+                  bundle_group_coverage: "not_bundle",
+                  bundle_group_id: null,
+                  bundle_parent_title: null,
+                  bundle_parent_external_product_id: null,
+                  bundle_parent_external_variant_id: null,
+                  bundle_parent_quantity: null,
+                }
+              : {
+                  bundle_group_coverage:
+                    bundleGroup.id &&
+                    bundleGroup.title &&
+                    typeof bundleGroup.quantity === "number" &&
+                    bundleGroup.quantity > 0
+                      ? "confirmed"
+                      : "partial",
+                  bundle_group_id: bundleGroup.id ?? null,
+                  bundle_parent_title: bundleGroup.title ?? null,
+                  bundle_parent_external_product_id: bundleGroup.productId ?? null,
+                  bundle_parent_external_variant_id: bundleGroup.variantId ?? null,
+                  bundle_parent_quantity:
+                    typeof bundleGroup.quantity === "number" && bundleGroup.quantity > 0
+                      ? bundleGroup.quantity
+                      : null,
+                }
+            : {}),
+          ...(extrasIncluded &&
+          typeof lineItem.currentQuantity === "number" &&
+          lineItem.priceAfterAllDiscountsBeforeTaxesSet?.shopMoney?.amount != null
+            ? {
+                net_quantity: lineItem.currentQuantity,
+                net_revenue: normalizeMoney(
+                  lineItem.priceAfterAllDiscountsBeforeTaxesSet.shopMoney.amount,
+                ),
+                net_metrics_source: "shopify_graphql_exact",
+              }
+            : {}),
         };
       });
+      lineItemsScanned += orderItemRows.length;
 
       blocks.orders.read += orderItemRows.length;
       await upsertBlockRows(
@@ -1843,10 +2833,27 @@ export async function runShopifyInitialSync(
         "id, external_line_item_id",
         "external_line_item_id",
         orderItemRows.map((row) => row.external_line_item_id),
+        connection.organization_id,
+        "order_id",
+        [...new Set(orderItemRows.map((row) => row.order_id as string))],
       );
       const orderItemMap = new Map(
         orderItemRefs.map((item) => [item.external_line_item_id, item.id]),
       );
+      const unresolvedOrderItemCount = orderItemRows.filter(
+        (row) => !orderItemMap.has(row.external_line_item_id),
+      ).length;
+      if (unresolvedOrderItemCount) {
+        blocks.orders.failed += unresolvedOrderItemCount;
+        blocks.orders.error = "shopify_order_item_reference_incomplete";
+        logger.error("Shopify order lines were not all available for refund relationships", {
+          connection_id: connectionId,
+          store_id: storeId,
+          line_items_in_batch: orderItemRows.length,
+          line_items_resolved: orderItemMap.size,
+          line_items_missing: unresolvedOrderItemCount,
+        });
+      }
 
       const refundsByOrderId: Array<{
         orderId: string;
@@ -1898,15 +2905,34 @@ export async function runShopifyInitialSync(
         "id, external_refund_id",
         "external_refund_id",
         refundRows.map((row) => row.external_refund_id),
+        connection.organization_id,
+        "order_id",
+        [...new Set(refundRows.map((row) => row.order_id as string))],
       );
       const refundMap = new Map(
         refundRefs.map((refund) => [refund.external_refund_id, refund.id]),
       );
+      const unresolvedRefundCount = refundRows.filter(
+        (row) => !refundMap.has(row.external_refund_id as string),
+      ).length;
+      if (unresolvedRefundCount) {
+        blocks.refunds.failed += unresolvedRefundCount;
+        blocks.refunds.error = "shopify_refund_reference_incomplete";
+        logger.error("Shopify refunds were not all available for line relationships", {
+          connection_id: connectionId,
+          store_id: storeId,
+          refunds_in_batch: refundRows.length,
+          refunds_resolved: refundMap.size,
+          refunds_missing: unresolvedRefundCount,
+        });
+      }
 
       const refundItemRows: Array<Record<string, unknown>> = [];
+      let unresolvedRefundLineItemCount = 0;
       for (const { refund } of refundsByOrderId) {
         const refundId = refundMap.get(refund.id);
         if (!refundId) {
+          unresolvedRefundLineItemCount += (childrenByParentId.get(refund.id) ?? []).length;
           continue;
         }
 
@@ -1916,6 +2942,7 @@ export async function runShopifyInitialSync(
             ? orderItemMap.get(refundLineItem.lineItem.id)
             : null;
           if (!lineItemId) {
+            unresolvedRefundLineItemCount += 1;
             continue;
           }
 
@@ -1935,6 +2962,16 @@ export async function runShopifyInitialSync(
             restock_type: null,
           });
         }
+      }
+
+      if (unresolvedRefundLineItemCount) {
+        blocks.refunds.failed += unresolvedRefundLineItemCount;
+        blocks.refunds.error = "shopify_refund_line_item_reference_incomplete";
+        logger.error("Shopify refund lines were omitted because their local references were missing", {
+          connection_id: connectionId,
+          store_id: storeId,
+          refund_lines_missing: unresolvedRefundLineItemCount,
+        });
       }
 
       if (refundMap.size && !refundItemRows.length) {
@@ -2037,6 +3074,7 @@ export async function runShopifyInitialSync(
 
           return {
             organization_id: connection.organization_id,
+            store_id: storeId,
             order_id: orderId,
             // El enlace a `shopify_discounts` lo pone el bloque de promociones,
             // que es quien conoce los ids. Aqui se guarda el texto, que es lo
@@ -2045,7 +3083,16 @@ export async function runShopifyInitialSync(
             title: application.title ?? null,
             allocation_method: application.allocationMethod ?? null,
             target_type: application.targetType ?? null,
-            amount: 0,
+            amount:
+              application.index == null
+                ? 0
+                : discountAllocationsByOrderAndIndex.get(
+                    `${orderId}:${application.index}`,
+                  ) ?? 0,
+            amount_coverage:
+              !extrasIncluded || application.index == null
+                ? "unavailable"
+                : "complete",
             position,
           };
         },
@@ -2073,6 +3120,19 @@ export async function runShopifyInitialSync(
         discountApplicationRows,
         "order_id,position",
       );
+      });
+
+      if (ordersResolved && !lineItemsScanned) {
+        logger.error(
+          "Shopify bulk grouping found no line items for any synced order - __parentId matching likely broke",
+          {
+            connection_id: connectionId,
+            organization_id: connection.organization_id,
+            shop_domain: shopDomain,
+            orders_synced: ordersResolved,
+          },
+        );
+      }
 
       logger.info("Shopify orders and refunds bulk sync completed", {
         connection_id: connectionId,
@@ -2166,11 +3226,8 @@ export async function runShopifyInitialSync(
             ),
         );
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: customerLines } = groupBulkLinesByParent(lines);
-
-      const customerRows = (customerLines as BulkCustomerLine[]).map(
-        (customer) => ({
+      await forEachBulkResultBatch(bulkResult.url, UPSERT_BATCH_SIZE, async (batch) => {
+        const customerRows = (batch as BulkCustomerLine[]).map((customer) => ({
           organization_id: connection.organization_id,
           store_id: storeId,
           external_customer_id: customer.id,
@@ -2190,18 +3247,16 @@ export async function runShopifyInitialSync(
           verified_email: customer.verifiedEmail ?? null,
           locale: customer.locale ?? null,
           last_order_at: customer.lastOrder?.processedAt ?? null,
-        }),
-      );
-
-      blocks.customers.read += customerRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.customers,
-        "shopify_customers",
-        customerRows,
-        "store_id,external_customer_id",
-      );
-
+        }));
+        blocks.customers.read += customerRows.length;
+        await upsertBlockRows(
+          supabase,
+          blocks.customers,
+          "shopify_customers",
+          customerRows,
+          "store_id,external_customer_id",
+        );
+      });
       logger.info("Shopify customers bulk sync completed", {
         connection_id: connectionId,
         organization_id: connection.organization_id,
@@ -2271,13 +3326,18 @@ export async function runShopifyInitialSync(
         }`,
       );
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: checkoutLines, childrenByParentId } =
-        groupBulkLinesByParent(lines);
+      let checkoutsScanned = 0;
+      await forEachBulkRootBatch(bulkResult.url, 100, async (rootBatch) => {
+      const checkoutLines = rootBatch.map(({ root }) => root) as BulkAbandonedCheckoutLine[];
+      const childrenByParentId = new Map<string, BulkLine[]>();
+      for (const group of rootBatch) {
+        for (const [parentId, children] of group.childrenByParentId) {
+          childrenByParentId.set(parentId, children);
+        }
+      }
+      checkoutsScanned += checkoutLines.length;
 
-      const checkoutRows = (
-        checkoutLines as BulkAbandonedCheckoutLine[]
-      ).map((checkout) => ({
+      const checkoutRows = checkoutLines.map((checkout) => ({
         organization_id: connection.organization_id,
         store_id: storeId,
         external_checkout_id: checkout.id,
@@ -2317,10 +3377,27 @@ export async function runShopifyInitialSync(
         "id, external_checkout_id",
         "external_checkout_id",
         checkoutRows.map((row) => row.external_checkout_id),
+        connection.organization_id,
+        "store_id",
+        [storeId],
       );
       const checkoutMap = new Map(
         checkoutRefs.map((row) => [row.external_checkout_id, row.id]),
       );
+      const unresolvedCheckoutCount = checkoutRows.filter(
+        (row) => !checkoutMap.has(row.external_checkout_id),
+      ).length;
+      if (unresolvedCheckoutCount) {
+        blocks.abandoned_checkouts.failed += unresolvedCheckoutCount;
+        blocks.abandoned_checkouts.error = "shopify_checkout_reference_incomplete";
+        logger.error("Shopify checkouts were not all available for line-item sync", {
+          connection_id: connectionId,
+          store_id: storeId,
+          checkouts_in_batch: checkoutRows.length,
+          checkouts_resolved: checkoutMap.size,
+          checkouts_missing: unresolvedCheckoutCount,
+        });
+      }
 
       const checkoutItems: Array<{
         checkoutId: string;
@@ -2353,6 +3430,9 @@ export async function runShopifyInitialSync(
               .filter((id): id is string => Boolean(id)),
           ),
         ],
+        connection.organization_id,
+        "store_id",
+        [storeId],
       );
       const checkoutVariantMap = new Map(
         checkoutVariantRefs.map((variant) => [
@@ -2388,12 +3468,14 @@ export async function runShopifyInitialSync(
         checkoutItemRows,
         "checkout_id,external_line_item_id",
       );
+      });
 
       logger.info("Shopify abandoned checkouts bulk sync completed", {
         connection_id: connectionId,
         organization_id: connection.organization_id,
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
+        checkouts_scanned: checkoutsScanned,
         checkouts_written: blocks.abandoned_checkouts.written,
       });
     } catch (error) {
@@ -2422,40 +3504,95 @@ export async function runShopifyInitialSync(
                 discount {
                   __typename
                   ... on DiscountCodeBasic {
-                    title status startsAt endsAt createdAt
+                    title summary status startsAt endsAt createdAt
                     usageLimit appliesOncePerCustomer asyncUsageCount
-                    codes(first: 1) { edges { node { code } } }
+                    codes { edges { node { code } } }
+                    context { __typename }
+                    combinesWith { orderDiscounts productDiscounts shippingDiscounts }
                     customerGets {
-                      value {
+                      appliesOnOneTimePurchase appliesOnSubscription
+                      items { __typename }
+                      value { __typename
                         ... on DiscountPercentage { percentage }
-                        ... on DiscountAmount { amount { amount } }
+                        ... on DiscountAmount { amount { amount currencyCode } appliesOnEachItem }
                       }
+                    }
+                    minimumRequirement { __typename
+                      ... on DiscountMinimumQuantity { greaterThanOrEqualToQuantity }
+                      ... on DiscountMinimumSubtotal { greaterThanOrEqualToSubtotal { amount currencyCode } }
                     }
                   }
                   ... on DiscountCodeBxgy {
-                    title status startsAt endsAt createdAt
-                    usageLimit appliesOncePerCustomer asyncUsageCount
-                    codes(first: 1) { edges { node { code } } }
+                    title summary status startsAt endsAt createdAt
+                    usageLimit appliesOncePerCustomer asyncUsageCount usesPerOrderLimit
+                    codes { edges { node { code } } }
+                    context { __typename }
+                    combinesWith { orderDiscounts productDiscounts shippingDiscounts }
+                    customerBuys { value { __typename ... on DiscountQuantity { quantity } } items { __typename } }
+                    customerGets {
+                      appliesOnOneTimePurchase appliesOnSubscription
+                      items { __typename }
+                      value { __typename ... on DiscountOnQuantity {
+                        quantity { quantity }
+                        effect { __typename
+                          ... on DiscountPercentage { percentage }
+                          ... on DiscountAmount { amount { amount currencyCode } appliesOnEachItem }
+                        }
+                      } }
+                    }
                   }
                   ... on DiscountCodeFreeShipping {
-                    title status startsAt endsAt createdAt
+                    title summary status startsAt endsAt createdAt
                     usageLimit appliesOncePerCustomer asyncUsageCount
-                    codes(first: 1) { edges { node { code } } }
+                    codes { edges { node { code } } }
+                    context { __typename }
+                    combinesWith { orderDiscounts productDiscounts shippingDiscounts }
+                    minimumRequirement { __typename
+                      ... on DiscountMinimumQuantity { greaterThanOrEqualToQuantity }
+                      ... on DiscountMinimumSubtotal { greaterThanOrEqualToSubtotal { amount currencyCode } }
+                    }
                   }
                   ... on DiscountAutomaticBasic {
-                    title status startsAt endsAt createdAt asyncUsageCount
+                    title summary status startsAt endsAt createdAt asyncUsageCount
+                    combinesWith { orderDiscounts productDiscounts shippingDiscounts }
                     customerGets {
+                      appliesOnOneTimePurchase appliesOnSubscription
+                      items { __typename }
                       value {
+                        __typename
                         ... on DiscountPercentage { percentage }
-                        ... on DiscountAmount { amount { amount } }
+                        ... on DiscountAmount { amount { amount currencyCode } appliesOnEachItem }
                       }
+                    }
+                    minimumRequirement { __typename
+                      ... on DiscountMinimumQuantity { greaterThanOrEqualToQuantity }
+                      ... on DiscountMinimumSubtotal { greaterThanOrEqualToSubtotal { amount currencyCode } }
                     }
                   }
                   ... on DiscountAutomaticBxgy {
-                    status startsAt endsAt createdAt asyncUsageCount
+                    title summary status startsAt endsAt createdAt asyncUsageCount usesPerOrderLimit
+                    combinesWith { orderDiscounts productDiscounts shippingDiscounts }
+                    customerBuys { value { __typename ... on DiscountQuantity { quantity } } items { __typename } }
+                    customerGets { items { __typename }
+                      value { __typename ... on DiscountOnQuantity {
+                        quantity { quantity }
+                        effect { __typename
+                          ... on DiscountPercentage { percentage }
+                          ... on DiscountAmount { amount { amount currencyCode } appliesOnEachItem }
+                        }
+                      } }
+                    }
                   }
                   ... on DiscountAutomaticFreeShipping {
-                    title status startsAt endsAt createdAt asyncUsageCount
+                    title summary status startsAt endsAt createdAt asyncUsageCount
+                    combinesWith { orderDiscounts productDiscounts shippingDiscounts }
+                  }
+                  ... on DiscountCodeApp {
+                    title status startsAt endsAt createdAt
+                    codes { edges { node { code } } }
+                  }
+                  ... on DiscountAutomaticApp {
+                    title status startsAt endsAt createdAt
                   }
                 }
               }
@@ -2464,25 +3601,42 @@ export async function runShopifyInitialSync(
         }`,
       );
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: discountLines, childrenByParentId } =
-        groupBulkLinesByParent(lines);
-
-      const discountRows = (discountLines as BulkDiscountNodeLine[]).map(
-        (node) => {
+      const discountUpsertFailureCount = blocks.discounts.failed;
+      let discountRowsCount = 0;
+      let discountsStoredCount = 0;
+      const discountIdByCode = new Map<string, Set<string>>();
+      await forEachBulkRootBatch(bulkResult.url, 50, async (rootBatch) => {
+        const discountRows = rootBatch.map(({ root, childrenByParentId }) => {
+          const node = root as BulkDiscountNodeLine;
           const discount = node.discount;
           const typeName = discount?.__typename ?? "";
-          // El codigo baja como hijo de la connection `codes`, no inline. Un
-          // descuento automatico no tiene ninguno, y esa es justo la
-          // distincion que interesa: el automatico se lo lleva todo el mundo.
-          const code =
-            (childrenByParentId.get(node.id)?.[0] as BulkDiscountCodeLine)
-              ?.code ?? null;
+          const codes = (childrenByParentId.get(node.id) ?? [])
+            .map((child) => (child as BulkDiscountCodeLine).code)
+            .filter((value): value is string => typeof value === "string" && value.length > 0);
+          const code = codes[0] ?? null;
 
           const classified = classifyDiscount(
             typeName,
             discount?.customerGets?.value,
           );
+          // Bulk Operations agota las conexiones nested y devuelve cada nodo
+          // hijo como una línea JSONL; Shopify ignora pageInfo en estas queries.
+          const codesCoverage = "complete";
+          const configurationCoverage = typeName.includes("App")
+            ? "app_managed"
+            : discount?.summary
+              ? "summary"
+              : "partial";
+          const ruleData = JSON.parse(
+            JSON.stringify({
+              summary: discount?.summary ?? null,
+              context_type: discount?.context?.__typename ?? null,
+              combines_with: discount?.combinesWith ?? null,
+              minimum_requirement: discount?.minimumRequirement ?? null,
+              customer_buys: discount?.customerBuys ?? null,
+              customer_gets: discount?.customerGets ?? null,
+            }),
+          ) as Json;
 
           return {
             organization_id: connection.organization_id,
@@ -2490,6 +3644,11 @@ export async function runShopifyInitialSync(
             external_discount_id: node.id,
             title: discount?.title ?? null,
             code,
+            codes,
+            codes_coverage: codesCoverage,
+            configuration_coverage: configurationCoverage,
+            summary: discount?.summary ?? null,
+            rule_data: ruleData,
             status: discount?.status ?? null,
             discount_class: classified.discountClass,
             value_type: classified.valueType,
@@ -2499,50 +3658,228 @@ export async function runShopifyInitialSync(
             // no para cuadrar contabilidad al centimo.
             usage_count: discount?.asyncUsageCount ?? 0,
             usage_limit: discount?.usageLimit ?? null,
+            uses_per_order_limit: discount?.usesPerOrderLimit ?? null,
             applies_once_per_customer:
               discount?.appliesOncePerCustomer ?? null,
             starts_at: discount?.startsAt ?? null,
             ends_at: discount?.endsAt ?? null,
             external_created_at: discount?.createdAt ?? null,
           };
-        },
-      );
-
-      blocks.discounts.read += discountRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.discounts,
-        "shopify_discounts",
-        discountRows,
-        "store_id,external_discount_id",
-      );
+        });
+        discountRowsCount += discountRows.length;
+        blocks.discounts.read += discountRows.length;
+        await upsertBlockRows(
+          supabase,
+          blocks.discounts,
+          "shopify_discounts",
+          discountRows,
+          "store_id,external_discount_id",
+        );
+        const storedDiscounts = await selectAll<{
+          id: string;
+          external_discount_id: string;
+          code: string | null;
+          codes: string[] | null;
+        }>(
+          supabase,
+          "shopify_discounts",
+          "id, external_discount_id, code, codes",
+          "external_discount_id",
+          discountRows.map((row) => row.external_discount_id),
+          connection.organization_id,
+          "store_id",
+          [storeId],
+        );
+        discountsStoredCount += storedDiscounts.length;
+        for (const stored of storedDiscounts) {
+          for (const discountCode of new Set([
+            ...(stored.codes ?? []),
+            ...(stored.code ? [stored.code] : []),
+          ])) {
+            const discountIds = discountIdByCode.get(discountCode) ?? new Set<string>();
+            discountIds.add(stored.id);
+            discountIdByCode.set(discountCode, discountIds);
+          }
+        }
+      });
+      const discountCatalogComplete =
+        blocks.discounts.failed === discountUpsertFailureCount &&
+        discountsStoredCount === discountRowsCount;
 
       // Enganchar los descuentos ya aplicados en pedidos. El bloque de pedidos
       // guarda el texto del codigo porque es lo que sobrevive si la promocion
       // se borra; el enlace lo pone aqui, que es quien conoce los ids.
-      const discountIdByCode = new Map<string, string>();
-      const storedDiscounts = await selectAll<{
-        id: string;
-        external_discount_id: string;
-        code: string | null;
-      }>(
-        supabase,
-        "shopify_discounts",
-        "id, external_discount_id, code",
-        "external_discount_id",
-        discountRows.map((row) => row.external_discount_id),
-      );
-      for (const stored of storedDiscounts) {
-        if (stored.code) discountIdByCode.set(stored.code, stored.id);
-      }
-
-      for (const [code, discountId] of discountIdByCode) {
-        await supabase
+      let ambiguousCodeCount = 0;
+      for (const [code, discountIds] of discountIdByCode) {
+        if (discountIds.size !== 1) {
+          ambiguousCodeCount += 1;
+          continue;
+        }
+        const [discountId] = discountIds;
+        if (!discountId) continue;
+        const { error: linkError } = await supabase
           .from("shopify_order_discount_applications")
           .update({ discount_id: discountId })
           .eq("organization_id", connection.organization_id)
+          .eq("store_id", storeId)
           .eq("code", code)
           .is("discount_id", null);
+        if (linkError) {
+          blocks.discounts.failed += 1;
+          blocks.discounts.error = `shopify_order_discount_link_failed: ${linkError.message}`;
+        }
+      }
+
+      for (const ruleSide of ["gets", "buys"] as const) {
+        const snapshotAt = new Date().toISOString();
+        let sideStatus: "complete" | "partial" | "failed" = "failed";
+        let discountsScanned = 0;
+        let targetsScanned = 0;
+        let targetErrorCode: string | null = null;
+
+        try {
+          // buys y gets se consultan en bulk separados para conservar el lado
+          // exacto de cada relacion cuando Shopify aplana las conexiones JSONL.
+          const targetBulk = await runBulkOperation(
+            shopDomain,
+            accessToken,
+            buildDiscountTargetBulkQuery(ruleSide),
+          );
+          let isPartial = !discountCatalogComplete;
+          await forEachBulkRootBatch(targetBulk.url, 25, async (rootBatch) => {
+            const targetDiscountNodes = rootBatch.map(({ root }) => root as BulkDiscountTargetNodeLine);
+            discountsScanned += targetDiscountNodes.length;
+            const localDiscountRefs = await selectAll<{ id: string; external_discount_id: string }>(
+              supabase,
+              "shopify_discounts",
+              "id, external_discount_id",
+              "external_discount_id",
+              targetDiscountNodes.map((node) => node.id),
+              connection.organization_id,
+              "store_id",
+              [storeId],
+            );
+            const discountIdByExternalId = new Map(
+              localDiscountRefs.map((discount) => [discount.external_discount_id, discount.id]),
+            );
+            if (localDiscountRefs.length !== targetDiscountNodes.length) isPartial = true;
+            const targetRows: Array<Record<string, unknown>> = [];
+
+          for (const group of rootBatch) {
+            const node = group.root as BulkDiscountTargetNodeLine;
+            const discount = node.discount;
+            const discountType = discount?.__typename ?? "";
+            const items = ruleSide === "gets"
+              ? discount?.customerGets?.items
+              : discount?.customerBuys?.items;
+            if (discountType.includes("App")) isPartial = true;
+            // Los descuentos basic y free-shipping no exponen customerBuys;
+            // su ausencia en ese lado es esperada, no falta de cobertura.
+            if (discountType && !isKnownShopifyDiscountType(discountType)) isPartial = true;
+            if (!items) continue;
+
+            const localDiscountId = discountIdByExternalId.get(node.id);
+            if (!localDiscountId) {
+              isPartial = true;
+              continue;
+            }
+            const itemType = items.__typename ?? "";
+            if (itemType === "AllDiscountItems") {
+              targetRows.push({
+                organization_id: connection.organization_id,
+                store_id: storeId,
+                discount_id: localDiscountId,
+                rule_side: ruleSide,
+                target_type: "all",
+                external_target_id: "all",
+                target_title: "Todos los productos",
+                parent_external_product_id: null,
+                is_active: true,
+                last_seen_at: snapshotAt,
+                updated_at: snapshotAt,
+              });
+              continue;
+            }
+
+            for (const target of (group.childrenByParentId.get(node.id) ?? []) as BulkDiscountTargetLine[]) {
+              const externalTargetId = target.id;
+              if (!externalTargetId) {
+                isPartial = true;
+                continue;
+              }
+              const targetType = classifyDiscountTargetId(externalTargetId);
+              if (!targetType) {
+                isPartial = true;
+                continue;
+              }
+              targetRows.push({
+                organization_id: connection.organization_id,
+                store_id: storeId,
+                discount_id: localDiscountId,
+                rule_side: ruleSide,
+                target_type: targetType,
+                external_target_id: externalTargetId,
+                target_title: target.title ?? null,
+                parent_external_product_id:
+                  targetType === "variant" ? target.product?.id ?? null : null,
+                is_active: true,
+                last_seen_at: snapshotAt,
+                updated_at: snapshotAt,
+              });
+            }
+          }
+
+          for (const batch of chunk(targetRows, UPSERT_BATCH_SIZE)) {
+            const { error } = await supabase
+              .from("shopify_discount_targets")
+              .upsert(batch, {
+                onConflict: "store_id,discount_id,rule_side,target_type,external_target_id",
+              });
+            if (error) throw new Error(`shopify_discount_targets_upsert_failed: ${error.message}`);
+          }
+          targetsScanned += targetRows.length;
+          });
+          if (discountsScanned !== discountRowsCount) isPartial = true;
+          sideStatus = isPartial ? "partial" : "complete";
+
+          // Una lectura parcial no retira objetivos anteriores: podrían faltar
+          // páginas. Solo un snapshot completo puede dar de baja relaciones.
+          if (sideStatus === "complete") {
+            const { error } = await supabase
+              .from("shopify_discount_targets")
+              .update({ is_active: false })
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .eq("rule_side", ruleSide)
+              .lt("last_seen_at", snapshotAt);
+            if (error) throw new Error(`shopify_discount_targets_retire_failed: ${error.message}`);
+          }
+        } catch (error) {
+          sideStatus = "failed";
+          targetErrorCode = error instanceof Error
+            ? error.message.slice(0, 120)
+            : "discount_targets_sync_failed";
+          blocks.discounts.failed += 1;
+          blocks.discounts.error = targetErrorCode;
+        }
+
+        const { error: coverageError } = await supabase
+          .from("shopify_discount_target_sync_coverage")
+          .upsert({
+            organization_id: connection.organization_id,
+            store_id: storeId,
+            rule_side: ruleSide,
+            status: sideStatus,
+            discounts_scanned: discountsScanned,
+            targets_scanned: targetsScanned,
+            last_synced_at: snapshotAt,
+            error_code: targetErrorCode,
+            updated_at: snapshotAt,
+          }, { onConflict: "store_id,rule_side" });
+        if (coverageError) {
+          blocks.discounts.failed += 1;
+          blocks.discounts.error = `shopify_discount_target_coverage_upsert_failed: ${coverageError.message}`;
+        }
       }
 
       logger.info("Shopify discounts bulk sync completed", {
@@ -2551,7 +3888,9 @@ export async function runShopifyInitialSync(
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
         discounts_written: blocks.discounts.written,
-        codes_linked: discountIdByCode.size,
+        codes_linked: discountIdByCode.size - ambiguousCodeCount,
+        ambiguous_codes: ambiguousCodeCount,
+        target_coverage: ["gets", "buys"],
       });
     } catch (error) {
       const message =
@@ -2598,11 +3937,8 @@ export async function runShopifyInitialSync(
             ),
         );
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: eventLines } = groupBulkLinesByParent(lines);
-
-      const eventRows = (eventLines as BulkMarketingEventLine[]).map(
-        (event) => ({
+      await forEachBulkResultBatch(bulkResult.url, UPSERT_BATCH_SIZE, async (batch) => {
+        const eventRows = (batch as BulkMarketingEventLine[]).map((event) => ({
           organization_id: connection.organization_id,
           store_id: storeId,
           external_event_id: event.id,
@@ -2618,17 +3954,16 @@ export async function runShopifyInitialSync(
           started_at: event.startedAt ?? null,
           ended_at: event.endedAt ?? null,
           external_created_at: event.startedAt ?? null,
-        }),
-      );
-
-      blocks.marketing_events.read += eventRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.marketing_events,
-        "shopify_marketing_events",
-        eventRows,
-        "store_id,external_event_id",
-      );
+        }));
+        blocks.marketing_events.read += eventRows.length;
+        await upsertBlockRows(
+          supabase,
+          blocks.marketing_events,
+          "shopify_marketing_events",
+          eventRows,
+          "store_id,external_event_id",
+        );
+      });
 
       logger.info("Shopify marketing events bulk sync completed", {
         connection_id: connectionId,
@@ -2671,117 +4006,240 @@ export async function runShopifyInitialSync(
         }`,
       );
 
-      const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: collectionLines, childrenByParentId } =
-        groupBulkLinesByParent(lines);
+      const collectionSnapshotAt = new Date().toISOString();
+      let collectionSnapshotComplete = true;
+      let collectionMarkerAvailable = true;
+      let collectionsScanned = 0;
+      let membershipsObserved = 0;
+      const initialCollectionFailures = blocks.collections.failed;
+      const markerProbe = await supabase
+        .from("shopify_product_collections")
+        .select("last_seen_at")
+        .limit(1);
+      if (markerProbe.error && isMissingShopifyCollectionSyncMarker(markerProbe.error.message)) {
+        collectionMarkerAvailable = false;
+        collectionSnapshotComplete = false;
+        blocks.collections.warning = "shopify_collection_sync_marker_migration_pending; stale_memberships_retained";
+      } else if (markerProbe.error) {
+        throw new Error(`shopify_collection_marker_read_failed: ${markerProbe.error.message}`);
+      }
+      let activeCollectionExternalId: string | null = null;
+      let activeCollectionId: string | null = null;
+      let activeCollectionProductCount = 0;
+      try {
+        await forEachBulkRootChildrenBatch(bulkResult.url, 500, async ({
+          root,
+          children,
+          rootComplete,
+        }) => {
+          const collection = root as BulkCollectionLine;
+          const isNewRoot = activeCollectionExternalId !== collection.id;
+          if (isNewRoot) {
+            activeCollectionExternalId = collection.id;
+            activeCollectionId = null;
+            activeCollectionProductCount = 0;
+            const { data: existingCollection, error: existingCollectionError } = await supabase
+              .from("shopify_collections")
+              .select("products_count")
+              .eq("organization_id", connection.organization_id)
+              .eq("store_id", storeId)
+              .eq("external_collection_id", collection.id)
+              .maybeSingle();
+            if (existingCollectionError) {
+              throw new Error(`shopify_collection_reference_read_failed: ${existingCollectionError.message}`);
+            }
+            const collectionRows = [{
+              organization_id: connection.organization_id,
+              store_id: storeId,
+              external_collection_id: collection.id,
+              title: collection.title ?? "",
+              handle: collection.handle ?? null,
+              is_automated: Boolean(collection.ruleSet),
+              // Keep the last known count until the streamed snapshot finishes.
+              products_count: existingCollection?.products_count ?? 0,
+              external_updated_at: collection.updatedAt ?? null,
+            }];
+            blocks.collections.read += 1;
+            collectionsScanned += 1;
+            await upsertBlockRows(
+              supabase,
+              blocks.collections,
+              "shopify_collections",
+              collectionRows,
+              "store_id,external_collection_id",
+            );
+            const collectionRefs = await selectAll<{
+              id: string;
+              external_collection_id: string;
+            }>(
+              supabase,
+              "shopify_collections",
+              "id, external_collection_id",
+              "external_collection_id",
+              [collection.id],
+              connection.organization_id,
+              "store_id",
+              [storeId],
+            );
+            activeCollectionId = collectionRefs[0]?.id ?? null;
+            if (!activeCollectionId) {
+              collectionSnapshotComplete = false;
+              blocks.collections.failed += 1;
+              blocks.collections.error = "shopify_collection_reference_incomplete";
+              logger.error("Shopify collection was not available for membership sync", {
+                connection_id: connectionId,
+                store_id: storeId,
+              });
+            }
+          }
 
-      const collectionRows = (collectionLines as BulkCollectionLine[]).map(
-        (collection) => ({
-          organization_id: connection.organization_id,
-          store_id: storeId,
-          external_collection_id: collection.id,
-          title: collection.title ?? "",
-          handle: collection.handle ?? null,
-          // Una coleccion con reglas es automatica; una manual no tiene
-          // `ruleSet`. No hace falta pedir `productsCount`: los productos
-          // bajan como hijos y contarlos aqui sale exacto y gratis.
-          is_automated: Boolean(collection.ruleSet),
-          products_count: (childrenByParentId.get(collection.id) ?? []).length,
-          external_updated_at: collection.updatedAt ?? null,
-        }),
-      );
+          activeCollectionProductCount += children.length;
+          if (children.length && activeCollectionId) {
+            const productRefs = await selectAll<{
+              id: string;
+              external_product_id: string;
+            }>(
+              supabase,
+              "shopify_products",
+              "id, external_product_id",
+              "external_product_id",
+              [...new Set(children.map((child) => child.id))],
+              connection.organization_id,
+              "store_id",
+              [storeId],
+            );
+            const productMap = new Map(
+              productRefs.map((row) => [row.external_product_id, row.id]),
+            );
+            const membershipRows: Array<Record<string, unknown>> = [];
+            let unresolvedProductCount = 0;
+            for (const child of children) {
+              const productId = productMap.get(child.id);
+              if (!productId) {
+                unresolvedProductCount += 1;
+                continue;
+              }
+              membershipRows.push({
+                organization_id: connection.organization_id,
+                collection_id: activeCollectionId,
+                product_id: productId,
+                last_seen_at: collectionSnapshotAt,
+              });
+            }
+            if (unresolvedProductCount) {
+              collectionSnapshotComplete = false;
+              blocks.collections.failed += unresolvedProductCount;
+              blocks.collections.error = "shopify_collection_product_reference_incomplete";
+              logger.error("Shopify collection memberships could not all resolve to local products", {
+                connection_id: connectionId,
+                store_id: storeId,
+                product_references_missing: unresolvedProductCount,
+              });
+            }
 
-      blocks.collections.read += collectionRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.collections,
-        "shopify_collections",
-        collectionRows,
-        "store_id,external_collection_id",
-      );
+            blocks.collections.read += membershipRows.length;
+            membershipsObserved += membershipRows.length;
+            if (membershipRows.length) {
+              let rows = collectionMarkerAvailable
+                ? membershipRows
+                : membershipRows.map(({ last_seen_at: _lastSeenAt, ...row }) => row);
+              let { error } = await supabase
+                .from("shopify_product_collections")
+                .upsert(rows, { onConflict: "product_id,collection_id" });
+              if (error && collectionMarkerAvailable && isMissingShopifyCollectionSyncMarker(error.message)) {
+                collectionMarkerAvailable = false;
+                collectionSnapshotComplete = false;
+                rows = membershipRows.map(({ last_seen_at: _lastSeenAt, ...row }) => row);
+                const retry = await supabase
+                  .from("shopify_product_collections")
+                  .upsert(rows, { onConflict: "product_id,collection_id" });
+                error = retry.error;
+                blocks.collections.warning = "shopify_collection_sync_marker_migration_pending; stale_memberships_retained";
+              }
+              if (error) {
+                blocks.collections.failed += membershipRows.length;
+                blocks.collections.error = `shopify_product_collections_upsert_failed: ${error.message}`;
+                collectionSnapshotComplete = false;
+                throw new Error(blocks.collections.error);
+              }
+              blocks.collections.written += membershipRows.length;
+            }
+          }
 
-      const collectionRefs = await selectAll<{
-        id: string;
-        external_collection_id: string;
-      }>(
-        supabase,
-        "shopify_collections",
-        "id, external_collection_id",
-        "external_collection_id",
-        collectionRows.map((row) => row.external_collection_id),
-      );
-      const collectionMap = new Map(
-        collectionRefs.map((row) => [row.external_collection_id, row.id]),
-      );
+          if (rootComplete) {
+            if (activeCollectionId) {
+              const { error: countUpdateError } = await supabase
+                .from("shopify_collections")
+                .update({ products_count: activeCollectionProductCount })
+                .eq("organization_id", connection.organization_id)
+                .eq("store_id", storeId)
+                .eq("id", activeCollectionId);
+              if (countUpdateError) {
+                collectionSnapshotComplete = false;
+                throw new Error(`shopify_collection_count_update_failed: ${countUpdateError.message}`);
+              }
+            }
+            activeCollectionExternalId = null;
+            activeCollectionId = null;
+            activeCollectionProductCount = 0;
+          }
+        });
+      } catch (error) {
+        collectionSnapshotComplete = false;
+        throw error;
+      }
 
-      const productExternalIds = [
-        ...new Set(
-          collectionLines.flatMap((collection) =>
-            (childrenByParentId.get(collection.id) ?? []).map(
-              (child) => child.id,
-            ),
-          ),
-        ),
-      ];
-      const productRefs = await selectAll<{
-        id: string;
-        external_product_id: string;
-      }>(
-        supabase,
-        "shopify_products",
-        "id, external_product_id",
-        "external_product_id",
-        productExternalIds,
-      );
-      const productMap = new Map(
-        productRefs.map((row) => [row.external_product_id, row.id]),
-      );
-
-      const membershipRows: Array<Record<string, unknown>> = [];
-      for (const collection of collectionLines) {
-        const collectionId = collectionMap.get(collection.id);
-        if (!collectionId) continue;
-        for (const child of childrenByParentId.get(collection.id) ?? []) {
-          const productId = productMap.get(child.id);
-          if (!productId) continue;
-          membershipRows.push({
-            organization_id: connection.organization_id,
-            collection_id: collectionId,
-            product_id: productId,
-          });
+      // Las ausencias solo se reconcilian despues de procesar todo el JSONL,
+      // resolver cada referencia y guardar todos los lotes. Si la migracion
+      // aun no esta aplicada, se conservan membresias antiguas y se informa.
+      if (collectionSnapshotComplete && collectionMarkerAvailable &&
+          blocks.collections.failed === initialCollectionFailures) {
+        let collectionOffset = 0;
+        while (true) {
+          const { data: collectionPage, error: collectionsReadError } = await supabase
+            .from("shopify_collections")
+            .select("id")
+            .eq("organization_id", connection.organization_id)
+            .eq("store_id", storeId)
+            .range(collectionOffset, collectionOffset + 999);
+          if (collectionsReadError) throw new Error(`shopify_collection_reference_read_failed: ${collectionsReadError.message}`);
+          const page = (collectionPage ?? []) as Array<{ id: string }>;
+          const ids = page.map(({ id }) => id);
+          if (ids.length) {
+            const { error: staleDeleteError } = await supabase
+              .from("shopify_product_collections")
+              .delete()
+              .eq("organization_id", connection.organization_id)
+              .in("collection_id", ids)
+              .neq("last_seen_at", collectionSnapshotAt);
+            if (staleDeleteError) throw new Error(`shopify_collection_membership_retire_failed: ${staleDeleteError.message}`);
+            const { error: nullDeleteError } = await supabase
+              .from("shopify_product_collections")
+              .delete()
+              .eq("organization_id", connection.organization_id)
+              .in("collection_id", ids)
+              .is("last_seen_at", null);
+            if (nullDeleteError) throw new Error(`shopify_collection_membership_retire_failed: ${nullDeleteError.message}`);
+          }
+          if (page.length < 1000) break;
+          collectionOffset += page.length;
         }
+      } else if (!collectionMarkerAvailable) {
+        logger.info("Shopify collection membership reconciliation skipped; marker migration is pending", {
+          connection_id: connectionId,
+          store_id: storeId,
+        });
       }
-
-      // Un producto sacado de una coleccion no deja rastro en la respuesta, y
-      // una pertenencia caducada falsea las ventas por categoria en silencio.
-      // Como las colecciones se traen enteras, la tabla se rehace: solo se
-      // borra despues de tener las filas nuevas calculadas.
-      // ponytail: borrado por organizacion, no por coleccion. Si esto pasa a
-      // ejecutarse por tienda dentro de una org multi-tienda, filtrar por
-      // collection_id.
-      if (membershipRows.length) {
-        await supabase
-          .from("shopify_product_collections")
-          .delete()
-          .eq("organization_id", connection.organization_id);
-      }
-
-      blocks.collections.read += membershipRows.length;
-      await upsertBlockRows(
-        supabase,
-        blocks.collections,
-        "shopify_product_collections",
-        membershipRows,
-        "product_id,collection_id",
-      );
 
       logger.info("Shopify collections bulk sync completed", {
         connection_id: connectionId,
         organization_id: connection.organization_id,
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
+        collections_scanned: collectionsScanned,
         collections_written: blocks.collections.written,
-        memberships: membershipRows.length,
+        memberships: membershipsObserved,
+        membership_reconciliation_complete: collectionSnapshotComplete && collectionMarkerAvailable,
       });
     } catch (error) {
       const message =

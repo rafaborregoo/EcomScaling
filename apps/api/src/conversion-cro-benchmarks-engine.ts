@@ -11,14 +11,18 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import {
+  gateShopifyNetMetricsObservation,
+  shopifyNetMetricsQualityFacts,
+} from "./shopify-net-metrics-coverage.js";
 
-const CONVERSION_CRO_SOURCE_VERSION = "f6-p05.v1";
+const CONVERSION_CRO_SOURCE_VERSION = "f6-p05.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type ConversionCroBenchmarksEvidence = {
   funnel?: { available: boolean; sessions?: number | null; product_views?: number | null; cart_additions?: number | null; checkouts_reached?: number | null; purchases?: number | null; conversion_rate?: number | null; funnel_data_since?: string | null } | null;
   sales?: { available: boolean; orders_count?: number | null; revenue?: number | null } | null;
-  economics?: { available: boolean; aov?: number | null; margin?: number | null; contribution?: number | null; contribution_per_session?: number | null } | null;
+  economics?: { available: boolean; aov?: number | null; margin?: number | null; contribution?: number | null; contribution_per_session?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   returns?: { available: boolean; return_rate?: number | null; refunded_amount?: number | null } | null;
   cancellations?: { available: boolean; cancellations?: number | null } | null;
   attribution?: { available: boolean; channels?: number | null; new_customers?: number | null } | null;
@@ -98,6 +102,7 @@ export function applyConversionCroBenchmarksEvidence(
   const facts: Record<string, PlaybookTriState> = {
     ...context.facts,
     ...conversionCroFacts(),
+    ...shopifyNetMetricsQualityFacts(economics),
     "conversion_cro.definition.observed": observed(funnel?.available, hasFunnelValue),
     "conversion_cro.funnel.observed": observed(funnel?.available, hasFunnelValue),
     "conversion_cro.sessions.observed": observed(funnel?.available, present(funnel?.sessions)),
@@ -108,9 +113,9 @@ export function applyConversionCroBenchmarksEvidence(
     "conversion_cro.mix.observed": observed(evidence.mix?.available, present(evidence.mix?.dimensions)),
     "conversion_cro.history.observed": observed(evidence.history?.available, present(evidence.history?.days)),
     "conversion_cro.benchmark.observed": UNKNOWN,
-    "conversion_cro.economics.observed": observed(economics?.available, Boolean(economics && [economics.aov, economics.margin, economics.contribution, economics.contribution_per_session].some(present))),
+    "conversion_cro.economics.observed": gateShopifyNetMetricsObservation(economics, observed(economics?.available, Boolean(economics && [economics.aov, economics.margin, economics.contribution, economics.contribution_per_session].some(present)))),
     "conversion_cro.aov.observed": observed(economics?.available, present(economics?.aov)),
-    "conversion_cro.contribution_per_session.observed": observed(economics?.available, present(economics?.contribution_per_session)),
+    "conversion_cro.contribution_per_session.observed": gateShopifyNetMetricsObservation(economics, observed(economics?.available, present(economics?.contribution_per_session))),
     "conversion_cro.returns.observed": observed(evidence.returns?.available, Boolean(evidence.returns && [evidence.returns.return_rate, evidence.returns.refunded_amount].some(present))),
     "conversion_cro.cancellations.observed": observed(evidence.cancellations?.available, present(evidence.cancellations?.cancellations)),
     "conversion_cro.customer_quality.observed": UNKNOWN,
@@ -171,7 +176,7 @@ async function enrichConversionCroBenchmarksContext(
   return applyConversionCroBenchmarksEvidence(context, {
     funnel: available(funnelResult) ? { available: true, sessions: funnel?.sessions, product_views: productViews, cart_additions: funnel?.cart_additions, checkouts_reached: funnel?.checkouts_reached, purchases: funnel?.purchases, conversion_rate: funnel?.conversion_rate_shopify, funnel_data_since: funnel?.funnel_data_since } : { available: false },
     sales: available(salesResult) ? { available: true, orders_count: sales?.orders_count, revenue: sales?.net_sales } : { available: false },
-    economics: available(marginResult) || available(financialResult) ? { available: true, aov, margin: margin?.gross_margin, contribution: financial?.contribution_per_order, contribution_per_session: present(financial?.contribution_per_order) && present(funnel?.sessions) && Number(funnel.sessions) > 0 ? Number(financial.contribution_per_order) / Number(funnel.sessions) : null } : { available: false },
+    economics: available(marginResult) || available(financialResult) ? { available: true, aov, margin: margin?.gross_margin, contribution: financial?.contribution_per_order, contribution_per_session: present(financial?.contribution_per_order) && present(funnel?.sessions) && Number(funnel.sessions) > 0 ? Number(financial.contribution_per_order) / Number(funnel.sessions) : null, lines_with_exact_metrics: margin?.lines_with_exact_metrics, lines_with_estimated_metrics: margin?.lines_with_estimated_metrics, lines_without_metrics: margin?.lines_without_metrics } : { available: false },
     returns: !returnsResult?.error && Array.isArray(returnsResult?.data) && returnsResult.data.length > 0 ? { available: true, return_rate: returnsResult.data[0]?.return_rate, refunded_amount: returnsResult.data[0]?.refunded_amount } : { available: false },
     cancellations: { available: false },
     attribution: !attributionResult?.error && Array.isArray(attributionResult?.data) && attributionResult.data.length > 0 ? { available: true, channels: attributionResult.data.length, new_customers: attributionResult.data.reduce((sum: number, row: any) => sum + Number(row?.new_customers ?? 0), 0) } : { available: false },

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
 import {
+  groupRankingRowsByDimensionCurrency,
+  summarizeCreativeSpendByCurrency,
+} from "./creative-currency";
+import {
   AreaChart,
   Badge,
   Banner,
@@ -24,6 +28,7 @@ export type MetaCreative = {
   campaign_name: string;
   effective_status: string | null;
   spend: number;
+  spend_currency: string | null;
   impressions: number;
   outbound_clicks: number | null;
   outbound_ctr: number | null;
@@ -151,8 +156,9 @@ export type MetaInsights = {
     dimension: string;
     ranking_value: string;
     ads: number;
-    spend: number;
+    spend: number | null;
     spend_share: number | null;
+    currency_code: string | null;
   }>;
   learning: MetaLearningRow[];
   pixels: MetaPixelRow[];
@@ -170,7 +176,7 @@ const PIXEL_SILENT_HOURS = 24;
 const CREATIVE_LIMIT = 25;
 
 // A partir de aqui la variacion de ROAS tras un cambio deja de ser ruido.
-const ROAS_SHIFT_PCT = 15;
+export const ROAS_SHIFT_PCT = 15;
 
 /**
  * Los veredictos de subasta de Meta.
@@ -179,7 +185,7 @@ const ROAS_SHIFT_PCT = 15;
  * Pintarlo del mismo color que un BELOW_AVERAGE haria que alguien pausara un
  * anuncio recien lanzado por un juicio que Meta no ha emitido.
  */
-const RANKING_PRESENTATION: Record<string, { label: string; tone: Tone }> = {
+export const RANKING_PRESENTATION: Record<string, { label: string; tone: Tone }> = {
   ABOVE_AVERAGE: { label: "por encima de la media", tone: "success" },
   AVERAGE: { label: "en la media", tone: "neutral" },
   BELOW_AVERAGE_35: { label: "en el 35% peor", tone: "warn" },
@@ -189,13 +195,13 @@ const RANKING_PRESENTATION: Record<string, { label: string; tone: Tone }> = {
   SIN_VEREDICTO: { label: "Meta no se ha pronunciado", tone: "neutral" },
 };
 
-const DIMENSION_LABEL: Record<string, string> = {
+export const DIMENSION_LABEL: Record<string, string> = {
   calidad: "Calidad",
   interaccion: "Interacción",
   conversion: "Conversión",
 };
 
-const ENTITY_LABEL: Record<string, string> = {
+export const ENTITY_LABEL: Record<string, string> = {
   campaign: "campaña",
   adset: "conjunto",
   ad: "anuncio",
@@ -218,6 +224,13 @@ function money(value: number | null | undefined, currency: string | null) {
   return currency
     ? formatMoney(Number(value), currency)
     : Number(value).toLocaleString("es-ES", { maximumFractionDigits: 0 });
+}
+
+function creativeMoney(value: number | null | undefined, currency: string | null) {
+  if (value == null) return "—";
+  return currency
+    ? money(value, currency)
+    : `${Number(value).toLocaleString("es-ES", { maximumFractionDigits: 0 })} · moneda desconocida`;
 }
 
 function multiple(value: number | null | undefined) {
@@ -624,6 +637,13 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
 
   const withVideo = rows.filter((row) => row.has_video);
   const withoutVolume = rows.filter((row) => !row.enough_volume);
+  const creativeSpendSummary = summarizeCreativeSpendByCurrency(rows);
+  const creativeSpendTotal = [
+    ...creativeSpendSummary.totals.map(({ currencyCode, amount }) => money(amount, currencyCode)),
+    ...(creativeSpendSummary.unknownCurrencyRows > 0
+      ? [`${count(creativeSpendSummary.unknownCurrencyRows)} anuncio(s) sin moneda verificada`]
+      : []),
+  ].join(" · ") || "—";
   const attributionWindow = rows.find(
     (row) => row.purchase_attribution_window,
   )?.purchase_attribution_window;
@@ -645,7 +665,7 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
       key: "spend",
       label: "Gasto",
       render: (row) => (
-        <span className="tabular-nums">{money(row.spend, currency)}</span>
+        <span className="tabular-nums">{creativeMoney(row.spend, row.spend_currency)}</span>
       ),
     },
     {
@@ -699,7 +719,7 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
       label: "Coste por compra",
       render: (row) => (
         <span className="tabular-nums">
-          {money(row.cost_per_purchase, currency)}
+          {creativeMoney(row.cost_per_purchase, row.spend_currency)}
         </span>
       ),
     },
@@ -730,10 +750,7 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
         <Metric
           card
           label="Gasto del periodo"
-          value={money(
-            rows.reduce((sum, row) => sum + Number(row.spend), 0),
-            currency,
-          )}
+          value={creativeSpendTotal}
         />
       </div>
 
@@ -759,8 +776,6 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
 // --- 3. Donde va el dinero ---------------------------------------------------
 
 function RankingSection({ insights }: { insights: MetaInsights }) {
-  const currency = insights.currency;
-
   if (!insights.ranking_distribution.length) {
     return (
       <Card
@@ -772,15 +787,9 @@ function RankingSection({ insights }: { insights: MetaInsights }) {
     );
   }
 
-  const byDimension = new Map<
-    string,
-    MetaInsights["ranking_distribution"]
-  >();
-  for (const row of insights.ranking_distribution) {
-    const current = byDimension.get(row.dimension) ?? [];
-    current.push(row);
-    byDimension.set(row.dimension, current);
-  }
+  const byDimensionCurrency = groupRankingRowsByDimensionCurrency(
+    insights.ranking_distribution,
+  );
 
   return (
     <Card
@@ -788,19 +797,22 @@ function RankingSection({ insights }: { insights: MetaInsights }) {
       description="Cuánto presupuesto hay detrás de cada veredicto de Meta."
     >
       <div className="grid gap-6 lg:grid-cols-3">
-        {[...byDimension.entries()].map(([dimension, values]) => (
-          <div key={dimension} className="grid gap-2">
+        {byDimensionCurrency.map((group) => (
+          <div key={`${group.dimension}:${group.currencyCode ?? "unknown"}`} className="grid gap-2">
             <p className="text-sm font-medium">
-              {DIMENSION_LABEL[dimension] ?? dimension}
+              {DIMENSION_LABEL[group.dimension] ?? group.dimension}
+              <span className="ml-2 text-xs font-normal text-muted">
+                {group.currencyCode ?? "moneda desconocida"}
+              </span>
             </p>
-            {values.map((row) => (
+            {group.rows.map((row) => (
               <div
-                key={`${dimension}:${row.ranking_value}`}
+                key={`${row.ranking_value}:${row.currency_code ?? "unknown"}`}
                 className="flex items-center justify-between gap-3"
               >
                 <RankingBadge value={row.ranking_value} />
                 <span className="shrink-0 text-sm tabular-nums">
-                  {money(row.spend, currency)}
+                  {money(row.spend, row.currency_code)}
                   <span className="ml-2 text-muted">
                     {percent(row.spend_share, 0)}
                   </span>

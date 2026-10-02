@@ -13,7 +13,7 @@ import {
   Link,
   LoadingBlock,
 } from "@/components/ui";
-import { CallDetail, type ConsultingCall } from "../calls-client";
+import { CallDetail, CallsTheme, type ConsultingCall } from "../calls-client";
 
 function CallPageContent({
   bootstrap,
@@ -64,10 +64,10 @@ function CallPageContent({
   );
 
   return (
-    <div className="portal-page space-y-4 sm:space-y-5">
+    <CallsTheme isConsultant={isConsultant}>
       <Link
         href="/llamadas"
-        className="inline-flex items-center gap-1 text-sm text-muted"
+        className="inline-flex items-center gap-1 text-sm text-[var(--ink-3)] no-underline"
       >
         <IconChevronLeft aria-hidden /> Todas las llamadas
       </Link>
@@ -94,7 +94,7 @@ function CallPageContent({
           priorCalls={calls}
         />
       )}
-    </div>
+    </CallsTheme>
   );
 }
 

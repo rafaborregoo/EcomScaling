@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadExecutiveDiagnosisContextBlocks } from "./executive-diagnosis.js";
 
 export type ConsultantChatContextBlock = {
   label: string;
@@ -1311,5 +1312,6 @@ export async function loadDecisionPlaybookContextBlocks(
   if (continuousLearningResult.error) {
     blocks[27] = unavailableBlock("F9 APRENDIZAJE CONTINUO");
   }
-  return blocks;
+  // F11: lectura ensamblada de lo anterior, al final para no mover los indices de arriba.
+  return [...blocks, ...(await loadExecutiveDiagnosisContextBlocks(supabase, organizationId))];
 }

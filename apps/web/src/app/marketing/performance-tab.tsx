@@ -231,7 +231,9 @@ export function PerformanceTab({
           <p className="text-sm text-muted">
             Venta Shopify del periodo:{" "}
             <strong className="text-ink">
-              {formatMoney(shopify.sales.net_sales, "EUR")}
+              {shopify.currency_code
+                ? formatMoney(shopify.sales.net_sales, shopify.currency_code)
+                : "Moneda no informada"}
             </strong>{" "}
             en {shopify.sales.orders_count.toLocaleString("es-ES")} pedidos
           </p>

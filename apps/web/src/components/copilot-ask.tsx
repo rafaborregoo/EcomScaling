@@ -22,6 +22,9 @@ export type CopilotAsk = {
   /** Qué se está analizando, para el encabezado del panel. */
   focusLabel?: string;
   saveAnswer?: (text: string) => Promise<void>;
+  /** Texto del botón de guardar y de su confirmación, si no es el hilo de la pieza. */
+  saveLabel?: string;
+  savedLabel?: string;
 };
 
 type Ask = (ask: Omit<CopilotAsk, "key">) => void;

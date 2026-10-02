@@ -143,3 +143,12 @@ export function clientNextStep(
     tasks,
   };
 }
+
+// A19 guarda el criterio de éxito dentro de la descripción del hito
+// ("...\n\nCriterio de exito: ..."). Se separa para enseñarlo como lo que es.
+export function splitCriterion(description: string | null) {
+  if (!description) return { text: "", criterion: null as string | null };
+  const match = description.match(/\n*\s*Criterio de [eé]xito:\s*([\s\S]+)$/i);
+  if (!match || match.index === undefined) return { text: description.trim(), criterion: null };
+  return { text: description.slice(0, match.index).trim(), criterion: match[1].trim() };
+}

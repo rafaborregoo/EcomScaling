@@ -61,6 +61,7 @@ export type MetaAttribution = {
 };
 
 export type ShopifyFirstParty = {
+  currency_code?: string | null;
   sales: { net_sales: number; orders_count: number };
 } | null;
 

@@ -17,7 +17,7 @@ embedded = true
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # Cada scope esta aqui porque una query del sync lo necesita:
 #   read_orders -> bulk de pedidos + webhooks orders|refunds
-#   read_products / read_inventory / read_locations -> productos, inventoryLevels, locations
+#   read_products / read_inventory / read_locations -> productos, medios, inventoryLevels, locations
 #   read_customers -> bulk de clientes (requiere Protected customer data access)
 #   read_discounts -> discountNodes y métricas por código promocional
 #   read_marketing_events -> eventos/canales de marketing

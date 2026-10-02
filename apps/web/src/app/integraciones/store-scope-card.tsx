@@ -158,15 +158,13 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
     );
   }
 
-  // Con una tienda no hay decision que tomar: todo pertenece a esa. Antes esto
-  // devolvia null porque la tarjeta vivia en medio del hub; ahora tiene pagina
-  // propia y desaparecer sin decir nada dejaria una pantalla en blanco.
-  if (scope.store_count < 2) {
+  // La relación se puede y se debe guardar aunque solo exista una tienda.
+  if (scope.store_count === 0) {
     return (
       <Card title="Cuentas por tienda">
         <EmptyState
-          title="No hay nada que repartir"
-          hint="Con una sola tienda, todas las cuentas de Meta y Klaviyo son suyas. Esta pantalla se vuelve útil al conectar la segunda."
+          title="Conecta una tienda primero"
+          hint="Conecta Shopify para poder asignar aquí tus cuentas de Meta y Klaviyo."
         />
       </Card>
     );

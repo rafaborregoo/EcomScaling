@@ -9,6 +9,7 @@ import {
   BarChart,
   Button,
   Card,
+  Drawer,
   ErrorBlock,
   Field,
   Input,
@@ -264,12 +265,7 @@ function ExpenseForm({
   }
 
   return (
-    <Card
-      kicker="Control de costes"
-      title={expense ? "Editar gasto" : "Registrar gasto"}
-      description="El importe es el total pagado; indica por separado cuánto IVA incluye."
-    >
-      <div className="grid gap-4">
+    <div className="grid gap-4">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Field label="Concepto">
             <Input
@@ -386,14 +382,14 @@ function ExpenseForm({
             </Button>
           ) : null}
         </div>
-      </div>
-    </Card>
+    </div>
   );
 }
 
 function FinancePanel() {
   const [days, setDays] = useState(30);
   const [editing, setEditing] = useState<Expense | null>(null);
+  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const finance = useCachedQuery<FinancialPayload>(
@@ -438,6 +434,7 @@ function FinancePanel() {
   }
 
   function saved() {
+    setExpenseFormOpen(false);
     setEditing(null);
     setFormKey((value) => value + 1);
     reloadAll();
@@ -569,7 +566,14 @@ function FinancePanel() {
       label: "",
       render: (row) => (
         <div className="flex gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setEditing(row);
+              setExpenseFormOpen(true);
+            }}
+          >
             Editar
           </Button>
           <Button size="sm" variant="ghost" onClick={() => void archive(row)}>
@@ -704,17 +708,23 @@ function FinancePanel() {
         </Card>
       </div>
 
-      <ExpenseForm
-        key={`${editing?.id ?? "new"}-${formKey}`}
-        expense={editing}
-        onSaved={saved}
-        onCancel={() => setEditing(null)}
-      />
       {mutationError ? <ErrorBlock>{mutationError}</ErrorBlock> : null}
       <Card
         kicker="Libro de gastos"
         title="Costes activos"
         description="Los gastos archivados se conservan en base de datos, pero dejan de proyectarse."
+        actions={
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(null);
+              setFormKey((value) => value + 1);
+              setExpenseFormOpen(true);
+            }}
+          >
+            Registrar gasto
+          </Button>
+        }
       >
         <Table
           ariaLabel="Gastos de plataforma"
@@ -723,6 +733,36 @@ function FinancePanel() {
           emptyLabel="Todavía no hay gastos registrados."
         />
       </Card>
+
+      <Drawer
+        isOpen={expenseFormOpen}
+        onOpenChange={(open) => {
+          setExpenseFormOpen(open);
+          if (!open) setEditing(null);
+        }}
+      >
+        <Drawer.Backdrop>
+          <Drawer.Content placement="right" className="w-full max-w-3xl">
+            <Drawer.Dialog aria-label={editing ? `Editar gasto ${editing.name}` : "Registrar gasto"}>
+              <Drawer.Header className="admin-detail-header">
+                <div className="min-w-0">
+                  <Drawer.Heading>{editing ? "Editar gasto" : "Registrar gasto"}</Drawer.Heading>
+                  <p className="mt-1 text-sm text-muted">Importe, periodicidad e información fiscal</p>
+                </div>
+                <Drawer.CloseTrigger />
+              </Drawer.Header>
+              <Drawer.Body className="admin-detail-body">
+                <ExpenseForm
+                  key={`${editing?.id ?? "new"}-${formKey}`}
+                  expense={editing}
+                  onSaved={saved}
+                  onCancel={() => setExpenseFormOpen(false)}
+                />
+              </Drawer.Body>
+            </Drawer.Dialog>
+          </Drawer.Content>
+        </Drawer.Backdrop>
+      </Drawer>
 
       <Card kicker="Acceso comercial" title="Suscripciones">
         <div className="grid gap-4 sm:grid-cols-4">

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   appendMonthlyInitiativeDetails,
   appendWeeklyDeliveryDetails,
+  readA18InitiativeChange,
   readInitiativeMeasurement,
   readProposedMilestoneId,
   readWeeklyDeliveryContract,
@@ -113,4 +114,51 @@ test("A18 v5 and A17 v7 preserve a typed Camino initiative handoff", async () =>
   assert.match(migration, /milestone_id/);
   assert.match(migration, /initiative_measurement/);
   assert.match(migration, /null (nunca )?significa cero/i);
+});
+
+test("A18 v6 consumes server workload counts without inventing available capacity", async () => {
+  const migration = await readFile(
+    new URL("../../../supabase/migrations/20261115794000_a18_observed_capacity_gate.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /a18_plan_mensual_system' and p\.version = 'v5'/);
+  assert.match(migration, /'v6', v\.model, 'a18_plan_mensual_system', 'v6'/);
+  assert.match(migration, /available_capacity_hours=null/);
+  assert.match(migration, /no conviertas conteos o bandas en horas/i);
+  assert.match(migration, /no la interpretes como cero/i);
+});
+
+test("A18 initiative changes require an exact task identity and supported action", () => {
+  const id = "83000000-0000-4000-8000-000000000018";
+  assert.deepEqual(readA18InitiativeChange({
+    action: "replace",
+    previous_task_id: id.toUpperCase(),
+    previous_task_title: "Mejorar el margen",
+  }), {
+    action: "replace",
+    previous_task_id: id,
+    previous_task_title: "Mejorar el margen",
+  });
+  assert.deepEqual(readA18InitiativeChange({
+    action: "retire",
+    previous_task_id: id,
+    previous_task_title: "Mejorar el margen",
+  })?.action, "retire");
+  assert.equal(readA18InitiativeChange({ action: "delete", previous_task_id: id, previous_task_title: "x" }), null);
+  assert.equal(readA18InitiativeChange({ action: "replace", previous_task_id: "not-a-uuid", previous_task_title: "x" }), null);
+  assert.equal(readA18InitiativeChange({ action: "replace", previous_task_id: id, previous_task_title: " " }), null);
+});
+
+test("A18 v7 applies versioned replacement only through the human approval RPC", async () => {
+  const migration = await readFile(
+    new URL("../../../supabase/migrations/20261115795000_a18_versioned_replanning.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /for update/i);
+  assert.match(migration, /v_previous\.store_id is distinct from p_store_id/i);
+  assert.match(migration, /v_previous\.status not in \('pending', 'in_progress'\)/i);
+  assert.match(migration, /lifecycle_status', case when p_action = 'retire' then 'retired' else 'superseded' end/i);
+  assert.match(migration, /'supersedes_task_id', p_previous_task_id/i);
+  assert.match(migration, /grant execute on function public\.approve_a18_monthly_initiative_change[\s\S]*to service_role/i);
+  assert.match(migration, /'v7', v\.model, 'a18_plan_mensual_system', 'v7'/);
 });

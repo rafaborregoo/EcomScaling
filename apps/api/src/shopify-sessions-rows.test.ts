@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { funnelMetric, hasFunnelMetrics, toRecords } from "./shopify-sessions.js";
+import {
+  funnelMetric,
+  hasFunnelMetrics,
+  ShopifyReportsScopeError,
+  toRecords,
+} from "./shopify-sessions.js";
 
 const columns = [
   { name: "day", dataType: "date" },
@@ -76,4 +81,19 @@ test("las métricas llegan como cadena y se guardan enteras", () => {
     funnelMetric({ sessions_that_completed_checkout: "37" }, "sessions_that_completed_checkout", true),
     37,
   );
+});
+
+test("si read_reports ya está concedido, el aviso dirige al acceso PCD y no a reinstalar", () => {
+  const error = new ShopifyReportsScopeError(true);
+  assert.match(error.message, /read_reports sí está concedido/);
+  assert.match(error.message, /datos protegidos de cliente Nivel 2/);
+  assert.match(error.message, /Dev Dashboard\/Partner Dashboard/);
+  assert.match(error.message, /no sustituye esa aprobación/);
+  assert.match(error.message, /el resto de la sincronización sigue disponible/);
+});
+
+test("si falta read_reports, el aviso pide renovar el permiso de informes", () => {
+  const error = new ShopifyReportsScopeError(false);
+  assert.match(error.message, /shopify_read_reports_scope_missing/);
+  assert.match(error.message, /Reautoriza la tienda en Integraciones/);
 });

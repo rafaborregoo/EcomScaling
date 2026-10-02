@@ -17,6 +17,9 @@ const plexSans = IBM_Plex_Sans({
 export const metadata: Metadata = {
   title: "E-NORA IA",
   description: "Portal operativo para clientes y consultores de E-NORA.",
+  icons: {
+    icon: [{ url: "/logos/e-nora-simple.svg", type: "image/svg+xml" }],
+  },
   // El portal se usa como app instalada en el móvil (Añadir a pantalla de
   // inicio): sin barra de navegador, arranque a pantalla completa.
   appleWebApp: {

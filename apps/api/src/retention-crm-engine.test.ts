@@ -10,7 +10,13 @@ test("P05 distingue base/repeat observable de cohortes y LTV", () => {
   const enriched = applyRetentionCrmEvidence(context, {
     customers: { customer_count: 10, repeat_customers: 4, stateful_customers: 10 },
     sales: { orders_count: 14, refunds: 1 },
-    margin: { items_with_cost: 8, gross_margin: 120 },
+    margin: {
+      items_with_cost: 8,
+      gross_margin: 120,
+      lines_with_exact_metrics: 8,
+      lines_with_estimated_metrics: 0,
+      lines_without_metrics: 0,
+    },
     crm: { account_count: 1, flows_count: 3, campaigns_count: 2 },
     consent: { consent_events: 10 },
   });

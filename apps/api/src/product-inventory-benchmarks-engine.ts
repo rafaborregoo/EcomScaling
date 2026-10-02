@@ -1,8 +1,9 @@
 import { validateProductInventoryBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
 import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const SOURCE = "f6-p10.v1";
+const SOURCE = "f6-p10.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 const present = (value: unknown) => value !== null && value !== undefined;
 function observed(available: boolean | null | undefined, value: unknown): PlaybookTriState { return available === true && present(value) ? "TRUE" : available === false ? "FALSE" : UNKNOWN; }
@@ -11,7 +12,7 @@ export type ProductInventoryBenchmarksEvidence = {
   catalog?: { available?: boolean; products_count?: number | null; variants_count?: number | null } | null;
   stock?: { available?: boolean; tracked_items?: number | null; total_available?: number | null; low_stock_items?: number | null; out_of_stock_items?: number | null } | null;
   sales?: { available?: boolean; orders_count?: number | null; units_sold?: number | null } | null;
-  margin?: { available?: boolean; items_with_cost?: number | null } | null;
+  margin?: { available?: boolean; items_with_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   history?: { available?: boolean; days?: number | null } | null;
   lead_time?: { available?: boolean; days?: number | null } | null;
   aging?: { available?: boolean; aged_items?: number | null } | null;
@@ -35,7 +36,7 @@ export function buildProductInventoryBenchmarksPlaybookContext(organizationId: s
 export function applyProductInventoryBenchmarksEvidence(context: PlaybookFrameworkInputLike["context"], evidence: ProductInventoryBenchmarksEvidence, sourceRefs: string[] = []): PlaybookFrameworkInputLike["context"] {
   const catalog = evidence.catalog; const stock = evidence.stock; const sales = evidence.sales; const margin = evidence.margin;
   const anyEvidence = Object.values(evidence).some(Boolean);
-  const facts: Record<string, PlaybookTriState> = { ...context.facts, ...baseFacts(),
+  const facts: Record<string, PlaybookTriState> = { ...context.facts, ...baseFacts(), ...shopifyNetMetricsQualityFacts(margin),
     "inventory_benchmarks.catalog.observed": observed(catalog?.available, catalog?.products_count),
     "inventory_benchmarks.stock.observed": observed(stock?.available, stock?.tracked_items),
     "inventory_benchmarks.available_to_sell.observed": observed(stock?.available, stock?.total_available),
@@ -50,7 +51,7 @@ export function applyProductInventoryBenchmarksEvidence(context: PlaybookFramewo
     "inventory_benchmarks.sell_through.observed": UNKNOWN,
     "inventory_benchmarks.forecast.observed": UNKNOWN,
     "inventory_benchmarks.supplier.observed": UNKNOWN,
-    "inventory_benchmarks.economics.observed": observed(margin?.available, margin?.items_with_cost),
+    "inventory_benchmarks.economics.observed": gateShopifyNetMetricsObservation(margin, observed(margin?.available, margin?.items_with_cost)),
     "inventory_benchmarks.accuracy.observed": UNKNOWN,
     "inventory_benchmarks.assortment.observed": observed(catalog?.available, catalog?.variants_count),
     "inventory_benchmarks.history.observed": observed(evidence.history?.available, evidence.history?.days),

@@ -27,6 +27,7 @@ import {
   healthTone,
   useIntegrations,
 } from "../shared";
+import hub from "../hub.module.css";
 
 function ShopifyIntegrationPage({
   bootstrap,
@@ -48,6 +49,7 @@ function ShopifyIntegrationPage({
   const { connectionId: activeConnectionId } = useActiveConnection();
   const [shopDomain, setShopDomain] = useState("");
   const [appMode, setAppMode] = useState<"public" | "custom">("public");
+  const [showConnectForm, setShowConnectForm] = useState(false);
 
   if (isLoading) {
     return <AsyncState status="loading" loadingLabel="Cargando Shopify..." />;
@@ -100,7 +102,7 @@ function ShopifyIntegrationPage({
   }
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className={hub.page}>
       <BackToHub />
 
       <ProviderStatusCard provider={shopify}>
@@ -145,8 +147,9 @@ function ShopifyIntegrationPage({
                 ))}
               </ul>
               <span className="mt-1 block">
-                Para recuperarlos, vuelve a instalar la app en esa tienda
-                aceptando todos los permisos.
+                Los permisos opcionales aparecen al autorizar solo si los
+                solicita la versi&#xF3;n actual de la app. El hist&#xF3;rico de m&#xE1;s de 60 d&#xED;as
+                adem&#xE1;s requiere aprobaci&#xF3;n de Shopify.
               </span>
             </Banner>
           </InfoModalButton>
@@ -195,6 +198,18 @@ function ShopifyIntegrationPage({
         title={shopifyConnections.length > 0 ? "Añade otra tienda" : "Conecta tu tienda"}
         description="Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales."
       >
+        {shopifyConnections.length > 0 ? (
+          <Button
+            type="button"
+            variant="secondary"
+            aria-expanded={showConnectForm}
+            onClick={() => setShowConnectForm((visible) => !visible)}
+          >
+            {showConnectForm ? "Cerrar formulario" : "A\u00f1adir otra tienda"}
+          </Button>
+        ) : null}
+        {shopifyConnections.length === 0 || showConnectForm ? (
+          <>
         {!shopify.available ? (
           <Banner tone="warn">
             Shopify está desactivado por configuración. El administrador puede
@@ -299,6 +314,8 @@ function ShopifyIntegrationPage({
             {actionError}
           </Banner>
         ) : null}
+          </>
+        ) : null}
       </Card>
 
       <LastErrorBanner
@@ -345,8 +362,8 @@ function ShopifyIntegrationPage({
                     ) : null}
                   </div>
                   {connection.last_error_message ? (
-                    <p className="mt-2 break-words text-xs text-danger">
-                      {connection.last_error_message}
+                    <p className="mt-2 text-xs text-danger">
+                      Fall&#xF3; la &#xFA;ltima sincronizaci&#xF3;n. Abre &laquo;Detalles t&eacute;cnicos&raquo; para consultar el motivo.
                     </p>
                   ) : null}
                   {canManageConnections ? (

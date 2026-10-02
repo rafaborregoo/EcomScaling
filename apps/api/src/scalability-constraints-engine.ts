@@ -11,13 +11,14 @@ import {
   runPlaybookFrameworkEngine,
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
+import { gateShopifyNetMetricsObservation, shopifyNetMetricsQualityFacts } from "./shopify-net-metrics-coverage.js";
 
-const SCALABILITY_SOURCE_VERSION = "f5-p10.v1";
+const SCALABILITY_SOURCE_VERSION = "f5-p10.v2";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type ScalabilityEvidence = {
   sales?: { available: boolean; orders_count?: number | null } | null;
-  margin?: { available: boolean; items_with_cost?: number | null } | null;
+  margin?: { available: boolean; items_with_cost?: number | null; lines_with_exact_metrics?: number | null; lines_with_estimated_metrics?: number | null; lines_without_metrics?: number | null } | null;
   stock?: { available: boolean; tracked_items?: number | null; total_available?: number | null } | null;
   delivery?: { available: boolean; fulfillments?: number | null } | null;
   measurement?: { available: boolean; days?: number | null } | null;
@@ -68,13 +69,14 @@ export function applyScalabilityEvidence(
 ): PlaybookFrameworkInputLike["context"] {
   const facts: Record<string, PlaybookTriState> = {
     ...context.facts,
+    ...shopifyNetMetricsQualityFacts(evidence.margin),
     "scalability.system.map_available": evidence.sales || evidence.margin || evidence.stock || evidence.delivery || evidence.measurement ? "TRUE" : UNKNOWN,
     "scalability.demand.observed": observed(evidence.sales?.available, evidence.sales?.orders_count),
     "scalability.throughput.observed": observed(evidence.delivery?.available, evidence.delivery?.fulfillments ?? evidence.sales?.orders_count),
     "scalability.capacity.observed": UNKNOWN,
     "scalability.headroom.observed": UNKNOWN,
     "scalability.constraint.observed": UNKNOWN,
-    "scalability.economics.observed": observed(evidence.margin?.available, evidence.margin?.items_with_cost),
+    "scalability.economics.observed": gateShopifyNetMetricsObservation(evidence.margin, observed(evidence.margin?.available, evidence.margin?.items_with_cost)),
     "scalability.inventory_readiness.observed": observed(evidence.stock?.available, evidence.stock?.tracked_items),
     "scalability.operational_readiness.observed": observed(evidence.delivery?.available, evidence.delivery?.fulfillments),
     "scalability.measurement_readiness.observed": observed(evidence.measurement?.available, evidence.measurement?.days),
@@ -104,7 +106,7 @@ async function enrichScalabilityContext(supabase: any, context: PlaybookFramewor
     context,
     {
       sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count },
-      margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost },
+      margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost, lines_with_exact_metrics: first(marginResult)?.lines_with_exact_metrics, lines_with_estimated_metrics: first(marginResult)?.lines_with_estimated_metrics, lines_without_metrics: first(marginResult)?.lines_without_metrics },
       stock: stockResult.error ? { available: false } : { available: true, tracked_items: first(stockResult)?.tracked_items, total_available: first(stockResult)?.total_available },
       delivery: deliveryResult.error ? { available: false } : { available: true, fulfillments: first(deliveryResult)?.fulfillments },
       measurement: dailyResult.error ? { available: false } : { available: true, days: Array.isArray(dailyResult.data) ? dailyResult.data.length : null },

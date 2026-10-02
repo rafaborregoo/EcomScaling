@@ -250,6 +250,8 @@ export function BarChart({
   height = 220,
   valueFormatter,
   horizontal = false,
+  stacked = false,
+  axisValueFormatter,
 }: {
   data: ChartData;
   xKey: string;
@@ -258,10 +260,15 @@ export function BarChart({
   valueFormatter?: (value: number) => string;
   // true = barras horizontales (categorías en el eje Y). Útil para rankings.
   horizontal?: boolean;
+  // true = series apiladas (partes de un total, p. ej. flows + campañas).
+  stacked?: boolean;
+  // Formato corto para el eje (p. ej. "1,2 k€"); el tooltip usa valueFormatter.
+  axisValueFormatter?: (value: number) => string;
 }) {
   const resolved = withColors(series);
-  const axisFormatter = valueFormatter
-    ? (value: number | string) => valueFormatter(Number(value))
+  const axisBase = axisValueFormatter ?? valueFormatter;
+  const axisFormatter = axisBase
+    ? (value: number | string) => axisBase(Number(value))
     : undefined;
 
   return (
@@ -304,13 +311,21 @@ export function BarChart({
           cursor={{ fill: "var(--color-surface)" }}
           formatter={makeTooltipFormatter(valueFormatter)}
         />
-        {resolved.map((serie) => (
+        {resolved.map((serie, index) => (
           <Bar
             key={serie.key}
             dataKey={serie.key}
             name={serie.label}
             fill={serie.color}
-            radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+            {...(stacked ? { stackId: "total" } : {})}
+            // Apiladas: solo el segmento de arriba lleva el extremo redondeado.
+            radius={
+              stacked && index < resolved.length - 1
+                ? [0, 0, 0, 0]
+                : horizontal
+                  ? [0, 4, 4, 0]
+                  : [4, 4, 0, 0]
+            }
             maxBarSize={horizontal ? 22 : 48}
           />
         ))}

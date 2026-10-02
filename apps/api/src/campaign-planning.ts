@@ -5,6 +5,7 @@ import {
   type AuthContext,
 } from "./auth-context.js";
 import { createTask } from "./operations.js";
+import { hasAssignedConsultant } from "./client-autonomy.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import {
   campaignPlanOutputSchema,
@@ -34,6 +35,36 @@ function canSeeInternalCampaignPlanning(context: AuthContext) {
   );
 }
 
+/**
+ * Quién puede crear, editar y archivar acciones de la agenda. Con consultor
+ * asignado la agenda la lleva él: el cliente la ve y escribe sobre ella, pero
+ * no la cambia (antes solo lo impedía la pantalla). Sin consultor, el cliente
+ * se gobierna solo y la sigue llevando él.
+ */
+export function agendaWriteDecision(isStaff: boolean, clientHasConsultant: boolean) {
+  return isStaff || !clientHasConsultant;
+}
+
+async function requireAgendaWriter(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const isStaff = canSeeInternalCampaignPlanning(context);
+  const allowed = agendaWriteDecision(
+    isStaff,
+    isStaff ? true : await hasAssignedConsultant(createServiceClient(env), organizationId),
+  );
+  return allowed
+    ? { ok: true as const }
+    : {
+        ok: false as const,
+        statusCode: 403,
+        error: "agenda_managed_by_consultant",
+        message: "La agenda la gestiona tu consultor. Escríbele para proponer cambios.",
+      };
+}
+
 function taskStatusFromCampaignStatus(status: string) {
   return status === "in_progress"
     ? "in_progress"
@@ -60,21 +91,37 @@ export function nextCampaignOutcomeSourceVersion(nowMs: number, previousVersion:
   return Math.max(Math.floor(nowMs / 1000), (previousVersion ?? 0) + 1);
 }
 
-async function validateStore(
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resuelve la tienda del alcance. La web manda el id de la conexión Shopify
+ * que tiene activa en el header (integration_connections.id), no el de
+ * shopify_stores; antes solo se aceptaba el segundo y la Agenda fallaba con
+ * invalid_store_scope en cuanto había una tienda elegida. Se aceptan los dos y
+ * se devuelve siempre el id de shopify_stores, que es lo que guardan las tablas.
+ */
+export async function validateStore(
   env: ApiEnv,
   organizationId: string,
   storeId?: string | null,
-) {
-  if (!storeId) return { ok: true as const };
+): Promise<
+  | { ok: true; storeId: string | null }
+  | { ok: false; statusCode: number; error: string }
+> {
+  if (!storeId) return { ok: true, storeId: null };
+  if (!UUID_RE.test(storeId))
+    return { ok: false, statusCode: 400, error: "invalid_store_scope" };
   const { data } = await createServiceClient(env)
     .from("shopify_stores")
     .select("id")
-    .eq("id", storeId)
     .eq("organization_id", organizationId)
+    .or(`id.eq.${storeId},connection_id.eq.${storeId}`)
+    .limit(1)
     .maybeSingle();
   return data
-    ? { ok: true as const }
-    : { ok: false as const, statusCode: 400, error: "invalid_store_scope" };
+    ? { ok: true, storeId: data.id as string }
+    : { ok: false, statusCode: 400, error: "invalid_store_scope" };
 }
 
 export async function listCampaignPlanning(
@@ -100,9 +147,9 @@ export async function listCampaignPlanning(
   if (!canSeeInternal)
     calendarsQuery = calendarsQuery.eq("is_visible_to_client", true);
   if (filters.year) calendarsQuery = calendarsQuery.eq("year", filters.year);
-  if (filters.storeId)
+  if (store.storeId)
     calendarsQuery = calendarsQuery.or(
-      `store_id.is.null,store_id.eq.${filters.storeId}`,
+      `store_id.is.null,store_id.eq.${store.storeId}`,
     );
   const { data: calendars, error: calendarsError } =
     await calendarsQuery.limit(100);
@@ -135,13 +182,13 @@ export async function listCampaignPlanning(
       error: "campaign_calendar_items_load_failed",
       detail: itemsError.message,
     };
-  if (filters.storeId && items) {
+  if (store.storeId && items) {
     return {
       ok: true as const,
       data: {
         calendars: calendars ?? [],
         items: items.filter(
-          (item) => !item.store_id || item.store_id === filters.storeId,
+          (item) => !item.store_id || item.store_id === store.storeId,
         ),
       },
     };
@@ -224,6 +271,8 @@ export async function createCampaignCalendar(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const writer = await requireAgendaWriter(env, context, organizationId);
+  if (writer.ok === false) return writer;
   const canSeeInternal = canSeeInternalCampaignPlanning(context);
   const name = input.name?.trim();
   const year = Number(input.year);
@@ -245,7 +294,7 @@ export async function createCampaignCalendar(
     .from("campaign_calendars")
     .insert({
       organization_id: organizationId,
-      store_id: input.storeId ?? null,
+      store_id: store.storeId,
       name,
       year,
       description: input.description?.trim() || null,
@@ -288,10 +337,33 @@ export async function createCampaignCalendarItem(
     marketingDraftId?: string | null;
     metaCampaignId?: string | null;
     klaviyoCampaignId?: string | null;
+    /**
+     * «Sugerir una acción»: cualquier miembro puede proponer una acción; entra
+     * marcada como propuesta hasta que quien lleva la agenda la acepta o la
+     * archiva. Es la única escritura que el cliente con consultor puede hacer.
+     */
+    clientSuggestion?: boolean;
   },
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const suggestion = input.clientSuggestion === true;
+  if (!suggestion) {
+    const writer = await requireAgendaWriter(env, context, organizationId);
+    if (writer.ok === false) return writer;
+  } else if (
+    input.createTask ||
+    input.milestoneId ||
+    input.marketingDraftId ||
+    input.metaCampaignId ||
+    input.klaviyoCampaignId
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_campaign_suggestion",
+    };
+  }
   const canSeeInternal = canSeeInternalCampaignPlanning(context);
   const title = input.title?.trim();
   if (!input.calendarId || !title || !input.startsAt || !input.channel?.trim())
@@ -375,17 +447,27 @@ export async function createCampaignCalendarItem(
     .insert({
       organization_id: organizationId,
       calendar_id: input.calendarId,
-      store_id: input.storeId ?? null,
+      store_id: store.storeId,
       title,
       description: input.description?.trim() || null,
       channel: input.channel.trim(),
       item_type: input.itemType?.trim() || "campaign",
       starts_at: new Date(startsAt).toISOString(),
       ends_at: endsAt === null ? null : new Date(endsAt).toISOString(),
-      status: input.status ?? "planned",
-      is_visible_to_client: canSeeInternal
-        ? (input.isVisibleToClient ?? true)
-        : true,
+      status: suggestion ? "planned" : (input.status ?? "planned"),
+      is_visible_to_client:
+        canSeeInternal && !suggestion ? (input.isVisibleToClient ?? true) : true,
+      ...(suggestion
+        ? {
+            metadata: {
+              client_suggestion: {
+                pending: true,
+                suggested_by: context.user.id,
+                suggested_at: new Date().toISOString(),
+              },
+            },
+          }
+        : {}),
       marketing_draft_id: input.marketingDraftId ?? null,
       meta_campaign_id: input.metaCampaignId ?? null,
       klaviyo_campaign_id: input.klaviyoCampaignId ?? null,
@@ -457,6 +539,8 @@ export async function archiveCampaignCalendarItem(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const writer = await requireAgendaWriter(env, context, organizationId);
+  if (writer.ok === false) return writer;
   if (!itemId)
     return {
       ok: false as const,
@@ -521,12 +605,38 @@ export async function updateCampaignCalendarItem(
      */
     metaCampaignId?: string | null;
     klaviyoCampaignId?: string | null;
+    /** Acepta una acción que propuso el cliente: deja de estar pendiente. */
+    acceptSuggestion?: boolean;
   },
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
+  const writer = await requireAgendaWriter(env, context, organizationId);
+  if (writer.ok === false) return writer;
   const supabase = createServiceClient(env);
   const payload: Record<string, unknown> = {};
+  if (input.acceptSuggestion) {
+    const { data: current } = await supabase
+      .from("campaign_calendar_items")
+      .select("metadata")
+      .eq("id", itemId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    const metadata = (current?.metadata ?? {}) as Record<string, unknown>;
+    const suggestionMeta = metadata.client_suggestion as
+      | Record<string, unknown>
+      | undefined;
+    if (suggestionMeta)
+      payload.metadata = {
+        ...metadata,
+        client_suggestion: {
+          ...suggestionMeta,
+          pending: false,
+          accepted_by: context.user.id,
+          accepted_at: new Date().toISOString(),
+        },
+      };
+  }
   if (input.title !== undefined && input.title.trim())
     payload.title = input.title.trim();
   if (input.channel !== undefined && input.channel.trim())
@@ -815,13 +925,13 @@ export async function upsertKpiSnapshot(
     .eq("period", input.period ?? "weekly")
     .eq("period_start", input.periodStart)
     .eq("period_end", input.periodEnd);
-  query = input.storeId
-    ? query.eq("store_id", input.storeId)
+  query = store.storeId
+    ? query.eq("store_id", store.storeId)
     : query.is("store_id", null);
   const { data: existing } = await query.maybeSingle();
   const payload = {
     organization_id: organizationId,
-    store_id: input.storeId ?? null,
+    store_id: store.storeId,
     period: input.period ?? "weekly",
     period_start: input.periodStart,
     period_end: input.periodEnd,
@@ -871,8 +981,8 @@ export async function listKpiSnapshots(
     .eq("organization_id", organizationId)
     .order("period_start", { ascending: false })
     .limit(Math.min(Math.max(filters.limit ?? 52, 1), 200));
-  query = filters.storeId
-    ? query.eq("store_id", filters.storeId)
+  query = store.storeId
+    ? query.eq("store_id", store.storeId)
     : query.is("store_id", null);
   if (filters.period) query = query.eq("period", filters.period);
   const { data, error } = await query;
@@ -896,6 +1006,7 @@ export async function listCampaignPlanningAttention(
   if (access.ok === false) return access;
   const store = await validateStore(env, organizationId, storeId);
   if (store.ok === false) return store;
+  storeId = store.storeId;
   let query = createServiceClient(env)
     .from("campaign_calendar_items")
     .select(

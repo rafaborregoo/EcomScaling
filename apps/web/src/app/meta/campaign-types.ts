@@ -1,0 +1,160 @@
+export type CampaignBudget = { amount: number; kind: "daily" | "lifetime" } | null;
+
+export type MetaCampaignListRow = {
+  campaign_id: string;
+  name: string;
+  objective: string | null;
+  effective_status: string | null;
+  budget: CampaignBudget;
+  ad_set_count: number;
+  active_ad_set_count: number;
+  ad_count: number;
+  rejected_ad_count: number;
+  learning_ad_set_count: number;
+  learning_limited_ad_set_count: number;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  purchases: number;
+  purchase_value: number;
+  roas: number | null;
+  purchase_action_type: string | null;
+  days_with_data: number;
+  cpm: number | null;
+  cpc: number | null;
+  daily_spend: Array<{ date: string; spend: number }>;
+};
+
+export type MetaCampaignsResponse = {
+  organization_id: string;
+  currency: string | null;
+  period: { days: number; start: string; end: string };
+  min_impressions_for_rates: number;
+  page: number;
+  page_size: number;
+  total: number;
+  campaigns: MetaCampaignListRow[];
+  summary: {
+    total: number;
+    active: number;
+    paused: number;
+    rejected: number;
+    learning: number;
+    spend: number;
+    purchase_value: number;
+  };
+};
+
+export type MetaAdSetRow = {
+  ad_set_id: string;
+  ad_set_name: string;
+  campaign_name: string;
+  effective_status: string | null;
+  optimization_goal: string | null;
+  learning_stage_status: string | null;
+  learning_conversions: number | null;
+  learning_conversions_needed: number | null;
+  conversions_missing: number | null;
+  daily_budget: number | null;
+  spend_in_period: number;
+  purchases_in_period: number;
+  purchase_value_in_period: number;
+  roas_in_period: number | null;
+  last_significant_change: string | null;
+  days_since_change: number | null;
+};
+
+export type MetaAdRow = {
+  ad_id: string;
+  ad_name: string;
+  ad_set_name: string;
+  campaign_name: string;
+  effective_status: string | null;
+  spend: number;
+  impressions: number;
+  outbound_clicks: number | null;
+  outbound_ctr: number | null;
+  video_plays: number | null;
+  hook_rate: number | null;
+  hold_rate: number | null;
+  thruplay_rate: number | null;
+  quality_ranking: string | null;
+  engagement_rate_ranking: string | null;
+  conversion_rate_ranking: string | null;
+  purchases: number;
+  purchase_value: number;
+  roas: number | null;
+  cost_per_purchase: number | null;
+  purchase_attribution_window: string | null;
+  has_video: boolean;
+  enough_volume: boolean;
+  days_with_data: number;
+  spend_currency: string | null;
+};
+
+export type MetaChangeRow = {
+  event_time: string;
+  event_type: string;
+  translated_event_type: string | null;
+  actor_name: string | null;
+  object_name: string | null;
+  entity_level: string;
+  spend_before: number;
+  spend_after: number;
+  purchases_before: number;
+  purchases_after: number;
+  purchase_value_before: number;
+  purchase_value_after: number;
+  roas_before: number | null;
+  roas_after: number | null;
+  cpa_before: number | null;
+  cpa_after: number | null;
+  roas_delta_pct: number | null;
+};
+
+export type MetaAdIssueRow = {
+  ad_id: string;
+  ad_name: string;
+  level: string | null;
+  error_type: string | null;
+  error_summary: string | null;
+  detected_at: string;
+};
+
+export type MetaCampaignDetailResponse = {
+  organization_id: string;
+  currency: string | null;
+  period: { days: number; start: string; end: string };
+  min_impressions_for_rates: number;
+  change_window_days: number;
+  campaign: {
+    campaign_id: string;
+    name: string;
+    objective: string | null;
+    effective_status: string | null;
+    configured_status: string | null;
+    budget: CampaignBudget;
+    budget_remaining: number | null;
+    starts_at: string | null;
+    ends_at: string | null;
+    external_created_at: string | null;
+    external_updated_at: string | null;
+    ad_set_count: number;
+    ad_count: number;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    purchases: number;
+    purchase_value: number;
+    roas: number | null;
+    purchase_action_type: string | null;
+    cpm: number | null;
+    cpc: number | null;
+  };
+  daily: Array<{ date: string; spend: number; purchases: number; purchase_value: number }>;
+  ad_sets: MetaAdSetRow[];
+  ads: MetaAdRow[];
+  changes: MetaChangeRow[];
+  issues: MetaAdIssueRow[];
+  unavailable: string[];
+};

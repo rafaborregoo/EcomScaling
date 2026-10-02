@@ -4,12 +4,18 @@ Fuente de lo que se ingesta como conocimiento **global** (`visibility = 'global'
 `organization_id = null`) en el indice RAG. No cuelga de ningun cliente: lo
 gestiona un `platform_admin` desde `/admin/conocimiento`.
 
-Ingesta: `npm run conocimiento:ingest -- conocimiento/<carpeta> [--dry-run] [--limit=N]`
+Ingesta: `npm run conocimiento:ingest -- conocimiento/<fase>/01-rag-produccion [--dry-run] [--limit=N]`
 
-`--dry-run` no llama a Voyage: solo lista documentos, chunks y tokens
-estimados. `--limit=N` ingesta N documentos y para. Entre documento y
-documento espera `INGEST_DELAY_MS` (3000 por defecto) para no encadenar
-peticiones a Voyage.
+Es una sincronizacion repo -> BD, no una subida: la carpeta es el scope y,
+por ruta + checksum, cada `.md` sale como CREATE, UPDATE (mismo documento,
+version + 1, chunks reembebidos), UNCHANGED (no llama a Voyage) o ERROR; los
+documentos del scope cuyo `.md` ya no existe salen como ARCHIVE. Nada fuera
+de la carpeta se toca. `--dry-run` lee la BD y enseña ese plan sin escribir.
+`--limit=N` hace como mucho N CREATE+UPDATE. Entre documento y documento
+espera `INGEST_DELAY_MS` (3000 por defecto). Tests: `npm run conocimiento:test`.
+
+`00-corpus-maestro` solo con `--legacy-corpus`: `fase-01` y `fase-02` no
+tienen destilado y su conocimiento indexado sale de ahi.
 
 Para **implementar** un bloque ya clasificado (contrato + motor + pixel), usa
 [`Prompt maestro — Implementación de fases (contrato + motor + pixel).md`](Prompt%20maestro%20%E2%80%94%20Implementaci%C3%B3n%20de%20fases%20(contrato%20%2B%20motor%20%2B%20pixel).md)
@@ -56,6 +62,8 @@ mitad, o hay que repetir la pasada.
 | `fase-07` | Motor de recomendaciones | 7.01..7.18, **7.16 no existe** (17 bloques reales) |
 | `fase-08` | Ejecucion y supervision | 8.00..8.17 (18, completa; destilado en `01-rag-produccion` completo salvo 8.12) |
 | `fase-09` | Aprendizaje continuo | 9.00..9.41, faltan 9.02 y 9.21 (40 bloques reales, destilado completo) |
+| `fase-10` | Cross-channel attribution | 10.01 en RAG; 10.02..10.05 contratos/runtime/guardrails/tenant sin ingerir |
+| `fase-11-executive-ecommerce-diagnosis` | Fase 11 del track principal: diagnostico ejecutivo (composicion de F3-F10) | Sin RAG por diseno. **No es** `mailing/email-intelligence/fase-11-metricas-analitica`, que es otra numeracion |
 
 `01-rag-produccion` (lo indexado) va muy por detras del corpus: la mayoria de
 fases aun no tienen destilado.
