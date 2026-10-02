@@ -52,7 +52,7 @@ function weekLabels() {
 function Timeline({ discount }: { discount: CatalogDiscount }) {
   const start = discount.starts_at ? new Date(discount.starts_at).getTime() : null;
   const end = discount.ends_at ? new Date(discount.ends_at).getTime() : null;
-  const now = Date.now();
+  const [now] = useState(() => Date.now());
   const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
   if (start == null || end == null) {
     return (

@@ -322,7 +322,6 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
     const returnedShopDomainFromUrl = returnedIntegration === "shopify" ? params.get("tienda")?.toLowerCase() ?? returnedShopDomain : "";
     const providerId = returnedIntegration === "meta" ? "meta_ads" : returnedIntegration;
     let cancelled = false;
-    let timer: number | undefined;
     let attempts = 0;
 
     async function refreshImportStatus() {
@@ -403,7 +402,7 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     void refreshImportStatus();
-    timer = window.setInterval(() => void refreshImportStatus(), 5000);
+    const timer = window.setInterval(() => void refreshImportStatus(), 5000);
     setIsRestoringIntegrationReturn(false);
     return () => {
       cancelled = true;
@@ -664,7 +663,7 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
     const providerLabel = integration === "meta" ? "Meta" : integration === "klaviyo" ? "Klaviyo" : "Shopify";
-    let normalizedShop = shopifyDomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const normalizedShop = shopifyDomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
     if (integration === "shopify" && !/^[a-z0-9][a-z0-9.-]*\.myshopify\.com$/.test(normalizedShop)) {
       setError("Introduce el dominio interno terminado en .myshopify.com que Shopify asignó a la tienda.");
       return;
