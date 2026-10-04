@@ -277,7 +277,7 @@ test("META_TEST_MODE blocks Meta activation before commit", () => {
   const previous = process.env.META_TEST_MODE;
   process.env.META_TEST_MODE = "true";
   try {
-    const request = baseRequest();
+    const request = request();
     const result = evaluateSafeMutation({
       ...request,
       target: { ...request.target, provider: "meta_ads" },
@@ -300,7 +300,7 @@ test("META_TEST_MODE still allows PAUSED Meta writes", () => {
   const previous = process.env.META_TEST_MODE;
   process.env.META_TEST_MODE = "true";
   try {
-    const request = baseRequest();
+    const request = request();
     const result = evaluateSafeMutation({
       ...request,
       target: { ...request.target, provider: "meta_ads" },
