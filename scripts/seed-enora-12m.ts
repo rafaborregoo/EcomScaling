@@ -516,9 +516,9 @@ async function main() {
         cpc: metric.cpc,
         ctr: metric.ctr,
         inline_link_click_ctr:
-          metric.impressions > 0 ? metric.linkClicks / metric.impressions : null,
+          metric.impressions > 0 ? (metric.linkClicks / metric.impressions) * 100 : null,
         outbound_clicks_ctr:
-          metric.impressions > 0 ? metric.outboundClicks / metric.impressions : null,
+          metric.impressions > 0 ? (metric.outboundClicks / metric.impressions) * 100 : null,
         raw_data: {
           source: ENORA_SOURCE,
           scenario_id: ENORA_SCENARIO_ID,
