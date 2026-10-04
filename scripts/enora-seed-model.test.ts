@@ -58,7 +58,7 @@ test("every daily funnel is internally coherent", () => {
       assert.ok(meta.checkouts >= meta.purchases, day.date);
 
       assert.ok(Math.abs(meta.frequency - meta.impressions / meta.reach) < 0.000002);
-      assert.ok(Math.abs(meta.ctr - meta.clicks / meta.impressions) < 0.000002);
+      assert.ok(Math.abs(meta.ctr - (meta.clicks / meta.impressions) * 100) < 0.000002);
       if (meta.cpc !== null) {
         assert.ok(Math.abs(meta.cpc - meta.spend / meta.clicks) < 0.000002);
       }
