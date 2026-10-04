@@ -264,10 +264,17 @@ function campaignForMonth(date: string) {
   return `enora_email_${month}_promo`;
 }
 
+function madridUtcOffset(date: string) {
+  // Europe/Madrid DST transitions inside this fixed seed window:
+  // 2025-10-26 -> CET (+01:00), 2026-03-29 -> CEST (+02:00).
+  if (date >= "2025-10-26" && date < "2026-03-29") return "+01:00";
+  return "+02:00";
+}
+
 function orderTimestamp(date: string, index: number) {
   const hour = 9 + (index * 7) % 13;
   const minute = (index * 17) % 60;
-  return `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+02:00`;
+  return `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00${madridUtcOffset(date)}`;
 }
 
 function makeOrders(
