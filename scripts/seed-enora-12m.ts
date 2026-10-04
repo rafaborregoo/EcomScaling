@@ -389,7 +389,7 @@ async function main() {
         refunded_amount: 0,
         net_quantity: order.quantity,
         net_revenue: order.netSales,
-        net_metrics_source: ENORA_SOURCE,
+        net_metrics_source: "shopify_graphql_exact",
       });
     }
   }
@@ -752,7 +752,7 @@ async function main() {
           account_id: klaviyoAccountId,
           profile_id: profileId,
           event_name: "Clicked Email",
-          source: ENORA_SOURCE,
+          source: "manual",
           source_event_id: `synthetic:email-click:${order.externalOrderId}`,
           dedupe_key: sha256(`${ENORA_SCENARIO_ID}:email-click:${order.externalOrderId}`),
           occurred_at: order.processedAt,
@@ -769,7 +769,7 @@ async function main() {
           account_id: klaviyoAccountId,
           profile_id: profileId,
           event_name: "Placed Order",
-          source: ENORA_SOURCE,
+          source: "manual",
           source_event_id: order.externalOrderId,
           dedupe_key: sha256(`${ENORA_SCENARIO_ID}:placed-order:${order.externalOrderId}`),
           occurred_at: order.processedAt,
