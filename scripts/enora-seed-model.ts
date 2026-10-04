@@ -437,7 +437,7 @@ export function generateEnoraScenario(
         purchases,
         attributedRevenue,
         frequency: round6(impressions / reach),
-        ctr: round6(clicks / impressions),
+        ctr: round6((clicks / impressions) * 100),
         cpc: clicks > 0 ? round6(spend / clicks) : null,
         cpm: impressions > 0 ? round6((spend / impressions) * 1000) : null,
         cpa: purchases > 0 ? round6(spend / purchases) : null,
@@ -513,7 +513,7 @@ export function generateEnoraScenario(
 
 export const META_DERIVED_FORMULAS = {
   frequency: "impressions / reach",
-  ctr: "clicks / impressions",
+  ctr: "(clicks / impressions) * 100",
   cpc: "spend / clicks",
   cpm: "(spend / impressions) * 1000",
   cpa: "spend / purchases",
