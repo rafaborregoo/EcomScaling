@@ -6,42 +6,75 @@ Window: 2025-10-04 through 2026-10-03 (365 complete days)
 Normalized currency: EUR  
 Normalized timezone: Europe/Madrid
 
+## Target
+
+The seed reuses the existing connected test tenant and provider accounts:
+
+- Supabase project: `TEST ES IA`
+- organization: `prueba-borrego`
+- Shopify store: `e-nora-demo.myshopify.com`
+- Meta account: `act_946548861093802`
+- Klaviyo account: `WjvTcC`
+
+It does **not** create another Shopify store, another integration connection, or another provider account. The user who owns `prueba-borrego` keeps the existing access model.
+
 ## Safety contract
 
 - The seed refuses the configured production Supabase project.
-- The target tenant slug must start with `enora-synthetic-`.
-- If the tenant already contains a non-synthetic integration connection, the seed refuses to run.
-- The seed never calls Shopify, Klaviyo, or Meta provider APIs.
-- Klaviyo provider campaigns are never sent. Synthetic campaign definitions stay `draft`.
-- Meta provider metrics/events are never forged. Synthetic Meta history exists only in the isolated E-NORA database.
-- With `META_TEST_MODE=true`, backend safe mutations block activation/publication and transitions to `ACTIVE`; DRAFT/PAUSED writes remain possible.
+- The target organization, Shopify store, Meta account and Klaviyo account must already exist.
+- All three provider connections must already be in `connected` state.
+- The exact eight E-NORA Demo products and variants must already be synced from Shopify.
+- The seed refuses to overwrite any non-synthetic Shopify session row inside the 12-month seed window.
+- The seed never calls Shopify, Klaviyo or Meta provider APIs.
+- No provider connection is created by the seed.
+- Klaviyo synthetic campaigns remain `draft`; no messages are sent.
+- Meta synthetic campaign/ad-set/ad database rows remain `PAUSED`.
+- No synthetic clicks, conversions, impressions or spend are inserted into Meta itself.
+- With `META_TEST_MODE=true`, backend safe mutations block activation/publication and transitions to `ACTIVE`.
 
 ## Provider facts vs synthetic facts
 
-Provider facts captured from connected MCPs and mirrored into the scenario:
+Provider facts reused from the existing integrations:
 
-- Shopify store name/domain, original currency/timezone.
-- The eight current E-NORA demo products, product IDs, variant IDs, SKUs and current prices.
-- Meta test ad account reference `946548861093802`.
+- the real E-NORA Demo Shopify store row and connection
+- the eight current E-NORA products/variants, IDs and prices
+- the existing Meta ad account row for `act_946548861093802`
+- the existing Klaviyo account row for `WjvTcC`
+- provider currency/timezone values, retained in synthetic metadata where available
 
 Synthetic facts:
 
-- Customers, sessions, carts, checkouts, orders and attributed journeys.
-- Meta historical performance.
-- Klaviyo historical delivery/performance and sampled profile-level event trails.
-- Campaign/ad-set/ad rows used by E-NORA analytics. Their provider draft IDs are null until a real DRAFT/PAUSED hierarchy is created through the provider.
+- customers, sessions, carts, checkouts, orders and UTM journeys
+- Meta historical performance
+- Klaviyo historical delivery/performance
+- synthetic Meta child rows used only by E-NORA analytics
+- synthetic Klaviyo draft campaign rows and sampled profile-level event trails
 
-Every synthetic row that has a JSON/source surface carries `source=synthetic` and `scenario_id=enora_12m_v1`. Shopify rows without a JSON source column use deterministic `syn_*` external IDs and tags such as `synthetic` and `scenario:enora_12m_v1`.
+Every synthetic row with a JSON/source surface carries `source=synthetic` and `scenario_id=enora_12m_v1`. Shopify rows without a JSON source column use deterministic `syn_*` external IDs and tags such as `synthetic` and `scenario:enora_12m_v1`.
+
+## Cross-channel source of truth
+
+Synthetic Shopify orders are the conversion truth for the scenario.
+
+Meta purchases/revenue correspond to the same orders with:
+
+`utm_source=facebook&utm_medium=paid_social`
+
+Klaviyo purchases/revenue correspond to the same orders with:
+
+`utm_source=klaviyo&utm_medium=email`
+
+This makes cross-channel reconciliation deterministic instead of generating three independent histories.
 
 ## Meta base and derived metrics
 
-Base metrics generated daily:
+Daily base metrics:
 
 - impressions
 - reach
 - spend
 - clicks
-- inline/link clicks
+- link clicks
 - outbound clicks
 - landing page views
 - add to cart
@@ -49,7 +82,7 @@ Base metrics generated daily:
 - purchases
 - attributed revenue
 
-Derived metrics are calculated from those base values and persisted with formula/version metadata:
+Derived metrics:
 
 - frequency = impressions / reach
 - CTR (%) = clicks / impressions * 100
@@ -58,58 +91,71 @@ Derived metrics are calculated from those base values and persisted with formula
 - CPA = spend / purchases
 - ROAS = attributed revenue / spend
 
-## Cross-channel identity
+Derived values retain formula and formula-version metadata.
 
-The scenario uses deterministic identifiers so reruns update the same logical records:
+## Klaviyo metrics
 
-- customers: `syn_customer_0001`...
-- orders: `syn_order_YYYYMMDD_NNNN`
-- Meta UTM: `utm_source=facebook&utm_medium=paid_social&utm_campaign=enora_meta_<campaign>`
-- Klaviyo UTM: `utm_source=klaviyo&utm_medium=email&utm_campaign=enora_email_YYYYMM_promo`
+Daily aggregates include:
 
-Klaviyo purchase events carry the same synthetic Shopify order ID and product/variant identifiers used by the order. Meta is aggregate-only: no fabricated click/user events are written to Meta.
+- recipients
+- delivered
+- opens
+- clicks
+- bounces
+- unsubscribes
+- purchases
+- attributed revenue
+
+Synthetic profiles and sampled click/purchase events use the same Shopify customer/order/product IDs and the same email UTMs.
 
 ## Scenarios
 
-The 12 months deliberately contain normal, good, bad and anomalous periods:
+The year intentionally contains:
 
 - baseline
-- Black Friday scaling
+- Black Friday
 - creative fatigue
 - checkout friction
 - email recovery
 - tracking anomaly
 - profitable scaling
-- product stockout
+- stockout
 - email deliverability issue
 - recovery
 
+## Idempotency
+
+The scenario uses deterministic customer/order IDs and provider-child external IDs. Natural unique constraints are used where the existing schema already supplies them.
+
+Klaviyo daily synthetic metrics are replaced only for `scenario_id=enora_12m_v1`, then recreated, so a rerun does not double-count them.
+
 ## Expected E-NORA surfaces
 
-The data is intended to drive:
+The dataset supports:
 
-- Shopify revenue/orders/AOV and daily sales charts
-- Shopify sessions, conversion funnel and journey/UTM attribution
-- product sales mix and repeat-customer behavior
-- Meta spend, impressions, clicks, CTR, CPC, CPM, CPA, ROAS
-- Meta campaign/ad-set/ad performance and funnel ratios
-- Klaviyo delivered/open/click/bounce/unsubscribe metrics
-- Klaviyo attributed orders/revenue
-- cross-channel acquisition vs email vs organic comparisons
-- anomaly detection for tracking loss, funnel friction, creative fatigue, stockout and deliverability
+- Shopify revenue, orders, AOV and sales trend
+- Shopify sessions and conversion funnel
+- product sales mix and customer recurrence
+- UTM/channel attribution
+- Meta spend, impressions, reach, frequency, CTR, CPC, CPM, CPA and ROAS
+- Meta campaign/ad-set/ad funnel performance
+- Klaviyo delivery, open, click, bounce and unsubscribe performance
+- Klaviyo attributed orders and revenue
+- channel comparison and anomaly detection
+- diagnostic scenarios for checkout friction, tracking loss, creative fatigue, stockout and deliverability
 
 ## Commands
 
-Validation only:
+Validation:
 
 ```bash
 npm run test:seed:enora:12m
 ```
 
-Execution requires an isolated test/dev Supabase project and explicit opt-in:
+Execution is opt-in and must point to the isolated test Supabase project:
 
 ```bash
 ALLOW_ENORA_SYNTHETIC_SEED=true npm run seed:enora:12m
 ```
 
-Do not run the seed against the production project.
+Never run the seed against production.
