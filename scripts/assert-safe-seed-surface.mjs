@@ -19,7 +19,11 @@ const requiredEnoraMarkers = [
   'ALLOW_ENORA_SYNTHETIC_SEED: z.literal("true")',
   "SUPABASE_PRODUCTION_PROJECT_REF",
   "ENORA_SEED_PRODUCTION_PROJECT_REFUSED",
-  "ENORA_SEED_REAL_CONNECTION_REFUSED",
+  "ENORA_SEED_TARGET_ORGANIZATION_NOT_FOUND",
+  "ENORA_SEED_TARGET_STORE_NOT_FOUND",
+  "ENORA_SEED_PROVIDER_SESSION_OVERWRITE_REFUSED",
+  "provider_connections_created: 0",
+  "provider_api_writes: 0",
 ];
 
 const missing = requiredMarkers
