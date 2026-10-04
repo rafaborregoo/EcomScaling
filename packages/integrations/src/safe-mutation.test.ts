@@ -271,3 +271,49 @@ test("un fallo limpio si permite reintentar dentro del presupuesto", async () =>
   assert.equal(report.outcome, "FAILED");
   assert.equal(report.retryAdvised, true);
 });
+
+
+test("META_TEST_MODE blocks Meta activation before commit", () => {
+  const previous = process.env.META_TEST_MODE;
+  process.env.META_TEST_MODE = "true";
+  try {
+    const request = baseRequest();
+    const result = evaluateSafeMutation({
+      ...request,
+      target: { ...request.target, provider: "meta_ads" },
+      approvedTarget: { ...request.approvedTarget, provider: "meta_ads" },
+      action: "publish",
+      fields: { status: "ACTIVE" },
+      allowedFields: ["status"],
+      observedCurrentState: { status: "PAUSED" },
+      expectedCurrentState: { status: "PAUSED" },
+    });
+    assert.equal(result.decision, "BLOCKED");
+    assert.deepEqual(result.blockers, ["meta_test_mode_activation_blocked"]);
+  } finally {
+    if (previous === undefined) delete process.env.META_TEST_MODE;
+    else process.env.META_TEST_MODE = previous;
+  }
+});
+
+test("META_TEST_MODE still allows PAUSED Meta writes", () => {
+  const previous = process.env.META_TEST_MODE;
+  process.env.META_TEST_MODE = "true";
+  try {
+    const request = baseRequest();
+    const result = evaluateSafeMutation({
+      ...request,
+      target: { ...request.target, provider: "meta_ads" },
+      approvedTarget: { ...request.approvedTarget, provider: "meta_ads" },
+      action: "create",
+      fields: { status: "PAUSED" },
+      allowedFields: ["status"],
+      observedCurrentState: { status: "DRAFT" },
+      expectedCurrentState: { status: "DRAFT" },
+    });
+    assert.equal(result.decision, "COMMIT");
+  } finally {
+    if (previous === undefined) delete process.env.META_TEST_MODE;
+    else process.env.META_TEST_MODE = previous;
+  }
+});
