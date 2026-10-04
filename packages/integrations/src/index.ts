@@ -10,6 +10,7 @@ export const INTEGRATION_PROVIDERS = [
 
 export * from "./meta-ad-write-contract.js";
 export * from "./meta-ad-executor.js";
+export * from "./meta-test-mode.js";
 export * from "./safe-mutation.js";
 
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
