@@ -731,6 +731,55 @@ async function main() {
     "account_id,external_campaign_id",
   );
 
+  const subjectForCampaignKey = (key: string) => {
+    const month = Number(key.match(/_(\\d{6})_/)?.[1]?.slice(4, 6) ?? "0");
+    switch (month) {
+      case 11: return "Black Friday: tus favoritos de E-NORA";
+      case 12: return "Últimos días para regalar E-NORA";
+      case 1: return "Empieza el año con algo nuevo";
+      case 2: return "¿Cuál es tu próximo básico?";
+      case 3: return "Vuelve a tus favoritos";
+      case 4: return "Novedades que combinan contigo";
+      case 5: return "Lo más elegido este mes";
+      case 6: return "Verano E-NORA: selección ligera";
+      case 7: return "Tus esenciales de verano";
+      case 8: return "Últimos favoritos del verano";
+      case 9: return "Vuelta a la rutina, sin complicaciones";
+      default: return "Descubre lo nuevo de E-NORA";
+    }
+  };
+
+  await upsertRows(
+    "klaviyo_campaign_messages",
+    campaignKeys.map((key) => {
+      const campaignId = md5Uuid(
+        `${ENORA_SCENARIO_ID}:target:klaviyo:campaign:synthetic:${key}`,
+      );
+      const subject = subjectForCampaignKey(key);
+      return {
+        id: md5Uuid(
+          `${ENORA_SCENARIO_ID}:target:klaviyo:message:synthetic:${key}`,
+        ),
+        organization_id: target.organization.id,
+        campaign_id: campaignId,
+        external_message_id: `synthetic:message:${key}`,
+        channel: "email",
+        name: `E-NORA Email ${key.match(/_(\\d{6})_/)?.[1] ?? key}`,
+        label: "Synthetic historical message",
+        subject,
+        preview_text: "Selección sintética para probar analítica de email.",
+        status: "draft",
+        raw_data: {
+          source: ENORA_SOURCE,
+          scenario_id: ENORA_SCENARIO_ID,
+          definition: { content: { subject } },
+        },
+        last_synced_at: now,
+      };
+    }),
+    "campaign_id,external_message_id",
+  );
+
   const profileRows = [...customerStats.keys()].map((customerKey) => {
     const suffix = customerKey.slice(-4);
     const externalProfileId = `synthetic_profile_${suffix}`;
@@ -897,6 +946,118 @@ async function main() {
     "klaviyo_email_click_events",
     clickRows,
     "account_id,external_event_id",
+  );
+
+  const monthlyKlaviyo = new Map<
+    string,
+    {
+      campaignKey: string;
+      firstDate: string;
+      lastDate: string;
+      recipients: number;
+      delivered: number;
+      opens: number;
+      clicks: number;
+      unsubscribes: number;
+      bounces: number;
+      purchases: number;
+      revenue: number;
+    }
+  >();
+  for (const day of scenario) {
+    const month = day.date.slice(0, 7).replace("-", "");
+    const current = monthlyKlaviyo.get(month) ?? {
+      campaignKey: day.klaviyo.campaignKey,
+      firstDate: day.date,
+      lastDate: day.date,
+      recipients: 0,
+      delivered: 0,
+      opens: 0,
+      clicks: 0,
+      unsubscribes: 0,
+      bounces: 0,
+      purchases: 0,
+      revenue: 0,
+    };
+    current.firstDate = current.firstDate < day.date ? current.firstDate : day.date;
+    current.lastDate = current.lastDate > day.date ? current.lastDate : day.date;
+    current.recipients += day.klaviyo.recipients;
+    current.delivered += day.klaviyo.delivered;
+    current.opens += day.klaviyo.opens;
+    current.clicks += day.klaviyo.clicks;
+    current.unsubscribes += day.klaviyo.unsubscribes;
+    current.bounces += day.klaviyo.bounces;
+    current.purchases += day.klaviyo.purchases;
+    current.revenue += day.klaviyo.attributedRevenue;
+    monthlyKlaviyo.set(month, current);
+  }
+
+  const nextDay = (date: string) => {
+    const value = new Date(`${date}T12:00:00Z`);
+    value.setUTCDate(value.getUTCDate() + 1);
+    return value.toISOString().slice(0, 10);
+  };
+
+  const reportRuns = [...monthlyKlaviyo.entries()].map(([month, value]) => ({
+    id: md5Uuid(`${ENORA_SCENARIO_ID}:target:klaviyo:report:${month}`),
+    organization_id: target.organization.id,
+    account_id: target.klaviyoAccount.id,
+    report_type: "campaign_values",
+    status: "completed",
+    error_message: null,
+    started_at: now,
+    idempotency_key: `synthetic:${ENORA_SCENARIO_ID}:${month}`,
+    period_start: value.firstDate,
+    period_end: nextDay(value.lastDate),
+    timezone: ENORA_NORMALIZED_TIMEZONE,
+    currency_code: ENORA_NORMALIZED_CURRENCY,
+    finished_at: now,
+  }));
+  await upsertRows(
+    "klaviyo_report_runs",
+    reportRuns,
+    "account_id,idempotency_key",
+  );
+
+  await upsertRows(
+    "klaviyo_report_values",
+    [...monthlyKlaviyo.entries()].map(([month, value]) => ({
+      id: md5Uuid(
+        `${ENORA_SCENARIO_ID}:target:klaviyo:report-value:synthetic:${value.campaignKey}:${value.firstDate}`,
+      ),
+      organization_id: target.organization.id,
+      report_run_id: md5Uuid(
+        `${ENORA_SCENARIO_ID}:target:klaviyo:report:${month}`,
+      ),
+      entity_type: "campaign",
+      external_entity_id: `synthetic:${value.campaignKey}`,
+      period_start: value.firstDate,
+      period_end: nextDay(value.lastDate),
+      raw_data: {
+        source: ENORA_SOURCE,
+        scenario_id: ENORA_SCENARIO_ID,
+        statistics: {
+          recipients: value.recipients,
+          delivered: value.delivered,
+          opens_unique: value.opens,
+          clicks_unique: value.clicks,
+          unsubscribes: value.unsubscribes,
+          bounced: value.bounces,
+          spam_complaints: 0,
+          conversion_uniques: value.purchases,
+          conversion_value: Math.round(value.revenue * 100) / 100,
+        },
+      },
+      entity_name: `E-NORA · ${value.campaignKey.replaceAll("_", " ")}`,
+      metric_id: "synthetic:email_report",
+      conversions: value.purchases,
+      revenue: Math.round(value.revenue * 100) / 100,
+      currency_code: ENORA_NORMALIZED_CURRENCY,
+      external_message_id: `synthetic:message:${value.campaignKey}`,
+      variation_id: "",
+      variation_name: "",
+    })),
+    "id",
   );
 
   const syntheticShopifyRevenue = enrichedOrders.reduce(
