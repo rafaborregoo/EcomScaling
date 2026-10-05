@@ -1,4 +1,5 @@
 import type { IntegrationProvider } from "./index.js";
+import { evaluateMetaTestModeMutation } from "./meta-test-mode.js";
 
 /**
  * F8.07 - safe execution and change control.
@@ -63,6 +64,8 @@ export type SafeMutationRequest = {
   attempt: number;
   maxAttempts: number;
   previousEvidence: SafeMutationEvidence | null;
+  /** Provider action name when available (activate, publish, update, etc.). */
+  action?: string | null;
   freezeWindowActive: boolean;
   unresolvedDependencies: string[];
 };
@@ -103,6 +106,25 @@ const nonEmpty = (value: string | undefined | null) =>
 export function evaluateSafeMutation(request: SafeMutationRequest): SafeMutationPlan {
   const blockers: string[] = [];
   const reasons: string[] = [];
+
+  const metaTestMode = evaluateMetaTestModeMutation({
+    provider: request.target.provider,
+    objectType: request.target.objectType,
+    action: request.action,
+    fields: request.fields,
+  });
+  if (!metaTestMode.allowed) {
+    return {
+      decision: "BLOCKED",
+      effectiveFields: {},
+      noOpFields: [],
+      refusedFields: [],
+      driftedKeys: [],
+      blockers: [metaTestMode.error],
+      reasons: [metaTestMode.reason],
+      committed: false,
+    };
+  }
 
   // 15. Duplicate prevention runs first: evidence of a previous commit for this
   // key means we must not send a second transaction, whatever else is true.

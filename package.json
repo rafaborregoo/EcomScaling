@@ -46,7 +46,9 @@
     "api:contra-produccion": "dotenv -e .env.production.local -- tsx apps/api/src/server.ts",
     "seed:cartera-local": "dotenv -e .env.local -- tsx scripts/seed-cartera-local.ts",
     "seed:finanzas": "dotenv -e .env.local -- tsx scripts/seed-configuracion-financiera.ts",
-    "seed:agentes-demo": "dotenv -e .env.local -- node scripts/seed-agentes-demo.mjs"
+    "seed:agentes-demo": "dotenv -e .env.local -- node scripts/seed-agentes-demo.mjs",
+    "seed:enora:12m": "dotenv -e .env.local -- tsx scripts/seed-enora-12m.ts",
+    "test:seed:enora:12m": "tsx --test scripts/enora-seed-model.test.ts"
   },
   "devDependencies": {
     "@shopify/cli": "^4.8.2",
