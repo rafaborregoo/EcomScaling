@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { BrandLogo, Card, Heading, Link } from "@/components/ui";
+import { Card, Link } from "@/components/ui";
+import { LegalPage } from "@/components/legal-page";
 
 // URL publica que Meta exige al registrar la app ("Eliminación de datos de
 // usuario": o una callback o unas instrucciones). Esta es la pagina de
@@ -12,19 +13,15 @@ export const metadata: Metadata = {
     "Cómo solicitar la eliminación de tus datos en E-NORA IA: qué se borra, en cuánto tiempo y cómo pedirlo.",
 };
 
-const LAST_UPDATED = "14 de septiembre de 2026";
 const CONTACT_EMAIL = "rafael@noraapp.es";
 
 export default function DataDeletionPage() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
-      <header className="flex flex-col gap-2">
-        <BrandLogo />
-        <Heading level={1} size="lg">
-          Eliminación de datos
-        </Heading>
-        <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
-      </header>
+    <LegalPage
+      title="Eliminación de datos"
+      current="/eliminacion-de-datos"
+      updated="14 de septiembre de 2026"
+    >
 
       <Card title="Qué puedes pedir">
         <p>
@@ -131,6 +128,6 @@ export default function DataDeletionPage() {
           .
         </p>
       </Card>
-    </main>
+    </LegalPage>
   );
 }

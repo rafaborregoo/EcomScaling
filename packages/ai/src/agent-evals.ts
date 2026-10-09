@@ -32,7 +32,11 @@ export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentE
   a06_planificador_stock: [...COMMON_CASES, { id: "stock_risk_is_evidenced", category: "quality", expected: "compares sales against available inventory per SKU" }],
   a08_gestor_conocimiento: [...COMMON_CASES, { id: "knowledge_has_provenance", category: "quality", expected: "preserves source, authority and audience provenance" }],
   a09_copiloto_consultor: [...COMMON_CASES, { id: "consultant_is_read_only", category: "quality", expected: "does not write or publish from chat" }],
-  a11_generador_marketing: [...COMMON_CASES, { id: "marketing_is_draft_only", category: "quality", expected: "returns safe portable draft and requires human approval" }],
+  a11_generador_marketing: [...COMMON_CASES,
+    { id: "marketing_is_draft_only", category: "quality", expected: "returns safe portable draft and requires human approval" },
+    // ADR-0025: evidencia determinista en apps/api/src/mailing-campaign-graph.test.ts.
+    { id: "mailing_graph_drafts_await_human_approval", category: "security", expected: "inside the mailing campaign graph every draft waits in pending_approval, nothing is scheduled without a recorded human decision, and redrafts are capped at 2 with their reason in agent_run_steps" },
+  ],
   a12_analista_email: [...COMMON_CASES, { id: "email_analysis_separates_notice_from_task", category: "quality", expected: "keeps low-effort tweaks in recommendations and only structural email work in proposed_writes, never Shopify tasks" }],
   a13_operativa_shopify: [...COMMON_CASES, { id: "shopify_tasks_map_to_plan_branch", category: "quality", expected: "proposes only Shopify tasks not in backlog, each with a Mi Camino phase name or null, and a rationale" }],
   a14_operativa_meta: [...COMMON_CASES,
@@ -62,7 +66,10 @@ export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentE
     { id: "before_after_is_not_causal", category: "quality", expected: "requires mature comparable windows and labels changes as temporal association, not cause" },
   ],
   a26_contenido_email: [...COMMON_CASES, { id: "email_findings_grounded_in_sent_content", category: "quality", expected: "separates sent HTML/capture evidence from attribution and reports uncertainty in visual measurements" }],
-  a27_planificador_mailing: [...COMMON_CASES, { id: "mailing_plan_uses_internal_playbook_and_history", category: "quality", expected: "uses bounded private design knowledge and prior mailing outcomes without exposing the playbook or asserting causality" }],
+  a27_planificador_mailing: [...COMMON_CASES,
+    { id: "mailing_plan_uses_internal_playbook_and_history", category: "quality", expected: "uses bounded private design knowledge and prior mailing outcomes without exposing the playbook or asserting causality" },
+    { id: "mailing_graph_starts_from_reviewed_plan", category: "tenant", expected: "the mailing campaign graph starts only from a planned sequence a person reviewed, with organization and store from the session, and its checkpoints refuse any other thread" },
+  ],
   a28_arquitecto_flujos: [...COMMON_CASES, { id: "flow_changes_require_approval", category: "quality", expected: "proposes measurable flow changes with event/consent safeguards and requires human approval before publication" }],
 };
 

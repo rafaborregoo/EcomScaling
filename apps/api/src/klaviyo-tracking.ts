@@ -79,7 +79,66 @@ async function accountIdForStore(
     }
     throw new Error(`klaviyo_store_account_lookup_failed:${error.message}`);
   }
-  if (!data?.length) return { accountId: null, reason: "klaviyo_store_not_linked" };
+  if (!data?.length) {
+    // Klaviyo puede autorizarse antes de que la sincronización inicial de
+    // Shopify cree la fila de tienda. En ese orden, OAuth deja store_id vacío
+    // y ningún pedido posterior llegaba a generar su evento. Solo completamos
+    // el vínculo automáticamente si la organización tiene una única tienda y
+    // una única cuenta Klaviyo sin asignar; con varias, la atribución requiere
+    // una elección explícita.
+    const [storesResult, accountsResult] = await Promise.all([
+      supabase
+        .from("shopify_stores")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .limit(2),
+      supabase
+        .from("klaviyo_accounts")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .is("store_id", null)
+        .limit(2),
+    ]);
+    const { data: stores, error: storesError } = storesResult;
+    const { data: accounts, error: accountsError } = accountsResult;
+    if (storesError) {
+      throw new Error(
+        `klaviyo_shopify_store_lookup_failed:${storesError.message}`,
+      );
+    }
+    if (accountsError) {
+      const missingStoreScope = accountsError.message.includes("store_id") && (
+        accountsError.message.includes("does not exist") ||
+        accountsError.message.includes("schema cache") ||
+        accountsError.message.includes("could not find")
+      );
+      if (missingStoreScope) {
+        return { accountId: null, reason: "klaviyo_store_scope_pending" };
+      }
+      throw new Error(
+        `klaviyo_unassigned_account_lookup_failed:${accountsError.message}`,
+      );
+    }
+    const onlyStore = stores?.length === 1 && stores[0]?.id === storeId;
+    const onlyAccount = accounts?.length === 1 ? accounts[0] : null;
+    if (onlyStore && onlyAccount) {
+      const { data: linked, error: linkError } = await supabase
+        .from("klaviyo_accounts")
+        .update({ store_id: storeId })
+        .eq("id", onlyAccount.id)
+        .eq("organization_id", organizationId)
+        .is("store_id", null)
+        .select("id")
+        .maybeSingle();
+      if (linkError) {
+        throw new Error(
+          `klaviyo_store_link_update_failed:${linkError.message}`,
+        );
+      }
+      if (linked?.id) return { accountId: linked.id as string };
+    }
+    return { accountId: null, reason: "klaviyo_store_not_linked" };
+  }
   if (data.length > 1) return { accountId: null, reason: "klaviyo_store_account_ambiguous" };
   return { accountId: (data[0]?.id as string | undefined) ?? null };
 }

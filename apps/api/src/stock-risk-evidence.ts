@@ -1,3 +1,5 @@
+import { forecastStockDemand } from "@e-nora/contracts";
+
 export const STOCK_COVERAGE_MIN_PERIOD_DAYS = 14;
 export const STOCK_COVERAGE_MIN_UNITS = 5;
 export const STOCK_COVERAGE_MIN_SELLING_DAYS = 3;
@@ -34,7 +36,12 @@ function finiteNumber(value: unknown): number | null {
 /** Adds transparent sample/freshness gates; it never supplies a purchase quantity. */
 export function enrichStockRiskEvidence(
   rows: unknown[],
-  options: { periodStart: string; periodEnd: string; now?: number },
+  options: {
+    periodStart: string;
+    periodEnd: string;
+    now?: number;
+    weeklyUnitsByProduct?: ReadonlyMap<string, readonly number[]>;
+  },
 ) {
   const start = Date.parse(options.periodStart);
   const end = Date.parse(options.periodEnd);
@@ -69,9 +76,15 @@ export function enrichStockRiskEvidence(
     const daysOfCover = inventoryReliable && sampleMature && available !== null && averageDailySales !== null && averageDailySales > 0
       ? Math.round((available / averageDailySales) * 10) / 10
       : null;
+    const productId = typeof row.product_id === "string" ? row.product_id : null;
+    const weeklyUnits = productId ? options.weeklyUnitsByProduct?.get(productId) : undefined;
+    const demandForecast = weeklyUnits
+      ? forecastStockDemand(weeklyUnits, available, inventoryReliable)
+      : null;
 
     return [{
       ...row,
+      product_id: productId,
       quantity_sold_in_period: sold,
       period_days: Math.round(periodDays * 10) / 10,
       selling_days: sellingDays,
@@ -83,6 +96,7 @@ export function enrichStockRiskEvidence(
       days_of_cover: daysOfCover,
       lead_time_days: null,
       reorder_quantity: null,
+      demand_forecast: demandForecast,
     }];
   });
 }

@@ -79,6 +79,17 @@ export type Explanation = {
   fix: "reconnect" | "retry" | "wait" | "connect" | "discard" | null;
 };
 
+/** Muestra por separado que OAuth terminó y cómo van los datos. */
+export function connectionStatusLabel(
+  connection: IntegrationConnection | null | undefined,
+  healthLabel: string,
+): string {
+  if (!connection || !["connected", "syncing"].includes(connection.status)) {
+    return healthLabel;
+  }
+  return healthLabel === "Al día" ? "Conectado" : `Conectado · ${healthLabel}`;
+}
+
 // Por `health.reason`, que es un codigo estable del backend (packages/
 // integrations: deriveIntegrationHealth), no por el texto del error del
 // proveedor, que cambia cada vez.
@@ -182,10 +193,39 @@ export function explainHealth(
   /** La conexion, cuando la haya: sin ella no se puede saber si un `pending`
    * acaba de empezar o lleva semanas muerto. */
   connection?: IntegrationConnection | null,
+  providerId?: string,
 ): Explanation {
   if (connection) {
     const attempt = classifyAuthorizationAttempt(connection);
     if (attempt) return ATTEMPT_EXPLANATION[attempt];
+    if (
+      health.reason === "connection_error" &&
+      ["meta_ads", "klaviyo"].includes(providerId ?? "") &&
+      !/reauth|reconnect|invalid[_ :.-]*grant|token.{0,24}(expired|invalid|revoked)|invalid.{0,16}(api.?key|credential)|unauthorized|permission(s)?[_ :-]*(missing|denied)|scope(s)?[_ :.-]*(missing|insufficient)|oauth[_ :.-]*(denied|error)/i.test(
+        connection.last_error_message ?? "",
+      )
+    ) {
+      const cadence = providerId === "klaviyo" ? "6 horas" : "día";
+      return {
+        label: "Reintento automático",
+        detail: `La última solicitud no terminó bien. E-NORA la volverá a intentar cada ${cadence}; no hace falta pulsar sincronizar.`,
+        fix: "retry",
+      };
+    }
+    if (
+      health.reason === "connection_error" &&
+      ["meta_ads", "klaviyo"].includes(providerId ?? "") &&
+      /reauth|reconnect|invalid[_ :.-]*grant|token.{0,24}(expired|invalid|revoked)|invalid.{0,16}(api.?key|credential)|unauthorized|permission(s)?[_ :.-]*(missing|denied)|scope(s)?[_ :.-]*(missing|insufficient)|oauth[_ :.-]*(denied|error)/i.test(
+        connection.last_error_message ?? "",
+      )
+    ) {
+      return {
+        label: "Hay que reconectar",
+        detail:
+          "La plataforma rechazó la autorización o falta un permiso. Reconecta la cuenta para que E-NORA pueda reanudar la sincronización.",
+        fix: "reconnect",
+      };
+    }
   }
   if (health.status === "healthy")
     return { label: "Al día", detail: null, fix: null };
@@ -361,7 +401,7 @@ function providerView(
     name: provider?.name ?? PROVIDER_NAME[id] ?? id,
     connections,
     status: health.status,
-    explanation: explainHealth(health, worst),
+    explanation: explainHealth(health, worst, id),
     error: explainError(
       worst?.latest_sync?.error_message ?? worst?.last_error_message ?? null,
     ),

@@ -20,6 +20,7 @@ async function main() {
       succeeded: result.succeeded,
       failed: result.failed,
       skipped: result.skipped,
+      outcomes: result.results.map(({ status, detail }) => ({ status, detail })),
     }),
   );
   if (result.failed > 0) process.exitCode = 1;

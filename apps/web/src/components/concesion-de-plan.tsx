@@ -57,7 +57,7 @@ export function ConcesionDePlan({
 
       {value.conceder ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Código de plan">
               <Input
                 value={value.planCode}
@@ -75,6 +75,17 @@ export function ConcesionDePlan({
                 }
                 placeholder="1"
                 disabled={value.sinLimite}
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="Usuarios incluidos">
+              <Input
+                value={value.memberLimit}
+                onChange={(event) =>
+                  onChange({ ...value, memberLimit: event.target.value })
+                }
+                placeholder="1"
+                disabled={value.sinLimiteUsuarios}
                 inputMode="numeric"
               />
             </Field>
@@ -98,6 +109,16 @@ export function ConcesionDePlan({
               }
             />
             Sin límite de tiendas
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={value.sinLimiteUsuarios}
+              onChange={(event) =>
+                onChange({ ...value, sinLimiteUsuarios: event.target.checked })
+              }
+            />
+            Sin límite de usuarios
           </label>
         </>
       ) : (
@@ -126,7 +147,7 @@ export function PlanEditor({
 }: {
   subjectType: "user" | "organization";
   subjectId: string;
-  plan: { plan_code: string; store_limit: number | null; ends_at: string | null } | null;
+  plan: { plan_code: string; store_limit: number | null; member_limit?: number | null; ends_at: string | null } | null;
   onSaved: (message: string) => void;
 }) {
   const [value, setValue] = useState(() =>

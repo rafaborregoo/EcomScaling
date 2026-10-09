@@ -17,7 +17,7 @@
 set -Eeuo pipefail
 
 host="${ECOM_SSH_HOST:-ecom}"
-remote="/opt/ecomscaling"
+remote="/opt/e-nora"
 compose="-f $remote/docker-compose.prod.yml -f $remote/docker-compose.build.yml"
 
 cd "$(git rev-parse --show-toplevel)"
@@ -37,7 +37,7 @@ if command -v rsync >/dev/null 2>&1 && ! git diff-index --quiet HEAD --; then
   echo "AVISO: desplegando un arbol sucio como ${sha}"
 fi
 
-log_dir="${TMPDIR:-/tmp}/ecomscaling-deploy"
+log_dir="${TMPDIR:-/tmp}/e-nora-deploy"
 mkdir -p "$log_dir"
 
 if [ "${ECOM_SKIP_CHECKS:-0}" = "1" ]; then
@@ -97,8 +97,8 @@ echo "==> 4/6 Config del VPS: compose, cron y runner de jobs"
 # en el VPS: si el repo lo cambia y el VPS no se entera, los 22 jobs del cron se
 # caen sin que nadie lo vea hasta la madrugada siguiente.
 scp deploy/docker-compose.prod.yml deploy/docker-compose.build.yml \
-    ops/vps/run-worker-job.sh ops/vps/ecomscaling.crontab "$host:$remote/"
-ssh "$host" "chmod 750 $remote/run-worker-job.sh && crontab $remote/ecomscaling.crontab"
+    ops/vps/run-worker-job.sh ops/vps/e-nora.crontab "$host:$remote/"
+ssh "$host" "chmod 750 $remote/run-worker-job.sh && crontab $remote/e-nora.crontab"
 # El Caddyfile no se sincroniza: cambiarlo exige recargar Caddy, que este script
 # no toca. Se copia a mano y `docker compose restart caddy`.
 

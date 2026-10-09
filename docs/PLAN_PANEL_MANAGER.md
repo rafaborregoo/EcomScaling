@@ -433,3 +433,29 @@ también ahora que F8 está aparcada, para que el reloj corra mientras tanto.
 - **Horas ahorradas / tareas entregadas** como KPI: no hay dato que lo sostenga. Las tareas sí
   existen (`tasks`), las horas serían inventadas. Si se quiere la banda de valor del servicio,
   primero hay que decidir de dónde sale el número.
+
+---
+
+## F8 · Tres alcances del panel (cartera · cliente · tienda)  ✅ HECHO en código
+
+`/panel` deja de ser solo una tienda. El alcance lo fija el selector del shell: sin cliente → cartera;
+cliente con "todas las tiendas" → cliente; cliente + tienda → tienda. Mismo lenguaje visual que
+`/dashboard` del consultor.
+
+- **Contrato y reglas**: `packages/contracts/src/panel-profitability.ts` (tramos `pierde/datos/bajo/ok`,
+  fiabilidad, palancas, agregados y titulares). Las usan la API y la pantalla.
+- **API**: `GET /v1/consultant/profitability?days=&organizationId=` (`apps/api/src/consultant-profitability.ts`).
+  Una RPC por tienda sobre `shopify_financial_summary`; la fórmula no se reimplementa.
+  **Gastos fijos**: son de la organización y el SQL los carga enteros a cada tienda; el panel los reparte por
+  facturación (`fixedShare`) para que las tiendas sumen el beneficio real del cliente. La serie mensual de
+  cartera/cliente sale por organización, no sumando tiendas.
+- **A02**: alcance `panel` (`view=panel`), solo consultor/platform_admin (403 al cliente), con su propia caché y
+  su guía de destinatario en `PANEL_CONSULTANT_GUIDANCE`. No entra en el cron del cliente y no alimenta los
+  planes que acaban en manos del cliente. El h1 es determinista y en voz de consultor
+  (`buildPortfolioHeadline/ClientHeadline/StoreHeadline`); la lectura de A02 va debajo con la marca IA.
+- **Ritmo de la lectura A02**: el orquestador la regenera 2 veces al día (30 días; vista del cliente y, si tiene
+  varias tiendas, una por tienda; solo clientes con consultor asignado). A mano, máximo 2 al día por cliente o
+  tienda, y es el mismo tope (`A02_MANUAL_REFRESH_DAILY_LIMIT` = 2, 429 al pasarse) que en los dashboards del
+  cliente: se cuenta por vista y tienda, y el override de Configuración IA para A02 rige en ambos. La de 90 días
+  es solo manual.
+- **Pendiente**: función SQL `consultant_profitability_by_store` si la cartera supera ~150 tiendas.

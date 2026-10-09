@@ -33,6 +33,7 @@ import {
   useStoreScope,
   type ScopeAccount,
 } from "./shared";
+import { buildStoreLinkDiagnostics } from "./store-link-diagnostics";
 
 type ScopedTable = "meta_ad_accounts" | "klaviyo_accounts";
 
@@ -200,6 +201,11 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
   const isDirty = accounts.some(
     ({ account }) => draft[account.id] !== (account.store_id ?? UNASSIGNED),
   );
+  const diagnostics = buildStoreLinkDiagnostics(scope);
+  const diagnosticById = new Map(diagnostics.map((item) => [item.id, item]));
+  const unassignedDiagnostics = diagnostics.filter(
+    (item) => item.status !== "assigned",
+  );
 
   const storeOptions = [
     { value: UNASSIGNED, label: "Sin asignar" },
@@ -246,6 +252,89 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
         ) : null
       }
     >
+      <section
+        className="mb-4 rounded-lg border border-separator p-3"
+        aria-labelledby={`${domId}-diagnostics`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3
+              id={`${domId}-diagnostics`}
+              className="text-sm font-semibold text-foreground"
+            >
+              Diagnóstico de vínculos
+            </h3>
+            <p className="mt-1 text-sm text-muted">
+              {diagnostics.length === 0
+                ? "E-NORA todavía no ha detectado cuentas de Klaviyo o Meta Ads para esta organización."
+                : "E-NORA ha detectado " +
+                  diagnostics.length +
+                  " cuenta" +
+                  (diagnostics.length === 1 ? "" : "s") +
+                  " de proveedores."}
+              {diagnostics.length > 0 && unassignedDiagnostics.length > 0
+                ? ` ${unassignedDiagnostics.length} todavía no tiene una tienda registrada aquí.`
+                : diagnostics.length > 0
+                  ? " Todas tienen una tienda registrada aquí."
+                  : ""}
+            </p>
+          </div>
+          {diagnostics.length === 0 ? (
+            <Badge tone="neutral">Sin cuentas detectadas</Badge>
+          ) : unassignedDiagnostics.length > 0 ? (
+            <Badge tone="warn">
+              {unassignedDiagnostics.length} sin vínculo interno
+            </Badge>
+          ) : (
+            <Badge tone="success">Vínculos internos completos</Badge>
+          )}
+        </div>
+
+        <p className="mt-3 text-sm leading-6 text-muted">
+          La relación que ya configuraste entre Shopify, Klaviyo o Meta no se
+          importa automáticamente a E-NORA. Esta pantalla comprueba el vínculo
+          interno que usa E-NORA para atribuir datos a cada tienda; no consulta
+          ni cambia la configuración de las otras plataformas.
+        </p>
+
+        <ul className="mt-3 space-y-2">
+          {diagnostics.map((item) => (
+            <li
+              key={item.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-subtle px-3 py-2 text-sm"
+            >
+              <span className="min-w-0">
+                <span className="font-medium text-foreground">
+                  {item.accountName}
+                </span>
+                <span className="ml-2 text-muted">{item.provider}</span>
+              </span>
+              <span className="text-muted">
+                {item.status === "assigned"
+                  ? `Vinculada a ${item.storeName}`
+                  : item.status === "stale"
+                    ? "La tienda guardada ya no existe"
+                    : "Cuenta detectada; falta registrar la tienda"}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer font-medium text-foreground">
+            Casos de prueba reproducibles
+          </summary>
+          <ul className="mt-2 list-inside list-disc space-y-1 text-muted">
+            <li>Cuenta presente y asignada a una tienda existente.</li>
+            <li>Cuenta presente, pero sin vínculo interno de tienda.</li>
+            <li>Cuenta cuyo vínculo apunta a una tienda eliminada.</li>
+          </ul>
+          <p className="mt-2 text-muted">
+            Prueba automatizada: <code>apps/web/src/app/integraciones/store-link-diagnostics.test.ts</code>.
+          </p>
+        </details>
+      </section>
+
       <p className="text-sm text-muted">
         Viendo ahora:{" "}
         <span className="font-medium text-foreground">
@@ -274,6 +363,7 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
               {group.rows.map(({ account, provider, label }) => {
                 const rowError = rowErrors[account.id];
                 const rowErrorId = `${domId}-err-${account.id}`;
+                const diagnostic = diagnosticById.get(account.id);
                 return (
                   <li
                     key={account.id}
@@ -281,7 +371,13 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
                   >
                     <div className="min-w-0">
                       <p className="truncate">{label}</p>
-                      <p className="text-muted">{provider}</p>
+                      <p className="text-muted">
+                        {provider} · {diagnostic?.status === "assigned"
+                          ? "tienda registrada en E-NORA"
+                          : diagnostic?.status === "stale"
+                            ? "vínculo interno obsoleto"
+                            : "sin tienda registrada en E-NORA"}
+                      </p>
                     </div>
                     <div
                       className="flex flex-wrap gap-1.5 sm:max-w-[32rem] sm:justify-end"

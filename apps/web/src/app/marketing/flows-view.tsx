@@ -288,6 +288,7 @@ export function FlowsView({
                       askCopilot({
                         question: `Analiza el flow «${selected.name}» de Klaviyo: qué email rinde peor, dónde se pierde la gente y qué cambiarías.`,
                         focusLabel: `Flow · ${selected.name}`,
+                        reference: { kind: "entity", entity: { type: "klaviyo_flow", id: selected.id } },
                       })
                     }
                   >

@@ -12,6 +12,7 @@ import {
   assertConnectionIngestible,
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
+import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
 
 export { mapWithConcurrency } from "./async-concurrency.js";
 
@@ -2567,19 +2568,30 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
   const supabase = createServiceClient(env);
   const { data: connections, error } = await supabase
     .from("integration_connections")
-    .select("id")
+    .select("id, status, last_error_message")
     .eq("provider", "meta_ads")
-    .eq("status", "connected")
+    .in("status", ["connected", "error"])
     .order("created_at", { ascending: true });
   if (error) throw new Error(`meta_connections_list_failed: ${error.message}`);
 
-  const results = await mapWithConcurrency(connections ?? [], 3, async (connection) => {
+  const retryableConnections = (connections ?? []).filter(
+    (connection) =>
+      connection.status === "connected" ||
+      !requiresIntegrationReauthorization(connection.last_error_message),
+  );
+  const skippedForReauthorization = (connections ?? []).filter(
+    (connection) =>
+      connection.status === "error" &&
+      requiresIntegrationReauthorization(connection.last_error_message),
+  );
+
+  const results = await mapWithConcurrency(retryableConnections, 3, async (connection) => {
     try {
       const { data: claimedConnection, error: claimError } = await supabase
         .from("integration_connections")
         .update({ status: "syncing" })
         .eq("id", connection.id)
-        .eq("status", "connected")
+        .in("status", ["connected", "error"])
         .select("id")
         .maybeSingle();
       if (claimError) throw new Error(`meta_reconcile_claim_failed: ${claimError.message}`);
@@ -2635,10 +2647,8 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
         connection_id: connection.id,
         message: detail,
       });
-      // Sin esto la fila se queda en "syncing" (la dejo el claim de arriba) y
-      // el propio filtro `.eq("status", "connected")` de este cron la excluye
-      // de todas las pasadas futuras: la conexion queda muerta en silencio,
-      // sin error visible, hasta que alguien la sincroniza a mano.
+      // Los errores recuperables vuelven a entrar en el próximo ciclo; los de
+      // autorización se filtran arriba hasta que el usuario reconecte.
       await supabase
         .from("integration_connections")
         .update({
@@ -2652,10 +2662,19 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
   });
 
   return {
-    total: results.length,
+    total: (connections ?? []).length,
     succeeded: results.filter((item) => item.status === "succeeded").length,
     failed: results.filter((item) => item.status === "failed").length,
-    skipped: results.filter((item) => item.status === "skipped").length,
-    results,
+    skipped:
+      results.filter((item) => item.status === "skipped").length +
+      skippedForReauthorization.length,
+    results: [
+      ...results,
+      ...skippedForReauthorization.map((connection) => ({
+        connectionId: connection.id,
+        status: "skipped" as const,
+        detail: "reauthorization_required",
+      })),
+    ],
   };
 }

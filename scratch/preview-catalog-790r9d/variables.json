@@ -1,0 +1,274 @@
+{
+  "p1": {
+    "handle": "sudadera-oversize-arena",
+    "title": "Sudadera Oversize Arena",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Sudaderas",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-SUD-001",
+        "price": "58.00"
+      }
+    ]
+  },
+  "p2": {
+    "handle": "camiseta-basica-niebla",
+    "title": "Camiseta Básica Niebla",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Camisetas",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-CAM-002",
+        "price": "29.00"
+      }
+    ]
+  },
+  "p3": {
+    "handle": "pantalon-cargo-oliva",
+    "title": "Pantalón Cargo Oliva",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Pantalones",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-PAN-003",
+        "price": "64.00"
+      }
+    ]
+  },
+  "p4": {
+    "handle": "chaqueta-boreal-negra",
+    "title": "Chaqueta Boreal Negra",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Chaquetas",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-CHA-004",
+        "price": "119.00"
+      }
+    ]
+  },
+  "p5": {
+    "handle": "gorra-costa-cruda",
+    "title": "Gorra Costa Cruda",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Accesorios",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-GOR-005",
+        "price": "24.00"
+      }
+    ]
+  },
+  "p6": {
+    "handle": "bolso-mini-bruma",
+    "title": "Bolso Mini Bruma",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Accesorios",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-BOL-006",
+        "price": "39.00"
+      }
+    ]
+  },
+  "p7": {
+    "handle": "sudadera-capucha-arcilla",
+    "title": "Sudadera Capucha Arcilla",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Sudaderas",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-SUD-007",
+        "price": "68.00"
+      }
+    ]
+  },
+  "p8": {
+    "handle": "calcetin-rib-menta",
+    "title": "Calcetín Rib Menta",
+    "descriptionHtml": "<p>Artículo de demostración de E-NORA. Datos creados en Shopify para probar sincronización; no representa ventas reales.</p>",
+    "vendor": "E-NORA Demo",
+    "productType": "Accesorios",
+    "status": "ACTIVE",
+    "tags": [
+      "demo",
+      "e-nora-demo"
+    ],
+    "productOptions": [
+      {
+        "name": "Title",
+        "values": [
+          {
+            "name": "Default Title"
+          }
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "optionValues": [
+          {
+            "optionName": "Title",
+            "name": "Default Title"
+          }
+        ],
+        "sku": "EN-DEMO-CAL-008",
+        "price": "12.00"
+      }
+    ]
+  }
+}

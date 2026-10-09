@@ -9,7 +9,8 @@ import {
   klaviyoCapability,
 } from "./klaviyo-permissions.js";
 import { recordAuditLog } from "./audit-log.js";
-import { activeKlaviyoConnectionId, canManage, previewKlaviyoTemplate, pushDraftToKlaviyoTemplate } from "./klaviyo.js";
+import { activeKlaviyoConnectionId, canOperateCampaigns, previewKlaviyoTemplate, pushDraftToKlaviyoTemplate } from "./klaviyo.js";
+import { notifyCampaignEvent } from "./campaign-review.js";
 import { readKlaviyoFlowGraph, type FlowGraph } from "./klaviyo-flow-graph.js";
 
 /**
@@ -305,6 +306,7 @@ export async function getMarketingKlaviyoWorkspace(
       name: row.name,
       status: row.status,
       send_time: row.send_time ?? text(obj(raw.send_strategy).datetime),
+      created_at: text(raw.created_at),
       channel: text(message.channel) ?? "email",
       subject: text(message.subject),
       preview_text: text(message.preview_text),
@@ -579,7 +581,7 @@ export async function scheduleMarketingKlaviyoCampaign(
   organizationId: string,
   input: ScheduleCampaignInput,
 ): Promise<Result<{ klaviyo_campaign_id: string; status: string }>> {
-  const accessError = canManage(context, organizationId);
+  const accessError = canOperateCampaigns(context, organizationId);
   if (accessError) return { ok: false, statusCode: 403, error: accessError };
   const subject = input.subject?.trim() ?? "";
   const fromEmail = input.fromEmail?.trim() ?? "";
@@ -605,7 +607,30 @@ export async function scheduleMarketingKlaviyoCampaign(
     sendAt = new Date(parsed).toISOString();
   }
 
-  const pushed = await pushDraftToKlaviyoTemplate(env, context, organizationId, input.draftId);
+  // Una campaña que creo el cliente y sigue en revision no se programa: el
+  // consultor la revisa antes. El consultor puede programarla (queda revisada).
+  const isStaff = ["platform_admin", "consultant"].includes(context.profile.platform_role);
+  const gate = serviceClient(env);
+  let reviewing = false;
+  if (input.calendarItemId) {
+    const { data: gated } = await gate
+      .from("campaign_calendar_items")
+      .select("review_status")
+      .eq("id", input.calendarItemId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    reviewing = ["pending", "changes_requested"].includes(String(gated?.review_status ?? ""));
+    if (reviewing && !isStaff) {
+      return {
+        ok: false,
+        statusCode: 409,
+        error: "campaign_review_required",
+        message: "Tu consultor tiene que revisar la campaña antes de programarla.",
+      };
+    }
+  }
+
+  const pushed = await pushDraftToKlaviyoTemplate(env, context, organizationId, input.draftId, { campaignOperator: true });
   if (!pushed.ok) return pushed;
   const templateId = pushed.data.klaviyo_template_id;
 
@@ -728,6 +753,35 @@ export async function scheduleMarketingKlaviyoCampaign(
     entityId: input.draftId,
     newData: { klaviyo_campaign_id: campaignId, send_at: sendAt, included, excluded },
   });
+  if (input.calendarItemId) {
+    const when = sendAt
+      ? new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(sendAt))
+      : null;
+    if (isStaff && reviewing) {
+      await supabase
+        .from("campaign_calendar_items")
+        .update({ review_status: "reviewed", reviewed_by: context.user.id, reviewed_at: new Date().toISOString() })
+        .eq("id", input.calendarItemId)
+        .eq("organization_id", organizationId);
+    }
+    await supabase.from("campaign_item_notes").insert({
+      organization_id: organizationId,
+      item_id: input.calendarItemId,
+      author_user_id: context.user.id,
+      author_kind: "system",
+      kind: "system",
+      body: when ? `Programada en Klaviyo para el ${when}.` : "Enviándose desde Klaviyo.",
+      visible_to_client: true,
+    });
+    await notifyCampaignEvent(supabase, {
+      event: isStaff ? "scheduled" : "client_scheduled",
+      organizationId,
+      itemId: input.calendarItemId,
+      itemTitle: name,
+      actorUserId: context.user.id,
+      detail: when ? `Sale el ${when}. Se puede cancelar desde Campañas hasta esa hora.` : "Se está enviando ahora.",
+    });
+  }
   return { ok: true, data: { klaviyo_campaign_id: campaignId, status } };
 }
 
@@ -739,7 +793,7 @@ export async function cancelMarketingKlaviyoCampaign(
   externalCampaignId: string,
   action: string | undefined,
 ): Promise<Result<{ status: string }>> {
-  const accessError = canManage(context, organizationId);
+  const accessError = canOperateCampaigns(context, organizationId);
   if (accessError) return { ok: false, statusCode: 403, error: accessError };
   if (action !== "cancel" && action !== "revert") {
     return { ok: false, statusCode: 400, error: "invalid_action" };

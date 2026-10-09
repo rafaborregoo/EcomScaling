@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { displayValue } from "@/lib/display-labels";
+import { ButtonLink, toast } from "@/components/ui";
 import { clientNextStep, splitCriterion } from "./next-step";
+import { MonthlyRoute } from "./monthly-route";
+import { GrowthCycle } from "./growth-cycle";
+import { cadenceLabel, trackLabel } from "./task-tracks";
+import { formatEffort, metaOwnerLabel, taskWantsEmailDraft, type PlanTaskMeta } from "./plan-task-meta";
 import s from "./camino-map.module.css";
+import { latestMarketingAssetByTask, marketingAssetHref, marketingAssetStatusLabel, type CaminoMarketingAsset } from "@/lib/camino-marketing-assets";
 
 /**
  * Mi Camino como mapa, para el cliente.
@@ -23,13 +29,19 @@ type MapTask = {
   status: string;
   due_at: string | null;
   source: string;
+  description?: string | null;
+  priority?: string | null;
+  categories?: string[];
   created_by_origin?: "consultant" | "client" | null;
+  plan_meta?: PlanTaskMeta | null;
 };
 
 type MapMilestone = {
   id: string;
   name: string;
   description: string | null;
+  success_criteria?: string | null;
+  rationale?: string | null;
   position: number;
   status: string;
   target_date: string | null;
@@ -50,6 +62,9 @@ type MapGoal = {
   baseline: number | null;
   target: number | null;
   target_date?: string;
+  unit?: MapUnit;
+  currency_code?: string | null;
+  monthly_targets?: Array<{ month: number; target_value: number | null; rationale: string }>;
 };
 
 type MapUnit = "money" | "pct" | "count" | "ratio" | "number";
@@ -83,6 +98,7 @@ type MapReview = {
     };
     progress?: Array<{ item: string; status: string; evidence: string }>;
     risks?: Array<{ severity: string; detail: string; evidence: string }>;
+    learnings?: Array<{ title: string; learning: string; evidence: string; applies_to: string; confidence: string }>;
     next_actions: Array<{ title: string; rationale: string; owner: string; due_in_days: number }>;
     change_proposals: Array<{ description: string; reason: string }>;
     warnings?: string[];
@@ -100,6 +116,34 @@ const YS = [250, 156, 236, 140, 218, 124];
 const STYLE_KEY = "camino-map-style";
 
 const sortByPosition = <T extends { position: number }>(items: T[]) => items.slice().sort((a, b) => a.position - b.position);
+
+function TaskTrail({ tasks }: { tasks: Array<Pick<MapTask, "id" | "title" | "status" | "due_at" | "description" | "priority">> }) {
+  if (!tasks.length) return null;
+  return (
+    <ol className={s.taskTrail} aria-label="Recorrido de tareas del hito">
+      {tasks.map((task, index) => {
+        const done = task.status === "completed";
+        const active = task.status === "in_progress";
+        return (
+          <li key={task.id} className={`${s.taskTrailItem} ${done ? s.taskTrailDone : active ? s.taskTrailActive : ""}`}>
+            <span className={s.taskTrailNode} aria-label={done ? "Completada" : active ? "En curso" : "Pendiente"}>
+              {done ? "✓" : index + 1}
+            </span>
+            <div className={s.taskTrailCopy}>
+              <strong>{task.title}</strong>
+              {task.description ? <span>{task.description}</span> : null}
+              <small>
+                {done ? "Completada" : active ? "En curso" : "Pendiente"}
+                {task.due_at ? ` · ${shortDate(task.due_at)}` : ""}
+                {task.priority ? ` · Prioridad ${task.priority}` : ""}
+              </small>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
 function shortDate(value: string) {
   return new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
@@ -190,10 +234,10 @@ function buildLayout(phases: MapPhase[], stops: Stop[]): Layout {
   return out;
 }
 
-function renderSvg(layout: Layout, selectedId: string | null, adventure: boolean, finalLabel: string | null, totalPhases: number, variant: MapVariant = "client") {
+function renderSvg(layout: Layout, selectedId: string | null, adventure: boolean, finalLabel: string | null, totalPhases: number, variant: MapVariant = "client", draft = false) {
   P = PALETTES[variant];
   const { width, phases, points } = layout;
-  const phaseLocked = (phase: MapPhase) => !["active", "completed"].includes(phase.status);
+  const phaseLocked = (phase: MapPhase) => !draft && !["active", "completed"].includes(phase.status);
   const phaseDone = (phase: MapPhase) => phase.status === "completed";
   let svg = `<svg width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" role="presentation"><defs><linearGradient id="camino-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5c94fc"/><stop offset="1" stop-color="#a5d8ff"/></linearGradient>${phases
     .map((p) => `<clipPath id="camino-clip-${p.index}"><rect x="${p.x0 + 10}" y="62" width="${p.width - 20}" height="${H - 80}" rx="28"/></clipPath>`)
@@ -204,7 +248,18 @@ function renderSvg(layout: Layout, selectedId: string | null, adventure: boolean
     svg += adventure
       ? scene(x0, pw, index, phaseLocked(phase))
       : `<rect x="${x0 + 10}" y="62" width="${pw - 20}" height="${H - 80}" rx="28" fill="${active ? P.p1 : P.p2}" stroke="${active ? P.l1 : P.l2}" opacity="${phaseLocked(phase) ? 0.6 : 1}"/>`;
-    svg += `<text x="${x0 + 30}" y="32" style="font:600 10px var(--font-plex-sans),system-ui,sans-serif;letter-spacing:.12em;fill:${P.mu}">FASE ${index + 1}</text><text x="${x0 + 30}" y="51" style="font:600 15px var(--font-plex-sans),system-ui,sans-serif;fill:${P.ink}">${esc(phase.name.length > 42 ? `${phase.name.slice(0, 40)}…` : phase.name)}</text>`;
+    svg += `<text x="${x0 + 30}" y="32" style="font:600 10px var(--font-plex-sans),system-ui,sans-serif;letter-spacing:.12em;fill:${P.mu}">FASE ${index + 1}</text><text x="${x0 + 30}" y="51" style="font:600 15px var(--font-plex-sans),system-ui,sans-serif;fill:${P.ink}"><title>${esc(phase.name)}</title>${esc(phase.name.length > 42 ? `${phase.name.slice(0, 40)}…` : phase.name)}</text>`;
+  });
+
+  phases.forEach(({ phase, x0 }) => {
+    const phaseStops = points.flatMap((point) =>
+      point.kind === "stop" && point.stop.phase.id === phase.id ? [point.stop] : [],
+    );
+    const phaseTaskCount = phaseStops.reduce(
+      (sum, stop) => sum + stop.milestone.milestone_task_links.filter((link) => link.tasks).length,
+      0,
+    );
+    svg += `<text x="${x0 + 30}" y="72" style="font:500 11px var(--font-plex-sans),system-ui,sans-serif;fill:${P.mu}">${phaseStops.length} hitos · ${phaseTaskCount} tareas</text>`;
   });
 
   for (let i = 0; i < points.length - 1; i += 1) {
@@ -269,15 +324,25 @@ export function CaminoMap({
   formatGoal,
   onToggleTask,
   renderChangeDecision,
+  onApproveLearning,
   variant = "client",
   renderMilestoneExtra,
   onDiscuss,
+  onGenerateMarketingTask,
+  generatingTaskId,
+  marketingAssets = [],
+  startsOn,
 }: {
+  /** Inicio del Camino (yyyy-mm-dd): ancla las ventanas mensuales de la ruta económica. */
+  startsOn?: string | null;
   variant?: MapVariant;
   /** Acciones del consultor dentro de la ficha del hito (editar, tareas, notas...). */
   renderMilestoneExtra?: (milestoneId: string) => ReactNode;
   /** Abre la conversación con un mensaje ya preparado sobre el hito. */
   onDiscuss?: (topic: DiscussTopic) => void;
+  onGenerateMarketingTask?: (task: MapTask) => void;
+  generatingTaskId?: string | null;
+  marketingAssets?: CaminoMarketingAsset[];
   planStatus: string;
   goal: MapGoal | null | undefined;
   phases: MapPhase[];
@@ -289,6 +354,7 @@ export function CaminoMap({
   formatGoal: (value: number) => string;
   onToggleTask: (task: MapTask) => void;
   renderChangeDecision?: (index: number) => ReactNode;
+  onApproveLearning?: (reviewId: string, learningIndex: number) => Promise<void>;
 }) {
   const [today] = useState(() => new Date());
   // Solo se monta en el navegador (el plan llega tras la carga), así que leer
@@ -303,13 +369,24 @@ export function CaminoMap({
   const mapRef = useRef<HTMLDivElement>(null);
 
   const phases = useMemo(() => sortByPosition(rawPhases), [rawPhases]);
+  const planTasks = useMemo(
+    () => phases.flatMap((phase) => phase.strategic_plan_milestones.flatMap((milestone) => milestone.milestone_task_links.flatMap((link) => (link.tasks ? [link.tasks] : [])))),
+    [phases],
+  );
+  const marketingAssetsByTask = useMemo(
+    () => latestMarketingAssetByTask(marketingAssets),
+    [marketingAssets],
+  );
   const stops = useMemo<Stop[]>(() => {
     const active = phases.find((phase) => phase.status === "active") ?? null;
     const activeOrdered = active ? sortByPosition(active.strategic_plan_milestones) : [];
     const focusId = (activeOrdered.find((m) => m.status === "in_progress") ?? activeOrdered.find((m) => !CLOSED.includes(m.status)))?.id ?? null;
     return phases.flatMap((phase, pi) =>
       sortByPosition(phase.strategic_plan_milestones).map((milestone, mi) => {
-        const state: NodeState = CLOSED.includes(milestone.status) || phase.status === "completed"
+        // Un borrador no ha arrancado: sus hitos estan previstos, no bloqueados.
+        const state: NodeState = planStatus === "draft"
+          ? "pending"
+          : CLOSED.includes(milestone.status) || phase.status === "completed"
           ? "done"
           : milestone.id === focusId
             ? "current"
@@ -319,7 +396,7 @@ export function CaminoMap({
         return { milestone, phase, code: `${pi + 1}.${mi + 1}`, state };
       }),
     );
-  }, [phases]);
+  }, [phases, planStatus]);
 
   const focus = stops.find((stop) => stop.state === "current") ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -328,8 +405,8 @@ export function CaminoMap({
   const layout = useMemo(() => buildLayout(phases, stops), [phases, stops]);
   const finalLabel = goal?.target != null ? formatGoal(goal.target) : null;
   const svg = useMemo(
-    () => renderSvg(layout, selected?.milestone.id ?? null, adventure, finalLabel, phases.length, variant),
-    [layout, selected, adventure, finalLabel, phases.length, variant],
+    () => renderSvg(layout, selected?.milestone.id ?? null, adventure, finalLabel, phases.length, variant, planStatus === "draft"),
+    [layout, selected, adventure, finalLabel, phases.length, variant, planStatus],
   );
 
   // Al entrar, el mapa se abre en la fase en curso, no en la primera.
@@ -396,7 +473,7 @@ export function CaminoMap({
                   </div>
                 ) : null}
                 <span className={s.s}>
-                  {observed !== null ? goal?.metric_label : "Se mide con la primera revisión semanal"}
+                  {observed !== null ? goal?.metric_label : "Se mide con la primera revisión periódica"}
                   {goal?.target_date ? ` · ${shortDate(goal.target_date)}` : ""}
                 </span>
               </>
@@ -442,7 +519,7 @@ export function CaminoMap({
         <div className={s.bar}>
           {layout.phases.map(({ phase, x0, index }) => {
             const pal = PALETTES[variant];
-            const state = phase.status === "completed" ? [pal.good, "completada"] : phase.status === "active" ? [pal.acc, "en curso"] : [pal.mu, "bloqueada"];
+            const state = planStatus === "draft" ? [pal.mu, "prevista"] : phase.status === "completed" ? [pal.good, "completada"] : phase.status === "active" ? [pal.acc, "en curso"] : [pal.mu, "bloqueada"];
             return (
               <button
                 key={phase.id}
@@ -459,6 +536,7 @@ export function CaminoMap({
               </button>
             );
           })}
+          <span className={s.mapHint}>Selecciona un hito para ver su recorrido de tareas</span>
           <div className={s.styleSeg} role="group" aria-label="Estilo del mapa">
             <button type="button" aria-pressed={!adventure} onClick={() => chooseStyle(false)}>
               Formal
@@ -482,18 +560,47 @@ export function CaminoMap({
           variant={variant}
           extra={renderMilestoneExtra?.(selected.milestone.id)}
           onDiscuss={onDiscuss}
+          onGenerateMarketingTask={onGenerateMarketingTask}
+          generatingTaskId={generatingTaskId}
+          marketingAssetsByTask={marketingAssetsByTask}
+          draft={planStatus === "draft"}
         />
       ) : null}
 
       {review?.output ? (
-        <WeeklyReview review={review} formatGoal={formatGoal} renderChangeDecision={renderChangeDecision} baseline={baseline} target={target} />
+        <WeeklyReview review={review} formatGoal={formatGoal} renderChangeDecision={renderChangeDecision} onApproveLearning={onApproveLearning} baseline={baseline} target={target} />
+      ) : null}
+      {planTasks.some((task) => task.plan_meta?.track) ? (
+        <section className={s.level} aria-label="Carriles de trabajo">
+          <div className={s.panel}>
+            <GrowthCycle tasks={planTasks} />
+          </div>
+        </section>
+      ) : null}
+      {goal?.monthly_targets?.length ? (
+        <section className={s.level} aria-label="Ruta económica mes a mes">
+          <div className={s.panel}>
+            <MonthlyRoute
+              targets={goal.monthly_targets}
+              baseline={goal.baseline}
+              format={formatGoal}
+              startDate={startsOn ?? today.toISOString().slice(0, 10)}
+              milestones={stops.map((stop) => ({ name: stop.milestone.name, date: stop.milestone.target_date }))}
+              goalTarget={goal.target}
+            />
+          </div>
+        </section>
       ) : null}
     </div>
   );
 }
 
-function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTasks, sourceLabels, onToggleTask, variant, extra, onDiscuss }: {
+function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTasks, sourceLabels, onToggleTask, variant, extra, onDiscuss, onGenerateMarketingTask, generatingTaskId, marketingAssetsByTask, draft }: {
+  draft: boolean;
   onDiscuss?: (topic: DiscussTopic) => void;
+  onGenerateMarketingTask?: (task: MapTask) => void;
+  generatingTaskId?: string | null;
+  marketingAssetsByTask: Map<string, CaminoMarketingAsset>;
   stop: Stop;
   variant: MapVariant;
   extra?: ReactNode;
@@ -505,19 +612,27 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
   onToggleTask: (task: MapTask) => void;
 }) {
   const { milestone, phase, code, state } = stop;
-  const { text, criterion } = splitCriterion(milestone.description);
+  const { text, criterion: descriptionCriterion } = splitCriterion(milestone.description);
+  // La columna manda; el texto pegado a la descripcion es para los caminos creados antes.
+  const criterion = milestone.success_criteria?.trim() || descriptionCriterion;
   const tasks = milestone.milestone_task_links.map((link) => link.tasks).filter(Boolean) as MapTask[];
   const done = tasks.filter((task) => task.status === "completed").length;
+  const linkedAssets = tasks.flatMap((task) => {
+    const asset = marketingAssetsByTask.get(task.id);
+    return asset ? [asset] : [];
+  });
   const days = milestone.target_date ? daysUntil(milestone.target_date, today) : null;
   const chip =
-    state === "done"
+    draft
+      ? ["", milestone.target_date ? `Previsto para el ${shortDate(milestone.target_date)}` : "Previsto"]
+      : state === "done"
       ? [s.chipGood, milestone.completed_at ? `Completado el ${shortDate(milestone.completed_at)}` : "Completado"]
       : state === "locked"
         ? ["", milestone.target_date ? `Bloqueado · previsto para el ${shortDate(milestone.target_date)}` : "Bloqueado"]
         : days !== null && days < 0
           ? [s.chipBad, `Va tarde · vencía el ${shortDate(milestone.target_date!)}`]
           : [state === "current" ? s.chipAcc : "", milestone.target_date ? `${state === "current" ? "En curso" : "Siguiente"} · vence el ${shortDate(milestone.target_date)}` : state === "current" ? "En curso" : "Siguiente"];
-  const canTick = canResolveTasks && (state === "current" || state === "pending");
+  const canTick = canResolveTasks && !draft && (state === "current" || state === "pending");
 
   return (
     <section className={`${s.panel} ${s.sheet}`} aria-live="polite" aria-label={`Hito ${code}`}>
@@ -531,6 +646,12 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
       {text ? <p className={s.lvDesc}>{text}</p> : null}
       <div className={s.sheetGrid}>
         <div className={s.col}>
+          {milestone.rationale?.trim() ? (
+            <div className={s.criterion}>
+              <span className={s.lbl}>Por qué ahora</span>
+              <p>{milestone.rationale}</p>
+            </div>
+          ) : null}
           {criterion || objectives.length ? (
             <div className={s.criterion}>
               <span className={s.lbl}>Cómo sabremos que está hecho</span>
@@ -585,11 +706,17 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
               {done} de {tasks.length} hechas
             </span>
           </div>
+          {linkedAssets.length ? (
+            <p className={s.sub}>
+              Marketing vinculado: {linkedAssets.length} · {linkedAssets.map(marketingAssetStatusLabel).join(", ")}
+            </p>
+          ) : null}
           {tasks.length ? (
             <ul className={s.tasks}>
               {tasks.map((task) => {
                 const isDone = task.status === "completed";
                 const late = !isDone && OPEN_TASK.includes(task.status) && task.due_at !== null && Date.parse(task.due_at) < today.getTime();
+                const marketingAsset = marketingAssetsByTask.get(task.id) ?? null;
                 return (
                   <li key={task.id} className={`${s.task} ${isDone ? s.taskDone : ""}`}>
                     <input
@@ -604,9 +731,46 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                       <span className={s.taskM}>
                         <span>{sourceLabels[task.source] ?? displayValue(task.source)}</span>
                         {task.created_by_origin ? <span>· {task.created_by_origin === "consultant" ? "Consultor" : variant === "consultant" ? "Cliente" : "Tú"}</span> : null}
+                        {metaOwnerLabel(task.plan_meta, variant === "client") ? <span>· {metaOwnerLabel(task.plan_meta, variant === "client")}</span> : null}
+                        {trackLabel(task.plan_meta?.track) ? <span>· {[trackLabel(task.plan_meta?.track), cadenceLabel(task.plan_meta?.cadence)].filter(Boolean).join(" · ")}</span> : null}
+                        {formatEffort(task.plan_meta?.effort_hours) ? <span>· {formatEffort(task.plan_meta?.effort_hours)}</span> : null}
+                        {task.priority === "urgent" || task.priority === "high" ? <span className={task.priority === "urgent" ? s.late : s.prio}>· {task.priority === "urgent" ? "Urgente" : "Prioridad alta"}</span> : null}
                       </span>
                     </label>
                     <span className={`${s.due} ${late ? s.late : ""}`}>{task.due_at ? shortDate(task.due_at) : ""}</span>
+                    {task.description?.trim() || task.plan_meta?.definition_of_done || task.plan_meta?.rationale || task.plan_meta?.evidence?.length ? (
+                      <details className={s.how}>
+                        <summary>Cómo hacerlo</summary>
+                        {task.description?.trim() ? <p>{task.description}</p> : null}
+                        {task.plan_meta?.definition_of_done ? <p><b>Se da por hecha cuando:</b> {task.plan_meta.definition_of_done}</p> : null}
+                        {task.plan_meta?.rationale ? <p><b>Por qué:</b> {task.plan_meta.rationale}</p> : null}
+                        {task.plan_meta?.evidence?.length ? (
+                          <span className={s.evidence}>
+                            {task.plan_meta.evidence.map((item, index) => (
+                              <span key={index} className={s.evidenceChip}>
+                                {item.label}: {item.value}{item.period ? ` · ${item.period}` : ""}
+                              </span>
+                            ))}
+                          </span>
+                        ) : null}
+                      </details>
+                    ) : null}
+                    {marketingAsset ? (
+                      <>
+                        <span className={s.taskAssetStatus}>Marketing · {marketingAssetStatusLabel(marketingAsset)}</span>
+                        <a className={s.taskAction} href={marketingAssetHref(marketingAsset.id)}>Abrir borrador</a>
+                      </>
+                    ) : onGenerateMarketingTask && taskWantsEmailDraft(task) ? (
+                      <button
+                        type="button"
+                        className={s.taskAction}
+                        disabled={generatingTaskId === task.id}
+                        onClick={() => onGenerateMarketingTask(task)}
+                        aria-label={`Crear borrador de email para: ${task.title}`}
+                      >
+                        {generatingTaskId === task.id ? "Preparando borrador…" : "Crear borrador de email"}
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}
@@ -621,13 +785,16 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
   );
 }
 
-function WeeklyReview({ review, formatGoal, renderChangeDecision, baseline, target }: {
+function WeeklyReview({ review, formatGoal, renderChangeDecision, onApproveLearning, baseline, target }: {
   review: MapReview;
   formatGoal: (value: number) => string;
   renderChangeDecision?: (index: number) => ReactNode;
+  onApproveLearning?: (reviewId: string, learningIndex: number) => Promise<void>;
   baseline: number | null;
   target: number | null;
 }) {
+  const [approvedLearningIndexes, setApprovedLearningIndexes] = useState<Set<number>>(() => new Set());
+  const [approvingLearningIndex, setApprovingLearningIndex] = useState<number | null>(null);
   const output = review.output!;
   const observed = output.goal_progress.observed_value;
   return (
@@ -664,7 +831,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, baseline, targ
               <span className={s.sub}>Lo observado esta semana</span>
             </div>
             <ul className={s.signalList}>
-              {output.progress.slice(0, 3).map((item, index) => (
+              {output.progress.map((item, index) => (
                 <li key={`${review.id}-progress-${index}`}>
                   <strong>{item.item}</strong>
                   <span>{displayValue(item.status)} · {item.evidence}</span>
@@ -680,7 +847,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, baseline, targ
               <span className={s.sub}>Detectados en esta revisión</span>
             </div>
             <ul className={s.signalList}>
-              {output.risks.slice(0, 3).map((risk, index) => (
+              {output.risks.map((risk, index) => (
                 <li key={`${review.id}-risk-${index}`}>
                   <strong>
                     <span className={`${s.riskDot} ${risk.severity === "high" ? s.riskHigh : risk.severity === "medium" ? s.riskMedium : ""}`} aria-hidden="true" />
@@ -692,13 +859,52 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, baseline, targ
             </ul>
           </div>
         ) : null}
+        {output.learnings?.length ? (
+          <div className={s.reviewSignals}>
+            <div className={s.sech}>
+              <h3>Aprendizajes de esta revisión</h3>
+              <span className={s.sub}>Guardados en el historial fechado del Camino; confirma el alcance antes de reutilizarlos</span>
+            </div>
+            <ul className={s.signalList}>
+              {output.learnings.map((learning, index) => (
+                <li key={`${review.id}-learning-${index}`}>
+                  <strong>{learning.title}</strong>
+                  <span>{learning.learning}</span>
+                  <span>Aplica a: {learning.applies_to} · Confianza {displayValue(learning.confidence)}</span>
+                  <span>Evidencia: {learning.evidence}</span>
+                  {onApproveLearning ? (
+                    <button
+                      type="button"
+                      className={s.taskAction}
+                      disabled={approvingLearningIndex !== null || approvedLearningIndexes.has(index)}
+                      onClick={async () => {
+                        setApprovingLearningIndex(index);
+                        try {
+                          await onApproveLearning(review.id, index);
+                          setApprovedLearningIndexes((current) => new Set(current).add(index));
+                          toast.success("Aprendizaje guardado en el Conocimiento de esta tienda.");
+                        } catch (error) {
+                          toast.danger(error instanceof Error ? error.message : "No se pudo guardar el aprendizaje.");
+                        } finally {
+                          setApprovingLearningIndex(null);
+                        }
+                      }}
+                    >
+                      {approvedLearningIndexes.has(index) ? "Guardado en Conocimiento" : approvingLearningIndex === index ? "Guardando…" : "Guardar en Conocimiento"}
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {output.warnings?.length ? (
           <p className={s.reviewWarnings}>Límites de esta revisión: {output.warnings.join(" · ")}</p>
         ) : null}
         {output.change_proposals.length ? (
           <div className={s.change}>
             <span className={s.lbl}>Propuesta de cambio en el camino</span>
-            {output.change_proposals.slice(0, 2).map((change, index) => (
+            {output.change_proposals.map((change, index) => (
               <div key={index}>
                 <p>
                   <strong>{change.description}</strong>
@@ -717,7 +923,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, baseline, targ
         </div>
         {output.next_actions.length ? (
           <ul className={s.next}>
-            {output.next_actions.slice(0, 4).map((action, index) => (
+            {output.next_actions.map((action, index) => (
               <li key={index}>
                 <strong>{action.title}</strong>
                 <span className={s.chip}>
@@ -742,7 +948,13 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, baseline, targ
 export type DraftPhase = {
   name: string;
   note?: string | null;
-  milestones: Array<{ name: string; date?: string | null; detail?: string | null; criterion?: string | null }>;
+  milestones: Array<{
+    name: string;
+    date?: string | null;
+    detail?: string | null;
+    criterion?: string | null;
+    tasks?: Array<{ title: string; description?: string | null; date?: string | null; priority?: string | null }>;
+  }>;
 };
 
 /**
@@ -777,7 +989,17 @@ export function CaminoDraftMap({ phases: draft, finalLabel, variant = "client" }
               status: "pending",
               target_date: milestone.date ?? null,
               completed_at: null,
-              milestone_task_links: [],
+              milestone_task_links: (milestone.tasks ?? []).map((task, ti) => ({
+                tasks: {
+                  id: `draft-${pi}-${mi}-${ti}`,
+                  title: task.title,
+                  status: "pending",
+                  due_at: task.date ?? null,
+                  source: "strategic_plan",
+                  description: task.description ?? null,
+                  priority: task.priority ?? null,
+                },
+              })),
             })),
         })),
     [draft],
@@ -809,13 +1031,17 @@ export function CaminoDraftMap({ phases: draft, finalLabel, variant = "client" }
 
   const draftFor = (stop: Stop) => draft.filter((phase) => phase.name.trim())[Number(stop.code.split(".")[0]) - 1]?.milestones.filter((m) => m.name.trim())[Number(stop.code.split(".")[1]) - 1];
   const selectedDraft = selected ? draftFor(selected) : null;
+  const draftTaskCount = draft.reduce(
+    (count, phase) => count + phase.milestones.reduce((sum, milestone) => sum + (milestone.tasks?.length ?? 0), 0),
+    0,
+  );
 
   return (
     <div className={`${s.root} ${variant === "consultant" ? s.consultant : ""}`}>
       <section className={s.hero} aria-label="Vista previa del camino">
         <div
           className={s.map}
-          aria-label={`Vista previa: ${phases.length} fases y ${stops.length} hitos. Pulsa un hito para ver su ficha.`}
+          aria-label={`Vista previa: ${phases.length} fases, ${stops.length} hitos y ${draftTaskCount} tareas. Pulsa un hito para ver su ficha.`}
           onClick={(event) => {
             const node = (event.target as Element | null)?.closest?.("[data-milestone]");
             if (node) setSelectedId(node.getAttribute("data-milestone"));
@@ -831,8 +1057,9 @@ export function CaminoDraftMap({ phases: draft, finalLabel, variant = "client" }
         />
         <div className={s.bar}>
           <span className={s.draftCount}>
-            {phases.length} {phases.length === 1 ? "fase" : "fases"} · {stops.length} {stops.length === 1 ? "hito" : "hitos"}
+            {phases.length} {phases.length === 1 ? "fase" : "fases"} · {stops.length} {stops.length === 1 ? "hito" : "hitos"} · {draftTaskCount} tareas
           </span>
+          <span className={s.mapHint}>Selecciona un hito para ver sus tareas</span>
           <div className={s.styleSeg} role="group" aria-label="Estilo del mapa">
             <button type="button" aria-pressed={!adventure} onClick={() => setAdventure(false)}>
               Formal
@@ -859,6 +1086,15 @@ export function CaminoDraftMap({ phases: draft, finalLabel, variant = "client" }
               <p>{selectedDraft.criterion}</p>
             </div>
           ) : null}
+          {selectedDraft?.tasks?.length ? (
+            <section className={s.draftTaskSection} aria-label={`Tareas del hito ${selected.milestone.name}`}>
+              <div className={s.draftTaskHeader}>
+                <h4>Recorrido de tareas</h4>
+                <span>{selectedDraft.tasks.length} {selectedDraft.tasks.length === 1 ? "tarea" : "tareas"}</span>
+              </div>
+              <TaskTrail tasks={selected.milestone.milestone_task_links.map((link) => link.tasks).filter((task): task is MapTask => task !== null)} />
+            </section>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -874,7 +1110,7 @@ const DRAWING_STEPS = [
 ];
 
 /** Mientras la IA piensa: el camino se va dibujando parada a parada. */
-export function CaminoDrawing({ variant = "client" }: { variant?: MapVariant } = {}) {
+export function CaminoDrawing({ variant = "client", stage }: { variant?: MapVariant; stage?: string } = {}) {
   const [step, setStep] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setStep((current) => Math.min(current + 1, DRAWING_STEPS.length - 1)), 3200);
@@ -895,8 +1131,8 @@ export function CaminoDrawing({ variant = "client" }: { variant?: MapVariant } =
           <rect x="700" y="84" width="26" height="26" rx="6" transform="rotate(45 713 97)" className={s.drawingNode} style={{ animationDelay: "3.2s" }} fill={PALETTES[variant].acc} />
         </svg>
         <div className={s.drawingText}>
-          <span className={s.drawingStep}>{DRAWING_STEPS[step]}…</span>
-          <span>Suele tardar menos de un minuto. Nada se crea hasta que lo apruebes.</span>
+          <span className={s.drawingStep}>{stage ?? DRAWING_STEPS[step]}…</span>
+          <span>Puede tardar un par de minutos. Nada se crea hasta que lo apruebes.</span>
         </div>
       </section>
     </div>

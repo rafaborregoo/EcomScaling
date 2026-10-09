@@ -25,6 +25,7 @@ import {
   Checkbox,
   cn,
   CollapsibleSection,
+  Dialog,
   Dropdown,
   EmptyState,
   ErrorBlock,
@@ -38,7 +39,6 @@ import {
   Link,
   List,
   LoadingBlock,
-  Modal,
   MoreIcon,
   PencilIcon,
   RetryIcon,
@@ -923,6 +923,7 @@ function ClientActionsMenu({
         <ConfirmDangerDialog
           title={`Eliminar "${organization.display_name}" para siempre`}
           note="Elimina de forma permanente los datos de Shopify, Meta y Klaviyo, además de tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás."
+          irreversible
           confirmPhrase={organization.display_name}
           actionLabel="Eliminar definitivamente"
           isBusy={busy}
@@ -1664,6 +1665,11 @@ function ObjectiveTypesCard({
   const error = actionError ?? definitionsQuery.error;
   const setError = setActionError;
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Renombrar en la propia fila (antes: window.prompt encima del modal).
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  // Borrar se confirma en la propia fila: sin un segundo modal encima.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Alta
   const [label, setLabel] = useState("");
@@ -1795,210 +1801,194 @@ function ObjectiveTypesCard({
             : `${definitions.length} tipo(s) propio(s) además de los 8 estándar de plataforma.`}
       </p>
 
-      <Modal isOpen={isOpen} onOpenChange={(open) => setIsOpen(open)}>
-        <Modal.Backdrop>
-          <Modal.Container size="lg">
-            <Modal.Dialog aria-label="Configurar tipos de objetivo">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>Tipos de objetivo</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                {error ? (
-                  <div className="mb-3">
-                    <ErrorBlock>{error}</ErrorBlock>
-                  </div>
-                ) : null}
+      <Dialog
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+        size="lg"
+        title="Tipos de objetivo"
+        isBusy={isSaving}
+        isDirty={Boolean(label.trim())}
+        formId="objective-type-form"
+        cancelLabel="Cerrar"
+        primary={{
+          label: "Crear tipo de objetivo",
+          busyLabel: "Creando…",
+          disabled: !label.trim(),
+        }}
+      >
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-                <p className="text-sm font-semibold text-foreground">
-                  Estándar de plataforma (siempre activos)
-                </p>
-                <ul className="mt-1 flex flex-wrap gap-1.5">
-                  {builtins.map((b) => (
-                    <li key={b.key}>
-                      <Badge tone="neutral">{b.label}</Badge>
-                    </li>
-                  ))}
-                </ul>
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-ink">
+            Estándar de plataforma (siempre activos)
+          </h3>
+          <ul className="flex flex-wrap gap-2">
+            {builtins.map((b) => (
+              <li key={b.key}>
+                <Badge tone="neutral">{b.label}</Badge>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-                <p className="mt-4 text-sm font-semibold text-foreground">
-                  Tus tipos propios
-                </p>
-                {definitions === null ? (
-                  <p className="mt-1 text-sm text-muted">Cargando...</p>
-                ) : definitions.length === 0 ? (
-                  <p className="mt-1 text-sm text-muted">
-                    Todavía no has creado ninguno.
-                  </p>
-                ) : (
-                  <List as="ul" bordered className="mt-1">
-                    {definitions.map((def) => (
-                      <List.Item
-                        as="li"
-                        key={def.id}
-                        className="flex items-center justify-between gap-3 py-2 text-sm"
-                      >
-                        <span className="min-w-0">
-                          <span className="font-medium">{def.label}</span>
-                          <span className="ml-2 text-xs text-muted">
-                            {def.source === "manual"
-                              ? "Manual"
-                              : "Métrica de plataforma"}{" "}
-                            · {orgName(def.organization_id)}
-                          </span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Renombrar ${def.label}`}
-                            disabled={busyId === def.id}
-                            onClick={() => {
-                              const next = window.prompt(
-                                "Nuevo nombre del objetivo",
-                                def.label,
-                              );
-                              if (
-                                next &&
-                                next.trim() &&
-                                next.trim() !== def.label
-                              ) {
-                                void renameDefinition(def.id, next.trim());
-                              }
-                            }}
-                          >
-                            <PencilIcon aria-hidden />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={busyId === def.id}
-                            onClick={() => void archiveDefinition(def.id)}
-                          >
-                            {busyId === def.id ? "..." : "Borrar"}
-                          </Button>
-                        </span>
-                      </List.Item>
-                    ))}
-                  </List>
-                )}
-
-                <form
-                  onSubmit={createDefinition}
-                  className="mt-4 space-y-3 border-t border-separator pt-4"
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-ink">Tus tipos propios</h3>
+          {definitions === null ? (
+            <p className="text-muted">Cargando…</p>
+          ) : definitions.length === 0 ? (
+            <p className="text-muted">Todavía no has creado ninguno.</p>
+          ) : (
+            <List as="ul" bordered>
+              {definitions.map((def) => (
+                <List.Item
+                  as="li"
+                  key={def.id}
+                  className="flex items-center justify-between gap-3 py-3"
                 >
-                  <p className="text-sm font-semibold text-foreground">
-                    Nuevo tipo de objetivo
-                  </p>
-                  <Field label="Nombre">
-                    <Input
-                      className="mt-1"
-                      value={label}
-                      onChange={(event) => setLabel(event.target.value)}
-                      placeholder="p. ej. Suscriptores de newsletter"
-                      required
-                    />
-                  </Field>
-                  <div className="flex flex-wrap gap-3">
-                    <Field label="Cómo se mide">
-                      <Select
-                        className="mt-1"
-                        value={source}
-                        onChange={(value) =>
-                          setSource(value as "platform" | "manual")
-                        }
-                        options={[
-                          {
-                            value: "platform",
-                            label: "Métrica de plataforma",
-                          },
-                          { value: "manual", label: "Valor manual" },
-                        ]}
+                  {renamingId === def.id ? (
+                    <form
+                      className="flex w-full items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const next = renameValue.trim();
+                        setRenamingId(null);
+                        if (next && next !== def.label) void renameDefinition(def.id, next);
+                      }}
+                    >
+                      <Input
+                        autoFocus
+                        aria-label={`Nuevo nombre de ${def.label}`}
+                        value={renameValue}
+                        onChange={(event) => setRenameValue(event.target.value)}
                       />
-                    </Field>
-                    {source === "platform" ? (
-                      <Field label="Métrica">
-                        <Select
-                          className="mt-1"
-                          value={metricKey}
-                          onChange={setMetricKey}
-                          options={builtins.map((b) => ({
-                            value: b.key,
-                            label: b.label,
-                          }))}
-                        />
-                      </Field>
-                    ) : (
-                      <>
-                        <Field label="Unidad">
-                          <Select
-                            className="mt-1"
-                            value={unit}
-                            onChange={setUnit}
-                            options={Object.entries(OBJECTIVE_UNIT_LABELS).map(
-                              ([value, label2]) => ({ value, label: label2 }),
-                            )}
-                          />
-                        </Field>
-                        <Field label="Dirección">
-                          <Select
-                            className="mt-1"
-                            value={direction}
-                            onChange={(value) =>
-                              setDirection(value as "up" | "down")
-                            }
-                            options={[
-                              { value: "up", label: "Más es mejor" },
-                              { value: "down", label: "Menos es mejor" },
-                            ]}
-                          />
-                        </Field>
-                      </>
-                    )}
-                  </div>
-                  <Field label="Para quién">
-                    <Select
-                      className="mt-1"
-                      value={scope}
-                      onChange={setScope}
-                      options={[
-                        { value: "all", label: "Toda mi cartera" },
-                        ...organizations.map((o) => ({
-                          value: o.id,
-                          label: o.display_name,
-                        })),
-                      ]}
-                    />
-                  </Field>
-                  {source === "manual" ? (
-                    <p className="text-xs text-muted">
-                      Los objetivos manuales no tienen dato automático: tú
-                      introduces el valor actual en la card del objetivo, dentro
-                      de Mi Camino de cada cliente.
-                    </p>
-                  ) : null}
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={isSaving || !label.trim()}
-                  >
-                    {isSaving ? "Creando..." : "Crear tipo de objetivo"}
-                  </Button>
-                </form>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setIsOpen(false)}
-                >
-                  Cerrar
-                </Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+                      <Button type="submit" size="sm" disabled={!renameValue.trim()}>
+                        Guardar
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setRenamingId(null)}>
+                        Cancelar
+                      </Button>
+                    </form>
+                  ) : confirmDeleteId === def.id ? (
+                    <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                      <span className="text-[13px] font-medium text-ink">¿Borrar «{def.label}»?</span>
+                      <span className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" disabled={busyId === def.id} onClick={() => setConfirmDeleteId(null)}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={busyId === def.id}
+                          onClick={async () => {
+                            await archiveDefinition(def.id);
+                            setConfirmDeleteId(null);
+                          }}
+                        >
+                          {busyId === def.id ? "Borrando…" : "Borrar"}
+                        </Button>
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="min-w-0">
+                        <span className="font-medium text-ink">{def.label}</span>
+                        <span className="ml-2 text-xs text-muted">
+                          {def.source === "manual" ? "Manual" : "Métrica de plataforma"} · {orgName(def.organization_id)}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Renombrar ${def.label}`}
+                          disabled={busyId === def.id}
+                          onClick={() => {
+                            setRenameValue(def.label);
+                            setRenamingId(def.id);
+                          }}
+                        >
+                          <PencilIcon aria-hidden />
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={busyId === def.id} onClick={() => setConfirmDeleteId(def.id)}>
+                          Borrar
+                        </Button>
+                      </span>
+                    </>
+                  )}
+                </List.Item>
+              ))}
+            </List>
+          )}
+        </section>
+
+        <form id="objective-type-form" onSubmit={createDefinition} className="space-y-4 border-t border-line pt-4">
+          <h3 className="text-sm font-semibold text-ink">Nuevo tipo de objetivo</h3>
+          <Field label="Nombre">
+            <Input
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder="p. ej. Suscriptores de newsletter"
+              required
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Cómo se mide">
+              <Select
+                value={source}
+                onChange={(value) => setSource(value as "platform" | "manual")}
+                options={[
+                  { value: "platform", label: "Métrica de plataforma" },
+                  { value: "manual", label: "Valor manual" },
+                ]}
+              />
+            </Field>
+            {source === "platform" ? (
+              <Field label="Métrica">
+                <Select
+                  value={metricKey}
+                  onChange={setMetricKey}
+                  options={builtins.map((b) => ({ value: b.key, label: b.label }))}
+                />
+              </Field>
+            ) : (
+              <Field label="Unidad">
+                <Select
+                  value={unit}
+                  onChange={setUnit}
+                  options={Object.entries(OBJECTIVE_UNIT_LABELS).map(([value, label2]) => ({ value, label: label2 }))}
+                />
+              </Field>
+            )}
+            {source === "manual" ? (
+              <Field label="Dirección">
+                <Select
+                  value={direction}
+                  onChange={(value) => setDirection(value as "up" | "down")}
+                  options={[
+                    { value: "up", label: "Más es mejor" },
+                    { value: "down", label: "Menos es mejor" },
+                  ]}
+                />
+              </Field>
+            ) : null}
+            <Field label="Para quién">
+              <Select
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "all", label: "Toda mi cartera" },
+                  ...organizations.map((o) => ({ value: o.id, label: o.display_name })),
+                ]}
+              />
+            </Field>
+          </div>
+          {source === "manual" ? (
+            <p className="text-xs text-muted">
+              Los objetivos manuales no tienen dato automático: tú introduces el valor actual en la card del objetivo, dentro de Mi Camino de cada cliente.
+            </p>
+          ) : null}
+        </form>
+      </Dialog>
     </Card>
   );
 }

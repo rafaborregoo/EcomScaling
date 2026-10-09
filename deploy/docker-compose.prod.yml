@@ -1,4 +1,4 @@
-name: ecomscaling
+name: e-nora
 
 # Produccion en el VPS: api + worker + redis + caddy (TLS automatico).
 # La web (Next.js) va en Vercel, no aqui.
@@ -50,7 +50,7 @@ services:
       # `env_file: .env.production` ya las inyecta. Declararlas en `environment`
       # las romperia: `environment` tiene prioridad sobre `env_file`, y
       # ${OPENAI_API_KEY:-} se resuelve contra el .env del proyecto compose
-      # (/opt/ecomscaling/.env, que solo tiene IMAGE_TAG), asi que quedarian
+      # (/opt/e-nora/.env, que solo tiene IMAGE_TAG), asi que quedarian
       # vacias y el fallback a OpenAI jamas podria entrar -- justo lo contrario
       # de lo que se buscaba. Comprobado con `docker compose config`.
     depends_on:
@@ -159,7 +159,7 @@ services:
       - email-render-spool:/spool
 
   email-renderer:
-    image: ecomscaling-email-renderer:local
+    image: e-nora-email-renderer:local
     restart: unless-stopped
     init: true
     user: "1000:2000"

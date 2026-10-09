@@ -3627,7 +3627,7 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
     consultingOrgIds.length > 0
       ? await supabase
           .from("service_subscriptions")
-          .select("organization_id, plan_code, store_limit, status, ends_at")
+          .select("organization_id, plan_code, store_limit, member_limit, status, ends_at")
           .in("status", ["trial", "active"])
           .in("organization_id", consultingOrgIds)
       : { data: [], error: null };
@@ -3642,6 +3642,7 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
       {
         plan_code: s.plan_code as string,
         store_limit: s.store_limit as number | null,
+        member_limit: s.member_limit as number | null,
         status: s.status as string,
         ends_at: s.ends_at as string | null,
       },
@@ -3765,25 +3766,41 @@ function requirePlatformAdminOrStoreOwner(
 // gracia, por lo que el propietario puede corregir una conexión a la tienda
 // equivocada sin perder el histórico de inmediato.
 function requireStoreManager(context: AuthContext, organizationId: string) {
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "consultant_access_required",
-      message: "El panel consultor requiere rol platform_admin o consultant.",
-    };
-  }
-  if (
-    !context.memberships.some(
-      (membership) => membership.organization_id === organizationId,
-    )
-  ) {
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+  if (!membership) {
     return {
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
+    };
+  }
+
+  if (
+    membership.accessSource === "membership" &&
+    membership.access_scope === "store"
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_manage_denied",
+      message: "Una cuenta limitada a tienda no puede administrar accesos del cliente.",
+    };
+  }
+
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    context.profile.platform_role,
+  );
+  const isStoreManager =
+    membership.accessSource === "membership" &&
+    ["owner", "manager"].includes(membership.role);
+  if (!isConsultant && !isStoreManager) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_manage_denied",
+      message: "Solo propietarios, gestores o consultores asignados pueden gestionar los accesos.",
     };
   }
   return { ok: true as const };
@@ -5184,6 +5201,7 @@ async function createConsultingOrganization(
                 plan_code: input.plan.plan_code,
                 status: input.plan.status,
                 store_limit: input.plan.store_limit,
+                member_limit: input.plan.member_limit,
                 starts_at: input.plan.starts_at,
                 ends_at: input.plan.ends_at,
                 metadata: {
@@ -5363,6 +5381,7 @@ export async function inviteConsultant(
     grant_plan?: {
       plan_code?: string;
       store_limit?: number | string | null;
+      member_limit?: number | string | null;
       ends_at?: string | null;
     } | null;
   },
@@ -5709,6 +5728,7 @@ export async function createClientOrganization(
     grant_plan?: {
       plan_code?: string;
       store_limit?: number | string | null;
+      member_limit?: number | string | null;
       ends_at?: string | null;
     } | null;
   },
@@ -5837,6 +5857,7 @@ export async function createClientOrganization(
             plan_code: plan.plan_code,
             status: plan.status,
             store_limit: plan.store_limit,
+            member_limit: plan.member_limit,
             starts_at: plan.starts_at,
             ends_at: plan.ends_at,
             metadata: {
@@ -6482,7 +6503,7 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
       .eq("is_active", true),
     supabase
       .from("service_subscriptions")
-      .select("organization_id, plan_code, store_limit, status, ends_at")
+      .select("organization_id, plan_code, store_limit, member_limit, status, ends_at")
       .in("status", ["trial", "active"]),
   ]);
 
@@ -6551,6 +6572,7 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
       {
         plan_code: s.plan_code as string,
         store_limit: s.store_limit as number | null,
+        member_limit: s.member_limit as number | null,
         status: s.status as string,
         ends_at: s.ends_at as string | null,
       },
@@ -6606,7 +6628,7 @@ export async function getClientOverview(
       .maybeSingle(),
     supabase
       .from("service_subscriptions")
-      .select("organization_id, plan_code, store_limit, status, ends_at")
+      .select("organization_id, plan_code, store_limit, member_limit, status, ends_at")
       .eq("organization_id", organizationId)
       .in("status", ["trial", "active"])
       .maybeSingle(),
@@ -6707,6 +6729,7 @@ export async function getClientOverview(
         ? {
             plan_code: subscription.plan_code as string,
             store_limit: subscription.store_limit as number | null,
+            member_limit: subscription.member_limit as number | null,
             status: subscription.status as string,
             ends_at: subscription.ends_at as string | null,
           }
@@ -7374,7 +7397,7 @@ const CLIENT_MEMBER_ROLES = ["owner", "manager", "member", "readonly"] as const;
 export function leavesClientWithoutOwner(
   activeOwnerIds: string[],
   targetUserId: string,
-  patch: { role?: unknown; is_active?: unknown },
+  patch: { role?: unknown; is_active?: unknown; access_scope?: unknown },
 ): boolean {
   const isLastOwner =
     activeOwnerIds.length === 1 && activeOwnerIds[0] === targetUserId;
@@ -7382,7 +7405,8 @@ export function leavesClientWithoutOwner(
 
   const losesAccess = patch.is_active === false;
   const losesOwnerRole = patch.role !== undefined && patch.role !== "owner";
-  return losesAccess || losesOwnerRole;
+  const losesOrganizationScope = patch.access_scope === "store";
+  return losesAccess || losesOwnerRole || losesOrganizationScope;
 }
 
 /** Quien tiene acceso a este cliente: sus miembros y sus consultores. */
@@ -7396,10 +7420,10 @@ export async function getClientAccess(
 
   const supabase = createServiceClient(env);
 
-  const [membersResult, assignmentsResult] = await Promise.all([
+  const [membersResult, assignmentsResult, subscriptionResult, storeCountResult, storesResult] = await Promise.all([
     supabase
       .from("organization_members")
-      .select("id, user_id, role, is_active, invited_at, joined_at")
+      .select("id, user_id, role, is_active, invited_at, joined_at, access_scope, store_id")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
     supabase
@@ -7407,14 +7431,41 @@ export async function getClientAccess(
       .select("id, consultant_user_id, is_primary, is_active")
       .eq("organization_id", organizationId)
       .eq("is_active", true),
+    supabase
+      .from("service_subscriptions")
+      .select("plan_code, status, store_limit, member_limit")
+      .eq("organization_id", organizationId)
+      .in("status", ["trial", "active"])
+      .order("starts_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.rpc("billable_store_count", {
+      target_organization_id: organizationId,
+    }),
+    supabase
+      .from("shopify_stores")
+      .select("id, shop_name, myshopify_domain")
+      .eq("organization_id", organizationId)
+      .order("shop_name", { ascending: true }),
   ]);
 
-  if (membersResult.error || assignmentsResult.error) {
+  if (
+    membersResult.error ||
+    assignmentsResult.error ||
+    subscriptionResult.error ||
+    storeCountResult.error ||
+    storesResult.error
+  ) {
     return {
       ok: false as const,
       statusCode: 500,
       error: "client_access_load_failed",
-      detail: membersResult.error?.message ?? assignmentsResult.error?.message,
+      detail:
+        membersResult.error?.message ??
+        assignmentsResult.error?.message ??
+        subscriptionResult.error?.message ??
+        storeCountResult.error?.message ??
+        storesResult.error?.message,
     };
   }
 
@@ -7448,17 +7499,38 @@ export async function getClientAccess(
     (profiles ?? []).map((profile) => [profile.id as string, profile]),
   );
 
-  const { data: invites } = await supabase
+  const { data: invites, error: invitesError } = await supabase
     .from("client_invites")
-    .select("id, email, status, expires_at, created_at")
+    .select("id, email, status, expires_at, created_at, access_scope, store_id")
     .eq("organization_id", organizationId)
     .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
     .order("created_at", { ascending: false });
+  if (invitesError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "client_access_load_failed",
+      detail: invitesError.message,
+    };
+  }
+
+  const activeMemberCount = (membersResult.data ?? []).filter(
+    (member) => member.is_active,
+  ).length;
+  const pendingInviteCount = (invites ?? []).length;
 
   return {
     ok: true as const,
     data: {
       organization_id: organizationId,
+      plan: subscriptionResult.data ?? null,
+      usage: {
+        store_count: Number(storeCountResult.data ?? 0),
+        member_count: activeMemberCount + pendingInviteCount,
+        active_member_count: activeMemberCount,
+        pending_invite_count: pendingInviteCount,
+      },
       members: (membersResult.data ?? []).map((member) => ({
         ...member,
         profile: profileById.get(member.user_id as string) ?? null,
@@ -7469,6 +7541,7 @@ export async function getClientAccess(
           profileById.get(assignment.consultant_user_id as string) ?? null,
       })),
       pending_invites: invites ?? [],
+      stores: storesResult.data ?? [],
     },
   };
 }
@@ -7481,14 +7554,20 @@ export async function getClientAccess(
  * si no hay ninguna pendiente): dar de alta a una segunda persona -- el de
  * marketing del cliente, un socio -- no se podia sin pasar por platform admin.
  *
- * Mismo mecanismo que el alta: `generateLink` crea el usuario de Auth sin
- * enviar correo y el consultor reparte el codigo.
+ * Mismo mecanismo que el alta: `generateLink` crea el usuario de Auth y se
+ * reserva una plaza hasta que la invitacion se acepte o caduque.
  */
 export async function inviteClientMember(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
-  body: { email?: string; full_name?: string; role?: string },
+  body: {
+    email?: string;
+    full_name?: string;
+    role?: string;
+    access_scope?: "organization" | "store";
+    store_id?: string | null;
+  },
 ) {
   const access = requireStoreManager(context, organizationId);
   if (access.ok === false) return access;
@@ -7496,6 +7575,8 @@ export async function inviteClientMember(
   const email = body.email?.trim().toLowerCase() ?? "";
   const fullName = body.full_name?.trim() || null;
   const role = body.role?.trim() || "member";
+  const accessScope = body.access_scope === "store" ? "store" : "organization";
+  const storeId = typeof body.store_id === "string" ? body.store_id : null;
 
   if (!isEmail(email)) {
     return { ok: false as const, statusCode: 400, error: "invalid_email" };
@@ -7503,11 +7584,86 @@ export async function inviteClientMember(
   if (!(CLIENT_MEMBER_ROLES as readonly string[]).includes(role)) {
     return { ok: false as const, statusCode: 400, error: "invalid_role" };
   }
+  if (accessScope === "store" && !storeId) {
+    return { ok: false as const, statusCode: 400, error: "store_required" };
+  }
+  if (accessScope === "organization" && storeId) {
+    return { ok: false as const, statusCode: 400, error: "unexpected_store" };
+  }
 
   const inviteSecret = requireInviteSecret(env);
   if (inviteSecret.ok === false) return inviteSecret;
 
   const supabase = createServiceClient(env);
+  if (storeId) {
+    const { data: store, error: storeError } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("id", storeId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (storeError || !store) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "store_not_in_organization",
+      };
+    }
+  }
+  const [subscriptionResult, activeMembersResult, pendingInvitesResult] =
+    await Promise.all([
+      supabase
+        .from("service_subscriptions")
+        .select("member_limit")
+        .eq("organization_id", organizationId)
+        .in("status", ["trial", "active"])
+        .order("starts_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("organization_members")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("is_active", true),
+      supabase
+        .from("client_invites")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "pending")
+        .gt("expires_at", new Date().toISOString()),
+    ]);
+  const seatLoadError =
+    subscriptionResult.error ??
+    activeMembersResult.error ??
+    pendingInvitesResult.error;
+  if (seatLoadError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "member_capacity_check_failed",
+      message: "No se pudo comprobar el cupo de usuarios. Reintenta.",
+      detail: seatLoadError.message,
+    };
+  }
+  if (!subscriptionResult.data) {
+    return {
+      ok: false as const,
+      statusCode: 402,
+      error: "subscription_required",
+      message: "La organización necesita un plan activo para invitar usuarios.",
+    };
+  }
+  const memberLimit = subscriptionResult.data.member_limit as number | null;
+  const membersInUse =
+    (activeMembersResult.count ?? 0) + (pendingInvitesResult.count ?? 0);
+  if (memberLimit !== null && membersInUse >= memberLimit) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "member_limit_reached",
+      message: `Tu plan incluye ${memberLimit} ${memberLimit === 1 ? "usuario" : "usuarios"}; ya hay ${membersInUse} plazas ocupadas entre personas e invitaciones pendientes.`,
+    };
+  }
   const { data: inviteOrganization, error: inviteOrganizationError } =
     await supabase
       .from("organizations")
@@ -7555,6 +7711,8 @@ export async function inviteClientMember(
       organization_id: organizationId,
       user_id: link.user.id,
       role,
+      access_scope: accessScope,
+      store_id: storeId,
       is_active: false,
       invited_by: context.user.id,
       invited_at: new Date().toISOString(),
@@ -7579,6 +7737,8 @@ export async function inviteClientMember(
     invited_user_id: link.user.id,
     consultant_user_id: context.user.id,
     email,
+    access_scope: accessScope,
+    store_id: storeId,
     // Huella, no el codigo en claro (20261023090000): este sitio se quedo
     // guardando `code` sin migrar cuando el resto del fichero paso a
     // `code_hash`.
@@ -7601,7 +7761,7 @@ export async function inviteClientMember(
     action: "consultant.invite_client_member",
     entityType: "organization_member",
     entityId: link.user.id,
-    newData: { email, role },
+    newData: { email, role, access_scope: accessScope, store_id: storeId },
   });
 
   const memberAccessUrl = accessPath(env, code);
@@ -7624,6 +7784,8 @@ export async function inviteClientMember(
     data: {
       email,
       role,
+      access_scope: accessScope,
+      store_id: storeId,
       invite: {
         code,
         expires_at: expiresAt,
@@ -7646,7 +7808,12 @@ export async function setClientMemberRole(
   context: AuthContext,
   organizationId: string,
   userId: string,
-  body: { role?: string; isActive?: unknown },
+  body: {
+    role?: string;
+    isActive?: unknown;
+    access_scope?: "organization" | "store";
+    store_id?: string | null;
+  },
 ) {
   const access = requireStoreManager(context, organizationId);
   if (access.ok === false) return access;
@@ -7661,6 +7828,34 @@ export async function setClientMemberRole(
   }
   if (body.isActive !== undefined) {
     patch.is_active = Boolean(body.isActive);
+  }
+  if (body.access_scope !== undefined) {
+    if (!(body.access_scope === "organization" || body.access_scope === "store")) {
+      return { ok: false as const, statusCode: 400, error: "invalid_access_scope" };
+    }
+    const storeId = typeof body.store_id === "string" ? body.store_id : null;
+    if (body.access_scope === "store" && !storeId) {
+      return { ok: false as const, statusCode: 400, error: "store_required" };
+    }
+    if (body.access_scope === "organization" && storeId) {
+      return { ok: false as const, statusCode: 400, error: "unexpected_store" };
+    }
+    if (storeId) {
+      const supabase = createServiceClient(env);
+      const { data: store } = await supabase
+        .from("shopify_stores")
+        .select("id")
+        .eq("id", storeId)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (!store) {
+        return { ok: false as const, statusCode: 400, error: "store_not_in_organization" };
+      }
+    }
+    patch.access_scope = body.access_scope;
+    patch.store_id = storeId;
+  } else if (body.store_id !== undefined) {
+    return { ok: false as const, statusCode: 400, error: "access_scope_required" };
   }
   if (Object.keys(patch).length === 0) {
     return { ok: false as const, statusCode: 400, error: "empty_update" };
@@ -7720,6 +7915,39 @@ export async function setClientMemberRole(
   });
 
   return { ok: true as const, data };
+}
+
+export async function revokeClientAccessInvite(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  inviteId: string,
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase
+    .from("client_invites")
+    .update({ status: "revoked" })
+    .eq("id", inviteId)
+    .eq("organization_id", organizationId)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_revoke_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "invite_not_found" };
+  }
+  return { ok: true as const, data: { invite_id: inviteId, revoked: true } };
 }
 
 /**

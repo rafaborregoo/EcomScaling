@@ -17,6 +17,7 @@ import type {
   CatalogProductsResponse,
   CatalogSort,
 } from "../catalog-types";
+import { StockForecastCard } from "./stock-forecast";
 
 type View = "grid" | "table";
 
@@ -134,6 +135,7 @@ function ProductCard({ product, href, periodDays }: { product: CatalogProduct; h
             <span style={{ color: m?.return_rate != null && m.return_rate >= 0.1 ? "var(--bad)" : undefined }}>{m?.return_rate != null ? `${fmtNum(m.return_rate * 100, 1)} %` : "—"}</span>
           </div>
         </div>
+        <StockForecastCard compact history={product.weekly_units} available={m?.stock_available ?? null} tracked={(m?.tracked_variants ?? 0) > 0} />
         {product.weekly_units && product.weekly_units.some((value) => value > 0) ? <Spark values={product.weekly_units} /> : null}
         {product.status === "DRAFT" ? <p className={s.meta}>Sin publicar: no recibe ventas todavía.</p> : null}
       </div>
@@ -306,6 +308,7 @@ function CatalogContent() {
                       <th style={{ textAlign: "right" }}>Margen</th>
                       <th style={{ textAlign: "right" }}>Vendidas</th>
                       <th style={{ textAlign: "right" }}>Stock</th>
+                      <th>Previsión · 30 d</th>
                       <th style={{ textAlign: "right" }}>Devol.</th>
                       <th>Actualizado</th>
                     </tr>
@@ -340,6 +343,7 @@ function CatalogContent() {
                               <i><b style={{ width: `${stock == null ? 0 : Math.min(stock / 100, 1) * 100}%`, background: stockColor }} /></i>
                             </span>
                           </td>
+                          <td><StockForecastCard compact history={product.weekly_units} available={stock ?? null} tracked={(m?.tracked_variants ?? 0) > 0} /></td>
                           <td className={pulse.tdN} style={{ color: m?.return_rate != null && m.return_rate >= 0.1 ? "var(--bad)" : undefined }}>{m?.return_rate != null ? `${fmtNum(m.return_rate * 100, 1)} %` : "—"}</td>
                           <td className={pulse.muted}>{product.external_updated_at ? new Date(product.external_updated_at).toLocaleDateString("es-ES") : "—"}</td>
                         </tr>

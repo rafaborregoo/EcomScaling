@@ -8,6 +8,7 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { ClientMeta } from "../dashboard/client-meta";
 import { MetaTrustStrip } from "./trust-strip";
+import { PortfolioAttention } from "@/components/portfolio-attention";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   Badge,
@@ -121,6 +122,22 @@ function ConsultantAccountsView() {
 
   return (
     <div className="grid gap-4">
+      <PortfolioAttention
+        noun="cuentas"
+        weightLabel="Gasto en Meta"
+        formatWeight={(value) => `${Math.round(value).toLocaleString("es-ES")} €`}
+        onOpen={(id) => setOrganizationId(id)}
+        items={ranking.map((account) => ({
+          id: account.organization_id,
+          name: account.organization_name,
+          sub: `Gasto ${Math.round(account.spend).toLocaleString("es-ES")} € · ${syncLabel(account.last_sync_at)}`,
+          level: account.level,
+          score: account.score,
+          reasons: account.reasons.map((reason) => reason.text),
+          weight: account.spend > 0 ? account.spend : null,
+          blind: account.blind,
+        }))}
+      />
       <Card
         title="Cuentas de Meta"
         description="Ordenadas por lo que cuesta no mirarlas."

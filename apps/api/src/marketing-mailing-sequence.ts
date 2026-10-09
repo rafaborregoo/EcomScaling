@@ -13,6 +13,7 @@ const weeklyMailingClientStateSchema = z.object({
   selected_template_ids: z.array(z.string().uuid()).max(3).optional(),
   selected_image_urls: z.array(z.string().max(2_000)).max(7).optional(),
   base_design_template_id: z.string().uuid().nullable().optional(),
+  verbatim_texts: z.array(z.string().max(2_000)).max(20).optional(),
   plan_signature: z.string().max(6_000).optional(),
 }).strict();
 

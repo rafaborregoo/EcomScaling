@@ -32,7 +32,7 @@ import {
   Input,
   Link,
   Metric,
-  Modal,
+  Dialog,
   Banner,
   toast,
   type Tone,
@@ -524,66 +524,46 @@ function ActionRow({ action }: { action: WorkbenchAction }) {
       {/* Detalle en modal: la fila ya trae lo esencial, pero con evidencia
           larga o un motivo detallado, "abrir el modulo" es un salto de
           contexto de mas solo para leer. Aqui se lee sin salir de la mesa. */}
-      <Modal isOpen={showDetail} onOpenChange={setShowDetail}>
-        <Modal.Backdrop>
-          <Modal.Container size="md">
-            <Modal.Dialog aria-label={action.title}>
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <span className={EYEBROW}>{KIND_LABELS[action.kind]}</span>
-                <Modal.Heading>{action.title}</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <div className="flex flex-wrap items-center gap-2">
-                  {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
-                  <span className="text-sm font-medium text-foreground">
-                    {action.organization_name}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm leading-relaxed text-foreground">
-                  {action.reason}
-                </p>
-                {action.evidence.length > 0 ? (
-                  <dl className="mt-4 divide-y divide-separator text-sm">
-                    {action.evidence.map((item) => (
-                      <div
-                        key={`${item.label}:${item.value}`}
-                        className="flex items-center justify-between gap-4 py-1.5"
-                      >
-                        <dt className="text-muted">{item.label}</dt>
-                        <dd className="font-medium text-foreground">
-                          {item.value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
-                {meta.length > 0 ? (
-                  <p className="mt-4 text-xs text-muted">{meta.join(" · ")}</p>
-                ) : null}
-              </Modal.Body>
-              <Modal.Footer>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowDetail(false)}
-                >
-                  Cerrar
-                </Button>
-                <ButtonLink
-                  href={action.href}
-                  onClick={() => {
-                    leaveForModule();
-                    setShowDetail(false);
-                  }}
-                >
-                  {action.action_label}
-                </ButtonLink>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog
+        isOpen={showDetail}
+        onOpenChange={setShowDetail}
+        eyebrow={KIND_LABELS[action.kind]}
+        title={action.title}
+        cancelLabel="Cerrar"
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => setShowDetail(false)}>
+              Cerrar
+            </Button>
+            <ButtonLink
+              href={action.href}
+              onClick={() => {
+                leaveForModule();
+                setShowDetail(false);
+              }}
+            >
+              {action.action_label}
+            </ButtonLink>
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
+          <span className="text-sm font-medium text-ink">{action.organization_name}</span>
+        </div>
+        <p className="leading-relaxed text-ink">{action.reason}</p>
+        {action.evidence.length > 0 ? (
+          <dl className="divide-y divide-line text-sm">
+            {action.evidence.map((item) => (
+              <div key={`${item.label}:${item.value}`} className="flex items-center justify-between gap-4 py-3">
+                <dt className="text-muted">{item.label}</dt>
+                <dd className="font-medium text-ink">{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+        {meta.length > 0 ? <p className="text-xs text-muted">{meta.join(" · ")}</p> : null}
+      </Dialog>
     </div>
   );
 }

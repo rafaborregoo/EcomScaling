@@ -1,6 +1,7 @@
 import { createLogger } from "@e-nora/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
+import { providerCurrencyCode } from "./provider-currency.js";
 
 /**
  * CPM y CPC: aritmetica sobre gasto, impresiones y clics, que son hechos (no
@@ -239,7 +240,7 @@ async function loadCurrency(
 ) {
   let query = supabase
     .from("meta_ad_accounts")
-    .select("currency_code")
+    .select("currency_code, raw_data")
     .eq("organization_id", organizationId)
     .eq("is_selected", true)
     .eq("is_active", true);
@@ -251,13 +252,10 @@ async function loadCurrency(
   const { data, error } = await query;
   if (error) return null;
 
-  const codes = new Set(
-    (data ?? [])
-      .map((row) => row.currency_code as string | null)
-      .filter((code): code is string => Boolean(code)),
-  );
-
-  return codes.size === 1 ? [...codes][0]! : null;
+  const codes = new Set((data ?? []).map((row) =>
+    providerCurrencyCode(row.currency_code, row.raw_data, "currency"),
+  ));
+  return codes.size === 1 ? [...codes][0] ?? null : null;
 }
 
 type RpcResult = { data: unknown; error: { message: string } | null };

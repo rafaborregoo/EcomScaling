@@ -9,6 +9,13 @@ import {
   MAX_INTERNAL_PLAYBOOK_PDF_BYTES,
 } from "./marketing-playbook-pdf.js";
 import { registerInternalMailingVisualImageBodyParser } from "./marketing-playbook-visual.js";
+import { renderReportPdf } from "./report-pdf.js";
+import { buildSampleReportDocument } from "./report-data.js";
+import { listReportTemplates, resolveReportTemplateId } from "./report-templates.js";
+import {
+  createCopilotReportShareLink,
+  emailCopilotReport,
+} from "./copilot-report-sharing.js";
 import { Redis } from "ioredis";
 import {
   describeEnvironmentTargetRisk,
@@ -23,6 +30,7 @@ import {
   interventionEffectTargetSchema,
   healthResponseSchema,
   readinessResponseSchema,
+  type CopilotEvidenceReference,
 } from "@e-nora/contracts";
 import {
   createLogger,
@@ -126,6 +134,7 @@ import {
   getOrganizationAccess,
   getClientAccess,
   inviteClientMember,
+  revokeClientAccessInvite,
   setClientMemberRole,
   inviteConsultant,
   listAdminClients,
@@ -193,6 +202,33 @@ import {
   declareInterventionEffect,
   decideDiagnosticRevision,
 } from "./consultant.js";
+import { getConsultantProfitability } from "./consultant-profitability.js";
+import { getConsultantCampaignsOverview } from "./consultant-campaigns.js";
+import {
+  addCampaignThreadNote,
+  listCampaignThread,
+  requestCampaignReview,
+  resolveCampaignThreadNote,
+  setCampaignReviewStatus,
+} from "./campaign-review.js";
+import {
+  advanceMailingCampaignForDraft,
+  decideFailedMailingEmail,
+  getMailingCampaign,
+  isMailingGraphEnabled,
+  resumeMailingCampaign,
+  reviewMailingCampaignEmail,
+  startMailingCampaign,
+} from "./mailing-campaign.js";
+import { applyCampaignEditProposal, proposeCampaignEdit } from "./campaign-ai-edit.js";
+import {
+  createQuickAction,
+  deleteQuickAction,
+  listQuickActions,
+  reorderQuickActions,
+  updateQuickAction,
+  type QuickActionInput,
+} from "./campaign-quick-actions.js";
 import { runMaturityEngine } from "./maturity-engine.js";
 import { runSeverityEngine } from "./severity-engine.js";
 import { runInterventionEffectEngine } from "./intervention-effect-engine.js";
@@ -392,6 +428,7 @@ import {
   createCampaignCalendar,
   createCampaignCalendarItem,
   createCampaignItemsFromProposal,
+  rejectCampaignPlanProposal,
   archiveCampaignCalendarItem,
   listCampaignPlanning,
   listCampaignPlanningResources,
@@ -409,6 +446,7 @@ import {
   getEmailAnalystDiagnostic,
   getKlaviyoFlowArchitectDiagnostic,
   getMonitorDiagnostic,
+  isMonitorDashboardScope,
   getKnowledgeManagerDiagnostic,
   getOperativaShopifyDiagnostic,
   getRetencionClientesDiagnostic,
@@ -479,12 +517,15 @@ import {
   getCampaignPlanProposal,
   isCampaignPlanHorizon,
   getCaminoProposal,
+  getCaminoProposalProgress,
+  startCaminoProposalRun,
   type ConsultantChatViewContext,
   describeProviderRedundancy,
   isAgentAutorunEnabled,
 } from "./ai-runtime.js";
 import { getCopilotBalance } from "./copilot-saldo.js";
 import { createStripeCheckout } from "./stripe-checkout.js";
+import { createBillingPortal, getOrganizationBilling } from "./billing-overview.js";
 import { handleStripeWebhookRequest } from "./stripe-webhook-handler.js";
 import type { StripeWebhookHeaders } from "./stripe-webhook.js";
 import {
@@ -511,6 +552,7 @@ import {
   getKnowledgeDocument,
   searchKnowledge,
 } from "./knowledge.js";
+import { approveCaminoReviewLearning, assessCaminoIntake, getCaminoIntakeContext, saveCaminoIntakeContext } from "./camino-intake.js";
 import {
   listClientConstraints,
   createClientConstraint,
@@ -551,16 +593,24 @@ import {
   createStrategicPlan,
   createStrategicPlanFromMarkdown,
   createStrategicPlanFromProposal,
+  deleteMilestone,
+  deletePhase,
+  deleteStrategicPlan,
   getStrategicPlan,
   linkTaskToMilestone,
   reorderMilestones,
   reorderPhases,
   recordCaminoChangeProposalAction,
   updateMilestone,
+  updateMilestoneTask,
+  unlinkMilestoneTask,
   updateMilestoneStatus,
+  updateStrategicPlan,
   updatePhase,
   previewStrategicPlanMarkdown,
   getCaminoRoutes,
+  archiveStrategicPlan,
+  rejectCaminoProposalOutput,
 } from "./strategic-plans.js";
 
 const logger = createLogger("api");
@@ -1096,7 +1146,18 @@ export async function buildApp(): Promise<FastifyInstance> {
       return sendAuthFailure(reply, result.error);
     }
 
-    return result.context;
+    return {
+      ...result.context,
+      memberships: [
+        ...result.context.memberships,
+        ...(result.context.storeMemberships ?? []),
+      ].sort((a, b) =>
+        (a.organization?.display_name ?? "").localeCompare(
+          b.organization?.display_name ?? "",
+          "es",
+        ),
+      ),
+    };
   });
 
   // Estado público del runtime para que la UI pueda explicar la ausencia de
@@ -1351,6 +1412,73 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  app.get("/v1/admin/report-templates", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    if (auth.context.profile.platform_role !== "platform_admin") {
+      return reply.code(403).send({ error: "platform_admin_required" });
+    }
+    return { templates: listReportTemplates() };
+  });
+
+  app.get<{ Params: { templateId: string } }>("/v1/admin/report-templates/:templateId/preview", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    if (auth.context.profile.platform_role !== "platform_admin") {
+      return reply.code(403).send({ error: "platform_admin_required" });
+    }
+    const templateId = resolveReportTemplateId(request.params.templateId);
+    if (!templateId) return reply.code(404).send({ error: "report_template_not_found" });
+    const pdf = await renderReportPdf(buildSampleReportDocument(templateId));
+    return reply
+      .header("Content-Type", "application/pdf")
+      .header("Content-Disposition", `inline; filename="${templateId}-muestra.pdf"`)
+      .header("Cache-Control", "no-store")
+      .send(pdf);
+  });
+
+  app.get<{
+    Params: { organizationId: string; reportId: string };
+    Querystring: { file_name?: string };
+  }>(
+    "/v1/organizations/:organizationId/copilot-reports/:reportId/link",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createCopilotReportShareLink(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.reportId,
+        request.query.file_name,
+      );
+      if (!result.ok) return reply.code(result.statusCode).send({ error: result.error });
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; reportId: string };
+    Body: { email?: string; file_name?: string };
+  }>(
+    "/v1/organizations/:organizationId/copilot-reports/:reportId/email",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await emailCopilotReport(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.reportId,
+        request.body?.email,
+        request.body?.file_name,
+      );
+      if (!result.ok) return reply.code(result.statusCode).send({ error: result.error });
+      return reply.send(result.data);
+    },
+  );
+
   app.get("/v1/admin/subscriptions", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
@@ -1573,6 +1701,40 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  app.get<{
+    Params: { organizationId: string };
+  }>(
+    "/v1/organizations/:organizationId/billing",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await getOrganizationBilling(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/billing/portal",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await createBillingPortal(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.delete<{ Params: { partnerUserId: string } }>(
     "/v1/consultant/partners/:partnerUserId",
     async (request, reply) => {
@@ -1693,7 +1855,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string };
-    Body: { email?: string; full_name?: string; role?: string };
+    Body: {
+      email?: string;
+      full_name?: string;
+      role?: string;
+      access_scope?: "organization" | "store";
+      store_id?: string | null;
+    };
   }>(
     "/v1/consultant/organizations/:organizationId/client-access/invite",
     async (request, reply) => {
@@ -1713,7 +1881,12 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.patch<{
     Params: { organizationId: string; userId: string };
-    Body: { role?: string; isActive?: boolean };
+    Body: {
+      role?: string;
+      isActive?: boolean;
+      access_scope?: "organization" | "store";
+      store_id?: string | null;
+    };
   }>(
     "/v1/consultant/organizations/:organizationId/client-access/:userId",
     async (request, reply) => {
@@ -1726,6 +1899,25 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.params.userId,
         request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{
+    Params: { organizationId: string; inviteId: string };
+  }>(
+    "/v1/consultant/organizations/:organizationId/client-access/invites/:inviteId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await revokeClientAccessInvite(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.inviteId,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
@@ -1930,6 +2122,256 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         new Date(fromMs).toISOString(),
         new Date(toMs).toISOString(),
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // Campañas del consultor (Marketing -> Campañas): cartera, cliente y tienda
+  // con la misma lectura. Solo lee.
+  app.get<{ Querystring: { organizationId?: string; storeId?: string; connectionId?: string } }>(
+    "/v1/consultant/campaigns/overview",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const result = await getConsultantCampaignsOverview(env, authorization, auth.context, {
+        organizationId: request.query.organizationId,
+        storeId: request.query.storeId,
+        connectionId: request.query.connectionId,
+      });
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Hilo de revision de una campaña: notas, correcciones, propuestas de la IA.
+  app.get<{ Params: { organizationId: string; itemId: string } }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/thread",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listCampaignThread(env, auth.context, request.params.organizationId, request.params.itemId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; itemId: string };
+    Body: { body?: string; kind?: string; target?: string | null; visibleToClient?: boolean; fromAi?: boolean };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/thread",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await addCampaignThreadNote(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{ Params: { organizationId: string; itemId: string; noteId: string } }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/thread/:noteId/resolve",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await resolveCampaignThreadNote(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.params.noteId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // El consultor da por revisada la campaña o pide cambios al cliente.
+  app.post<{
+    Params: { organizationId: string; itemId: string };
+    Body: { status?: string; message?: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/review",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await setCampaignReviewStatus(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // El cliente devuelve la campaña a revision tras hacer lo que se le pedia.
+  app.post<{ Params: { organizationId: string; itemId: string } }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/review/request",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await requestCampaignReview(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Editar con IA: A05 propone cambios por campo; nada se escribe hasta aplicarlos.
+  app.post<{
+    Params: { organizationId: string; itemId: string };
+    Body: { instruction?: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/ai-edit",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await proposeCampaignEdit(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; itemId: string; noteId: string };
+    Body: { fields?: string[]; dismiss?: boolean };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/ai-edit/:noteId/apply",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await applyCampaignEditProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.params.noteId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Acciones rapidas de Campañas: el staff las gestiona, el cliente lee las compartidas.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/campaign-quick-actions",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listQuickActions(env, auth.context, request.params.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string }; Body: QuickActionInput }>(
+    "/v1/organizations/:organizationId/campaign-quick-actions",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createQuickAction(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.put<{ Params: { organizationId: string }; Body: { ids?: string[] } }>(
+    "/v1/organizations/:organizationId/campaign-quick-actions/order",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await reorderQuickActions(env, auth.context, request.params.organizationId, request.body?.ids ?? []);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{ Params: { organizationId: string; actionId: string }; Body: QuickActionInput }>(
+    "/v1/organizations/:organizationId/campaign-quick-actions/:actionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await updateQuickAction(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.actionId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; actionId: string } }>(
+    "/v1/organizations/:organizationId/campaign-quick-actions/:actionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await deleteQuickAction(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.actionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Rentabilidad del consultor (/panel). Sin organizationId devuelve la cartera
+  // entera tienda a tienda; con el, las tiendas de ese cliente. Solo lee.
+  app.get<{ Querystring: { days?: string; organizationId?: string } }>(
+    "/v1/consultant/profitability",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getConsultantProfitability(
+        env,
+        authorization,
+        auth.context,
+        {
+          days: request.query.days,
+          organizationId: request.query.organizationId,
+        },
       );
 
       if (isServiceFailure(result)) {
@@ -4300,6 +4742,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       grant_plan?: {
         plan_code?: string;
         store_limit?: number | string | null;
+        member_limit?: number | string | null;
         ends_at?: string | null;
       } | null;
     };
@@ -4815,6 +5258,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       grant_plan?: {
         plan_code?: string;
         store_limit?: number | string | null;
+        member_limit?: number | string | null;
         ends_at?: string | null;
       } | null;
     };
@@ -4833,14 +5277,15 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get<{
     Params: { organizationId: string };
-    Querystring: { year?: string; storeId?: string };
+    Querystring: { year?: string; storeId?: string; connectionId?: string };
   }>(
     "/v1/organizations/:organizationId/campaign-planning",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const planningFilters: { year?: number; storeId?: string | null } = {
+      const planningFilters: { year?: number; storeId?: string | null; connectionId?: string | null } = {
         storeId: request.query.storeId || null,
+        connectionId: request.query.connectionId || null,
       };
       if (request.query.year) planningFilters.year = Number(request.query.year);
       const result = await listCampaignPlanning(
@@ -5910,6 +6355,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     Params: { organizationId: string };
     Body: {
       currencyCode?: string;
+      klaviyoRevenueCurrencyCode?: string | null;
       paymentFeePct?: number;
       paymentFeeFixed?: number;
       defaultShippingCost?: number;
@@ -7573,6 +8019,32 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   app.post<{ Params: { organizationId: string; planId: string } }>(
+    "/v1/organizations/:organizationId/strategic-plan/:planId/archive",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await archiveStrategicPlan(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.planId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; planId: string };
+  }>(
     "/v1/organizations/:organizationId/strategic-plan/:planId/activate",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -7597,8 +8069,29 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   app.patch<{
+    Params: { organizationId: string; planId: string };
+    Body: { name?: string; description?: string | null };
+  }>("/v1/organizations/:organizationId/strategic-plan/:planId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await updateStrategicPlan(env, auth.context, request.params.organizationId, request.params.planId, request.body ?? {});
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.delete<{ Params: { organizationId: string; planId: string } }>(
+    "/v1/organizations/:organizationId/strategic-plan/:planId", async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await deleteStrategicPlan(env, auth.context, request.params.organizationId, request.params.planId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{
     Params: { organizationId: string; milestoneId: string };
-    Body: { status?: string };
+    Body: { status?: string; completion_note?: string };
   }>(
     "/v1/organizations/:organizationId/milestones/:milestoneId/status",
     async (request, reply) => {
@@ -7614,12 +8107,23 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.params.milestoneId,
         request.body?.status,
+        request.body?.completion_note,
       );
 
       if (isServiceFailure(result)) {
         return sendServiceFailure(reply, result);
       }
 
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; phaseId: string } }>(
+    "/v1/organizations/:organizationId/strategic-plan/phases/:phaseId", async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await deletePhase(env, auth.context, request.params.organizationId, request.params.phaseId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
   );
@@ -7791,6 +8295,37 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendServiceFailure(reply, result);
       }
 
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; milestoneId: string } }>(
+    "/v1/organizations/:organizationId/milestones/:milestoneId", async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await deleteMilestone(env, auth.context, request.params.organizationId, request.params.milestoneId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; milestoneId: string; taskId: string };
+    Body: { title?: string; description?: string | null; priority?: string; dueAt?: string | null };
+  }>("/v1/organizations/:organizationId/strategic-plan/milestones/:milestoneId/tasks/:taskId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await updateMilestoneTask(env, auth.context, request.params.organizationId, request.params.milestoneId, request.params.taskId, request.body ?? {});
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.delete<{ Params: { organizationId: string; milestoneId: string; taskId: string } }>(
+    "/v1/organizations/:organizationId/strategic-plan/milestones/:milestoneId/tasks/:taskId", async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await unlinkMilestoneTask(env, auth.context, request.params.organizationId, request.params.milestoneId, request.params.taskId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
   );
@@ -8036,8 +8571,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   // obsoleto; el cron o la acción POST explícita son quienes pueden generarlo.
   app.get<{
     Params: { organizationId: string };
-    Querystring: { connectionId?: string; days?: string };
+    Querystring: { connectionId?: string; days?: string; view?: string };
   }>("/v1/organizations/:organizationId/ai/monitor", async (request, reply) => {
+    if (request.query.view && !isMonitorDashboardScope(request.query.view)) {
+      return reply.code(400).send({ error: "invalid_monitor_dashboard_scope" });
+    }
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
     if (isAuthContextError(auth)) {
@@ -8050,6 +8588,9 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.params.organizationId,
       request.query.connectionId,
       request.query.days ? Number(request.query.days) : null,
+      request.query.view && isMonitorDashboardScope(request.query.view)
+        ? request.query.view
+        : "overview",
     );
 
     if (isServiceFailure(result)) {
@@ -8062,11 +8603,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Regenerar ahora bajo acción explícita del usuario: botón «Actualizar ahora».
   app.post<{
     Params: { organizationId: string };
-    Querystring: { connectionId?: string; days?: string };
+    Querystring: { connectionId?: string; days?: string; view?: string };
   }>(
     "/v1/organizations/:organizationId/ai/monitor-run",
     aiEndpointRateLimit,
     async (request, reply) => {
+      if (request.query.view && !isMonitorDashboardScope(request.query.view)) {
+        return reply.code(400).send({ error: "invalid_monitor_dashboard_scope" });
+      }
       const auth = await resolveAuthContext(env, request.headers.authorization);
 
       if (isAuthContextError(auth)) {
@@ -8079,6 +8623,9 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.query.connectionId,
         request.query.days ? Number(request.query.days) : null,
+        request.query.view && isMonitorDashboardScope(request.query.view)
+          ? request.query.view
+          : "overview",
       );
 
       if (isServiceFailure(result)) {
@@ -8222,6 +8769,89 @@ export async function buildApp(): Promise<FastifyInstance> {
   // recupera la propuesta que ya exista, el POST es el que gasta modelo.
   app.get<{
     Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/camino-context",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getCaminoIntakeContext(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+    Body: unknown;
+  }>(
+    "/v1/organizations/:organizationId/ai/camino-context",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await saveCaminoIntakeContext(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.body,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+    Body: unknown;
+  }>(
+    "/v1/organizations/:organizationId/ai/camino-context/assessment",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await assessCaminoIntake(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.body,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; planId: string; reviewId: string; learningIndex: string };
+    Querystring: { connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/:planId/weekly-review/:reviewId/learnings/:learningIndex/approve",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await approveCaminoReviewLearning(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.planId,
+        request.query.connectionId,
+        request.params.reviewId,
+        Number(request.params.learningIndex),
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
     Querystring: { horizonMonths?: string; connectionId?: string };
   }>(
     "/v1/organizations/:organizationId/ai/camino-proposal",
@@ -8255,9 +8885,30 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; since?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/camino-proposal/progress",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const since = Number(request.query.since);
+      const result = await getCaminoProposalProgress(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        Number.isFinite(since) && since > 0 ? since : undefined,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.post<{
     Params: { organizationId: string };
-    Querystring: { connectionId?: string };
+    Querystring: { connectionId?: string; async?: string };
     Body: { horizon?: string; horizon_months?: number; brief?: string };
   }>(
     "/v1/organizations/:organizationId/ai/camino-proposal/run",
@@ -8274,6 +8925,22 @@ export async function buildApp(): Promise<FastifyInstance> {
       const horizonMonths = parseCaminoDurationMonths(requestedHorizon);
       if (horizonMonths === null) {
         return reply.code(400).send({ error: "invalid_camino_horizon" });
+      }
+
+      // Con ?async=1 el run corre en segundo plano y la pantalla consulta el
+      // progreso: un camino tarda minutos y una peticion abierta tanto tiempo
+      // la corta cualquier proxy.
+      if (request.query.async === "1") {
+        const started = await startCaminoProposalRun(
+          env,
+          auth.context,
+          request.params.organizationId,
+          horizonMonths,
+          request.query.connectionId,
+          typeof request.body?.brief === "string" ? request.body.brief.slice(0, 2000) : null,
+        );
+        if (isServiceFailure(started)) return sendServiceFailure(reply, started);
+        return reply.code(202).send(started.data);
       }
 
       const result = await runCaminoArchitectAgent(
@@ -8296,6 +8963,26 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.post<{
+    Params: { organizationId: string; outputId: string };
+    Body: { reason?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/camino-proposal/:outputId/reject",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await rejectCaminoProposalOutput(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.outputId,
+        typeof request.body?.reason === "string" ? request.body.reason : "",
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   // Aceptar la propuesta: crea el plan real en estado borrador. Activarlo
   // sigue siendo un segundo gesto humano (activateStrategicPlan).
   app.post<{
@@ -8305,6 +8992,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       horizon_months?: number;
       goal_target?: number | null;
       currency_code?: string;
+      replace_plan_id?: string;
+      /** Campañas de A05 (borrador) que se llevan al calendario y al Camino al aceptarlo. */
+      campaign_output_id?: string;
+      campaign_selected_indexes?: number[];
     };
   }>(
     "/v1/organizations/:organizationId/strategic-plan/from-proposal",
@@ -8328,6 +9019,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         {
           horizonMonths: request.body?.horizon_months,
           currencyCode: request.body?.currency_code,
+          replacePlanId: request.body?.replace_plan_id,
           ...(Object.prototype.hasOwnProperty.call(
             request.body ?? {},
             "goal_target",
@@ -8341,14 +9033,32 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendServiceFailure(reply, result);
       }
 
-      return reply.code(201).send(result.data);
+      // Las campañas aprobadas junto al Camino entran en el calendario y, ya
+      // existiendo el plan, tambien como tareas de sus hitos. Un fallo aqui no
+      // deshace el Camino: se devuelve para que la pantalla lo cuente.
+      let campaigns: unknown = null;
+      if (request.body?.campaign_output_id) {
+        const applied = await createCampaignItemsFromProposal(env, auth.context, request.params.organizationId, {
+          outputId: request.body.campaign_output_id,
+          selectedIndexes: request.body.campaign_selected_indexes,
+          expectedStoreId: result.data.store_id,
+        });
+        campaigns = isServiceFailure(applied)
+          ? { ok: false, error: applied.error, message: (applied as { message?: string }).message ?? null }
+          : { ok: true, ...applied.data };
+      }
+
+      return reply.code(201).send({ ...result.data, campaigns });
     },
   );
 
   // A05: propuesta de PLAN DE CAMPANAS para un horizonte. Mismo patron que el
   // camino: el GET solo recupera lo que ya exista, el POST gasta modelo, y una
   // tercera ruta materializa lo aprobado -- aqui, como items del calendario.
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+  }>(
     "/v1/organizations/:organizationId/ai/campaign-plan",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -8361,6 +9071,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         env,
         auth.context,
         request.params.organizationId,
+        request.query.connectionId,
       );
 
       if (isServiceFailure(result)) {
@@ -8374,7 +9085,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.post<{
     Params: { organizationId: string };
     Querystring: { connectionId?: string };
-    Body: { horizon?: string; brief?: string };
+    Body: {
+      horizon?: string;
+      brief?: string;
+      start_date?: string;
+      end_date?: string;
+      market?: string;
+    };
   }>(
     "/v1/organizations/:organizationId/ai/campaign-plan/run",
     aiEndpointRateLimit,
@@ -8400,6 +9117,11 @@ export async function buildApp(): Promise<FastifyInstance> {
         typeof request.body?.brief === "string"
           ? request.body.brief.slice(0, 2000)
           : null,
+        {
+          startDate: request.body?.start_date ?? null,
+          endDate: request.body?.end_date ?? null,
+          market: request.body?.market ?? null,
+        },
       );
 
       if (isServiceFailure(result)) {
@@ -8410,8 +9132,52 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  // Aceptar (total o parcialmente): crea las campanas elegidas en el
-  // calendario, en estado `planned` y no visibles al cliente todavia.
+  app.post<{
+    Params: { organizationId: string; outputId: string };
+    Querystring: { connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/campaign-plan/:outputId/reject",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await rejectCampaignPlanProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.outputId,
+        request.query.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Guardado automático tras proponer: solo deja las iniciativas fechadas en
+  // el calendario interno, sin aprobar ni publicar la salida del agente.
+  app.post<{
+    Params: { organizationId: string };
+    Body: { output_id?: string; calendar_id?: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/from-proposal/drafts",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createCampaignItemsFromProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+        {
+          outputId: request.body?.output_id,
+          calendarId: request.body?.calendar_id,
+          mode: "draft",
+        },
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // Aceptar (total o parcialmente): crea las campañas elegidas y aprueba el plan.
   app.post<{
     Params: { organizationId: string };
     Body: {
@@ -8924,7 +9690,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           (membership) =>
             membership.organization_id === request.params.organizationId,
         )
-      ) {
+  ) {
         return reply.code(403).send({ error: "organization_access_denied" });
       }
 
@@ -9072,7 +9838,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   // para copiar manualmente.
   app.post<{
     Params: { organizationId: string };
-    Body: { content_type?: string; brief?: string; idempotency_key?: string };
+    Body: {
+      content_type?: string;
+      channel?: string;
+      brief?: string;
+      idempotency_key?: string;
+      camino_task_id?: string;
+      store_id?: string | null;
+    };
   }>(
     "/v1/organizations/:organizationId/marketing/drafts",
     aiEndpointRateLimit,
@@ -9151,7 +9924,10 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body ?? {},
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
-      return reply.code(201).send(result.data);
+      return reply.code(201).send({
+        ...result.data,
+        mailing_graph_enabled: isMailingGraphEnabled(env, request.params.organizationId),
+      });
     },
   );
 
@@ -9167,6 +9943,123 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         request.params.sequenceId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send({
+        ...result.data,
+        mailing_graph_enabled: isMailingGraphEnabled(env, request.params.organizationId),
+      });
+    },
+  );
+
+  // ADR-0025: campaña de mailing orquestada con LangGraph (flag
+  // MAILING_GRAPH_ENABLED). Arranca tras aprobar la estrategia de A27; cada
+  // borrador se aprueba por la ruta de borradores de siempre.
+  app.post<{
+    Params: { organizationId: string; sequenceId: string };
+    Body: { scheduled_for?: unknown };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId/run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await startMailingCampaign(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(202).send(result.data);
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string; sequenceId: string };
+    Querystring: { store_id?: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId/campaign",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getMailingCampaign(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+        request.query.store_id || null,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; sequenceId: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId/resume",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await resumeMailingCampaign(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(202).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; sequenceId: string; sequenceNumber: string };
+    Body: { decision?: unknown; reason?: unknown };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId/emails/:sequenceNumber/review",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const sequenceNumber = Number(request.params.sequenceNumber);
+      if (!Number.isInteger(sequenceNumber) || sequenceNumber < 1 || sequenceNumber > 7) {
+        return reply.code(400).send({ error: "mailing_sequence_number_invalid" });
+      }
+      const result = await reviewMailingCampaignEmail(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+        sequenceNumber,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send(result.data);
+    },
+  );
+
+  // ADR-0025: reintentar o descartar un email que fallo (A11, presupuesto, programar).
+  app.post<{
+    Params: { organizationId: string; sequenceId: string; sequenceNumber: string };
+    Body: { decision?: unknown };
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan/:sequenceId/emails/:sequenceNumber/retry",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const sequenceNumber = Number(request.params.sequenceNumber);
+      if (!Number.isInteger(sequenceNumber) || sequenceNumber < 1 || sequenceNumber > 7) {
+        return reply.code(400).send({ error: "mailing_sequence_number_invalid" });
+      }
+      const result = await decideFailedMailingEmail(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.sequenceId,
+        sequenceNumber,
+        request.body ?? {},
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.send(result.data);
@@ -9506,7 +10399,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+  }>(
     "/v1/organizations/:organizationId/marketing/drafts",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -9520,6 +10416,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         authorization,
         auth.context,
         request.params.organizationId,
+        request.query.connectionId,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
@@ -9647,6 +10544,14 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body?.reason,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      // ADR-0025: si el borrador es de una campaña del grafo, la decision ya
+      // registrada la reanuda (en segundo plano; nunca falla la peticion).
+      await advanceMailingCampaignForDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+      );
       return result.data;
     },
   );
@@ -9664,6 +10569,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       conversation_id?: string;
       view_context?: ConsultantChatViewContext;
       model?: string;
+      evidence_reference?: CopilotEvidenceReference;
     };
   }>(
     "/v1/organizations/:organizationId/consultant-chat",
@@ -9683,6 +10589,8 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body?.conversation_id,
         request.body?.view_context,
         request.body?.model,
+        request.body?.evidence_reference,
+        request.headers.authorization,
       );
 
       if (isServiceFailure(result)) {
@@ -9690,6 +10598,62 @@ export async function buildApp(): Promise<FastifyInstance> {
       }
 
       return reply.code(201).send(result.data);
+    },
+  );
+
+  // Same chat turn and persistence path as the JSON endpoint, with live events.
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      message?: string;
+      conversation_id?: string;
+      view_context?: ConsultantChatViewContext;
+      model?: string;
+      evidence_reference?: CopilotEvidenceReference;
+    };
+  }>(
+    "/v1/organizations/:organizationId/consultant-chat/stream",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      reply.header("Content-Type", "application/x-ndjson; charset=utf-8");
+      reply.header("Cache-Control", "no-cache, no-transform");
+      reply.header("X-Accel-Buffering", "no");
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) reply.raw.setHeader(name, value);
+      }
+      reply.hijack();
+      reply.raw.writeHead(200);
+      reply.raw.flushHeaders();
+      const emit = (event: unknown) => {
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+          reply.raw.write(`${JSON.stringify(event)}\n`);
+        }
+      };
+      const heartbeat = setInterval(() => emit({ type: "heartbeat" }), 15_000);
+      heartbeat.unref();
+      try {
+        const result = await runConsultantChatTurn(
+          env,
+          auth.context,
+          request.params.organizationId,
+          request.body?.message ?? "",
+          request.body?.conversation_id,
+          request.body?.view_context,
+          request.body?.model,
+          request.body?.evidence_reference,
+          request.headers.authorization,
+          emit,
+        );
+        emit(result.ok ? { type: "done", data: result.data } : { type: "error", error: result });
+      } catch {
+        emit({ type: "error", error: { error: "chat_turn_failed", statusCode: 500 } });
+      } finally {
+        clearInterval(heartbeat);
+        reply.raw.end();
+      }
     },
   );
 

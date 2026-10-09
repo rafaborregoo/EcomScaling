@@ -1,6 +1,6 @@
 import { summarizeKlaviyoFlowArchitecture } from "./klaviyo-flow-architect-output.js";
 
-const SPECIALIST_FRESHNESS_DAYS: Record<string, number> = {
+export const SPECIALIST_FRESHNESS_DAYS: Readonly<Record<string, number>> = {
   a02_monitor_negocio: 14,
   a06_planificador_stock: 14,
   a12_analista_email: 30,

@@ -371,7 +371,7 @@ export async function getShopifyMetrics(
   daysInput: string | undefined,
   connectionId?: string,
 ) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+  if (![...context.memberships, ...(context.storeMemberships ?? [])].some((membership) => membership.organization_id === organizationId)) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -425,6 +425,21 @@ export async function getShopifyMetrics(
     }
 
     const storeId = storeScope.storeId;
+    const membership = [...context.memberships, ...(context.storeMemberships ?? [])].find(
+      (item) => item.organization_id === organizationId,
+    );
+    if (
+      membership?.accessSource === "membership" &&
+      membership.access_scope === "store" &&
+      (!storeId || membership.store_id !== storeId)
+    ) {
+      return {
+        ok: false as const,
+        statusCode: 403,
+        error: "store_access_denied",
+        message: "Esta cuenta no tiene acceso a la tienda seleccionada.",
+      };
+    }
 
     const financialCurrencyCoverage = await resolveShopifyFinancialCurrencyCoverage(
       supabase,

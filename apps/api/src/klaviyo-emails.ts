@@ -3,6 +3,7 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import type { AuthContext } from "./auth-context.js";
 import { summariseKlaviyoEmailRows, type KlaviyoEmailReportRow } from "./klaviyo.js";
+import { providerCurrencyCode } from "./provider-currency.js";
 
 /**
  * /klaviyo/emails y /klaviyo/emails/[id]: el mismo catálogo de campañas y
@@ -77,11 +78,11 @@ export async function resolveAccountScope(
   organizationId: string,
   storeId: string | null,
 ): Promise<{ id: string | undefined; currency: string | null }> {
-  let query = supabase.from("klaviyo_accounts").select("id, currency_code").eq("organization_id", organizationId);
+  let query = supabase.from("klaviyo_accounts").select("id, currency_code, raw_data").eq("organization_id", organizationId).eq("is_active", true);
   if (storeId) query = query.eq("store_id", storeId);
   const { data } = await query;
   const rows = data ?? [];
-  const codes = new Set(rows.map((row) => (row.currency_code as string | null)?.trim().toUpperCase() || null));
+  const codes = new Set(rows.map((row) => providerCurrencyCode(row.currency_code, row.raw_data, "preferred_currency")));
   const only = codes.size === 1 ? [...codes][0] : null;
   return { id: rows[0]?.id as string | undefined, currency: only && /^[A-Z]{3}$/.test(only) ? only : null };
 }

@@ -1,0 +1,235 @@
+/* Barras de datos del portal: cascada (Waterfall) y filas etiqueta | barra |
+   valor (BarRows). Los colores salen de los tokens de la vista que las pinta
+   (--ink, --line, --good...) con el petróleo + azafrán como respaldo. */
+
+.root {
+  --db-ink: var(--ink, #0b2a33);
+  --db-ink-3: var(--ink-3, #5c757b);
+  --db-line: var(--line-2, #e5eced);
+  --db-grid: var(--line, #d3dee0);
+  --db-track: var(--sunken, #e2e9ea);
+  --db-surface: var(--surface, #ffffff);
+  --db-good: var(--good, #11806a);
+  --db-bad: var(--bad, #bf2f49);
+  --db-warn: var(--warn, #c0600e);
+  --db-bar: var(--store, #0f7482);
+  --db-cost: color-mix(in srgb, var(--db-bad) 52%, var(--db-surface));
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Cascada ---------- */
+.wf {
+  --gap: 10px;
+  display: grid;
+  gap: var(--gap);
+}
+.wfRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(0, 1fr) minmax(76px, auto) 48px;
+  align-items: center;
+  column-gap: 14px;
+  padding: 0 8px;
+  min-height: 34px;
+  border-radius: 10px;
+}
+.wfRow.total {
+  min-height: 38px;
+}
+.wfRow.profit {
+  min-height: 46px;
+  background: color-mix(in srgb, var(--db-good) 9%, transparent);
+}
+.wfRow.profit.loss {
+  background: color-mix(in srgb, var(--db-bad) 9%, transparent);
+}
+.wfLabel {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.total .wfLabel,
+.profit .wfLabel {
+  font-weight: 600;
+}
+.wfLabel small {
+  display: block;
+  color: var(--db-ink-3);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+.wfTrack {
+  position: relative;
+  align-self: stretch;
+  /* Rejilla al 25 / 50 / 75 / 100 % de la escala, apenas visible. */
+  background-image: linear-gradient(to right, var(--db-grid) 1px, transparent 1px);
+  background-size: 25% 100%;
+  background-position: 0 0;
+  background-repeat: repeat-x;
+  opacity: 1;
+}
+.wfTrack::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 1px;
+  background: var(--db-grid);
+}
+.wfBar {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  min-width: 3px;
+  border-radius: 5px;
+  background: var(--db-cost);
+}
+.total .wfBar {
+  background: var(--db-ink);
+}
+.profit .wfBar {
+  top: 4px;
+  bottom: 4px;
+  background: var(--db-good);
+}
+.profit.loss .wfBar {
+  background: var(--db-bad);
+}
+/* Hilo que une el final de un escalón con el principio del siguiente. */
+.wfLink {
+  position: absolute;
+  top: calc(-1 * var(--gap) - 1px);
+  height: calc(var(--gap) + 6px);
+  width: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--db-ink) 38%, transparent);
+  pointer-events: none;
+}
+.wfValue {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+.profit .wfValue {
+  color: var(--db-good);
+  font-size: 15px;
+}
+.profit.loss .wfValue {
+  color: var(--db-bad);
+}
+.wfShare {
+  color: var(--db-ink-3);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- Filas etiqueta | barra | valor ---------- */
+.rows {
+  display: grid;
+  gap: 12px;
+}
+.rowsSm {
+  gap: 9px;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 14px;
+  font-size: 13px;
+  min-width: 0;
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.name small {
+  display: block;
+  overflow: hidden;
+  color: var(--db-ink-3);
+  font-size: 11.5px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+.track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--db-track);
+}
+.rowsSm .track {
+  height: 6px;
+}
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 4px;
+  max-width: 100%;
+  border-radius: 999px;
+  background: var(--db-bar);
+}
+.dashed .fill {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--db-bad);
+  border-radius: 999px;
+}
+.marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--db-ink);
+  transform: translateX(-1px);
+}
+.value {
+  min-width: 64px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+.value small {
+  margin-left: 6px;
+  color: var(--db-ink-3);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+/* Variante apilada: nombre y cifra arriba, barra debajo, nota al pie. */
+.stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 6px;
+  column-gap: 12px;
+  font-size: 13px;
+  min-width: 0;
+}
+.stack .track {
+  grid-column: 1 / -1;
+}
+.sub {
+  grid-column: 1 / -1;
+  color: var(--db-ink-3);
+  font-size: 11.5px;
+}
+
+@media (max-width: 560px) {
+  .wfRow {
+    grid-template-columns: minmax(78px, 104px) minmax(0, 1fr) minmax(64px, auto);
+    column-gap: 10px;
+    padding: 0 6px;
+  }
+  .wfShare,
+  .wfLabel small {
+    display: none;
+  }
+  .row {
+    grid-template-columns: minmax(78px, 110px) minmax(0, 1fr) auto;
+    column-gap: 10px;
+  }
+}

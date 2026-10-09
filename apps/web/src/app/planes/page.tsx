@@ -26,6 +26,7 @@ type Plan = {
   trial_period_days: number | null;
   plan_code: string | null;
   store_limit: number | null;
+  member_limit: number | null;
 };
 
 function periodo(dias: number | null) {
@@ -38,6 +39,11 @@ function periodo(dias: number | null) {
 function tiendas(limite: number | null) {
   if (limite === null) return "Tiendas sin límite";
   return `${limite} ${limite === 1 ? "tienda" : "tiendas"}`;
+}
+
+function usuarios(limite: number | null) {
+  if (limite === null) return "Usuarios sin límite";
+  return `${limite} ${limite === 1 ? "usuario incluido" : "usuarios incluidos"}`;
 }
 
 function PlanesContent() {
@@ -210,6 +216,7 @@ function PlanesContent() {
 
               <div className="flex flex-wrap gap-2">
                 <Badge tone="brand">{tiendas(plan.store_limit)}</Badge>
+                <Badge>{usuarios(plan.member_limit)}</Badge>
                 {plan.trial_period_days ? (
                   <Badge tone="success">
                     {plan.trial_period_days} días de prueba

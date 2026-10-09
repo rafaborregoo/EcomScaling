@@ -34,7 +34,7 @@
   .page {
     position: sticky;
     top: 48px;
-    height: calc(100dvh - 48px);
+    height: calc(100dvh / var(--ui-zoom, 1) - 48px);
     min-height: 560px;
     margin: -24px -40px -56px;
     border-top: 0;

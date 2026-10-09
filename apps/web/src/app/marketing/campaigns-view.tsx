@@ -1,142 +1,187 @@
 "use client";
 
-import { useState } from "react";
-import { formatMoney } from "@/lib/money";
-import { Badge, Button, Card, Table, type TableColumnDef } from "@/components/ui";
-import { audienceSize, STATE_LABEL, UPCOMING, type CampaignRow } from "./campaign-rows";
-import { int, pct, ratio, type KWorkspace } from "./klaviyo-workspace";
-import { fmtSchedule } from "./format";
-import s from "./marketing-views.module.css";
+import { useEffect } from "react";
+import type { CampaignItem } from "@/hooks/use-campaign-items";
+import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
+import { useActiveConnection } from "@/components/active-connection";
+import { Button, LoadingBlock } from "@/components/ui";
+import type { CampaignRow } from "./campaign-rows";
+import type { KWorkspace } from "./klaviyo-workspace";
+import { useCampaignThread } from "./campanas/campaign-api";
+import { CampaignWorkspace } from "./campanas/campaign-workspace";
+import type { CampaignsNav } from "./campanas/campanas-nav";
+import { ClientCampaigns } from "./campanas/client-campaigns";
+import { ClientView } from "./campanas/client-view";
+import { Stage } from "./campanas/campanas-parts";
+import { QuickActionsManager } from "./campanas/quick-actions-manager";
+import { StoreCampaigns } from "./campanas/store-campaigns";
 
-const FILTERS: Array<{ key: string; label: string; match: (row: CampaignRow) => boolean }> = [
-  { key: "upcoming", label: "Próximas", match: (row) => UPCOMING.includes(row.state) },
-  { key: "sent", label: "Enviadas", match: (row) => row.state === "sent" },
-  { key: "draft", label: "Borradores en Klaviyo", match: (row) => row.state === "draft" },
-  { key: "all", label: "Todas", match: () => true },
-];
-
-/** Marketing -> Campañas: lo planificado en NORA y lo que hay en Klaviyo, juntos. */
-export function CampaignsView({
-  rows,
-  workspace,
-  onOpenRow,
-  onPropose,
-  onCreate,
-}: {
+/**
+ * Marketing -> Campañas de UN cliente (las del consultor sin cliente elegido
+ * viven en `campanas/portfolio-campaigns.tsx`).
+ *
+ * Una sola entrada que decide qué pantalla toca:
+ *
+ *   campaña abierta (?campaign=)            -> la campaña, a pantalla completa
+ *   cliente (su propia paleta)              -> sus campañas y lo que le toca aprobar
+ *   consultor con cliente, sin tienda       -> mini resumen de sus tiendas y campañas
+ *   consultor con cliente y tienda          -> calendario y cola de esa tienda
+ *
+ * Las reglas de estado, los titulares y quién puede qué no se calculan aquí:
+ * viven en `@e-nora/contracts` y en la API.
+ */
+export type CampaignsViewProps = {
   rows: CampaignRow[];
   workspace: KWorkspace | undefined;
+  organizationId: string;
+  organizationName: string;
+  connectionId: string;
+  viewer: "consultant" | "client";
+  viewerUserId: string;
+  /** null = todavía no se sabe (el cliente lo conoce al cargar su agenda). */
+  hasConsultant: boolean | null;
+  campaignId: string | null;
+  /** Gestor de acciones rápidas (`?acciones=1`); solo para el consultor. */
+  quickActions: boolean;
+  itemsLoading: boolean;
+  nav: CampaignsNav;
   onOpenRow: (row: CampaignRow) => void;
+  onOpenDraft: (draftId: string) => void;
+  onReviewPlan: () => void;
+  onOpenMetaCampaign: (campaignId: string) => void;
   onPropose: () => void;
   onCreate: () => void;
-}) {
-  const [filter, setFilter] = useState("upcoming");
-  const currency = workspace?.account?.currency ?? "EUR";
-  const active = FILTERS.find((entry) => entry.key === filter) ?? FILTERS[0]!;
-  const shown = rows.filter(active.match).map((row) => ({ ...row, id: row.key }));
-  const maxRevenue = Math.max(1, ...rows.map((row) => row.stats?.revenue ?? 0));
+  onOpenAgenda: () => void;
+  onChanged: () => void;
+  onOpenStudio: (draft: MarketingDraft) => void;
+  onWritePiece: (item: CampaignItem) => void;
+  onWriteWithAi: (itemId: string) => void;
+};
 
-  const columns: Array<TableColumnDef<CampaignRow & { id: string }>> = [
-    {
-      key: "name",
-      label: "Campaña",
-      render: (row) => (
-        <button type="button" className={s.linkBtn} onClick={() => onOpenRow(row)}>
-          <b>{row.name}</b>
-          <span className={s.muted}>{row.subject || (row.state === "nopiece" ? "Falta escribir la pieza" : "—")}</span>
-        </button>
-      ),
-    },
-    {
-      key: "state",
-      label: "Estado",
-      render: (row) => (
-        <span className={s.row}>
-          <Badge tone={STATE_LABEL[row.state].tone}>{STATE_LABEL[row.state].label}</Badge>
-          <span className={s.src} data-src={row.source === "klaviyo" ? "klaviyo" : "nora"}>
-            {row.source === "klaviyo" ? "KLAVIYO" : "NORA"}
-          </span>
-        </span>
-      ),
-    },
-    {
-      key: "audience",
-      label: "Audiencia",
-      render: (row) => {
-        const size = audienceSize(row.audiences.included);
-        return row.audiences.included.length ? (
-          <span>
-            {row.audiences.included.map((audience) => audience.name).join(", ")}
-            {size != null ? <span className={s.muted}> · {int(size)}</span> : null}
-          </span>
-        ) : (
-          <span className={s.muted}>—</span>
-        );
-      },
-    },
-    { key: "date", label: "Fecha", render: (row) => (row.date ? fmtSchedule(row.date) : "Sin fecha") },
-    {
-      key: "opens",
-      label: "Aperturas",
-      render: (row) => <span className={s.num}>{row.stats?.delivered ? pct(ratio(row.stats.opens_unique, row.stats.delivered)) : "—"}</span>,
-    },
-    {
-      key: "clicks",
-      label: "Clics",
-      render: (row) => <span className={s.num}>{row.stats?.delivered ? pct(ratio(row.stats.clicks_unique, row.stats.delivered)) : "—"}</span>,
-    },
-    {
-      key: "revenue",
-      label: "EUR atrib. Klaviyo",
-      render: (row) =>
-        row.stats?.revenue ? (
-          <span className={s.num} title={`${Math.round((100 * row.stats.revenue) / maxRevenue)} % de la mejor campaña`}>
-            {formatMoney(row.stats.revenue, currency)}
-          </span>
-        ) : (
-          <span className={s.muted}>—</span>
-        ),
-    },
-  ];
-
+export function CampaignsView(props: CampaignsViewProps) {
+  if (props.campaignId) return <OpenCampaign {...props} campaignId={props.campaignId} />;
+  if (props.quickActions && props.viewer === "consultant" && props.organizationId) {
+    return (
+      <QuickActionsManager
+        organizationId={props.organizationId}
+        organizationName={props.organizationName}
+        workspace={props.workspace}
+        nav={props.nav}
+      />
+    );
+  }
+  if (props.viewer === "client") {
+    if (props.hasConsultant === null) {
+      return (
+        <Stage client>
+          <LoadingBlock label="Cargando tus campañas…" />
+        </Stage>
+      );
+    }
+    return (
+      <ClientView
+        rows={props.rows}
+        organizationId={props.organizationId}
+        organizationName={props.organizationName}
+        hasConsultant={props.hasConsultant}
+        workspace={props.workspace}
+        nav={props.nav}
+        onChanged={props.onChanged}
+        onWriteWithAi={props.onWriteWithAi}
+        onPropose={props.onPropose}
+      />
+    );
+  }
+  if (!props.connectionId) {
+    return (
+      <ClientCampaigns
+        organizationId={props.organizationId}
+        organizationName={props.organizationName}
+        nav={props.nav}
+        onPropose={props.onPropose}
+        onCreate={props.onCreate}
+      />
+    );
+  }
   return (
-    <div className={s.root}>
-      <div className={s.head}>
-        <div>
-          <h1>Campañas</h1>
-          <p>Lo que planificas en NORA y lo que ya está en Klaviyo, en una sola lista.</p>
-        </div>
-        <div className={s.acts}>
-          <Button variant="secondary" onClick={onPropose}>
-            Proponer con IA
-          </Button>
-          <Button onClick={onCreate}>Nueva campaña</Button>
-        </div>
-      </div>
-      <div className={s.chips} role="group" aria-label="Filtrar campañas">
-        {FILTERS.map((entry) => (
-          <button
-            key={entry.key}
-            type="button"
-            className={s.chip}
-            aria-pressed={filter === entry.key}
-            onClick={() => setFilter(entry.key)}
-          >
-            {entry.label}
-            <span className={s.chipCount}>{rows.filter(entry.match).length}</span>
-          </button>
-        ))}
-      </div>
-      <Card>
-        <Table
-          ariaLabel="Campañas"
-          columns={columns}
-          rows={shown}
-          emptyLabel={filter === "upcoming" ? "No hay nada próximo. Propón campañas con la IA o crea una." : "Nada en este filtro."}
-        />
-      </Card>
-      <p className={s.caveat}>
-        Cifras en EUR atribuidos por Klaviyo, de toda la vida de cada campaña. No se suman a Meta ni a las ventas de Shopify.
-      </p>
-    </div>
+    <StoreCampaigns
+      rows={props.rows}
+      workspace={props.workspace}
+      organizationId={props.organizationId}
+      organizationName={props.organizationName}
+      connectionId={props.connectionId}
+      nav={props.nav}
+      onOpenRow={props.onOpenRow}
+      onOpenDraft={props.onOpenDraft}
+      onReviewPlan={props.onReviewPlan}
+      onOpenMetaCampaign={props.onOpenMetaCampaign}
+      onPropose={props.onPropose}
+      onCreate={props.onCreate}
+      onOpenAgenda={props.onOpenAgenda}
+      onChanged={props.onChanged}
+      onWriteWithAi={props.onWriteWithAi}
+    />
+  );
+}
+
+function OpenCampaign(props: CampaignsViewProps & { campaignId: string }) {
+  const { rows, campaignId, organizationId, viewer } = props;
+  const thread = useCampaignThread(organizationId, campaignId);
+  const { connectionId, setConnectionId } = useActiveConnection();
+  const row = rows.find((entry) => entry.item?.id === campaignId) ?? null;
+  const target = thread.thread?.item.store_connection_id ?? null;
+  const staff = viewer === "consultant";
+
+  // El aviso de la campana puede llevar a una campaña de otra tienda que la
+  // elegida en el selector: se salta a la suya para que aparezcan su pieza y su Klaviyo.
+  useEffect(() => {
+    if (!row && target && target !== connectionId) setConnectionId(target);
+  }, [row, target, connectionId, setConnectionId]);
+
+  const back = (
+    <Button variant="secondary" onClick={props.nav.closeCampaign}>
+      Volver a Campañas
+    </Button>
+  );
+
+  if (!row?.item) {
+    const searching = props.itemsLoading || thread.loading || Boolean(target && target !== connectionId);
+    return (
+      <Stage client={!staff}>
+        {searching ? (
+          <LoadingBlock label="Abriendo la campaña…" />
+        ) : (
+          <div className="grid gap-3 py-6">
+            <p>{thread.error ?? "Esta campaña ya no está en el calendario."}</p>
+            <div>{back}</div>
+          </div>
+        )}
+      </Stage>
+    );
+  }
+
+  const hasConsultant = staff ? true : props.hasConsultant;
+  if (hasConsultant === null) {
+    return (
+      <Stage client>
+        <LoadingBlock label="Abriendo la campaña…" />
+      </Stage>
+    );
+  }
+  return (
+    <CampaignWorkspace
+      organizationId={organizationId}
+      organizationName={props.organizationName}
+      viewer={viewer}
+      viewerUserId={props.viewerUserId}
+      hasConsultant={hasConsultant}
+      row={row as CampaignRow & { item: CampaignItem }}
+      thread={thread}
+      workspace={props.workspace}
+      nav={props.nav}
+      onChanged={props.onChanged}
+      onOpenStudio={props.onOpenStudio}
+      onWritePiece={props.onWritePiece}
+    />
   );
 }

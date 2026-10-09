@@ -125,6 +125,47 @@
     sans-serif;
 }
 
+/* Escala global del portal en escritorio: equivale a verlo al 90 % en el
+   navegador. Para cambiarla, basta --ui-zoom. Con `zoom`, las unidades de
+   viewport (dvh) siguen midiendo el viewport real y se quedarían un 10 % cortas,
+   así que todo lo que las usa divide entre --ui-zoom. */
+:root {
+  --ui-zoom: 1;
+}
+@media (min-width: 1024px) {
+  :root {
+    --ui-zoom: 0.9;
+  }
+}
+html {
+  zoom: var(--ui-zoom);
+}
+/* Los popovers, menús y tooltips los coloca react-aria con coordenadas del
+   viewport; dentro de un `zoom` se aplicarían escaladas y caerían a un lado de
+   su botón. Se contrarresta el zoom en ellos (salen a tamaño 100 %, bien
+   colocados). */
+[data-trigger][data-placement] {
+  zoom: calc(1 / var(--ui-zoom));
+}
+.min-h-dvh {
+  min-height: calc(100dvh / var(--ui-zoom));
+}
+.h-dvh {
+  height: calc(100dvh / var(--ui-zoom));
+}
+/* Fondo y contenedor de modales/hojas: HeroUI les da la altura del viewport real
+   (--visual-viewport-height, en px) y dentro del `zoom` se quedaría un 10 % corta,
+   dejando sin oscurecer la franja inferior. */
+:is(
+  [data-slot="modal-backdrop"],
+  [data-slot="modal-container"],
+  [data-slot="drawer-backdrop"],
+  [data-slot="drawer-container"],
+  .drawer__content
+) {
+  height: calc(var(--visual-viewport-height, 100dvh) / var(--ui-zoom));
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -405,47 +446,236 @@ a[data-slot="button"],
   color: var(--color-ink);
 }
 
-/* Modal: el dialog de HeroUI viene con esquinas de 32px, sin borde y con
-   padding uniforme -- se veia despegado del resto. Lo alineamos con las
-   Card: borde fino, radio --radius, cabecera con separador y padding
-   propio del cuerpo. */
-div[data-slot="modal-dialog"] {
-  border-radius: var(--radius);
-  border: 1px solid var(--color-edge);
-  box-shadow: 0 20px 48px -16px rgb(15 15 15 / 0.28);
+/* Superficies superpuestas (Dialog, Sheet, ConfirmDialog): ADR-0020 §7.
+   Blanco, un solo radio, borde fino y espaciado de la rejilla de 8 (16 px en
+   movil, 24 px desde sm). El acento NO tiñe la superficie: solo la accion
+   primaria, el borde de los botones secundarios, el foco y la seleccion. */
+
+/* Tema por rol. Los overlays se montan en un portal fuera de #portal-content y
+   no heredan .trabajo-theme: <OverlayRole> pone el rol en <body> y aqui se
+   re-declaran los mismos tokens que usa ese tema (cliente: petroleo + azafran,
+   consultor: grafito + mandarina, admin: grafito). */
+body[data-role="client"] {
+  --ov-accent: #f2b705;
+  --ov-accent-hover: #dba503;
+  --ov-on-accent: #1d1500;
+  --ov-accent-soft: #fcf0c4;
+  --ov-accent-ink: #6e5000;
+  --ov-ink: #0b2a33;
+  --ov-muted: #5c757b;
+  --ov-line: #d3dee0;
+  --ov-edge: #bccbce;
+  --ov-surface: #f4f7f7;
+}
+body[data-role="consultant"] {
+  --ov-accent: #ff8a5b;
+  --ov-accent-hover: #f5733f;
+  --ov-on-accent: #2b0e02;
+  --ov-accent-soft: #ffe7dc;
+  --ov-accent-ink: #8a3310;
+  --ov-ink: #16181b;
+  --ov-muted: #686c72;
+  --ov-line: #dadad5;
+  --ov-edge: #c9c9c2;
+  --ov-surface: #f7f7f5;
+}
+body[data-role="admin"] {
+  --ov-accent: #3d3b3a;
+  --ov-accent-hover: #292827;
+  --ov-on-accent: #ffffff;
+  --ov-accent-soft: #f0edeb;
+  --ov-accent-ink: #292827;
+  --ov-ink: #171717;
+  --ov-muted: #5f5f5f;
+  --ov-line: #e2e2e2;
+  --ov-edge: #d8d8d8;
+  --ov-surface: #fafafa;
+}
+body[data-role] :is([data-slot="modal-backdrop"], [data-slot="drawer-backdrop"]) {
+  --foreground: var(--ov-ink);
+  --color-foreground: var(--ov-ink);
+  --color-ink: var(--ov-ink);
+  --color-muted: var(--ov-muted);
+  --muted: var(--ov-muted);
+  --color-line: var(--ov-line);
+  --color-edge: var(--ov-edge);
+  --color-surface: var(--ov-surface);
+  --focus: var(--ov-accent);
+  --color-focus: var(--ov-accent);
+  --accent: var(--ov-accent);
+  --accent-hover: var(--ov-accent-hover);
+  --accent-foreground: var(--ov-on-accent);
+  --accent-soft: var(--ov-accent-soft);
+  --accent-soft-foreground: var(--ov-accent-ink);
+  --color-accent: var(--ov-accent);
+  --color-accent-hover: var(--ov-accent-hover);
+  --color-accent-foreground: var(--ov-on-accent);
+  --color-accent-soft: var(--ov-accent-soft);
+  --color-accent-soft-foreground: var(--ov-accent-ink);
+  --color-brand: var(--ov-accent-ink);
+  --color-brand-bright: var(--ov-accent);
+  --color-brand-deep: var(--ov-accent-ink);
+  --color-brand-tint: var(--ov-accent-soft);
+  /* Tokens de Trabajo que usan algunos contenidos incrustados (estudio de contenido). */
+  --tw-ink: var(--ov-ink);
+  --tw-ink-3: var(--ov-muted);
+  --tw-line: var(--ov-line);
+  --tw-surface-2: var(--ov-surface);
+  --tw-accent: var(--ov-accent);
+  --tw-accent-hover: var(--ov-accent-hover);
+  --tw-on-accent: var(--ov-on-accent);
+  --tw-accent-soft: var(--ov-accent-soft);
+  --tw-accent-ink: var(--ov-accent-ink);
+}
+body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .text-accent {
+  color: var(--ov-accent-ink);
+}
+
+[data-slot="modal-dialog"],
+[data-slot="drawer-dialog"] {
   padding: 0;
+  background: #ffffff;
+  color: var(--color-ink);
+  border: 1px solid var(--color-edge);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 48px -16px rgb(15 15 15 / 0.28);
 }
 
-div[data-slot="modal-header"] {
-  padding: 0.9rem 1.15rem;
-  border-bottom: 1px solid var(--color-edge);
+[data-slot="modal-header"],
+[data-slot="drawer-header"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 3.5rem 1rem 1rem;
+  border-bottom: 1px solid var(--color-line);
 }
 
-[data-slot="modal-heading"] {
-  font-size: 0.875rem;
+[data-slot="modal-heading"],
+[data-slot="drawer-heading"] {
+  font-size: 1rem;
+  line-height: 1.35;
   font-weight: 600;
   color: var(--color-ink);
 }
 
-div[data-slot="modal-body"] {
-  padding: 1.15rem;
+[data-slot="modal-body"],
+[data-slot="drawer-body"] {
+  padding: 1rem;
+  font-size: 13px;
+  line-height: 1.55;
   color: var(--color-ink);
 }
 
-div[data-slot="modal-footer"] {
-  padding: 0.9rem 1.15rem;
-  border-top: 1px solid var(--color-edge);
+[data-slot="modal-footer"],
+[data-slot="drawer-footer"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-line);
 }
 
-div[data-slot="modal-header"] + div[data-slot="modal-body"],
-div[data-slot="modal-body"] + div[data-slot="modal-footer"],
-div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
+[data-slot="modal-header"] + [data-slot="modal-body"],
+[data-slot="modal-body"] + [data-slot="modal-footer"],
+[data-slot="modal-header"] + [data-slot="modal-footer"] {
   margin-top: 0;
 }
 
-[data-slot="modal-close-trigger"] {
-  top: 0.7rem;
-  right: 0.75rem;
+[data-slot="modal-close-trigger"],
+[data-slot="drawer-close-trigger"] {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+}
+
+/* Botones dentro de una superficie: el secundario lleva el borde del acento
+   (sobre blanco); el primario es el relleno del acento. */
+:is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .button--secondary {
+  background: #ffffff;
+  color: var(--color-ink);
+  border: 1px solid var(--accent);
+}
+:is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .button--secondary:hover {
+  background: var(--accent-soft);
+}
+
+/* Anchos: sm 24 rem, md 32, lg 44, xl 60. El contenedor de HeroUI es
+   `sm:w-fit`, asi que el ancho se fija en el dialogo, no en un max-width. */
+.ui-dialog {
+  width: 32rem;
+  max-width: 100%;
+}
+.ui-dialog--sm { width: 24rem; }
+.ui-dialog--lg { width: 44rem; }
+.ui-dialog--xl { width: 60rem; }
+.ui-dialog--cover { width: 100%; }
+
+/* Hojas laterales: sm 28 rem (altas), md 40 (fichas), lg 60 (vista previa). */
+.ui-sheet {
+  height: 100%;
+  max-width: 100vw;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+  box-shadow: -16px 0 40px -20px rgb(15 15 15 / 0.3);
+}
+.ui-sheet--sm { width: 28rem; }
+.ui-sheet--md { width: 40rem; }
+.ui-sheet--lg { width: 60rem; }
+.ui-sheet--bottom {
+  width: 100%;
+  height: auto;
+  max-height: 85dvh;
+  border-width: 1px 0 0 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: 0 -16px 40px -20px rgb(15 15 15 / 0.3);
+}
+.ui-sheet--flush [data-slot="drawer-body"] {
+  padding: 0;
+}
+[data-slot="drawer-body"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 640px) {
+  [data-slot="modal-header"],
+  [data-slot="drawer-header"] {
+    padding: 1rem 3.5rem 1rem 1.5rem;
+  }
+  [data-slot="modal-body"],
+  [data-slot="drawer-body"] {
+    padding: 1rem 1.5rem;
+  }
+  [data-slot="modal-footer"],
+  [data-slot="drawer-footer"] {
+    padding: 0.75rem 1.5rem;
+  }
+}
+
+/* Movil: hoja inferior a todo el ancho, con el pie sobre el area segura. */
+@media (max-width: 639px) {
+  [data-slot="modal-container"] {
+    padding: 0;
+  }
+  [data-slot="modal-dialog"].ui-dialog {
+    width: 100%;
+    max-height: 92dvh;
+    border-width: 1px 0 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  [data-slot="modal-footer"],
+  [data-slot="drawer-footer"] {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  }
+  .ui-sheet--sm,
+  .ui-sheet--md,
+  .ui-sheet--lg {
+    width: 100vw;
+  }
 }
 
 .skip-link {
@@ -539,7 +769,7 @@ div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
   --chart-series-8: #5e625b;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  min-height: 100dvh;
+  min-height: calc(100dvh / var(--ui-zoom, 1));
   color: var(--admin-ink);
   background: var(--admin-paper);
   font-size: 0.875rem;
@@ -549,7 +779,7 @@ div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
   position: sticky;
   top: 0;
   display: flex;
-  height: 100dvh;
+  height: calc(100dvh / var(--ui-zoom, 1));
   flex-direction: column;
   overflow: hidden;
   padding: 1.25rem 0.9rem 0.75rem;
@@ -709,7 +939,7 @@ div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
 .admin-tool-strip > div { margin-right: auto; color: #7b887f; }
 
 @media (max-width: 1023px) {
-  .admin-workspace { grid-template-columns: minmax(0, 1fr); min-height: 100dvh; }
+  .admin-workspace { grid-template-columns: minmax(0, 1fr); min-height: calc(100dvh / var(--ui-zoom, 1)); }
   .admin-sidebar { position: fixed; z-index: 60; inset: 0 auto 0 0; width: min(18rem, calc(100vw - 3rem)); transform: translateX(-105%); transition: transform 180ms ease; }
   .admin-sidebar.is-open { transform: translateX(0); }
   .admin-brand-close { display: inline-flex; }
@@ -837,7 +1067,7 @@ div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
   --color-success: var(--tw-good);
   color: var(--tw-ink);
   background: var(--tw-paper);
-  min-height: 100dvh;
+  min-height: calc(100dvh / var(--ui-zoom, 1));
 }
 .trabajo-theme--consultant {
   --tw-paper: #f3f3f0;

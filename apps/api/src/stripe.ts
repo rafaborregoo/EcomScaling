@@ -36,6 +36,7 @@ export const STRIPE_USER_METADATA_KEY = "ecomscaling_user_id";
 export const STRIPE_ORGANIZATION_METADATA_KEY = "ecomscaling_organization_id";
 export const STRIPE_PLAN_CODE_METADATA_KEY = "ecomscaling_plan_code";
 export const STRIPE_STORE_LIMIT_METADATA_KEY = "ecomscaling_store_limit";
+export const STRIPE_MEMBER_LIMIT_METADATA_KEY = "ecomscaling_member_limit";
 export const STRIPE_CUSTOMER_TAX_ID_METADATA_KEY = "customer_tax_id";
 
 /**
@@ -118,6 +119,7 @@ export type StripeSubscription = {
   productId: string | null;
   planCode: string | null;
   storeLimit: number | null;
+  memberLimit: number | null;
   subjectUserId: string | null;
   subjectOrganizationId: string | null;
   customerTaxId: string | null;
@@ -184,6 +186,8 @@ export function parseStripeSubscription(
 
   const storeLimitText = text(priceMetadata[STRIPE_STORE_LIMIT_METADATA_KEY]);
   const storeLimit = storeLimitText ? Number.parseInt(storeLimitText, 10) : NaN;
+  const memberLimitText = text(priceMetadata[STRIPE_MEMBER_LIMIT_METADATA_KEY]);
+  const memberLimit = memberLimitText ? Number.parseInt(memberLimitText, 10) : NaN;
 
   // `current_period_end` vivia en la suscripcion; desde la version de API
   // `2025-03-31.basil` vive en cada item. Se miran los dos sitios porque el
@@ -207,6 +211,8 @@ export function parseStripeSubscription(
     planCode: text(priceMetadata[STRIPE_PLAN_CODE_METADATA_KEY]),
     storeLimit:
       Number.isSafeInteger(storeLimit) && storeLimit > 0 ? storeLimit : null,
+    memberLimit:
+      Number.isSafeInteger(memberLimit) && memberLimit > 0 ? memberLimit : null,
     // La metadata del comprador la pusimos nosotros al crear el checkout: es la
     // unica atribucion exacta. La del precio no sirve, es comun a todos los que
     // lo compran.
@@ -257,6 +263,7 @@ export type StripeSubscriptionPatch = {
   plan_code: string;
   status: SubscriptionStatus;
   store_limit: number;
+  member_limit: number | null;
   starts_at: string | null;
   ends_at: string | null;
   cancelled_at: string | null;
@@ -281,6 +288,7 @@ export function mapStripeSubscriptionToPatch(
     ).slice(0, 50),
     status,
     store_limit: subscription.storeLimit ?? STRIPE_FALLBACK_STORE_LIMIT,
+    member_limit: subscription.memberLimit,
     starts_at: subscription.startedAt,
     ends_at: alive
       ? subscription.cancelAtPeriodEnd

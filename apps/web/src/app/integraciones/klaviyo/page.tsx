@@ -11,10 +11,10 @@ import {
   Banner,
   Button,
   Card,
+  Dialog,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
-  Modal,
 } from "@/components/ui";
 import {
   BackToHub,
@@ -258,6 +258,15 @@ function KlaviyoIntegrationPage({
         </Banner>
       ) : null}
 
+      {connection &&
+      connection.scopes.length > 0 &&
+      !connection.scopes.includes("flows:write") ? (
+        <Banner tone="warn">
+          Esta conexión no puede crear flows desde NORA. Reautoriza Klaviyo y
+          acepta flows:write para habilitar esa acción.
+        </Banner>
+      ) : null}
+
       <Card
         className="border border-channel-email"
         title={
@@ -327,42 +336,13 @@ function KlaviyoIntegrationPage({
                     ? "Guardando…"
                     : metrics.metrics.find((metric) => metric.selected)?.name ?? "Elegir métrica"}
                 </Button>
-                <Modal isOpen={isMetricPickerOpen} onOpenChange={setIsMetricPickerOpen}>
-                  <Modal.Backdrop>
-                    <Modal.Container size="sm">
-                      <Modal.Dialog aria-label="Elegir métrica de conversión">
-                        <Modal.Header>
-                          <Modal.Heading>¿Qué cuenta como una venta?</Modal.Heading>
-                        </Modal.Header>
-                        <Modal.Body>
-                          <div className="max-h-72 space-y-2 overflow-y-auto">
-                            {metrics.metrics.map((metric) => (
-                              <Button
-                                key={metric.id}
-                                type="button"
-                                size="sm"
-                                variant={metric.selected ? "primary" : "secondary"}
-                                className="w-full justify-start"
-                                disabled={savingMetric}
-                                onClick={async () => {
-                                  const saved = await saveMetric(metric.external_metric_id);
-                                  if (saved) setIsMetricPickerOpen(false);
-                                }}
-                              >
-                                <span className="min-w-0 flex-1 truncate text-left">
-                                  {metric.name}
-                                </span>
-                                {metric.metric_type ? (
-                                  <span className="text-xs opacity-75">{metric.metric_type}</span>
-                                ) : null}
-                              </Button>
-                            ))}
-                          </div>
-                        </Modal.Body>
-                      </Modal.Dialog>
-                    </Modal.Container>
-                  </Modal.Backdrop>
-                </Modal>
+                <MetricPickerDialog
+                  isOpen={isMetricPickerOpen}
+                  onOpenChange={setIsMetricPickerOpen}
+                  metrics={metrics.metrics}
+                  saving={savingMetric}
+                  onSave={saveMetric}
+                />
                 <p
                   role="status"
                   aria-live="polite"
@@ -469,5 +449,75 @@ export default function KlaviyoPage() {
     <PortalShell title="Integración · Klaviyo">
       {(bootstrap) => <KlaviyoIntegrationPage bootstrap={bootstrap} />}
     </PortalShell>
+  );
+}
+
+type PickerMetric = {
+  id: string;
+  name: string;
+  metric_type?: string | null;
+  selected: boolean;
+  external_metric_id: string;
+};
+
+/** Elegir la métrica que cuenta como venta: selección + confirmación, no un clic que guarda. */
+function MetricPickerDialog({
+  isOpen,
+  onOpenChange,
+  metrics,
+  saving,
+  onSave,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  metrics: PickerMetric[];
+  saving: boolean;
+  onSave: (externalMetricId: string) => Promise<boolean>;
+}) {
+  const current = metrics.find((metric) => metric.selected)?.external_metric_id ?? "";
+  const [picked, setPicked] = useState(current);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setPicked(current);
+  }
+  return (
+    <Dialog
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      size="sm"
+      title="¿Qué cuenta como una venta?"
+      isBusy={saving}
+      primary={{
+        label: "Usar esta métrica",
+        busyLabel: "Guardando…",
+        disabled: !picked || picked === current,
+        onClick: () => {
+          void onSave(picked).then((saved) => {
+            if (saved) onOpenChange(false);
+          });
+        },
+      }}
+    >
+      <Banner tone="warn">Esta métrica define qué se cuenta como venta en los informes de Klaviyo.</Banner>
+      <div role="radiogroup" aria-label="Métrica de conversión" className="max-h-72 space-y-2 overflow-y-auto">
+        {metrics.map((metric) => (
+          <label
+            key={metric.id}
+            className="flex cursor-pointer items-center gap-3 rounded-md border border-line p-3 has-[:checked]:border-accent has-[:checked]:bg-accent-soft"
+          >
+            <input
+              type="radio"
+              name="klaviyo-conversion-metric"
+              className="accent-[var(--accent)]"
+              checked={picked === metric.external_metric_id}
+              onChange={() => setPicked(metric.external_metric_id)}
+            />
+            <span className="min-w-0 flex-1 truncate">{metric.name}</span>
+            {metric.metric_type ? <span className="text-xs text-muted">{metric.metric_type}</span> : null}
+          </label>
+        ))}
+      </div>
+    </Dialog>
   );
 }

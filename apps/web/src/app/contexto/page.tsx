@@ -23,9 +23,8 @@ import {
   Card,
   ErrorBlock,
   Field,
-  Heading,
+  Dialog,
   Input,
-  Modal,
   Select,
   Textarea,
   toast,
@@ -334,70 +333,46 @@ function NewEventModal({
   }
 
   return (
-    <Modal isOpen={open} onOpenChange={onOpenChange}>
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog aria-label="Contar un cambio">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Contar un cambio</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <div className="grid gap-3">
-                <Field label="Tipo">
-                  <Select
-                    aria-label="Tipo de cambio"
-                    value={eventType}
-                    onChange={setEventType}
-                    options={EVENT_TYPES}
-                    disabled={saving}
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Desde">
-                    <Input
-                      type="date"
-                      aria-label="Desde"
-                      value={from}
-                      onChange={(e) => setFrom(e.target.value)}
-                      disabled={saving}
-                    />
-                  </Field>
-                  <Field label="Hasta (opcional)">
-                    <Input
-                      type="date"
-                      aria-label="Hasta"
-                      value={to}
-                      min={from || undefined}
-                      onChange={(e) => setTo(e.target.value)}
-                      disabled={saving}
-                    />
-                  </Field>
-                </div>
-                <Field label="Qué pasó">
-                  <Textarea
-                    aria-label="Qué pasó"
-                    placeholder="Ej.: 20 % en toda la tienda por el aniversario"
-                    maxLength={500}
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    disabled={saving}
-                  />
-                </Field>
-              </div>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button
-                onClick={() => void save()}
-                disabled={saving || !from || description.trim().length < 3}
-              >
-                {saving ? "Guardando…" : "Añadir cambio"}
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      title="Contar un cambio"
+      isBusy={saving}
+      isDirty={Boolean(description.trim())}
+      primary={{
+        label: "Añadir cambio",
+        busyLabel: "Guardando…",
+        disabled: !from || description.trim().length < 3,
+        onClick: () => void save(),
+      }}
+    >
+      <Field label="Tipo">
+        <Select
+          aria-label="Tipo de cambio"
+          value={eventType}
+          onChange={setEventType}
+          options={EVENT_TYPES}
+          disabled={saving}
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Desde">
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} disabled={saving} />
+        </Field>
+        <Field label="Hasta (opcional)">
+          <Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} disabled={saving} />
+        </Field>
+      </div>
+      <Field label="Qué pasó">
+        <Textarea
+          placeholder="Ej.: 20 % en toda la tienda por el aniversario"
+          maxLength={500}
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          disabled={saving}
+        />
+      </Field>
+    </Dialog>
   );
 }
 

@@ -83,41 +83,46 @@ const integrationItems: PortalNavItem[] = [
 function settingsItems(
   role: PortalRole,
   hasActiveOrganization: boolean,
+  canManageClientAccess: boolean,
 ): PortalNavItem[] {
+  const org = hasActiveOrganization;
+  const section = (value: string) => `/configuracion?section=${value}`;
   return [
-    {
-      href: "/configuracion?section=general",
-      label: "General",
-      defaultForPath: true,
-    },
-    ...(role === "consultant"
+    { href: section("resumen"), label: "Resumen", defaultForPath: true },
+    ...(org
       ? [
-          {
-            href: "/configuracion?section=accesos",
-            label: "Accesos",
-            group: "Consultoría",
-          },
+          { href: section("tienda"), label: "Tienda y consultor", group: "Tu tienda" },
+          { href: section("rentabilidad"), label: "Costes y márgenes", group: "Tu tienda" },
+          { href: section("objetivos"), label: "Objetivos", group: "Tu tienda" },
+          { href: section("alertas"), label: "Alertas", group: "Tu tienda" },
+          { href: section("notificaciones"), label: "Notificaciones", group: "Tu tienda" },
         ]
       : []),
-    ...(hasActiveOrganization
-      ? [{ href: "/configuracion?section=alertas", label: "Alertas" }]
+    ...(org && canManageClientAccess
+      ? [{ href: section("equipo"), label: "Equipo y permisos", group: "Organización" }]
       : []),
-    ...(role === "consultant"
+    // La facturación es del propietario: el consultor no ve cobros del cliente.
+    ...(org && canManageClientAccess && role !== "consultant"
+      ? [{ href: section("plan"), label: "Plan y facturación", group: "Organización" }]
+      : []),
+    ...(role !== "client"
       ? [
-          {
-            href: "/configuracion?section=cartera",
-            label: "Clientes y tiendas",
-            group: "Consultoría",
-          },
+          { href: section("accesos"), label: "Accesos de cartera", group: "Consultoría" },
+          { href: section("cartera"), label: "Clientes y tiendas", group: "Consultoría" },
         ]
       : []),
     { href: "/perfil", label: "Perfil", group: "Cuenta" },
+    { href: section("seguridad"), label: "Seguridad", group: "Cuenta" },
+    ...(org && role === "client"
+      ? [{ href: section("privacidad"), label: "Privacidad y datos", group: "Cuenta" }]
+      : []),
   ];
 }
 
 function sharedModules(
   role: "client" | "consultant",
   hasActiveOrganization: boolean,
+  canManageClientAccess: boolean,
 ): PortalNavModule[] {
   const consultant = role === "consultant";
 
@@ -242,13 +247,27 @@ function sharedModules(
     {
       id: "configuracion",
       label: "Configuración",
-      description: "Cuenta, alertas y permisos",
+      description: "Tu tienda, tu cuenta y tus datos",
       icon: GearIcon,
       matchPrefixes: ["/configuracion", "/perfil"],
-      items: settingsItems(role, hasActiveOrganization),
+      items: settingsItems(role, hasActiveOrganization, canManageClientAccess),
       utility: true,
     },
   ];
+}
+
+function platformSettingsModule(
+  hasActiveOrganization: boolean,
+): PortalNavModule {
+  return {
+    id: "configuracion",
+    label: "Configuración",
+    description: "Cuenta, alertas y permisos",
+    icon: GearIcon,
+    matchPrefixes: ["/configuracion", "/perfil"],
+    items: settingsItems("platform_admin", hasActiveOrganization, true),
+    utility: true,
+  };
 }
 
 const platformModules: PortalNavModule[] = [
@@ -311,10 +330,11 @@ const platformModules: PortalNavModule[] = [
 export function getPortalNavigation(
   role: PortalRole,
   hasActiveOrganization = true,
+  canManageClientAccess = role !== "client",
 ): PortalNavModule[] {
   return role === "platform_admin"
-    ? platformModules
-    : sharedModules(role, hasActiveOrganization);
+    ? [...platformModules, platformSettingsModule(hasActiveOrganization)]
+    : sharedModules(role, hasActiveOrganization, canManageClientAccess);
 }
 
 function pathMatches(pathname: string, prefix: string) {

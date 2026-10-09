@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import { getAgentCatalogEntry } from "@e-nora/contracts";
 import {
   AsyncState,
@@ -12,14 +13,16 @@ import {
   Badge,
   Button,
   Card,
+  Dialog,
   EmptyState,
   ErrorBlock,
   Field,
   Heading,
   LoadingBlock,
-  Modal,
+  Metric,
   Select,
   Table,
+  Tabs,
   Textarea,
   toast,
   type Tone,
@@ -66,6 +69,55 @@ type AgentRun = {
   finished_at: string | null;
   agent_outputs: AgentRunOutput[];
 };
+
+/**
+ * Datos de un agente que llegan como JSON suelto (evidencia, hallazgos,
+ * fuentes, escrituras propuestas): cadenas se listan, objetos se enseñan como
+ * tabla con sus campos simples. Nunca se vuelca el JSON en pantalla.
+ */
+function ReadableData({ value, label }: { value: unknown; label: string }) {
+  const rows = Array.isArray(value) ? value : value == null ? [] : [value];
+  if (rows.length === 0) return null;
+  if (rows.every((row) => typeof row === "string")) {
+    return (
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold text-ink">{label}</h3>
+        <ul className="list-disc space-y-1 pl-4">
+          {(rows as string[]).map((row, index) => (
+            <li key={index}>{row}</li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+  const objects = rows.filter(
+    (row): row is Record<string, unknown> =>
+      typeof row === "object" && row !== null && !Array.isArray(row),
+  );
+  const keys = [
+    ...new Set(
+      objects.flatMap((row) =>
+        Object.keys(row).filter((key) =>
+          ["string", "number", "boolean"].includes(typeof row[key]),
+        ),
+      ),
+    ),
+  ].slice(0, 4);
+  if (objects.length === 0 || keys.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold text-ink">{label}</h3>
+      <Table
+        ariaLabel={label}
+        columns={keys.map((key) => ({ key, label: displayValue(key) }))}
+        rows={objects.map((row, index) => ({
+          id: String(row.id ?? index),
+          ...Object.fromEntries(keys.map((key) => [key, String(row[key] ?? "")])),
+        }))}
+      />
+    </section>
+  );
+}
 
 type AgentBudgetStatus = {
   spentTodayUsd: number;
@@ -178,6 +230,8 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   } | null>(null);
   const [reviewReason, setReviewReason] = useState("");
   const [reviewCategory, setReviewCategory] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+  const [traceTab, setTraceTab] = useState("steps");
   const [isDeciding, setIsDeciding] = useState(false);
   const [budget, setBudget] = useState<AgentBudgetStatus | null>(null);
   const [budgetLoading, setBudgetLoading] = useState(false);
@@ -568,226 +622,180 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         )}
       </Card>
 
-      <Modal
+      <Dialog
         isOpen={reviewOutput !== null}
         onOpenChange={(open) => {
           if (!open) {
             setReviewOutput(null);
             setReviewReason("");
+            setReviewCategory("");
+            setRejecting(false);
           }
         }}
+        size="lg"
+        eyebrow="Propuesta pendiente de revisión"
+        title={
+          runs.find((run) => run.id === reviewOutput?.runId)?.objective ??
+          "Propuesta del agente"
+        }
+        isBusy={isDeciding}
+        isDirty={Boolean(reviewReason.trim())}
+        start={
+          reviewOutput && !rejecting ? (
+            <Button variant="ghost" className="text-danger" onClick={() => setRejecting(true)}>
+              Rechazar…
+            </Button>
+          ) : undefined
+        }
+        footer={
+          rejecting ? (
+            <>
+              <Button variant="ghost" onClick={() => setRejecting(false)}>
+                Volver
+              </Button>
+              <Button variant="danger" onClick={() => void decideOutput("rejected")}>
+                Rechazar propuesta
+              </Button>
+            </>
+          ) : undefined
+        }
+        primary={{
+          label: "Aprobar y crear tareas",
+          busyLabel: "Guardando…",
+          onClick: () => void decideOutput("approved"),
+        }}
       >
-        <Modal.Backdrop>
-          <Modal.Container size="lg">
-            <Modal.Dialog aria-label="Revisar propuesta del agente">
-              <Modal.Header>
-                <Modal.Heading>
-                  {reviewOutput
-                    ? `Propuesta de ${reviewOutput.runId}`
-                    : "Propuesta"}
-                </Modal.Heading>
-              </Modal.Header>
-              {reviewOutput ? (
-                <>
-                  <Modal.Body>
-                    <div className="space-y-4">
-                      <p className="text-[13px] text-muted">
-                        Esta propuesta está en shadow mode. Revisa el contenido
-                        y la evidencia antes de materializar las tareas
-                        sugeridas.
-                      </p>
-                      {reviewOutput.output.output?.answer ? (
-                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
-                          {reviewOutput.output.output.answer}
-                        </p>
-                      ) : null}
-                      <div>
-                        <h3 className="text-sm font-semibold text-foreground">
-                          Evidencia y citas
-                        </h3>
-                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-separator bg-surface p-3 text-xs">
-                          {JSON.stringify(
-                            {
-                              evidence:
-                                reviewOutput.output.output?.evidence ?? [],
-                              findings:
-                                reviewOutput.output.output?.findings ?? [],
-                              sources:
-                                reviewOutput.output.output?.sources ?? [],
-                              citations:
-                                reviewOutput.output.output?.citations ?? [],
-                            },
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-foreground">
-                          Escrituras propuestas
-                        </h3>
-                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-separator bg-surface p-3 text-xs">
-                          {JSON.stringify(
-                            reviewOutput.output.output?.proposed_writes ?? [],
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </div>
-                      <Field label="Motivo de la decisión (opcional)">
-                        <Textarea
-                          aria-label="Motivo de la decisión"
-                          className="mt-2 min-h-20"
-                          placeholder="Deja contexto para el siguiente revisor…"
-                          value={reviewReason}
-                          onChange={(event) =>
-                            setReviewReason(event.target.value)
-                          }
-                          disabled={isDeciding}
-                        />
-                      </Field>
-                      <Field label="Si la rechazas, ¿por qué? (opcional)">
-                        <Select
-                          aria-label="Motivo del rechazo"
-                          className="mt-2"
-                          placeholder="Sin categoría"
-                          value={reviewCategory}
-                          onChange={setReviewCategory}
-                          options={REJECTION_CATEGORY_OPTIONS}
-                          disabled={isDeciding}
-                        />
-                      </Field>
-                    </div>
-                  </Modal.Body>
-                  <Modal.Footer>
-                    <Button
-                      variant="ghost"
-                      type="button"
-                      onClick={() => void decideOutput("rejected")}
-                      disabled={isDeciding}
-                    >
-                      Rechazar propuesta
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => void decideOutput("approved")}
-                      disabled={isDeciding}
-                    >
-                      {isDeciding ? "Guardando..." : "Aprobar y crear tareas"}
-                    </Button>
-                  </Modal.Footer>
-                </>
-              ) : null}
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+        {reviewOutput ? (
+          <>
+            <p className="text-muted">
+              El agente todavía no ha escrito nada. Revisa lo que propone antes de crear las tareas.
+            </p>
+            {reviewOutput.output.output?.answer ? (
+              <p className="whitespace-pre-wrap leading-relaxed text-ink">
+                {reviewOutput.output.output.answer}
+              </p>
+            ) : null}
+            <ReadableData label="Evidencia" value={reviewOutput.output.output?.evidence} />
+            <ReadableData label="Hallazgos" value={reviewOutput.output.output?.findings} />
+            <ReadableData label="Fuentes" value={reviewOutput.output.output?.sources} />
+            <ReadableData label="Citas" value={reviewOutput.output.output?.citations} />
+            <ReadableData label="Cambios que haría" value={reviewOutput.output.output?.proposed_writes} />
+            <Field label="Motivo de la decisión (opcional)">
+              <Textarea
+                aria-label="Motivo de la decisión"
+                placeholder="Deja contexto para el siguiente revisor…"
+                value={reviewReason}
+                onChange={(event) => setReviewReason(event.target.value)}
+                disabled={isDeciding}
+              />
+            </Field>
+            {rejecting ? (
+              <Field label="¿Por qué la rechazas? (opcional)">
+                <Select
+                  aria-label="Motivo del rechazo"
+                  placeholder="Sin categoría"
+                  value={reviewCategory}
+                  onChange={setReviewCategory}
+                  options={REJECTION_CATEGORY_OPTIONS}
+                  disabled={isDeciding}
+                />
+              </Field>
+            ) : null}
+          </>
+        ) : null}
+      </Dialog>
 
-      <Modal
+      <Dialog
         isOpen={selectedRunId !== null}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedRunId(null);
             setTrace(null);
             setTraceError(null);
+            setTraceTab("steps");
           }
         }}
+        size="cover"
+        eyebrow={
+          trace
+            ? (getAgentCatalogEntry(trace.run.agent_versions?.agent_definitions.code ?? "")?.displayName ?? "Agente IA")
+            : undefined
+        }
+        title={
+          trace
+            ? `Ejecución del ${new Date(trace.run.started_at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+            : "Traza de ejecución"
+        }
+        cancelLabel="Cerrar"
       >
-        <Modal.Backdrop>
-          <Modal.Container size="cover">
-            <Modal.Dialog aria-label="Traza de ejecución del agente">
-              <Modal.Header>
-                <Modal.Heading>
-                  {selectedRunId ?? "Traza de ejecución"}
-                </Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                {isTraceLoading ? (
-                  <LoadingBlock label="Cargando traza..." />
-                ) : traceError ? (
-                  <ErrorBlock>{traceError}</ErrorBlock>
-                ) : trace ? (
-                  <div className="space-y-6">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {getAgentCatalogEntry(
-                          trace.run.agent_versions?.agent_definitions.code ??
-                            "",
-                        )?.displayName ?? "Agente IA"}
-                      </p>
-                      <p className="text-xs font-medium text-muted">
-                        {trace.run.agent_versions?.agent_definitions.code} ·{" "}
-                        {trace.run.agent_versions?.model} v
-                        {trace.run.agent_versions?.version}
-                      </p>
-                      <p className="mt-1 text-sm text-muted">
-                        {trace.run.input_tokens} tokens entrada ·{" "}
-                        {trace.run.output_tokens} tokens salida ·{" "}
-                        {trace.run.estimated_cost_usd.toFixed(4)} USD
-                        {trace.run.error_message
-                          ? ` · error: ${trace.run.error_message}`
-                          : ""}
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Pasos
-                      </h3>
-                      <Table
-                        className="mt-2"
-                        ariaLabel="Pasos de la ejecucion"
-                        columns={stepColumns}
-                        rows={trace.steps}
-                        emptyLabel="Sin pasos registrados."
-                      />
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Llamadas a herramientas
-                      </h3>
-                      <Table
-                        className="mt-2"
-                        ariaLabel="Llamadas a herramientas"
-                        columns={toolCallColumns}
-                        rows={trace.tool_calls}
-                        emptyLabel="Sin llamadas a herramientas (evidence-pack puro)."
-                      />
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Snapshots de contexto
-                      </h3>
-                      <Table
-                        className="mt-2"
-                        ariaLabel="Snapshots de contexto"
-                        columns={contextColumns}
-                        rows={trace.context_snapshots}
-                        emptyLabel="Sin snapshots de contexto."
-                      />
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Consultas SQL
-                      </h3>
-                      <Table
-                        className="mt-2"
-                        ariaLabel="Consultas SQL del SQL Gateway"
-                        columns={queryRunColumns}
-                        rows={trace.query_runs}
-                        emptyLabel="Sin consultas SQL en esta ejecucion."
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </Modal.Body>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+        {isTraceLoading ? (
+          <LoadingBlock label="Cargando traza…" />
+        ) : traceError ? (
+          <ErrorBlock>{traceError}</ErrorBlock>
+        ) : trace ? (
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Metric size="sm" label="Tokens de entrada" value={trace.run.input_tokens.toLocaleString("es-ES")} />
+              <Metric size="sm" label="Tokens de salida" value={trace.run.output_tokens.toLocaleString("es-ES")} />
+              <Metric
+                size="sm"
+                label="Coste"
+                value={new Intl.NumberFormat("es-ES", { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(trace.run.estimated_cost_usd)}
+              />
+              <Metric size="sm" label="Modelo" value={`${trace.run.agent_versions?.model ?? "—"} v${trace.run.agent_versions?.version ?? ""}`} />
+            </div>
+            {trace.run.error_message ? <ErrorBlock>{trace.run.error_message}</ErrorBlock> : null}
+            <Tabs
+              value={traceTab}
+              onChange={setTraceTab}
+              items={[
+                { value: "steps", label: `Pasos (${trace.steps.length})` },
+                { value: "tools", label: `Herramientas (${trace.tool_calls.length})` },
+                { value: "context", label: `Contexto (${trace.context_snapshots.length})` },
+                { value: "sql", label: `SQL (${trace.query_runs.length})` },
+              ]}
+              panels={{
+                steps: (
+                  <Table
+                    className="mt-4"
+                    ariaLabel="Pasos de la ejecución"
+                    columns={stepColumns}
+                    rows={trace.steps}
+                    emptyLabel="Sin pasos registrados."
+                  />
+                ),
+                tools: (
+                  <Table
+                    className="mt-4"
+                    ariaLabel="Llamadas a herramientas"
+                    columns={toolCallColumns}
+                    rows={trace.tool_calls}
+                    emptyLabel="Esta ejecución no llamó a herramientas."
+                  />
+                ),
+                context: (
+                  <Table
+                    className="mt-4"
+                    ariaLabel="Snapshots de contexto"
+                    columns={contextColumns}
+                    rows={trace.context_snapshots}
+                    emptyLabel="Sin snapshots de contexto."
+                  />
+                ),
+                sql: (
+                  <Table
+                    className="mt-4"
+                    ariaLabel="Consultas SQL del SQL Gateway"
+                    columns={queryRunColumns}
+                    rows={trace.query_runs}
+                    emptyLabel="Sin consultas SQL en esta ejecución."
+                  />
+                ),
+              }}
+            />
+          </>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

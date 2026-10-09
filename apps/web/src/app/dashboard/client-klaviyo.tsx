@@ -1,8 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { apiFetch } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
+import { toast } from "@/components/ui";
+import { BarRows } from "@/components/data-bars";
 import { salesChangePct } from "./store-pulse";
 import { fmtEur, fmtNum } from "./client-pulse-model";
 import {
@@ -144,6 +148,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   asConsultant?: boolean;
 }) {
   const [period, setPeriod] = useState<(typeof PERIODS)[number]["key"]>("30");
+  const [monitorRunning, setMonitorRunning] = useState(false);
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
@@ -152,10 +157,27 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   const insights = useCachedQuery<KlaviyoInsights>(`${base}/klaviyo/insights?days=${period}${scope}`);
   const store = useCachedQuery<StoreSales>(`${base}/shopify/metrics?days=${period}${scope}`);
   const emailAi = useCachedQuery<Diagnostic>(`${base}/ai/email-analyst${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`);
-  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30${scope}`);
+  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=klaviyo${scope}`);
+
+  async function runMonitorKlaviyo() {
+    setMonitorRunning(true);
+    try {
+      const response = await apiFetch(`${base}/ai/monitor-run?days=30${scope}&view=klaviyo`, { method: "POST" });
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      toast.success("Lectura A02 de Klaviyo actualizada.");
+      monitor.reload();
+    } catch {
+      toast.danger("No se pudo lanzar el análisis de Klaviyo por un error de red.");
+    } finally {
+      setMonitorRunning(false);
+    }
+  }
 
   const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? "";
-  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Klaviyo, ${periodLabel})`, focusLabel });
+  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Klaviyo, ${periodLabel})`, focusLabel, reference: { period_label: periodLabel, filters: { days: period } } });
   const data = report.data;
 
   if (report.isLoading && !data) {
@@ -247,11 +269,14 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
               {fmtNum(totals.conversions)} compras atribuidas a {fmtNum(totals.recipients)} envíos. Es lo que Klaviyo se atribuye con su ventana de conversión, no ventas exclusivas del email.
             </p>
             <div className={s.heroActions}>
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("¿Qué email o flujo debería mejorar primero y por qué?", "Klaviyo")}>
+              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("En el periodo analizado, ¿qué email o flujo de Klaviyo revisaría primero y qué métrica lo justifica? Cita la fuente y ventana; distingue ingresos atribuidos de ventas de Shopify.", "Klaviyo")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
                   IA
                 </span>
                 Preguntar qué mejorar
+              </button>
+              <button type="button" className={cx(s.btn, s.ghost)} disabled={monitorRunning} onClick={() => void runMonitorKlaviyo()}>
+                {monitorRunning ? "Analizando Klaviyo…" : "Actualizar análisis Klaviyo"}
               </button>
               <a className={cx(s.btn, s.ghost)} href="/klaviyo">
                 Analítica completa
@@ -328,6 +353,15 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         ) : null}
       </section>
 
+      <section className={s.sec} aria-label="Lectura ejecutiva de Klaviyo">
+        <div className={s.panel}>
+          <p className={s.lbl}>A02 · Klaviyo</p>
+          <p className={s.headlineDetail}>
+            {monitor.data?.output.headline ?? "El análisis específico de Klaviyo aparecerá aquí cuando termine su primera ejecución."}
+          </p>
+        </div>
+      </section>
+
       {/* ------------------------------ Cifras ------------------------------ */}
       <div className={cx(s.kpis, s.kpis4)} aria-label="Cifras de email">
         <Kpi
@@ -399,7 +433,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
               ? `El flujo que menos rinde por destinatario es «${weakestFlow.name}» (${fmtEur(weakestFlow.revenue_per_recipient ?? 0, 2)}).`
               : "Los emails que se envían solos cuando alguien hace algo."
           }
-          onAsk={() => askCopilot("¿Qué flujo automático debería mejorar primero y qué cambiarías?", "Flujos de Klaviyo")}
+          onAsk={() => askCopilot("¿Qué flujo automático muestra la oportunidad más clara de mejora según sus métricas? Cita el nombre, la métrica y la ventana; si no hay volumen suficiente, indícalo antes de recomendar un cambio.", "Flujos de Klaviyo")}
         />
         <div className={s.panel}>
           {flows.length === 0 ? (
@@ -457,7 +491,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           title="Campañas"
           ai={findingFor(emailDiag, /campa|env[ií]o|newsletter|frecuen/i)?.title ?? null}
           fallback={bestCampaign ? `La que más rindió por destinatario fue «${bestCampaign.name}».` : "Los envíos puntuales a tu lista, del más reciente al más antiguo."}
-          onAsk={() => askCopilot("¿Qué tienen en común mis mejores campañas y cómo repito lo que funciona?", "Campañas de Klaviyo")}
+          onAsk={() => askCopilot("¿Qué rasgos comparten las campañas con mejores resultados observados y qué elemento convendría probar de nuevo? Cita campañas y métricas comparables; no atribuyas causalidad a una diferencia aislada.", "Campañas de Klaviyo")}
         />
         <div className={s.panel}>
           {campaigns.length === 0 ? (
@@ -512,7 +546,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           title="Qué funciona"
           ai={findingFor(emailDiag, /asunto|subject|apertura|enlace|clic/i)?.title ?? null}
           fallback="Qué rasgos de tus asuntos se abren más y dónde hace clic la gente."
-          onAsk={() => askCopilot("¿Qué asuntos me funcionan mejor y cómo debería escribir los próximos?", "Asuntos de email")}
+          onAsk={() => askCopilot("¿Qué asuntos tienen mejores aperturas en una comparación válida? Cita el tamaño o periodo disponible y propone una dirección para el próximo asunto sin asegurar que vaya a mejorar el resultado.", "Asuntos de email")}
         />
         <div className={s.two}>
           <div className={s.panel}>
@@ -540,22 +574,15 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                           <span className={s.chip}>Sin diferencia clara</span>
                         )}
                       </div>
-                      {[
-                        { label: `Con (${t.with_emails})`, v: t.with_open_rate, color: "var(--klaviyo)" },
-                        { label: `Sin (${t.without_emails})`, v: t.without_open_rate, color: "var(--ink-3)" },
-                      ].map((row) => (
-                        <div key={row.label} className={s.fnT} style={{ alignItems: "center" }}>
-                          <span className={s.muted} style={{ width: 70, flex: "none" }}>
-                            {row.label}
-                          </span>
-                          <span className={s.bar} style={{ flex: 1, height: 8 }}>
-                            <i style={{ width: `${((row.v ?? 0) / max) * 100}%`, background: row.color }} />
-                          </span>
-                          <span className={s.num} style={{ width: 56, textAlign: "right" }}>
-                            {pct(row.v)}
-                          </span>
-                        </div>
-                      ))}
+                      <BarRows
+                        size="sm"
+                        max={max}
+                        ariaLabel={`Apertura con y sin ${t.label}`}
+                        rows={[
+                          { key: "con", label: `Con (${t.with_emails})`, value: t.with_open_rate ?? 0, display: pct(t.with_open_rate), color: "var(--klaviyo)" },
+                          { key: "sin", label: `Sin (${t.without_emails})`, value: t.without_open_rate ?? 0, display: pct(t.without_open_rate), color: "var(--ink-3)" },
+                        ]}
+                      />
                     </li>
                   );
                 })}
@@ -610,7 +637,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           title="Salud de la cuenta"
           ai={findingFor(emailDiag, /entregab|spam|rebote|baja|utm|seguimiento|medici/i)?.title ?? null}
           fallback="Lo que hace que tus emails lleguen a la bandeja y que sus ventas se puedan medir."
-          onAsk={() => askCopilot("¿Mi cuenta de Klaviyo está sana? ¿Hay algo que afecte a la entregabilidad o a la medición?", "Salud de Klaviyo")}
+          onAsk={() => askCopilot("¿Qué señales verificables afectan a la entregabilidad o a la medición de Klaviyo? Cita el indicador y la fecha; distingue problemas confirmados de datos que todavía no se han recibido.", "Salud de Klaviyo")}
         />
         <div className={s.two}>
           <div className={s.panel}>

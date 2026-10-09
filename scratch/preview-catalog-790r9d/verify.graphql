@@ -1,0 +1,6 @@
+query VerifyDemoCatalog {
+  shop { name }
+  products(first: 20, query: "tag:demo") {
+    nodes { id title status tags variants(first: 1) { nodes { sku price } } }
+  }
+}

@@ -9,12 +9,12 @@ import {
   BarChart,
   Button,
   Card,
-  Drawer,
   ErrorBlock,
   Field,
   Input,
   Metric,
   Select,
+  Sheet,
   Table,
   Textarea,
   type TableColumnDef,
@@ -197,14 +197,16 @@ function periodLabel(value: Expense["billing_period"]) {
   );
 }
 
-function ExpenseForm({
+function ExpenseSheet({
+  isOpen,
+  onOpenChange,
   expense,
   onSaved,
-  onCancel,
 }: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
   expense: Expense | null;
   onSaved: () => void;
-  onCancel: () => void;
 }) {
   const [name, setName] = useState(expense?.name ?? "");
   const [vendor, setVendor] = useState(expense?.vendor ?? "");
@@ -265,124 +267,74 @@ function ExpenseForm({
   }
 
   return (
-    <div className="grid gap-4">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <Sheet
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      size="md"
+      title={expense ? "Editar gasto" : "Registrar gasto"}
+      isBusy={busy}
+      isDirty={expense ? name !== expense.name || amount !== String(expense.amount) : Boolean(name.trim() || amount)}
+      formId="expense-form"
+      primary={{
+        label: expense ? "Guardar cambios" : "Añadir gasto",
+        busyLabel: "Guardando…",
+        disabled: !name.trim() || !amount || !startsOn,
+      }}
+    >
+      <form
+        id="expense-form"
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Concepto">
-            <Input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Ej. Vercel Pro"
-            />
+            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Vercel Pro" />
           </Field>
           <Field label="Proveedor">
-            <Input
-              value={vendor}
-              onChange={(event) => setVendor(event.target.value)}
-              placeholder="Vercel"
-            />
+            <Input value={vendor} onChange={(event) => setVendor(event.target.value)} placeholder="Vercel" />
           </Field>
           <Field label="Categoría">
-            <Select
-              value={category}
-              onChange={setCategory}
-              options={CATEGORY_OPTIONS}
-            />
+            <Select value={category} onChange={setCategory} options={CATEGORY_OPTIONS} />
           </Field>
           <Field label="Periodicidad">
             <Select
               value={period}
-              onChange={(value) =>
-                setPeriod(value as Expense["billing_period"])
-              }
+              onChange={(value) => setPeriod(value as Expense["billing_period"])}
               options={PERIOD_OPTIONS}
             />
           </Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Field label="Total pagado">
-            <Input
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="29.00"
-            />
+            <Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="29.00" />
           </Field>
           <Field label="IVA incluido">
-            <Input
-              inputMode="decimal"
-              value={taxAmount}
-              onChange={(event) => setTaxAmount(event.target.value)}
-              placeholder="0.00"
-            />
+            <Input inputMode="decimal" value={taxAmount} onChange={(event) => setTaxAmount(event.target.value)} placeholder="0.00" />
           </Field>
           <Field label="Moneda">
-            <Input
-              value={currency}
-              maxLength={3}
-              onChange={(event) =>
-                setCurrency(event.target.value.toUpperCase())
-              }
-            />
+            <Input value={currency} maxLength={3} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
           </Field>
           <Field label="Primer cargo">
-            <Input
-              type="date"
-              value={startsOn}
-              onChange={(event) => setStartsOn(event.target.value)}
-            />
+            <Input type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} />
           </Field>
           <Field label="Fin opcional">
-            <Input
-              type="date"
-              value={endsOn}
-              onChange={(event) => setEndsOn(event.target.value)}
-            />
+            <Input type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} />
           </Field>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Factura o justificante (URL)">
-            <Input
-              type="url"
-              value={documentUrl}
-              onChange={(event) => setDocumentUrl(event.target.value)}
-              placeholder="https://..."
-            />
-          </Field>
-          <Field label="Notas">
-            <Textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={2}
-            />
-          </Field>
-        </div>
+        <Field label="Factura o justificante (URL)">
+          <Input type="url" value={documentUrl} onChange={(event) => setDocumentUrl(event.target.value)} placeholder="https://..." />
+        </Field>
+        <Field label="Notas">
+          <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} />
+        </Field>
         <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={deductible}
-            onChange={(event) => setDeductible(event.target.checked)}
-          />
+          <input type="checkbox" checked={deductible} onChange={(event) => setDeductible(event.target.checked)} />
           Gasto fiscalmente deducible
         </label>
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={busy || !name.trim() || !amount || !startsOn}
-            onClick={() => void save()}
-          >
-            {busy
-              ? "Guardando..."
-              : expense
-                ? "Guardar cambios"
-                : "Añadir gasto"}
-          </Button>
-          {expense ? (
-            <Button variant="ghost" onClick={onCancel}>
-              Cancelar
-            </Button>
-          ) : null}
-        </div>
-    </div>
+      </form>
+    </Sheet>
   );
 }
 
@@ -734,35 +686,16 @@ function FinancePanel() {
         />
       </Card>
 
-      <Drawer
+      <ExpenseSheet
+        key={`${editing?.id ?? "new"}-${formKey}`}
         isOpen={expenseFormOpen}
         onOpenChange={(open) => {
           setExpenseFormOpen(open);
           if (!open) setEditing(null);
         }}
-      >
-        <Drawer.Backdrop>
-          <Drawer.Content placement="right" className="w-full max-w-3xl">
-            <Drawer.Dialog aria-label={editing ? `Editar gasto ${editing.name}` : "Registrar gasto"}>
-              <Drawer.Header className="admin-detail-header">
-                <div className="min-w-0">
-                  <Drawer.Heading>{editing ? "Editar gasto" : "Registrar gasto"}</Drawer.Heading>
-                  <p className="mt-1 text-sm text-muted">Importe, periodicidad e información fiscal</p>
-                </div>
-                <Drawer.CloseTrigger />
-              </Drawer.Header>
-              <Drawer.Body className="admin-detail-body">
-                <ExpenseForm
-                  key={`${editing?.id ?? "new"}-${formKey}`}
-                  expense={editing}
-                  onSaved={saved}
-                  onCancel={() => setExpenseFormOpen(false)}
-                />
-              </Drawer.Body>
-            </Drawer.Dialog>
-          </Drawer.Content>
-        </Drawer.Backdrop>
-      </Drawer>
+        expense={editing}
+        onSaved={saved}
+      />
 
       <Card kicker="Acceso comercial" title="Suscripciones">
         <div className="grid gap-4 sm:grid-cols-4">

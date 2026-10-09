@@ -152,7 +152,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const ticketSub = appManaged ? "beneficio calculado por la app" : gets.length === 1 && gets[0].target_type === "all" ? "en todo el pedido" : gets.length ? `en ${gets.slice(0, 2).map((target) => target.target_title || targetLabel(target.target_type)).join(", ")}` : classLabel(discount);
 
   const askCopilot = (question: string, focusLabel: string) =>
-    ask({ question: `${question} (promoción «${title}», últimos ${periodDays} días)`, focusLabel });
+    ask({ question: `${question} (promoción «${title}», últimos ${periodDays} días)`, focusLabel, reference: { filters: { periodDays: String(periodDays) } } });
 
   return (
     <div className={pulse.root}>

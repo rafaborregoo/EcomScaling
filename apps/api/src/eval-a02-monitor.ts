@@ -57,7 +57,7 @@ type Check = { name: string; type: "hard" | "soft"; pass: boolean; detail: strin
 type Scenario = {
   name: string;
   description: string;
-  setup: () => Promise<{ organizationId: string }>;
+  setup: () => Promise<{ organizationId: string; connectionId?: string; expectedStoreId?: string; expectUnknownCurrency?: boolean }>;
   checks: (output: AgentOutputShape) => Check[];
 };
 
@@ -65,6 +65,8 @@ type Scenario = {
 // (ya paso agentOutputSchema + checkOutputSanity antes de llegar aqui).
 type AgentOutputShape = {
   answer: string;
+  headline: string;
+  sections: Array<{ key: string; label: string; findings: Array<{ title: string; severity: string; evidence: string }> }>;
   findings: Array<{ title: string; severity: string; evidence: string }>;
   recommendations: unknown[];
   sources: Array<{ kind: string; reference: string; period: string | null }>;
@@ -347,6 +349,12 @@ const SCENARIOS: Scenario[] = [
           pass: output.confidence !== "high",
           detail: `confidence reportada: ${output.confidence}`,
         },
+        {
+          name: "no crea secciones de Meta o Klaviyo sin integraciones ni datos",
+          type: "hard",
+          pass: !output.sections.some((section) => ["meta", "klaviyo"].includes(section.key)),
+          detail: `secciones reportadas: ${output.sections.map((section) => section.key).join(", ") || "ninguna"}`,
+        },
       ];
     },
   },
@@ -361,7 +369,12 @@ const SCENARIOS: Scenario[] = [
         storeId,
         Array.from({ length: 5 }, () => ({ grossSales: 100, discounts: 10, netSales: 90 })),
       );
-      return { organizationId };
+      const { error: currencyError } = await admin
+        .from("shopify_stores")
+        .update({ currency_code: null })
+        .eq("id", storeId);
+      if (currencyError) throw new Error(`No se pudo sembrar moneda desconocida: ${currencyError.message}`);
+      return { organizationId, expectUnknownCurrency: true };
     },
     checks: (output) => {
       const allText = [output.answer, ...output.warnings, ...output.findings.map((f) => f.evidence)].join(" ");
@@ -379,6 +392,18 @@ const SCENARIOS: Scenario[] = [
           type: "hard",
           pass: output.findings.length === 0 || output.sources.length > 0,
           detail: `findings=${output.findings.length}, sources=${output.sources.length}`,
+        },
+        {
+          name: "ventas Shopify disponibles aunque falte la configuracion de moneda/costes",
+          type: "hard",
+          pass: output.sections.some((section) => section.key === "ventas"),
+          detail: `secciones reportadas: ${output.sections.map((section) => section.key).join(", ") || "ninguna"}`,
+        },
+        {
+          name: "no inventa resultados de Meta cuando la cuenta no está conectada",
+          type: "hard",
+          pass: !output.sections.some((section) => section.key === "meta"),
+          detail: `secciones reportadas: ${output.sections.map((section) => section.key).join(", ") || "ninguna"}`,
         },
       ];
     },
@@ -464,8 +489,41 @@ const SCENARIOS: Scenario[] = [
           pass: output.findings.some((f) => ["high", "critical"].includes(f.severity)),
           detail: `severidades reportadas: ${output.findings.map((f) => f.severity).join(", ") || "ninguna"}`,
         },
+        {
+          name: "el riesgo cita el producto y las dos cifras sembradas (40 vendidos, 2 disponibles)",
+          type: "hard",
+          pass: output.findings.some((finding) =>
+            hasKeyword(finding.title + " " + finding.evidence, ["zapatilla eval alta rotacion"]) &&
+            /\b40\b/.test(finding.evidence) && /\b2\b/.test(finding.evidence),
+          ),
+          detail: `evidencias de stock: ${JSON.stringify(output.findings.filter((f) => hasKeyword(f.title + " " + f.evidence, ["zapatilla eval alta rotacion"])).map((f) => f.evidence))}`,
+        },
       ];
     },
+  },
+  {
+    name: "alcance_tienda_seleccionada",
+    description:
+      "Dos tiendas con ventas muy distintas; la ejecución de A02 se solicita para la primera conexión y debe persistir ese store_id como alcance.",
+    setup: async () => {
+      const organizationId = await createEvalOrg("alcance-tienda");
+      const selectedStoreId = await createShopifyStore(organizationId, "alcance-seleccionada");
+      const otherStoreId = await createShopifyStore(organizationId, "alcance-otra");
+      const { data: selectedStore } = await admin
+        .from("shopify_stores")
+        .select("connection_id")
+        .eq("id", selectedStoreId)
+        .single();
+      if (!selectedStore?.connection_id) throw new Error("La tienda de alcance no tiene conexion de eval.");
+      await seedOrders(organizationId, selectedStoreId, [{ grossSales: 100, discounts: 10, netSales: 90 }]);
+      await seedOrders(organizationId, otherStoreId, [{ grossSales: 1000, discounts: 100, netSales: 900 }]);
+      return {
+        organizationId,
+        connectionId: selectedStore.connection_id as string,
+        expectedStoreId: selectedStoreId,
+      };
+    },
+    checks: () => [],
   },
   {
     name: "falso_positivo_stock_sano",
@@ -504,10 +562,10 @@ const SCENARIOS: Scenario[] = [
 ];
 
 async function runScenario(scenario: Scenario, actorUserId: string) {
-  const { organizationId } = await scenario.setup();
+  const { organizationId, connectionId, expectedStoreId, expectUnknownCurrency } = await scenario.setup();
   try {
     const context = fakeAuthContext(organizationId, actorUserId);
-    const result = await runMonitorAgent(env, context, organizationId, null, 30);
+    const result = await runMonitorAgent(env, context, organizationId, connectionId ?? null, 30);
 
     if (!result.ok) {
       return {
@@ -519,6 +577,42 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
 
     const output = result.data.output as AgentOutputShape;
     const checks = scenario.checks(output);
+    checks.push({
+      name: "cada hallazgo aporta evidencia y la salida identifica sus fuentes",
+      type: "hard",
+      pass: output.findings.every((finding) => finding.evidence.trim().length > 0) &&
+        (output.findings.length === 0 || output.sources.length > 0),
+      detail: `findings=${output.findings.length}; evidencias=${output.findings.filter((finding) => finding.evidence.trim()).length}; sources=${output.sources.length}`,
+    });
+    if (expectUnknownCurrency) {
+      const { data: contextSnapshot } = await admin
+        .from("agent_context_snapshots")
+        .select("snapshot")
+        .eq("run_id", result.data.run_id)
+        .maybeSingle();
+      const blocks = ((contextSnapshot?.snapshot as { blocks?: Array<{ label: string; data: unknown }> } | null)?.blocks ?? []);
+      const currency = blocks.find((block) => block.label === "Cobertura de moneda de los cálculos Shopify")?.data as { status?: string } | undefined;
+      const sales = blocks.find((block) => block.label.startsWith("Ventas Shopify"))?.data as { availability?: string } | undefined;
+      checks.push({
+        name: "moneda sin confirmar no elimina las ventas Shopify del contexto",
+        type: "hard",
+        pass: currency?.status === "unknown" && sales?.availability === "available",
+        detail: `moneda=${currency?.status ?? "sin evidencia"}; ventas=${sales?.availability ?? "sin evidencia"}`,
+      });
+    }
+    if (expectedStoreId) {
+      const { data: run } = await admin
+        .from("agent_runs")
+        .select("store_id")
+        .eq("id", result.data.run_id)
+        .single();
+      checks.push({
+        name: "run de A02 conserva el store_id seleccionado",
+        type: "hard",
+        pass: run?.store_id === expectedStoreId,
+        detail: `esperado=${expectedStoreId}, recibido=${run?.store_id ?? "null"}`,
+      });
+    }
     return { scenario: scenario.name, output, checks, usage: result.data.usage };
   } finally {
     await admin.from("organizations").delete().eq("id", organizationId);

@@ -26,7 +26,7 @@ export type CaminoDeterministicGoalProgress = {
   baseline_value?: number | null;
   expected_value?: number | null;
   target_value?: number | null;
-  measurement_period?: "equivalent_monthly" | "rolling_7_days" | "point_in_time";
+  measurement_period?: "equivalent_monthly" | "calendar_month_to_date" | "rolling_7_days" | "point_in_time";
   measurement_window_days?: number;
 };
 
@@ -35,6 +35,7 @@ const CURRENT_WINDOW_DAYS = 7;
 const FRESH_SYNC_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const META_MIN_COVERED_DAYS = 5;
 const FLOW_METRICS = new Set(["net_sales", "net_profit", "orders_count"]);
+const CALENDAR_MONTH_METRICS = new Set(["net_sales", "net_profit", "net_margin_pct", "orders_count", "aov"]);
 const DOWN_IS_BETTER = new Set(["cac", "out_of_stock_items"]);
 
 function record(value: unknown): Row | null {
@@ -77,7 +78,7 @@ function rounded(value: number, metric: string): number {
 function insufficient(
   metricLabel: string,
   unit: "money" | "pct" | "count" | "ratio",
-  measurementPeriod: "equivalent_monthly" | "rolling_7_days" | "point_in_time",
+  measurementPeriod: "equivalent_monthly" | "calendar_month_to_date" | "rolling_7_days" | "point_in_time",
   reason: string,
   measurementWindowDays = CURRENT_WINDOW_DAYS,
 ): CaminoDeterministicGoalProgress {
@@ -108,6 +109,14 @@ export function calculateCaminoGoalProgress(input: {
   coverage: CaminoConnectionCoverage;
   sales: { current: CaminoMetricRead; previous: CaminoMetricRead };
   financial: { current: CaminoMetricRead; previous: CaminoMetricRead };
+  calendarMonth?: {
+    currentSales: CaminoMetricRead;
+    previousSales: CaminoMetricRead;
+    currentFinancial: CaminoMetricRead;
+    previousFinancial: CaminoMetricRead;
+    periodStart: Date;
+    previousPeriodStart: Date;
+  };
   stock: CaminoMetricRead;
   meta: { current: CaminoMetricRead; previous: CaminoMetricRead };
 }): CaminoDeterministicGoalProgress {
@@ -117,7 +126,9 @@ export function calculateCaminoGoalProgress(input: {
   const unit = goal?.unit === "money" || goal?.unit === "pct" || goal?.unit === "count" || goal?.unit === "ratio"
     ? goal.unit
     : "count";
-  const measurementPeriod = FLOW_METRICS.has(metric)
+  const measurementPeriod = CALENDAR_MONTH_METRICS.has(metric) && input.calendarMonth
+    ? "calendar_month_to_date"
+    : FLOW_METRICS.has(metric)
     ? "equivalent_monthly"
     : metric === "out_of_stock_items" ? "point_in_time" : "rolling_7_days";
   const now = input.now ?? new Date();
@@ -125,7 +136,11 @@ export function calculateCaminoGoalProgress(input: {
   const target = finite(goal?.target);
   const baseline = finite(goal?.baseline);
   const baselineWindowDays = finite(goal?.baseline_window_days);
-  const measurementWindowDays = measurementPeriod === "point_in_time" ? 0 : CURRENT_WINDOW_DAYS;
+  const measurementWindowDays = measurementPeriod === "point_in_time"
+    ? 0
+    : measurementPeriod === "calendar_month_to_date"
+      ? Math.max(1, Math.floor((nowMs - input.calendarMonth!.periodStart.getTime()) / DAY_MS) + 1)
+      : CURRENT_WINDOW_DAYS;
 
   if (!goal || !metric) return insufficient(metricLabel, unit, measurementPeriod, "el plan no tiene una métrica estructurada.", measurementWindowDays);
   if (target === null) return insufficient(metricLabel, unit, measurementPeriod, "el objetivo cuantificado está pendiente de definir.", measurementWindowDays);
@@ -142,8 +157,8 @@ export function calculateCaminoGoalProgress(input: {
   let previousRead: CaminoMetricRead | null = null;
 
   if (metric === "net_sales" || metric === "orders_count" || metric === "aov") {
-    sourceRead = input.sales.current;
-    previousRead = input.sales.previous;
+    sourceRead = measurementPeriod === "calendar_month_to_date" ? input.calendarMonth!.currentSales : input.sales.current;
+    previousRead = measurementPeriod === "calendar_month_to_date" ? input.calendarMonth!.previousSales : input.sales.previous;
     const salesRow = sourceRead.row;
     const orders = finite(salesRow?.orders_count);
     if (sourceRead.error) return insufficient(metricLabel, unit, measurementPeriod, "la lectura de ventas devolvió un error.", measurementWindowDays);
@@ -153,8 +168,8 @@ export function calculateCaminoGoalProgress(input: {
     previous = finite(previousRead.row?.[metric]);
     if (previousRead.error || !previousRead.row) comparisonUnavailableReason = "el periodo anterior comparable no está disponible";
   } else if (metric === "net_profit" || metric === "net_margin_pct") {
-    sourceRead = input.financial.current;
-    previousRead = input.financial.previous;
+    sourceRead = measurementPeriod === "calendar_month_to_date" ? input.calendarMonth!.currentFinancial : input.financial.current;
+    previousRead = measurementPeriod === "calendar_month_to_date" ? input.calendarMonth!.previousFinancial : input.financial.previous;
     const financialRow = sourceRead.row;
     if (sourceRead.error) return insufficient(metricLabel, unit, measurementPeriod, "la lectura financiera devolvió un error.", measurementWindowDays);
     if (!financialRow) return insufficient(metricLabel, unit, measurementPeriod, "no hay resumen financiero para el periodo.", measurementWindowDays);
@@ -193,7 +208,7 @@ export function calculateCaminoGoalProgress(input: {
   }
 
   if (current === null) return insufficient(metricLabel, unit, measurementPeriod, "la fuente no devolvió un valor numérico válido.", measurementWindowDays);
-  const monthly = measurementPeriod === "equivalent_monthly";
+  const monthly = FLOW_METRICS.has(metric);
   if (monthly && (baselineWindowDays === null || baselineWindowDays <= 0)) {
     return insufficient(metricLabel, unit, measurementPeriod, "el plan antiguo no conserva la ventana temporal exacta de su baseline.", measurementWindowDays);
   }
@@ -201,10 +216,14 @@ export function calculateCaminoGoalProgress(input: {
   const baselineComparable = baseline === null
     ? null
     : monthly ? monthEquivalent(baseline, baselineWindowDays!) : baseline;
-  const observedComparable = monthly ? monthEquivalent(current, CURRENT_WINDOW_DAYS) : current;
+  const observedComparable = measurementPeriod === "equivalent_monthly"
+    ? monthEquivalent(current, CURRENT_WINDOW_DAYS)
+    : current;
   const comparisonComparable = previous === null
     ? null
-    : monthly ? monthEquivalent(previous, CURRENT_WINDOW_DAYS) : previous;
+    : measurementPeriod === "equivalent_monthly"
+      ? monthEquivalent(previous, CURRENT_WINDOW_DAYS)
+      : previous;
   const direction = DOWN_IS_BETTER.has(metric) ? "down" : "up";
   const meetsTarget = direction === "up" ? observedComparable >= target : observedComparable <= target;
 
@@ -220,7 +239,7 @@ export function calculateCaminoGoalProgress(input: {
       target_value: target,
       measurement_period: measurementPeriod,
       measurement_window_days: measurementWindowDays,
-      explanation: `Medición determinista: ${metricLabel} alcanza el objetivo en ${measurementPeriod === "equivalent_monthly" ? "equivalente mensual" : measurementPeriod === "point_in_time" ? "la fotografía actual" : "la ventana móvil de 7 días"}. No atribuye causalidad a tareas ni garantiza que el resultado se mantenga.`,
+      explanation: `Medición determinista: ${metricLabel} alcanza el objetivo en ${measurementPeriod === "equivalent_monthly" ? "equivalente mensual calculado desde una ventana móvil de 7 días" : measurementPeriod === "calendar_month_to_date" ? "el mes natural en curso hasta la fecha" : measurementPeriod === "point_in_time" ? "la fotografía actual" : "la ventana móvil de 7 días"}. No atribuye causalidad a tareas ni garantiza que el resultado se mantenga.`,
     };
   }
 
@@ -241,8 +260,42 @@ export function calculateCaminoGoalProgress(input: {
     return insufficient(metricLabel, unit, measurementPeriod, "el plan no conserva fechas verificables para calcular el ritmo temporal.", measurementWindowDays);
   }
 
+  const elapsedDays = Math.max(0, (nowMs - startMs) / DAY_MS);
+  const monthlyTargets = Array.isArray(goal.monthly_targets) ? goal.monthly_targets : [];
+  const startDate = new Date(startMs);
+  const monthOffset = (now.getUTCFullYear() - startDate.getUTCFullYear()) * 12 + now.getUTCMonth() - startDate.getUTCMonth();
+  const checkpointMonth = Math.min(monthlyTargets.length, Math.max(1,
+    measurementPeriod === "calendar_month_to_date" ? monthOffset + 1 : Math.floor(elapsedDays / 30) + 1,
+  ));
+  const checkpoint = monthlyTargets.find((item) => {
+    const row = record(item);
+    return finite(row?.month) === checkpointMonth;
+  });
+  const checkpointTarget = finite(record(checkpoint)?.target_value);
   const fraction = Math.max(0, Math.min(1, (nowMs - startMs) / (effectiveTargetMs - startMs)));
-  const expected = baselineComparable + (target - baselineComparable) * fraction;
+  const calendarMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  const horizonEndText = typeof goal.horizon_end_date === "string" ? goal.horizon_end_date : null;
+  const horizonEnd = horizonEndText ? new Date(`${horizonEndText}T00:00:00.000Z`) : null;
+  const currentMonthEnd = horizonEnd && Number.isFinite(horizonEnd.getTime()) && horizonEnd < calendarMonthEnd
+    ? horizonEnd
+    : calendarMonthEnd;
+  const currentPeriodStart = input.calendarMonth?.periodStart ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const daysInCurrentMonth = Math.max(1, Math.floor((currentMonthEnd.getTime() - currentPeriodStart.getTime()) / DAY_MS) + 1);
+  const elapsedDaysInCurrentPeriod = Math.min(daysInCurrentMonth, Math.max(1, Math.floor((nowMs - currentPeriodStart.getTime()) / DAY_MS) + 1));
+  const expected = monthlyTargets.length
+    ? measurementPeriod === "calendar_month_to_date"
+      ? checkpointTarget === null ? null : checkpointTarget * (elapsedDaysInCurrentPeriod / daysInCurrentMonth)
+      : checkpointTarget
+    : baselineComparable + (target - baselineComparable) * fraction;
+  if (expected === null) {
+    return insufficient(
+      metricLabel,
+      unit,
+      measurementPeriod,
+      `el objetivo del mes ${checkpointMonth} está pendiente de cuantificar con datos comparables.`,
+      measurementWindowDays,
+    );
+  }
   const onTrack = direction === "up" ? observedComparable >= expected : observedComparable <= expected;
   const delta = direction === "up" ? observedComparable - expected : expected - observedComparable;
   const status: CaminoGoalProgressStatus = onTrack ? "on_track" : "at_risk";
@@ -261,6 +314,8 @@ export function calculateCaminoGoalProgress(input: {
     target_value: target,
     measurement_period: measurementPeriod,
     measurement_window_days: measurementWindowDays,
-    explanation: `Medición determinista de ${metricLabel}: ${rounded(observedComparable, metric)} frente al ritmo de referencia ${rounded(expected, metric)} hacia ${target}. Baseline: ${rounded(baselineComparable, metric)} (${baselineWindowLabel}); ${comparisonText}. Desviación al ritmo: ${rounded(delta, metric)}. El ritmo es una interpolación lineal explicativa, no una previsión ni una atribución causal.`,
+    explanation: monthlyTargets.length
+      ? `Medición determinista de ${metricLabel}: ${rounded(observedComparable, metric)} en ${measurementPeriod === "calendar_month_to_date" ? "el mes natural hasta la fecha" : "la ventana de seguimiento"}, frente al ritmo esperado de ${rounded(expected, metric)} para el hito del mes ${checkpointMonth}; objetivo de cierre de ese mes ${checkpointTarget === null ? "pendiente" : rounded(checkpointTarget, metric)} y meta final ${target}. Baseline: ${rounded(baselineComparable, metric)} (${baselineWindowLabel}); ${comparisonText}. Desviación frente al ritmo del hito: ${rounded(delta, metric)}. Es una comprobación del plan, no una previsión ni una atribución causal.`
+      : `Medición determinista de ${metricLabel}: ${rounded(observedComparable, metric)} frente al ritmo de referencia ${rounded(expected, metric)} hacia ${target}. Baseline: ${rounded(baselineComparable, metric)} (${baselineWindowLabel}); ${comparisonText}. Desviación al ritmo: ${rounded(delta, metric)}. El ritmo es una interpolación lineal explicativa, no una previsión ni una atribución causal.`,
   };
 }

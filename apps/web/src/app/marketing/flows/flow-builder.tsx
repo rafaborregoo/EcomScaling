@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Modal, toast } from "@/components/ui";
+import { Banner, Button, ButtonLink, ConfirmDialog, Dialog, toast } from "@/components/ui";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import {
   DAY_NAME,
@@ -848,47 +848,24 @@ export function FlowBuilder({
         }}
       />
 
-      <Modal isOpen={deleteOpen} onOpenChange={setDeleteOpen}>
-        <Modal.Backdrop>
-          <Modal.Container size="sm">
-            <Modal.Dialog className={s.dialog} aria-label="Borrar el flow">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>¿Borrar «{doc.name}»?</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <p className={s.note}>
-                  Se borra el diseño de NORA.{inKlaviyo ? " El flow que ya se creó en Klaviyo sigue allí, en borrador; si no lo quieres, bórralo en Klaviyo." : ""}
-                </p>
-              </Modal.Body>
-              <Modal.Footer>
-                <button type="button" className={s.btn} onClick={() => setDeleteOpen(false)}>
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className={s.btn}
-                  data-tone="danger"
-                  onClick={async () => {
-                    if (!row) return;
-                    const response = await apiFetch(`/v1/organizations/${organizationId}/marketing/flow-designs/${row.id}`, { method: "DELETE" });
-                    if (!response.ok) {
-                      toast.danger(await readApiError(response));
-                      return;
-                    }
-                    if (saveTimer.current) clearTimeout(saveTimer.current);
-                    setDeleteOpen(false);
-                    toast.success("Flow borrado");
-                    onDeleted();
-                  }}
-                >
-                  Borrar
-                </button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={`¿Borrar «${doc.name}»?`}
+        consequences={[
+          "Se borra el diseño de NORA.",
+          ...(inKlaviyo ? ["El flow que ya se creó en Klaviyo sigue allí, en borrador. Si no lo quieres, bórralo en Klaviyo."] : []),
+        ]}
+        confirmLabel="Borrar flow"
+        onConfirm={async () => {
+          if (!row) return false;
+          const response = await apiFetch(`/v1/organizations/${organizationId}/marketing/flow-designs/${row.id}`, { method: "DELETE" });
+          if (!response.ok) throw new Error(await readApiError(response));
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          toast.success("Flow borrado");
+          onDeleted();
+        }}
+      />
     </div>
   );
 }
@@ -1795,130 +1772,116 @@ function PushDialog({
     }
   }
 
+  const done = phase.kind === "done";
+  const close = () => {
+    onOpenChange(false);
+    setPhase({ kind: "confirm" });
+  };
+
   return (
-    <Modal
+    <Dialog
       isOpen={open}
       onOpenChange={(next) => {
-        if (phase.kind === "running") return;
-        onOpenChange(next);
-        if (!next) setPhase({ kind: "confirm" });
+        if (next) onOpenChange(true);
+        else close();
       }}
+      isBusy={phase.kind === "running"}
+      size="md"
+      title={
+        done
+          ? "Creado en Klaviyo, en borrador"
+          : blockers.length
+            ? "Falta poco para poder crearlo"
+            : replacing
+              ? "Crear una versión nueva en Klaviyo"
+              : "Crear el flow en Klaviyo"
+      }
+      cancelLabel={done ? false : blockers.length ? "Cerrar" : "Cancelar"}
+      primary={
+        done || blockers.length
+          ? undefined
+          : {
+              label: phase.kind === "error" ? "Reintentar" : replacing ? "Crear versión nueva" : "Crear en borrador",
+              busyLabel: "Creando…",
+              onClick: () => void run(),
+            }
+      }
+      footer={
+        done ? (
+          <>
+            <ButtonLink
+              variant="secondary"
+              href={`https://www.klaviyo.com/flow/${encodeURIComponent(phase.flowId)}/edit`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Abrir en Klaviyo
+            </ButtonLink>
+            <Button onClick={close}>Listo</Button>
+          </>
+        ) : undefined
+      }
     >
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog className={s.dialog} aria-label="Crear el flow en Klaviyo">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>
-                {phase.kind === "done"
-                  ? "Creado en Klaviyo, en borrador"
-                  : blockers.length
-                    ? "Falta poco para poder crearlo"
-                    : replacing
-                      ? "Crear una versión nueva en Klaviyo"
-                      : "Crear el flow en Klaviyo"}
-              </Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <div className={s.dialogBody}>
-                {phase.kind === "done" ? (
-                  <>
-                    <p className={s.note}>
-                      Flow <span className={s.mono}>{phase.flowId}</span>. Todos sus emails están en borrador: no sale nada hasta que alguien lo active en Klaviyo.
-                    </p>
-                    <p className={s.callout} data-tone="good">
-                      En la próxima sincronización aparecerá también en la lista de Flows con su diagrama y, cuando envíe, con su rendimiento.
-                    </p>
-                  </>
-                ) : blockers.length ? (
-                  <div className={s.checks}>
-                    {blockers.map((check) => (
-                      <div key={`${check.title}-${check.target ?? ""}-${check.text}`} className={s.check} data-state="bad">
-                        <span className={s.dot}>!</span>
-                        <div>
-                          <b>{check.title}</b>
-                          <span>{check.text}</span>
-                          {check.target ? (
-                            <div>
-                              <button type="button" className={s.btn} data-size="sm" onClick={() => onGoTo(check.target!)}>
-                                Ir al paso
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    <div className={s.summary}>
-                      <div>
-                        <b>{emails.length}</b>
-                        <span>emails</span>
-                      </div>
-                      <div>
-                        <b>{count}</b>
-                        <span>pasos</span>
-                      </div>
-                      <div>
-                        <b>{branches}</b>
-                        <span>divisiones</span>
-                      </div>
-                    </div>
-                    <ol className={s.steps}>
-                      <li data-s={phase.kind === "running" ? "run" : undefined}>
-                        <span className={s.st} />
-                        <span>
-                          Subir {uniquePieces === 1 ? "la pieza" : `las ${uniquePieces} piezas`} como plantilla{uniquePieces === 1 ? "" : "s"}
-                          <code>POST /api/templates</code>
-                        </span>
-                      </li>
-                      <li data-s={phase.kind === "running" ? "run" : undefined}>
-                        <span className={s.st} />
-                        <span>
-                          Crear el flow con disparador, esperas y ramas, todo en borrador
-                          <code>POST /api/flows</code>
-                        </span>
-                      </li>
-                    </ol>
-                    {replacing ? <p className={s.callout}>Klaviyo no deja reescribir un flow ya creado: se crea uno nuevo y el anterior se queda en borrador en la cuenta.</p> : null}
-                    {canWrite ? null : (
-                      <p className={s.callout}>
-                        La conexión de Klaviyo puede no tener el permiso <b>Flows (Full access)</b>. Si Klaviyo lo rechaza, añádelo a la clave en Klaviyo o vuelve a autorizar la cuenta.
-                      </p>
-                    )}
-                    {phase.kind === "error" ? <p className={s.callout} data-tone="bad">{phase.message}</p> : null}
-                  </>
-                )}
-              </div>
-            </Modal.Body>
-            <Modal.Footer>
-              {phase.kind === "done" ? (
-                <>
-                  <a className={s.btn} href={`https://www.klaviyo.com/flow/${encodeURIComponent(phase.flowId)}/edit`} target="_blank" rel="noopener noreferrer">
-                    <Icon name="ext" />
-                    Abrir en Klaviyo
-                  </a>
-                  <button type="button" className={s.btn} data-primary="" onClick={() => (onOpenChange(false), setPhase({ kind: "confirm" }))}>
-                    Listo
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" className={s.btn} disabled={phase.kind === "running"} onClick={() => onOpenChange(false)}>
-                    {blockers.length ? "Cerrar" : "Cancelar"}
-                  </button>
-                  {blockers.length ? null : (
-                    <button type="button" className={s.btn} data-primary="" disabled={phase.kind === "running"} onClick={() => void run()}>
-                      {phase.kind === "running" ? "Creando…" : phase.kind === "error" ? "Reintentar" : replacing ? "Crear versión nueva" : "Crear en borrador"}
-                    </button>
-                  )}
-                </>
-              )}
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+      {phase.kind === "done" ? (
+        <>
+          <p className={s.note}>
+            Flow <span className={s.mono}>{phase.flowId}</span>. Todos sus emails están en borrador: no sale nada hasta que alguien lo active en Klaviyo.
+          </p>
+          <Banner tone="success">
+            En la próxima sincronización aparecerá también en la lista de Flows con su diagrama y, cuando envíe, con su rendimiento.
+          </Banner>
+        </>
+      ) : blockers.length ? (
+        <div className="space-y-3">
+          {blockers.map((check) => (
+            <Banner key={`${check.title}-${check.target ?? ""}-${check.text}`} tone="danger">
+              <span className="block font-medium">{check.title}</span>
+              <span className="block">{check.text}</span>
+              {check.target ? (
+                <span className="mt-2 block">
+                  <Button size="sm" variant="secondary" onClick={() => onGoTo(check.target!)}>
+                    Ir al paso
+                  </Button>
+                </span>
+              ) : null}
+            </Banner>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className={s.summary}>
+            <div>
+              <b>{emails.length}</b>
+              <span>emails</span>
+            </div>
+            <div>
+              <b>{count}</b>
+              <span>pasos</span>
+            </div>
+            <div>
+              <b>{branches}</b>
+              <span>divisiones</span>
+            </div>
+          </div>
+          <ol className={s.steps}>
+            <li data-s={phase.kind === "running" ? "run" : undefined}>
+              <span className={s.st} />
+              <span>Subir {uniquePieces === 1 ? "la pieza" : `las ${uniquePieces} piezas`} como plantilla{uniquePieces === 1 ? "" : "s"}</span>
+            </li>
+            <li data-s={phase.kind === "running" ? "run" : undefined}>
+              <span className={s.st} />
+              <span>Crear el flow con disparador, esperas y ramas, todo en borrador</span>
+            </li>
+          </ol>
+          {replacing ? <Banner tone="warn">Klaviyo no deja reescribir un flow ya creado: se crea uno nuevo y el anterior se queda en borrador en la cuenta.</Banner> : null}
+          {canWrite ? null : (
+            <Banner tone="warn">
+              La conexión de Klaviyo puede no tener el permiso <b>Flows (Full access)</b>. Si Klaviyo lo rechaza, añádelo a la clave en Klaviyo o vuelve a autorizar la cuenta.
+            </Banner>
+          )}
+          {phase.kind === "error" ? <Banner tone="danger">{phase.message}</Banner> : null}
+        </>
+      )}
+    </Dialog>
   );
 }

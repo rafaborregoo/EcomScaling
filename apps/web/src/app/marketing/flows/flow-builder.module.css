@@ -41,7 +41,7 @@
   /* Página, no tarjeta: la misma sangría que el Estudio (ver studio.module.css). */
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 96px);
+  height: calc(100dvh / var(--ui-zoom, 1) - 96px);
   min-height: 560px;
   margin: -24px -24px 0;
   border-top: 1px solid var(--fb-line);
@@ -60,7 +60,7 @@
   .builder {
     position: sticky;
     top: 48px;
-    height: calc(100dvh - 48px);
+    height: calc(100dvh / var(--ui-zoom, 1) - 48px);
     margin: -32px -48px -120px;
     border-top: 0;
   }

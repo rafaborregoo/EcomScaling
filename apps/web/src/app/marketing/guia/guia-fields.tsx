@@ -35,6 +35,9 @@ export function PaletteEditor({
 }) {
   const roles = Object.keys(value);
   const freeRoles = Object.keys(PALETTE_ROLE_LABEL).filter((role) => !roles.includes(role));
+  // «Otro nombre…»: campo en línea en vez de window.prompt.
+  const [customFor, setCustomFor] = useState<string | null>(null);
+  const [customName, setCustomName] = useState("");
 
   function rename(from: string, to: string) {
     if (!to || value[to]) return;
@@ -75,8 +78,8 @@ export function PaletteEditor({
                 onChange={(event) => {
                   const next = event.target.value;
                   if (next === "__custom") {
-                    const custom = window.prompt("Nombre del papel (p. ej. destacado)");
-                    if (custom) rename(role, custom.trim().toLowerCase().replace(/\s+/g, "_"));
+                    setCustomName("");
+                    setCustomFor(role);
                     return;
                   }
                   rename(role, next);
@@ -92,6 +95,33 @@ export function PaletteEditor({
                 <CloseIcon className="size-3.5" />
               </Button>
             </div>
+            {customFor === role ? (
+              <form
+                className="flex flex-col gap-1"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = customName.trim().toLowerCase().replace(/\s+/g, "_");
+                  if (name) rename(role, name);
+                  setCustomFor(null);
+                }}
+              >
+                <Input
+                  autoFocus
+                  aria-label="Nombre del papel"
+                  placeholder="Ej. destacado"
+                  value={customName}
+                  onChange={(event) => setCustomName(event.target.value)}
+                />
+                <div className="flex gap-1">
+                  <Button type="submit" size="sm" disabled={!customName.trim()}>
+                    Usar
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setCustomFor(null)}>
+                    Cancelar
+                  </Button>
+                </div>
+              </form>
+            ) : null}
             <span className="text-xs tabular-nums text-muted">{value[role]}</span>
           </div>
         ))}

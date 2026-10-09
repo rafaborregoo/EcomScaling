@@ -3307,6 +3307,7 @@ export type Database = {
       }
       client_invites: {
         Row: {
+          access_scope: string
           captured_by_consultant_id: string | null
           code: string | null
           code_hash: string | null
@@ -3318,10 +3319,12 @@ export type Database = {
           id: string
           invited_user_id: string | null
           organization_id: string
+          store_id: string | null
           redeemed_at: string | null
           status: string
         }
         Insert: {
+          access_scope?: string
           captured_by_consultant_id?: string | null
           code?: string | null
           code_hash?: string | null
@@ -3332,11 +3335,13 @@ export type Database = {
           expires_at: string
           id?: string
           invited_user_id?: string | null
-          organization_id: string
+          organization_id: string | null
+          store_id?: string | null
           redeemed_at?: string | null
           status?: string
         }
         Update: {
+          access_scope?: string
           captured_by_consultant_id?: string | null
           code?: string | null
           code_hash?: string | null
@@ -3347,7 +3352,8 @@ export type Database = {
           expires_at?: string
           id?: string
           invited_user_id?: string | null
-          organization_id?: string
+          organization_id?: string | null
+          store_id?: string | null
           redeemed_at?: string | null
           status?: string
         }
@@ -12124,6 +12130,7 @@ export type Database = {
       }
       organization_members: {
         Row: {
+          access_scope: string
           created_at: string
           id: string
           invited_at: string | null
@@ -12132,10 +12139,12 @@ export type Database = {
           joined_at: string | null
           organization_id: string
           role: Database["public"]["Enums"]["member_role"]
+          store_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          access_scope?: string
           created_at?: string
           id?: string
           invited_at?: string | null
@@ -12144,10 +12153,12 @@ export type Database = {
           joined_at?: string | null
           organization_id: string
           role?: Database["public"]["Enums"]["member_role"]
+          store_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          access_scope?: string
           created_at?: string
           id?: string
           invited_at?: string | null
@@ -12156,6 +12167,7 @@ export type Database = {
           joined_at?: string | null
           organization_id?: string
           role?: Database["public"]["Enums"]["member_role"]
+          store_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -12731,6 +12743,7 @@ export type Database = {
           external_subscription_id: string | null
           id: string
           metadata: Json | null
+          member_limit: number | null
           organization_id: string | null
           plan_code: string
           starts_at: string | null
@@ -12749,6 +12762,7 @@ export type Database = {
           external_subscription_id?: string | null
           id?: string
           metadata?: Json | null
+          member_limit?: number | null
           organization_id?: string | null
           plan_code: string
           starts_at?: string | null
@@ -12767,6 +12781,7 @@ export type Database = {
           external_subscription_id?: string | null
           id?: string
           metadata?: Json | null
+          member_limit?: number | null
           organization_id?: string | null
           plan_code?: string
           starts_at?: string | null

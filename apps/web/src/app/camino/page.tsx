@@ -6,6 +6,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import {
@@ -32,16 +33,17 @@ import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
-import { useCachedQuery } from "@/lib/use-cached-query";
+import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
 import { ModuleSummary } from "@/components/module-summary";
-import { CaminoProposal } from "@/components/camino-proposal";
-import { StrategicPlanImport } from "@/components/strategic-plan-import";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { clientNextStep } from "./next-step";
 import { CaminoMap, type DiscussTopic } from "./camino-map";
 import { DiscussModal } from "@/components/discuss-modal";
 import { PhaseTasks } from "./phase-tasks";
+import { DraftNotice } from "./draft-notice";
+import { draftReadiness } from "./draft-readiness";
+import { formatEffort, metaOwnerLabel, taskWantsEmailDraft, type PlanTaskMeta } from "./plan-task-meta";
 import s from "./camino-map.module.css";
 import d from "./camino-desk.module.css";
 import { CaminoRoutesView, type CaminoRoute } from "./camino-routes-view";
@@ -49,13 +51,17 @@ import { CAMINO_CURRENCIES, CaminoCreatePanel } from "./camino-create-panel";
 import { ACTIVE_CONNECTION_STORAGE_KEY } from "@/components/active-connection";
 import { CaminoProposalDecision, type StoredCaminoProposal } from "./proposal-decision";
 import { isPast } from "@/lib/elapsed";
+import { latestMarketingAssetByTask, marketingAssetHref, marketingAssetStatusLabel, type CaminoMarketingAsset } from "@/lib/camino-marketing-assets";
 import {
   AsyncState,
   Badge,
+  Banner,
   Button,
   ButtonLink,
   Card,
   CheckIcon,
+  ConfirmDialog,
+  Dialog,
   Dropdown,
   EmptyState,
   ErrorBlock,
@@ -67,7 +73,6 @@ import {
   Label,
   List,
   LoadingBlock,
-  Modal,
   MoreIcon,
   PencilIcon,
   PlusIcon,
@@ -83,22 +88,29 @@ type CreatorOrigin = "consultant" | "client" | null;
 type MilestoneTask = {
   id: string;
   title: string;
+  description?: string | null;
   status: string;
   priority: string;
   due_at: string | null;
-  categories: string[];
+  categories?: string[];
   source: string;
   created_by_origin?: CreatorOrigin;
+  plan_meta?: PlanTaskMeta | null;
 };
+
+const taskCanGenerateMarketing = taskWantsEmailDraft;
 
 type Milestone = {
   id: string;
   name: string;
   description: string | null;
+  success_criteria?: string | null;
+  rationale?: string | null;
   position: number;
   status: string;
   target_date: string | null;
   completed_at: string | null;
+  completion_evidence?: string | null;
   created_by_origin?: CreatorOrigin;
   milestone_task_links: Array<{ task_id: string; tasks: MilestoneTask | null }>;
 };
@@ -134,6 +146,7 @@ type Plan = {
     target_date?: string;
     rationale: string;
     assumptions: string[];
+    decision_gates?: Array<{ decision: string; proceed_when: string; hold_when: string; evidence_needed: string }>;
     confidence: "low" | "medium" | "high";
   } | null;
   status: string;
@@ -147,6 +160,8 @@ type PlanResponse = {
   organization_id: string;
   plan: Plan | null;
   weekly_reviews?: CaminoWeeklyReviewRecord[];
+  marketing_assets?: CaminoMarketingAsset[];
+  marketing_assets_available?: boolean;
 };
 
 type CaminoWeeklyReviewRecord = {
@@ -169,11 +184,12 @@ type CaminoWeeklyReviewRecord = {
       target_value?: number | null;
       metric_label?: string;
       unit?: "money" | "pct" | "count" | "ratio";
-      measurement_period?: "equivalent_monthly" | "rolling_7_days" | "point_in_time";
+      measurement_period?: "equivalent_monthly" | "calendar_month_to_date" | "rolling_7_days" | "point_in_time";
       measurement_window_days?: number;
     };
     progress: Array<{ item: string; status: string; evidence: string }>;
     risks: Array<{ severity: string; detail: string; evidence: string }>;
+    learnings?: Array<{ title: string; learning: string; evidence: string; applies_to: string; confidence: string }>;
     next_actions: Array<{ priority: string; title: string; rationale: string; owner: string; due_in_days: number }>;
     change_proposals: Array<{ change: string; target_type: string; target_id: string | null; description: string; reason: string; evidence: string }>;
     confidence: string;
@@ -923,6 +939,49 @@ function AddTaskForm({
   );
 }
 
+function EditTaskForm({
+  task,
+  onCancel,
+  onSubmit,
+}: {
+  task: MilestoneTask;
+  onCancel: () => void;
+  onSubmit: (payload: { title: string; description: string; priority: string; dueAt: string }) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? "");
+  const [priority, setPriority] = useState(task.priority);
+  const [dueAt, setDueAt] = useState(task.due_at?.slice(0, 10) ?? "");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!title.trim()) return;
+    setIsSubmitting(true);
+    await onSubmit({ title: title.trim(), description: description.trim(), priority, dueAt });
+    setIsSubmitting(false);
+  }
+
+  return (
+    <Card title="Editar tarea" className="mt-2">
+      <form className="space-y-3" onSubmit={handleSubmit}>
+        <Field label="Título"><Input className="mt-2" value={title} onChange={(event) => setTitle(event.target.value)} required /></Field>
+        <Field label="Descripción (opcional)"><Textarea className="mt-2 h-20" value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
+        <div className="flex flex-wrap gap-3">
+          <Field label="Prioridad"><Select className="mt-2" value={priority} onChange={setPriority} options={[
+            { value: "low", label: "Baja" }, { value: "medium", label: "Media" }, { value: "high", label: "Alta" }, { value: "urgent", label: "Urgente" },
+          ]} /></Field>
+          <Field label="Fecha límite"><Input type="date" className="mt-2 w-40" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></Field>
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" size="sm" disabled={isSubmitting || !title.trim()}>{isSubmitting ? "Guardando…" : "Guardar tarea"}</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancelar</Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 function NameDescriptionForm({
   initialName,
   initialDescription,
@@ -1009,15 +1068,38 @@ function NameDescriptionForm({
 function TaskListItem({
   numberLabel,
   task,
+  linkedMarketingAsset,
   canManage,
+  canEdit,
   onToggleDone,
+  onEdit,
+  onRemove,
+  onGenerateMarketing,
+  isGeneratingMarketing,
+  viewerIsClient,
 }: {
+  viewerIsClient?: boolean;
   numberLabel: string;
   task: MilestoneTask;
+  linkedMarketingAsset?: CaminoMarketingAsset | null;
   canManage: boolean;
+  canEdit?: boolean;
   onToggleDone: () => void;
+  onEdit?: () => void;
+  onRemove?: () => void;
+  onGenerateMarketing?: () => void;
+  isGeneratingMarketing?: boolean;
 }) {
   const done = task.status === "completed";
+  // «Quitar» pide confirmación; el diálogo se abre desde el menú «⋯».
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const metaLine = [metaOwnerLabel(task.plan_meta, viewerIsClient ?? false), formatEffort(task.plan_meta?.effort_hours)]
+    .filter(Boolean)
+    .join(" · ");
+  const menuItems = [
+    ...(canEdit && onEdit ? [{ id: "edit", label: "Editar tarea" }] : []),
+    ...(canEdit && onRemove ? [{ id: "remove", label: "Quitar del Camino", danger: true }] : []),
+  ];
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-md border border-separator bg-surface px-2.5 py-1.5 text-sm">
       <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
@@ -1046,7 +1128,7 @@ function TaskListItem({
         <OriginDot origin={task.created_by_origin ?? null} />
         <span
           className={[
-            "min-w-0 flex-1 truncate",
+            "min-w-0 flex-1 break-words",
             ["completed", "ignored", "cancelled"].includes(task.status)
               ? "text-muted line-through"
               : "",
@@ -1055,12 +1137,17 @@ function TaskListItem({
           {task.title}
         </span>
       </div>
-      <Badge tone="neutral">
-        {TASK_PRIORITY_LABELS[task.priority] ?? task.priority}
-      </Badge>
-      <Badge tone="neutral">
-        {TASK_STATUS_LABELS[task.status] ?? task.status}
-      </Badge>
+      {metaLine ? <span className="text-[0.7rem] text-muted">{metaLine}</span> : null}
+      {["high", "urgent"].includes(task.priority) ? (
+        <Badge tone={task.priority === "urgent" ? "danger" : "warn"}>
+          {TASK_PRIORITY_LABELS[task.priority] ?? task.priority}
+        </Badge>
+      ) : null}
+      {!["pending", "completed"].includes(task.status) ? (
+        <Badge tone="neutral">
+          {TASK_STATUS_LABELS[task.status] ?? task.status}
+        </Badge>
+      ) : null}
       {isTaskOverdue(task) ? (
         <Badge tone="danger">Vencida</Badge>
       ) : task.due_at ? (
@@ -1068,8 +1155,40 @@ function TaskListItem({
           vence {formatDueDate(task.due_at)}
         </span>
       ) : null}
-      {TASK_SOURCE_LABELS[task.source] ? (
+      {task.source !== "strategic_plan" && TASK_SOURCE_LABELS[task.source] ? (
         <Badge tone="brand">{TASK_SOURCE_LABELS[task.source]}</Badge>
+      ) : null}
+      {linkedMarketingAsset ? (
+        <Badge tone={linkedMarketingAsset.status === "rejected" ? "danger" : linkedMarketingAsset.status === "approved" ? "success" : "neutral"}>
+          Marketing · {marketingAssetStatusLabel(linkedMarketingAsset)}
+        </Badge>
+      ) : null}
+      {onGenerateMarketing ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={isGeneratingMarketing}
+          onClick={onGenerateMarketing}
+          aria-label={`Crear borrador de email para: ${task.title}`}
+        >
+          {isGeneratingMarketing ? "Preparando borrador…" : linkedMarketingAsset ? "Abrir borrador" : "Crear borrador de email"}
+        </Button>
+      ) : null}
+      <RowMenu
+        ariaLabel={`Más acciones de la tarea: ${task.title}`}
+        items={menuItems}
+        onAction={(key) => (key === "edit" ? onEdit?.() : setRemoveOpen(true))}
+      />
+      {canEdit && onRemove ? (
+        <ConfirmDialog
+          open={removeOpen}
+          onOpenChange={setRemoveOpen}
+          status="default"
+          title="Quitar tarea del Camino"
+          description="La tarea se desvinculará de este hito y seguirá disponible en Tareas."
+          confirmLabel="Quitar tarea"
+          onConfirm={onRemove}
+        />
       ) : null}
     </div>
   );
@@ -1404,91 +1523,73 @@ function AddObjectiveModal({
   }
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog aria-label="Añadir objetivo">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Añadir objetivo</Modal.Heading>
-            </Modal.Header>
-            <form onSubmit={handleSubmit}>
-              <Modal.Body>
-                <div className="space-y-3">
-                  <Field label="Métrica">
-                    <Select
-                      className="mt-2"
-                      value={metricKey}
-                      onChange={setMetricKey}
-                      options={available.map((entry) => ({
-                        value: entry.key,
-                        label: entry.label,
-                      }))}
-                    />
-                  </Field>
-                  <Field label="Hito">
-                    <Select
-                      className="mt-2"
-                      value={milestoneId}
-                      onChange={setMilestoneId}
-                      options={[
-                        { value: "", label: "Sin hito (no lo ve el cliente)" },
-                        ...milestones.map((milestone) => ({
-                          value: milestone.id,
-                          label: milestone.label,
-                        })),
-                      ]}
-                    />
-                  </Field>
-                  {alreadySet ? (
-                    <p className="text-xs text-muted">
-                      Ya hay un objetivo activo para esta métrica: guardar
-                      reemplaza el valor actual.
-                    </p>
-                  ) : null}
-                  <div className="flex flex-wrap gap-3">
-                    <Field label="Valor objetivo">
-                      <Input
-                        className="mt-2 w-40"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={targetValue}
-                        onChange={(event) => setTargetValue(event.target.value)}
-                        required
-                      />
-                    </Field>
-                    <Field label="Periodo">
-                      <Select
-                        className="mt-2"
-                        value={period}
-                        onChange={setPeriod}
-                        options={[
-                          { value: "monthly", label: "Mensual" },
-                          { value: "quarterly", label: "Trimestral" },
-                          { value: "yearly", label: "Anual" },
-                        ]}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button type="button" variant="ghost" onClick={onClose}>
-                  Cancelar
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || !metricKey || !targetValue}
-                >
-                  {isSubmitting ? "Guardando..." : "Guardar objetivo"}
-                </Button>
-              </Modal.Footer>
-            </form>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog
+      isOpen={isOpen}
+      onOpenChange={(open) => !open && onClose()}
+      title="Añadir objetivo"
+      isBusy={isSubmitting}
+      isDirty={Boolean(targetValue)}
+      formId="add-objective-form"
+      primary={{
+        label: "Guardar objetivo",
+        busyLabel: "Guardando…",
+        disabled: !metricKey || !targetValue,
+      }}
+    >
+      <form id="add-objective-form" className="space-y-4" onSubmit={handleSubmit}>
+        <Field label="Métrica">
+          <Select
+            value={metricKey}
+            onChange={setMetricKey}
+            options={available.map((entry) => ({
+              value: entry.key,
+              label: entry.label,
+            }))}
+          />
+        </Field>
+        <Field label="Hito">
+          <Select
+            value={milestoneId}
+            onChange={setMilestoneId}
+            options={[
+              { value: "", label: "Sin hito (no lo ve el cliente)" },
+              ...milestones.map((milestone) => ({
+                value: milestone.id,
+                label: milestone.label,
+              })),
+            ]}
+          />
+        </Field>
+        {alreadySet ? (
+          <Banner tone="warn">
+            Ya hay un objetivo activo para esta métrica. Guardar reemplaza el valor actual.
+          </Banner>
+        ) : null}
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Valor objetivo">
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={targetValue}
+              onChange={(event) => setTargetValue(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Periodo">
+            <Select
+              value={period}
+              onChange={setPeriod}
+              options={[
+                { value: "monthly", label: "Mensual" },
+                { value: "quarterly", label: "Trimestral" },
+                { value: "yearly", label: "Anual" },
+              ]}
+            />
+          </Field>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
@@ -1762,6 +1863,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [payload, setPayload] = useState<PlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [generatingMarketingTaskId, setGeneratingMarketingTaskId] = useState<string | null>(null);
   const [retryingReviewId, setRetryingReviewId] = useState<string | null>(null);
   const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(
     null,
@@ -1777,12 +1879,18 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     string | null
   >(null);
   const [isAddingPhase, setIsAddingPhase] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
+  const [completionMilestone, setCompletionMilestone] = useState<Milestone | null>(null);
+  const [completionEvidence, setCompletionEvidence] = useState("");
+  const [isCompletingMilestone, setIsCompletingMilestone] = useState(false);
   // El cliente ve el camino como mapa; el árbol (para editarlo) queda detrás
   // de un botón para quien puede gestionar el plan.
   const [showEditor, setShowEditor] = useState(false);
   // Mesa del consultor: pestaña abierta y semana de
   // la revisión que se está leyendo.
-  const [deskTab, setDeskTab] = useState<"editor" | "seguimiento" | "objetivos" | "ia">("editor");
+  const [deskTab, setDeskTab] = useState<"editor" | "seguimiento" | "objetivos">("editor");
 
   const [reviewIndex, setReviewIndex] = useState(0);
   // Hito del que se va a hablar: abre el chat en un modal con el mensaje escrito.
@@ -1797,6 +1905,58 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     {},
   );
   const organizationId = organization?.id ?? null;
+  const marketingAssetsByTask = useMemo(
+    () => latestMarketingAssetByTask(payload?.marketing_assets ?? []),
+    [payload?.marketing_assets],
+  );
+  const openMarketingAsset = (asset: CaminoMarketingAsset) => {
+    window.location.assign(marketingAssetHref(asset.id));
+  };
+
+  const generateMarketingForTask = useCallback(async (task: MilestoneTask) => {
+    if (!organizationId || !connectionId) {
+      toast.info("Selecciona la tienda de este Camino antes de generar el borrador.");
+      return;
+    }
+    const existingAsset = marketingAssetsByTask.get(task.id);
+    if (existingAsset) {
+      window.location.assign(marketingAssetHref(existingAsset.id));
+      return;
+    }
+    setGeneratingMarketingTaskId(task.id);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/drafts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_type: "campaign",
+            channel: "email_klaviyo",
+            store_id: connectionId,
+            camino_task_id: task.id,
+            idempotency_key: `${task.id}:99`,
+            brief: `Prepara un borrador de email para esta tarea de Mi Camino: "${task.title}". Usa la descripcion y el hito verificados como contexto. Si faltan oferta, descuento, audiencia o condiciones, no los inventes: indica que debe confirmar el equipo. Deja el contenido en borrador para revision humana; no lo envies ni lo programes.`,
+          }),
+        },
+        180_000,
+      );
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      const body = (await response.json()) as { draft?: { id?: string } };
+      if (!body.draft?.id) {
+        toast.danger("El agente respondió sin devolver un borrador de Marketing.");
+        return;
+      }
+      window.location.assign(`/marketing?section=crear&draft=${encodeURIComponent(body.draft.id)}`);
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "No se pudo activar el agente de email.");
+    } finally {
+      setGeneratingMarketingTaskId(null);
+    }
+  }, [connectionId, marketingAssetsByTask, organizationId]);
   const routesQuery = useCachedQuery<{ routes: CaminoRoute[] }>(
     organizationId && !connectionId ? `/v1/organizations/${organizationId}/strategic-plan/routes` : null,
   );
@@ -1805,6 +1965,17 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ? `/v1/organizations/${organizationId}/objectives${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`
       : null,
   );
+
+  // Crear, activar o borrar un camino cambia las tarjetas de "Todas las tiendas"
+  // y la cartera del consultor. Sin esto seguian diciendo "sin camino" hasta que
+  // caducaba la cache.
+  function refreshRouteViews() {
+    if (organizationId) {
+      if (connectionId) invalidateCachedQueries(`/v1/organizations/${organizationId}/strategic-plan/routes`);
+      else routesQuery.reload();
+    }
+    invalidateCachedQueries("/v1/consultant/plans");
+  }
 
   // Raton: `distance` para que un clic normal no arrastre. Tactil: NO vale
   // `distance` -- el asa lleva `touch-none`, asi que apoyar el pulgar encima
@@ -1872,13 +2043,23 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         toast.danger(await readApiError(response));
         return;
       }
-      toast.success("Revisión semanal completada.");
+      toast.success("Revisión del Camino completada.");
       await loadPlan(true);
     } catch {
       toast.danger("No se pudo reintentar la revisión. Comprueba la conexión e inténtalo de nuevo.");
     } finally {
       setRetryingReviewId(null);
     }
+  }
+
+  async function approveWeeklyLearning(planId: string, reviewId: string, learningIndex: number) {
+    if (!organizationId) return;
+    const query = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/strategic-plan/${planId}/weekly-review/${reviewId}/learnings/${learningIndex}/approve${query}`,
+      { method: "POST" },
+    );
+    if (!response.ok) throw new Error(await readApiError(response));
   }
 
   async function submitPlanMutation(
@@ -1894,6 +2075,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       }
       toast.success(successMessage);
       void loadPlan(true);
+      refreshRouteViews();
       return true;
     } catch {
       setError(
@@ -1903,33 +2085,110 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
   }
 
-  async function activatePlan(planId: string) {
-    if (!organization) return;
+  async function updatePlanDetails(payload: { name: string; description: string }) {
+    if (!organizationId || !plan) return false;
+    const saved = await submitPlanMutation(
+      `/v1/organizations/${organizationId}/strategic-plan/${plan.id}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      "Camino actualizado.",
+    );
+    if (saved) setIsEditingPlan(false);
+    return saved;
+  }
+
+  async function deletePlan() {
+    if (!organizationId || !plan) return;
     await submitPlanMutation(
-      `/v1/organizations/${organization.id}/strategic-plan/${planId}/activate`,
-      { method: "POST" },
-      "Plan activado.",
+      `/v1/organizations/${organizationId}/strategic-plan/${plan.id}`,
+      { method: "DELETE" },
+      "Camino eliminado.",
     );
   }
 
-  async function changeMilestoneStatus(milestoneId: string, status: string) {
-    if (!organization) return;
+  async function deletePlanPhase(phase: Phase) {
+    if (!organizationId) return;
     await submitPlanMutation(
+      `/v1/organizations/${organizationId}/strategic-plan/phases/${phase.id}`,
+      { method: "DELETE" },
+      "Fase eliminada.",
+    );
+  }
+
+  async function deletePlanMilestone(milestone: Milestone) {
+    if (!organizationId) return;
+    await submitPlanMutation(
+      `/v1/organizations/${organizationId}/milestones/${milestone.id}`,
+      { method: "DELETE" },
+      "Hito eliminado.",
+    );
+  }
+
+  async function updatePlanTask(milestoneId: string, taskId: string, payload: { title: string; description: string; priority: string; dueAt: string }) {
+    if (!organizationId) return false;
+    const saved = await submitPlanMutation(
+      `/v1/organizations/${organizationId}/strategic-plan/milestones/${milestoneId}/tasks/${taskId}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      "Tarea actualizada.",
+    );
+    if (saved) setEditingTaskId(null);
+    return saved;
+  }
+
+  async function unlinkPlanTask(milestoneId: string, taskId: string) {
+    if (!organizationId) return;
+    await submitPlanMutation(
+      `/v1/organizations/${organizationId}/strategic-plan/milestones/${milestoneId}/tasks/${taskId}`,
+      { method: "DELETE" },
+      "Tarea quitada del Camino.",
+    );
+  }
+
+  async function activatePlan(planId: string) {
+    if (!organization) return;
+    setIsActivating(true);
+    try {
+      await submitPlanMutation(
+        `/v1/organizations/${organization.id}/strategic-plan/${planId}/activate`,
+        { method: "POST" },
+        "Plan activado.",
+      );
+    } finally {
+      setIsActivating(false);
+    }
+  }
+
+  async function changeMilestoneStatus(milestoneId: string, status: string, completionNote?: string) {
+    if (!organization) return false;
+    return submitPlanMutation(
       `/v1/organizations/${organization.id}/milestones/${milestoneId}/status`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...(completionNote ? { completion_note: completionNote } : {}) }),
       },
       "Estado del hito actualizado.",
     );
   }
 
   function toggleMilestoneComplete(milestone: Milestone) {
-    void changeMilestoneStatus(
-      milestone.id,
-      milestone.status === "completed" ? "pending" : "completed",
-    );
+    if (milestone.status === "completed") {
+      void changeMilestoneStatus(milestone.id, "in_progress");
+      return;
+    }
+    setCompletionEvidence("");
+    setCompletionMilestone(milestone);
+  }
+
+  async function confirmMilestoneCompletion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!completionMilestone) return;
+    setIsCompletingMilestone(true);
+    try {
+      const saved = await changeMilestoneStatus(completionMilestone.id, "completed", completionEvidence.trim());
+      if (saved) setCompletionMilestone(null);
+    } finally {
+      setIsCompletingMilestone(false);
+    }
   }
 
   // Marcar una tarea del plan hecha/pendiente sin salir de Mi Camino: es la
@@ -2234,6 +2493,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Button>
           ) : null}
         </div>
+        {milestone.status === "completed" && milestone.completion_evidence ? (
+          <p className="text-xs text-muted">Evidencia de cierre: {milestone.completion_evidence}</p>
+        ) : null}
         {isEditing ? (
           <NameDescriptionForm
             initialName={milestone.name}
@@ -2325,7 +2587,26 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className={`portal-page space-y-5 sm:space-y-6 ${desk ? d.desk : ""}`}>
+    <div className={`portal-page space-y-5 sm:space-y-6 ${desk ? d.desk : d.client}`}>
+      <Dialog
+        isOpen={Boolean(completionMilestone)}
+        onOpenChange={(open) => { if (!open) setCompletionMilestone(null); }}
+        title={completionMilestone ? `Verificar hito: ${completionMilestone.name}` : "Verificar hito"}
+        isBusy={isCompletingMilestone}
+        isDirty={Boolean(completionEvidence)}
+        formId="complete-camino-milestone"
+        primary={{ label: "Completar hito", busyLabel: "Completando…", disabled: completionEvidence.trim().length < 20 || completionEvidence.trim().length > 2000 || Boolean(completionMilestone?.milestone_task_links.some((link) => link.tasks?.status !== "completed")) }}
+      >
+        <form id="complete-camino-milestone" className="space-y-4" onSubmit={confirmMilestoneCompletion}>
+          <p className="text-sm">Criterio: {completionMilestone?.success_criteria || "Describe qué resultado se ha conseguido y cómo se comprobó."}</p>
+          {completionMilestone?.milestone_task_links.some((link) => link.tasks?.status !== "completed") ? (
+            <p className="text-sm">Quedan tareas pendientes: {completionMilestone.milestone_task_links.filter((link) => link.tasks?.status !== "completed").map((link) => link.tasks?.title ?? "Tarea sin datos").join(", ")}.</p>
+          ) : null}
+          <Field label="Evidencia del resultado">
+            <Textarea value={completionEvidence} onChange={(event) => setCompletionEvidence(event.target.value)} maxLength={2000} placeholder="Indica el resultado observado y dónde se puede comprobar" />
+          </Field>
+        </form>
+      </Dialog>
       {desk && plan ? (
         <>
           <header className={d.work}>
@@ -2355,7 +2636,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
                 }
               />
-              <StrategicPlanImport organizationId={organizationId ?? ""} connectionId={connectionId || null} onImported={() => loadPlan()} />
+              <ButtonLink href="/camino/nuevo" variant="secondary">
+                Replanificar o nuevo camino
+              </ButtonLink>
               {plan.status === "draft" ? (
                 <Button type="button" onClick={() => void activatePlan(plan.id)}>
                   Activar camino
@@ -2398,11 +2681,21 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </Button>
         </div>
       ) : null}
+      {plan?.status === "draft" ? (
+        <DraftNotice
+          readiness={draftReadiness(phases, plan.goal)}
+          canManage={canManage}
+          isActivating={isActivating}
+          onActivate={() => void activatePlan(plan.id)}
+        />
+      ) : null}
+
       {/* Para el cliente lo primero es qué toca hoy; las cifras del plan y el
           árbol vienen después. El consultor abre la pantalla a asesorar, y para
           eso el panel de siempre manda. */}
       {showMap && plan ? (
         <CaminoMap
+          startsOn={plan.starts_on}
           planStatus={plan.status}
           goal={plan.goal}
           phases={phases}
@@ -2416,6 +2709,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           sourceLabels={TASK_SOURCE_LABELS}
           formatGoal={(value) => (plan.goal ? formatPlanGoalValue(value, plan.goal, planCurrency) : String(value))}
           onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
+          onGenerateMarketingTask={canManage ? (task) => void generateMarketingForTask(task as MilestoneTask) : undefined}
+          generatingTaskId={generatingMarketingTaskId}
+          marketingAssets={payload?.marketing_assets ?? []}
+          onApproveLearning={canManage ? (reviewId, learningIndex) => approveWeeklyLearning(plan.id, reviewId, learningIndex) : undefined}
           renderChangeDecision={(index) => {
             const latest = weeklyReviews.find((review) => review.output);
             const stored = latest?.proposals?.find((proposal) => proposal.proposal_index === index);
@@ -2426,6 +2723,12 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : !isConsultantView && plan ? (
         <ClientNextStep plan={plan} phases={phases} />
+      ) : null}
+
+      {plan && payload?.marketing_assets_available === false ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          No se pudo comprobar ahora el estado de los borradores de Marketing vinculados a las tareas.
+        </p>
       ) : null}
 
       {showMap && activePhase ? (
@@ -2448,7 +2751,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ["editor", "Editor del camino"],
               ["seguimiento", "Seguimiento IA"],
               ["objetivos", "Objetivos"],
-              ["ia", "Nueva versión con IA"],
             ] as const
           ).map(([key, label]) => (
             <button key={key} type="button" role="tab" aria-selected={deskTab === key} onClick={() => setDeskTab(key)}>
@@ -2459,16 +2761,48 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </div>
       ) : null}
 
-      {showMap && canManage && !isConsultantView ? (
-        <div className="flex justify-end">
-          <Button type="button" variant="secondary" onClick={() => setShowEditor((open) => !open)}>
-            {showEditor ? "Ocultar el editor" : "Editar el camino"}
-          </Button>
+      {canManage && ((showMap && !isConsultantView) || (desk && deskTab === "editor")) ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap justify-end gap-2">
+            {!desk ? (
+              <Button type="button" variant="secondary" onClick={() => setShowEditor((open) => !open)}>
+                {showEditor ? "Ocultar el editor" : "Editar el camino"}
+              </Button>
+            ) : null}
+            <Button type="button" variant="secondary" onClick={() => setIsEditingPlan((editing) => !editing)}>
+              {isEditingPlan ? "Cerrar datos" : "Editar nombre y descripción"}
+            </Button>
+            {!desk ? <ButtonLink href="/camino/nuevo" variant="secondary">Replanificar o nuevo camino</ButtonLink> : null}
+            {plan ? (
+              <ConfirmDialog
+                trigger={<Button type="button" variant="danger">Eliminar Camino</Button>}
+                title="Eliminar Camino completo"
+                note="Esta acción no se puede deshacer."
+                irreversible
+                consequences={[
+                  "Se borran el plan, sus fases, hitos, notas, revisiones y decisiones del agente.",
+                  "Las tareas y borradores de marketing enlazados se conservan, sin vínculo con este Camino.",
+                ]}
+                confirmPhrase={plan?.name}
+                confirmLabel="Eliminar Camino"
+                onConfirm={() => deletePlan()}
+              />
+            ) : null}
+          </div>
+          {isEditingPlan && plan ? (
+            <NameDescriptionForm
+              initialName={plan.name}
+              initialDescription={plan.description ?? ""}
+              submitLabel="Guardar Camino"
+              onCancel={() => setIsEditingPlan(false)}
+              onSubmit={async (values) => { await updatePlanDetails(values); }}
+            />
+          ) : null}
         </div>
       ) : null}
 
       {plan?.status === "active" && showDetail && onTab("seguimiento") ? (
-        <Card title={desk ? undefined : "Seguimiento semanal"}>
+        <Card title={desk ? undefined : "Revisión del camino"}>
           {desk && weeklyReviews.length > 1 ? (
             <div className={d.weeks} role="group" aria-label="Semana">
               {weeklyReviews.slice(0, 4).map((review, index) => (
@@ -2492,7 +2826,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 if (review.status !== "succeeded" || !content) return (
                   <article key={review.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator bg-surface p-4">
                     <div>
-                      <p className="text-sm font-medium">{review.status === "failed" ? "No se pudo generar la revisión semanal" : "Revisión semanal en curso"}</p>
+                      <p className="text-sm font-medium">{review.status === "failed" ? "No se pudo generar la revisión del Camino" : "Revisión del Camino en curso"}</p>
                       <p className="mt-1 text-xs text-muted">Semana del {new Date(review.period_start).toLocaleDateString("es-ES")}. El Camino sigue sin cambios.</p>
                     </div>
                     {canManage && review.can_retry && plan ? (
@@ -2548,6 +2882,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               <span className="ml-2 text-muted">{displayValue(item.status)} · {item.evidence}</span>
                             </li>
                           ))}
+                          {content.progress.length > 4 ? <li className="text-xs text-muted">+{content.progress.length - 4} más</li> : null}
                         </ul>
                       </div>
                     ) : null}
@@ -2562,6 +2897,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               <p className="mt-1 text-xs text-muted">Evidencia: {risk.evidence}</p>
                             </li>
                           ))}
+                          {content.risks.length > 3 ? <li className="text-xs text-muted">+{content.risks.length - 3} más</li> : null}
                         </ul>
                       </div>
                     ) : null}
@@ -2575,6 +2911,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               <span className="text-muted"> — {action.rationale} · Responsable: {displayValue(action.owner)} · En {action.due_in_days} días</span>
                             </li>
                           ))}
+                          {content.next_actions.length > 3 ? <li className="text-xs text-muted">+{content.next_actions.length - 3} más</li> : null}
                         </ul>
                       </div>
                     ) : null}
@@ -2594,6 +2931,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               })() : null}
                             </li>
                           ))}
+                          {content.change_proposals.length > 4 ? <li className="text-xs text-muted">+{content.change_proposals.length - 4} más</li> : null}
                         </ul>
                       </div>
                     ) : null}
@@ -2603,7 +2941,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               })}
             </div>
           ) : (
-            <p className="mt-3 text-sm text-muted">Aún no hay una revisión semanal. Se generará desde el ciclo programado cuando este Camino activo cumpla una semana.</p>
+            <p className="mt-3 text-sm text-muted">Con la automatización de agentes activa, la primera revisión llega tres días después de activar el Camino y se repite cada tres días.</p>
           )}
         </Card>
       ) : null}
@@ -2655,22 +2993,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : null}
 
-      {/* El camino lo puede dibujar el consultor a mano o proponerlo la IA.
-          Para una tienda sin consultor asignado esta tarjeta ES el modulo, y
-          para una que si lo tiene es el borrador de partida que el consultor
-          edita despues en el arbol. Va antes del plan porque cuando no hay
-          plan es lo unico que hay que hacer en esta pantalla. */}
-      {organizationId && canManage && plan && onTab("ia") ? (
-        <CaminoProposal
-          organizationId={organizationId}
-          connectionId={connectionId || undefined}
-          hasOpenPlan={Boolean(
-            plan && ["draft", "active"].includes(plan.status),
-          )}
-          onPlanCreated={() => void loadPlan()}
-        />
-      ) : null}
-
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isLoading ? (
@@ -2695,13 +3017,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         ? CURRENCY_OPTIONS
                         : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
                     }
-                  />
-                ) : null}
-                {canManage ? (
-                  <StrategicPlanImport
-                    organizationId={organizationId ?? ""}
-                    connectionId={connectionId || null}
-                    onImported={() => loadPlan()}
                   />
                 ) : null}
                 {plan.status === "draft" && canManage ? (
@@ -2731,6 +3046,18 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <p className="mt-1 text-xs text-muted">{plan.goal.rationale}</p>
                 {plan.goal.assumptions.length ? (
                   <p className="mt-1 text-xs text-muted">Supuestos: {plan.goal.assumptions.join(" · ")}</p>
+                ) : null}
+                {plan.goal.decision_gates?.length ? (
+                  <details className="mt-3 text-sm">
+                    <summary>Decisiones condicionadas por datos</summary>
+                    <ul className="mt-2 space-y-2">
+                      {plan.goal.decision_gates.map((gate, index) => (
+                        <li key={`${gate.decision}-${index}`}>
+                          <b>{gate.decision}</b><br />Avanzar: {gate.proceed_when}<br />Pausar: {gate.hold_when}<br />Comprobar: {gate.evidence_needed}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 ) : null}
               </div>
             ) : null}
@@ -2843,17 +3170,26 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             />
 
                             {isEditingPhase ? (
-                              <div className="ml-12 mt-2">
+                              <div className="ml-12 mt-2 space-y-2">
                                 <NameDescriptionForm
                                   initialName={phase.name}
                                   initialDescription={phase.description ?? ""}
                                   submitLabel="Guardar"
                                   onCancel={() => setEditingPhaseId(null)}
                                   onSubmit={async (payload) => {
-                                    if (await editPhase(phase.id, payload)) {
-                                      setEditingPhaseId(null);
-                                    }
+                                    if (await editPhase(phase.id, payload)) setEditingPhaseId(null);
                                   }}
+                                />
+                                <ConfirmDialog
+                                  trigger={<Button size="sm" variant="danger">Eliminar fase</Button>}
+                                  title="Eliminar fase"
+                                  description="Se elimina con todo lo que contiene:"
+                                  consequences={[
+                                    "Sus hitos, notas y vínculos del Camino.",
+                                    "Las tareas enlazadas siguen disponibles en Tareas, sin vínculo con esta fase.",
+                                  ]}
+                                  confirmLabel="Eliminar fase"
+                                  onConfirm={() => void deletePlanPhase(phase)}
                                 />
                               </div>
                             ) : null}
@@ -2895,6 +3231,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                 (task): task is MilestoneTask =>
                                                   Boolean(task),
                                               );
+                                          const milestoneMarketingAssets = tasks
+                                            .map((task) => marketingAssetsByTask.get(task.id))
+                                            .filter((asset): asset is CaminoMarketingAsset => Boolean(asset));
                                           return (
                                             <SortableMilestone
                                               key={milestone.id}
@@ -2955,7 +3294,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                   />
 
                                                   {isEditingMilestone ? (
-                                                    <div className="ml-11 mt-2">
+                                                    <div className="ml-11 mt-2 space-y-2">
                                                       <NameDescriptionForm
                                                         initialName={
                                                           milestone.name
@@ -2990,6 +3329,17 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                           }
                                                         }}
                                                       />
+                                                      <ConfirmDialog
+                                                        trigger={<Button size="sm" variant="danger">Eliminar hito</Button>}
+                                                        title="Eliminar hito"
+                                                        description="Se elimina con todo lo que contiene:"
+                                                        consequences={[
+                                                          "Sus notas y su vínculo con las tareas.",
+                                                          "Las tareas siguen disponibles en Tareas.",
+                                                        ]}
+                                                        confirmLabel="Eliminar hito"
+                                                        onConfirm={() => void deletePlanMilestone(milestone)}
+                                                      />
                                                     </div>
                                                   ) : null}
 
@@ -3010,6 +3360,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                           }
                                                         </p>
                                                       ) : null}
+                                                      {milestone.status === "completed" && milestone.completion_evidence ? (
+                                                        <p className="text-xs text-muted">Evidencia de cierre: {milestone.completion_evidence}</p>
+                                                      ) : null}
+                                                      {milestoneMarketingAssets.length ? (
+                                                        <p className="text-xs text-muted">
+                                                          Marketing vinculado: {milestoneMarketingAssets.length} · {milestoneMarketingAssets.map(marketingAssetStatusLabel).join(", ")}
+                                                        </p>
+                                                      ) : null}
                                                       {tasks.length > 0 ? (
                                                         <ul className="flex flex-wrap gap-1.5">
                                                           {tasks.map(
@@ -3017,19 +3375,35 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                               task,
                                                               taskIndex,
                                                             ) => (
-                                                              <li key={task.id}>
+                                                              <li key={task.id} className="space-y-2">
                                                                 <TaskListItem
                                                                   numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
                                                                   task={task}
-                                                                  canManage={
-                                                                    canResolveTasks
-                                                                  }
+                                                                  linkedMarketingAsset={marketingAssetsByTask.get(task.id) ?? null}
+                                                                  canManage={canResolveTasks}
+                                                                  canEdit={canManage}
+                                                                  viewerIsClient={!isConsultantView}
                                                                   onToggleDone={() =>
                                                                     toggleTaskDone(
                                                                       task,
                                                                     )
                                                                   }
+                                                                  onEdit={canManage ? () => setEditingTaskId(editingTaskId === task.id ? null : task.id) : undefined}
+                                                                  onRemove={canManage ? () => void unlinkPlanTask(milestone.id, task.id) : undefined}
+                                                                  onGenerateMarketing={
+                                                                    canManage && taskCanGenerateMarketing(task)
+                                                                      ? () => void generateMarketingForTask(task)
+                                                                      : undefined
+                                                                  }
+                                                                  isGeneratingMarketing={generatingMarketingTaskId === task.id}
                                                                 />
+                                                                {editingTaskId === task.id ? (
+                                                                  <EditTaskForm
+                                                                    task={task}
+                                                                    onCancel={() => setEditingTaskId(null)}
+                                                                    onSubmit={async (values) => { await updatePlanTask(milestone.id, task.id, values); }}
+                                                                  />
+                                                                ) : null}
                                                               </li>
                                                             ),
                                                           )}
@@ -3197,6 +3571,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           onCreated={() => {
             void loadPlan();
             objectivesQuery.reload();
+            refreshRouteViews();
           }}
         />
       )}

@@ -8,13 +8,12 @@
  * vez de quedar bloqueado por falta de la key.
  *
  * Metodologia: se ingestan 6 documentos de metodologia E-NORA
- * (organization-scoped, un tema claramente distinto cada uno) via
- * `createKnowledgeDocument` (chunking + embeddings reales), y se lanza 1
- * consulta parafraseada por documento -- nunca coincidencia exacta de
- * palabras clave, para que el recall dependa de similitud semantica real, no
- * de superposicion lexica. Se mide recall@8 (el `match_count` por defecto de
- * `knowledge_search`/`searchKnowledge`) y recall@3 (mas exigente) para cada
- * documento esperado, mas una consulta "distractor" sobre un tema no cubierto
+ * (organization-scoped) via `createKnowledgeDocument`, y se prueban preguntas
+ * individuales y preguntas que necesitan dos documentos. Las etiquetas son
+ * documentales, por lo que los chunks de un mismo documento se deduplican
+ * antes de calcular P@1, P@3, R@3, R@8 y MRR. Es una prueba sintetica de
+ * retrieval, no una evaluacion de respuestas del copiloto ni del corpus real.
+ * Hay ademas una consulta "distractor" sobre un tema no cubierto
  * por ningun documento, solo informativa (no hay umbral de similitud
  * absoluto validado todavia contra el que juzgar un "no deberia encontrar
  * nada" con confianza).
@@ -26,6 +25,7 @@ import { createClient } from "@supabase/supabase-js";
 import { loadApiEnv } from "@e-nora/config";
 import { createLogger } from "@e-nora/observability";
 import { createKnowledgeDocument, searchKnowledge } from "./knowledge.js";
+import { scoreRetrievalAtK } from "./rag-retrieval-metrics.js";
 import type { AuthContext } from "./auth-context.js";
 
 const env = loadApiEnv(process.env);
@@ -38,7 +38,7 @@ const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? ""
 const RUN_TAG = `${Date.now()}`;
 
 type Document = { key: string; title: string; content: string };
-type QueryCase = { documentKey: string; query: string };
+type QueryCase = { documentKeys: string[]; query: string };
 
 const DOCUMENTS: Document[] = [
   {
@@ -101,12 +101,14 @@ const DOCUMENTS: Document[] = [
 // documento que deberia encontrar (evita que el recall se explique por
 // superposicion lexica en vez de similitud semantica real).
 const QUERIES: QueryCase[] = [
-  { documentKey: "reorder_point", query: "¿Cómo sé cuándo debo volver a pedir mercancía a mi proveedor antes de quedarme sin existencias?" },
-  { documentKey: "roas_break_even", query: "¿A partir de qué retorno publicitario dejamos de perder dinero en una campaña?" },
-  { documentKey: "damaged_returns", query: "Un cliente recibió un artículo roto, ¿qué hacemos, le pedimos que lo devuelva?" },
-  { documentKey: "ad_fatigue", query: "¿Cómo detectamos que un anuncio ya se volvió repetitivo para la misma audiencia y hay que cambiarlo?" },
-  { documentKey: "ltv_cohorts", query: "¿Cómo comparamos si los clientes nuevos gastan más a lo largo del tiempo que los de hace unos meses?" },
-  { documentKey: "call_summary_approval", query: "¿Quién tiene que dar el visto bueno antes de que las tareas de una llamada se creen de verdad?" },
+  { documentKeys: ["reorder_point"], query: "¿Cómo sé cuándo debo volver a pedir mercancía a mi proveedor antes de quedarme sin existencias?" },
+  { documentKeys: ["roas_break_even"], query: "¿A partir de qué retorno publicitario dejamos de perder dinero en una campaña?" },
+  { documentKeys: ["damaged_returns"], query: "Un cliente recibió un artículo roto, ¿qué hacemos, le pedimos que lo devuelva?" },
+  { documentKeys: ["ad_fatigue"], query: "¿Cómo detectamos que un anuncio ya se volvió repetitivo para la misma audiencia y hay que cambiarlo?" },
+  { documentKeys: ["ltv_cohorts"], query: "¿Cómo comparamos si los clientes nuevos gastan más a lo largo del tiempo que los de hace unos meses?" },
+  { documentKeys: ["call_summary_approval"], query: "¿Quién tiene que dar el visto bueno antes de que las tareas de una llamada se creen de verdad?" },
+  { documentKeys: ["roas_break_even", "ad_fatigue"], query: "En el gráfico de Meta baja el retorno mientras aumenta la frecuencia y cae el clic: ¿qué dos comprobaciones harías antes de tocar el anuncio?" },
+  { documentKeys: ["ltv_cohorts", "roas_break_even"], query: "¿Cómo comparo el valor de los clientes nuevos con lo que puedo pagar por adquirirlos sin perder margen?" },
 ];
 
 const DISTRACTOR_QUERY = "¿Cuál es la política de vacaciones del equipo de soporte técnico?";
@@ -199,43 +201,38 @@ async function main() {
       console.log(`ingested "${doc.key}" -> document_id=${result.data.document_id}, chunks=${result.data.chunk_count}`);
     }
 
-    console.log(`\n=== Retrieval (${QUERIES.length} consultas parafraseadas) ===`);
-    let recallAt8Hits = 0;
-    let recallAt3Hits = 0;
+    console.log(`\n=== Retrieval (${QUERIES.length} consultas etiquetadas) ===`);
+    const scores: Array<{ p1: number; p3: number; r3: number; r8: number; mrr: number }> = [];
 
     for (const queryCase of QUERIES) {
       await sleep(VOYAGE_FREE_TIER_DELAY_MS);
 
-      const expectedDocumentId = documentIds.get(queryCase.documentKey);
-      if (!expectedDocumentId) {
-        throw new Error(`No hay document_id registrado para "${queryCase.documentKey}"`);
-      }
+      const expectedDocumentIds = queryCase.documentKeys.map((key) => {
+        const id = documentIds.get(key);
+        if (!id) throw new Error(`No hay document_id registrado para "${key}"`);
+        return id;
+      });
 
       const result = await searchKnowledge(env, context, organizationId, queryCase.query, null);
 
       if (!result.ok) {
-        console.log(`QUERY FAILED (${queryCase.documentKey}): ${JSON.stringify(result)}`);
+        console.log(`QUERY FAILED (${queryCase.documentKeys.join("+")}): ${JSON.stringify(result)}`);
         continue;
       }
 
       const matches = result.data.matches as SearchMatch[];
-      const rank = matches.findIndex((m) => m.document_id === expectedDocumentId);
-      const foundAt8 = rank !== -1;
-      const foundAt3 = rank !== -1 && rank < 3;
-
-      if (foundAt8) recallAt8Hits += 1;
-      if (foundAt3) recallAt3Hits += 1;
+      const documentRanks = [...new Set(matches.map((match) => match.document_id))];
+      const p1 = scoreRetrievalAtK(documentRanks, expectedDocumentIds, 1).precision;
+      const at3 = scoreRetrievalAtK(documentRanks, expectedDocumentIds, 3);
+      const at8 = scoreRetrievalAtK(documentRanks, expectedDocumentIds, 8);
+      scores.push({ p1, p3: at3.precision, r3: at3.recall, r8: at8.recall, mrr: at8.reciprocalRank });
 
       console.log(
-        `[${foundAt8 ? "HIT" : "MISS"}] "${queryCase.documentKey}" <- "${queryCase.query}"\n` +
-          `  esperado: ${queryCase.documentKey} | rank=${foundAt8 ? rank + 1 : "no encontrado en top-8"} | ` +
-          `similarity=${foundAt8 ? matches[rank]!.similarity.toFixed(4) : "n/a"}\n` +
-          `  top-3 real: ${matches.slice(0, 3).map((m) => `${m.document_title} (${m.similarity.toFixed(3)})`).join(" | ")}`,
+        `"${queryCase.query}"\n` +
+          `  relevantes: ${queryCase.documentKeys.join(", ")} | P@1=${p1.toFixed(2)} P@3=${at3.precision.toFixed(2)} R@3=${at3.recall.toFixed(2)} R@8=${at8.recall.toFixed(2)}\n` +
+          `  top-3 documentos: ${[...new Set(matches.map((m) => m.document_title))].slice(0, 3).join(" | ")}`,
       );
     }
-
-    const recallAt8 = recallAt8Hits / QUERIES.length;
-    const recallAt3 = recallAt3Hits / QUERIES.length;
 
     console.log(`\n=== Consulta distractor (informativa, sin documento relacionado) ===`);
     await sleep(VOYAGE_FREE_TIER_DELAY_MS);
@@ -250,13 +247,16 @@ async function main() {
       );
     }
 
-    console.log(`\n=== Resumen ===`);
-    console.log(`Recall@8: ${recallAt8Hits}/${QUERIES.length} (${(recallAt8 * 100).toFixed(0)}%)`);
-    console.log(`Recall@3: ${recallAt3Hits}/${QUERIES.length} (${(recallAt3 * 100).toFixed(0)}%)`);
+    const average = (key: keyof (typeof scores)[number]) =>
+      scores.length ? scores.reduce((sum, score) => sum + score[key], 0) / scores.length : 0;
+    console.log(`\n=== Resumen documental (consultas respondidas: ${scores.length}/${QUERIES.length}) ===`);
+    for (const key of ["p1", "p3", "r3", "r8", "mrr"] as const) {
+      console.log(`${key.toUpperCase()}: ${(average(key) * 100).toFixed(1)}%`);
+    }
 
-    if (recallAt8Hits < QUERIES.length) {
+    if (scores.length !== QUERIES.length || scores.some((score) => score.r8 < 1)) {
       console.log(
-        `ADVERTENCIA: ${QUERIES.length - recallAt8Hits} consulta(s) no encontraron su documento esperado ni en el top-8. Revisar chunking/embeddings antes de confiar en retrieval para produccion.`,
+        "ADVERTENCIA: faltan documentos relevantes en el top-8 o fallaron consultas. Revisar retrieval antes de comparar cambios.",
       );
       process.exitCode = 1;
     }

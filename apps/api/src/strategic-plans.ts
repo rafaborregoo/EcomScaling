@@ -10,13 +10,28 @@ import { getShopifyMetrics } from "./shopify-metrics.js";
 import { getMetaMetrics } from "./meta-metrics.js";
 import {
   caminoPlanOutputSchema,
+  caminoCalendarHorizonDays,
   type CaminoPlanOutput,
 } from "@e-nora/ai";
 import { parseStrategicPlanMarkdown } from "./strategic-plan-markdown.js";
 import { isCaminoProposalActionAllowed } from "./camino-proposal-decision.js";
 import { adjustCaminoProposal } from "./camino-proposal-adjustment.js";
 import { loadCaminoRoutes } from "./camino-routes.js";
-import { caminoReviewWeekStart, canRetryCaminoReview } from "./camino-review-scheduling.js";
+import { caminoReviewCycleStart, canRetryCaminoReview } from "./camino-review-scheduling.js";
+import { occurrenceTitle, recurrenceDates } from "./camino-recurrence.js";
+import { assessMilestoneCompletion, type MilestoneTaskReadiness } from "./camino-milestone-readiness.js";
+import { createLogger } from "@e-nora/observability";
+import {
+  assigneeForOwner,
+  categoryForKind,
+  normalizeKind,
+  normalizeTrack,
+  normalizeCadence,
+  normalizeOwner,
+  sortTaskLinks,
+} from "./camino-task-mapping.js";
+
+const logger = createLogger("strategic-plans");
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -185,7 +200,7 @@ export async function getStrategicPlan(
   let planQuery = supabase
     .from("strategic_plans")
     .select(
-      "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, categories, source, created_by, assigned_to))))",
+      "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, rationale, evidence, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, success_criteria, rationale, position, status, target_date, completed_at, completion_evidence, created_by, milestone_task_links(task_id, position, owner_role, kind, track, cadence, effort_hours, definition_of_done, rationale, evidence, created_at, tasks(id, title, description, status, priority, due_at, categories, source, created_by, assigned_to))))",
     )
     .eq("organization_id", organizationId);
   planQuery = storeId ? planQuery.eq("store_id", storeId) : planQuery.is("store_id", null);
@@ -206,6 +221,99 @@ export async function getStrategicPlan(
 
   if (plan) {
     await attachCreatorOrigin(supabase, plan as PlanWithPhases);
+    for (const phase of (plan as PlanWithPhases).strategic_plan_phases) {
+      for (const milestone of phase.strategic_plan_milestones) {
+        milestone.milestone_task_links = sortTaskLinks(
+          milestone.milestone_task_links as Array<{ position?: number | null; created_at?: string | null }>,
+        ) as typeof milestone.milestone_task_links;
+        // Los metadatos viven en el enlace hito-tarea; se copian a la tarea para
+        // que cada pantalla que ya recibe la tarea los tenga sin recorrer enlaces.
+        for (const link of milestone.milestone_task_links) {
+          if (!link.tasks) continue;
+          const hasMeta = link.owner_role || link.kind || link.track || link.definition_of_done || link.rationale || link.effort_hours != null;
+          link.tasks.plan_meta = hasMeta
+            ? {
+                owner_role: link.owner_role ?? null,
+                kind: link.kind ?? null,
+                track: link.track ?? null,
+                cadence: link.cadence ?? null,
+                effort_hours: link.effort_hours == null ? null : Number(link.effort_hours),
+                definition_of_done: link.definition_of_done ?? null,
+                rationale: link.rationale ?? null,
+                evidence: Array.isArray(link.evidence) ? link.evidence : [],
+              }
+            : null;
+        }
+      }
+    }
+  }
+
+  let marketingAssetsAvailable = true;
+  let marketingAssets: Array<{
+    id: string;
+    task_id: string;
+    milestone_id: string | null;
+    milestone_name: string | null;
+    title: string;
+    status: string;
+    scheduled_for: string | null;
+    created_at: string;
+  }> = [];
+  const canViewMarketingAssets =
+    ["platform_admin", "consultant"].includes(context.profile.platform_role) ||
+    ["owner", "manager"].includes(access.membership.role);
+  if (plan && storeId && connectionId && canViewMarketingAssets) {
+    const planRecord = plan as unknown as {
+      strategic_plan_phases?: Array<{
+        strategic_plan_milestones?: Array<{
+          id: string;
+          name: string;
+          milestone_task_links?: Array<{ tasks?: { id: string } | null }>;
+        }>;
+      }>;
+    };
+    const taskMilestoneById = new Map<string, { milestoneId: string; milestoneName: string }>();
+    for (const phase of planRecord.strategic_plan_phases ?? []) {
+      for (const milestone of phase.strategic_plan_milestones ?? []) {
+        for (const link of milestone.milestone_task_links ?? []) {
+          const taskId = link.tasks?.id;
+          if (taskId) taskMilestoneById.set(taskId, { milestoneId: milestone.id, milestoneName: milestone.name });
+        }
+      }
+    }
+    const taskIds = [...taskMilestoneById.keys()];
+    if (taskIds.length) {
+      const taskFilters = taskIds.map((taskId) => `request->camino_task->>task_id.eq.${taskId}`).join(",");
+      const { data: linkedDrafts, error: linkedDraftsError } = await service
+        .from("marketing_content_drafts")
+        .select("id, status, request, template_name, subject, scheduled_for, created_at")
+        .eq("organization_id", organizationId)
+        .eq("request->>store_id", connectionId)
+        .or(taskFilters)
+        .order("created_at", { ascending: false })
+        .limit(Math.min(taskIds.length * 5, 250));
+      if (linkedDraftsError) {
+        marketingAssetsAvailable = false;
+      } else {
+        marketingAssets = (linkedDrafts ?? []).flatMap((draft) => {
+          const request = draft.request as Record<string, unknown> | null;
+          const taskContext = request?.camino_task as Record<string, unknown> | null;
+          const taskId = typeof taskContext?.task_id === "string" ? taskContext.task_id : null;
+          const milestone = taskId ? taskMilestoneById.get(taskId) : null;
+          if (!taskId || !milestone || request?.store_id !== connectionId) return [];
+          return [{
+            id: draft.id,
+            task_id: taskId,
+            milestone_id: typeof taskContext?.milestone_id === "string" ? taskContext.milestone_id : milestone.milestoneId,
+            milestone_name: typeof taskContext?.milestone_name === "string" ? taskContext.milestone_name : milestone.milestoneName,
+            title: draft.template_name || draft.subject || "Borrador de email",
+            status: draft.status,
+            scheduled_for: draft.scheduled_for,
+            created_at: draft.created_at,
+          }];
+        });
+      }
+    }
   }
 
   let weeklyReviews: Array<Record<string, unknown>> = [];
@@ -229,7 +337,7 @@ export async function getStrategicPlan(
         period_end: row.period_end,
         created_at: row.created_at,
         status: row.status,
-        can_retry: row.review_week_start === caminoReviewWeekStart(new Date()) &&
+        can_retry: row.review_week_start === caminoReviewCycleStart(new Date()) &&
           canRetryCaminoReview(String(row.status), typeof row.updated_at === "string" ? row.updated_at : null),
         output: outputRow?.output ?? null,
         proposals: (proposals ?? []).map((proposal) => {
@@ -271,7 +379,13 @@ export async function getStrategicPlan(
 
   return {
     ok: true as const,
-    data: { organization_id: organizationId, plan: plan ?? null, weekly_reviews: weeklyReviews },
+    data: {
+      organization_id: organizationId,
+      plan: plan ?? null,
+      weekly_reviews: weeklyReviews,
+      marketing_assets: marketingAssets,
+      marketing_assets_available: marketingAssetsAvailable,
+    },
   };
 }
 
@@ -368,9 +482,20 @@ type PlanWithPhases = {
       created_by: string | null;
       created_by_origin?: "consultant" | "client" | null;
       milestone_task_links: Array<{
+        position?: number | null;
+        owner_role?: string | null;
+        kind?: string | null;
+        track?: string | null;
+        cadence?: string | null;
+        effort_hours?: number | string | null;
+        definition_of_done?: string | null;
+        rationale?: string | null;
+        evidence?: unknown;
         tasks: {
           created_by: string | null;
           created_by_origin?: "consultant" | "client" | null;
+          /** Lo que A19 dijo de la tarea al crear el camino; null si es a mano. */
+          plan_meta?: Record<string, unknown> | null;
           assigned_to?: string | null;
           assignee_name?: string | null;
           assignee_origin?: "consultant" | "client" | null;
@@ -451,6 +576,8 @@ async function attachCreatorOrigin(
 }
 
 type PlanInput = {
+  /** Salida de IA que origina el plan: se marca publicada en la misma transaccion. */
+  outputId?: string | null;
   storeId?: string | null;
   connectionId?: string | null;
   name?: string;
@@ -461,9 +588,13 @@ type PlanInput = {
   phases?: Array<{
     name?: string;
     description?: string | null;
+    rationale?: string | null;
+    evidence?: unknown[];
     milestones?: Array<{
       name?: string;
       description?: string | null;
+      successCriteria?: string | null;
+      rationale?: string | null;
       targetDate?: string | null;
       // Metrica del hito elegida al crear el camino (builder a mano): se
       // guarda como objetivo ligado al hito, igual que desde el panel.
@@ -473,10 +604,41 @@ type PlanInput = {
         description?: string | null;
         dueAt?: string | null;
         priority?: string;
+        owner?: string | null;
+        kind?: string | null;
+        track?: string | null;
+        cadence?: string | null;
+        effortHours?: number | null;
+        definitionOfDone?: string | null;
+        rationale?: string | null;
+        evidence?: unknown[];
       }>;
     }>;
   }>;
 };
+
+/**
+ * Quien recibe las tareas del consultor al crear un camino: su consultor
+ * asignado y, si quien crea es consultor o admin sin asignacion, el mismo.
+ */
+async function resolveTaskAssignee(
+  supabase: SupabaseClient,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const { data } = await supabase
+    .from("consultant_assignments")
+    .select("consultant_user_id")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const consultantId =
+    (data?.consultant_user_id as string | undefined) ??
+    (["consultant", "platform_admin"].includes(context.profile.platform_role) ? context.user.id : null);
+  return (owner: unknown) => assigneeForOwner(owner, { consultantId, creatorId: context.user.id });
+}
 
 /** ISO 4217 en mayusculas o null; cualquier otra cosa se descarta. */
 export function normalizeCurrencyCode(value: unknown): string | null {
@@ -562,23 +724,92 @@ export async function createStrategicPlan(
     };
   }
 
-  const { data: plan, error: planError } = await supabase
-    .from("strategic_plans")
-    .insert({
-      organization_id: organizationId,
-      name: input.name.trim().slice(0, 255),
-      description: input.description ?? null,
-      goal: input.goal ?? null,
-      horizon_months: input.horizonMonths ?? null,
-      currency_code: normalizeCurrencyCode(input.currencyCode),
-      store_id: storeId,
-      version: (latest?.version ?? 0) + 1,
-      created_by: context.user.id,
-    })
-    .select("id")
-    .single();
+  const assignTo = await resolveTaskAssignee(supabase, context, organizationId);
 
-  if (planError || !plan) {
+  // Todo el arbol viaja en un solo JSON y se escribe en UNA transaccion
+  // (create_strategic_plan_tree). Antes eran ~150 inserts sueltos con un
+  // rollback manual que no corria si el proceso caia a mitad.
+  const tree = {
+    name: input.name.trim().slice(0, 255),
+    description: input.description ?? null,
+    goal: input.goal ?? null,
+    horizon_months: input.horizonMonths ?? null,
+    currency_code: normalizeCurrencyCode(input.currencyCode),
+    phases: phases.map((phase) => ({
+      name: phase.name!.trim().slice(0, 255),
+      description: phase.description ?? null,
+      rationale: phase.rationale ?? null,
+      evidence: phase.evidence ?? [],
+      milestones: (phase.milestones ?? [])
+        .filter((milestone) => milestone.name && milestone.name.trim().length > 0)
+        .map((milestone) => {
+          const objective = milestone.objective;
+          const validObjective =
+            objective?.metricKey &&
+            objectiveCatalogKeys.has(objective.metricKey) &&
+            typeof objective.targetValue === "number" &&
+            Number.isFinite(objective.targetValue) &&
+            objective.targetValue >= 0
+              ? { metric_key: objective.metricKey, target_value: objective.targetValue }
+              : null;
+          return {
+            name: milestone.name!.trim().slice(0, 255),
+            description: milestone.description ?? null,
+            success_criteria: milestone.successCriteria ?? null,
+            rationale: milestone.rationale ?? null,
+            target_date: milestone.targetDate ?? null,
+            objective: validObjective,
+            tasks: (milestone.tasks ?? [])
+              .filter((task) => task.title && task.title.trim().length > 0)
+              // Una rutina (semanal, quincenal...) se convierte en una tarea por vez.
+              .flatMap((task) => {
+                const cadence = normalizeCadence(task.cadence);
+                const dates = cadence && cadence !== "una_vez" ? recurrenceDates(task.dueAt, cadence, milestone.targetDate) : [];
+                return dates.length > 1
+                  ? dates.map((date, index) => ({ ...task, title: occurrenceTitle(task.title!.trim(), index, dates.length), dueAt: date }))
+                  : [task];
+              })
+              .map((task) => ({
+                title: task.title!.trim().slice(0, 255),
+                description: task.description ?? null,
+                priority: MILESTONE_TASK_PRIORITIES.includes(task.priority ?? "")
+                  ? task.priority
+                  : "medium",
+                due_at: task.dueAt ?? null,
+                assigned_to: assignTo(task.owner),
+                category: categoryForKind(task.kind),
+                owner: normalizeOwner(task.owner),
+                kind: normalizeKind(task.kind),
+                track: normalizeTrack(task.track),
+                cadence: normalizeCadence(task.cadence),
+                effort_hours: typeof task.effortHours === "number" ? task.effortHours : null,
+                definition_of_done: task.definitionOfDone ?? null,
+                rationale: task.rationale ?? null,
+                evidence: task.evidence ?? [],
+              })),
+          };
+        }),
+    })),
+  };
+
+  const { data: planId, error: planError } = await supabase.rpc("create_strategic_plan_tree", {
+    p_organization_id: organizationId,
+    p_user_id: context.user.id,
+    p_store_id: storeId,
+    p_output_id: input.outputId ?? null,
+    p_plan: tree,
+  });
+
+  if (planError || !planId) {
+    if (planError?.message?.includes("plan_already_open")) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "plan_already_open",
+        message:
+          "Ya existe un plan en borrador o activo. Archivalo o completalo antes de crear otro.",
+      };
+    }
     return {
       ok: false as const,
       statusCode: 500,
@@ -587,178 +818,19 @@ export async function createStrategicPlan(
     };
   }
 
-  // The Supabase client does not wrap this nested write in a transaction. Keep
-  // the import safe from leaving a visible half-built plan if a later insert
-  // fails; the plan delete cascades through phases, milestones and links.
-  const createdTaskIds: string[] = [];
-  const rollback = async () => {
-    if (createdTaskIds.length > 0) {
-      await supabase
-        .from("tasks")
-        .delete()
-        .eq("organization_id", organizationId)
-        .in("id", createdTaskIds);
-    }
-    await supabase
-      .from("strategic_plans")
-      .delete()
-      .eq("organization_id", organizationId)
-      .eq("id", plan.id);
-  };
-
-  for (const [phaseIndex, phase] of phases.entries()) {
-    const { data: phaseRow, error: phaseError } = await supabase
-      .from("strategic_plan_phases")
-      .insert({
-        organization_id: organizationId,
-        plan_id: plan.id,
-        name: phase.name!.trim().slice(0, 255),
-        description: phase.description ?? null,
-        position: phaseIndex + 1,
-        created_by: context.user.id,
-      })
-      .select("id")
-      .single();
-
-    if (phaseError || !phaseRow) {
-      await rollback();
-      return {
-        ok: false as const,
-        statusCode: 500,
-        error: "plan_phase_create_failed",
-        detail: phaseError?.message,
-      };
-    }
-
-    const milestones = (phase.milestones ?? []).filter(
-      (milestone) => milestone.name && milestone.name.trim().length > 0,
-    );
-
-    for (const [milestoneIndex, milestone] of milestones.entries()) {
-      const { data: milestoneRow, error: milestoneError } = await supabase
-        .from("strategic_plan_milestones")
-        .insert({
-          organization_id: organizationId,
-          phase_id: phaseRow.id,
-          name: milestone.name!.trim().slice(0, 255),
-          description: milestone.description ?? null,
-          position: milestoneIndex + 1,
-          target_date: milestone.targetDate ?? null,
-          created_by: context.user.id,
-        })
-        .select("id")
-        .single();
-
-      if (milestoneError || !milestoneRow) {
-        await rollback();
-        return {
-          ok: false as const,
-          statusCode: 500,
-          error: "plan_milestone_create_failed",
-          detail: milestoneError.message,
-        };
-      }
-
-      const objective = milestone.objective;
-      if (
-        objective?.metricKey &&
-        objectiveCatalogKeys.has(objective.metricKey) &&
-        typeof objective.targetValue === "number" &&
-        Number.isFinite(objective.targetValue) &&
-        objective.targetValue >= 0
-      ) {
-        const { error: objectiveError } = await supabase
-          .from("organization_metric_targets")
-          .insert({
-            organization_id: organizationId,
-            // La tienda la da el hito (su camino); igual que los creados desde el panel.
-            store_id: null,
-            milestone_id: milestoneRow.id,
-            metric_key: objective.metricKey,
-            target_value: objective.targetValue,
-            period: "monthly",
-            valid_from: new Date().toISOString().slice(0, 10),
-            created_by: context.user.id,
-          });
-        if (objectiveError) {
-          await rollback();
-          return {
-            ok: false as const,
-            statusCode: 500,
-            error: "plan_objective_create_failed",
-            detail: objectiveError.message,
-          };
-        }
-      }
-
-      for (const task of (milestone.tasks ?? []).filter(
-        (item) => item.title && item.title.trim().length > 0,
-      )) {
-        const priority = MILESTONE_TASK_PRIORITIES.includes(
-          task.priority ?? "",
-        )
-          ? task.priority
-          : "medium";
-        const { data: taskRow, error: taskError } = await supabase
-          .from("tasks")
-          .insert({
-            organization_id: organizationId,
-            source: "strategic_plan",
-            priority,
-            categories: ["general"],
-            title: task.title!.trim().slice(0, 255),
-            description: task.description ?? null,
-            due_at: task.dueAt ?? null,
-            created_by: context.user.id,
-            assigned_to: context.user.id,
-          })
-          .select("id")
-          .single();
-
-        if (taskError || !taskRow) {
-          await rollback();
-          return {
-            ok: false as const,
-            statusCode: 500,
-            error: "plan_task_create_failed",
-            detail: taskError?.message,
-          };
-        }
-        createdTaskIds.push(taskRow.id);
-
-        const { error: linkError } = await supabase
-          .from("milestone_task_links")
-          .insert({
-            organization_id: organizationId,
-            milestone_id: milestoneRow.id,
-            task_id: taskRow.id,
-          });
-        if (linkError) {
-          await rollback();
-          return {
-            ok: false as const,
-            statusCode: 500,
-            error: "plan_task_link_failed",
-            detail: linkError.message,
-          };
-        }
-      }
-    }
-  }
-
   await auditStrategicChange(
     supabase,
     organizationId,
     context,
     "strategic_plan.create",
     "strategic_plan",
-    plan.id,
+    planId as string,
     {
       name: input.name,
       phases: phases.length,
     },
   );
-  return { ok: true as const, data: { id: plan.id } };
+  return { ok: true as const, data: { id: planId as string } };
 }
 
 export function previewStrategicPlanMarkdown(markdown: string) {
@@ -948,6 +1020,150 @@ export async function updatePlanCurrency(
   return { ok: true as const, data: { id: planId, currency_code: currencyCode } };
 }
 
+type StrategicPlanUpdateInput = { name?: string | undefined; description?: string | null | undefined };
+
+export async function updateStrategicPlan(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  planId: string,
+  input: StrategicPlanUpdateInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const patch: Record<string, unknown> = {};
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) return { ok: false as const, statusCode: 400, error: "invalid_plan_name" };
+    patch.name = name.slice(0, 255);
+  }
+  if (input.description !== undefined) patch.description = input.description?.trim() || null;
+  if (!Object.keys(patch).length) return { ok: false as const, statusCode: 400, error: "empty_update" };
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.from("strategic_plans")
+    .update(patch).eq("id", planId).eq("organization_id", organizationId)
+    .select("id").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "plan_update_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.update", "strategic_plan", data.id, patch);
+  return { ok: true as const, data: { id: data.id } };
+}
+
+export async function deleteStrategicPlan(env: ApiEnv, context: AuthContext, organizationId: string, planId: string) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const supabase = createServiceClient(env);
+  const { data: plan, error: lookupError } = await supabase.from("strategic_plans")
+    .select("id, name, status").eq("id", planId).eq("organization_id", organizationId).maybeSingle();
+  if (lookupError) return { ok: false as const, statusCode: 500, error: "plan_lookup_failed", detail: lookupError.message };
+  if (!plan) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.delete", "strategic_plan", plan.id, { name: plan.name, status: plan.status });
+  const { data, error } = await supabase.from("strategic_plans").delete()
+    .eq("id", planId).eq("organization_id", organizationId).select("id").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "plan_delete_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  return { ok: true as const, data: { id: data.id } };
+}
+
+/**
+ * Archiva un camino (borrador, activo o completado) sin borrar nada: sus fases,
+ * hitos y tareas se conservan. Es lo que permite crear otro en la misma tienda,
+ * porque solo puede haber uno en borrador o activo; y a diferencia de borrarlo,
+ * deja el historial de lo que se intento.
+ */
+export async function archiveStrategicPlan(env: ApiEnv, context: AuthContext, organizationId: string, planId: string) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.from("strategic_plans")
+    .update({ status: "archived" })
+    .eq("id", planId).eq("organization_id", organizationId)
+    .in("status", ["draft", "active", "completed"])
+    .select("id, name").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "plan_archive_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.archive", "strategic_plan", data.id, { name: data.name });
+  return { ok: true as const, data: { id: data.id as string, status: "archived" } };
+}
+
+export async function deletePhase(env: ApiEnv, context: AuthContext, organizationId: string, phaseId: string) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const supabase = createServiceClient(env);
+  const { data: phase, error: lookupError } = await supabase.from("strategic_plan_phases")
+    .select("id, plan_id, name").eq("id", phaseId).eq("organization_id", organizationId).maybeSingle();
+  if (lookupError) return { ok: false as const, statusCode: 500, error: "phase_lookup_failed", detail: lookupError.message };
+  if (!phase) return { ok: false as const, statusCode: 404, error: "phase_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.delete_phase", "strategic_plan_phase", phase.id, { plan_id: phase.plan_id, name: phase.name });
+  const { data, error } = await supabase.from("strategic_plan_phases").delete()
+    .eq("id", phaseId).eq("organization_id", organizationId).select("id").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "phase_delete_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "phase_not_found" };
+  return { ok: true as const, data: { id: data.id } };
+}
+
+export async function deleteMilestone(env: ApiEnv, context: AuthContext, organizationId: string, milestoneId: string) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const supabase = createServiceClient(env);
+  const { data: milestone, error: lookupError } = await supabase.from("strategic_plan_milestones")
+    .select("id, phase_id, name").eq("id", milestoneId).eq("organization_id", organizationId).maybeSingle();
+  if (lookupError) return { ok: false as const, statusCode: 500, error: "milestone_lookup_failed", detail: lookupError.message };
+  if (!milestone) return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.delete_milestone", "strategic_plan_milestone", milestone.id, { phase_id: milestone.phase_id, name: milestone.name });
+  const { data, error } = await supabase.from("strategic_plan_milestones").delete()
+    .eq("id", milestoneId).eq("organization_id", organizationId).select("id").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "milestone_delete_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+  return { ok: true as const, data: { id: data.id } };
+}
+
+type MilestoneTaskUpdateInput = { title?: string; description?: string | null; priority?: string; dueAt?: string | null };
+
+export async function updateMilestoneTask(env: ApiEnv, context: AuthContext, organizationId: string, milestoneId: string, taskId: string, input: MilestoneTaskUpdateInput) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const patch: Record<string, unknown> = {};
+  if (input.title !== undefined) {
+    const title = input.title.trim();
+    if (!title) return { ok: false as const, statusCode: 400, error: "invalid_task_title" };
+    patch.title = title.slice(0, 255);
+  }
+  if (input.description !== undefined) patch.description = input.description?.trim() || null;
+  if (input.priority !== undefined) {
+    if (!MILESTONE_TASK_PRIORITIES.includes(input.priority)) return { ok: false as const, statusCode: 400, error: "invalid_task_priority" };
+    patch.priority = input.priority;
+  }
+  if (input.dueAt !== undefined) patch.due_at = input.dueAt || null;
+  if (!Object.keys(patch).length) return { ok: false as const, statusCode: 400, error: "empty_update" };
+
+  const supabase = createServiceClient(env);
+  const { data: link, error: linkError } = await supabase.from("milestone_task_links")
+    .select("id").eq("organization_id", organizationId).eq("milestone_id", milestoneId).eq("task_id", taskId).maybeSingle();
+  if (linkError) return { ok: false as const, statusCode: 500, error: "task_link_lookup_failed", detail: linkError.message };
+  if (!link) return { ok: false as const, statusCode: 404, error: "milestone_task_not_found" };
+  const { data, error } = await supabase.from("tasks").update(patch)
+    .eq("id", taskId).eq("organization_id", organizationId).select("id").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "task_update_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "task_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.update_task", "task", data.id, { milestone_id: milestoneId, ...patch });
+  return { ok: true as const, data: { id: data.id } };
+}
+
+export async function unlinkMilestoneTask(env: ApiEnv, context: AuthContext, organizationId: string, milestoneId: string, taskId: string) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.from("milestone_task_links").delete()
+    .eq("organization_id", organizationId).eq("milestone_id", milestoneId).eq("task_id", taskId)
+    .select("id").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "task_unlink_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "milestone_task_not_found" };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.unlink_task", "task", taskId, { milestone_id: milestoneId });
+  return { ok: true as const, data: { id: taskId } };
+}
+
 const MILESTONE_ACTIONS = ["in_progress", "completed", "skipped"] as const;
 
 export async function updateMilestoneStatus(
@@ -956,6 +1172,7 @@ export async function updateMilestoneStatus(
   organizationId: string,
   milestoneId: string,
   statusInput: string | undefined,
+  completionNote?: string,
 ) {
   const authz = assertCanManagePlan(context, organizationId);
   if (authz.ok === false) {
@@ -978,12 +1195,36 @@ export async function updateMilestoneStatus(
   const supabase = createServiceClient(env);
   const now = new Date().toISOString();
 
+  if (statusInput === "completed") {
+    const { data: links, error: linksError } = await supabase
+      .from("milestone_task_links")
+      .select("task_id, tasks(title, status)")
+      .eq("organization_id", organizationId)
+      .eq("milestone_id", milestoneId);
+    if (linksError) return { ok: false as const, statusCode: 500, error: "milestone_readiness_failed", detail: linksError.message };
+    const normalizedLinks: MilestoneTaskReadiness[] = (links ?? []).map((link) => ({
+      task_id: link.task_id,
+      tasks: Array.isArray(link.tasks) ? (link.tasks[0] ?? null) : link.tasks,
+    }));
+    const readiness = assessMilestoneCompletion(normalizedLinks, completionNote);
+    if (!readiness.ready) return {
+      ok: false as const,
+      statusCode: 409,
+      error: "milestone_not_ready",
+      message: readiness.unfinished.length
+        ? `Completa primero las tareas del hito: ${readiness.unfinished.slice(0, 3).join(", ")}${readiness.unfinished.length > 3 ? "…" : ""}.`
+        : readiness.evidenceTooLong
+          ? "La evidencia no puede superar 2000 caracteres."
+        : "Describe la evidencia del resultado en al menos 20 caracteres.",
+    };
+  }
+
   const { data: milestone, error } = await supabase
     .from("strategic_plan_milestones")
     .update({
       status: statusInput,
       ...(statusInput === "completed"
-        ? { completed_at: now, completed_by: context.user.id }
+        ? { completed_at: now, completed_by: context.user.id, completion_evidence: completionNote?.trim() }
         : {}),
     })
     .eq("id", milestoneId)
@@ -1010,6 +1251,22 @@ export async function updateMilestoneStatus(
   }
 
   if (statusInput !== "completed" && statusInput !== "skipped") {
+    const { data: phase } = await supabase.from("strategic_plan_phases")
+      .select("id, plan_id, status")
+      .eq("id", milestone.phase_id)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (phase?.status === "completed") {
+      await supabase.from("strategic_plan_phases")
+        .update({ status: "active", completed_at: null })
+        .eq("id", phase.id)
+        .eq("organization_id", organizationId);
+      await supabase.from("strategic_plans")
+        .update({ status: "active", completed_on: null })
+        .eq("id", phase.plan_id)
+        .eq("organization_id", organizationId)
+        .eq("status", "completed");
+    }
     await auditStrategicChange(
       supabase,
       organizationId,
@@ -1100,7 +1357,7 @@ export async function updateMilestoneStatus(
     "strategic_plan.update_milestone_status",
     "strategic_plan_milestone",
     milestone.id,
-    { status: statusInput },
+    { status: statusInput, ...(statusInput === "completed" ? { completion_note: completionNote?.trim() } : {}) },
   );
   return { ok: true as const, data: { id: milestone.id, status: statusInput } };
 }
@@ -1196,6 +1453,117 @@ type MilestoneCreateInput = {
   targetDate?: string | null | undefined;
 };
 
+/**
+ * Reopens a completed Camino milestone when new open work is linked to it.
+ * If its phase (or plan) had already closed, those containers are reopened too
+ * so the new task remains visible in the active journey.
+ */
+export async function reopenCaminoMilestoneForWork(
+  supabase: SupabaseClient,
+  organizationId: string,
+  milestoneId: string,
+  actorUserId: string | null,
+  taskId?: string,
+): Promise<{ ok: true; reopened: boolean } | { ok: false; detail: string }> {
+  if (taskId) {
+    const { data: task, error } = await supabase
+      .from("tasks")
+      .select("status")
+      .eq("id", taskId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (error) return { ok: false, detail: error.message };
+    if (!task || !["pending", "in_progress"].includes(String(task.status))) {
+      return { ok: true, reopened: false };
+    }
+  }
+
+  const { data: milestone, error: milestoneError } = await supabase
+    .from("strategic_plan_milestones")
+    .select("id, status, phase_id")
+    .eq("id", milestoneId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (milestoneError) return { ok: false, detail: milestoneError.message };
+  if (!milestone) return { ok: true, reopened: false };
+
+  const { data: phase, error: phaseError } = await supabase
+    .from("strategic_plan_phases")
+    .select("id, status, plan_id")
+    .eq("id", milestone.phase_id)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (phaseError) return { ok: false, detail: phaseError.message };
+  if (!phase) return { ok: true, reopened: false };
+
+  const { data: plan, error: planError } = await supabase
+    .from("strategic_plans")
+    .select("id, status")
+    .eq("id", phase.plan_id)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (planError) return { ok: false, detail: planError.message };
+  if (!plan || !["active", "completed"].includes(String(plan.status))) {
+    return { ok: true, reopened: false };
+  }
+
+  const now = new Date().toISOString();
+  let reopened = false;
+  if (milestone.status === "completed") {
+    const { error } = await supabase
+      .from("strategic_plan_milestones")
+      .update({ status: "pending", completed_at: null, completed_by: null })
+      .eq("id", milestone.id)
+      .eq("organization_id", organizationId)
+      .eq("status", "completed");
+    if (error) return { ok: false, detail: error.message };
+    reopened = true;
+  }
+  if (phase.status === "completed") {
+    const { data: activePhases, error: activePhasesError } = await supabase
+      .from("strategic_plan_phases")
+      .select("id")
+      .eq("plan_id", phase.plan_id)
+      .eq("organization_id", organizationId)
+      .eq("status", "active");
+    if (activePhasesError) return { ok: false, detail: activePhasesError.message };
+    for (const activePhase of activePhases ?? []) {
+      if (activePhase.id === phase.id) continue;
+      const { error } = await supabase
+        .from("strategic_plan_phases")
+        .update({ status: "pending" })
+        .eq("id", activePhase.id)
+        .eq("organization_id", organizationId)
+        .eq("status", "active");
+      if (error) return { ok: false, detail: error.message };
+    }
+    const { error } = await supabase
+      .from("strategic_plan_phases")
+      .update({
+        status: "active",
+        completed_at: null,
+        activated_at: now,
+        activated_by: actorUserId,
+      })
+      .eq("id", phase.id)
+      .eq("organization_id", organizationId)
+      .eq("status", "completed");
+    if (error) return { ok: false, detail: error.message };
+    reopened = true;
+  }
+  if (plan.status === "completed") {
+    const { error } = await supabase
+      .from("strategic_plans")
+      .update({ status: "active", completed_on: null })
+      .eq("id", plan.id)
+      .eq("organization_id", organizationId)
+      .eq("status", "completed");
+    if (error) return { ok: false, detail: error.message };
+    reopened = true;
+  }
+  return { ok: true, reopened };
+}
+
 /** Igual que createPhase pero para un hito dentro de una fase existente --
  * el gap real que motivo este endpoint (Rafa, 2026-07-29): antes de esta
  * fecha un hito solo podia nacer con el plan completo, no se podia anadir
@@ -1265,6 +1633,21 @@ export async function createMilestone(
       statusCode: 500,
       error: "milestone_create_failed",
       detail: milestoneError?.message,
+    };
+  }
+
+  const reopened = await reopenCaminoMilestoneForWork(
+    supabase,
+    organizationId,
+    milestone.id,
+    context.user.id,
+  );
+  if (!reopened.ok) {
+    return {
+      ok: false as const,
+      statusCode: 503,
+      error: "milestone_parent_reopen_failed",
+      detail: reopened.detail,
     };
   }
 
@@ -2503,6 +2886,22 @@ export async function linkTaskToMilestone(
     };
   }
 
+  const reopened = await reopenCaminoMilestoneForWork(
+    supabase,
+    organizationId,
+    milestoneId,
+    context.user.id,
+    taskId,
+  );
+  if (!reopened.ok) {
+    return {
+      ok: false as const,
+      statusCode: 503,
+      error: "milestone_reopen_failed",
+      detail: reopened.detail,
+    };
+  }
+
   await auditStrategicChange(
     supabase,
     organizationId,
@@ -2612,7 +3011,7 @@ export async function createMilestoneTask(
 
   const { data: milestone, error: milestoneError } = await supabase
     .from("strategic_plan_milestones")
-    .select("id")
+    .select("id, strategic_plan_phases!inner(strategic_plans!inner(store_id))")
     .eq("id", milestoneId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -2625,10 +3024,20 @@ export async function createMilestoneTask(
     };
   }
 
+  // La tarea hereda la tienda del camino al que pertenece su hito.
+  const phaseRel = milestone.strategic_plan_phases as unknown as
+    | { strategic_plans?: { store_id?: string | null } | Array<{ store_id?: string | null }> | null }
+    | Array<{ strategic_plans?: { store_id?: string | null } | Array<{ store_id?: string | null }> | null }>
+    | null;
+  const phaseRow = Array.isArray(phaseRel) ? phaseRel[0] : phaseRel;
+  const planRow = Array.isArray(phaseRow?.strategic_plans) ? phaseRow?.strategic_plans[0] : phaseRow?.strategic_plans;
+  const planStoreId = planRow?.store_id ?? null;
+
   const { data: task, error: taskError } = await supabase
     .from("tasks")
     .insert({
       organization_id: organizationId,
+      store_id: planStoreId,
       source: "strategic_plan",
       priority,
       categories: ["general"],
@@ -2664,6 +3073,22 @@ export async function createMilestoneTask(
       statusCode: 500,
       error: "milestone_task_link_failed",
       detail: linkError.message,
+    };
+  }
+
+  const reopened = await reopenCaminoMilestoneForWork(
+    supabase,
+    organizationId,
+    milestoneId,
+    context.user.id,
+    task.id,
+  );
+  if (!reopened.ok) {
+    return {
+      ok: false as const,
+      statusCode: 503,
+      error: "milestone_reopen_failed",
+      detail: reopened.detail,
     };
   }
 
@@ -2716,19 +3141,109 @@ export function caminoProposalToPlanInput(
         : {}),
       ...(baselineObservedAt ? { baseline_observed_at: baselineObservedAt } : {}),
       target_date: toTargetDate(proposal.goal.target_offset_days),
+      ...(proposal.horizon_months ? { horizon_end_date: toTargetDate(caminoCalendarHorizonDays(new Date(acceptedAtMs), proposal.horizon_months)) } : {}),
     } : proposal.goal,
     storeId: storeId ?? null,
     ...(proposal.horizon_months === undefined ? {} : { horizonMonths: proposal.horizon_months }),
     phases: proposal.phases.map((phase) => ({
       name: phase.name,
       description: phase.description,
+      rationale: phase.rationale,
+      evidence: phase.evidence,
       milestones: phase.milestones.map((milestone) => ({
         name: milestone.name,
+        // El criterio vive tambien en su columna; se mantiene en la descripcion
+        // para las pantallas que aun lo separan con splitCriterion.
         description: `${milestone.description}\n\nCriterio de exito: ${milestone.success_metric}`,
+        successCriteria: milestone.success_metric,
+        rationale: milestone.rationale || null,
         targetDate: toTargetDate(milestone.target_offset_days),
+        tasks: milestone.tasks.map((task) => ({
+          title: task.title,
+          description: task.description,
+          dueAt: toTargetDate(task.target_offset_days),
+          priority: task.priority,
+          owner: task.owner,
+          kind: task.kind,
+          track: task.track,
+          cadence: task.cadence,
+          effortHours: task.effort_hours,
+          definitionOfDone: task.definition_of_done || null,
+          evidence: task.evidence,
+        })),
       })),
     })),
   };
+}
+
+/**
+ * Descarta una propuesta de A19. Queda guardada en servidor (antes solo vivia
+ * en el navegador de quien la rechazo): GET camino-proposal ya no la devuelve,
+ * y el motivo alimenta la siguiente propuesta como rechazo previo.
+ */
+export async function rejectCaminoProposalOutput(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  outputId: string,
+  reason: string,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+
+  const supabase = createServiceClient(env);
+  const { data: output, error: outputError } = await supabase
+    .from("agent_outputs")
+    .select("id, status, agent_runs!inner(agent_versions!inner(agent_definitions!inner(code)))")
+    .eq("id", outputId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (outputError) {
+    return { ok: false as const, statusCode: 500, error: "plan_proposal_load_failed", detail: outputError.message };
+  }
+  if (!output) return { ok: false as const, statusCode: 404, error: "plan_proposal_not_found" };
+
+  const runs = output.agent_runs as unknown as
+    | { agent_versions?: { agent_definitions?: { code?: string } | Array<{ code?: string }> } | Array<{ agent_definitions?: { code?: string } | Array<{ code?: string }> }> }
+    | null;
+  const run = Array.isArray(runs) ? runs[0] : runs;
+  const version = Array.isArray(run?.agent_versions) ? run?.agent_versions[0] : run?.agent_versions;
+  const definition = Array.isArray(version?.agent_definitions) ? version?.agent_definitions[0] : version?.agent_definitions;
+  if (definition?.code !== "a19_arquitecto_camino") {
+    return { ok: false as const, statusCode: 400, error: "plan_proposal_wrong_agent", message: "Esa salida de IA no es una propuesta de camino." };
+  }
+  if (output.status === "published") {
+    return { ok: false as const, statusCode: 409, error: "plan_proposal_already_applied", message: "Esta propuesta ya se convirtio en un plan." };
+  }
+
+  const cleanReason = reason.trim().slice(0, 500);
+  // La condicion de estado evita pisar una propuesta que otro usuario acaba de aceptar.
+  const { data: updated, error: updateError } = await supabase
+    .from("agent_outputs")
+    .update({ status: "rejected" })
+    .eq("id", outputId)
+    .eq("organization_id", organizationId)
+    .neq("status", "published")
+    .select("id")
+    .maybeSingle();
+  if (updateError) {
+    return { ok: false as const, statusCode: 500, error: "plan_proposal_reject_failed", detail: updateError.message };
+  }
+  if (!updated) {
+    return { ok: false as const, statusCode: 409, error: "plan_proposal_already_applied", message: "Esta propuesta ya se convirtio en un plan." };
+  }
+
+  const { error: approvalError } = await supabase.from("agent_approvals").insert({
+    output_id: outputId,
+    organization_id: organizationId,
+    decision: "rejected",
+    decided_by: context.user.id,
+    reason: cleanReason || null,
+  });
+  if (approvalError) {
+    logger.error("camino_proposal_reject_log_failed", { organization_id: organizationId, output_id: outputId, error: approvalError.message });
+  }
+  return { ok: true as const, data: { output_id: outputId, status: "rejected" as const } };
 }
 
 /**
@@ -2748,7 +3263,7 @@ export async function createStrategicPlanFromProposal(
   context: AuthContext,
   organizationId: string,
   outputId: string,
-  adjustments: { horizonMonths?: unknown; goalTarget?: unknown; currencyCode?: unknown } = {},
+  adjustments: { horizonMonths?: unknown; goalTarget?: unknown; currencyCode?: unknown; replacePlanId?: unknown } = {},
 ) {
   const authz = assertCanManagePlan(context, organizationId);
   if (authz.ok === false) {
@@ -2839,10 +3354,45 @@ export async function createStrategicPlanFromProposal(
       return { ok: false as const, statusCode: 400, error: "camino_proposal_has_no_goal" };
     }
     reviewedProposal = adjustCaminoProposal(parsed.data, horizonMonths!, goalTarget as number | null);
+    if (reviewedProposal.phases.length === 0) {
+      return {
+        ok: false as const,
+        statusCode: 422,
+        error: "camino_horizon_too_short",
+        message: "Con ese plazo no cabe ningún hito: las fechas del Camino son de calendario y no se comprimen. Elige un plazo mayor o replanifica.",
+      };
+    }
     const reviewedValidation = caminoPlanOutputSchema.safeParse(reviewedProposal);
     if (!reviewedValidation.success) {
       return { ok: false as const, statusCode: 422, error: "camino_adjustment_invalid", detail: reviewedValidation.error.message };
     }
+  }
+
+  // Replanificar: el camino vigente se archiva justo antes de crear el nuevo, y
+  // se restaura si la creacion falla, para no dejar la tienda sin camino.
+  let replaced: { id: string; status: string } | null = null;
+  if (typeof adjustments.replacePlanId === "string" && adjustments.replacePlanId) {
+    const { data: current, error: currentError } = await supabase
+      .from("strategic_plans")
+      .select("id, status, store_id")
+      .eq("id", adjustments.replacePlanId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (currentError) {
+      return { ok: false as const, statusCode: 500, error: "plan_replace_lookup_failed", detail: currentError.message };
+    }
+    if (!current) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+    if ((current.store_id ?? null) !== (run?.store_id ?? null)) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "plan_replace_scope_mismatch",
+        message: "El camino que quieres reemplazar es de otra tienda que esta propuesta.",
+      };
+    }
+    const archived = await archiveStrategicPlan(env, context, organizationId, current.id);
+    if (archived.ok === false) return archived;
+    replaced = { id: current.id as string, status: current.status as string };
   }
 
   const created = await createStrategicPlan(
@@ -2851,26 +3401,42 @@ export async function createStrategicPlanFromProposal(
     organizationId,
     {
       ...caminoProposalToPlanInput(reviewedProposal, Date.now(), run?.store_id ?? null, run?.lookback_days, run?.started_at),
+      // La propuesta se publica dentro de la misma transaccion que crea el plan.
+      outputId,
       currencyCode: normalizeCurrencyCode(adjustments.currencyCode) ?? reviewedProposal.goal?.currency_code ?? null,
     },
   );
 
   if (created.ok === false) {
+    if (replaced) {
+      const { error: restoreError } = await supabase
+        .from("strategic_plans")
+        .update({ status: replaced.status })
+        .eq("id", replaced.id)
+        .eq("organization_id", organizationId);
+      if (restoreError) {
+        logger.error("camino_replace_restore_failed", { organization_id: organizationId, plan_id: replaced.id, error: restoreError.message });
+      }
+    }
     return created;
   }
 
-  await supabase
-    .from("agent_outputs")
-    .update({ status: "published", published_at: new Date().toISOString() })
-    .eq("id", outputId);
-
-  await supabase.from("agent_approvals").insert({
+  const { error: approvalError } = await supabase.from("agent_approvals").insert({
     output_id: outputId,
     organization_id: organizationId,
     decision: "approved",
     decided_by: context.user.id,
     reason: `Camino creado como plan ${created.data.id}; plazo=${reviewedProposal.horizon_months ?? "original"}; objetivo=${reviewedProposal.goal?.target ?? "sin target"}`,
   });
+  // El plan ya existe y la propuesta ya esta publicada (misma transaccion): un
+  // fallo del registro de aprobacion no debe tumbar la respuesta, pero si verse.
+  if (approvalError) {
+    logger.error("camino_proposal_approval_log_failed", {
+      organization_id: organizationId,
+      output_id: outputId,
+      error: approvalError.message,
+    });
+  }
 
   await auditStrategicChange(
     supabase,
@@ -2891,5 +3457,5 @@ export async function createStrategicPlanFromProposal(
     },
   );
 
-  return { ok: true as const, data: { id: created.data.id } };
+  return { ok: true as const, data: { id: created.data.id, store_id: run?.store_id ?? null } };
 }

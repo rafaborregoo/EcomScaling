@@ -1,0 +1,85 @@
+.card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.eyebrow {
+  color: var(--store);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.header h2 {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.high { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 24%, var(--line)); }
+.watch { color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); border-color: color-mix(in srgb, var(--warn) 25%, var(--line)); }
+.covered { color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--surface)); border-color: color-mix(in srgb, var(--good) 22%, var(--line)); }
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+}
+.metric {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 80px;
+  padding: 14px;
+  background: var(--surface-2);
+}
+.metric span, .compactLabel { color: var(--ink-3); font-size: 11px; }
+.metric strong { color: var(--ink); font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--ink-2); font-size: 11.5px; }
+.down { color: var(--bad); }
+.up { color: var(--good); }
+.note { color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+.compact {
+  display: grid;
+  gap: 3px;
+  min-width: 132px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+.compact strong { color: var(--ink); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.compact > span:last-child { color: var(--ink-3); font-size: 10.5px; }
+.compact .compactLabel { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+
+@media (max-width: 640px) {
+  .metrics { grid-template-columns: 1fr; }
+  .metric { min-height: 0; }
+  .card { padding: 16px; }
+}

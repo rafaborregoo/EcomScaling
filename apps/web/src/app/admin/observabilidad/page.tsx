@@ -5,16 +5,17 @@ import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { RunTraceDetail } from "./run-trace";
 import { ModelPricesPanel } from "./model-prices";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
   Badge,
   Button,
   Card,
-  Drawer,
   ErrorBlock,
   EYEBROW,
   Metric,
   Select,
+  Sheet,
   Table,
   type TableColumnDef,
   type Tone,
@@ -965,34 +966,26 @@ function ObservabilidadPanel() {
           emptyLabel="Ninguna ejecución coincide con el filtro."
         />
 
-        <Drawer
+        <Sheet
           isOpen={Boolean(expandedRun)}
           onOpenChange={(open) => {
             if (!open) setExpandedRunId(null);
           }}
+          size="lg"
+          title={expandedRun?.agent_name ?? "Detalle de ejecución"}
+          meta={expandedRun ? <span>Ejecución · {formatDateTime(expandedRun.started_at)}</span> : undefined}
+          cancelLabel="Cerrar"
         >
-          <Drawer.Backdrop>
-            <Drawer.Content placement="right" className="w-full max-w-3xl">
-              <Drawer.Dialog aria-label={expandedRun ? `Ejecución de ${expandedRun.agent_name}` : "Detalle de ejecución"}>
-                {expandedRun ? (
-                  <>
-                    <Drawer.Header className="admin-detail-header">
-                      <div className="min-w-0">
-                        <Drawer.Heading className="truncate">{expandedRun.agent_name}</Drawer.Heading>
-                        <p className="mt-1 text-sm text-muted">Ejecución · {formatDateTime(expandedRun.started_at)}</p>
-                      </div>
-                      <Drawer.CloseTrigger />
-                    </Drawer.Header>
-                    <Drawer.Body className="admin-detail-body">
+          {expandedRun ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={statusMeta(expandedRun.status).tone}>
                 {statusMeta(expandedRun.status).label}
               </Badge>
-              <Badge tone="neutral">{expandedRun.trigger_type}</Badge>
+              <Badge tone="neutral">{displayValue(expandedRun.trigger_type)}</Badge>
               {expandedRun.execution_mode &&
               expandedRun.execution_mode !== "live" ? (
-                <Badge tone="warn">{expandedRun.execution_mode}</Badge>
+                <Badge tone="warn">{displayValue(expandedRun.execution_mode)}</Badge>
               ) : null}
               <span className="text-xs text-muted">
                 {formatDateTime(expandedRun.started_at)}
@@ -1077,13 +1070,8 @@ function ObservabilidadPanel() {
               />
             </div>
           </div>
-                    </Drawer.Body>
-                  </>
-                ) : null}
-              </Drawer.Dialog>
-            </Drawer.Content>
-          </Drawer.Backdrop>
-        </Drawer>
+          ) : null}
+        </Sheet>
       </Card>
     </div>
   );

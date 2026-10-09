@@ -87,7 +87,7 @@ export async function getFinancialConfig(
       supabase
         .from("organization_financial_settings")
         .select(
-          "id, currency_code, payment_fee_pct, payment_fee_fixed, default_shipping_cost, vat_pct, notes, updated_at",
+          "id, currency_code, klaviyo_revenue_currency_code, payment_fee_pct, payment_fee_fixed, default_shipping_cost, vat_pct, notes, updated_at",
         )
         .eq("organization_id", organizationId)
         .maybeSingle(),
@@ -146,6 +146,7 @@ export async function getFinancialConfig(
 
 type SettingsInput = {
   currencyCode?: string;
+  klaviyoRevenueCurrencyCode?: string | null;
   paymentFeePct?: number;
   paymentFeeFixed?: number;
   defaultShippingCost?: number;
@@ -209,6 +210,18 @@ export async function upsertFinancialSettings(
     };
   }
 
+  if (
+    input.klaviyoRevenueCurrencyCode !== undefined &&
+    input.klaviyoRevenueCurrencyCode !== null &&
+    !/^[A-Z]{3}$/.test(input.klaviyoRevenueCurrencyCode)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_klaviyo_revenue_currency_code",
+    };
+  }
+
   const supabase = createServiceClient(env);
 
   const { data, error } = await supabase
@@ -218,6 +231,9 @@ export async function upsertFinancialSettings(
         organization_id: organizationId,
         ...(input.currencyCode !== undefined
           ? { currency_code: input.currencyCode }
+          : {}),
+        ...(input.klaviyoRevenueCurrencyCode !== undefined
+          ? { klaviyo_revenue_currency_code: input.klaviyoRevenueCurrencyCode }
           : {}),
         ...(input.paymentFeePct !== undefined
           ? { payment_fee_pct: input.paymentFeePct }

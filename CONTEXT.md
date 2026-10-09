@@ -28,3 +28,34 @@ _Evitar_: Oferta para referirse indistintamente a un precio de comparación, un 
 
 **Descuento aplicado**:
 Importe atribuido a una promoción en un pedido o línea. Es un hecho histórico aunque la regla comercial cambie o se retire.
+
+## Organizaciones y planes
+
+**Organización**:
+Espacio de trabajo del cliente en E-NORA. Agrupa a sus usuarios y las tiendas conectadas.
+
+**Plaza de usuario**:
+Un usuario activo de la organización o una invitación vigente sin aceptar. Ambos cuentan para el límite de usuarios del plan; consultores asignados no ocupan una plaza.
+
+**Límite de tiendas**:
+Máximo de tiendas que puede conectar una organización según su plan.
+
+**Límite de usuarios**:
+Máximo de plazas de usuario que puede ocupar una organización según su plan. Un límite sin valor configurado significa sin límite para conservar compatibilidad con planes anteriores.
+
+## Marketing
+
+**Campaña paraguas**:
+Iniciativa de marketing que reúne un objetivo, una audiencia y un periodo. Puede coordinar acciones de varios canales, como una secuencia de emails y anuncios de Meta.
+
+**Acción de campaña**:
+Ejecución individual y fechada dentro de una campaña paraguas. Cada envío de email y cada lanzamiento de anuncio o creativo de Meta ocupa su propia fecha en el calendario.
+
+**Envío de email**:
+Una comunicación de campaña enviada en una fecha a una audiencia. Varios envíos relacionados pueden pertenecer a la misma campaña paraguas; un flujo automatizado es un tipo distinto de comunicación.
+
+**Flow de Klaviyo**:
+Automatización que empieza cuando ocurre un disparador y puede esperar entre pasos. Su fecha en el calendario es la preparación del flow; las esperas no son fechas de envío fijas.
+
+**Creativo de Meta**:
+Concepto o pieza publicitaria preparada para un anuncio de Meta. La planificación puede fechar su preparación o lanzamiento; no significa que el anuncio esté creado o publicado en Meta.

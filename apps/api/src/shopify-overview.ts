@@ -547,7 +547,11 @@ export async function getShopifyConnections(
   context: AuthContext,
   organizationId: string,
 ) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+  const membership = [
+    ...context.memberships,
+    ...(context.storeMemberships ?? []),
+  ].find((item) => item.organization_id === organizationId);
+  if (!membership) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -560,7 +564,23 @@ export async function getShopifyConnections(
   const supabase = createUserScopedClient(env, token);
 
   try {
-    const connections = await loadConnections(supabase, organizationId);
+    let connections = await loadConnections(supabase, organizationId);
+    if (
+      membership.accessSource === "membership" &&
+      membership.access_scope === "store"
+    ) {
+      const { data: store, error: storeError } = await supabase
+        .from("shopify_stores")
+        .select("connection_id")
+        .eq("organization_id", organizationId)
+        .eq("id", membership.store_id ?? "")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (storeError) throw new Error(`shopify_store_scope_load_failed: ${storeError.message}`);
+      connections = store?.connection_id
+        ? connections.filter((connection) => connection.id === store.connection_id)
+        : [];
+    }
     const selected = connections.find((item) => item.status !== "pending") ?? connections[0] ?? null;
 
     return {

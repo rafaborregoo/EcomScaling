@@ -16,3 +16,14 @@ test("a quién le toca cada tarea de la fase", () => {
   assert.equal(taskOwnerLabel(task("u3", "consultant", "Lucía  Pérez"), "me", false), "Lucía");
   assert.equal(taskOwnerLabel(task("u4", "client", null), "me", true), "Otra persona");
 });
+
+test("sin persona asignada, el camino dice a quien le toca", () => {
+  const meta = (owner_role: "client" | "consultant" | "shared") => ({
+    assigned_to: null,
+    plan_meta: { owner_role, kind: null, effort_hours: null, definition_of_done: null, rationale: null, evidence: [] },
+  });
+  assert.equal(taskOwnerLabel(meta("client"), "me", true), "Tu equipo");
+  assert.equal(taskOwnerLabel(meta("client"), "me", false), "Cliente");
+  assert.equal(taskOwnerLabel(meta("consultant"), "me", true), "Tu consultor");
+  assert.equal(taskOwnerLabel(meta("shared"), "me", false), "Compartida");
+});

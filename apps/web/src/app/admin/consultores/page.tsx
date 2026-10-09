@@ -30,13 +30,13 @@ import {
   ButtonLink,
   Card,
   ConfirmDialog,
-  Drawer,
   ErrorBlock,
   EYEBROW,
   Field,
   Input,
   Metric,
   Select,
+  Sheet,
   Table,
   type TableColumnDef,
 } from "@/components/ui";
@@ -209,9 +209,11 @@ function ConsultantsPanel() {
               </Button>
             }
             title={`Eliminar a ${row.full_name ?? row.id} para siempre`}
-            description="Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor, no se borran -- se reasignan desde aquí. No hay vuelta atrás."
+            note="Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor, no se borran: se reasignan desde aquí. No hay vuelta atrás."
+            irreversible
+            confirmPhrase={row.full_name ?? row.id}
             confirmLabel="Eliminar definitivamente"
-            onConfirm={() => void deleteConsultant(row)}
+            onConfirm={() => deleteConsultant(row)}
           />
         </div>
       ),
@@ -278,39 +280,35 @@ function ConsultantsPanel() {
         />
       </Card>
 
-      <Drawer isOpen={creating} onOpenChange={setCreating}>
-        <Drawer.Backdrop>
-          <Drawer.Content placement="right" className="w-full max-w-3xl">
-            <Drawer.Dialog aria-label="Invitar consultor">
-              <Drawer.Header className="admin-detail-header">
-                <div className="min-w-0">
-                  <Drawer.Heading>Invitar consultor</Drawer.Heading>
-                  <p className="mt-1 text-sm text-muted">Crea su acceso y prepara la asignación de clientes</p>
-                </div>
-                <Drawer.CloseTrigger />
-              </Drawer.Header>
-              <Drawer.Body className="admin-detail-body">
-                <ConsultantCreateForm
-                  onCreated={async (msg) => {
-                    setNotice(msg);
-                    setCreating(false);
-                    load();
-                  }}
-                />
-              </Drawer.Body>
-            </Drawer.Dialog>
-          </Drawer.Content>
-        </Drawer.Backdrop>
-      </Drawer>
+      <ConsultantCreateSheet
+        isOpen={creating}
+        onOpenChange={setCreating}
+        onCreated={async (msg) => {
+          setNotice(msg);
+          setCreating(false);
+          load();
+        }}
+        // Si el correo falla, la hoja se queda abierta para que se vea y se copie el enlace.
+        onInvitedManually={async (msg) => {
+          setNotice(msg);
+          load();
+        }}
+      />
 
     </div>
   );
 }
 
-function ConsultantCreateForm({
+function ConsultantCreateSheet({
+  isOpen,
+  onOpenChange,
   onCreated,
+  onInvitedManually,
 }: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
   onCreated: (message: string) => Promise<void>;
+  onInvitedManually: (message: string) => Promise<void>;
 }) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -319,6 +317,17 @@ function ConsultantCreateForm({
   const [error, setError] = useState<string | null>(null);
   const [manualInvite, setManualInvite] = useState<{ email: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      setEmail("");
+      setFullName("");
+      setPlan(concesionInicial("consultant", true));
+      setError(null);
+      setManualInvite(null);
+    }
+  }
 
   async function submit() {
     setBusy(true);
@@ -347,7 +356,7 @@ function ConsultantCreateForm({
       setFullName("");
       if (payload.delivery === "manual_link" && payload.invite_url) {
         setManualInvite({ email: targetEmail, url: payload.invite_url });
-        await onCreated("Consultor creado. Supabase alcanzó el límite de correo; copia y comparte el enlace de acceso.");
+        await onInvitedManually("Consultor creado. Supabase alcanzó el límite de correo; copia y comparte el enlace de acceso.");
       } else {
         await onCreated(`Invitación enviada por email a ${targetEmail}.`);
       }
@@ -362,20 +371,36 @@ function ConsultantCreateForm({
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && concesionValida(plan);
 
   return (
-    <Card
-      kicker="Alta"
-      title="Nuevo consultor"
-      description="Invita a un consultor por email y decide si le concedes el plan o lo paga él."
+    <Sheet
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      size="md"
+      title="Invitar consultor"
+      isBusy={busy}
+      isDirty={Boolean(email.trim() || fullName.trim())}
+      formId="create-consultant-form"
+      cancelLabel={manualInvite ? "Cerrar" : "Cancelar"}
+      primary={manualInvite ? undefined : { label: "Invitar consultor", busyLabel: "Invitando…", disabled: !canSubmit }}
     >
-      <div className="grid gap-4">
+      <form
+        id="create-consultant-form"
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <p className="text-muted">
+          Invita a un consultor por email y decide si le concedes el plan o lo paga él.
+        </p>
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
         {manualInvite ? (
-          <div className="rounded-md border border-separator bg-surface p-4">
+          <div className="space-y-3 rounded-md border border-line bg-surface p-4">
             <p className="text-sm font-medium">Enlace de acceso para {manualInvite.email}</p>
-            <p className="mt-1 text-xs text-muted">
+            <p className="text-xs text-muted">
               El correo de Supabase está temporalmente limitado. Comparte este enlace únicamente con el consultor invitado.
             </p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Input readOnly value={manualInvite.url} aria-label="Enlace de invitación" />
               <Button
                 type="button"
@@ -394,36 +419,20 @@ function ConsultantCreateForm({
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Email">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="consultor@empresa.com"
-            />
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="consultor@empresa.com" />
           </Field>
           <Field label="Nombre (opcional)">
-            <Input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Nombre Apellido"
-            />
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nombre Apellido" />
           </Field>
         </div>
-
         <ConcesionDePlan
           value={plan}
           onChange={setPlan}
           etiquetaSinPlan="Lo paga él con tarjeta"
           avisoSinPlan="Hasta que pague no será consultor: entrará, pero sin cartera de clientes. El rol sale del plan, así que lo verá en /planes al entrar."
         />
-
-        <div>
-          <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
-            {busy ? "Invitando..." : "Invitar consultor"}
-          </Button>
-        </div>
-      </div>
-    </Card>
+      </form>
+    </Sheet>
   );
 }
 

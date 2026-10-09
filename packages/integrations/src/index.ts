@@ -366,6 +366,7 @@ export type IntegrationHealthInput = {
   lastSyncAt?: string | null;
   lastErrorAt?: string | null;
   latestSyncStatus?: string | null;
+  latestSyncStartedAt?: string | null;
   now?: Date;
   staleAfterMs?: number;
 };
@@ -398,7 +399,13 @@ export function deriveIntegrationHealth(
     const errorAt = input.lastErrorAt
       ? new Date(input.lastErrorAt).getTime()
       : null;
-    const syncAt = lastSyncAt ? new Date(lastSyncAt).getTime() : null;
+    const activeSyncAt =
+      input.latestSyncStatus === "running"
+        ? input.latestSyncStartedAt ?? null
+        : input.connectionStatus === "syncing"
+          ? input.latestSyncStartedAt ?? lastSyncAt
+          : null;
+    const syncAt = activeSyncAt ? new Date(activeSyncAt).getTime() : null;
     if (
       errorAt !== null &&
       Number.isFinite(errorAt) &&

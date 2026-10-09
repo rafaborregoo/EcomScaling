@@ -1,0 +1,16 @@
+mutation CompleteEstimatedProductCosts {
+  archivedSnowboard: inventoryItemUpdate(
+    id: "gid://shopify/InventoryItem/66813825581433"
+    input: { cost: "283.48" }
+  ) {
+    inventoryItem { id unitCost { amount currencyCode } }
+    userErrors { field message }
+  }
+  draftSnowboard: inventoryItemUpdate(
+    id: "gid://shopify/InventoryItem/66813826105721"
+    input: { cost: "1183.48" }
+  ) {
+    inventoryItem { id unitCost { amount currencyCode } }
+    userErrors { field message }
+  }
+}

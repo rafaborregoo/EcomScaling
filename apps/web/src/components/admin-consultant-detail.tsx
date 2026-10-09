@@ -34,6 +34,7 @@ export type AssignedOrg = {
 export type Plan = {
   plan_code: string;
   store_limit: number | null;
+  member_limit: number | null;
   status: string;
   ends_at: string | null;
 };

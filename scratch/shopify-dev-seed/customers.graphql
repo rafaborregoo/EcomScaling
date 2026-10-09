@@ -1,0 +1,13 @@
+mutation SeedDemoCustomers(
+  $c1: CustomerInput!, $c2: CustomerInput!, $c3: CustomerInput!, $c4: CustomerInput!,
+  $c5: CustomerInput!, $c6: CustomerInput!, $c7: CustomerInput!, $c8: CustomerInput!
+) {
+  c1: customerCreate(input: $c1) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c2: customerCreate(input: $c2) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c3: customerCreate(input: $c3) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c4: customerCreate(input: $c4) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c5: customerCreate(input: $c5) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c6: customerCreate(input: $c6) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c7: customerCreate(input: $c7) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+  c8: customerCreate(input: $c8) { customer { id firstName lastName defaultEmailAddress { emailAddress } } userErrors { field message } }
+}

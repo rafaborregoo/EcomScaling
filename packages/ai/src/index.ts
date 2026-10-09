@@ -267,7 +267,11 @@ export const agentProposedWriteSchema = z.object({
   milestone_id: z.string().uuid().nullable().optional(),
   // Internal entity link used for deterministic A06 restock-task dedupe.
   related_product_id: z.string().uuid().nullable().optional(),
-  effort_estimate: z.enum(["low", "medium", "high", "unknown"]).optional(),
+  effort_estimate: z
+    .enum(["low", "medium", "high", "unknown"])
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   financial_cost_estimate: z.object({
     amount: z.number().finite().nonnegative(),
     currency: z.string().regex(/^[A-Z]{3}$/),
@@ -275,9 +279,27 @@ export const agentProposedWriteSchema = z.object({
   }).nullable().optional(),
   // Structured delivery contract used by task planners. Optional for historic
   // and non-planner outputs; callers must preserve and render these when set.
-  owner_role: z.enum(["cliente", "consultor"]).optional(),
-  completion_criteria: z.string().trim().min(1).max(500).optional(),
-  expected_metric: z.string().trim().min(1).max(240).optional(),
+  owner_role: z
+    .enum(["cliente", "consultor"])
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
+  completion_criteria: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
+  expected_metric: z
+    .string()
+    .trim()
+    .min(1)
+    .max(240)
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   due_hint: z.string().trim().min(1).max(100).nullable().optional(),
   // Monthly A18 initiative measure; null means the source data cannot support
   // a baseline/target, never zero. Optional for historic and non-A18 outputs.
@@ -287,7 +309,10 @@ export const agentProposedWriteSchema = z.object({
     baseline: z.number().finite().nullable(),
     target: z.number().finite().nullable(),
     evaluation_window: z.string().trim().min(1).max(120),
-  }).optional(),
+  })
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   // A18 may propose to replace or retire one exact open monthly initiative.
   // The API revalidates its organization/store/status before applying after
   // approval; other agents ignore this optional field.
@@ -295,7 +320,10 @@ export const agentProposedWriteSchema = z.object({
     action: z.enum(["replace", "retire"]),
     previous_task_id: z.string().uuid(),
     previous_task_title: z.string().trim().min(1).max(255),
-  }).optional(),
+  })
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   // Por que existe esta tarea. `.default()` a proposito: las salidas ya
   // guardadas y cualquier ruta que no use structured outputs no los traen, y
   // no deben quedar invalidas por ello.
@@ -410,6 +438,16 @@ export const agentOutputJsonSchema = {
           "description",
           "priority",
           "rationale",
+          "milestone_id",
+          "related_product_id",
+          "effort_estimate",
+          "financial_cost_estimate",
+          "owner_role",
+          "completion_criteria",
+          "expected_metric",
+          "due_hint",
+          "initiative_measurement",
+          "initiative_change",
           "evidence",
         ],
         properties: {
@@ -419,7 +457,10 @@ export const agentOutputJsonSchema = {
           priority: { type: "string", enum: priorityEnum },
           milestone_id: { type: ["string", "null"], format: "uuid" },
           related_product_id: { type: ["string", "null"], format: "uuid" },
-          effort_estimate: { type: "string", enum: ["low", "medium", "high", "unknown"] },
+          effort_estimate: {
+            type: ["string", "null"],
+            enum: ["low", "medium", "high", "unknown", null],
+          },
           financial_cost_estimate: {
             anyOf: [
               { type: "null" },
@@ -435,31 +476,52 @@ export const agentOutputJsonSchema = {
               },
             ],
           },
-          owner_role: { type: "string", enum: ["cliente", "consultor"] },
-          completion_criteria: { type: "string", minLength: 1, maxLength: 500 },
-          expected_metric: { type: "string", minLength: 1, maxLength: 240 },
+          owner_role: {
+            type: ["string", "null"],
+            enum: ["cliente", "consultor", null],
+          },
+          completion_criteria: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 500,
+          },
+          expected_metric: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: 240,
+          },
           due_hint: { type: ["string", "null"], minLength: 1, maxLength: 100 },
           initiative_measurement: {
-            type: "object",
-            additionalProperties: false,
-            required: ["metric_name", "unit", "baseline", "target", "evaluation_window"],
-            properties: {
-              metric_name: { type: "string", minLength: 1, maxLength: 120 },
-              unit: { type: ["string", "null"], maxLength: 40 },
-              baseline: { type: ["number", "null"] },
-              target: { type: ["number", "null"] },
-              evaluation_window: { type: "string", minLength: 1, maxLength: 120 },
-            },
+            anyOf: [
+              { type: "null" },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["metric_name", "unit", "baseline", "target", "evaluation_window"],
+                properties: {
+                  metric_name: { type: "string", minLength: 1, maxLength: 120 },
+                  unit: { type: ["string", "null"], maxLength: 40 },
+                  baseline: { type: ["number", "null"] },
+                  target: { type: ["number", "null"] },
+                  evaluation_window: { type: "string", minLength: 1, maxLength: 120 },
+                },
+              },
+            ],
           },
           initiative_change: {
-            type: "object",
-            additionalProperties: false,
-            required: ["action", "previous_task_id", "previous_task_title"],
-            properties: {
-              action: { type: "string", enum: ["replace", "retire"] },
-              previous_task_id: { type: "string", format: "uuid" },
-              previous_task_title: { type: "string", minLength: 1, maxLength: 255 },
-            },
+            anyOf: [
+              { type: "null" },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["action", "previous_task_id", "previous_task_title"],
+                properties: {
+                  action: { type: "string", enum: ["replace", "retire"] },
+                  previous_task_id: { type: "string", format: "uuid" },
+                  previous_task_title: { type: "string", minLength: 1, maxLength: 255 },
+                },
+              },
+            ],
           },
           rationale: {
             type: "string",
@@ -666,12 +728,80 @@ export function parseCaminoDurationMonths(value: unknown): number | null {
   return null;
 }
 
+/** Returns the UTC day span of a calendar-month Camino horizon. */
+export function caminoCalendarHorizonDays(start: Date, months: number): number {
+  if (!Number.isInteger(months) || months < 1 || months > 12) {
+    throw new RangeError("months must be an integer from 1 to 12");
+  }
+  const end = new Date(start);
+  const originalDay = end.getUTCDate();
+  end.setUTCDate(1);
+  end.setUTCMonth(end.getUTCMonth() + months);
+  const lastDay = new Date(
+    Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  end.setUTCDate(Math.min(originalDay, lastDay));
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
+}
+
+/** Number of natural calendar months touched by a Camino, including a partial final month. */
+export function caminoCalendarMonthsTouched(start: Date, horizonDays: number): number {
+  const end = new Date(start.getTime() + Math.max(1, horizonDays) * 86_400_000);
+  return (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + end.getUTCMonth() - start.getUTCMonth() + 1;
+}
+
+export const CAMINO_TASK_OWNERS = ["client", "consultant", "shared"] as const;
+export const CAMINO_TASK_KINDS = [
+  "email",
+  "ads",
+  "catalogo",
+  "operaciones",
+  "medicion",
+  "contenido",
+  "analisis",
+  "otro",
+] as const;
+
+/**
+ * Carril de trabajo de una tarea. Escalar una tienda no es una lista lineal:
+ * hay lo que se hace una vez para dejarla lista, lo que se prepara para una
+ * fecha clave y el ciclo de crecimiento que se repite mientras la tienda crece.
+ */
+export const CAMINO_TASK_TRACKS = ["puesta_a_punto", "temporada", "crecimiento"] as const;
+/** Cada cuanto se repite. Solo el ciclo de crecimiento suele repetirse. */
+export const CAMINO_TASK_CADENCES = ["una_vez", "semanal", "quincenal", "mensual"] as const;
+
+// Los campos nuevos llevan default para que las propuestas guardadas antes del
+// contrato ampliado (v10 del prompt) sigan leyendose; el JSON schema que ve el
+// modelo, en cambio, los exige todos.
+export const caminoTaskSchema = z.object({
+  title: z.string(),
+  /** Pasos concretos para hacerla. */
+  description: z.string(),
+  /** Dias desde hoy hasta la tarea. Debe quedar antes o el mismo dia del hito. */
+  target_offset_days: z.number().int().min(1).max(366),
+  priority: z.enum(["low", "medium", "high", "urgent"]),
+  /** Quien la ejecuta: el servidor resuelve el responsable concreto. */
+  owner: z.enum(CAMINO_TASK_OWNERS).default("shared"),
+  kind: z.enum(CAMINO_TASK_KINDS).default("otro"),
+  track: z.enum(CAMINO_TASK_TRACKS).default("puesta_a_punto"),
+  cadence: z.enum(CAMINO_TASK_CADENCES).default("una_vez"),
+  effort_hours: z.number().min(0.25).max(40).nullable().default(null),
+  /** Que se ve cuando esta hecha; lo puede comprobar el cliente. */
+  definition_of_done: z.string().default(""),
+  /** Datos de esta tienda que la justifican. */
+  evidence: z.array(agentEvidenceItemSchema).default([]),
+});
+
 export const caminoMilestoneSchema = z.object({
   name: z.string(),
   description: z.string(),
   /** Dias desde hoy hasta la fecha objetivo. El backend calcula la fecha. */
-  target_offset_days: z.number().int().min(1).max(365),
+  target_offset_days: z.number().int().min(1).max(366),
   success_metric: z.string(),
+  /** Por que este hito va ahora y no antes o despues. */
+  rationale: z.string().default(""),
+  tasks: z.array(caminoTaskSchema).default([]),
 });
 
 export const caminoPhaseSchema = z.object({
@@ -692,11 +822,26 @@ export const caminoGoalSchema = z.object({
   currency_code: z.string().nullable(),
   baseline: z.number().nullable(),
   target: z.number().nullable(),
-  target_offset_days: z.number().int().min(1).max(365),
+  target_offset_days: z.number().int().min(1).max(366),
+  /** Revisión explícita del resultado esperado en cada cierre mensual del horizonte. */
+  monthly_targets: z.array(z.object({
+    // Índice relativo al Camino, no el número de mes del calendario.
+    month: z.number().int().min(1).max(13),
+    target_value: z.number().nullable(),
+    seasonal_baseline: z.number().nullable().optional(),
+    rationale: z.string(),
+  })).optional(),
+  decision_gates: z.array(z.object({
+    decision: z.string(),
+    proceed_when: z.string(),
+    hold_when: z.string(),
+    evidence_needed: z.string(),
+  })).min(2).max(4).optional(),
   /** Filled by the server when the approved plan is created, from agent_runs.lookback_days. */
   baseline_window_days: z.number().int().min(1).max(365).optional(),
   baseline_observed_at: z.string().optional(),
   target_date: z.string().optional(),
+  horizon_end_date: z.string().optional(),
   rationale: z.string(),
   assumptions: z.array(z.string()).default([]),
   confidence: z.enum(["low", "medium", "high"]),
@@ -717,24 +862,161 @@ export const caminoPlanOutputSchema = z.object({
 });
 
 /** Refuerza en runtime que todos los offsets respetan el horizonte solicitado. */
-export function caminoPlanSchemaForHorizon(horizonDays: number, horizonMonths?: number) {
-  const maxDays = Math.max(1, Math.min(365, Math.trunc(horizonDays)));
+export function caminoPlanSchemaForHorizon(horizonDays: number, horizonMonths?: number, referenceDate?: Date) {
+  const maxDays = Math.max(1, Math.min(366, Math.trunc(horizonDays)));
   return caminoPlanOutputSchema.superRefine((proposal, ctx) => {
+    let lastMilestoneOffset = 0;
     if (horizonMonths !== undefined && proposal.horizon_months !== horizonMonths) {
       ctx.addIssue({ code: "custom", path: ["horizon_months"], message: `Debe coincidir con los ${horizonMonths} meses solicitados.` });
     }
     if (proposal.goal && proposal.goal.target_offset_days > maxDays) {
       ctx.addIssue({ code: "custom", path: ["goal", "target_offset_days"], message: `Debe quedar dentro de ${maxDays} días.` });
     }
+    if (horizonMonths !== undefined && proposal.goal?.monthly_targets) {
+      const targets = proposal.goal.monthly_targets;
+      const checkpointCount = referenceDate ? caminoCalendarMonthsTouched(referenceDate, maxDays) : horizonMonths;
+      if (targets.length !== checkpointCount) {
+        ctx.addIssue({ code: "custom", path: ["goal", "monthly_targets"], message: `Incluye exactamente un objetivo para cada uno de los ${checkpointCount} meses naturales tocados por el Camino.` });
+      }
+      targets.forEach((checkpoint, index) => {
+        if (checkpoint.month !== index + 1) {
+          ctx.addIssue({ code: "custom", path: ["goal", "monthly_targets", index, "month"], message: "Usa índices consecutivos dentro del Camino: 1, 2, 3...; no números de meses del calendario." });
+        }
+      });
+      // La meta puede ser el mes pico de la temporada y no el ultimo del
+      // horizonte (que puede ser temporada baja): solo se exige que sea uno de
+      // los puntos mensuales.
+      const goalTarget = proposal.goal.target;
+      if (goalTarget !== null && !targets.some((checkpoint) => checkpoint.target_value === goalTarget)) {
+        ctx.addIssue({ code: "custom", path: ["goal", "target"], message: "La meta debe coincidir con el objetivo de uno de los meses del Camino (el de cierre o el mes pico)." });
+      }
+    }
     proposal.phases.forEach((phase, phaseIndex) => phase.milestones.forEach((milestone, milestoneIndex) => {
       if (milestone.target_offset_days > maxDays) {
         ctx.addIssue({ code: "custom", path: ["phases", phaseIndex, "milestones", milestoneIndex, "target_offset_days"], message: `Debe quedar dentro de ${maxDays} días.` });
       }
+      if (phaseIndex > 0 && milestoneIndex === 0 && milestone.target_offset_days <= lastMilestoneOffset) {
+        ctx.addIssue({ code: "custom", path: ["phases", phaseIndex, "milestones", milestoneIndex, "target_offset_days"], message: "Cada fase debe empezar después de terminar la fase anterior." });
+      }
+      if (milestone.target_offset_days < lastMilestoneOffset) {
+        ctx.addIssue({ code: "custom", path: ["phases", phaseIndex, "milestones", milestoneIndex, "target_offset_days"], message: "Las fases y sus hitos deben conservar un orden cronológico; reordena la fase completa o ajusta sus fechas." });
+      }
+      lastMilestoneOffset = milestone.target_offset_days;
+      milestone.tasks.forEach((task, taskIndex) => {
+        if (task.target_offset_days > maxDays || task.target_offset_days > milestone.target_offset_days) {
+          ctx.addIssue({ code: "custom", path: ["phases", phaseIndex, "milestones", milestoneIndex, "tasks", taskIndex, "target_offset_days"], message: "La tarea debe quedar dentro del horizonte y antes o el mismo día que su hito." });
+        }
+      });
     }));
   });
 }
 
 export type CaminoPlanOutput = z.infer<typeof caminoPlanOutputSchema>;
+
+/** Reorders dated phases and minimally moves later milestones so the map reads chronologically. */
+export function normalizeCaminoTimeline(
+  proposal: CaminoPlanOutput,
+  options: { referenceDate?: Date; horizonMonths?: number } = {},
+): CaminoPlanOutput {
+  // Hitos cuya fecha se movio, para decirle al usuario cuantos y no solo "algunos".
+  let adjustedMilestones = 0;
+  const phases = proposal.phases
+    .map((phase, originalIndex) => ({
+      phase: {
+        ...phase,
+        milestones: phase.milestones.map((milestone) => ({ ...milestone, tasks: milestone.tasks.map((task) => ({ ...task })) })),
+      },
+      originalIndex,
+    }))
+    .map(({ phase, originalIndex }) => ({ phase, originalIndex }));
+
+  // Horizons of six months or more need a distinct checkpoint in each calendar
+  // month. Assign by chronological order so a duplicate "monthly 1" cannot
+  // silently leave a later month without a review.
+  if (options.referenceDate && (options.horizonMonths ?? proposal.horizon_months ?? 0) >= 6) {
+    const monthly = phases.flatMap(({ phase }) => phase.milestones
+      .filter((milestone) => /mensual|cierre.*(?:anual|horizonte|camino)/i.test(milestone.name))
+      .map((milestone) => ({ milestone }))
+    ).sort((a, b) => a.milestone.target_offset_days - b.milestone.target_offset_days);
+    const months = Math.min(options.horizonMonths ?? proposal.horizon_months ?? 12, monthly.length);
+    for (const [index, { milestone }] of monthly.slice(0, months).entries()) {
+      const month = index + 1;
+      const targetOffset = caminoCalendarHorizonDays(options.referenceDate, month);
+      const shift = targetOffset - milestone.target_offset_days;
+      if (shift !== 0) adjustedMilestones += 1;
+      milestone.target_offset_days = targetOffset;
+      milestone.tasks = milestone.tasks.map((task) => ({
+        ...task,
+        target_offset_days: Math.max(1, Math.min(targetOffset, task.target_offset_days + shift)),
+      }));
+      const numbered = milestone.name.match(/\b(?:mes|mensual)\s*\d+\b/i);
+      if (numbered) {
+        milestone.name = milestone.name.replace(numbered[0], numbered[0].replace(/\d+$/, String(month)));
+      } else {
+        milestone.name = `${milestone.name} · revisión mensual ${month}`;
+      }
+    }
+  }
+
+  for (const { phase } of phases) {
+    phase.milestones.sort((a, b) => a.target_offset_days - b.target_offset_days);
+  }
+  phases.sort((a, b) => {
+    const aFirst = a.phase.milestones[0]?.target_offset_days ?? Number.POSITIVE_INFINITY;
+    const bFirst = b.phase.milestones[0]?.target_offset_days ?? Number.POSITIVE_INFINITY;
+    return aFirst - bFirst || a.originalIndex - b.originalIndex;
+  });
+  const orderedPhases = phases.map(({ phase }) => phase);
+
+  let lastOffset = 0;
+  for (const [phaseIndex, phase] of orderedPhases.entries()) {
+    phase.milestones = phase.milestones.map((milestone, milestoneIndex) => {
+      const phaseBoundaryMinimum = phaseIndex > 0 && milestoneIndex === 0
+        ? lastOffset + 1
+        : lastOffset;
+      const targetOffset = Math.max(phaseBoundaryMinimum, milestone.target_offset_days);
+      const shift = targetOffset - milestone.target_offset_days;
+      if (shift > 0) adjustedMilestones += 1;
+      lastOffset = targetOffset;
+      return {
+        ...milestone,
+        target_offset_days: targetOffset,
+        tasks: (milestone.tasks ?? []).map((task) => ({
+          ...task,
+          target_offset_days: Math.min(targetOffset, task.target_offset_days + shift),
+        })),
+      };
+    });
+  }
+
+  let goal = proposal.goal;
+  const monthlyTargets = goal?.monthly_targets;
+  if (goal && monthlyTargets?.length && options.referenceDate) {
+    const horizonMonths = options.horizonMonths ?? proposal.horizon_months;
+    if (horizonMonths) {
+      const horizonDays = caminoCalendarHorizonDays(options.referenceDate, horizonMonths);
+      const checkpointCount = caminoCalendarMonthsTouched(options.referenceDate, horizonDays);
+      // The array order is chronological. `month` duplicates that position,
+      // and models may fill it with calendar labels or another consistent index.
+      // Canonicalize only a complete series so malformed lengths still fail validation.
+      if (monthlyTargets.length === checkpointCount) {
+        goal = {
+          ...goal,
+          monthly_targets: monthlyTargets.map((target, index) => ({ ...target, month: index + 1 })),
+        };
+      }
+    }
+  }
+
+  return {
+    ...proposal,
+    ...(goal ? { goal } : {}),
+    phases: orderedPhases,
+    warnings: adjustedMilestones > 0
+      ? [...new Set([...proposal.warnings, `Se movió la fecha de ${adjustedMilestones} ${adjustedMilestones === 1 ? "hito" : "hitos"} para conservar el orden cronológico; revísalas antes de aprobar.`])]
+      : proposal.warnings,
+  };
+}
 
 /** Revisión periódica de un Camino ya aprobado. Es una observación y una
  * propuesta para revisión humana; nunca muta fases, hitos ni tareas. */
@@ -753,8 +1035,8 @@ export const caminoWeeklyReviewSchema = z.object({
     baseline_value: z.number().nullable().optional(),
     expected_value: z.number().nullable().optional(),
     target_value: z.number().nullable().optional(),
-    measurement_period: z.enum(["equivalent_monthly", "rolling_7_days", "point_in_time"]).optional(),
-    measurement_window_days: z.number().int().min(0).optional(),
+    measurement_period: z.enum(["equivalent_monthly", "calendar_month_to_date", "rolling_7_days", "point_in_time"]).optional(),
+    measurement_window_days: z.number().int().min(0).max(31).optional(),
   }),
   progress: z.array(z.object({
     item: z.string(),
@@ -762,6 +1044,13 @@ export const caminoWeeklyReviewSchema = z.object({
     evidence: z.string(),
   })),
   risks: z.array(z.object({ severity: z.enum(["low", "medium", "high"]), detail: z.string(), evidence: z.string() })),
+  learnings: z.array(z.object({
+    title: z.string(),
+    learning: z.string(),
+    evidence: z.string(),
+    applies_to: z.string(),
+    confidence: z.enum(["low", "medium", "high"]),
+  })),
   next_actions: z.array(z.object({ priority: z.enum(["low", "medium", "high"]), title: z.string(), rationale: z.string(), owner: z.enum(["client", "consultant", "shared", "unknown"]), due_in_days: z.number().int().min(0).max(30) })),
   change_proposals: z.array(z.object({ change: z.enum(["add", "edit", "retire"]), target_type: z.enum(["phase", "milestone", "goal"]), target_id: z.string().nullable(), description: z.string(), reason: z.string(), evidence: z.string() })),
   confidence: z.enum(["low", "medium", "high"]),
@@ -815,7 +1104,7 @@ export const caminoPlanJsonSchema = {
     goal: {
       type: "object",
       additionalProperties: false,
-      required: ["metric_key", "metric_label", "unit", "currency_code", "baseline", "target", "target_offset_days", "rationale", "assumptions", "confidence"],
+      required: ["metric_key", "metric_label", "unit", "currency_code", "baseline", "target", "target_offset_days", "monthly_targets", "decision_gates", "rationale", "assumptions", "confidence"],
       properties: {
         metric_key: { type: "string", enum: ["net_sales", "net_profit", "net_margin_pct", "orders_count", "aov", "roas", "cac", "out_of_stock_items"] },
         metric_label: { type: "string" },
@@ -824,6 +1113,43 @@ export const caminoPlanJsonSchema = {
         baseline: { type: ["number", "null"], description: "Solo baseline observado en la fuente; null si falta/está incompleto." },
         target: { type: ["number", "null"], description: "Target realista justificado; null si no hay base suficiente para cuantificarlo." },
         target_offset_days: { type: "integer", minimum: 1, description: "Día dentro del horizonte solicitado para alcanzar/revisar el objetivo." },
+        monthly_targets: {
+          type: "array",
+          description: "Incluye un objetivo por cada mes natural tocado por el horizonte. Para primer y último mes parciales, la cifra cubre solo los días del Camino en ese mes; para los demás cubre el mes completo. Son objetivos de gestión de la misma métrica, no una previsión. Usa null si falta evidencia; target coincide con el mes de la meta.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["month", "target_value", "seasonal_baseline", "rationale"],
+            properties: {
+              month: {
+                type: "integer",
+                minimum: 1,
+                maximum: 13,
+                description: "Índice del mes dentro del Camino: empieza en 1 y aumenta de uno en uno. No uses el número del mes natural (octubre=10, noviembre=11).",
+              },
+              target_value: { type: ["number", "null"] },
+              seasonal_baseline: { type: ["number", "null"], description: "Ventas observadas del mismo mes del año anterior; null si no hay cobertura comparable. No es la línea base reciente." },
+              rationale: { type: "string" },
+            },
+          },
+        },
+        decision_gates: {
+          type: "array",
+          minItems: 2,
+          maxItems: 4,
+          description: "De 2 a 4 decisiones operativas condicionadas por datos observables. Si faltan costes, medicion o margen, define que verificar antes de escalar inversion u ofertas; no inventes umbrales numericos.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["decision", "proceed_when", "hold_when", "evidence_needed"],
+            properties: {
+              decision: { type: "string" },
+              proceed_when: { type: "string" },
+              hold_when: { type: "string" },
+              evidence_needed: { type: "string" },
+            },
+          },
+        },
         rationale: { type: "string" },
         assumptions: { type: "array", items: { type: "string" } },
         confidence: { type: "string", enum: ["low", "medium", "high"] },
@@ -869,6 +1195,8 @@ export const caminoPlanJsonSchema = {
                 "description",
                 "target_offset_days",
                 "success_metric",
+                "rationale",
+                "tasks",
               ],
               properties: {
                 name: { type: "string" },
@@ -883,6 +1211,32 @@ export const caminoPlanJsonSchema = {
                   type: "string",
                   description:
                     "Como se comprueba que el hito esta cumplido. Medible, no una opinion.",
+                },
+                rationale: {
+                  type: "string",
+                  description: "Por que este hito va ahora y no antes o despues.",
+                },
+                tasks: {
+                  type: "array",
+                  description: "Acciones concretas, en el orden en que deben hacerse. Todas las que hagan falta para lograr el hito, sin tope; las rutinas de crecimiento se escriben una vez. Puede estar vacio.",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["title", "description", "target_offset_days", "priority", "owner", "kind", "track", "cadence", "effort_hours", "definition_of_done", "evidence"],
+                    properties: {
+                      title: { type: "string" },
+                      description: { type: "string", description: "Pasos concretos para hacerla, no un deseo." },
+                      owner: { type: "string", enum: ["client", "consultant", "shared"], description: "client = equipo de la tienda, consultant = consultor, shared = los dos." },
+                      kind: { type: "string", enum: ["email", "ads", "catalogo", "operaciones", "medicion", "contenido", "analisis", "otro"] },
+                      track: { type: "string", enum: ["puesta_a_punto", "temporada", "crecimiento"], description: "puesta_a_punto = se hace una vez para dejar la tienda lista; temporada = preparacion de una fecha clave; crecimiento = ciclo para escalar." },
+                      cadence: { type: "string", enum: ["una_vez", "semanal", "quincenal", "mensual"], description: "Cada cuanto se repite hasta la fecha del hito. una_vez salvo rutinas de crecimiento." },
+                      effort_hours: { type: "number", minimum: 0.25, maximum: 40, description: "Horas realistas de trabajo." },
+                      definition_of_done: { type: "string", description: "Que se ve cuando esta hecha; comprobable por el cliente." },
+                      evidence: { ...caminoEvidenceJsonSchema, description: "Hasta 2 datos de esta tienda que la justifican; vacio si no hay." },
+                      target_offset_days: { type: "integer", minimum: 1, description: "Dia desde hoy; no posterior a la fecha del hito ni al horizonte." },
+                      priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+                    },
+                  },
                 },
               },
             },
@@ -925,39 +1279,178 @@ export const caminoPlanJsonSchema = {
 // deja de ser un marco teorico: son campanas concretas que aterrizan en el
 // calendario de campanas (`campaign_calendar_items`) al aprobarlas.
 //
-// Mismo patron que A19 (camino): el modelo devuelve DESPLAZAMIENTOS en dias,
-// no fechas, y el backend las ancla al aceptar. Un plan aprobado una semana
-// despues no nace con la primera campana ya empezada.
+// Las fechas de campaña son días locales exactos dentro de una ventana
+// configurada por la persona y la zona horaria de la tienda. La aplicación
+// convierte esos días a instantes UTC para el calendario.
 // ---------------------------------------------------------------------------
 
 export const CAMPAIGN_PLAN_HORIZON_DAYS = {
+  week_1: 7,
+  week_2: 14,
+  week_3: 21,
   month: 30,
   quarter: 90,
+  custom: 366,
 } as const;
 
 export type CampaignPlanHorizon = keyof typeof CAMPAIGN_PLAN_HORIZON_DAYS;
+export const CAMPAIGN_PLAN_MAX_CUSTOM_DAYS = 366;
+
+export const campaignPlanWindowSchema = z.object({
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  timezone: z.string().min(1).max(80),
+});
 
 /** Canales que el calendario sabe mapear a categoria de tarea. */
 export const CAMPAIGN_CHANNELS = ["Email", "Meta", "Instagram"] as const;
 
 export const proposedCampaignSchema = z.object({
+  /** Shared umbrella name for dated channel actions that serve one objective. */
+  initiative: z.string().min(1).max(160).optional(),
   title: z.string(),
   channel: z.enum(CAMPAIGN_CHANNELS),
   objective: z.string(),
   audience: z.string(),
   /** Que se espera que pase y por que. Sin esto una campana es un capricho. */
   hypothesis: z.string(),
+  /** Brief listo para que el equipo produzca el mailing o el creativo Meta. */
+  creative_brief: z.string().optional(),
+  /** Fecha absoluta local de envío/lanzamiento para mantener el rango elegido. */
+  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   start_offset_days: z.number().int().min(0),
   duration_days: z.number().int().min(1),
   evidence: z.array(agentEvidenceItemSchema).default([]),
   success_metric: z.string(),
 });
 
+const campaignMessageSchema = z.object({
+  title: z.string().min(1).max(160),
+  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  scheduled_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  purpose: z.string().min(1).max(500),
+  creative_brief: z.string().min(1).max(2400),
+}).strict();
+
+const campaignPathSchema = z.object({
+  name: z.string().min(1).max(120),
+  audience: z.string().min(1).max(500),
+  messages: z.array(campaignMessageSchema).min(1).max(30),
+}).strict();
+
+const plannedKlaviyoCampaignSchema = z.object({
+  name: z.string().min(1).max(160),
+  objective: z.string().min(1).max(500),
+  paths: z.array(campaignPathSchema).min(1).max(10),
+}).strict();
+
+const plannedFlowStepSchema = z.object({
+  order: z.number().int().min(1),
+  title: z.string().min(1).max(160),
+  wait_days: z.number().int().min(0).max(365),
+  purpose: z.string().min(1).max(500),
+  creative_brief: z.string().min(1).max(2400),
+}).strict();
+
+const plannedKlaviyoFlowSchema = z.object({
+  name: z.string().min(1).max(160),
+  trigger: z.string().min(1).max(500),
+  preparation_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  audience: z.string().min(1).max(500),
+  steps: z.array(plannedFlowStepSchema).min(1).max(20),
+}).strict().superRefine((flow, context) => {
+  flow.steps.forEach((step, index) => {
+    if (step.order !== index + 1) {
+      context.addIssue({ code: "custom", path: ["steps", index, "order"], message: "Los pasos del flow deben estar numerados en orden consecutivo." });
+    }
+    if (index === 0 && step.wait_days !== 0) {
+      context.addIssue({ code: "custom", path: ["steps", index, "wait_days"], message: "El primer paso empieza al dispararse; su espera es 0 días." });
+    }
+  });
+});
+
+const plannedMetaAdSchema = z.object({
+  name: z.string().min(1).max(160),
+  format: z.enum(["video_vertical", "video_horizontal", "carousel", "imagen_unica", "coleccion", "por_definir"]),
+  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  scheduled_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  purpose: z.string().min(1).max(500),
+  creative_brief: z.string().min(1).max(2400),
+}).strict();
+
+const plannedMetaAdSetSchema = z.object({
+  name: z.string().min(1).max(160),
+  audience: z.string().min(1).max(500),
+  placements: z.array(z.string().min(1).max(100)).min(1).max(12),
+  ads: z.array(plannedMetaAdSchema).min(1).max(20),
+}).strict();
+
+const plannedMetaCampaignSchema = z.object({
+  name: z.string().min(1).max(160),
+  objective: z.string().min(1).max(500),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  budget_guidance: z.string().min(1).max(500),
+  ad_sets: z.array(plannedMetaAdSetSchema).min(1).max(20),
+}).strict();
+
+export const campaignInitiativeSchema = z.object({
+  name: z.string().min(1).max(160),
+  objective: z.string().min(1).max(700),
+  audience: z.string().min(1).max(700),
+  offer: z.object({
+    status: z.enum(["verified", "proposal", "none"]),
+    description: z.string().min(1).max(700),
+    evidence: z.array(agentEvidenceItemSchema).max(8),
+  }).strict(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hypothesis: z.string().min(1).max(1000),
+  evidence: z.array(agentEvidenceItemSchema).min(1).max(12),
+  success_metric: z.string().min(1).max(500),
+  klaviyo: z.object({
+    campaigns: z.array(plannedKlaviyoCampaignSchema).max(12),
+    flows: z.array(plannedKlaviyoFlowSchema).max(12),
+  }).strict(),
+  meta_campaigns: z.array(plannedMetaCampaignSchema).max(12),
+}).strict().superRefine((initiative, context) => {
+  if (initiative.end_date < initiative.start_date) {
+    context.addIssue({ code: "custom", path: ["end_date"], message: "El final debe ser posterior al inicio de la iniciativa." });
+  }
+  if (initiative.offer.status === "verified" && initiative.offer.evidence.length === 0) {
+    context.addIssue({ code: "custom", path: ["offer", "evidence"], message: "Una oferta confirmada necesita evidencia." });
+  }
+  initiative.klaviyo.campaigns.forEach((campaign, campaignIndex) => campaign.paths.forEach((path, pathIndex) => path.messages.forEach((message, messageIndex) => {
+    if (message.scheduled_date < initiative.start_date || message.scheduled_date > initiative.end_date) {
+      context.addIssue({ code: "custom", path: ["klaviyo", "campaigns", campaignIndex, "paths", pathIndex, "messages", messageIndex, "scheduled_date"], message: "El envío queda fuera del periodo de la iniciativa." });
+    }
+  })));
+  initiative.klaviyo.flows.forEach((flow, flowIndex) => {
+    if (flow.preparation_date < initiative.start_date || flow.preparation_date > initiative.end_date) {
+      context.addIssue({ code: "custom", path: ["klaviyo", "flows", flowIndex, "preparation_date"], message: "La preparación del flow queda fuera del periodo de la iniciativa." });
+    }
+  });
+  initiative.meta_campaigns.forEach((campaign, campaignIndex) => {
+    if (campaign.start_date < initiative.start_date || campaign.end_date > initiative.end_date || campaign.end_date < campaign.start_date) {
+      context.addIssue({ code: "custom", path: ["meta_campaigns", campaignIndex], message: "El periodo Meta debe estar dentro de la iniciativa." });
+    }
+    campaign.ad_sets.forEach((adSet, adSetIndex) => adSet.ads.forEach((ad, adIndex) => {
+      if (ad.scheduled_date < campaign.start_date || ad.scheduled_date > campaign.end_date) {
+        context.addIssue({ code: "custom", path: ["meta_campaigns", campaignIndex, "ad_sets", adSetIndex, "ads", adIndex, "scheduled_date"], message: "El anuncio queda fuera de su campaña Meta." });
+      }
+    }));
+  });
+});
+
 export const campaignPlanOutputSchema = z.object({
   plan_name: z.string(),
   /** Lectura del momento comercial de la tienda, con cifras. */
   diagnosis: z.string(),
-  campaigns: z.array(proposedCampaignSchema),
+  /** Ventana exacta solicitada por la persona; opcional solo para propuestas legadas. */
+  planning_window: campaignPlanWindowSchema.optional(),
+  /** Contrato plano legado; se normaliza a iniciativas de una sola acción. */
+  campaigns: z.array(proposedCampaignSchema).default([]),
+  initiatives: z.array(campaignInitiativeSchema).optional(),
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
@@ -965,13 +1458,136 @@ export const campaignPlanOutputSchema = z.object({
 
 export type CampaignPlanOutput = z.infer<typeof campaignPlanOutputSchema>;
 
+export type CampaignPlanCalendarAction = {
+  index: number;
+  initiative_index: number | null;
+  initiative: string;
+  title: string;
+  channel: "Email" | "Meta" | "Instagram";
+  scheduled_date: string;
+  scheduled_time?: string;
+  action_type: "legacy_action" | "klaviyo_campaign_message" | "klaviyo_flow_preparation" | "meta_ad_creative";
+  objective: string;
+  audience: string;
+  purpose: string;
+  creative_brief: string;
+  breadcrumb: string[];
+  hierarchy: Record<string, unknown>;
+  description: string;
+};
+
+/** Stable flattening shared by review, idempotency and calendar persistence. */
+export function flattenCampaignPlanActions(plan: CampaignPlanOutput, anchorMs = Date.now()): CampaignPlanCalendarAction[] {
+  const actions: CampaignPlanCalendarAction[] = [];
+  const push = (action: Omit<CampaignPlanCalendarAction, "index">) => actions.push({ index: actions.length, ...action });
+  const dayMs = 24 * 60 * 60 * 1000;
+  for (const campaign of plan.campaigns ?? []) {
+    const initiative = campaign.initiative || campaign.title;
+    const date = campaign.scheduled_date ?? new Date(anchorMs + campaign.start_offset_days * dayMs).toISOString().slice(0, 10);
+    push({
+      initiative_index: null,
+      initiative,
+      title: campaign.title,
+      channel: campaign.channel,
+      scheduled_date: date,
+      action_type: "legacy_action",
+      objective: campaign.objective,
+      audience: campaign.audience,
+      purpose: campaign.objective,
+      creative_brief: campaign.creative_brief ?? "",
+      breadcrumb: [initiative],
+      hierarchy: { kind: "legacy_action", initiative_name: initiative },
+      description: [
+        `Campaña paraguas: ${initiative}`,
+        `Objetivo: ${campaign.objective}`,
+        `Audiencia: ${campaign.audience}`,
+        ...(campaign.creative_brief ? [`Brief: ${campaign.creative_brief}`] : []),
+        `Hipótesis: ${campaign.hypothesis}`,
+        `Se cumple cuando: ${campaign.success_metric}`,
+      ].join("\n\n"),
+    });
+  }
+  for (const [initiativeIndex, initiative] of (plan.initiatives ?? []).entries()) {
+    const parent = {
+      initiative_index: initiativeIndex,
+      initiative_name: initiative.name,
+      objective: initiative.objective,
+      audience: initiative.audience,
+      offer: initiative.offer,
+      start_date: initiative.start_date,
+      end_date: initiative.end_date,
+      hypothesis: initiative.hypothesis,
+      success_metric: initiative.success_metric,
+    };
+    const parentDescription = [
+      `Campaña paraguas: ${initiative.name}`,
+      `Objetivo: ${initiative.objective}`,
+      `Audiencia: ${initiative.audience}`,
+      `Oferta (${initiative.offer.status}): ${initiative.offer.description}`,
+      `Periodo: ${initiative.start_date} – ${initiative.end_date}`,
+      `Hipótesis: ${initiative.hypothesis}`,
+      `Éxito: ${initiative.success_metric}`,
+    ].join("\n\n");
+    initiative.klaviyo.campaigns.forEach((campaign, campaignIndex) => campaign.paths.forEach((path, pathIndex) => path.messages.forEach((message, messageIndex) => push({
+      initiative_index: initiativeIndex,
+      initiative: initiative.name,
+      title: message.title,
+      channel: "Email",
+      scheduled_date: message.scheduled_date,
+      ...(message.scheduled_time ? { scheduled_time: message.scheduled_time } : {}),
+      action_type: "klaviyo_campaign_message",
+      objective: campaign.objective,
+      audience: path.audience,
+      purpose: message.purpose,
+      creative_brief: message.creative_brief,
+      breadcrumb: [initiative.name, campaign.name, path.name],
+      hierarchy: { ...parent, action_type: "klaviyo_campaign_message", klaviyo_campaign_name: campaign.name, klaviyo_campaign_objective: campaign.objective, path_name: path.name, path_audience: path.audience, campaign_index: campaignIndex, path_index: pathIndex, message_index: messageIndex },
+      description: [parentDescription, `Campaña de Klaviyo: ${campaign.name}`, `Objetivo del envío: ${message.purpose}`, `Ruta: ${path.name}`, `Audiencia de la ruta: ${path.audience}`, `Brief de producción: ${message.creative_brief}`].join("\n\n"),
+    }))));
+    initiative.klaviyo.flows.forEach((flow, flowIndex) => push({
+      initiative_index: initiativeIndex,
+      initiative: initiative.name,
+      title: `Preparar flow: ${flow.name}`,
+      channel: "Email",
+      scheduled_date: flow.preparation_date,
+      action_type: "klaviyo_flow_preparation",
+      objective: initiative.objective,
+      audience: flow.audience,
+      purpose: `Flow reactivo disparado por: ${flow.trigger}`,
+      creative_brief: flow.steps.map((step) => `Paso ${step.order}, espera ${step.wait_days} días: ${step.title}. ${step.purpose} Brief: ${step.creative_brief}`).join("\n"),
+      breadcrumb: [initiative.name, "Flows", flow.name],
+      hierarchy: { ...parent, action_type: "klaviyo_flow_preparation", flow_name: flow.name, flow_trigger: flow.trigger, flow_audience: flow.audience, flow_steps: flow.steps, flow_index: flowIndex },
+      description: [parentDescription, "Flow automatizado de Klaviyo; no es una tanda de envíos con fecha fija.", `Disparador: ${flow.trigger}`, `Audiencia: ${flow.audience}`, ...flow.steps.map((step) => `Paso ${step.order} · espera ${step.wait_days} días · ${step.title}: ${step.purpose}\nBrief: ${step.creative_brief}`)].join("\n\n"),
+    }));
+    initiative.meta_campaigns.forEach((campaign, campaignIndex) => campaign.ad_sets.forEach((adSet, adSetIndex) => adSet.ads.forEach((ad, adIndex) => push({
+      initiative_index: initiativeIndex,
+      initiative: initiative.name,
+      title: ad.name,
+      channel: "Meta",
+      scheduled_date: ad.scheduled_date,
+      ...(ad.scheduled_time ? { scheduled_time: ad.scheduled_time } : {}),
+      action_type: "meta_ad_creative",
+      objective: campaign.objective,
+      audience: adSet.audience,
+      purpose: ad.purpose,
+      creative_brief: ad.creative_brief,
+      breadcrumb: [initiative.name, campaign.name, adSet.name],
+      hierarchy: { ...parent, action_type: "meta_ad_creative", meta_campaign_name: campaign.name, meta_objective: campaign.objective, meta_campaign_start_date: campaign.start_date, meta_campaign_end_date: campaign.end_date, budget_guidance: campaign.budget_guidance, ad_set_name: adSet.name, ad_set_audience: adSet.audience, placements: adSet.placements, ad_name: ad.name, creative_format: ad.format, campaign_index: campaignIndex, ad_set_index: adSetIndex, ad_index: adIndex },
+      description: [parentDescription, `Campaña Meta: ${campaign.name}`, `Objetivo publicitario: ${campaign.objective}`, `Periodo: ${campaign.start_date} – ${campaign.end_date}`, `Presupuesto orientativo: ${campaign.budget_guidance}`, `Conjunto de anuncios: ${adSet.name}`, `Audiencia del conjunto: ${adSet.audience}`, `Ubicaciones: ${adSet.placements.join(", ")}`, `Anuncio/creativo (${ad.format}): ${ad.name}`, `Objetivo de la pieza: ${ad.purpose}`, `Brief del creativo: ${ad.creative_brief}`].join("\n\n"),
+    }))));
+  }
+  return actions;
+}
+
 export const campaignPlanJsonSchema = {
   type: "object",
   additionalProperties: false,
   required: [
     "plan_name",
     "diagnosis",
+    "planning_window",
     "campaigns",
+    "initiatives",
     "sources",
     "confidence",
     "warnings",
@@ -987,23 +1603,98 @@ export const campaignPlanJsonSchema = {
       description:
         "En que momento comercial esta la tienda, con cifras: que canal tira, que producto sostiene la facturacion, que se agoto.",
     },
+    planning_window: {
+      type: "object",
+      additionalProperties: false,
+      required: ["start_date", "end_date", "timezone"],
+      properties: {
+        start_date: {
+          type: "string",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+          description: "Primer día incluido del calendario pedido por la persona.",
+        },
+        end_date: {
+          type: "string",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+          description: "Último día incluido del calendario pedido por la persona.",
+        },
+        timezone: { type: "string", description: "Zona horaria IANA de la tienda." },
+      },
+    },
+    initiatives: {
+      type: "array",
+      description: "Campañas paraguas con ejecuciones de canal agrupadas. Devuelve [] si falta evidencia para recomendar acciones. El array campaigns queda vacío en salidas nuevas por compatibilidad con clientes antiguos.",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["name", "objective", "audience", "offer", "start_date", "end_date", "hypothesis", "evidence", "success_metric", "klaviyo", "meta_campaigns"],
+        properties: {
+          name: { type: "string" }, objective: { type: "string" }, audience: { type: "string" },
+          offer: { type: "object", additionalProperties: false, required: ["status", "description", "evidence"], properties: {
+            status: { type: "string", enum: ["verified", "proposal", "none"] },
+            description: { type: "string", description: "No afirmes descuentos sin evidencia. Marca como propuesta lo que necesite aprobación y como ninguna si la iniciativa no necesita oferta." },
+            evidence: { ...caminoEvidenceJsonSchema, maxItems: 8 },
+          } },
+          start_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, end_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+          hypothesis: { type: "string" }, evidence: { ...caminoEvidenceJsonSchema, minItems: 1, maxItems: 12 }, success_metric: { type: "string" },
+          klaviyo: { type: "object", additionalProperties: false, required: ["campaigns", "flows"], properties: {
+            campaigns: { type: "array", maxItems: 12, items: { type: "object", additionalProperties: false, required: ["name", "objective", "paths"], properties: {
+              name: { type: "string" }, objective: { type: "string" },
+              paths: { type: "array", minItems: 1, maxItems: 10, items: { type: "object", additionalProperties: false, required: ["name", "audience", "messages"], properties: {
+                name: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 120,
+                  description:
+                    "Nombre breve de la ruta de audiencia, con un máximo de 120 caracteres.",
+                }, audience: { type: "string" },
+                messages: { type: "array", minItems: 1, maxItems: 30, items: { type: "object", additionalProperties: false, required: ["title", "scheduled_date", "scheduled_time", "purpose", "creative_brief"], properties: {
+                  title: { type: "string", description: "Nombre breve que distinga este envío dentro de la secuencia." }, scheduled_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, scheduled_time: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Hora local propuesta de envío HH:mm en la zona de la tienda." }, purpose: { type: "string", description: "Tema/ángulo y función de este mensaje en la secuencia." }, creative_brief: { type: "string", description: "Brief para el agente de producción: estructura por bloques, tono y lenguaje, productos/segmento, CTA solo si está confirmado, aprendizaje histórico aplicado (incluye qué funcionó/no funcionó y métricas si existen), guía RAG aplicable y documento fuente. No redactes el email final." },
+                } } },
+              } } },
+            } } },
+            flows: { type: "array", maxItems: 12, items: { type: "object", additionalProperties: false, required: ["name", "trigger", "preparation_date", "audience", "steps"], properties: {
+              name: { type: "string" }, trigger: { type: "string" }, preparation_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, audience: { type: "string" },
+              steps: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false, required: ["order", "title", "wait_days", "purpose", "creative_brief"], properties: {
+                order: { type: "integer", minimum: 1 }, title: { type: "string" }, wait_days: { type: "integer", minimum: 0, maximum: 365 }, purpose: { type: "string" }, creative_brief: { type: "string" },
+              } } },
+            } } },
+          } },
+          meta_campaigns: { type: "array", maxItems: 12, items: { type: "object", additionalProperties: false, required: ["name", "objective", "start_date", "end_date", "budget_guidance", "ad_sets"], properties: {
+            name: { type: "string" }, objective: { type: "string" }, start_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, end_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, budget_guidance: { type: "string" },
+            ad_sets: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false, required: ["name", "audience", "placements", "ads"], properties: {
+              name: { type: "string" }, audience: { type: "string" }, placements: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
+              ads: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false, required: ["name", "format", "scheduled_date", "scheduled_time", "purpose", "creative_brief"], properties: {
+                name: { type: "string", description: "Nombre único del anuncio/creativo." }, format: { type: "string", enum: ["video_vertical", "video_horizontal", "carousel", "imagen_unica", "coleccion", "por_definir"] }, scheduled_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, scheduled_time: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Hora local propuesta de lanzamiento HH:mm en la zona de la tienda." }, purpose: { type: "string", description: "Ángulo o función de esta variante dentro de la campaña." }, creative_brief: { type: "string", description: "Brief para el agente creativo: hook, guion/estructura, escenas o tarjetas, copy direction, tono, formato, CTA solo confirmado, aprendizaje histórico aplicado, guía RAG y sus documentos fuente. No generes la pieza final." },
+              } } },
+            } } },
+          } } },
+        },
+      },
+    },
     campaigns: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
         required: [
+          "initiative",
           "title",
           "channel",
           "objective",
           "audience",
           "hypothesis",
+          "creative_brief",
+          "scheduled_date",
           "start_offset_days",
           "duration_days",
           "evidence",
           "success_metric",
         ],
         properties: {
+          initiative: {
+            type: "string",
+            description: "Nombre compartido de la campaña paraguas. Repite el mismo valor en cada envío de email y acción/creativo de Meta que contribuya al mismo objetivo. Cada elemento de campaigns representa una sola acción fechada, no toda la campaña paraguas.",
+          },
           title: { type: "string" },
           channel: { type: "string", enum: [...CAMPAIGN_CHANNELS] },
           objective: { type: "string" },
@@ -1017,13 +1708,27 @@ export const campaignPlanJsonSchema = {
             description:
               "Que se espera que pase y por que lo dicen los datos de esta tienda.",
           },
+          creative_brief: {
+            type: "string",
+            description: "Brief concreto de mensaje y pieza: para Email, angulo, oferta confirmada y CTA; para Meta, concepto visual, gancho, formato sugerido y texto base. No es una pieza aprobada ni publicada.",
+          },
+          scheduled_date: {
+            type: "string",
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+            description: "Día local de envío o lanzamiento, dentro de planning_window.",
+          },
           start_offset_days: {
             type: "integer",
             minimum: 0,
-            description: "Dias desde la aprobacion hasta el arranque.",
+            description: "Desplazamiento de compatibilidad dentro de la ventana; scheduled_date es la fecha operativa exacta.",
           },
           duration_days: { type: "integer", minimum: 1 },
-          evidence: caminoEvidenceJsonSchema,
+          evidence: {
+            ...caminoEvidenceJsonSchema,
+            minItems: 1,
+            description:
+              "Cada iniciativa debe citar al menos una señal concreta presente en los datos o documentos recibidos. No inventes la fuente; si no existe evidencia suficiente, devuelve campaigns vacío y explica qué falta en warnings.",
+          },
           success_metric: {
             type: "string",
             description:
@@ -1036,6 +1741,7 @@ export const campaignPlanJsonSchema = {
     },
     sources: {
       type: "array",
+      description: "Fuentes realmente recibidas/consultadas que respaldan el plan. Si no hay campañas, puede quedar vacío; cada campaña requiere al menos una fuente y evidencia concreta.",
       items: {
         type: "object",
         additionalProperties: false,
@@ -1227,18 +1933,36 @@ export const chatOutputSchema = z.object({
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
-  summary: z.string().optional(),
+  summary: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   findings: z
     .array(
       z.object({
         title: z.string(),
         detail: z.string(),
-        impact: z.enum(["low", "medium", "high"]).optional(),
+        impact: z
+          .enum(["low", "medium", "high"])
+          .nullable()
+          .optional()
+          .transform((value) => value ?? undefined),
       }),
     )
-    .optional(),
-  recommendation: z.string().optional(),
-  next_action: z.string().optional(),
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
+  recommendation: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
+  next_action: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   ui_actions: z
     .array(
       z.object({
@@ -1249,8 +1973,26 @@ export const chatOutputSchema = z.object({
       }),
     )
     .max(3)
-    .optional(),
-  proposed_writes: z.array(agentProposedWriteSchema).optional(),
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
+  proposed_writes: z
+    .array(
+      agentProposedWriteSchema
+        .extend({
+          effort_estimate: z
+            .enum(["low", "medium", "high", "unknown"])
+            .nullable()
+            .optional(),
+        })
+        .transform(({ effort_estimate, ...write }) => ({
+          ...write,
+          ...(effort_estimate == null ? {} : { effort_estimate }),
+        })),
+    )
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
 });
 
 export type ChatOutput = z.infer<typeof chatOutputSchema>;
@@ -1258,10 +2000,21 @@ export type ChatOutput = z.infer<typeof chatOutputSchema>;
 export const chatJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "sources", "confidence", "warnings"],
+  required: [
+    "answer",
+    "sources",
+    "confidence",
+    "warnings",
+    "summary",
+    "findings",
+    "recommendation",
+    "next_action",
+    "ui_actions",
+    "proposed_writes",
+  ],
   properties: {
     ui_actions: {
-      type: "array",
+      type: ["array", "null"],
       maxItems: 3,
       items: {
         type: "object",
@@ -1315,34 +2068,37 @@ export const chatJsonSchema = {
         "Avisos: p. ej. datos incompletos o pregunta fuera del alcance de las tools disponibles.",
     },
     summary: {
-      type: "string",
+      type: ["string", "null"],
       description:
         "Resumen ejecutivo de una frase, sin introducir datos nuevos.",
     },
     findings: {
-      type: "array",
+      type: ["array", "null"],
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "detail"],
+        required: ["title", "detail", "impact"],
         properties: {
           title: { type: "string" },
           detail: { type: "string" },
-          impact: { type: "string", enum: ["low", "medium", "high"] },
+          impact: {
+            type: ["string", "null"],
+            enum: ["low", "medium", "high", null],
+          },
         },
       },
       description: "Hasta tres hallazgos respaldados por sources.",
     },
     recommendation: {
-      type: "string",
+      type: ["string", "null"],
       description: "Recomendación concreta, sin ejecutar ninguna escritura.",
     },
     next_action: {
-      type: "string",
+      type: ["string", "null"],
       description: "Siguiente acción y módulo donde la ejecuta el humano.",
     },
     proposed_writes: {
-      type: "array",
+      type: ["array", "null"],
       items: {
         type: "object",
         additionalProperties: false,
@@ -1352,6 +2108,8 @@ export const chatJsonSchema = {
           "description",
           "priority",
           "rationale",
+          "effort_estimate",
+          "financial_cost_estimate",
           "evidence",
         ],
         properties: {
@@ -1363,7 +2121,10 @@ export const chatJsonSchema = {
             enum: ["low", "medium", "high", "urgent"],
           },
           rationale: { type: "string" },
-          effort_estimate: { type: "string", enum: ["low", "medium", "high", "unknown"] },
+          effort_estimate: {
+            type: ["string", "null"],
+            enum: ["low", "medium", "high", "unknown", null],
+          },
           financial_cost_estimate: {
             anyOf: [
               { type: "null" },
@@ -2189,6 +2950,55 @@ export type ToolCatalogEntry = {
   readOnly: boolean;
 };
 
+/** Strict contract for new A05 runs; the base schema still reads legacy outputs. */
+export const currentCampaignPlanOutputSchema = campaignPlanOutputSchema.extend({
+  planning_window: campaignPlanWindowSchema,
+  sources: z.array(agentSourceSchema),
+  initiatives: z.array(campaignInitiativeSchema),
+  campaigns: z.array(proposedCampaignSchema.extend({
+    scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    creative_brief: z.string().min(1).max(2400),
+    evidence: z.array(agentEvidenceItemSchema).min(1),
+  })),
+}).superRefine((output, context) => {
+  const hasInitiativeActions = output.initiatives.some((initiative) =>
+    initiative.klaviyo.campaigns.length > 0 ||
+    initiative.klaviyo.flows.length > 0 ||
+    initiative.meta_campaigns.length > 0,
+  );
+  if ((output.campaigns.length > 0 || hasInitiativeActions) && output.sources.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["sources"],
+      message: "Un plan con campañas debe declarar al menos una fuente real.",
+    });
+  }
+  for (const [initiativeIndex, initiative] of output.initiatives.entries()) {
+    if (initiative.start_date < output.planning_window.start_date || initiative.end_date > output.planning_window.end_date) {
+      context.addIssue({ code: "custom", path: ["initiatives", initiativeIndex], message: "La iniciativa debe quedar dentro de la ventana solicitada." });
+    }
+    const hasActions = initiative.klaviyo.campaigns.length > 0 || initiative.klaviyo.flows.length > 0 || initiative.meta_campaigns.length > 0;
+    if (hasActions && initiative.evidence.length === 0) {
+      context.addIssue({ code: "custom", path: ["initiatives", initiativeIndex, "evidence"], message: "Cada iniciativa necesita evidencia." });
+    }
+  }
+}).transform((output) => {
+  const initiatives = output.initiatives.filter((initiative) =>
+    initiative.klaviyo.campaigns.length > 0 ||
+    initiative.klaviyo.flows.length > 0 ||
+    initiative.meta_campaigns.length > 0,
+  );
+  if (initiatives.length === output.initiatives.length) return output;
+  return {
+    ...output,
+    initiatives,
+    warnings: [
+      ...output.warnings,
+      "Se omitió una iniciativa sin acciones de Klaviyo o Meta; no se añadió al calendario.",
+    ],
+  };
+});
+
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: "sql_select",
@@ -2251,6 +3061,23 @@ export type AgentTurnResult<TOutput = AgentOutput> = {
   /** El contexto se recorto por limite de tamano: el modelo vio menos evidencia. */
   contextTruncated: boolean;
 };
+
+/** Uso acumulado disponible incluso si el turno falla antes de producir output. */
+export type AgentTurnUsage = Pick<
+  AgentTurnResult<unknown>,
+  | "provider"
+  | "model"
+  | "inputTokens"
+  | "outputTokens"
+  | "cacheReadTokens"
+  | "cacheCreationTokens"
+  | "reasoningTokens"
+  | "estimatedCostUsd"
+  | "costBasis"
+  | "pricingVersion"
+  | "modelCalls"
+  | "toolCallCount"
+>;
 
 /**
  * Suma un valor reportado por el proveedor a un acumulador que empieza en
@@ -2875,7 +3702,11 @@ export function checkOutputSanity(output: unknown): OutputSanityResult {
       const title =
         typeof finding.title === "string" ? finding.title.trim() : "";
       const evidence =
-        typeof finding.evidence === "string" ? finding.evidence.trim() : "";
+        typeof finding.evidence === "string"
+          ? finding.evidence.trim()
+          : typeof finding.detail === "string"
+            ? finding.detail.trim()
+            : "";
       if (!title) return { ok: false, reason: "findings_con_titulo_vacio" };
       if (!evidence)
         return { ok: false, reason: "findings_con_evidencia_vacia" };
@@ -2893,7 +3724,9 @@ export function checkOutputSanity(output: unknown): OutputSanityResult {
       const expectedImpact =
         typeof recommendation.expected_impact === "string"
           ? recommendation.expected_impact.trim()
-          : "";
+          : typeof recommendation.rationale === "string"
+            ? recommendation.rationale.trim()
+            : "";
       if (!action)
         return { ok: false, reason: "recommendations_con_accion_vacia" };
       if (!expectedImpact) {
@@ -2981,6 +3814,7 @@ function requestWithoutTools<T extends object>(base: T): Omit<T, "tools"> {
  * `0` seria una afirmacion que no podemos hacer.
  */
 function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
+  const WEB_SEARCH_USD_PER_REQUEST = 0.01;
   const usage = {
     inputTokens: 0,
     outputTokens: 0,
@@ -2988,6 +3822,7 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
     cacheCreationTokens: null as number | null,
     modelCalls: 0,
     toolCallCount: 0,
+    webSearchRequests: 0,
   };
 
   // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
@@ -2996,7 +3831,8 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
   // numero de tool calls -- y el turno se marca `unknown_model` para que quede
   // visible en el panel en vez de pasar por gratis.
   const costSoFarOrZero = () =>
-    estimateCostUsd(model, usage.inputTokens, usage.outputTokens) ?? 0;
+    (estimateCostUsd(model, usage.inputTokens, usage.outputTokens) ?? 0) +
+    usage.webSearchRequests * WEB_SEARCH_USD_PER_REQUEST;
 
   const enforceBudget = () => {
     const costSoFar = costSoFarOrZero();
@@ -3013,6 +3849,24 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
 
   return {
     usage,
+    snapshot(provider: AIProviderId): AgentTurnUsage {
+      const pricing = turnPricingFields(model, usage.inputTokens, usage.outputTokens);
+      return {
+        provider,
+        model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheCreationTokens: usage.cacheCreationTokens,
+        reasoningTokens: null,
+        ...pricing,
+        estimatedCostUsd: pricing.estimatedCostUsd === null
+          ? null
+          : pricing.estimatedCostUsd + usage.webSearchRequests * WEB_SEARCH_USD_PER_REQUEST,
+        modelCalls: usage.modelCalls,
+        toolCallCount: usage.toolCallCount,
+      };
+    },
     enforceBudget,
     /** Suma el uso de una llamada al modelo y comprueba el presupuesto. */
     recordModelCall(reported: {
@@ -3049,6 +3903,13 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
      */
     recordToolCalls(count: number) {
       usage.toolCallCount += count;
+      enforceBudget();
+    },
+    recordWebSearches(count: number) {
+      if (!Number.isFinite(count) || count <= 0) return;
+      const requests = Math.trunc(count);
+      usage.webSearchRequests += requests;
+      usage.toolCallCount += requests;
       enforceBudget();
     },
     /**
@@ -3189,6 +4050,19 @@ function parseTurnOutput<TOutput>(
     );
   }
 
+  // Un hallazgo sin titulo o sin evidencia no llega al dominio, pero tampoco
+  // tumba la respuesta entera: se descarta ese hallazgo y el resto sigue.
+  const data = validated.data as unknown;
+  if (isPlainObject(data) && Array.isArray(data.findings)) {
+    data.findings = data.findings.filter((finding) => {
+      if (!isPlainObject(finding)) return true;
+      const title = typeof finding.title === "string" ? finding.title.trim() : "";
+      const evidence = typeof finding.evidence === "string" ? finding.evidence.trim()
+        : typeof finding.detail === "string" ? finding.detail.trim() : "";
+      return Boolean(title && evidence);
+    });
+  }
+
   const sanity = checkOutputSanity(validated.data);
 
   if (!sanity.ok) {
@@ -3256,11 +4130,26 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
    * de datos por evento. Quien llama acumula y persiste una sola vez.
    */
   onSecurityEvent?: AgentSecurityEventSink;
+  /** Uso acumulado tras cada respuesta, también si luego falla la validación. */
+  onUsage?: (usage: AgentTurnUsage) => void | Promise<void>;
+  /** Fragmentos de texto del proveedor para interfaces en tiempo real. */
+  onTextDelta?: (delta: string) => void;
+  onTextReset?: () => void;
+  onToolCall?: () => void;
   /**
    * Imágenes adjuntas al mensaje de usuario (visión). `url` debe ser pública y
    * de confianza -- el backend valida el origen antes de llamar aquí.
    */
   images?: AgentImageAttachment[];
+  /** Attach Anthropic's hosted web search when this agent must research current public sources. */
+  webSearch?: boolean;
+  /**
+   * Solo OpenAI (gpt-6-sol / gpt-6-luna): esfuerzo de razonamiento (por defecto
+   * none) y tope de tokens de salida, que incluye el razonamiento (por defecto
+   * 16000). El Camino pide razonamiento alto y un tope amplio.
+   */
+  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
+  maxCompletionTokens?: number;
 }): Promise<AgentTurnResult<TOutput>> {
   if (!params.client && !params.apiKey) {
     throw new Error("agent_provider_credentials_required");
@@ -3329,19 +4218,25 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
         schema: outputContract.jsonSchema,
       },
     },
-    ...(tools.length > 0
+    ...(tools.length > 0 || params.webSearch
       ? {
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-          })),
+          tools: [
+            ...tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+            })),
+            ...(params.webSearch
+              ? [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 5 }]
+              : []),
+          ],
         }
       : {}),
   };
 
   const accounting = createTurnAccounting(params.model, budget);
   const { usage } = accounting;
+  const verifiedWebSearchUrls = new Set<string>();
 
   const resiliencePolicy = {
     ...DEFAULT_AGENT_RESILIENCE_POLICY,
@@ -3353,26 +4248,56 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   ) => {
     const base = withoutTools ? requestWithoutTools(requestBase) : requestBase;
     return withAgentResilience(
-      (signal) =>
-        client.messages.create(
+      async (signal): Promise<Anthropic.Message> => {
+        if (params.onTextDelta) {
+          params.onTextReset?.();
+          return await client.messages
+            .stream({ ...base, messages: requestMessages }, { signal })
+            .on("text", (delta) => params.onTextDelta?.(delta))
+            .finalMessage();
+        }
+        return await client.messages.create(
           { ...base, messages: requestMessages },
           { signal },
-        ),
+        );
+      },
       resiliencePolicy,
     );
   };
 
-  const recordResponse = (message: Anthropic.Message) => {
-    accounting.recordModelCall({
-      inputTokens: message.usage.input_tokens,
-      outputTokens: message.usage.output_tokens,
-      cacheReadTokens: message.usage.cache_read_input_tokens,
-      cacheCreationTokens: message.usage.cache_creation_input_tokens,
-    });
+  const recordResponse = async (message: Anthropic.Message) => {
+    try {
+      for (const block of message.content) {
+        if (block.type !== "web_search_tool_result") continue;
+        if (Array.isArray(block.content)) {
+          for (const result of block.content) {
+            if ("url" in result && typeof result.url === "string") {
+              verifiedWebSearchUrls.add(result.url);
+            }
+          }
+        }
+      }
+      const serverToolUse = (message.usage as Anthropic.Messages.Usage & {
+        server_tool_use?: { web_search_requests?: number };
+      }).server_tool_use;
+      accounting.recordWebSearches(serverToolUse?.web_search_requests ?? 0);
+      accounting.recordModelCall({
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+        cacheReadTokens: message.usage.cache_read_input_tokens,
+        cacheCreationTokens: message.usage.cache_creation_input_tokens,
+      });
+    } finally {
+      try {
+        await params.onUsage?.(accounting.snapshot("anthropic"));
+      } catch {
+        // La telemetría no debe convertir una respuesta válida en un fallo IA.
+      }
+    }
   };
 
   let response = await createMessage(messages);
-  recordResponse(response);
+  await recordResponse(response);
 
   while (response.stop_reason === "tool_use") {
     const isFinalRound = accounting.isFinalRound();
@@ -3382,6 +4307,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     );
 
     accounting.recordToolCalls(toolUses.length);
+    if (toolUses.length > 0) params.onToolCall?.();
 
     const executed = await mapWithConcurrency(
       toolUses,
@@ -3413,7 +4339,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     });
 
     response = await createMessage(messages, isFinalRound);
-    recordResponse(response);
+    await recordResponse(response);
 
     if (isFinalRound) {
       break;
@@ -3444,8 +4370,27 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     throw new AgentOutputValidationError("agent_output_missing_text", "");
   }
 
+  const output = parseTurnOutput(textBlock.text, outputContract);
+  if (params.webSearch && output && typeof output === "object") {
+    const sources = (output as { sources?: unknown }).sources;
+    if (Array.isArray(sources)) {
+      for (const source of sources) {
+        if (!source || typeof source !== "object" || !("reference" in source)) continue;
+        const reference = String((source as { reference?: unknown }).reference ?? "");
+        const urls = reference.match(/https?:\/\/[^\s<>"']+/gi) ?? [];
+        for (const candidate of urls) {
+          const url = candidate.replace(/[),.;]+$/g, "");
+          if (!verifiedWebSearchUrls.has(url)) {
+            throw new AgentOutputValidationError("agent_output_unverified_web_source", reference);
+          }
+        }
+      }
+    }
+  }
+
+  const pricing = turnPricingFields(params.model, usage.inputTokens, usage.outputTokens);
   return {
-    output: parseTurnOutput(textBlock.text, outputContract),
+    output,
     provider: "anthropic",
     model: params.model,
     inputTokens: usage.inputTokens,
@@ -3455,7 +4400,10 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     // Anthropic no expone tokens de razonamiento en `usage` para estos
     // modelos: `null` (desconocido), nunca 0.
     reasoningTokens: null,
-    ...turnPricingFields(params.model, usage.inputTokens, usage.outputTokens),
+    ...pricing,
+    estimatedCostUsd: pricing.estimatedCostUsd === null
+      ? null
+      : pricing.estimatedCostUsd + usage.webSearchRequests * 0.01,
     latencyMs,
     stopReason: response.stop_reason,
     modelCalls: usage.modelCalls,
@@ -3471,6 +4419,72 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
 // los mismos AgentToolDefinition/OutputContract/AgentBudget para que el
 // caller no tenga que distinguir de proveedor salvo al elegir cual llamar.
 // ---------------------------------------------------------------------------
+
+/** Por encima de este limite de espera, la llamada a OpenAI va en streaming. */
+const STREAMING_ABOVE_MS = 240_000;
+
+/**
+ * Recompone una ChatCompletion a partir de su stream: contenido, llamadas a
+ * tools, motivo de fin y uso (con stream_options.include_usage).
+ */
+export async function collectChatCompletionStream(
+  chunks: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+  fallbackModel: string,
+  onTextDelta?: (delta: string) => void,
+): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  let id = "";
+  let created = 0;
+  let model = fallbackModel;
+  let content = "";
+  let refusal = "";
+  let finishReason: string | null = null;
+  let usage: OpenAI.Completions.CompletionUsage | undefined;
+  const calls = new Map<number, { id: string; name: string; args: string }>();
+  for await (const chunk of chunks) {
+    id = chunk.id || id;
+    created = chunk.created || created;
+    model = chunk.model || model;
+    if (chunk.usage) usage = chunk.usage;
+    const choice = chunk.choices[0];
+    if (!choice) continue;
+    if (choice.delta.content) {
+      content += choice.delta.content;
+      onTextDelta?.(choice.delta.content);
+    }
+    if (choice.delta.refusal) refusal += choice.delta.refusal;
+    for (const piece of choice.delta.tool_calls ?? []) {
+      const current = calls.get(piece.index) ?? { id: "", name: "", args: "" };
+      if (piece.id) current.id = piece.id;
+      if (piece.function?.name) current.name += piece.function.name;
+      if (piece.function?.arguments) current.args += piece.function.arguments;
+      calls.set(piece.index, current);
+    }
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+  }
+  const toolCalls = [...calls.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, call]) => ({ id: call.id, type: "function" as const, function: { name: call.name, arguments: call.args } }));
+  return {
+    id,
+    object: "chat.completion",
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        finish_reason: (finishReason ?? "stop") as OpenAI.Chat.Completions.ChatCompletion.Choice["finish_reason"],
+        logprobs: null,
+        message: {
+          role: "assistant",
+          content: content || null,
+          refusal: refusal || null,
+          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+        },
+      },
+    ],
+    ...(usage ? { usage } : {}),
+  };
+}
 
 export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   apiKey: string;
@@ -3488,13 +4502,27 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
    * de datos por evento. Quien llama acumula y persiste una sola vez.
    */
   onSecurityEvent?: AgentSecurityEventSink;
+  /** Uso acumulado tras cada respuesta, también si luego falla la validación. */
+  onUsage?: (usage: AgentTurnUsage) => void | Promise<void>;
+  /** Fragmentos de texto del proveedor para interfaces en tiempo real. */
+  onTextDelta?: (delta: string) => void;
+  onTextReset?: () => void;
+  onToolCall?: () => void;
   /** Bounded image inputs (e.g. private local render captures) for vision-capable models. */
   images?: AgentImageAttachment[];
+  /**
+   * Solo OpenAI (gpt-6-sol / gpt-6-luna): esfuerzo de razonamiento (por defecto
+   * none) y tope de tokens de salida, que incluye el razonamiento (por defecto
+   * 16000). El Camino pide razonamiento alto y un tope amplio.
+   */
+  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
+  maxCompletionTokens?: number;
 }): Promise<AgentTurnResult<TOutput>> {
   const input = "scope" in params.input
     ? platformAgentInputSchema.parse(params.input)
     : agentInputSchema.parse(params.input);
-  const client = new OpenAI({ apiKey: params.apiKey });
+  // El cliente corta a los 10 min por defecto: lo alarga a nuestro propio limite de espera.
+  const client = new OpenAI({ apiKey: params.apiKey, timeout: Math.max(600_000, (params.resilience?.timeoutMs ?? 0) + 60_000) });
   const startedAt = Date.now();
   const tools = params.tools ?? [];
   const budget = params.budget;
@@ -3530,9 +4558,13 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   const requestBase = {
     model: params.model,
     ...(params.model === "gpt-6-luna" || params.model === "gpt-6-sol"
-      ? { reasoning_effort: "none" as never }
+      // Chat Completions no admite reasoning_effort distinto de none cuando
+      // la solicitud incluye function tools para estos modelos. Mantiene el
+      // modelo configurado y conserva las herramientas; Responses API permite
+      // esfuerzo alto, pero requiere otro ciclo de herramientas.
+      ? { reasoning_effort: (tools.length > 0 ? "none" : params.reasoningEffort ?? "none") as never }
       : {}),
-    max_completion_tokens: 16000,
+    max_completion_tokens: params.maxCompletionTokens ?? 16000,
     response_format: {
       type: "json_schema" as const,
       json_schema: {
@@ -3570,29 +4602,48 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   ) => {
     const base = withoutTools ? requestWithoutTools(requestBase) : requestBase;
     return withAgentResilience(
-      (signal) =>
-        client.chat.completions.create(
-          { ...base, messages: requestMessages },
+      async (signal) => {
+        if (!params.onTextDelta && resiliencePolicy.timeoutMs <= STREAMING_ABOVE_MS) {
+          return client.chat.completions.create(
+            { ...base, messages: requestMessages },
+            { signal },
+          );
+        }
+        // Respuesta larga: en streaming para que Node no corte a los 5 minutos
+        // esperando cabeceras (limite de undici), y se recompone igual.
+        params.onTextReset?.();
+        const stream = await client.chat.completions.create(
+          { ...base, messages: requestMessages, stream: true, stream_options: { include_usage: true } } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
           { signal },
-        ),
+        );
+        return collectChatCompletionStream(stream, params.model, params.onTextDelta);
+      },
       resiliencePolicy,
     );
   };
 
-  const recordResponse = (
+  const recordResponse = async (
     completion: OpenAI.Chat.Completions.ChatCompletion,
   ) => {
-    accounting.recordModelCall({
-      inputTokens: completion.usage?.prompt_tokens,
-      outputTokens: completion.usage?.completion_tokens,
-      cacheReadTokens: completion.usage?.prompt_tokens_details?.cached_tokens,
-      // OpenAI no informa de lo escrito en cache: se deja sin tocar para que
-      // el acumulador termine en `null`, no en 0.
-    });
+    try {
+      accounting.recordModelCall({
+        inputTokens: completion.usage?.prompt_tokens,
+        outputTokens: completion.usage?.completion_tokens,
+        cacheReadTokens: completion.usage?.prompt_tokens_details?.cached_tokens,
+        // OpenAI no informa de lo escrito en cache: se deja sin tocar para que
+        // el acumulador termine en `null`, no en 0.
+      });
+    } finally {
+      try {
+        await params.onUsage?.(accounting.snapshot("openai"));
+      } catch {
+        // La telemetría no debe convertir una respuesta válida en un fallo IA.
+      }
+    }
   };
 
   let response = await createCompletion(messages);
-  recordResponse(response);
+  await recordResponse(response);
 
   let choice = response.choices[0];
 
@@ -3608,6 +4659,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     );
 
     accounting.recordToolCalls(functionCalls.length);
+    if (functionCalls.length > 0) params.onToolCall?.();
 
     const executed = await mapWithConcurrency(
       functionCalls,
@@ -3641,7 +4693,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     }
 
     response = await createCompletion(messages, isFinalRound);
-    recordResponse(response);
+    await recordResponse(response);
 
     const nextChoice = response.choices[0];
     if (!nextChoice) {

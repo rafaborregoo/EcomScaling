@@ -392,7 +392,8 @@ function ShopifyIntegrationPage({
                             ? "Eliminando…"
                             : "Eliminar tienda"
                         }
-                        onConfirm={() => void removeStore(connection.id)}
+                        confirmPhrase={connection.provider_account_id ?? undefined}
+                        onConfirm={() => removeStore(connection.id)}
                       />
                     </div>
                   ) : null}

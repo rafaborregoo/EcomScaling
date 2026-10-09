@@ -8,30 +8,26 @@ import type { CampaignItem } from "@/hooks/use-campaign-items";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import { HeroBlock, StatusStrip, heroPrimary } from "@/components/trabajo-ui";
 import { Button, ButtonLink, Card } from "@/components/ui";
-import { audienceSize, STATE_LABEL, UPCOMING, type CampaignRow } from "./campaign-rows";
+import { audienceSize, STATE_LABEL, UPCOMING, type CampaignPlanSummary, type CampaignRow } from "./campaign-rows";
 import { flowKind, flowStatus, int, KEY_FLOWS, pct, ratio, type KWorkspace } from "./klaviyo-workspace";
 import { fmtSchedule } from "./format";
 import s from "./marketing-views.module.css";
 
 type ContextEvent = { id: string; event_type: string; description: string; occurred_at: string; ended_at: string | null };
-type Proposal = {
-  proposal: {
-    generated_at: string;
-    content: { campaigns: Array<{ title: string; objective: string; hypothesis: string; evidence: Array<{ label: string; value: string; source: string }> }> } | null;
-  } | null;
-};
-
 const DAY_MS = 86_400_000;
 
 // Estado en la celda del día: corto, porque la columna es estrecha. El borde
 // discontinuo ya dice "creada en Klaviyo".
 const SHORT_STATE: Record<CampaignRow["state"], string> = {
   late: "Va tarde",
+  plan: "Plan IA · revisar",
   nopiece: "Sin pieza",
   review: "En revisión",
   ready: "Lista",
   scheduled: "Programada",
   sending: "Enviándose",
+  active: "Activa en Meta",
+  paused: "En pausa",
   sent: "Enviada",
   draft: "Borrador",
   cancelled: "Cancelada",
@@ -54,6 +50,7 @@ function hour(iso: string) {
 /** Marketing -> Hoy: qué mandar hoy, qué viene y qué se escapa. */
 export function TodayView({
   organizationId,
+  campaignPlan,
   rows,
   items,
   drafts,
@@ -66,6 +63,7 @@ export function TodayView({
   onGoTo,
 }: {
   organizationId: string;
+  campaignPlan: CampaignPlanSummary | null;
   rows: CampaignRow[];
   items: CampaignItem[];
   drafts: MarketingDraft[];
@@ -80,7 +78,6 @@ export function TodayView({
   const [now] = useState(() => Date.now());
   const today = startOfDay(new Date(now));
   const context = useCachedQuery<{ events: ContextEvent[] }>(organizationId ? `/v1/organizations/${organizationId}/context` : null);
-  const proposal = useCachedQuery<Proposal>(organizationId ? `/v1/organizations/${organizationId}/ai/campaign-plan` : null);
   const currency = workspace?.account?.currency ?? "EUR";
   const connected = Boolean(workspace?.connected);
 
@@ -174,10 +171,10 @@ export function TodayView({
       action: (
         <>
           <button type="button" className={heroPrimary} onClick={onPropose}>
-            Proponer campañas
+            Ir a Campañas
           </button>
           <button type="button" onClick={onPrepareMailing}>
-            Preparar mailing
+            Crear secuencia de emails
           </button>
         </>
       ),
@@ -240,7 +237,10 @@ export function TodayView({
     .filter((row) => row.state === "sent" && row.stats)
     .sort((a, b) => Date.parse(b.date ?? "") - Date.parse(a.date ?? ""))
     .slice(0, 3);
-  const ideas = proposal.data?.proposal?.content?.campaigns.slice(0, 3) ?? [];
+  const ideas = (campaignPlan?.content?.calendar_actions ?? campaignPlan?.content?.campaigns ?? [])
+    .filter((action) => action.scheduled_date >= new Date(now).toISOString().slice(0, 10))
+    .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
+    .slice(0, 3);
   const contextEvents = context.data?.events ?? [];
 
   return (
@@ -364,10 +364,10 @@ export function TodayView({
       <div className={s.two}>
         <div className={s.col}>
           <Card
-            title="Ideas para lo siguiente"
+            title="Próximas acciones del plan"
             actions={
-              proposal.data?.proposal ? (
-                <span className={s.muted}>Propuesta del {new Date(proposal.data.proposal.generated_at).toLocaleDateString("es-ES")}</span>
+              campaignPlan ? (
+                <span className={s.muted}>Propuesta del {new Date(campaignPlan.generated_at ?? now).toLocaleDateString("es-ES")}</span>
               ) : undefined
             }
           >
@@ -376,25 +376,25 @@ export function TodayView({
                 {ideas.map((idea) => (
                   <div key={idea.title} className={s.idea}>
                     <b>{idea.title}</b>
-                    <p>{idea.hypothesis || idea.objective}</p>
-                    {idea.evidence[0] ? (
-                      <p className={s.muted}>
-                        {idea.evidence[0].label}: {idea.evidence[0].value} · {idea.evidence[0].source}
-                      </p>
-                    ) : null}
+                    <p>{idea.objective}</p>
+                    <p className={s.muted}>{fmtSchedule(idea.scheduled_date)}</p>
                   </div>
                 ))}
                 <div className={s.acts}>
                   <Button size="sm" onClick={onPropose}>
-                    Ver y añadir al plan
+                    Ver en Campañas
                   </Button>
                 </div>
               </div>
             ) : (
               <div className="grid justify-items-start gap-2">
-                <p className={s.muted}>La IA mira ventas, margen, stock y email y propone qué lanzar y cuándo.</p>
+                <p className={s.muted}>
+                  {campaignPlan
+                    ? "El último plan no tiene acciones futuras. Revisa sus avisos o pide una propuesta nueva."
+                    : "A05 consulta ventas, margen, stock, email, Meta y conocimiento para proponer qué planificar y cuándo."}
+                </p>
                 <Button size="sm" onClick={onPropose}>
-                  Proponer campañas
+                  {campaignPlan ? "Ver en Campañas" : "Ir a Campañas"}
                 </Button>
               </div>
             )}

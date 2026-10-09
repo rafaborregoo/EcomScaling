@@ -12,6 +12,8 @@ import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { useModuleSummary } from "@/components/module-summary";
 import { ClientShopify } from "../dashboard/client-shopify";
 import { ShopifyTrustStrip } from "./trust-strip";
+import { PortfolioAttention } from "@/components/portfolio-attention";
+import { useProfitability } from "../panel/panel-data";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   AsyncState,
@@ -572,6 +574,7 @@ type TriagedStore = {
   // Cuando es true la tienda sube por lo que NO se sabe de ella, no por lo que
   // se sabe. Se dice distinto: "no sabemos cómo va" no es "va mal".
   blind: boolean;
+  score: number;
 };
 
 const LEVEL_PRESENTATION: Record<
@@ -595,6 +598,9 @@ function analyzedLabel(analyzedAt: string | null) {
 }
 
 function ConsultantStoresView() {
+  // El peso de cada tienda en la cartera es su facturación de 30 días, la misma
+  // que lee /panel. Si no se puede leer, las burbujas quedan sin peso.
+  const profitability = useProfitability(30, null);
   const { setOrganizationId } = useActiveOrganization();
   const { setConnectionId } = useActiveConnection();
   const [data, setData] = useState<{
@@ -669,8 +675,31 @@ function ConsultantStoresView() {
     setConnectionId(store.connection_id);
   }
 
+  const revenueByConnection = new Map(
+    (profitability.data?.stores ?? []).map((store) => [store.connection_id, store.revenue] as const),
+  );
+
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
+      <PortfolioAttention
+        noun="tiendas"
+        weightLabel="Facturación 30 días"
+        formatWeight={(value) => `${Math.round(value).toLocaleString("es-ES")} €`}
+        onOpen={(id) => {
+          const store = ranking.find((entry) => entry.connection_id === id);
+          if (store) openStore(store);
+        }}
+        items={ranking.map((store) => ({
+          id: store.connection_id,
+          name: store.store_name,
+          sub: `${store.organization_name} · ${analyzedLabel(store.analyzed_at)}`,
+          level: store.level,
+          score: store.score,
+          reasons: store.reasons.map((reason) => reason.text),
+          weight: revenueByConnection.get(store.connection_id) || null,
+          blind: store.blind,
+        }))}
+      />
       <Card
         title="Tiendas por urgencia de revisión"
         description={

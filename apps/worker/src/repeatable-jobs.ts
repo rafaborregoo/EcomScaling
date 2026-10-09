@@ -1,5 +1,11 @@
 export const SHOPIFY_RECONCILE_CRON = "0 2 * * *";
 export const SHOPIFY_RECONCILE_TZ = "Europe/Madrid";
+// Conserva la cadencia del crontab del VPS, ahora registrada en BullMQ para
+// que el mismo worker la ejecute también en desarrollo local.
+export const META_RECONCILE_CRON = "17 0 * * *";
+export const META_RECONCILE_TZ = "UTC";
+export const KLAVIYO_RECONCILE_CRON = "43 */6 * * *";
+export const KLAVIYO_RECONCILE_TZ = "UTC";
 export const FATHOM_WEBHOOK_CRON = "* * * * *";
 export const FATHOM_WEBHOOK_TZ = "Europe/Madrid";
 export const WEBHOOK_RETENTION_CRON = "30 3 * * *";

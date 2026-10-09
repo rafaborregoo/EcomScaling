@@ -27,6 +27,7 @@ import {
   List,
   LoadingBlock,
   Select,
+  Sheet,
   Table,
   type TableColumnDef,
   toast,
@@ -42,7 +43,7 @@ export type Client = {
   created_at: string;
   member_count: number;
   consultants: Array<{ user_id: string; full_name: string | null; is_primary: boolean }>;
-  plan: { plan_code: string; store_limit: number | null; status: string; ends_at: string | null } | null;
+  plan: { plan_code: string; store_limit: number | null; member_limit: number | null; status: string; ends_at: string | null } | null;
 };
 
 export const CLIENT_STATUS_OPTIONS = [
@@ -476,9 +477,14 @@ export function ClientOverviewPanel({ organizationId }: { organizationId: string
   );
 }
 
-export function CreateClientForm({
+/** Alta de cliente en una hoja lateral: formulario a la izquierda del pie fijo. */
+export function CreateClientSheet({
+  isOpen,
+  onOpenChange,
   onCreated,
 }: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
   onCreated: (message: string) => Promise<void>;
 }) {
   const [displayName, setDisplayName] = useState("");
@@ -489,6 +495,20 @@ export function CreateClientForm({
   const [plan, setPlan] = useState(() => concesionInicial("starter", false));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  // Cada apertura arranca limpia.
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      setDisplayName("");
+      setOwnerEmail("");
+      setOwnerFullName("");
+      setCurrencyCode("EUR");
+      setTimezone("Europe/Madrid");
+      setPlan(concesionInicial("starter", false));
+      setError(null);
+    }
+  }
 
   async function submit() {
     setBusy(true);
@@ -510,9 +530,6 @@ export function CreateClientForm({
         setError(await readApiError(response));
         return;
       }
-      setDisplayName("");
-      setOwnerEmail("");
-      setOwnerFullName("");
       await onCreated(
         `Cliente creado. Se ha enviado una invitación por email a ${ownerEmail}.`,
       );
@@ -529,67 +546,53 @@ export function CreateClientForm({
     concesionValida(plan);
 
   return (
-    <Card
-      kicker="Alta"
+    <Sheet
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      size="md"
       title="Nuevo cliente"
-      description="Crea la organización e invita a su owner por email, y decide si le concedes el plan o lo paga él."
+      isBusy={busy}
+      isDirty={Boolean(displayName.trim() || ownerEmail.trim())}
+      formId="create-client-form"
+      primary={{ label: "Crear cliente", busyLabel: "Creando…", disabled: !canSubmit }}
     >
-      <div className="grid gap-4">
+      <form
+        id="create-client-form"
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <p className="text-muted">
+          Crea la organización e invita a su owner por email, y decide si le concedes el plan o lo paga él.
+        </p>
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nombre del cliente">
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Acme Store"
-            />
+            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Acme Store" />
           </Field>
           <Field label="Email del owner">
-            <Input
-              type="email"
-              value={ownerEmail}
-              onChange={(e) => setOwnerEmail(e.target.value)}
-              placeholder="owner@acme.com"
-            />
+            <Input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@acme.com" />
           </Field>
           <Field label="Nombre del owner (opcional)">
-            <Input
-              value={ownerFullName}
-              onChange={(e) => setOwnerFullName(e.target.value)}
-              placeholder="Nombre Apellido"
-            />
+            <Input value={ownerFullName} onChange={(e) => setOwnerFullName(e.target.value)} placeholder="Nombre Apellido" />
           </Field>
           <Field label="Moneda">
-            <Input
-              value={currencyCode}
-              onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
-              maxLength={3}
-              placeholder="EUR"
-            />
+            <Input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())} maxLength={3} placeholder="EUR" />
           </Field>
           <Field label="Zona horaria">
-            <Input
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="Europe/Madrid"
-            />
+            <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Madrid" />
           </Field>
         </div>
-
         <ConcesionDePlan
           value={plan}
           onChange={setPlan}
           etiquetaSinPlan="Empieza en trial y lo paga él"
           avisoSinPlan="Entra en trial abierto y elige plan en /planes. Un cliente sin ninguna suscripción no podría ni acceder a su organización."
         />
-
-        <div>
-          <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
-            {busy ? "Creando..." : "Crear cliente"}
-          </Button>
-        </div>
-      </div>
-    </Card>
+      </form>
+    </Sheet>
   );
 }
 

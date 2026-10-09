@@ -9,6 +9,7 @@ import { useMarketingPortal } from "../marketing-portal-context";
 import {
   Banner,
   Button,
+  ConfirmDialog,
   EmptyState,
   Field,
   Input,
@@ -197,7 +198,6 @@ export default function MarketingBrandGuidePage() {
 
   function discard() {
     if (!anyDirty) return;
-    if (!window.confirm("¿Descartar los cambios sin guardar?")) return;
     setOrgDraft(orgSaved);
     setStoreDraft(storeSaved);
     setNotice(null);
@@ -250,7 +250,18 @@ export default function MarketingBrandGuidePage() {
           <span className={styles.state}>
             {dirty ? "Cambios sin guardar" : orgUpdatedAt || storeUpdatedAt ? `Guardado ${timeAgo(isStoreScope ? storeUpdatedAt : orgUpdatedAt)}` : ""}
           </span>
-          <Button variant="secondary" size="sm" disabled={!anyDirty || saving} onClick={discard}>Descartar</Button>
+          <ConfirmDialog
+            trigger={
+              <Button variant="secondary" size="sm" disabled={!anyDirty || saving}>
+                Descartar
+              </Button>
+            }
+            title="Descartar los cambios"
+            description="Se pierden las ediciones sin guardar de la guía de marca."
+            confirmLabel="Descartar"
+            cancelLabel="Seguir editando"
+            onConfirm={discard}
+          />
           <Button size="sm" disabled={!anyDirty || saving} onClick={() => void save()}>{saving ? "Guardando…" : "Guardar"}</Button>
         </div>
       </header>

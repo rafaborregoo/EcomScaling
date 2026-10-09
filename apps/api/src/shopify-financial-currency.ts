@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { providerCurrencyCode } from "./provider-currency.js";
 
 export type ShopifyFinancialCurrencyCoverage = {
   status: "compatible" | "incompatible" | "unknown";
@@ -8,20 +9,27 @@ export type ShopifyFinancialCurrencyCoverage = {
   compared_sources: string[];
   mismatched_sources: Array<{ source: string; currencies: string[] }>;
   unknown_sources: string[];
+  klaviyo_status: "compatible" | "incompatible" | "unknown";
+  klaviyo_currency_code: string | null;
+  klaviyo_unknown: boolean;
   as_of: string;
 };
 
-type CurrencyRow = { currency_code: string | null };
+type CurrencyRow = {
+  currency_code: string | null;
+  klaviyo_revenue_currency_code?: string | null;
+  raw_data?: unknown;
+};
 type CoverageQuery = { data: CurrencyRow[] | null; error: unknown; count?: number | null };
 
 const MAX_CURRENCY_ROWS = 1_000;
 
-function readCurrencies(rows: CurrencyRow[] | null): { currencies: string[]; hasUnknown: boolean } {
+function readCurrencies(rows: CurrencyRow[] | null, providerField?: string): { currencies: string[]; hasUnknown: boolean } {
   const currencies = new Set<string>();
   let hasUnknown = false;
   for (const row of rows ?? []) {
-    const code = row.currency_code?.trim().toUpperCase();
-    if (!code || !/^[A-Z]{3}$/.test(code)) hasUnknown = true;
+    const code = providerCurrencyCode(row.currency_code, row.raw_data, providerField ?? "");
+    if (!code) hasUnknown = true;
     else currencies.add(code);
   }
   return { currencies: [...currencies].sort(), hasUnknown };
@@ -43,23 +51,18 @@ export async function resolveShopifyFinancialCurrencyCoverage(
     .eq("organization_id", organizationId);
   const scopedStoresQuery = storeId ? storesQuery.eq("id", storeId) : storesQuery;
 
-  const [storesResult, settingsResult, fixedExpensesResult, shippingRulesResult, productCostsResult, metaAccountsResult, klaviyoAccountsResult] = await Promise.all([
+  const [storesResult, settingsResult, fixedExpensesResult, shippingRulesResult, productCostsResult, metaAccountsResult] = await Promise.all([
     scopedStoresQuery.range(0, MAX_CURRENCY_ROWS - 1),
-    client.from("organization_financial_settings").select("currency_code", { count: "exact" }).eq("organization_id", organizationId).range(0, MAX_CURRENCY_ROWS - 1),
+    client.from("organization_financial_settings").select("currency_code, klaviyo_revenue_currency_code", { count: "exact" }).eq("organization_id", organizationId).range(0, MAX_CURRENCY_ROWS - 1),
     client.from("fixed_expenses").select("currency_code", { count: "exact" }).eq("organization_id", organizationId).eq("is_active", true).range(0, MAX_CURRENCY_ROWS - 1),
     client.from("shipping_cost_rules").select("currency_code", { count: "exact" }).eq("organization_id", organizationId).eq("is_active", true).range(0, MAX_CURRENCY_ROWS - 1),
     client.from("product_costs").select("currency_code", { count: "exact" }).eq("organization_id", organizationId).range(0, MAX_CURRENCY_ROWS - 1),
     (() => {
-      let query = client.from("meta_ad_accounts").select("currency_code", { count: "exact" }).eq("organization_id", organizationId);
+      let query = client.from("meta_ad_accounts").select("currency_code, raw_data", { count: "exact" }).eq("organization_id", organizationId).eq("is_selected", true).eq("is_active", true);
       if (storeId) query = query.eq("store_id", storeId);
       return query.range(0, MAX_CURRENCY_ROWS - 1);
     })(),
-    (() => {
-      let query = client.from("klaviyo_accounts").select("currency_code", { count: "exact" }).eq("organization_id", organizationId).eq("is_active", true);
-      if (storeId) query = query.eq("store_id", storeId);
-      return query.range(0, MAX_CURRENCY_ROWS - 1);
-    })(),
-  ]) as [CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery];
+  ]) as [CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery, CoverageQuery];
 
   const queryRows = [
     { source: "tiendas Shopify", result: storesResult },
@@ -68,7 +71,6 @@ export async function resolveShopifyFinancialCurrencyCoverage(
     { source: "reglas de envío", result: shippingRulesResult },
     { source: "costes de producto", result: productCostsResult },
     { source: "cuentas publicitarias Meta", result: metaAccountsResult },
-    { source: "cuentas de Klaviyo", result: klaviyoAccountsResult },
   ];
   const unknownSources: string[] = [];
   const mismatchedSources: ShopifyFinancialCurrencyCoverage["mismatched_sources"] = [];
@@ -102,7 +104,7 @@ export async function resolveShopifyFinancialCurrencyCoverage(
   if (comparisonCurrency) {
     for (const { source, result } of queryRows.slice(1)) {
       if (result.error) continue;
-      const { currencies, hasUnknown } = readCurrencies(result.data);
+      const { currencies, hasUnknown } = readCurrencies(result.data, source === "cuentas publicitarias Meta" ? "currency" : undefined);
       if (hasUnknown) unknownSources.push(source);
       if (currencies.length) comparedSources.push(source);
       const mismatches = currencies.filter((code) => code !== comparisonCurrency);
@@ -111,6 +113,27 @@ export async function resolveShopifyFinancialCurrencyCoverage(
   } else if (storeCount > 0) {
     unknownSources.push("moneda base de Shopify");
   }
+
+  // Klaviyo's preferred_currency changes the account's display symbol; it does
+  // not prove the currency of attributed revenue. Only an explicit finance
+  // configuration is accepted as confirmation for these report values.
+  const configuredKlaviyoCurrency = settingsResult.error
+    ? null
+    : (settingsResult.data ?? []).find((row) => row.klaviyo_revenue_currency_code)?.klaviyo_revenue_currency_code?.toUpperCase() ?? null;
+  const klaviyoCurrencies = configuredKlaviyoCurrency
+    ? { currencies: [configuredKlaviyoCurrency], hasUnknown: false }
+    : { currencies: [], hasUnknown: true };
+  const klaviyoUnknown = Boolean(settingsResult.error)
+    || klaviyoCurrencies.hasUnknown
+    || !comparisonCurrency;
+  const klaviyoMismatches = comparisonCurrency
+    ? klaviyoCurrencies.currencies.filter((code) => code !== comparisonCurrency)
+    : [];
+  const klaviyoStatus = klaviyoUnknown || !klaviyoCurrencies.currencies.length
+    ? "unknown" as const
+    : klaviyoMismatches.length
+      ? "incompatible" as const
+      : "compatible" as const;
 
   const uniqueUnknownSources = [...new Set(unknownSources)];
   return {
@@ -121,6 +144,9 @@ export async function resolveShopifyFinancialCurrencyCoverage(
     compared_sources: comparedSources,
     mismatched_sources: mismatchedSources,
     unknown_sources: uniqueUnknownSources,
+    klaviyo_status: klaviyoStatus,
+    klaviyo_currency_code: klaviyoCurrencies.currencies.length === 1 ? klaviyoCurrencies.currencies[0]! : null,
+    klaviyo_unknown: klaviyoUnknown,
     as_of: new Date().toISOString(),
   };
 }

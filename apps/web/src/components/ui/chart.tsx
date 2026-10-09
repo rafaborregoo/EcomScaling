@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, type ComponentProps } from "react";
+import { useId, useState, type ComponentProps, type ReactNode } from "react";
+import { Button } from "./button";
 import {
   ResponsiveContainer,
   AreaChart as RAreaChart,
@@ -11,6 +12,11 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceArea,
+  Cell,
+  ScatterChart as RScatterChart,
+  Scatter,
+  ZAxis,
 } from "recharts";
 
 // Charts sobre Recharts con los tokens del design system (ADR-0020). HeroUI v3
@@ -195,23 +201,66 @@ export function MultiSparkline({
   );
 }
 
+export type ChartAction = { label: string; onPress: () => void };
+type ChartRow = Record<string, number | string>;
+
+/**
+ * Interacción de los gráficos de línea/área:
+ *  - pasar el ratón: cruz y valor (tooltip);
+ *  - clic en un punto: lo fija y enseña sus acciones (`actions`);
+ *  - arrastrar: elige un tramo y avisa a la página (`onSelectRange`).
+ * Sin ninguna de las dos props, el gráfico es el de siempre.
+ */
 export function AreaChart({
   data,
   xKey,
   series,
   height = 220,
   valueFormatter,
+  actions,
+  onSelectRange,
+  selectedRange,
 }: {
   data: ChartData;
   xKey: string;
   series: Serie[];
   height?: number;
   valueFormatter?: (value: number) => string;
+  actions?: (row: ChartRow) => ChartAction[];
+  onSelectRange?: (from: string | number, to: string | number) => void;
+  selectedRange?: { from: string | number; to: string | number } | null;
 }) {
   const resolved = withColors(series);
-  return (
+  const interactive = Boolean(actions || onSelectRange);
+  const [pinned, setPinned] = useState<ChartRow | null>(null);
+  const [drag, setDrag] = useState<{ from: string | number; to: string | number } | null>(null);
+  const indexOf = (label: string | number) => data.findIndex((row) => row[xKey] === label);
+  const labelOf = (state: { activeLabel?: string | number } | undefined) => state?.activeLabel;
+
+  function finishDrag() {
+    if (!drag) return;
+    const current = drag;
+    setDrag(null);
+    if (current.from === current.to) {
+      const row = data[indexOf(current.from)];
+      if (row && actions) setPinned(row);
+      return;
+    }
+    const [from, to] = indexOf(current.from) <= indexOf(current.to) ? [current.from, current.to] : [current.to, current.from];
+    setPinned(null);
+    onSelectRange?.(from, to);
+  }
+  const area = (
     <ResponsiveContainer width="100%" height={height}>
-      <RAreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+      <RAreaChart
+        data={data}
+        margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+        style={interactive ? { cursor: "crosshair", userSelect: "none" } : undefined}
+        onMouseDown={interactive ? (state) => { const label = labelOf(state as never); if (label != null) setDrag({ from: label, to: label }); } : undefined}
+        onMouseMove={interactive ? (state) => { const label = labelOf(state as never); if (drag && label != null) setDrag({ ...drag, to: label }); } : undefined}
+        onMouseUp={interactive ? finishDrag : undefined}
+        onMouseLeave={interactive ? () => setDrag(null) : undefined}
+      >
         <CartesianGrid stroke="var(--color-separator)" vertical={false} />
         <XAxis dataKey={xKey} {...AXIS_PROPS} />
         <YAxis
@@ -236,10 +285,44 @@ export function AreaChart({
             fill={serie.color}
             fillOpacity={0.12}
             strokeWidth={2}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--color-surface)" }}
+            animationDuration={700}
           />
         ))}
+        {drag && drag.from !== drag.to ? (
+          <ReferenceArea x1={drag.from} x2={drag.to} fill="var(--color-accent)" fillOpacity={0.16} stroke="var(--color-accent)" />
+        ) : null}
+        {!drag && selectedRange ? (
+          <ReferenceArea x1={selectedRange.from} x2={selectedRange.to} fill="var(--color-accent)" fillOpacity={0.1} />
+        ) : null}
       </RAreaChart>
     </ResponsiveContainer>
+  );
+  if (!interactive) return area;
+  return (
+    <div>
+      {area}
+      {pinned ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-separator bg-surface px-3 py-2 text-sm" role="status">
+          <strong className="font-semibold">{String(pinned[xKey])}</strong>
+          {resolved.map((serie) => (
+            <span key={serie.key} className="text-muted">
+              {serie.label}: <span className="font-medium text-foreground">{valueFormatter ? valueFormatter(Number(pinned[serie.key])) : String(pinned[serie.key])}</span>
+            </span>
+          ))}
+          <span className="ml-auto flex flex-wrap gap-2">
+            {(actions?.(pinned) ?? []).map((action) => (
+              <Button key={action.label} size="sm" variant="secondary" onClick={action.onPress}>
+                {action.label}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" onClick={() => setPinned(null)}>
+              Cerrar
+            </Button>
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -252,6 +335,7 @@ export function BarChart({
   horizontal = false,
   stacked = false,
   axisValueFormatter,
+  onBarClick,
 }: {
   data: ChartData;
   xKey: string;
@@ -264,6 +348,8 @@ export function BarChart({
   stacked?: boolean;
   // Formato corto para el eje (p. ej. "1,2 k€"); el tooltip usa valueFormatter.
   axisValueFormatter?: (value: number) => string;
+  // Clic en una barra: abre su detalle. Las barras se resaltan al pasar el ratón.
+  onBarClick?: (row: ChartRow) => void;
 }) {
   const resolved = withColors(series);
   const axisBase = axisValueFormatter ?? valueFormatter;
@@ -327,9 +413,109 @@ export function BarChart({
                   : [4, 4, 0, 0]
             }
             maxBarSize={horizontal ? 22 : 48}
+            animationDuration={600}
+            {...(onBarClick
+              ? {
+                  cursor: "pointer",
+                  activeBar: { fillOpacity: 0.82, stroke: "var(--color-foreground)", strokeWidth: 1 },
+                  onClick: (entry: { payload?: ChartRow }) => entry?.payload && onBarClick(entry.payload),
+                }
+              : {})}
           />
         ))}
       </RBarChart>
+    </ResponsiveContainer>
+  );
+}
+
+export type BubblePoint = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  size: number;
+  color: string;
+  detail?: ReactNode;
+};
+
+/**
+ * Burbujas para la cartera: una por cliente o cuenta. Eje Y = urgencia (más
+ * alto, antes), eje X = peso (más a la derecha, más grande el negocio). Pasar
+ * el ratón enseña el motivo; el clic abre al cliente.
+ */
+export function BubbleChart({
+  points,
+  height = 300,
+  xFormatter,
+  xLabel,
+  yLabel,
+  onPointClick,
+}: {
+  points: BubblePoint[];
+  height?: number;
+  xFormatter?: (value: number) => string;
+  xLabel?: string;
+  yLabel?: string;
+  onPointClick?: (point: BubblePoint) => void;
+}) {
+  const [hot, setHot] = useState<string | null>(null);
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <RScatterChart margin={{ top: 12, right: 16, bottom: 16, left: 0 }}>
+        <CartesianGrid stroke="var(--color-separator)" />
+        <XAxis
+          type="number"
+          dataKey="x"
+          name={xLabel}
+          {...AXIS_PROPS}
+          tickCount={4}
+          tickFormatter={xFormatter ? (value) => xFormatter(Number(value)) : undefined}
+          label={xLabel ? { value: xLabel, position: "insideBottom", offset: -8, fill: "var(--color-muted)", fontSize: 11 } : undefined}
+        />
+        <YAxis
+          type="number"
+          dataKey="y"
+          name={yLabel}
+          domain={[0, 100]}
+          {...AXIS_PROPS}
+          width={40}
+          tickCount={5}
+        />
+        <ZAxis type="number" dataKey="size" range={[90, 900]} />
+        <Tooltip
+          {...TOOLTIP_PROPS}
+          cursor={{ strokeDasharray: "3 3", stroke: "var(--color-separator)" }}
+          content={({ active, payload }) => {
+            const point = active ? (payload?.[0]?.payload as BubblePoint | undefined) : undefined;
+            if (!point) return null;
+            return (
+              <div className="max-w-64 rounded-lg border border-separator bg-background px-3 py-2 text-xs shadow-lg">
+                <p className="font-semibold">{point.label}</p>
+                {point.detail ? <div className="mt-1 text-muted">{point.detail}</div> : null}
+                {onPointClick ? <p className="mt-1.5 font-medium text-accent">Clic para abrir</p> : null}
+              </div>
+            );
+          }}
+        />
+        <Scatter
+          data={points}
+          animationDuration={600}
+          onMouseEnter={(entry: { payload?: BubblePoint }) => setHot(entry?.payload?.id ?? null)}
+          onMouseLeave={() => setHot(null)}
+          onClick={(entry: { payload?: BubblePoint }) => entry?.payload && onPointClick?.(entry.payload)}
+          cursor={onPointClick ? "pointer" : undefined}
+        >
+          {points.map((point) => (
+            <Cell
+              key={point.id}
+              fill={point.color}
+              fillOpacity={hot === null || hot === point.id ? 0.8 : 0.3}
+              stroke="var(--color-surface)"
+              strokeWidth={2}
+            />
+          ))}
+        </Scatter>
+      </RScatterChart>
     </ResponsiveContainer>
   );
 }

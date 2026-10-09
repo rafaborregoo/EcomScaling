@@ -16,6 +16,8 @@ export type ConcesionDePlanValue = {
   planCode: string;
   storeLimit: string;
   sinLimite: boolean;
+  memberLimit: string;
+  sinLimiteUsuarios: boolean;
   endsAt: string;
 };
 
@@ -33,6 +35,8 @@ export function concesionInicial(
     planCode,
     storeLimit: "1",
     sinLimite: false,
+    memberLimit: "1",
+    sinLimiteUsuarios: true,
     endsAt: "",
   };
 }
@@ -42,6 +46,7 @@ export function concesionInicial(
 export function concesionDesde(plan: {
   plan_code: string;
   store_limit: number | null;
+  member_limit?: number | null;
   ends_at: string | null;
 }): ConcesionDePlanValue {
   return {
@@ -49,6 +54,8 @@ export function concesionDesde(plan: {
     planCode: plan.plan_code,
     storeLimit: plan.store_limit === null ? "1" : String(plan.store_limit),
     sinLimite: plan.store_limit === null,
+    memberLimit: plan.member_limit == null ? "1" : String(plan.member_limit),
+    sinLimiteUsuarios: plan.member_limit == null,
     // El input type="date" quiere YYYY-MM-DD, no el ISO completo.
     endsAt: plan.ends_at ? plan.ends_at.slice(0, 10) : "",
   };
@@ -62,6 +69,9 @@ export function grantPlanBody(valor: ConcesionDePlanValue) {
     // Explicito a proposito, igual que en el backend: `null` es "sin limite",
     // no "no me he acordado".
     store_limit: valor.sinLimite ? null : Number.parseInt(valor.storeLimit, 10),
+    member_limit: valor.sinLimiteUsuarios
+      ? null
+      : Number.parseInt(valor.memberLimit, 10),
     ...(valor.endsAt ? { ends_at: new Date(valor.endsAt).toISOString() } : {}),
   };
 }
@@ -70,6 +80,7 @@ export function concesionValida(valor: ConcesionDePlanValue) {
   if (!valor.conceder) return true;
   return (
     valor.planCode.trim() !== "" &&
-    (valor.sinLimite || /^[1-9]\d*$/.test(valor.storeLimit))
+    (valor.sinLimite || /^[1-9]\d*$/.test(valor.storeLimit)) &&
+    (valor.sinLimiteUsuarios || /^[1-9]\d*$/.test(valor.memberLimit))
   );
 }

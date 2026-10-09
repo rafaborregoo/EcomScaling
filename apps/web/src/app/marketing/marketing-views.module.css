@@ -70,6 +70,106 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.calendarToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.viewToggle,
+.monthControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.monthControls strong {
+  min-width: 150px;
+  text-align: center;
+  text-transform: capitalize;
+  font-size: 14px;
+}
+.chip[aria-pressed="true"] {
+  background: var(--mk-accent-soft);
+  border-color: var(--mk-accent);
+  color: var(--mk-accent-ink);
+  font-weight: 600;
+}
+.monthCalendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--mk-line);
+  border-radius: 10px;
+  background: var(--mk-line);
+}
+.monthCalendarViewport { overflow-x: auto; }
+.weekday {
+  padding: 8px;
+  background: var(--mk-surface-2);
+  color: var(--mk-ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+.monthDay {
+  min-width: 0;
+  min-height: 112px;
+  padding: 6px;
+  background: #fff;
+}
+.monthDay[data-outside] {
+  background: var(--mk-surface-2);
+}
+.monthDay[data-today] {
+  box-shadow: inset 0 0 0 2px var(--mk-accent);
+}
+.monthDayNumber {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  color: var(--mk-ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.monthDay[data-today] .monthDayNumber {
+  border-radius: 50%;
+  color: var(--mk-accent-ink);
+  background: var(--mk-accent-soft);
+  font-weight: 700;
+}
+.monthEvents {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+.monthEvent {
+  min-width: 0;
+  padding: 4px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--mk-email-soft);
+  color: var(--mk-ink);
+  text-align: left;
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.monthEvent[data-kind="meta"] { background: var(--mk-meta-soft); }
+.monthEvent:hover { text-decoration: underline; }
+.monthEvent:focus-visible { outline: 2px solid var(--mk-accent); outline-offset: 1px; }
+.monthEvent span,
+.monthEvent small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monthEvent span { font-weight: 600; }
+.monthEvent small { color: var(--mk-ink-3); font-size: 9.5px; }
+.moreEvents { color: var(--mk-ink-3); font-size: 10px; }
+.calendarLegend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 10px; color: var(--mk-ink-3); font-size: 11.5px; }
+.calendarLegend span { display: inline-flex; align-items: center; gap: 5px; }
+.calendarLegend i { width: 10px; height: 10px; border-radius: 3px; background: var(--mk-email); }
+.calendarLegend i[data-kind="meta"] { background: var(--mk-meta); }
 .chip {
   border: 1px solid var(--mk-line);
   background: #fff;
@@ -313,6 +413,11 @@ button.ev {
 .src[data-src="klaviyo"] {
   color: var(--mk-email);
   border-color: var(--mk-email);
+}
+.src[data-src="meta"] {
+  color: var(--mk-meta);
+  border-color: var(--mk-meta);
+  background: var(--mk-meta-soft);
 }
 
 /* Panel de campaña */
@@ -652,6 +757,14 @@ button.ev {
   }
 }
 @media (max-width: 640px) {
+  .monthCalendar { min-width: 700px; }
+  .monthDay { min-height: 90px; padding: 4px; }
+  .monthEvents { gap: 2px; }
+  .monthEvent { padding: 2px; }
+  .monthEvent small { display: none; }
+  .monthEvent span { font-size: 9px; }
+  .monthControls { justify-content: center; width: 100%; }
+  .monthControls strong { order: -1; flex-basis: 100%; }
   .branches::before {
     display: none;
   }

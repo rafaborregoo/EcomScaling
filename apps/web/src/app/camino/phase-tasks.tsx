@@ -3,6 +3,7 @@
 import { Badge, Button, Card } from "@/components/ui";
 import type { DiscussTopic } from "./camino-map";
 import { taskOwnerLabel } from "./task-owner";
+import type { PlanTaskMeta } from "./plan-task-meta";
 
 type PhaseTask = {
   id: string;
@@ -12,6 +13,7 @@ type PhaseTask = {
   assigned_to?: string | null;
   assignee_name?: string | null;
   assignee_origin?: "consultant" | "client" | null;
+  plan_meta?: PlanTaskMeta | null;
 };
 
 type PhaseMilestone = {

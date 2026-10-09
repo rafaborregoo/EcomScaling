@@ -1108,6 +1108,19 @@ export async function getShopifyCatalogProduct(
     if (inventoryError) throw new Error(`shopify_catalog_inventory_failed: ${inventoryError.message}`);
 
     const inventoryItemIds = (inventory ?? []).map((item) => item.id);
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: savedCosts, error: savedCostsError } = inventoryItemIds.length
+      ? await client
+          .from("product_costs")
+          .select("inventory_item_id, unit_cost, currency_code, source, valid_from")
+          .eq("organization_id", organizationId)
+          .in("inventory_item_id", inventoryItemIds)
+          .lte("valid_from", today)
+          .or(`valid_until.is.null,valid_until.gte.${today}`)
+          .order("valid_from", { ascending: false })
+      : { data: [], error: null };
+    if (savedCostsError) throw new Error(`shopify_catalog_product_costs_failed: ${savedCostsError.message}`);
+
     const { data: inventoryState, error: inventoryStateError } = inventoryItemIds.length
       ? await client
           .from("shopify_inventory_current_state")
@@ -1281,7 +1294,22 @@ export async function getShopifyCatalogProduct(
       throw new Error(`shopify_catalog_bundle_products_failed: ${componentProductRefs.error.message}`);
     }
 
-    const inventoryByVariantId = new Map((inventory ?? []).map((item) => [item.variant_id, item]));
+    const savedCostByInventoryItemId = new Map<string, NonNullable<typeof savedCosts>[number]>();
+    for (const cost of savedCosts ?? []) {
+      if (!savedCostByInventoryItemId.has(cost.inventory_item_id)) {
+        savedCostByInventoryItemId.set(cost.inventory_item_id, cost);
+      }
+    }
+    const inventoryWithCosts = (inventory ?? []).map((item) => {
+      const savedCost = savedCostByInventoryItemId.get(item.id);
+      return {
+        ...item,
+        current_unit_cost: savedCost?.unit_cost ?? item.current_unit_cost,
+        cost_currency_code: savedCost?.currency_code ?? item.cost_currency_code,
+        cost_source: savedCost?.source ?? (item.current_unit_cost == null ? null : "shopify"),
+      };
+    });
+    const inventoryByVariantId = new Map(inventoryWithCosts.map((item) => [item.variant_id, item]));
     const variantIdByInventoryItemId = new Map((inventory ?? []).map((item) => [item.id, item.variant_id]));
     const locationNameById = new Map((locations ?? []).map((location) => [location.id, location.name]));
     const levelsByVariantId = new Map<string, Array<{

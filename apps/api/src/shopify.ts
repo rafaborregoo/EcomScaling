@@ -958,7 +958,7 @@ export async function handleShopifyOAuthCallback(
     data: {
       redirectUrl: onboardingReturnTo
         ? onboardingResultUrl(env.WEB_ORIGIN, resultado, shop)
-        : `${env.WEB_ORIGIN}/integraciones?shopify=${resultado}${faltan}`,
+        : `${env.WEB_ORIGIN}/integraciones?shopify=${resultado}&shop=${encodeURIComponent(shop)}${faltan}`,
     },
   };
 }

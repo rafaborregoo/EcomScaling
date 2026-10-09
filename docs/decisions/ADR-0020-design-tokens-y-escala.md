@@ -116,7 +116,17 @@ semántico. La retirada de los alias `--color-brand*` legacy es una pasada apart
   `secondary` = neutras de toolbar. Nunca 3+ `secondary` seguidos.
 - Badges: máximo uno por fila y solo si aporta (color = severidad). El resto, texto meta.
 
-### 7. Fuente única de verdad
+### 7. Superficies superpuestas (modales, hojas, confirmaciones) — añadido 2026-10-06
+
+Una página **no** importa `Modal` ni `Drawer` de HeroUI: usa `Dialog`, `Sheet` o `ConfirmDialog` de `@/components/ui` (`dialog.tsx`, `confirm-dialog.tsx`). Garantizan lo que antes cada pantalla resolvía a mano.
+
+- **Medidas:** cabecera/cuerpo/pie a 16 px (24 px desde `sm`); título 16 px/600 (= `card-title`); un radio y una sombra. Diálogo: `sm` 24 · `md` 32 · `lg` 44 · `xl` 60 rem. Hoja lateral: `sm` 28 · `md` 40 · `lg` 60 rem. En móvil, hoja inferior a todo el ancho.
+- **Color:** superficie blanca. El acento del rol (cliente petróleo+azafrán, consultor grafito+mandarina, admin grafito) solo pinta la acción primaria, el borde de los botones secundarios, el foco y la selección. Los overlays se montan en un portal, así que toman los tokens de `body[data-role]` (lo pone `<OverlayRole>` desde `PortalShell` y `PlatformAdminShell`), no de `.trabajo-theme`.
+- **Comportamiento:** X siempre (se oculta solo con `isBusy`); `isBusy` bloquea X/Escape/fondo y pone la primaria en «…»; `isDirty` convierte el pie en «¿Descartar los cambios?»; pie = acción lateral · Cancelar (ghost) · UNA primaria; el submit del pie envía el formulario del cuerpo con `form="id"`.
+- **Prohibido:** apilar un modal sobre otro (la confirmación va inline en el pie o en la fila), `window.prompt/confirm/alert`, `Card` dentro de una hoja, botones propios (`s.btn`) en un pie.
+- **Confirmaciones por riesgo:** N0 sin diálogo (reversible y frecuente, p. ej. cerrar sesión) · N1 confirmar · N2 con consecuencias (`consequences`) · N3 escribir el nombre (`confirmPhrase`) para todo borrado irreversible o de tienda, cliente o consultor. `onConfirm` es asíncrono: si falla, el diálogo se queda abierto con el error.
+
+### 8. Fuente única de verdad
 
 El contrato vive aquí. Su implementación vive en `@/components/ui` y en `globals.css`
 (bloque sin `@layer` para los overrides de HeroUI). Una página **no** define estilos propios:

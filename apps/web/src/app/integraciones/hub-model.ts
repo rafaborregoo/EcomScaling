@@ -67,6 +67,10 @@ export function buildFixQueue(
     }
     if (rank === 0 || explanation.fix === "wait" || !explanation.fix) return;
     const error = explainError(connection.latest_sync?.error_message ?? connection.last_error_message);
+    const automaticRetry =
+      ["meta_ads", "klaviyo"].includes(provider) &&
+      connection.status === "error" &&
+      explanation.fix === "retry";
     items.push({
       key: `${provider}:${connection.id}`,
       provider,
@@ -74,7 +78,9 @@ export function buildFixQueue(
       severity: rank >= 4 ? "bad" : "warn",
       rank,
       title: `${providerName}: ${explanation.label.toLowerCase()}`,
-      detail: error?.text ?? explanation.detail,
+      detail: [error?.text, automaticRetry ? explanation.detail : null]
+        .filter(Boolean)
+        .join(" ") || null,
       fix: explanation.fix,
       connection,
     });
@@ -84,13 +90,13 @@ export function buildFixQueue(
     for (const view of store.providers) {
       if (view.attempt === "in_progress") continue;
       for (const connection of view.connections) {
-        push(view.provider, view.name, store.name, connection, explainHealth(connection.health, connection));
+        push(view.provider, view.name, store.name, connection, explainHealth(connection.health, connection, view.provider));
       }
     }
   }
   for (const provider of accountProviders) {
     for (const connection of provider.connections) {
-      push(provider.id, provider.name, null, connection, explainHealth(connection.health, connection));
+      push(provider.id, provider.name, null, connection, explainHealth(connection.health, connection, provider.id));
     }
   }
   for (const check of crossChecks) items.push({ ...check, rank: check.severity === "bad" ? 4 : 2 });

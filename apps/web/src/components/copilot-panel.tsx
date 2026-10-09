@@ -9,16 +9,22 @@ import {
   Button,
   Card,
   CloseIcon,
-  Drawer,
+  Sheet,
   Field,
   Input,
   Link,
+  Markdown,
   PlusIcon,
   Select,
   SparklesIcon,
 } from "@/components/ui";
+
+// El modelo a veces escapa los saltos de linea dentro del JSON y llegan como
+// "\n" literal; se normalizan antes de pintar el markdown.
+const answerText = (text: string) => text.replace(/\\n/g, "\n");
 import type { ModuleSummaryData } from "@/components/module-summary";
 import type { CopilotAsk } from "@/components/copilot-ask";
+import type { CopilotEvidenceReference } from "@e-nora/contracts";
 import { CopilotSaldo, type CopilotBalance } from "@/components/copilot-saldo";
 import {
   resolveCopilotUiAction,
@@ -27,6 +33,41 @@ import {
 } from "@/lib/insights-registry";
 
 type ChatSource = { kind: string; reference: string; period: string | null };
+type ChatReportArtifact = {
+  report_id: string;
+  template_id: string;
+  template_version: string;
+  file_name: string;
+  period_start: string;
+  period_end: string;
+  currency_code: string;
+};
+const REPORT_TEMPLATE_LABELS: Record<string, string> = {
+  shopify_comercial: "Ventas y producto",
+  shopify_rentabilidad: "Rentabilidad y costes",
+  shopify_clientes: "Clientes y recompra",
+  meta_publicidad: "Publicidad de Meta",
+  klaviyo_email: "Email y automatizaciones",
+  adquisicion_multicanal: "Adquisición y atribución",
+  resumen_multicanal: "Resumen ejecutivo",
+};
+
+function WhatsAppIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="size-4">
+      <path d="M20.52 3.48A11.86 11.86 0 0 0 12.08 0C5.5 0 .15 5.35.15 11.93c0 2.1.55 4.15 1.6 5.96L.05 24l6.28-1.65a11.9 11.9 0 0 0 5.74 1.47h.01c6.58 0 11.93-5.35 11.93-11.93 0-3.19-1.24-6.19-3.49-8.41ZM12.08 21.8a9.9 9.9 0 0 1-5.04-1.38l-.36-.21-3.73.98 1-3.64-.23-.37a9.84 9.84 0 0 1-1.52-5.25c0-5.45 4.43-9.88 9.89-9.88a9.82 9.82 0 0 1 6.99 2.9 9.82 9.82 0 0 1 2.9 6.99c0 5.45-4.44 9.86-9.9 9.86Zm5.42-7.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.23-.65.08-.3-.15-1.26-.46-2.4-1.47-.89-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.08-.79.37-.27.3-1.04 1.02-1.04 2.48 0 1.47 1.07 2.89 1.22 3.09.15.2 2.1 3.2 5.08 4.48.71.31 1.27.5 1.7.64.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2.01-1.42.25-.7.25-1.3.17-1.42-.08-.13-.27-.2-.57-.35Z" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m4 7 8 6 8-6" />
+    </svg>
+  );
+}
 type ChatUsage = {
   input_tokens?: number;
   output_tokens?: number;
@@ -35,6 +76,74 @@ type ChatUsage = {
   estimated_cost_usd?: number;
   latency_ms?: number;
 };
+type CopilotTurnPayload = {
+  conversation_id: string;
+  message_id?: string | null;
+  output_id?: string | null;
+  approval_required?: boolean;
+  output: {
+    answer: string;
+    sources?: ChatSource[];
+    confidence?: "low" | "medium" | "high";
+    warnings?: string[];
+    summary?: string;
+    findings?: ChatMessage["findings"];
+    recommendation?: string;
+    next_action?: string;
+    ui_actions?: CopilotUiAction[];
+    proposed_writes?: ChatMessage["proposedWrites"];
+  };
+  proposal_guidance?: ChatProposalGuidance | null;
+  saldo?: CopilotBalance;
+  model?: { id: string; label: string; degraded: boolean };
+  usage?: ChatUsage;
+  report_artifacts?: ChatReportArtifact[];
+};
+
+type CopilotWireEvent =
+  | { type: "stage"; stage: "context" | "model" | "tools" | "validation" }
+  | { type: "answer_delta"; delta: string }
+  | { type: "answer_reset" }
+  | { type: "done"; data: CopilotTurnPayload }
+  | { type: "error"; error: { error?: string; status?: string; statusCode?: number; message?: string; detail?: string } };
+
+async function readCopilotStream(
+  response: Response,
+  onEvent: (event: CopilotWireEvent) => void,
+): Promise<CopilotTurnPayload> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("El navegador no puede leer la respuesta en directo.");
+  const decoder = new TextDecoder();
+  let pending = "";
+  let result: CopilotTurnPayload | null = null;
+  const acceptLine = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as CopilotWireEvent;
+    onEvent(event);
+    if (event.type === "done") result = event.data;
+    if (event.type === "error") {
+      throw new Error(JSON.stringify(event.error));
+    }
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      pending += decoder.decode(value, { stream: !done });
+      let newline = pending.indexOf("\n");
+      while (newline >= 0) {
+        acceptLine(pending.slice(0, newline));
+        pending = pending.slice(newline + 1);
+        newline = pending.indexOf("\n");
+      }
+      if (done) break;
+    }
+    acceptLine(pending);
+  } finally {
+    reader.releaseLock();
+  }
+  if (!result) throw new Error("La respuesta se interrumpió antes de terminar.");
+  return result;
+}
 type ChatProposalEvidence = {
   label: string;
   value: string;
@@ -61,6 +170,7 @@ type ChatMessage = {
   recommendation?: string;
   next_action?: string;
   uiActions?: ResolvedCopilotUiAction[];
+  reportArtifacts?: ChatReportArtifact[];
   messageId?: string | null;
   outputId?: string | null;
   approvalRequired?: boolean;
@@ -186,8 +296,8 @@ const VIEW_PROMPTS: Array<{ prefix: string; prompts: string[] }> = [
   {
     prefix: "/marketing",
     prompts: [
-      "¿Qué campaña de email tiene mejor retorno y cuál habría que rehacer?",
-      "¿Sobre qué producto conviene construir la próxima campaña?",
+      "¿Qué campaña muestra el mejor resultado medido y qué métrica lo respalda?",
+      "¿Qué producto ofrece una oportunidad de campaña según ventas, margen y stock disponibles?",
     ],
   },
   {
@@ -214,15 +324,22 @@ const VIEW_PROMPTS: Array<{ prefix: string; prompts: string[] }> = [
   {
     prefix: "/shopify",
     prompts: [
-      "¿Qué productos concentran la caída de ventas?",
-      "¿Dónde se está perdiendo margen en esta tienda?",
+      "¿Qué productos explican la mayor caída de ventas en el periodo visible?",
+      "¿Qué partida reduce más el margen según costes e importes comparables?",
+    ],
+  },
+  {
+    prefix: "/klaviyo",
+    prompts: [
+      "¿Qué email o flujo conviene revisar primero según sus métricas?",
+      "¿Qué señales verificables hay sobre entregabilidad y medición?",
     ],
   },
   {
     prefix: "/meta",
     prompts: [
-      "¿Qué creatividad hay que retirar y cuál escalar?",
-      "¿Algún cambio reciente en la cuenta explica la caída?",
+      "¿Qué anuncio tiene evidencia suficiente para probar una pausa o un aumento gradual?",
+      "¿Qué cambió antes y después de una modificación en la misma entidad?",
     ],
   },
   {
@@ -238,15 +355,15 @@ const VIEW_PROMPTS: Array<{ prefix: string; prompts: string[] }> = [
   {
     prefix: "/dashboard",
     prompts: [
-      "¿Qué ha pasado con las ventas en este periodo y por qué?",
-      "Si solo pudiera hacer una cosa esta semana con este cliente, ¿cuál sería?",
+      "¿Qué cambió en las ventas durante el periodo visible y qué dato respalda la conclusión?",
+      "¿Qué única prioridad iniciarías esta semana según las métricas y tareas disponibles?",
     ],
   },
 ];
 
 const DEFAULT_PROMPTS = [
-  "¿Cómo va este cliente y qué es lo más urgente?",
-  "¿Qué recomendarías hacer esta semana y con qué datos lo justificas?",
+  "¿Qué señal de negocio merece atención primero y qué dato la respalda?",
+  "¿Qué prioridad propones para esta semana y qué evidencia disponible la justifica?",
 ];
 
 function promptsForView(view: CopilotView | undefined) {
@@ -339,6 +456,7 @@ export function CopilotPanel({
   const [model, setModel] = useState("sonnet");
   const [degraded, setDegraded] = useState(false);
   const [activityStage, setActivityStage] = useState(0);
+  const [streamingAnswer, setStreamingAnswer] = useState("");
   // El rail y el drawer son la misma conversación. Decidir la presentación en
   // cliente evita duplicar el chat (y sus llamadas de saldo) solo para aplicar
   // una media query. Antes de hidratar usamos drawer: es la opción segura para
@@ -362,11 +480,20 @@ export function CopilotPanel({
   // están guardadas (para no dejar dos veces el mismo análisis).
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
   const [savedIndexes, setSavedIndexes] = useState<number[]>([]);
+  const [emailReportId, setEmailReportId] = useState<string | null>(null);
+  const [reportEmail, setReportEmail] = useState("");
+  const [sendingReportId, setSendingReportId] = useState<string | null>(null);
+  const [reportShareStatus, setReportShareStatus] = useState<Record<string, string>>({});
   // La pregunta enganchada se lanza una vez por nonce: sin esto, cualquier
   // re-render del portal la volvería a enviar y se pagaría el turno otra vez.
   const askedKeyRef = useRef<number | null>(null);
+  // Si ya se ha preguntado en este alcance, la conversación reciente que se
+  // carga al abrir no puede pisar la nueva: mostraba la pregunta vieja encima
+  // de la respuesta nueva.
+  const askedInScopeRef = useRef(false);
 
   useEffect(() => {
+    askedInScopeRef.current = false;
     setMessages([]);
     setConversationId(null);
     setConversations([]);
@@ -384,14 +511,15 @@ export function CopilotPanel({
     return () => query.removeEventListener("change", sync);
   }, []);
 
-  async function loadConversation(id: string) {
-    if (!targetOrganizationId || isSending) return;
+  async function loadConversation(id: string, auto = false) {
+    if (!targetOrganizationId || isSending || (auto && askedInScopeRef.current)) return;
     setIsLoadingConversation(true);
     setError(null);
     try {
       const response = await apiFetch(
         `/v1/organizations/${targetOrganizationId}/consultant-chat/conversations/${id}${view?.storeId ? `?connection_id=${encodeURIComponent(view.storeId)}` : ""}`,
       );
+      if (auto && askedInScopeRef.current) return;
       if (!response.ok) {
         setError(await readError(response));
         return;
@@ -411,6 +539,7 @@ export function CopilotPanel({
           tasks_created?: number;
           feedback_rating?: "helpful" | "not_helpful";
           usage?: ChatUsage;
+          report_artifacts?: ChatReportArtifact[];
         }>;
       };
       setConversationId(payload.conversation_id);
@@ -428,6 +557,7 @@ export function CopilotPanel({
           tasksCreated: message.tasks_created,
           feedback: message.feedback_rating,
           usage: message.usage,
+          reportArtifacts: message.report_artifacts ?? [],
         })),
       );
     } catch {
@@ -455,7 +585,7 @@ export function CopilotPanel({
         if (cancelled) return;
         const recent = payload.conversations ?? [];
         setConversations(recent);
-        if (recent[0]) void loadConversation(recent[0].id);
+        if (recent[0]) void loadConversation(recent[0].id, true);
       } catch {
         // El historial complementa el chat: si falla, aún se puede empezar uno.
       }
@@ -495,18 +625,6 @@ export function CopilotPanel({
     };
   }, [targetOrganizationId]);
   useEffect(() => {
-    if (!isSending) {
-      setActivityStage(0);
-      return;
-    }
-    setActivityStage(0);
-    const timer = window.setInterval(() => {
-      setActivityStage((current) => Math.min(current + 1, 3));
-    }, 1800);
-    return () => window.clearInterval(timer);
-  }, [isSending]);
-
-  useEffect(() => {
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -514,17 +632,20 @@ export function CopilotPanel({
       top: scrollRef.current.scrollHeight,
       behavior: reduceMotion ? "auto" : "smooth",
     });
-  }, [messages]);
+  }, [messages, streamingAnswer]);
 
-  async function ask(question: string) {
+  async function ask(question: string, reference?: CopilotEvidenceReference) {
     if (!question || isSending || !targetOrganizationId) return;
+    askedInScopeRef.current = true;
     setMessages((prev) => [...prev, { role: "user", content: question }]);
     setInput("");
     setIsSending(true);
+    setActivityStage(0);
+    setStreamingAnswer("");
     setError(null);
     try {
       const response = await apiFetch(
-        `/v1/organizations/${targetOrganizationId}/consultant-chat`,
+        `/v1/organizations/${targetOrganizationId}/consultant-chat/stream`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -532,6 +653,7 @@ export function CopilotPanel({
             message: question,
             conversation_id: conversationId ?? undefined,
             view_context: toViewContext(view),
+            evidence_reference: reference,
             model,
           }),
         },
@@ -540,28 +662,18 @@ export function CopilotPanel({
         setError(await readError(response));
         return;
       }
-      const payload = (await response.json()) as {
-        conversation_id: string;
-        message_id?: string | null;
-        output_id?: string | null;
-        approval_required?: boolean;
-        output: {
-          answer: string;
-          sources?: ChatSource[];
-          confidence?: "low" | "medium" | "high";
-          warnings?: string[];
-          summary?: string;
-          findings?: ChatMessage["findings"];
-          recommendation?: string;
-          next_action?: string;
-          ui_actions?: CopilotUiAction[];
-          proposed_writes?: ChatMessage["proposedWrites"];
-        };
-        proposal_guidance?: ChatProposalGuidance | null;
-        saldo?: CopilotBalance;
-        model?: { id: string; label: string; degraded: boolean };
-        usage?: ChatUsage;
-      };
+      const payload = await readCopilotStream(response, (event) => {
+        if (event.type === "stage") {
+          const stage = event.stage === "context" ? 0 : event.stage === "validation" ? 2 : 1;
+          setActivityStage((current) => Math.max(current, stage));
+        } else if (event.type === "answer_delta") {
+          setActivityStage(3);
+          setStreamingAnswer((current) => current + event.delta);
+        } else if (event.type === "answer_reset") {
+          setStreamingAnswer("");
+        }
+      });
+      setStreamingAnswer("");
       setConversationId(payload.conversation_id);
       setConversations((previous) => {
         const current = previous.find(
@@ -608,16 +720,128 @@ export function CopilotPanel({
           proposedWrites: payload.output.proposed_writes,
           proposalGuidance: payload.proposal_guidance,
           usage: payload.usage,
+          reportArtifacts: payload.report_artifacts ?? [],
         },
       ]);
-    } catch {
-      setError({
-        message:
-          "No se pudo completar la consulta. Revisa la conexión e inténtalo de nuevo.",
-        status: "danger",
-      });
+    } catch (cause) {
+      setStreamingAnswer("");
+      if (cause instanceof Error) {
+        try {
+          const body = JSON.parse(cause.message) as { error?: string; status?: string; message?: string; detail?: string; statusCode?: number };
+          setError(await readError(new Response(JSON.stringify(body), { status: body.statusCode ?? 502 })));
+        } catch {
+          setError({ message: cause.message, status: "danger" });
+        }
+      } else {
+        setError({ message: "No se pudo completar la consulta.", status: "danger" });
+      }
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function getReportDownloadUrl(report: ChatReportArtifact): Promise<string> {
+    const response = await apiFetch(
+      `/v1/organizations/${targetOrganizationId}/copilot-reports/${report.report_id}/link?file_name=${encodeURIComponent(report.file_name)}`,
+    );
+    if (!response.ok) throw new Error("No se pudo preparar el enlace del PDF.");
+    const payload = (await response.json()) as { download_url?: string };
+    if (!payload.download_url) throw new Error("El informe ya no está disponible.");
+    return payload.download_url;
+  }
+
+  async function openReport(report: ChatReportArtifact) {
+    const tab = window.open("about:blank", "_blank");
+    try {
+      const url = await getReportDownloadUrl(report);
+      if (tab) tab.location.href = url;
+      else window.location.assign(url);
+    } catch (cause) {
+      tab?.close();
+      setReportShareStatus((current) => ({
+        ...current,
+        [report.report_id]: cause instanceof Error ? cause.message : "No se pudo abrir el PDF.",
+      }));
+    }
+  }
+
+  async function shareReportWhatsApp(report: ChatReportArtifact) {
+    const fallbackTab = window.open("about:blank", "_blank");
+    setReportShareStatus((current) => ({ ...current, [report.report_id]: "Preparando PDF…" }));
+    try {
+      const url = await getReportDownloadUrl(report);
+      const shareText = `Informe E-NORA (${report.period_start} — ${report.period_end})`;
+      if (typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const file = new File([await response.blob()], report.file_name, { type: "application/pdf" });
+            if (navigator.canShare({ files: [file] })) {
+              fallbackTab?.close();
+              await navigator.share({ files: [file], title: "Informe E-NORA", text: shareText });
+              setReportShareStatus((current) => ({ ...current, [report.report_id]: "PDF compartido." }));
+              return;
+            }
+          }
+        } catch (cause) {
+          if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+          // Si el navegador no puede descargar el archivo por CORS, se comparte
+          // el enlace temporal de descarga como alternativa.
+        }
+      }
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareText}: ${url}`)}`;
+      if (fallbackTab) fallbackTab.location.href = whatsappUrl;
+      else {
+        await navigator.clipboard.writeText(url);
+        setReportShareStatus((current) => ({ ...current, [report.report_id]: "Enlace copiado. Pégalo en WhatsApp para compartir el PDF." }));
+        return;
+      }
+      setReportShareStatus((current) => ({ ...current, [report.report_id]: "WhatsApp abrirá el enlace temporal de descarga." }));
+    } catch (cause) {
+      fallbackTab?.close();
+      if (cause instanceof DOMException && cause.name === "AbortError") {
+        setReportShareStatus((current) => ({ ...current, [report.report_id]: "Compartir cancelado." }));
+        return;
+      }
+      setReportShareStatus((current) => ({
+        ...current,
+        [report.report_id]: cause instanceof Error ? cause.message : "No se pudo compartir el PDF.",
+      }));
+    }
+  }
+
+  async function sendReportEmail(event: FormEvent<HTMLFormElement>, report: ChatReportArtifact) {
+    event.preventDefault();
+    setSendingReportId(report.report_id);
+    setReportShareStatus((current) => ({ ...current, [report.report_id]: "Enviando correo…" }));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${targetOrganizationId}/copilot-reports/${report.report_id}/email`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: reportEmail, file_name: report.file_name }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        const message = payload.error === "email_not_configured"
+          ? "El envío de correo no está configurado en este entorno."
+          : payload.error === "invalid_email"
+            ? "Escribe una dirección de correo válida."
+            : "No se pudo enviar el informe por correo.";
+        throw new Error(message);
+      }
+      setReportShareStatus((current) => ({ ...current, [report.report_id]: `PDF enviado a ${reportEmail.trim()}.` }));
+      setEmailReportId(null);
+      setReportEmail("");
+    } catch (cause) {
+      setReportShareStatus((current) => ({
+        ...current,
+        [report.report_id]: cause instanceof Error ? cause.message : "No se pudo enviar el informe por correo.",
+      }));
+    } finally {
+      setSendingReportId(null);
     }
   }
 
@@ -719,7 +943,7 @@ export function CopilotPanel({
     if (!pending || !targetOrganizationId) return;
     if (askedKeyRef.current === pending.key) return;
     askedKeyRef.current = pending.key;
-    void ask(pending.question);
+    void ask(pending.question, pending.reference as CopilotEvidenceReference | undefined);
     // `ask` se redefine en cada render (cierra sobre el estado del chat); la
     // guarda de arriba es lo que hace que esto corra una vez por pregunta.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -745,7 +969,7 @@ export function CopilotPanel({
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-white">
       <header className="shrink-0 border-b border-separator px-4 py-2">
         <div className="flex min-h-8 items-center justify-between gap-3">
-          <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[#294597]">
+          <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-ink">
             Consultor IA
           </h2>
           <div className="flex shrink-0 items-center gap-1">
@@ -897,13 +1121,11 @@ export function CopilotPanel({
                           : "Confianza media"}
                     </Badge>
                   </div>
-                  {message.summary ? (
-                    <p className="mb-3 text-sm font-medium leading-5">
-                      {message.summary}
-                    </p>
-                  ) : null}
+                  {/* La respuesta va primero; el resumen no se pinta porque
+                      repetía la misma idea justo encima. */}
+                  <Markdown>{answerText(message.content)}</Markdown>
                   {message.findings?.length ? (
-                    <div className="mb-3 space-y-2">
+                    <div className="mt-3 space-y-2 border-t border-separator pt-3">
                       {message.findings.map((finding) => (
                         <div
                           key={`${finding.title}:${finding.detail}`}
@@ -919,9 +1141,60 @@ export function CopilotPanel({
                       ))}
                     </div>
                   ) : null}
-                  <p className="whitespace-pre-wrap text-sm leading-6">
-                    {message.content}
-                  </p>
+                  {message.reportArtifacts?.map((report) => (
+                    <section key={report.report_id} className="mt-3 rounded border border-separator bg-surface px-3 py-3" aria-label="Informe PDF generado">
+                      <p className="text-xs font-semibold text-foreground">
+                        {REPORT_TEMPLATE_LABELS[report.template_id] ?? "Informe PDF"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {report.period_start} — {report.period_end}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => void openReport(report)}>
+                          Descargar PDF
+                        </Button>
+                        <Button size="sm" variant="secondary" aria-label="Compartir informe por WhatsApp" onClick={() => void shareReportWhatsApp(report)}>
+                          <WhatsAppIcon />
+                          <span>WhatsApp</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          aria-label="Enviar informe por email"
+                          aria-expanded={emailReportId === report.report_id}
+                          onClick={() => {
+                            setEmailReportId((current) => current === report.report_id ? null : report.report_id);
+                            setReportShareStatus((current) => ({ ...current, [report.report_id]: "" }));
+                          }}
+                        >
+                          <MailIcon />
+                          <span>Email</span>
+                        </Button>
+                      </div>
+                      {emailReportId === report.report_id ? (
+                        <form className="mt-3 flex flex-col gap-2 sm:flex-row" aria-label="Enviar PDF por correo" onSubmit={(event) => void sendReportEmail(event, report)}>
+                          <Input
+                            type="email"
+                            required
+                            maxLength={254}
+                            autoComplete="email"
+                            aria-label="Dirección de correo del destinatario"
+                            placeholder="nombre@empresa.com"
+                            value={reportEmail}
+                            onChange={(event) => setReportEmail(event.target.value)}
+                          />
+                          <Button type="submit" size="sm" disabled={sendingReportId !== null || !reportEmail.trim()}>
+                            {sendingReportId === report.report_id ? "Enviando…" : "Enviar PDF"}
+                          </Button>
+                        </form>
+                      ) : null}
+                      {reportShareStatus[report.report_id] ? (
+                        <p className="mt-2 text-xs text-muted" role="status" aria-live="polite">
+                          {reportShareStatus[report.report_id]}
+                        </p>
+                      ) : null}
+                    </section>
+                  ))}
                   {message.recommendation ? (
                     <div className="mt-3 border-t border-separator pt-3">
                       <p className="text-xs font-semibold text-foreground">
@@ -1158,29 +1431,6 @@ export function CopilotPanel({
                       </Button>
                     </div>
                   ) : null}
-                  {message.usage ? (
-                    <details className="mt-3 border-t border-separator pt-2 text-xs text-muted">
-                      <summary className="cursor-pointer select-none font-medium text-foreground">
-                        Actividad del turno
-                      </summary>
-                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <span>Tools: {message.usage.tool_calls ?? 0}</span>
-                        <span>Modelo: {message.usage.model_calls ?? 1}</span>
-                        <span>
-                          Tiempo:{" "}
-                          {message.usage.latency_ms
-                            ? `${(message.usage.latency_ms / 1000).toFixed(1)} s`
-                            : "—"}
-                        </span>
-                        <span>
-                          Coste:{" "}
-                          {message.usage.estimated_cost_usd != null
-                            ? `$${message.usage.estimated_cost_usd.toFixed(4)}`
-                            : "—"}
-                        </span>
-                      </div>
-                    </details>
-                  ) : null}
                   {/* El análisis se queda en la conversación de la pieza,
                           firmado como IA, para que lo vea también el otro lado
                           en vez de morir al cerrar el panel. */}
@@ -1222,6 +1472,11 @@ export function CopilotPanel({
               Recuperando conversacion...
             </p>
           ) : null}
+          {streamingAnswer ? (
+            <Card kicker="Consultor IA" className="bg-surface" aria-live="off">
+              <Markdown>{answerText(streamingAnswer)}</Markdown>
+            </Card>
+          ) : null}
           {isSending ? (
             <div
               className="rounded border border-accent/20 bg-surface px-3 py-2.5"
@@ -1233,7 +1488,7 @@ export function CopilotPanel({
                 El Consultor IA esta trabajando
               </div>
               <ol className="mt-2 grid gap-1 text-xs text-muted sm:grid-cols-4">
-                {["Contexto", "Herramientas", "Validacion", "Respuesta"].map(
+                {["Contexto", "Modelo y herramientas", "Validación", "Respuesta"].map(
                   (stage, index) => (
                     <li
                       key={stage}
@@ -1310,12 +1565,10 @@ export function CopilotPanel({
   }
 
   return (
-    <Drawer isOpen onOpenChange={(open) => !open && onClose()}>
-      <Drawer.Backdrop>
-        <Drawer.Content placement="right" className="w-full max-w-md">
-          <Drawer.Dialog id="copilot-panel">{panel}</Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
-    </Drawer>
+    <Sheet isOpen onOpenChange={(open) => !open && onClose()} size="sm" bare ariaLabel="Consultor IA" title="Consultor IA">
+      <div id="copilot-panel" className="flex h-full min-h-0 flex-col">
+        {panel}
+      </div>
+    </Sheet>
   );
 }

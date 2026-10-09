@@ -1,715 +1,96 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";
-import { useCachedQuery } from "@/lib/use-cached-query";
-import { formatMoney } from "@/lib/money";
-import {
-  AsyncState,
-  Badge,
-  BarChart,
-  Card,
-  EmptyState,
-  Link,
-  Metric,
-  Select,
-} from "@/components/ui";
-import {
-  costBreakdown,
-  deltaPct,
-  monthlyChartRows,
-  targetStatus,
-  targetsByKey,
-  totalCosts,
-  funnelSteps,
-  opportunities,
-  opportunitiesTotal,
-  type FunnelStep,
-  type PanelFunnel,
-  type MetricTarget,
-  type MonthlyRow,
-  type PanelFinancial,
-} from "./panel-view-model";
+import { EmptyState } from "@/components/ui";
+import { PortfolioLevel } from "./portfolio-level";
+import { ClientLevel } from "./client-level";
+import { StoreLevel } from "./store-level";
+import type { PanelNav } from "./panel-data";
 
 /**
- * El panel del manager. Ver docs/PLAN_PANEL_MANAGER.md.
+ * El panel de rentabilidad del consultor. Ver docs/PLAN_PANEL_MANAGER.md.
  *
- * Es la pantalla del CONSULTOR, no del cliente (decision de Rafa, 2026-09-15).
- * Dice cosas que hay que saber interpretar -- un CAC de break-even, un margen
- * de contribucion por pedido -- y en manos de un cliente sin contexto asustan o
+ * Es la pantalla del CONSULTOR, no del cliente (decisión de Rafa, 2026-09-15):
+ * dice cosas que hay que saber interpretar -- un CAC contra su techo, un margen
+ * de contribución por pedido -- y en manos de un cliente sin contexto asustan o
  * se malinterpretan. El cliente sigue con su dashboard.
  *
- * El orden de las bandas no es decorativo: primero cuanto ganas, luego que te
- * cuesta cada pedido, luego los ratios y al final la publicidad. Es el orden en
- * el que se diagnostica una tienda, y es el de la hoja que el consultor ya
- * usaba a mano.
+ * Tres alcances, y el que se ve lo fija el selector del shell, no el panel:
+ *
+ *   sin cliente activo       -> la cartera entera (clientes y tiendas)
+ *   cliente, "todas"         -> ese cliente y sus tiendas
+ *   cliente + una tienda     -> esa tienda
+ *
+ * Las migas de arriba suben y bajan por esos mismos selectores, así que el
+ * panel y la cabecera nunca se contradicen.
  */
 
-type PanelMetrics = {
-  period: { days: number | "all"; start: string | null; end: string };
-  sales: { orders_count: number; net_sales: number; aov: number };
-  margin: { items_without_cost: number; items_with_estimated_cost: number };
-  financial: PanelFinancial & {
-    has_settings: boolean;
-    fixed_expenses_count: number;
-    items_without_cost: number;
-    tax_collected: number;
-    uses_shipping_rules: boolean;
-    ads_days_with_data: number;
+function PanelRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId, setOrganizationId } = useActiveOrganization();
+  const { connectionId, setConnectionId } = useActiveConnection();
+  const [days, setDays] = useState(30);
+
+  // Bajar de la cartera a una tienda concreta son dos selecciones seguidas
+  // (cliente y tienda), y el shell borra la tienda al cambiar de cliente. Se
+  // apunta la tienda deseada y se aplica cuando el cliente nuevo ya es el
+  // activo; hacerlo en el mismo gesto la perdería.
+  const pendingStore = useRef<{ organizationId: string; connectionId: string } | null>(null);
+
+  useEffect(() => {
+    const pending = pendingStore.current;
+    if (pending && pending.organizationId === organizationId) {
+      pendingStore.current = null;
+      setConnectionId(pending.connectionId);
+    }
+  }, [organizationId, setConnectionId]);
+
+  const nav: PanelNav = {
+    portfolio: () => setOrganizationId(""),
+    client: (id) => setOrganizationId(id),
+    clientOfStore: () => setConnectionId(""),
+    store: (id, connection) => {
+      if (id === organizationId) {
+        if (connection) setConnectionId(connection);
+        return;
+      }
+      if (connection) pendingStore.current = { organizationId: id, connectionId: connection };
+      setOrganizationId(id);
+    },
   };
-  financial_monthly: MonthlyRow[];
-  metric_targets: MetricTarget[];
-  previous_period: {
-    sales: { orders_count: number; net_sales: number };
-    financial: { net_profit: number; net_margin_pct: number };
-  } | null;
-  previous_year: {
-    orders_count: number;
-    net_revenue_ex_tax: number;
-    net_profit: number;
-    aov_ex_tax: number;
-  } | null;
-  funnel:
-    | (PanelFunnel & {
-        conversion_rate_own: number | null;
-        revenue_per_session: number | null;
-      })
-    | null;
-};
 
-/**
- * Embudo en barras horizontales: cada paso con su caida respecto al anterior.
- *
- * El ancho de la barra es el peso sobre las sesiones, para que la fuga se vea
- * de un vistazo sin leer numeros. Un paso que no medimos no aparece -- ver
- * `funnelSteps`.
- */
-function Funnel({ steps }: { steps: FunnelStep[] }) {
-  return (
-    <ul className="space-y-3">
-      {steps.map((step) => (
-        <li key={step.paso} className="space-y-1">
-          <div className="flex items-baseline justify-between gap-3 text-sm">
-            <span>{step.paso}</span>
-            <span className="font-mono">
-              {step.valor.toLocaleString("es-ES")}
-              {step.pct_del_anterior !== null ? (
-                <span className="ml-2 text-xs text-muted">
-                  {step.pct_del_anterior.toFixed(2)} % del paso anterior
-                </span>
-              ) : null}
-            </span>
-          </div>
-          <div
-            className="h-2 rounded-full bg-surface"
-            role="presentation"
-          >
-            <div
-              className="h-2 rounded-full bg-accent"
-              style={{
-                width: `${Math.max(step.pct_del_total ?? 0, 1).toFixed(2)}%`,
-              }}
-            />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-type MetaMetrics = {
-  acquisition: { spend: number; roas: number | null; days_with_data: number };
-};
-
-const PERIOD_OPTIONS = [
-  { value: "30", label: "30 días" },
-  { value: "90", label: "90 días" },
-  { value: "365", label: "1 año" },
-];
-
-function formatPct(value: number | null | undefined, digits = 1) {
-  if (value === null || value === undefined) return "n/a";
-  return `${value.toFixed(digits)} %`;
-}
-
-function DeltaBadge({
-  current,
-  previous,
-}: {
-  current: number;
-  previous: number | null | undefined;
-}) {
-  const delta = deltaPct(current, previous);
-
-  if (delta === null) return null;
-
-  return (
-    <Badge tone={delta >= 0 ? "success" : "danger"}>
-      {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)} % vs periodo anterior
-    </Badge>
-  );
-}
-
-/**
- * Variacion contra el mismo periodo del ano pasado.
- *
- * Va junto al delta del periodo anterior y no en su lugar: responden preguntas
- * distintas. En una tienda con temporada, "agosto contra julio" puede caer y
- * ser una temporada excelente; "agosto contra el agosto pasado" es el que lo
- * dice. Cuando el ano pasado no habia negocio, no se enseña nada.
- */
-function YoYBadge({
-  current,
-  yearAgo,
-}: {
-  current: number;
-  yearAgo: number | null | undefined;
-}) {
-  const delta = deltaPct(current, yearAgo);
-
-  if (delta === null) return null;
-
-  return (
-    <Badge tone={delta >= 0 ? "success" : "danger"}>
-      {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)} % YoY
-    </Badge>
-  );
-}
-
-function TargetBadge({
-  value,
-  target,
-  direction,
-  format,
-}: {
-  value: number | null | undefined;
-  target: number | undefined;
-  direction: "arriba" | "abajo";
-  format: (value: number) => string;
-}) {
-  const status = targetStatus(value, target, direction);
-
-  if (status === null || target === undefined) return null;
-
-  return (
-    <Badge tone={status === "cumple" ? "success" : "warn"}>
-      objetivo {format(target)}
-    </Badge>
-  );
-}
-
-function PanelContent() {
-  const { organizationId } = useActiveOrganization();
-  const { connectionId } = useActiveConnection();
-  const [periodDays, setPeriodDays] = useState("30");
-
-  const connectionParam = connectionId ? `&connectionId=${connectionId}` : "";
-  const metricsKey = organizationId
-    ? `/v1/organizations/${organizationId}/shopify/metrics?days=${periodDays}${connectionParam}`
-    : null;
-  const metaKey = organizationId
-    ? `/v1/organizations/${organizationId}/meta/metrics?days=${periodDays}`
-    : null;
-
-  const { data: metrics, error, isLoading } = useCachedQuery<PanelMetrics>(metricsKey);
-  // Meta es un añadido: su ROAS acompaña al ROAS de break-even, pero si falla,
-  // el panel entero sigue teniendo sentido.
-  const { data: meta } = useCachedQuery<MetaMetrics>(metaKey);
-
-  const financial = metrics?.financial;
-  const targets = useMemo(
-    () => targetsByKey(metrics?.metric_targets ?? []),
-    [metrics?.metric_targets],
-  );
-  const costs = useMemo(
-    () => (financial ? costBreakdown(financial) : []),
-    [financial],
-  );
-  const monthly = useMemo(
-    () => monthlyChartRows(metrics?.financial_monthly ?? []),
-    [metrics?.financial_monthly],
-  );
-  const steps = useMemo(
-    () => funnelSteps(metrics?.funnel ?? null),
-    [metrics?.funnel],
-  );
-  const palancas = useMemo(
-    () =>
-      financial
-        ? opportunities(
-            financial,
-            metrics?.funnel ?? null,
-            targets,
-            Number(periodDays),
-          )
-        : [],
-    [financial, metrics?.funnel, targets, periodDays],
-  );
-
-  // Un consultor arranca en "vista general", sin cliente activo. El panel es de
-  // UNA tienda, asi que aqui no hay nada que calcular todavia -- y decirlo es
-  // mejor que dejar un cargador girando sobre una peticion que nadie ha hecho.
   if (!organizationId) {
+    return <PortfolioLevel days={days} onDays={setDays} nav={nav} />;
+  }
+
+  const organizationName =
+    bootstrap.memberships.find((membership) => membership.organization_id === organizationId)?.organization?.display_name ??
+    "Cliente";
+
+  if (!connectionId) {
     return (
-      <EmptyState
-        title="Elige un cliente"
-        hint="El panel son las cifras de una tienda concreta. Selecciónala en la cabecera."
+      <ClientLevel
+        organizationId={organizationId}
+        organizationName={organizationName}
+        days={days}
+        onDays={setDays}
+        nav={nav}
       />
     );
-  }
-
-  if (isLoading) {
-    return <AsyncState status="loading" loadingLabel="Calculando la rentabilidad..." />;
-  }
-
-  if (error) {
-    return <AsyncState status="error" error={error} />;
-  }
-
-  if (!metrics || !financial) {
-    return (
-      <EmptyState
-        title="Sin datos de la tienda"
-        hint="Conecta Shopify en Integraciones para ver el panel."
-      />
-    );
-  }
-
-  const totalCost = totalCosts(financial);
-  const hasAds = financial.ads_spend > 0;
-
-  // Lo que invalida el panel entero va ARRIBA, no en una nota al pie: sin
-  // costes de producto el beneficio y todo lo que cuelga de el son ficcion.
-  const blockers: string[] = [];
-  // Frases cortas a proposito: ya no van en una banda de ancho completo sino
-  // en la linea de apoyo del beneficio, y ahi una frase larga se come la card.
-  // El orden importa -- se muestra la primera, y sin coste de producto el
-  // beneficio no se parece al real ni de lejos.
-  if (financial.cogs === 0) {
-    blockers.push("cuenta el producto como si fuera gratis.");
-  }
-  if (financial.fixed_expenses_count === 0) {
-    blockers.push("no descuenta gastos fijos.");
-  }
-  if (!financial.has_settings) {
-    blockers.push("faltan comisiones de pago y envío por pedido.");
   }
 
   return (
-    <div className="portal-page space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Sin antetítulo: la cabecera del shell ya dice "Rentabilidad" y
-            repetirlo no aporta. La línea que se queda sí evita un error de
-            lectura -- sin ella, estas cifras se leen con IVA dentro. */}
-        <p className="text-sm text-muted">
-          Todas las cifras sin IVA. El beneficio ya descuenta producto, envíos,
-          comisiones, gastos fijos y publicidad.
-        </p>
-        <Select
-          aria-label="Periodo"
-          value={periodDays}
-          onChange={(value) => setPeriodDays(value)}
-          options={PERIOD_OPTIONS}
-        />
-      </div>
-
-      {/* Banda 1: cuánto ganas */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          card
-          label="Beneficio neto"
-          value={formatMoney(financial.net_profit)}
-          tone={financial.net_profit >= 0 ? "success" : "danger"}
-          // El aviso viaja con la cifra que invalida, no como banda amarilla
-          // sobre todo el panel: quien mira el beneficio lee ahi mismo por que
-          // no es fiable, y quien no tiene el problema no ve nada.
-          hint={
-            blockers.length > 0 ? (
-              <>
-                {formatPct(financial.net_margin_pct)} de margen ·{" "}
-                <span className="text-warning">estimado</span>: {blockers[0]}{" "}
-                <Link href="/configuracion">Configurar</Link>
-              </>
-            ) : (
-              `${formatPct(financial.net_margin_pct)} de margen`
-            )
-          }
-          delta={
-            <span className="flex flex-wrap gap-1">
-              <DeltaBadge
-                current={financial.net_profit}
-                previous={metrics.previous_period?.financial.net_profit}
-              />
-              <YoYBadge
-                current={financial.net_profit}
-                yearAgo={metrics.previous_year?.net_profit}
-              />
-            </span>
-          }
-        />
-        <Metric
-          card
-          label="Ingresos (sin IVA)"
-          value={formatMoney(financial.net_revenue_ex_tax)}
-          hint={`${formatMoney(financial.tax_collected)} de IVA aparte`}
-          delta={
-            <span className="flex flex-wrap gap-1">
-              <TargetBadge
-                value={financial.net_revenue_ex_tax}
-                target={targets.net_revenue_ex_tax}
-                direction="arriba"
-                format={formatMoney}
-              />
-              <YoYBadge
-                current={financial.net_revenue_ex_tax}
-                yearAgo={metrics.previous_year?.net_revenue_ex_tax}
-              />
-            </span>
-          }
-        />
-        <Metric
-          card
-          label="Pedidos"
-          value={financial.orders_count}
-          hint={`${financial.new_customers} clientes nuevos`}
-          delta={
-            <span className="flex flex-wrap gap-1">
-              <DeltaBadge
-                current={financial.orders_count}
-                previous={metrics.previous_period?.sales.orders_count}
-              />
-              <YoYBadge
-                current={financial.orders_count}
-                yearAgo={metrics.previous_year?.orders_count}
-              />
-            </span>
-          }
-        />
-        <Metric
-          card
-          label="Costes totales"
-          value={formatMoney(totalCost)}
-          tone="danger"
-          hint={
-            costs.length > 0
-              ? costs
-                  .map(
-                    (slice) =>
-                      `${slice.concepto.toLowerCase()} ${formatMoney(slice.importe)}`,
-                  )
-                  .join(" · ")
-              : "Sin costes cargados"
-          }
-        />
-      </div>
-
-      {/* Banda 2: qué cuesta cada pedido */}
-      <Card
-        title="Cada pedido"
-        description="Lo que entra y lo que se va, pedido a pedido. Aquí se ve si el negocio aguanta pagar tráfico."
-      >
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Metric
-            size="sm"
-            label="Ticket medio"
-            value={formatMoney(financial.aov_ex_tax)}
-            delta={
-              <span className="flex flex-wrap gap-1">
-                <TargetBadge
-                  value={financial.aov_ex_tax}
-                  target={targets.aov_ex_tax}
-                  direction="arriba"
-                  format={formatMoney}
-                />
-                <YoYBadge
-                  current={financial.aov_ex_tax}
-                  yearAgo={metrics.previous_year?.aov_ex_tax}
-                />
-              </span>
-            }
-          />
-          <Metric
-            size="sm"
-            label="Producto"
-            value={formatMoney(financial.cogs_per_order)}
-          />
-          <Metric
-            size="sm"
-            label="Envío"
-            value={formatMoney(financial.shipping_per_order)}
-          />
-          <Metric
-            size="sm"
-            label="Gastos fijos"
-            value={formatMoney(financial.fixed_per_order)}
-            hint={`${formatPct(financial.fixed_pct_revenue)} de la facturación`}
-          />
-          <Metric
-            size="sm"
-            label="Deja, tras captarlo"
-            value={formatMoney(financial.contribution_per_order)}
-            tone={financial.contribution_per_order >= 0 ? "success" : "danger"}
-            hint="ticket − producto − envío − publicidad"
-          />
-        </div>
-      </Card>
-
-      {/* Banda 3: publicidad */}
-      <Card
-        title="Publicidad"
-        description="Cuánto puedes pagar por un pedido sin perder dinero, y cuánto estás pagando."
-      >
-        {!hasAds ? (
-          <EmptyState
-            title="Sin inversión publicitaria en el periodo"
-            hint="Conecta Meta Ads en Integraciones para que entre en el beneficio."
-          />
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric
-              size="sm"
-              label="Inversión"
-              value={formatMoney(financial.ads_spend)}
-              hint={Object.entries(financial.ads_by_platform)
-                .map(([platform, amount]) => `${platform} ${formatMoney(amount)}`)
-                .join(" · ")}
-            />
-            <Metric
-              size="sm"
-              label="CAC real"
-              value={
-                financial.cac_blended === null
-                  ? "n/a"
-                  : formatMoney(financial.cac_blended)
-              }
-              hint={`${formatMoney(financial.breakeven_cac_per_order)} es tu techo`}
-              tone={
-                financial.cac_blended !== null &&
-                financial.cac_blended > financial.breakeven_cac_per_order
-                  ? "danger"
-                  : "success"
-              }
-              delta={
-                <TargetBadge
-                  value={financial.cac_blended}
-                  target={targets.cac_blended}
-                  direction="abajo"
-                  format={formatMoney}
-                />
-              }
-            />
-            <Metric
-              size="sm"
-              label="Margen tras CAC"
-              value={formatMoney(financial.mbee)}
-              tone={financial.mbee >= 0 ? "success" : "danger"}
-              hint="lo que sobra de cada pedido captado"
-            />
-            <Metric
-              size="sm"
-              label="ROAS"
-              value={
-                meta?.acquisition.roas != null
-                  ? `${meta.acquisition.roas.toFixed(2)}x`
-                  : "n/a"
-              }
-              hint={
-                financial.breakeven_roas !== null
-                  ? `hay que batir ${financial.breakeven_roas.toFixed(2)}x`
-                  : "sin margen positivo no hay ROAS que valga"
-              }
-              tone={
-                meta?.acquisition.roas != null &&
-                financial.breakeven_roas !== null
-                  ? meta.acquisition.roas >= financial.breakeven_roas
-                    ? "success"
-                    : "danger"
-                  : "default"
-              }
-            />
-          </div>
-        )}
-      </Card>
-
-      {/* Banda 4: lo que no es dinero directo */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Metric
-          card
-          size="sm"
-          label="Conversión"
-          value={
-            metrics.funnel?.conversion_rate_own != null
-              ? formatPct(metrics.funnel.conversion_rate_own * 100, 2)
-              : "n/a"
-          }
-          hint={
-            metrics.funnel?.has_sessions
-              ? `${metrics.funnel.sessions.toLocaleString("es-ES")} sesiones`
-              : "sin sesiones: falta el permiso de informes"
-          }
-          delta={
-            <TargetBadge
-              value={
-                metrics.funnel?.conversion_rate_own != null
-                  ? metrics.funnel.conversion_rate_own * 100
-                  : null
-              }
-              target={targets.conversion_rate}
-              direction="arriba"
-              format={(value) => formatPct(value, 2)}
-            />
-          }
-        />
-        <Metric
-          card
-          size="sm"
-          label="Envíos, neto"
-          value={formatMoney(financial.shipping_net)}
-          tone={financial.shipping_net >= 0 ? "success" : "danger"}
-          hint={`cobras ${formatMoney(financial.shipping_charged)} · pagas ${formatMoney(financial.shipping_costs)}`}
-        />
-        <Metric
-          card
-          size="sm"
-          label="Margen neto"
-          value={formatPct(financial.net_margin_pct)}
-          tone={financial.net_margin_pct >= 0 ? "success" : "danger"}
-          delta={
-            <TargetBadge
-              value={financial.net_margin_pct}
-              target={targets.net_margin_pct}
-              direction="arriba"
-              format={(value) => formatPct(value)}
-            />
-          }
-        />
-      </div>
-
-      {/* F7: solo aparece cuando el margen es real. Un "dinero sobre la mesa"
-          calculado sobre un COGS a cero es una cifra que el consultor le diria
-          a un cliente en voz alta, y estaria inventada. */}
-      {financial.cogs > 0 ? (
-        <Card
-          title="Dinero sobre la mesa"
-          description="Lo que ganarías al mes si cada métrica llegara al objetivo que le has puesto. Solo aparecen las que van por debajo."
-        >
-          {palancas.length === 0 ? (
-            <EmptyState
-              title="Nada que calcular todavía"
-              hint="Fija objetivos en Configuración: sin objetivo no hay escenario, y no nos inventamos medias del sector."
-            />
-          ) : (
-            <>
-              <ul className="divide-y divide-separator">
-                {palancas.map((palanca) => (
-                  <li
-                    key={palanca.palanca}
-                    className="flex items-baseline justify-between gap-4 py-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{palanca.palanca}</p>
-                      <p className="text-xs text-muted">{palanca.regla}</p>
-                    </div>
-                    <p className="whitespace-nowrap font-mono text-sm text-success">
-                      +{formatMoney(palanca.eur_mes)} /mes
-                    </p>
-                  </li>
-                ))}
-              </ul>
-              {palancas.length > 1 ? (
-                <p className="mt-3 border-t border-separator pt-3 text-sm">
-                  Todo junto:{" "}
-                  <span className="font-mono text-success">
-                    +{formatMoney(opportunitiesTotal(palancas))} /mes
-                  </span>
-                </p>
-              ) : null}
-            </>
-          )}
-        </Card>
-      ) : null}
-
-      <Card
-        title="Embudo"
-        description="De la visita a la compra. El porcentaje es la caída respecto al paso anterior: ahí está la fuga."
-      >
-        {steps.length === 0 ? (
-          <EmptyState
-            title="Sin sesiones en el periodo"
-            hint="Las sesiones vienen de los informes de Shopify y necesitan ese permiso en la conexión."
-          />
-        ) : (
-          <>
-            <Funnel steps={steps} />
-            {metrics.funnel?.has_funnel_steps ? (
-              <p className="mt-3 text-xs text-muted">
-                Todo en visitas a la tienda online. «Compró» son visitas que
-                acabaron comprando, no el total de pedidos: esos incluyen los
-                demás canales.
-              </p>
-            ) : (
-              <p className="mt-3 text-xs text-muted">
-                Faltan los pasos intermedios: en este periodo todavía no
-                pedíamos esas métricas a Shopify. No significa que nadie llenara
-                el carrito ni llegara a pagar. Se rellenan con una
-                sincronización completa de la tienda.
-              </p>
-            )}
-          </>
-        )}
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card
-          title="Ingresos y beneficio por mes"
-          description="Doce meses. Los meses a cero son meses sin ventas, no huecos."
-        >
-          {monthly.length === 0 ? (
-            <EmptyState title="Sin serie mensual" />
-          ) : (
-            <BarChart
-              data={monthly}
-              xKey="mes"
-              series={[{ key: "Ingresos" }, { key: "Beneficio" }]}
-              valueFormatter={(value) => formatMoney(value)}
-              height={260}
-            />
-          )}
-        </Card>
-
-        <Card
-          title="A dónde va el dinero"
-          description="Reparto del coste total del periodo, de mayor a menor."
-        >
-          {costs.length === 0 ? (
-            <EmptyState
-              title="Sin costes cargados"
-              hint="Sin esto, el beneficio de arriba es el ingreso entero."
-            />
-          ) : (
-            <BarChart
-              data={costs}
-              xKey="concepto"
-              series={[{ key: "importe", label: "Coste" }]}
-              valueFormatter={(value) => formatMoney(value)}
-              horizontal
-              height={220}
-            />
-          )}
-        </Card>
-      </div>
-
-      {metrics.margin.items_with_estimated_cost > 0 ? (
-        <p className="text-xs text-muted">
-          {metrics.margin.items_with_estimated_cost.toLocaleString("es-ES")}{" "}
-          líneas de pedido se valoran con el coste que Shopify reporta hoy,
-          porque no hay coste cargado para la fecha de su pedido.
-        </p>
-      ) : null}
-    </div>
+    <StoreLevel
+      organizationId={organizationId}
+      organizationName={organizationName}
+      connectionId={connectionId}
+      days={days}
+      onDays={setDays}
+      nav={nav}
+    />
   );
 }
 
@@ -717,10 +98,8 @@ export default function PanelPage() {
   return (
     <PortalShell title="Rentabilidad">
       {(bootstrap: BootstrapResponse) =>
-        ["platform_admin", "consultant"].includes(
-          bootstrap.profile.platform_role,
-        ) ? (
-          <PanelContent />
+        ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role) ? (
+          <PanelRouter bootstrap={bootstrap} />
         ) : (
           <div className="portal-page">
             <EmptyState

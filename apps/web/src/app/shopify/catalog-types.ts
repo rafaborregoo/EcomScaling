@@ -79,11 +79,13 @@ export type CatalogVariant = {
   is_active: boolean;
   external_updated_at: string | null;
   inventory: {
+    id: string;
     variant_id: string;
     sku: string | null;
     tracked: boolean;
     current_unit_cost: number | null;
     cost_currency_code: string | null;
+    cost_source: "shopify" | "manual" | "import" | null;
     external_updated_at: string | null;
   } | null;
   inventory_levels: Array<{

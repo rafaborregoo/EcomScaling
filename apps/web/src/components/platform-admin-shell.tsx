@@ -21,7 +21,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { Link } from "@/components/ui";
+import { Link, OverlayRole } from "@/components/ui";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { PortalShell } from "@/components/portal-shell";
 import { type BootstrapResponse } from "@/lib/bootstrap";
@@ -49,6 +49,7 @@ const navigation = [
       { href: "/admin/infraestructura", label: "Salud y seguridad", icon: Activity },
       { href: "/admin/agentes", label: "Agentes de IA", icon: Bot },
       { href: "/admin/tools", label: "Herramientas", icon: Wrench },
+      { href: "/admin/informes", label: "Plantillas PDF", icon: ScrollText },
       { href: "/admin/laboratorio-mailing", label: "Laboratorio de mailing", icon: FlaskConical },
     ],
   },
@@ -79,6 +80,7 @@ const pageContext: Record<string, { area: string; description: string }> = {
   "Salud y seguridad": { area: "Operaciones", description: "VPS, rendimiento, organizaciones afectadas, informes y cobertura de seguridad." },
   "Configuración de IA": { area: "Operaciones", description: "Modelos, agentes activos y límites de ejecución." },
   "Tools del copiloto": { area: "Operaciones", description: "Herramientas disponibles, permisos y agentes que las utilizan." },
+  "Plantillas PDF": { area: "Operaciones", description: "Plantillas nativas que reutiliza el copiloto para generar informes PDF." },
   "Laboratorio de mailing": { area: "Operaciones", description: "Previsualiza y revisa los correos del producto." },
   Finanzas: { area: "Finanzas", description: "Ingresos, gastos, resultado y movimientos de la plataforma." },
   Facturación: { area: "Finanzas", description: "Planes, concesiones y configuración de facturación." },
@@ -102,6 +104,7 @@ function AdminWorkspace({
 
   return (
     <div className="admin-workspace">
+      <OverlayRole role="admin" />
       {menuOpen ? (
         <button
           type="button"

@@ -1,6 +1,9 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import type { CopilotEvidenceReference } from "@e-nora/contracts";
+
+export type CopilotAskTarget = Partial<Pick<CopilotEvidenceReference, "kind" | "entity" | "metric" | "period" | "period_label" | "filters">>;
 
 /**
  * Abrir el Consultor IA sobre UNA cosa concreta.
@@ -21,6 +24,8 @@ export type CopilotAsk = {
   question: string;
   /** Qué se está analizando, para el encabezado del panel. */
   focusLabel?: string;
+  /** Target typed by the button; route/store/filter context is added by the shell. */
+  reference?: CopilotAskTarget;
   saveAnswer?: (text: string) => Promise<void>;
   /** Texto del botón de guardar y de su confirmación, si no es el hilo de la pieza. */
   saveLabel?: string;

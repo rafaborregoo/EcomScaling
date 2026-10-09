@@ -6,7 +6,7 @@ import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { buildMarketingBrief } from "@/lib/marketing-brief";
 import { formatMoney } from "@/lib/money";
-import { Modal, toast } from "@/components/ui";
+import { Dialog, toast } from "@/components/ui";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { toChannel } from "@/components/marketing-channel";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
@@ -423,11 +423,17 @@ export function ContentStudio({
   useEffect(() => {
     if (!campaignTarget || briefedCampaign.current === campaignTarget.id) return;
     briefedCampaign.current = campaignTarget.id;
+    const campaignChannel = toChannel(campaignTarget.channel);
     setBrief((current) => ({
       ...current,
-      channel: toChannel(campaignTarget.channel),
-      instructions: [campaignTarget.title, campaignTarget.description].filter(Boolean).join("\n\n"),
+      channel: campaignChannel,
+      instructions: [
+        campaignTarget.title,
+        `Fecha prevista: ${fmtDate(campaignTarget.starts_at)}`,
+        campaignTarget.description,
+      ].filter(Boolean).join("\n\n"),
     }));
+    setChannel(campaignChannel === "meta_ads" ? "meta" : campaignChannel === "instagram_organic" ? "ig" : "email");
     setStartMode("brief");
     setLauncher(true);
   }, [campaignTarget]);
@@ -701,6 +707,9 @@ export function ContentStudio({
     askCopilot({
       question: `${questions[kind]}\n\n${context}\nObjetivo: ${design.objective}. Tono: ${design.tone}. No inventes precios, descuentos ni datos.`,
       focusLabel: header.name || "Pieza del estudio",
+      reference: refsRef.current[channel]?.id
+        ? { kind: "entity", entity: { type: "marketing_draft", id: refsRef.current[channel]!.id } }
+        : { kind: "section", filters: { studioChannel: channel } },
       saveLabel: "Llevar al editor",
       savedLabel: "Llevado al editor.",
       saveAnswer: async (text) => {
@@ -777,6 +786,10 @@ export function ContentStudio({
           ],
         }));
       }
+      // La generación por brief ya persiste un borrador antes del guardado
+      // manual del lienzo; enlázalo ahora para que no se pierda la relación
+      // con el item del calendario.
+      if (campaignTarget) onCreated(full.id, target);
       setLauncher(false);
       setRightTab("calidad");
       onDraftsChanged();
@@ -1277,16 +1290,8 @@ export function ContentStudio({
         </aside>
       </div>
 
-      <Modal isOpen={launcher} onOpenChange={setLauncher}>
-        <Modal.Backdrop>
-          <Modal.Container size="lg">
-            <Modal.Dialog aria-label="Nueva pieza">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>Nueva pieza</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <div className={`${s.studio} ${s.dialog}`} style={{ height: "auto", minHeight: 0, border: 0, overflow: "visible" }}>
+      <Dialog isOpen={launcher} onOpenChange={setLauncher} size="xl" title="Nueva pieza">
+                <div className={`${s.studio} ${s.dialog}`}>
                   <div className={s.starts}>
                     {(
                       [
@@ -1436,11 +1441,7 @@ export function ContentStudio({
                     )}
                   </div>
                 </div>
-              </Modal.Body>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      </Dialog>
     </div>
   );
 }

@@ -42,6 +42,8 @@ type Membership = {
   organization_id: string;
   role: string;
   accessSource: AccessSource;
+  access_scope?: "organization" | "store";
+  store_id?: string | null;
 };
 
 export type OperationalMembership = Membership & {
@@ -80,6 +82,7 @@ export type AuthContext = {
   };
   profile: Profile;
   memberships: Array<Membership & { organization: Organization | null }>;
+  storeMemberships?: Array<Membership & { organization: Organization | null }>;
   subscriptions: Subscription[];
 };
 
@@ -142,6 +145,18 @@ export function requireOperationalOrganization(
   );
 
   if (!membership) {
+    if (
+      context.storeMemberships?.some(
+        (item) => item.organization_id === organizationId,
+      )
+    ) {
+      return {
+        ok: false as const,
+        statusCode: 403,
+        error: "store_scope_required",
+        message: "Esta cuenta solo tiene acceso a una tienda concreta.",
+      };
+    }
     return {
       ok: false as const,
       statusCode: 403,
@@ -302,7 +317,7 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
 async function loadMemberships(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase
     .from("organization_members")
-    .select("organization_id, role")
+    .select("organization_id, role, access_scope, store_id")
     .eq("user_id", userId)
     .eq("is_active", true);
 
@@ -321,6 +336,8 @@ async function loadMemberships(supabase: SupabaseClient, userId: string) {
     organization_id: row.organization_id as string,
     role: row.role as string,
     accessSource: "membership" as const,
+    access_scope: (row.access_scope as "organization" | "store") ?? "organization",
+    store_id: (row.store_id as string | null) ?? null,
   }));
 
   return { ok: true as const, data: memberships };
@@ -510,7 +527,7 @@ async function resolveAuthContextUncached(
     };
   }
 
-  const memberships = allMemberships
+  const resolvedMemberships = allMemberships
     .map((membership) => {
       const organization =
         ((organizations ?? []) as Organization[]).find(
@@ -534,6 +551,19 @@ async function resolveAuthContextUncached(
       ),
     );
 
+  // El contexto que consultan las rutas existentes solo contiene acceso a
+  // nivel de organización. Así, los handlers que comprueban pertenencia
+  // directamente quedan en denegación por defecto para cuentas limitadas a
+  // tienda; las pocas rutas con filtro fiable validan storeMemberships aparte.
+  const storeMemberships = resolvedMemberships.filter(
+    (membership) =>
+      membership.accessSource === "membership" &&
+      membership.access_scope === "store",
+  );
+  const memberships = resolvedMemberships.filter(
+    (membership) => !storeMemberships.includes(membership),
+  );
+
   return {
     ok: true,
     context: {
@@ -543,6 +573,7 @@ async function resolveAuthContextUncached(
       },
       profile: profileResult.data,
       memberships,
+      storeMemberships,
       subscriptions: (subscriptions ?? []) as Subscription[],
     },
   };

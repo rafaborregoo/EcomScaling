@@ -6,6 +6,7 @@ import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { toast } from "@/components/ui";
+import { BarRows, Waterfall } from "@/components/data-bars";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
 import {
@@ -49,6 +50,9 @@ export type Metrics = {
     currency_code: string | null;
     mismatched_sources: Array<{ source: string; currencies: string[] }>;
     unknown_sources: string[];
+    klaviyo_status?: "compatible" | "incompatible" | "unknown";
+    klaviyo_currency_code?: string | null;
+    klaviyo_unknown?: boolean;
   };
   sales: { net_sales: number; orders_count: number; aov: number };
   top_products: Array<{ product_id: string; title: string; quantity_sold: number; revenue: number; lines_with_exact_metrics: number; lines_with_estimated_metrics: number; lines_without_metrics: number }>;
@@ -152,6 +156,9 @@ export type Diagnostic = {
       title: string;
       description: string;
       priority: string;
+      related_product_id?: string | null;
+      rationale?: string;
+      evidence?: string[];
       owner_role?: "cliente" | "consultor";
       due_hint?: string | null;
     }>;
@@ -285,8 +292,6 @@ export function findingFor(diagnostic: Diagnostic | undefined, pattern: RegExp):
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const PRIORITY_LABEL: Record<string, string> = { urgent: "Urgente", critical: "Urgente", high: "Alta", medium: "Media", low: "Baja", info: "Baja" };
-const CONFIDENCE_LABEL: Record<string, string> = { low: "Baja", medium: "Media", high: "Alta" };
-const COMPLETENESS_LABEL: Record<string, string> = { complete: "Completos", partial: "Parciales", insufficient: "Insuficientes" };
 const PLANNING_STATUS: Record<string, string> = {
   draft: "Borrador",
   planned: "Planificado",
@@ -395,9 +400,12 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
             height={innerH + 6}
             style={{ fill: "transparent" }}
             onPointerMove={(event) => {
-              const box = ref.current?.getBoundingClientRect();
-              if (!box) return;
-              const i = Math.round(((event.clientX - box.left - m.l) / innerW) * (n - 1));
+              const el = ref.current;
+              if (!el) return;
+              // clientX va en px de pantalla y el SVG en px de layout: con `zoom` en <html> difieren.
+              const box = el.getBoundingClientRect();
+              const scale = el.offsetWidth ? box.width / el.offsetWidth : 1;
+              const i = Math.round((((event.clientX - box.left) / scale - m.l) / innerW) * (n - 1));
               setHover(Math.max(0, Math.min(n - 1, i)));
             }}
             onPointerLeave={() => setHover(null)}
@@ -456,7 +464,7 @@ export function SectionHead({ id, title, ai, fallback, onAsk }: {
   title: string;
   ai: string | null;
   fallback?: string | null;
-  onAsk: () => void;
+  onAsk?: () => void;
 }) {
   return (
     <div className={s.secHead}>
@@ -469,9 +477,11 @@ export function SectionHead({ id, title, ai, fallback, onAsk }: {
       ) : (
         <p className={s.aiLine}>{fallback ?? ""}</p>
       )}
-      <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={onAsk}>
-        Preguntar
-      </button>
+      {onAsk ? (
+        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={onAsk}>
+          Preguntar
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -997,7 +1007,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30`);
   const klaviyo = useCachedQuery<KlaviyoReport>(`${base}/klaviyo/email-report?days=30`);
   const operations = useCachedQuery<Operations>(`${base}/operations`);
-  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30${scope}`);
+  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=overview${scope}`);
   const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
   // Sin consultor, el análisis de email es parte del acompañamiento; con
   // consultor lo filtra él.
@@ -1013,7 +1023,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const [today] = useState(() => new Date());
 
   function askCopilot(question: string, focusLabel: string) {
-    ask({ question, focusLabel });
+    ask({ question, focusLabel, reference: { period_label: "Últimos 30 días", filters: { days: "30" } } });
   }
 
   function reloadAll() {
@@ -1025,17 +1035,16 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
     emailAi.reload();
   }
 
-  async function runAgent(runPath: string, label: string, reload: () => void) {
+  async function runAgent(runPath: string, label: string, reload: () => void, view?: string) {
     setRunning(runPath);
     try {
-      const response = await apiFetch(`${base}${runPath}?days=30${scope}`, { method: "POST" });
+      const viewQuery = view ? `&view=${encodeURIComponent(view)}` : "";
+      const response = await apiFetch(`${base}${runPath}?days=30${scope}${viewQuery}`, { method: "POST" });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
       }
       toast.success(`${label} actualizado.`);
-      invalidateApiGetCache();
-      invalidateCachedQueries(base);
       reload();
     } catch {
       toast.danger("No se pudo lanzar el análisis por un error de red.");
@@ -1055,7 +1064,8 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const pins = usePins(data?.daily, operations.data?.alerts);
   const storeSelectionRequired = metrics.error?.includes("shopify_store_selection_required") ?? false;
   const financialCurrencyComparable = data?.financial_currency_coverage?.status === "compatible";
-  const diagnostic = !storeSelectionRequired && financialCurrencyComparable ? monitor.data : undefined;
+  const klaviyoCurrencyComparable = data?.financial_currency_coverage?.klaviyo_status === "compatible";
+  const diagnostic = !storeSelectionRequired ? monitor.data : undefined;
   const monitorPending = !diagnostic && /agent_diagnostic_pending/.test(monitor.error ?? "");
   const monitorNoData = !diagnostic && /agent_sin_datos/.test(monitor.error ?? "");
 
@@ -1092,10 +1102,6 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const previousAverage = previous && daily.length ? previous.sales.net_sales / daily.length : null;
   const target = (key: string) => data?.metric_targets.find((t) => t.metric_key === key)?.target_value ?? null;
 
-  const confidence = diagnostic?.envelope?.quality.confidence ?? diagnostic?.output.confidence;
-  const completeness = diagnostic?.envelope?.quality.dataCompleteness;
-  const sources = diagnostic?.envelope?.sources.slice(0, 4) ?? [];
-
   const proposals = [diagnostic, stockAi.data, emailAi.data].filter((d): d is Diagnostic => Boolean(d));
   const nextStep = diagnostic?.output.recommendations
     .slice()
@@ -1126,9 +1132,9 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               <span>Últimos 30 días frente a los 30 anteriores</span>
             </p>
             <h1 id="pulse-headline" className={s.headline}>
-              {headline}
+              {data && !storeSelectionRequired ? formatStoreMoney(data.sales.net_sales) : "—"}
             </h1>
-            {!aiHeadline && pulse.detail ? <p className={s.headlineDetail}>{pulse.detail}</p> : null}
+            <p className={s.headlineDetail}>Ingresos netos de los últimos 30 días</p>
             {metrics.error && !data ? (
               <p className={s.headlineDetail}>
                 {storeSelectionRequired
@@ -1158,34 +1164,16 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             {diagnostic ? (
               <>
                 <p>
-                  <span className={s.ia}>IA</span>
                   <strong>
                     Análisis del {dayLabel(diagnostic.generated_at, true)},{" "}
                     {new Date(diagnostic.generated_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
                   </strong>
                 </p>
-                <dl className={s.sideDl}>
-                  <div>
-                    <dt>Confianza</dt>
-                    <dd>{CONFIDENCE_LABEL[confidence ?? ""] ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Datos</dt>
-                    <dd>{COMPLETENESS_LABEL[completeness ?? ""] ?? "—"}</dd>
-                  </div>
-                </dl>
-                {sources.length ? (
-                  <ul className={s.sideList}>
-                    {sources.map((source) => (
-                      <li key={source.id}>{source.label}</li>
-                    ))}
-                  </ul>
-                ) : null}
                 <button
                   type="button"
                   className={cx(s.btn, s.ghost, s.sm)}
                   disabled={running !== null}
-                  onClick={() => void runAgent("/ai/monitor-run", "Análisis", monitor.reload)}
+                  onClick={() => void runAgent("/ai/monitor-run", "Análisis", monitor.reload, "overview")}
                 >
                   {running === "/ai/monitor-run" ? "Analizando…" : "Actualizar análisis"}
                 </button>
@@ -1203,7 +1191,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                   type="button"
                   className={cx(s.btn, s.acc, s.sm)}
                   disabled={running !== null}
-                  onClick={() => void runAgent("/ai/monitor-run", "Análisis", monitor.reload)}
+                  onClick={() => void runAgent("/ai/monitor-run", "Análisis", monitor.reload, "overview")}
                 >
                   {running === "/ai/monitor-run" ? "Analizando… puede tardar 1-2 min" : "Analizar ahora"}
                 </button>
@@ -1219,7 +1207,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               {data.financial_currency_coverage?.status === "incompatible"
                 ? `Hay fuentes en monedas distintas a ${data.currency_code ?? "la tienda"}: ${data.financial_currency_coverage.mismatched_sources.map((item) => `${item.source} (${item.currencies.join(", ")})`).join("; ")}.`
                 : `No se pudo confirmar la moneda de todas las fuentes financieras${data.financial_currency_coverage?.unknown_sources.length ? `: ${data.financial_currency_coverage.unknown_sources.join(", ")}` : ""}.`}
-              {" "}Se mantienen las ventas y pedidos Shopify; el beneficio y las recomendaciones financieras quedan ocultos. No se convierte moneda automáticamente.
+              {" "}El A02 sigue disponible aunque la moneda esté pendiente. Los cálculos que comparan importes entre fuentes permanecen sujetos a validar la moneda; no se convierte moneda automáticamente.
             </p>
           </div>
         ) : null}
@@ -1371,13 +1359,23 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         </div>
       ) : null}
 
+      {diagnostic && aiHeadline ? (
+        <section className={s.sec} aria-labelledby="pulse-reading">
+          <div className={s.panel}>
+            <p className={s.lbl}>Lectura del A02</p>
+            <h2 id="pulse-reading" className={s.qiT}>Qué está pasando</h2>
+            <p className={s.headlineDetail}>{aiHeadline}</p>
+          </div>
+        </section>
+      ) : null}
+
       {/* ------------------------------ Hoy ------------------------------ */}
       <section className={s.sec} aria-labelledby="pulse-hoy">
         <SectionHead
           id="pulse-hoy"
           title="Hoy"
           ai={nextStep ? `Lo primero: ${nextStep.action}` : null}
-          onAsk={() => askCopilot("¿Qué debería hacer primero esta semana en mi tienda?", "Qué hacer hoy")}
+          onAsk={() => askCopilot("Con las métricas y tareas visibles de esta tienda, ¿qué única prioridad debería iniciar esta semana? Justifícala con su métrica, fuente y periodo; indica si falta evidencia.", "Qué hacer hoy")}
         />
         <div className={s.two}>
           {operations.error && !operations.data ? (
@@ -1411,7 +1409,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             title="Dinero"
             ai={moneyAi?.title ?? null}
             fallback={showProfit && profitPerOrder !== null ? `De cada pedido te quedan ${formatStoreMoney(profitPerOrder, 2)}.` : null}
-            onAsk={() => askCopilot("¿A dónde se va el dinero de mis ventas y qué partida debería vigilar?", "Dónde se va el dinero")}
+            onAsk={() => askCopilot("¿Qué partida reduce más mi rentabilidad y qué debería revisar primero? Cita cifra, fuente y periodo; si falta un coste, dime cuál.", "Dónde se va el dinero")}
           />
           {showProfit ? (
             <MoneyPanels financial={financial} currencyCode={data?.currency_code ?? null} />
@@ -1423,7 +1421,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                     <a className={cx(s.btn, s.sm)} href="/shopify">
                       Añadir costes de producto
                     </a>
-                    <a className={cx(s.btn, s.ghost, s.sm)} href="/configuracion">
+                    <a className={cx(s.btn, s.ghost, s.sm)} href="/configuracion?section=rentabilidad">
                       Configurar gastos
                     </a>
                   </div>
@@ -1450,13 +1448,13 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             fallback="Cada plataforma cuenta su parte de las ventas."
             onAsk={() =>
               askCopilot(
-                "¿Qué canal me está funcionando mejor? Explícame por qué no se pueden sumar las ventas atribuidas por Meta y por Klaviyo.",
+                "Compara por separado lo que registran Shopify, Meta y Klaviyo en sus propios periodos. ¿Qué señal permite priorizar una revisión? No sumes ingresos atribuidos y explica cualquier incompatibilidad de moneda.",
                 "Canales",
               )
             }
           />
           <div className={s.three}>
-            <StorePanel data={data} note={storeAi} onAsk={() => askCopilot("¿Dónde pierdo más visitas en mi tienda online?", "Tienda online")} />
+            <StorePanel data={data} note={storeAi} onAsk={() => askCopilot("Según las etapas medibles de la tienda, ¿dónde cae más la conversión y qué dato respalda la conclusión? Si faltan sesiones o eventos, indícalo.", "Tienda online")} />
             <div className={s.panel}>
               <div className={s.panelH}>
                 <div>
@@ -1466,7 +1464,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                   </h3>
                   <p className={s.sub}>Cifras atribuidas según Meta</p>
                 </div>
-                <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => askCopilot("¿Cómo van mis campañas de Meta Ads y qué cambiarías?", "Meta Ads")}>
+                <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => askCopilot("En el periodo analizado, ¿qué métrica de Meta Ads merece revisión primero y qué cambio propondrías? Cita la campaña, la cifra y el periodo; no afirmes que el cambio ya se hizo.", "Meta Ads")}>
                   Preguntar
                 </button>
               </div>
@@ -1490,14 +1488,24 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                   </h3>
                   <p className={s.sub}>Ingresos atribuidos según Klaviyo</p>
                 </div>
-                <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => askCopilot("¿Qué email o flujo de Klaviyo debería mejorar primero?", "Klaviyo")}>
+                <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => askCopilot("En el periodo analizado, ¿qué email o flujo de Klaviyo revisaría primero y qué métrica lo justifica? Distingue ingresos atribuidos de ventas de Shopify.", "Klaviyo")}>
                   Preguntar
                 </button>
               </div>
-              {hasKlaviyo && klaviyo.data && financialCurrencyComparable ? (
+              {hasKlaviyo && klaviyo.data && klaviyoCurrencyComparable ? (
                 <KlaviyoBody report={klaviyo.data} currencyCode={data.currency_code ?? null} />
               ) : hasKlaviyo && klaviyo.data ? (
-                <Empty>Ingresos atribuidos ocultos hasta comprobar que Klaviyo usa la moneda de la tienda.</Empty>
+                <Empty
+                  action={
+                    <a className={cx(s.btn, s.ghost, s.sm)} href="/configuracion?section=rentabilidad">
+                      Configurar moneda de Klaviyo
+                    </a>
+                  }
+                >
+                  {data.financial_currency_coverage?.klaviyo_status === "incompatible"
+                    ? `Los ingresos de Klaviyo están confirmados en ${data.financial_currency_coverage.klaviyo_currency_code ?? "otra moneda"} y Shopify en ${data.currency_code ?? "una moneda distinta"}. Se mantienen separados para evitar comparar importes distintos.`
+                    : "La moneda preferida de la cuenta no confirma la moneda de los ingresos atribuidos. Confírmala en la configuración financiera; los importes seguirán ocultos hasta entonces."}
+                </Empty>
               ) : (
                 <Empty action={<a className={cx(s.btn, s.sm)} href="/integraciones/klaviyo">Conectar Klaviyo</a>}>
                   Conecta Klaviyo para ver cuánto generan tus emails y flujos.
@@ -1506,11 +1514,11 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               {hasKlaviyo ? <AiNote finding={klaviyoAi} /> : null}
             </div>
           </div>
-          {(hasMeta || hasKlaviyo) && financialCurrencyComparable ? (
+          {(hasMeta && financialCurrencyComparable || hasKlaviyo && klaviyoCurrencyComparable) ? (
             <Attribution
               storeSales={data.sales.net_sales}
-              meta={hasMeta ? metaAcq?.purchase_value ?? null : null}
-              klaviyo={hasKlaviyo ? klaviyo.data?.totals.revenue ?? null : null}
+              meta={hasMeta && financialCurrencyComparable ? metaAcq?.purchase_value ?? null : null}
+              klaviyo={hasKlaviyo && klaviyoCurrencyComparable ? klaviyo.data?.totals.revenue ?? null : null}
               currencyCode={data.currency_code ?? null}
             />
           ) : null}
@@ -1524,7 +1532,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             id="pulse-stock"
             title="Stock"
             ai={stockHeadline}
-            onAsk={() => askCopilot("¿Qué productos debería reponer primero y cuántas unidades?", "Stock")}
+            onAsk={() => askCopilot("¿Qué productos tienen mayor riesgo de rotura según ventas, stock y previsión disponibles? Prioriza la reposición y da cantidades solo si hay cobertura, plazo de entrega y unidades suficientes para calcularlas; cita la evidencia.", "Stock")}
           />
           <div className={s.panel}>
             <div className={s.stockStats}>
@@ -1587,7 +1595,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             id="pulse-plan"
             title="Plan"
             ai={planAi?.title ?? null}
-            onAsk={() => askCopilot("¿Voy a llegar a mi objetivo de ventas y qué me falta?", "Tu objetivo")}
+            onAsk={() => askCopilot("Con las ventas del periodo y el objetivo configurado, ¿voy al ritmo necesario? Cuantifica la diferencia, cita la fecha y la fuente, y señala los datos que falten.", "Tu objetivo")}
           />
           <div className={s.two}>
             <GoalPanel
@@ -1684,16 +1692,12 @@ function MoneyPanels({ financial, currencyCode }: { financial: Metrics["financia
     .map(([platform, v]) => `${platform === "meta" ? "Meta" : platform === "google" ? "Google" : platform} ${fmtNum(v)}`)
     .join(" · ");
   const rows = moneyFlow(financial, ads || undefined);
-  const max = Math.max(...rows.map((r) => Math.abs(r.value)), 1);
   const base = financial.net_revenue_ex_tax || 1;
   const slices = unitEconomics(financial);
   const positive = slices.filter((x) => x.value > 0);
   const totalSlices = positive.reduce((acc, x) => acc + x.value, 0) || 1;
   const perOrder = financial.orders_count > 0 ? financial.net_profit / financial.orders_count : 0;
   const gaugeMax = Math.max(financial.mbee, financial.cac_per_order) * 1.2 || 1;
-  // Cada coste cuelga del nivel que dejó el anterior; los totales reinician.
-  const levels: number[] = [];
-  rows.forEach((row, i) => levels.push(row.kind === "cost" ? (levels[i - 1] ?? 0) + row.value : row.value));
 
   return (
     <div className={s.two}>
@@ -1704,37 +1708,19 @@ function MoneyPanels({ financial, currencyCode }: { financial: Metrics["financia
             <p className={s.sub}>Últimos 30 días · porcentajes sobre el ingreso sin IVA</p>
           </div>
         </div>
-        <div className={s.wf}>
-          {rows.map((row, i) => {
-            const left = row.kind === "cost" ? Math.min(levels[i - 1] ?? 0, levels[i]) : Math.min(0, row.value);
-            const width = Math.abs(row.value);
-            const loss = row.kind === "profit" && row.value < 0;
-            return (
-              <div
-                key={row.label}
-                className={cx(
-                  s.wfRow,
-                  row.kind === "total" && s.wfTotal,
-                  row.kind === "profit" && s.wfTotal,
-                  row.kind === "profit" && (loss ? s.wfLoss : s.wfProfit),
-                  row.label === "Publicidad" && s.wfAds,
-                )}
-              >
-                <div className={s.wfL}>
-                  {row.label}
-                  {row.hint ? <small>{row.hint}</small> : null}
-                </div>
-                <div className={s.wfTrack}>
-                  <span className={s.wfBar} style={{ left: `${(Math.max(left, 0) / max) * 100}%`, width: `${(width / max) * 100}%` }} />
-                </div>
-                <div className={s.wfV}>
-                  {formatMoney(row.value)}
-                  {row.kind !== "total" && row.label !== "IVA" ? <small>{fmtNum((Math.abs(row.value) / base) * 100, 1)} %</small> : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <Waterfall
+          ariaLabel="De las ventas al beneficio"
+          rows={rows.map((row) => ({
+            key: row.label,
+            label: row.label,
+            hint: row.hint,
+            value: row.value,
+            kind: row.kind,
+            display: formatMoney(row.value),
+            share: row.kind !== "total" && row.label !== "IVA" ? `${fmtNum((Math.abs(row.value) / base) * 100, 1)} %` : row.label === "Ingreso sin IVA" ? "100 %" : undefined,
+            color: row.label === "Publicidad" ? "var(--warn)" : undefined,
+          }))}
+        />
       </div>
       <div className={s.panel}>
         <div className={s.panelH}>
@@ -1827,20 +1813,20 @@ function StorePanel({ data, note, onAsk }: { data: Metrics; note: Finding | null
         </button>
       </div>
       {steps.length ? (
-        <div className={s.fn}>
-          {steps.map((step, i) => (
-            <div key={step.label} className={s.fnR}>
-              <div className={s.fnT}>
-                <span>{step.label}</span>
-                <span className={s.num}>{fmtNum(step.value)}</span>
-              </div>
-              <div className={s.bar}>
-                <i style={{ width: `${Math.max(Math.min(step.pct, 100), 1)}%` }} />
-              </div>
-              <span className={s.fnS}>{i === 0 ? step.hint : `${fmtNum(step.pct, 1)} % ${step.hint}`}</span>
-            </div>
-          ))}
-        </div>
+        // Cada barra mide cuánto de las sesiones llega hasta ahí; el porcentaje
+        // de debajo es el paso respecto al anterior.
+        <BarRows
+          variant="stack"
+          ariaLabel="Embudo de la tienda online"
+          max={Math.max(steps[0]?.value ?? 0, 1)}
+          rows={steps.map((step, i) => ({
+            key: step.label,
+            label: step.label,
+            value: Math.max(step.value, (steps[0]?.value ?? 0) * 0.01),
+            display: fmtNum(step.value),
+            sub: i === 0 ? step.hint : `${fmtNum(step.pct, 1)} % ${step.hint}`,
+          }))}
+        />
       ) : (
         <p className={s.muted}>Todavía no hay datos de sesiones de la tienda online.</p>
       )}
@@ -1850,17 +1836,19 @@ function StorePanel({ data, note, onAsk }: { data: Metrics; note: Finding | null
             <p className={s.lbl}>Más vendidos</p>
             <p className={s.lbl}>Ventas</p>
           </div>
-          <div className={s.prods}>
-            {top.map((product) => (
-              <div key={product.product_id} className={s.prod}>
-                <span className={s.prodName}>{product.title}</span>
-                <span className={s.num}>{fmtCurrency(product.revenue, data.currency_code)}</span>
-                <span className={s.bar}>
-                  <i style={{ width: `${(product.revenue / topRevenue) * 100}%` }} />
-                </span>
-              </div>
-            ))}
-          </div>
+          <BarRows
+            variant="stack"
+            size="sm"
+            ariaLabel="Productos más vendidos"
+            max={topRevenue}
+            rows={top.map((product) => ({
+              key: product.product_id,
+              label: product.title,
+              value: product.revenue,
+              display: fmtCurrency(product.revenue, data.currency_code),
+              color: "var(--ink-3)",
+            }))}
+          />
         </>
       ) : null}
       <AiNote finding={note} />
@@ -2013,30 +2001,32 @@ function Attribution({ storeSales, meta, klaviyo, currencyCode }: { storeSales: 
           cifras no se suman. La única venta que no se repite es la de tu tienda.
         </p>
       </div>
-      <div className={s.ab}>
-        {rows.map((row) => (
-          <div key={row.label} className={s.abR}>
-            <span>{row.label}</span>
-            <span className={s.abT}>
-              <i style={{ width: `${Math.min(row.value / base, 1) * 100}%`, background: row.color }} />
-            </span>
-            <span className={s.abV}>
-              {money(row.value)} <small className={s.muted}>{Math.round((row.value / base) * 100)} %</small>
-            </span>
-          </div>
-        ))}
-        {both ? (
-          <div className={cx(s.abR, s.abSum)}>
-            <span>Si las sumaras</span>
-            <span className={s.abT}>
-              <i style={{ width: `${Math.min((meta + klaviyo) / base, 1) * 100}%` }} />
-            </span>
-            <span className={s.abV}>
-              {money(meta + klaviyo)} <small>{Math.round(((meta + klaviyo) / base) * 100)} %</small>
-            </span>
-          </div>
-        ) : null}
-      </div>
+      <BarRows
+        ariaLabel="Ventas de la tienda frente a lo que se atribuye cada plataforma"
+        max={base}
+        rows={[
+          ...rows.map((row) => ({
+            key: row.label,
+            label: row.label,
+            value: row.value,
+            display: money(row.value),
+            share: `${Math.round((row.value / base) * 100)} %`,
+            color: row.color,
+          })),
+          ...(both
+            ? [
+                {
+                  key: "sum",
+                  label: "Si las sumaras",
+                  value: (meta ?? 0) + (klaviyo ?? 0),
+                  display: money((meta ?? 0) + (klaviyo ?? 0)),
+                  share: `${Math.round((((meta ?? 0) + (klaviyo ?? 0)) / base) * 100)} %`,
+                  dashed: true,
+                },
+              ]
+            : []),
+        ]}
+      />
     </div>
   );
 }

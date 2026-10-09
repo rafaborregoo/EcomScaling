@@ -7,6 +7,8 @@ import {
 } from "@e-nora/config";
 import { runShopifyQueueJob } from "@e-nora/api/shopify-queue-worker";
 import type { ShopifyQueueWorkerJob } from "@e-nora/api/shopify-queue-worker";
+import { reconcileAllMetaConnections } from "@e-nora/api/meta-sync";
+import { reconcileAllKlaviyoConnections } from "@e-nora/api/klaviyo-sync";
 import {
   SHOPIFY_SYNC_QUEUE_NAME,
 } from "@e-nora/api/shopify-sync-queue";
@@ -14,6 +16,10 @@ import { createLogger } from "@e-nora/observability";
 import {
   SHOPIFY_RECONCILE_CRON,
   SHOPIFY_RECONCILE_TZ,
+  META_RECONCILE_CRON,
+  META_RECONCILE_TZ,
+  KLAVIYO_RECONCILE_CRON,
+  KLAVIYO_RECONCILE_TZ,
   FATHOM_WEBHOOK_CRON,
   FATHOM_WEBHOOK_TZ,
   WEBHOOK_RETENTION_CRON,
@@ -190,6 +196,24 @@ await shopifyQueueControl.add(
 );
 logger.info("Scheduled Shopify webhook drain every minute (shared Shopify queue)");
 
+await queue.add(
+  "meta-reconcile",
+  {},
+  {
+    repeat: { pattern: META_RECONCILE_CRON, tz: META_RECONCILE_TZ },
+    jobId: "meta-reconcile-repeat",
+  },
+);
+await queue.add(
+  "klaviyo-reconcile",
+  {},
+  {
+    repeat: { pattern: KLAVIYO_RECONCILE_CRON, tz: KLAVIYO_RECONCILE_TZ },
+    jobId: "klaviyo-reconcile-repeat",
+  },
+);
+logger.info("Scheduled Meta reconciliation daily and Klaviyo every 6 hours (UTC)");
+
 const staleRepeatables = await queue.getRepeatableJobs();
 for (const repeatable of staleRepeatables) {
   if (isStaleShopifyReconcileRepeatable(repeatable, SHOPIFY_RECONCILE_CRON)) {
@@ -280,6 +304,16 @@ const worker = new Worker(
 
     if (job.name === "shopify-reconcile") {
       return runShopifyReconcile(context);
+    }
+    if (job.name === "meta-reconcile") {
+      const result = await reconcileAllMetaConnections(loadApiEnv(process.env));
+      logger.info("Meta reconciliation completed", workerJobMeta(context, result));
+      return result;
+    }
+    if (job.name === "klaviyo-reconcile") {
+      const result = await reconcileAllKlaviyoConnections(loadApiEnv(process.env));
+      logger.info("Klaviyo reconciliation completed", workerJobMeta(context, result));
+      return result;
     }
     if (job.name === "fathom-webhook-processing") {
       return runFathomWebhookProcessing(context);

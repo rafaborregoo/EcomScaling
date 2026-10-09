@@ -12,7 +12,7 @@ import {
   Button,
   ButtonLink,
   Checkbox,
-  Drawer,
+  Sheet,
   Field,
   Input,
   LoadingBlock,
@@ -36,59 +36,79 @@ type Props = {
 /** Panel lateral de una campaña: qué es, a quién va, qué hacer con ella y cómo fue. */
 export function CampaignDrawer({ row, organizationId, workspace, onClose, onChanged, onWritePiece, onOpenDraft }: Props) {
   return (
-    <Drawer isOpen={Boolean(row)} onOpenChange={(open) => !open && onClose()}>
-      <Drawer.Backdrop>
-        <Drawer.Content placement="right">
-          <Drawer.Dialog aria-label={row?.name ?? "Campaña"} className="w-[min(60rem,94vw)] max-w-[94vw] sm:w-[min(60rem,94vw)]">
-            {row ? (
-              <>
-                <Drawer.Header>
-                  <div className="grid gap-1">
-                    <Drawer.Heading>{row.name}</Drawer.Heading>
-                    <span className={s.row}>
-                      <Badge tone={STATE_LABEL[row.state].tone}>{STATE_LABEL[row.state].label}</Badge>
-                      <span className={s.muted}>
-                        {row.date ? fmtSchedule(row.date) : "Sin fecha"} ·{" "}
-                        {row.source === "klaviyo" ? "creada en Klaviyo" : "planificada en NORA"}
-                      </span>
-                    </span>
-                  </div>
-                  <Drawer.CloseTrigger />
-                </Drawer.Header>
-                <Drawer.Body>
-                  <CampaignDetail
-                    key={row.key}
-                    row={row}
-                    organizationId={organizationId}
-                    workspace={workspace}
-                    onChanged={onChanged}
-                    onClose={onClose}
-                    onWritePiece={onWritePiece}
-                    onOpenDraft={onOpenDraft}
-                  />
-                </Drawer.Body>
-              </>
-            ) : null}
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
-    </Drawer>
+    <Sheet
+      isOpen={Boolean(row)}
+      onOpenChange={(open) => !open && onClose()}
+      size="lg"
+      title={row?.name ?? "Campaña"}
+      meta={
+        row ? (
+          <>
+            <Badge tone={STATE_LABEL[row.state].tone}>{STATE_LABEL[row.state].label}</Badge>
+            <span>
+              {row.date ? fmtSchedule(row.date) : "Sin fecha"} ·{" "}
+              {row.source === "klaviyo" ? "creada en Klaviyo" : "planificada en NORA"}
+            </span>
+          </>
+        ) : undefined
+      }
+    >
+      {row ? (
+        <CampaignDetail
+          key={row.key}
+          row={row}
+          organizationId={organizationId}
+          workspace={workspace}
+          onChanged={onChanged}
+          onClose={onClose}
+          onWritePiece={onWritePiece}
+          onOpenDraft={onOpenDraft}
+        />
+      ) : null}
+    </Sheet>
   );
 }
 
 function CampaignDetail({ row, organizationId, workspace, onChanged, onClose, onWritePiece, onOpenDraft }: Omit<Props, "row"> & { row: CampaignRow }) {
-  if (row.state === "nopiece" || (row.state === "late" && !row.draft)) {
+  if (row.state === "plan" || row.state === "nopiece" || (row.state === "late" && !row.draft)) {
     return (
       <div className="grid gap-3">
         <p>
-          Esta campaña aún no tiene pieza.{" "}
+          {row.state === "plan" ? "Plan de IA pendiente de revisión y preparación." : "Esta campaña aún no tiene pieza."}{" "}
           {row.date ? `Estaba prevista para el ${fmtSchedule(row.date)}.` : null}
         </p>
+        {row.item?.description ? (
+          row.item.metadata?.a05_proposal ? (
+            <CampaignPlanDescription
+              description={row.item.description}
+              initiative={row.item.metadata.a05_proposal.initiative}
+            />
+          ) : (
+            <div className="whitespace-pre-line rounded-md border border-separator bg-background p-3 text-sm leading-6">
+              {row.item.description}
+            </div>
+          )
+        ) : null}
         <div className={s.acts}>
           {row.item ? (
-            <Button onClick={() => onWritePiece(row.item!)}>Escribir la pieza</Button>
+            <Button onClick={() => onWritePiece(row.item!)}>
+              {/meta|instagram/i.test(row.channel) ? "Preparar creativo" : "Preparar email"}
+            </Button>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  if (/meta|instagram/i.test(row.channel)) {
+    return (
+      <div className="grid gap-4">
+        <p>{row.item?.description || row.draft?.purpose || "Creativo social planificado para esta campaña."}</p>
+        {row.draft ? (
+          <Button onClick={() => onOpenDraft(row.draft!.id)}>Abrir borrador del creativo</Button>
+        ) : row.item ? (
+          <Button onClick={() => onWritePiece(row.item!)}>Preparar creativo</Button>
+        ) : null}
       </div>
     );
   }
@@ -125,6 +145,57 @@ function CampaignDetail({ row, organizationId, workspace, onChanged, onClose, on
       </div>
       {row.state === "sent" || row.state === "sending" ? (
         <Results row={row} organizationId={organizationId} currency={workspace?.account?.currency ?? "EUR"} />
+      ) : null}
+    </div>
+  );
+}
+
+function CampaignPlanDescription({ description, initiative }: { description: string; initiative?: string }) {
+  const fields = description
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => paragraph.split("\n"))
+    .map((line) => {
+      const separator = line.indexOf(":");
+      return separator > 0
+        ? { label: line.slice(0, separator).trim(), value: line.slice(separator + 1).trim() }
+        : { label: "Detalle", value: line.trim() };
+    })
+    .filter((field) => field.value.length > 0);
+  const umbrella = fields.find((field) => field.label === "Campaña paraguas")?.value || initiative;
+  const strategyLabels = new Set(["Objetivo", "Audiencia", "Periodo", "Hipótesis", "Éxito"]);
+  const strategy = fields.filter((field) => strategyLabels.has(field.label) || field.label.startsWith("Oferta"));
+  const execution = fields.filter((field) => field.label !== "Campaña paraguas" && !strategy.includes(field));
+
+  return (
+    <div className="grid gap-3">
+      {umbrella ? (
+        <section className="rounded-lg border border-separator bg-surface-subtle p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Campaña paraguas</p>
+          <h3 className="mt-1 text-base font-semibold">{umbrella}</h3>
+          {strategy.length ? (
+            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+              {strategy.map((field, index) => (
+                <div key={`${field.label}-${index}`} className="space-y-1">
+                  <dt className="text-xs font-medium text-muted">{field.label}</dt>
+                  <dd className="whitespace-pre-line text-sm leading-5">{field.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </section>
+      ) : null}
+      {execution.length ? (
+        <section className="rounded-lg border border-separator bg-background p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Acción prevista</p>
+          <dl className="mt-3 grid gap-3">
+            {execution.map((field, index) => (
+              <div key={`${field.label}-${index}`} className="space-y-1">
+                <dt className="text-xs font-medium text-muted">{field.label}</dt>
+                <dd className="whitespace-pre-line text-sm leading-5">{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       ) : null}
     </div>
   );

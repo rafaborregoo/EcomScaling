@@ -7,11 +7,20 @@ import { ClientAccessSection } from "./client-access-section";
 import { ConsultantPartnersSection } from "./consultant-partners-section";
 import { WorkSplitSection } from "./work-split-section";
 import { ConsultantStatusSection } from "./consultant-status-section";
+import { BillingSection } from "./billing-section";
+import { NotificationsSection } from "./notifications-section";
+import { ObjectivesProgress } from "./objectives-progress";
+import { PrivacySection } from "./privacy-section";
+import { SecuritySection } from "./security-section";
+import { SummarySection } from "./summary-section";
 import { OrganizationIdentity } from "./organization-identity";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { useCachedQuery } from "@/lib/use-cached-query";
+import {
+  invalidateCachedQueries,
+  useCachedQuery,
+} from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
 import { useUrlSection } from "@/lib/use-url-section";
 import {
@@ -27,12 +36,12 @@ import {
   List,
   LoadingBlock,
   Select,
-  Tabs,
 } from "@/components/ui";
 
 type FinancialSettings = {
   id: string;
   currency_code: string;
+  klaviyo_revenue_currency_code: string | null;
   payment_fee_pct: number;
   payment_fee_fixed: number;
   default_shipping_cost: number;
@@ -105,6 +114,8 @@ const METRIC_TARGET_PERIOD_LABELS: Record<string, string> = {
   yearly: "al año",
 };
 
+const FINANCIAL_CURRENCIES = ["EUR", "USD", "GBP", "MXN", "COP", "ARS", "CLP", "BRL"];
+
 function formatTargetValue(target: MetricTarget) {
   const option = METRIC_TARGET_OPTIONS.find(
     (item) => item.value === target.metric_key,
@@ -116,12 +127,71 @@ function formatTargetValue(target: MetricTarget) {
   return value.toFixed(2);
 }
 
+// Lo que queda de un pedido de ejemplo tras los costes que acabas de escribir:
+// enseña qué hace cada número sin texto de ayuda.
+function OrderExample({
+  paymentFeePct,
+  paymentFeeFixed,
+  shippingCost,
+}: {
+  paymentFeePct: string;
+  paymentFeeFixed: string;
+  shippingCost: string;
+}) {
+  const [order, setOrder] = useState(60);
+  const eur = (value: number) =>
+    new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(value);
+  const fee = (order * (Number(paymentFeePct) || 0)) / 100;
+  const fixed = Number(paymentFeeFixed) || 0;
+  const shipping = Number(shippingCost) || 0;
+
+  return (
+    <div className="mt-5 grid gap-3 rounded-lg bg-surface p-4 text-sm">
+      <label className="grid gap-2">
+        <span className="text-muted">
+          Así se descuenta en un pedido de{" "}
+          <span className="font-mono text-foreground">{eur(order)}</span>
+        </span>
+        <input
+          type="range"
+          min={10}
+          max={300}
+          step={5}
+          value={order}
+          onChange={(event) => setOrder(Number(event.target.value))}
+          aria-label="Importe del pedido de ejemplo"
+          className="w-full accent-[var(--accent)]"
+        />
+      </label>
+      <dl className="grid gap-1">
+        {[
+          ["Comisión de pago", `−${eur(fee)}`],
+          ["Comisión fija", `−${eur(fixed)}`],
+          ["Envío", `−${eur(shipping)}`],
+        ].map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-4">
+            <dt className="text-muted">{label}</dt>
+            <dd className="font-mono">{value}</dd>
+          </div>
+        ))}
+        <div className="flex justify-between gap-4 border-t border-separator pt-2 font-medium">
+          <dt>Queda antes de producto e IVA</dt>
+          <dd className="font-mono">{eur(order - fee - fixed - shipping)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 function FinancialConfigSection({
   bootstrap,
   organizationId,
+  part,
 }: {
   bootstrap: BootstrapResponse;
   organizationId: string;
+  /** `costs`: costes, gastos y envío. `targets`: objetivos y su progreso. */
+  part: "costs" | "targets";
 }) {
   const membership = bootstrap.memberships.find(
     (item) => item.organization_id === organizationId,
@@ -155,6 +225,7 @@ function FinancialConfigSection({
   const [paymentFeePct, setPaymentFeePct] = useState("");
   const [paymentFeeFixed, setPaymentFeeFixed] = useState("");
   const [defaultShippingCost, setDefaultShippingCost] = useState("");
+  const [klaviyoRevenueCurrencyCode, setKlaviyoRevenueCurrencyCode] = useState("");
 
   const [expenseName, setExpenseName] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
@@ -184,6 +255,7 @@ function FinancialConfigSection({
     setPaymentFeePct(String(config.settings?.payment_fee_pct ?? ""));
     setPaymentFeeFixed(String(config.settings?.payment_fee_fixed ?? ""));
     setDefaultShippingCost(String(config.settings?.default_shipping_cost ?? ""));
+    setKlaviyoRevenueCurrencyCode(config.settings?.klaviyo_revenue_currency_code ?? "");
   }, [config]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -201,6 +273,7 @@ function FinancialConfigSection({
             paymentFeeFixed: paymentFeeFixed === "" ? 0 : Number(paymentFeeFixed),
             defaultShippingCost:
               defaultShippingCost === "" ? 0 : Number(defaultShippingCost),
+            klaviyoRevenueCurrencyCode: klaviyoRevenueCurrencyCode || null,
           }),
         },
       );
@@ -211,6 +284,12 @@ function FinancialConfigSection({
       }
 
       setSavedAt(new Date().toLocaleTimeString());
+      // La cobertura financiera de Klaviyo viaja en /shopify/metrics. Al
+      // guardar la moneda, invalida la respuesta de dashboard para que al
+      // volver no se conserve el aviso anterior durante la ventana de caché.
+      invalidateCachedQueries(
+        `/v1/organizations/${organizationId}/shopify/metrics`,
+      );
       void loadConfig();
     } catch {
       setError(
@@ -420,6 +499,8 @@ function FinancialConfigSection({
         </Banner>
       ) : null}
 
+      {part === "costs" ? (
+        <>
       <Card title="Costes por pedido">
         <form className="grid gap-4 md:grid-cols-4" onSubmit={saveSettings}>
           <Field label="Comisión pago (%)">
@@ -456,6 +537,23 @@ function FinancialConfigSection({
               disabled={!canManage}
             />
           </Field>
+          <div id="klaviyo-revenue-currency" className="md:col-span-4 rounded-lg border border-separator p-4">
+            <Field label="Moneda confirmada para ingresos atribuidos de Klaviyo">
+              <Select
+                className="mt-2 max-w-xs"
+                value={klaviyoRevenueCurrencyCode}
+                onChange={setKlaviyoRevenueCurrencyCode}
+                options={[
+                  { value: "", label: "Sin confirmar" },
+                  ...FINANCIAL_CURRENCIES.map((code) => ({ value: code, label: code })),
+                ]}
+                disabled={!canManage}
+              />
+            </Field>
+            <p className="mt-2 max-w-3xl text-xs text-muted">
+              Confirma aquí la moneda real de los ingresos que devuelve Klaviyo. Su moneda preferida solo cambia el símbolo y no sirve para confirmar ni convertir los importes. Si no estás seguro, déjalo sin confirmar.
+            </p>
+          </div>
           <div className="flex items-end">
             <Button className="w-full md:w-auto" type="submit" disabled={!canManage || isSaving}>
               {isSaving ? "Guardando..." : "Guardar"}
@@ -465,6 +563,11 @@ function FinancialConfigSection({
         {savedAt ? (
           <p className="mt-2 text-xs text-muted">Guardado a las {savedAt}.</p>
         ) : null}
+        <OrderExample
+          paymentFeePct={paymentFeePct}
+          paymentFeeFixed={paymentFeeFixed}
+          shippingCost={defaultShippingCost}
+        />
       </Card>
 
       <Card
@@ -560,7 +663,18 @@ function FinancialConfigSection({
           )}
         </List>
       </Card>
+        </>
+      ) : null}
 
+      {part === "targets" ? (
+        <>
+          <ObjectivesProgress
+            organizationId={organizationId}
+            targets={config?.metric_targets ?? []}
+            labelFor={(key) =>
+              METRIC_TARGET_OPTIONS.find((option) => option.value === key)?.label ?? key
+            }
+          />
       <Card
         title="Objetivos"
         description="La cifra a batir en cada métrica. El panel la enseña junto al dato, para que se vea si va bien o mal sin tener que recordarlo."
@@ -659,7 +773,10 @@ function FinancialConfigSection({
           )}
         </List>
       </Card>
+        </>
+      ) : null}
 
+      {part === "costs" ? (
       <Card
         title="Reglas de envío"
         description="Coste de envío por tramo de importe: sustituye al envío medio en los pedidos que entren en el tramo."
@@ -762,6 +879,7 @@ function FinancialConfigSection({
           )}
         </List>
       </Card>
+      ) : null}
     </div>
   );
 }
@@ -781,13 +899,79 @@ function InfoRow({
   );
 }
 
-type SettingsTab = "general" | "accesos" | "alertas" | "cartera";
+type SettingsTab =
+  | "resumen"
+  | "tienda"
+  | "rentabilidad"
+  | "objetivos"
+  | "alertas"
+  | "notificaciones"
+  | "equipo"
+  | "plan"
+  | "accesos"
+  | "cartera"
+  | "seguridad"
+  | "privacidad";
 const SETTINGS_SECTIONS = [
-  "general",
-  "accesos",
+  "resumen",
+  "tienda",
+  "rentabilidad",
+  "objetivos",
   "alertas",
+  "notificaciones",
+  "equipo",
+  "plan",
+  "accesos",
   "cartera",
+  "seguridad",
+  "privacidad",
 ] as const satisfies readonly SettingsTab[];
+
+// Qué puede hacer cada rol. Refleja los chequeos reales del backend: editar
+// configuración e invitar es de owner/manager; plan y baja, del propietario.
+const ROLE_PERMISSIONS: Array<{ action: string; roles: [boolean, boolean, boolean, boolean] }> = [
+  { action: "Ver cifras y tareas", roles: [true, true, true, true] },
+  { action: "Editar costes, objetivos y alertas", roles: [true, true, false, false] },
+  { action: "Invitar y quitar personas", roles: [true, true, false, false] },
+  { action: "Plan, facturas y eliminar la cuenta", roles: [true, false, false, false] },
+];
+
+function RolesCard() {
+  return (
+    <Card title="Qué puede hacer cada rol">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[32rem] text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted">
+              <th className="pb-2 font-medium">&nbsp;</th>
+              {["Propietario", "Gestor", "Miembro", "Solo lectura"].map((role) => (
+                <th key={role} className="pb-2 text-center font-medium">
+                  {role}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-separator">
+            {ROLE_PERMISSIONS.map((row) => (
+              <tr key={row.action}>
+                <td className="py-2.5 pr-4">{row.action}</td>
+                {row.roles.map((allowed, index) => (
+                  <td
+                    key={index}
+                    className={`py-2.5 text-center ${allowed ? "" : "text-muted"}`}
+                    aria-label={allowed ? "Puede" : "No puede"}
+                  >
+                    {allowed ? "✓" : "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
 
 // Cartera: el total de tus clientes y tus tiendas. Antes eran dos entradas de
 // nav (/consultor y /tiendas) que no se operan a diario, solo se consultan. Las
@@ -853,6 +1037,11 @@ function PortfolioSection() {
 
 function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
+  const activeMembership = bootstrap.memberships.find(
+    (membership) =>
+      membership.organization_id === selectedOrganizationId &&
+      membership.accessSource === "membership",
+  );
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
@@ -867,6 +1056,9 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
+  const canManageTeam = ["owner", "manager"].includes(
+    activeMembership?.role ?? "",
+  );
   // Mismo criterio que el backend (`assertCanManage`): consultor incluido.
   const canManageOrganization =
     isConsultant ||
@@ -878,28 +1070,29 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [tab, setTab] = useUrlSection(
     "section",
     SETTINGS_SECTIONS,
-    "general",
+    "resumen",
   );
+  const isOwner = activeMembership?.role === "owner";
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
-      <Tabs
-        value={tab}
-        onChange={(value) => setTab(value as SettingsTab)}
-        hideNavigation
-        items={[
-          { value: "general", label: "General" },
-          // Sin cliente activo la pestaña sigue teniendo sentido: con quién
-          // compartes cartera no depende de ninguna tienda en concreto.
-          ...(isConsultant ? [{ value: "accesos", label: "Accesos" }] : []),
-          ...(organization ? [{ value: "alertas", label: "Alertas" }] : []),
-          ...(isConsultant
-            ? [{ value: "cartera", label: "Clientes y tiendas" }]
-            : []),
-        ]}
-      />
-
-      {tab === "general" ? (
+      {tab === "resumen" ? (
+        organization ? (
+          <SummarySection
+            organizationId={organization.id}
+            isConsultant={isConsultant}
+            onNavigate={(section) => setTab(section as SettingsTab)}
+          />
+        ) : (
+          <Card title="Sin tienda activa">
+            <p className="text-sm">
+              Elige un cliente arriba para configurar su tienda. Tu cuenta está en{" "}
+              <Link href="/perfil">Perfil</Link> y{" "}
+              <Link href="/configuracion?section=seguridad">Seguridad</Link>.
+            </p>
+          </Card>
+        )
+      ) : tab === "tienda" ? (
         <div className="space-y-4">
           {organization ? (
             <OrganizationIdentity
@@ -922,34 +1115,43 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </p>
             </Card>
           )}
-
-          {/* Solo al cliente: al consultor no le interesa saber si "tiene
-              consultor", y es el único que ve Chats apagado sin explicación. */}
+          {/* Solo al cliente: el consultor no necesita el estado de su propio consultor. */}
           {organization && !isConsultant ? (
             <ConsultantStatusSection organizationId={organization.id} />
           ) : null}
 
-          {organization ? (
-            <FinancialConfigSection
-              bootstrap={bootstrap}
-              organizationId={organization.id}
-            />
-          ) : null}
         </div>
+      ) : tab === "rentabilidad" || tab === "objetivos" ? (
+        organization ? (
+          <FinancialConfigSection
+            bootstrap={bootstrap}
+            organizationId={organization.id}
+            part={tab === "rentabilidad" ? "costs" : "targets"}
+          />
+        ) : null
+      ) : tab === "notificaciones" ? (
+        <NotificationsSection bootstrap={bootstrap} />
+      ) : tab === "plan" ? (
+        organization && isOwner ? (
+          <BillingSection organizationId={organization.id} />
+        ) : (
+          <Card title="Plan y facturación">
+            <p className="text-sm text-muted">
+              La facturación la gestiona el propietario de la tienda.
+            </p>
+          </Card>
+        )
+      ) : tab === "seguridad" ? (
+        <SecuritySection bootstrap={bootstrap} />
+      ) : tab === "privacidad" ? (
+        organization ? (
+          <PrivacySection bootstrap={bootstrap} organization={organization} />
+        ) : null
       ) : tab === "accesos" ? (
         <div className="space-y-4">
-          {/* Con quién compartes cartera va antes que los accesos de UN
-              cliente: define quién lleva todas las tiendas, no solo esta. */}
           <ConsultantPartnersSection />
-          {/* Y justo después, quién se encarga de qué: compartir cartera sin
-              repartir el trabajo deja las tareas sin dueño. */}
+          {/* Reparto de responsabilidades entre consultores. */}
           <WorkSplitSection />
-          {organization ? (
-            <ClientAccessSection
-              organizationId={organization.id}
-              canManage={isConsultant}
-            />
-          ) : null}
         </div>
       ) : tab === "alertas" ? (
         organization ? (
@@ -960,6 +1162,16 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null
       ) : tab === "cartera" ? (
         <PortfolioSection />
+      ) : tab === "equipo" ? (
+        organization && (canManageTeam || isConsultant) ? (
+          <div className="space-y-4">
+            <ClientAccessSection
+              organizationId={organization.id}
+              canManage={canManageTeam || isConsultant}
+            />
+            <RolesCard />
+          </div>
+        ) : null
       ) : null}
     </div>
   );

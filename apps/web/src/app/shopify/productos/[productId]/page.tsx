@@ -16,6 +16,7 @@ import { fmtNum } from "../../../dashboard/client-pulse-model";
 import pulse from "../../../dashboard/client-pulse.module.css";
 import s from "../catalogo.module.css";
 import type { CatalogProductDetailResponse, CatalogVariant } from "../../catalog-types";
+import { StockForecastCard } from "../stock-forecast";
 
 const PERIODS = [30, 90, 365] as const;
 type Period = (typeof PERIODS)[number];
@@ -68,18 +69,18 @@ function CostCell({ variant, currency, organizationId, onSaved }: { variant: Cat
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sku = variant.inventory?.sku ?? null;
+  const inventoryItemId = variant.inventory?.id ?? null;
   const cost = variant.inventory?.current_unit_cost ?? null;
 
   async function save() {
-    if (!sku || value === "") return;
+    if (!inventoryItemId || value === "") return;
     setSaving(true);
     setError(null);
     try {
       const response = await apiFetch(`/v1/organizations/${organizationId}/shopify/product-costs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku, unitCost: Number(value) }),
+        body: JSON.stringify({ inventoryItemId, unitCost: Number(value), currencyCode: currency ?? "EUR" }),
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -110,11 +111,24 @@ function CostCell({ variant, currency, organizationId, onSaved }: { variant: Cat
   }
   return (
     <div className={s.costCell}>
-      {cost != null ? <span className={pulse.num}>{money(cost, variant.inventory?.cost_currency_code ?? currency)}</span> : null}
-      {sku ? (
+      {cost != null ? (
+        <span className={pulse.num}>
+          {money(cost, variant.inventory?.cost_currency_code ?? currency)}
+          <small className={pulse.muted}>
+            {variant.inventory?.cost_source === "shopify"
+              ? " · Shopify"
+              : variant.inventory?.cost_source === "import"
+                ? " · Importado"
+                : variant.inventory?.cost_source === "manual"
+                  ? " · Manual"
+                  : ""}
+          </small>
+        </span>
+      ) : null}
+      {inventoryItemId ? (
         <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} onClick={() => setEditing(true)}>{cost != null ? "Editar" : "Añadir coste"}</button>
       ) : cost == null ? (
-        <span className={pulse.muted} title="El coste se carga por SKU">Sin SKU</span>
+        <span className={pulse.muted}>Sin artículo de inventario</span>
       ) : null}
     </div>
   );
@@ -200,11 +214,12 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const variantsWithoutCost = pm?.variants_without_cost ?? variants.filter((v) => v.inventory?.current_unit_cost == null).length;
   const trackedCount = variants.filter((v) => v.inventory?.tracked).length;
   const lastReading = variants.flatMap((v) => v.inventory_levels.map((level) => level.updated_at)).sort().at(-1) ?? null;
+  const inventoryFresh = lastReading != null && Number.isFinite(Date.parse(lastReading)) && Date.now() - Date.parse(lastReading) <= 48 * 60 * 60 * 1000;
   const weekly = data.weekly ?? null;
   const weeklyMax = weekly ? Math.max(...weekly.map((w) => w.units_ordered + w.units_refunded), 1) : 1;
 
   const askCopilot = (question: string, focusLabel: string) =>
-    ask({ question: `${question} (producto «${product.title}», últimos ${periodDays} días)`, focusLabel });
+    ask({ question: `${question} (producto «${product.title}», últimos ${periodDays} días)`, focusLabel, reference: { filters: { periodDays: String(periodDays) } } });
 
   // Matriz opcion 1 x opcion 2 (p. ej. color x talla) con las variantes de esta pagina.
   const optionNames = [...new Set(variants.flatMap((v) => v.selected_options.map((o) => o.name)))];
@@ -342,6 +357,8 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         </div>
       </section>
+
+      <StockForecastCard history={weekly} available={totalStock} tracked={trackedCount > 0 && inventoryFresh} />
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">

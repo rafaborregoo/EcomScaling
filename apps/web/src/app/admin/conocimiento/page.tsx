@@ -6,11 +6,10 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
 import {
-  Accordion,
   Badge,
   Button,
   Card,
-  Drawer,
+  Dialog,
   EmptyState,
   ErrorBlock,
   Field,
@@ -18,7 +17,7 @@ import {
   List,
   LoadingBlock,
   Markdown,
-  Modal,
+  Sheet,
   Textarea,
   toast,
 } from "@/components/ui";
@@ -176,26 +175,31 @@ function PlatformKnowledgePanel() {
     <div className="portal-page space-y-5 sm:space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <Drawer isOpen={adding} onOpenChange={(open) => !isSaving && setAdding(open)}>
-        <Drawer.Backdrop isDismissable={!isSaving}>
-          <Drawer.Content placement="right" className="w-full max-w-2xl">
-            <Drawer.Dialog aria-label="Añadir material a la metodología">
-              <Drawer.Header className="admin-detail-header">
-                <Drawer.Heading>Ingesta de conocimiento</Drawer.Heading>
-                {!isSaving ? <Drawer.CloseTrigger /> : null}
-              </Drawer.Header>
-              <Drawer.Body className="admin-detail-body">
-      {adding ? <Card
+      <Sheet
+        isOpen={adding}
+        onOpenChange={setAdding}
+        size="sm"
         title="Añadir a la metodología"
-        description="Lo que subas aquí lo usa el copiloto de todos los clientes. Ni los consultores ni los clientes lo ven listado: para ellos, Conocimiento es solo el contexto de su tienda."
+        isBusy={isSaving}
+        isDirty={Boolean(title.trim() || content.trim())}
+        formId="methodology-form"
+        primary={{
+          label: "Guardar texto",
+          busyLabel: "Indexando…",
+          disabled: !title.trim() || !content.trim(),
+        }}
       >
-        <div className="flex flex-wrap items-center gap-3">
+        <p className="text-muted">
+          Lo que subas aquí lo usa el copiloto de todos los clientes. Ni los consultores ni los clientes lo ven listado: para ellos, Conocimiento es solo el contexto de su tienda.
+        </p>
+        <div>
           <Button
             type="button"
+            variant="secondary"
             disabled={isSaving}
             onClick={() => fileInputRef.current?.click()}
           >
-            {isSaving ? "Indexando…" : "Subir documento (.txt, .md)"}
+            Subir documento (.txt, .md)
           </Button>
           <input
             ref={fileInputRef}
@@ -210,52 +214,31 @@ function PlatformKnowledgePanel() {
             }}
           />
         </div>
-
-        <Accordion
-          className="mt-6 border-t border-separator pt-3"
-          items={[
-            {
-              id: "paste",
-              title: "O pega el texto a mano",
-              content: (
-                <form className="space-y-4" onSubmit={submit}>
-                  <Field label="Título">
-                    <Input
-                      value={title}
-                      onChange={(event) => setTitle(event.target.value)}
-                      placeholder="Ej: Criterios para escalar inversión en ads"
-                    />
-                  </Field>
-                  <Field label="Contenido">
-                    <Textarea
-                      className="mt-1 h-40"
-                      value={content}
-                      onChange={(event) => setContent(event.target.value)}
-                      placeholder="Pega aquí la metodología…"
-                    />
-                  </Field>
-                  <Button type="submit" disabled={isSaving}>
-                    Ingerir texto
-                  </Button>
-                </form>
-              ),
-            },
-          ]}
-        />
-      </Card> : null}
-              </Drawer.Body>
-            </Drawer.Dialog>
-          </Drawer.Content>
-        </Drawer.Backdrop>
-      </Drawer>
+        <form id="methodology-form" className="space-y-4 border-t border-line pt-4" onSubmit={submit}>
+          <p className="text-sm font-medium text-ink">O pega el texto a mano</p>
+          <Field label="Título">
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Ej: Criterios para escalar inversión en ads"
+            />
+          </Field>
+          <Field label="Contenido">
+            <Textarea
+              className="h-40"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="Pega aquí la metodología…"
+            />
+          </Field>
+        </form>
+      </Sheet>
 
       <Card
         title={`Metodología (${documents?.length ?? 0})`}
         description="Lo que el copiloto puede citar en cualquier cliente."
         actions={
-          <Button onClick={() => setAdding((value) => !value)}>
-            {adding ? "Cerrar alta" : "Añadir material"}
-          </Button>
+          <Button onClick={() => setAdding(true)}>Añadir material</Button>
         }
       >
         {documents === null ? (
@@ -302,7 +285,7 @@ function PlatformKnowledgePanel() {
         )}
       </Card>
 
-      <Modal
+      <Dialog
         isOpen={viewing !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -311,27 +294,34 @@ function PlatformKnowledgePanel() {
             setViewError(null);
           }
         }}
+        size="lg"
+        eyebrow={viewing ? `${displayValue(viewing.authority)} · ${displayValue(viewing.status)}` : undefined}
+        title={viewing?.title ?? "Documento"}
+        cancelLabel="Cerrar"
+        start={
+          viewedContent ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(viewedContent)
+                  .then(() => toast.success("Texto copiado"))
+                  .catch(() => toast.danger("No se pudo copiar el texto"));
+              }}
+            >
+              Copiar texto
+            </Button>
+          ) : undefined
+        }
       >
-        <Modal.Backdrop>
-          <Modal.Container size="lg">
-            <Modal.Dialog aria-label={viewing?.title ?? "Documento"}>
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>{viewing?.title}</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                {viewError ? (
-                  <ErrorBlock>{viewError}</ErrorBlock>
-                ) : viewedContent === null ? (
-                  <LoadingBlock label="Cargando documento…" />
-                ) : (
-                  <Markdown>{viewedContent}</Markdown>
-                )}
-              </Modal.Body>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+        {viewError ? (
+          <ErrorBlock>{viewError}</ErrorBlock>
+        ) : viewedContent === null ? (
+          <LoadingBlock label="Cargando documento…" />
+        ) : (
+          <Markdown>{viewedContent}</Markdown>
+        )}
+      </Dialog>
     </div>
   );
 }

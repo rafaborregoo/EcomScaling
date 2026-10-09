@@ -4,6 +4,7 @@ import { recordAuditLog } from "./audit-log.js";
 import type { AuthContext } from "./auth-context.js";
 import {
   STRIPE_PLAN_CODE_METADATA_KEY,
+  STRIPE_MEMBER_LIMIT_METADATA_KEY,
   STRIPE_STORE_LIMIT_METADATA_KEY,
 } from "./stripe.js";
 import {
@@ -743,6 +744,7 @@ export type GrantInput = {
   subject_id?: string | undefined;
   plan_code?: string | undefined;
   store_limit?: number | string | null | undefined;
+  member_limit?: number | string | null | undefined;
   ends_at?: string | null | undefined;
 };
 
@@ -750,6 +752,7 @@ export type GrantPatch = {
   subject: { user_id: string } | { organization_id: string };
   plan_code: string;
   store_limit: number | null;
+  member_limit: number | null;
   status: "active";
   starts_at: string;
   ends_at: string | null;
@@ -824,6 +827,24 @@ export function buildGrantPatch(
   }
 
   let endsAt: string | null = null;
+  let memberLimit: number | null;
+  if (input.member_limit === null || input.member_limit === undefined) {
+    memberLimit = null;
+  } else {
+    const parsed =
+      typeof input.member_limit === "number"
+        ? input.member_limit
+        : Number.parseInt(input.member_limit, 10);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      return {
+        ok: false,
+        error: "member_limit_invalid",
+        message: "El limite de usuarios tiene que ser un entero positivo o null.",
+      };
+    }
+    memberLimit = parsed;
+  }
+
   if (input.ends_at) {
     const parsed = new Date(input.ends_at);
     if (Number.isNaN(parsed.getTime())) {
@@ -852,6 +873,7 @@ export function buildGrantPatch(
           : { organization_id: subjectId },
       plan_code: planCode,
       store_limit: storeLimit,
+      member_limit: memberLimit,
       status: "active",
       starts_at: now.toISOString(),
       ends_at: endsAt,
@@ -900,7 +922,8 @@ export function buildGrantFields(
  *
  * Se listan PRECIOS, no productos: el precio es lo que se compra, lo que lleva
  * la metadata del plan (`ecomscaling_plan_code`, `ecomscaling_store_limit`) y
- * lo que viaja entero dentro del webhook de suscripcion. El producto solo
+ * `ecomscaling_member_limit` y lo que viaja entero dentro del webhook de
+ * suscripcion. El producto solo
  * aporta el nombre, y por eso se pide expandido.
  *
  * `active=true` deja fuera los precios archivados: un precio viejo sigue
@@ -949,6 +972,11 @@ export async function listPlans(env: BillingEnv) {
       const limitText = metadata[STRIPE_STORE_LIMIT_METADATA_KEY];
       const limit =
         typeof limitText === "string" ? Number.parseInt(limitText, 10) : NaN;
+      const memberLimitText = metadata[STRIPE_MEMBER_LIMIT_METADATA_KEY];
+      const parsedMemberLimit =
+        typeof memberLimitText === "string"
+          ? Number.parseInt(memberLimitText, 10)
+          : NaN;
       const currency = ((price.currency ?? "eur") as string).toUpperCase();
       // Stripe da los importes en la unidad minima de la moneda: 20000 son
       // 200,00 EUR. Dividir entre 100 a ciegas rompe en las monedas sin
@@ -987,6 +1015,10 @@ export async function listPlans(env: BillingEnv) {
         plan_code: (metadata[STRIPE_PLAN_CODE_METADATA_KEY] ?? null) as
           string | null,
         store_limit: Number.isSafeInteger(limit) && limit > 0 ? limit : null,
+        member_limit:
+          Number.isSafeInteger(parsedMemberLimit) && parsedMemberLimit > 0
+            ? parsedMemberLimit
+            : null,
         // Stripe no da un enlace de compra por precio: el checkout se abre
         // desde la app (`stripe-checkout.ts`), que es lo que permite atribuir
         // la compra a quien la inicia.
@@ -1009,7 +1041,7 @@ export async function listPlatformSubscriptions(
   const { data: rows, error } = await supabase
     .from("service_subscriptions")
     .select(
-      "id, user_id, organization_id, plan_code, status, store_limit, starts_at, ends_at, external_subscription_id, created_at",
+      "id, user_id, organization_id, plan_code, status, store_limit, member_limit, starts_at, ends_at, external_subscription_id, created_at",
     )
     .order("created_at", { ascending: false });
   if (error) {
@@ -1173,11 +1205,12 @@ export async function grantSubscription(
       plan_code: patch.plan_code,
       status: patch.status,
       store_limit: patch.store_limit,
+      member_limit: patch.member_limit,
       starts_at: patch.starts_at,
       ends_at: patch.ends_at,
       metadata: { granted_by: context.user.id, granted_at: patch.starts_at },
     })
-    .select("id, plan_code, status, store_limit, starts_at, ends_at")
+    .select("id, plan_code, status, store_limit, member_limit, starts_at, ends_at")
     .maybeSingle();
   if (insertError || !creada) {
     return {

@@ -14,6 +14,7 @@
     "test:recommendation-communication": "tsx --test --test-force-exit src/app/shopify/diagnostico/recommendation-communication-view-model.test.ts src/lib/insights-registry.test.ts",
     "test:continuous-learning": "tsx --test --test-force-exit src/app/shopify/diagnostico/continuous-learning-view-model.test.ts src/lib/insights-registry-f9.test.ts",
     "typecheck": "tsc --noEmit",
+    "test:store-link-diagnostics": "tsx --test --test-force-exit src/app/integraciones/store-link-diagnostics.test.ts",
     "test": "tsx --test --test-force-exit \"src/**/*.test.ts\""
   },
   "engines": {

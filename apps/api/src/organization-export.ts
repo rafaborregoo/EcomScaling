@@ -21,8 +21,16 @@ export async function exportOrganizationData(
   context: AuthContext,
   organizationId: string,
 ) {
-  if (context.profile.platform_role !== "platform_admin") {
-    return { ok: false as const, statusCode: 403, error: "platform_admin_required" };
+  // El propietario puede llevarse los datos de su propia tienda (portabilidad);
+  // el resto de la cartera sigue siendo solo de platform_admin.
+  const isOwner = context.memberships.some(
+    (membership) =>
+      membership.organization_id === organizationId &&
+      membership.role === "owner" &&
+      membership.accessSource === "membership",
+  );
+  if (context.profile.platform_role !== "platform_admin" && !isOwner) {
+    return { ok: false as const, statusCode: 403, error: "platform_admin_or_owner_required" };
   }
 
   const client = createServiceClient(env);
@@ -59,7 +67,7 @@ export async function exportOrganizationData(
     actorUserId: context.user.id,
     surface: "organization_export",
     resources: ["shopify_customers"],
-    purpose: "Export completo de la organizacion (platform_admin)",
+    purpose: "Export completo de la organizacion (platform_admin o propietario)",
     detail: { schema_version: "v1" },
   });
 

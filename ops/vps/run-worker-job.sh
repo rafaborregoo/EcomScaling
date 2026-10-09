@@ -21,7 +21,7 @@ action-envelope|execution-supervision|continuous-learning)
   # memory-ingestion.yml se borro con el resto de workflows de GH Actions
   # (2b2ab70, 2026-09-22) pero, a diferencia de F7/F8/F9, no se le dio
   # reemplazo en el VPS -- se quedo parado en produccion hasta ahora.
-  memory-ingestion)
+  memory-ingestion|mailing-campaign-resume)
     ;;
   # Cadena nocturna F3 -> F7 en orden de fase (apps/worker/src/nightly-chain-once.ts)
   nightly-chain)
@@ -35,7 +35,7 @@ action-envelope|execution-supervision|continuous-learning)
     ;;
 esac
 
-base_dir="/opt/ecomscaling"
+base_dir="/opt/e-nora"
 lock_dir="$base_dir/.locks"
 log_dir="$base_dir/logs"
 mkdir -p "$lock_dir" "$log_dir"
@@ -54,8 +54,8 @@ echo "[$(date -Is)] starting ${job}"
 # en el VPS esa imagen o no existe (el job no arranca) o es la del ultimo deploy
 # por GHCR, y entonces el cron ejecuta codigo VIEJO mientras los contenedores
 # largos sirven el nuevo. Las dos cosas pasaron el 2026-09-24.
-if ! docker image inspect ecomscaling-worker:local >/dev/null 2>&1; then
-  echo "Falta la imagen ecomscaling-worker:local; despliega con ops/vps/deploy.sh" >&2
+if ! docker image inspect e-nora-worker:local >/dev/null 2>&1; then
+  echo "Falta la imagen e-nora-worker:local; despliega con ops/vps/deploy.sh" >&2
   echo "[$(date -Is)] finished ${job} status=69"
   exit 69
 fi

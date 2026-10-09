@@ -1,0 +1,13 @@
+mutation SeedDemoCatalog(
+  $p1: ProductSetInput!, $p2: ProductSetInput!, $p3: ProductSetInput!, $p4: ProductSetInput!,
+  $p5: ProductSetInput!, $p6: ProductSetInput!, $p7: ProductSetInput!, $p8: ProductSetInput!
+) {
+  p1: productSet(synchronous: true, input: $p1) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p2: productSet(synchronous: true, input: $p2) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p3: productSet(synchronous: true, input: $p3) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p4: productSet(synchronous: true, input: $p4) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p5: productSet(synchronous: true, input: $p5) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p6: productSet(synchronous: true, input: $p6) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p7: productSet(synchronous: true, input: $p7) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+  p8: productSet(synchronous: true, input: $p8) { product { id title status variants(first: 1) { nodes { id sku price } } } userErrors { field message } }
+}

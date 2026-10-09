@@ -1,89 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { KlaviyoInsightsSections } from "./insights-sections";
-import { KlaviyoEmailPanel } from "@/components/klaviyo-email-panel";
+import { PortfolioAttention } from "@/components/portfolio-attention";
+import { KlaviyoAnalytics } from "./klaviyo-analytics";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   Badge,
-  Banner,
   Button,
   Card,
   EmptyState,
   ErrorBlock,
-  Heading,
-  Link,
   List,
   LoadingBlock,
-  Select,
   type Tone,
 } from "@/components/ui";
-
-const periodOptions: Array<{ days: number | "all"; label: string }> = [
-  { days: 30, label: "30 días" },
-  { days: 90, label: "90 días" },
-  { days: 180, label: "6 meses" },
-  { days: 365, label: "1 año" },
-  { days: "all", label: "Todo" },
-];
 
 function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
   const { connectionId } = useActiveConnection();
-  const [periodDays, setPeriodDays] = useState<number | "all">(90);
-  const [connected, setConnected] = useState<boolean | null>(null);
 
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
-
-  const checkConnection = useCallback(
-    async (isCurrent: () => boolean) => {
-      if (!organizationId) return;
-
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organizationId}/integrations`,
-        );
-        if (!isCurrent()) return;
-
-        if (!response.ok) {
-          setConnected(null);
-          return;
-        }
-
-        const payload = (await response.json()) as {
-          providers?: Array<{
-            id: string;
-            connection?: { id?: string } | null;
-          }>;
-        };
-        setConnected(
-          Boolean(
-            (payload.providers ?? []).find(
-              (provider) => provider.id === "klaviyo",
-            )?.connection,
-          ),
-        );
-      } catch {
-        if (!isCurrent()) return;
-        setConnected(null);
-      }
-    },
-    [organizationId],
-  );
-
-  useEffect(() => {
-    let current = true;
-    void checkConnection(() => current);
-    return () => {
-      current = false;
-    };
-  }, [checkConnection]);
+  const organization = bootstrap.memberships.find(
+    (membership) => membership.organization_id === organizationId,
+  )?.organization;
 
   if (!organizationId) {
     return (
@@ -94,49 +39,15 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="grid gap-4">
-      <Card>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <Heading level={2}>Klaviyo</Heading>
-            <p className="text-sm text-muted">
-              Qué emails salen, qué dicen y qué se puede medir de ellos.
-            </p>
-          </div>
-          <Select
-            className="w-full sm:w-40"
-            aria-label="Periodo"
-            value={String(periodDays)}
-            onChange={(value) =>
-              setPeriodDays(value === "all" ? "all" : Number(value))
-            }
-            options={periodOptions.map((option) => ({
-              value: String(option.days),
-              label: option.label,
-            }))}
-          />
-        </div>
-      </Card>
-
-      {connected === false ? (
-        <Banner tone="warn" className="text-sm">
-          Este cliente no tiene Klaviyo conectado. Se conecta desde{" "}
-          <Link href="/integraciones">Integraciones</Link>.
-        </Banner>
-      ) : null}
-
-      {/* Informe de rendimiento completo. El Dashboard solo muestra sus cuatro
-          señales decisivas; campañas, flujos, asuntos y entregabilidad viven
-          aquí, en la zona de Analítica. */}
-      <KlaviyoEmailPanel
+    <div className="portal-page grid gap-5 sm:gap-6">
+      {/* Informe completo. El Dashboard solo muestra sus cuatro señales
+          decisivas; campañas, flujos, asuntos y entregabilidad viven aquí, en
+          la zona de Analítica. */}
+      <KlaviyoAnalytics
         organizationId={organizationId}
-        variant={isConsultant ? "consultant" : "client"}
-      />
-
-      <KlaviyoInsightsSections
-        organizationId={organizationId}
-        connectionId={connectionId}
-        periodDays={periodDays}
+        organizationName={organization?.display_name ?? "Klaviyo"}
+        connectionId={connectionId || null}
+        isConsultant={isConsultant}
       />
 
       {/* Dos agentes y en este orden, por la misma razón que las secciones de
@@ -291,6 +202,22 @@ function ConsultantAccountsView() {
 
   return (
     <div className="grid gap-4">
+      <PortfolioAttention
+        noun="clientes"
+        weightLabel="Emails en la cuenta"
+        formatWeight={(value) => Math.round(value).toLocaleString("es-ES")}
+        onOpen={(id) => setOrganizationId(id)}
+        items={ranking.map((account) => ({
+          id: account.organization_id,
+          name: account.organization_name,
+          sub: `${account.emails_total} emails · ${account.flows_active} flows activos`,
+          level: account.level,
+          score: account.score,
+          reasons: account.reasons.map((reason) => reason.text),
+          weight: account.emails_total > 0 ? account.emails_total : null,
+          blind: account.blind,
+        }))}
+      />
       <Card
         title="Email por cliente"
         description="Ordenado por lo que cuesta no mirarlo."

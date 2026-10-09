@@ -1,26 +1,26 @@
 # Override para construir las imagenes EN EL VPS desde el codigo en ./src,
 # en vez de bajarlas de GHCR (util mientras GitHub Actions no esta disponible).
 #
-# Uso, desde /opt/ecomscaling:
+# Uso, desde /opt/e-nora:
 #   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml up -d --build
 #
-# Requiere el repo clonado en /opt/ecomscaling/src
+# Requiere el repo clonado en /opt/e-nora/src
 
 services:
   api:
-    image: ecomscaling-api:local
+    image: e-nora-api:local
     build:
       context: ./src
       dockerfile: apps/api/Dockerfile
 
   worker:
-    image: ecomscaling-worker:local
+    image: e-nora-worker:local
     build:
       context: ./src
       dockerfile: apps/worker/Dockerfile
 
   email-renderer:
-    image: ecomscaling-email-renderer:local
+    image: e-nora-email-renderer:local
     build:
       context: ./src
       dockerfile: ops/email-renderer/Dockerfile

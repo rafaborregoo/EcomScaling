@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { buildMarketingBrief } from "@/lib/marketing-brief";
+import { buildWeeklyMailingEmailBrief } from "@e-nora/contracts";
+import { MailingCampaignPanel } from "./mailing-campaign-panel";
+import { useMarketingPortal } from "./marketing-portal-context";
 import {
   Button,
   Card,
@@ -78,6 +80,7 @@ type WeeklyMailingSequenceResponse = {
   plan: WeeklyMailingPlan | { generation_status: "generating" };
   client_state: Record<string, unknown>;
   updated_at: string;
+  mailing_graph_enabled?: boolean;
 };
 
 const WEEK_DAYS = [
@@ -133,6 +136,7 @@ export function WeeklyMailingPlanner({
   const [audience, setAudience] = useState("");
   const [offer, setOffer] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [verbatimText, setVerbatimText] = useState("");
   const [startDate, setStartDate] = useState(nextMonday);
   const [durationDays, setDurationDays] = useState("7");
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 3, 5]);
@@ -161,6 +165,12 @@ export function WeeklyMailingPlanner({
   const [isRestoringSequence, setIsRestoringSequence] = useState(false);
   const [restoredBaseDesignTemplateId, setRestoredBaseDesignTemplateId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ADR-0025: con el flag, el grafo de la API orquesta la campaña y esta
+  // ventana solo muestra su estado; sin el, sigue el bucle del navegador.
+  const [mailingGraphEnabled, setMailingGraphEnabled] = useState(false);
+  const [campaignSequenceId, setCampaignSequenceId] = useState<string | null>(null);
+  const { bootstrap } = useMarketingPortal();
+  const viewerIsStaff = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
 
   const loadTemplatePage = useCallback(
     async (cursor: TemplateCursor | null, reset = false) => {
@@ -251,6 +261,7 @@ export function WeeklyMailingPlanner({
     setSequenceStatus(null);
     setSequenceUpdatedAt(null);
     setGenerationLeaseExpired(false);
+    setCampaignSequenceId(null);
     try {
       const sequenceId = window.localStorage.getItem(sequenceStorageKey);
       if (!sequenceId) return;
@@ -265,6 +276,10 @@ export function WeeklyMailingPlanner({
           }
           if (!response.ok) throw new Error(await readApiError(response));
           const saved = (await response.json()) as WeeklyMailingSequenceResponse;
+          if (active) setMailingGraphEnabled(Boolean(saved.mailing_graph_enabled));
+          if (active && saved.mailing_graph_enabled && saved.status === "in_progress") {
+            setCampaignSequenceId(saved.id);
+          }
           if (!active || saved.status === "completed" || saved.status === "abandoned") {
             if (saved.status === "completed" || saved.status === "abandoned") {
               window.localStorage.removeItem(sequenceStorageKey);
@@ -279,6 +294,9 @@ export function WeeklyMailingPlanner({
           setAudience(readText("audience", ""));
           setOffer(readText("offer", ""));
           setInstructions(readText("instructions", ""));
+          setVerbatimText(Array.isArray(state.verbatim_texts)
+            ? state.verbatim_texts.filter((text): text is string => typeof text === "string").join("\n")
+            : "");
           setStartDate(readText("start_date", nextMonday()));
           setDurationDays(readText("duration_days", "7"));
           const restoredPlan = "emails" in saved.plan ? saved.plan : null;
@@ -350,9 +368,11 @@ export function WeeklyMailingPlanner({
   const selectedTemplate = selectedTemplates[0] ?? null;
   const baseDesignTemplate = selectedTemplates.find((template) => template.design) ?? null;
   const planTemplate = baseDesignTemplate ?? selectedTemplate;
+  // Textos que el email debe llevar tal cual (una linea = un texto).
+  const verbatimTexts = verbatimText.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20);
   const currentPlanSignature = JSON.stringify({
     campaignName: campaignName.trim(), objective, audience: audience.trim(),
-    offer: offer.trim(), instructions: instructions.trim(), storeConnectionId,
+    offer: offer.trim(), instructions: instructions.trim(), verbatimTexts, storeConnectionId,
     scheduledDates: plannedDates.map(isoDate), templateIds: selectedTemplateIds,
     selectedImages: selectedImages.map((url) =>
       url.length > 256 ? `${url.slice(0, 128)}${url.slice(-128)}` : url,
@@ -470,6 +490,7 @@ export function WeeklyMailingPlanner({
               selected_template_ids: selectedTemplateIds,
               selected_image_urls: selectedImages,
               base_design_template_id: baseDesignTemplateId,
+              verbatim_texts: verbatimTexts,
               plan_signature: currentPlanSignature,
             },
             campaign_name: campaignName.trim(),
@@ -496,7 +517,9 @@ export function WeeklyMailingPlanner({
         output?: WeeklyMailingPlan;
         sequence_id?: string;
         sequence_status?: WeeklyMailingSequenceResponse["status"];
+        mailing_graph_enabled?: boolean;
       };
+      setMailingGraphEnabled(Boolean(planPayload.mailing_graph_enabled));
       const generatedPlan = planPayload.output;
       if (!generatedPlan || generatedPlan.emails.length !== plannedDates.length || !planPayload.sequence_id) {
         throw new Error("El planificador no devolvio una secuencia completa. No se ha creado ningun borrador.");
@@ -512,6 +535,23 @@ export function WeeklyMailingPlanner({
       return;
       }
       if (!weeklyPlan) throw new Error("Genera primero una estrategia de mailing.");
+      // Una campaña del grafo no vuelve al bucle del navegador (ADR-0025).
+      if (campaignSequenceId) return;
+      if (mailingGraphEnabled && sequenceIdempotencyId && sequenceStatus === "planned") {
+        const runResponse = await apiFetch(
+          `/v1/organizations/${organizationId}/marketing/weekly-mailing-plan/${sequenceIdempotencyId}/run`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scheduled_for: plannedDates.map((date) => date.toISOString()) }),
+          },
+        );
+        if (!runResponse.ok) throw new Error(await readApiError(runResponse));
+        setSequenceStatus("in_progress");
+        setCampaignSequenceId(sequenceIdempotencyId);
+        toast.success("Campaña en marcha: la IA redacta los emails a la vez y cada uno espera tu aprobación.");
+        return;
+      }
       if (sequenceIdempotencyId && sequenceStatus === "planned") {
         const statusResponse = await apiFetch(
           `/v1/organizations/${organizationId}/marketing/weekly-mailing-plan/${sequenceIdempotencyId}/status`,
@@ -538,30 +578,17 @@ export function WeeklyMailingPlanner({
         const imageUrl = selectedImages.length
           ? selectedImages[index % selectedImages.length]
           : undefined;
-        const brief = buildMarketingBrief({
-          channel: "email_klaviyo",
+        const brief = buildWeeklyMailingEmailBrief({
           objective,
           audience,
           offer,
-          tone: "brand",
-          cta: "",
-          instructions: [
-            "PLAN ESTRATEGICO A27: usa lo siguiente como restricciones de trabajo basadas en el historial de esta organizacion.",
-          `Diagnostico: ${weeklyPlan.diagnosis}`,
-          `Arco de secuencia: ${weeklyPlan.sequence_rationale}`,
-          `Dirección visual común propuesta por A27: ${weeklyPlan.visual_direction}`,
-            `Este es el email ${index + 1} de ${plannedDates.length}: ${emailPlan.title}.`,
-            `Angulo: ${emailPlan.angle}. Objetivo: ${emailPlan.objective}. Audiencia: ${emailPlan.audience}.`,
-            `Direccion de asunto: ${emailPlan.subject_direction}. Direccion de preheader: ${emailPlan.preheader_direction}. CTA: ${emailPlan.cta}.`,
-            `Brief de copy obligatorio: ${emailPlan.copy_brief}`,
-            `Módulos visuales de esta pieza dentro del sistema común: ${emailPlan.visual_modules}`,
-            `CAMPAÑA DE MAILING: ${campaignName.trim()}.`,
-            `Este es el email ${index + 1} de ${plannedDates.length}; debe aportar un ángulo distinto y no repetir el anterior.`,
-            `Fecha prevista de envío: ${isoDate(scheduledFor)} a las 09:00.`,
-            instructions.trim(),
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          instructions,
+          campaignName,
+          plan: weeklyPlan,
+          email: emailPlan,
+          index,
+          total: plannedDates.length,
+          scheduledDate: isoDate(scheduledFor),
         });
         const response = await apiFetch(
           `/v1/organizations/${organizationId}/marketing/drafts`,
@@ -579,6 +606,7 @@ export function WeeklyMailingPlanner({
                 : {}),
               ...(baseDesignTemplateId ? { base_design_template_id: baseDesignTemplateId } : {}),
               ...(imageUrl ? { content_image_urls: [imageUrl] } : {}),
+              ...(verbatimTexts.length ? { verbatim_texts: verbatimTexts } : {}),
             }),
           },
           180_000,
@@ -687,6 +715,12 @@ export function WeeklyMailingPlanner({
       <div className="mt-5">
         <Field label="Indicaciones para la IA">
           <Textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Producto a priorizar, límites de tono, prueba social disponible o cualquier contexto de esta campaña." />
+        </Field>
+      </div>
+
+      <div className="mt-5">
+        <Field label="Textos literales (uno por línea)">
+          <Textarea value={verbatimText} onChange={(event) => setVerbatimText(event.target.value)} placeholder="Frases que deben aparecer tal cual en los emails, por ejemplo: Envío gratis desde 40 €" />
         </Field>
       </div>
 
@@ -832,13 +866,23 @@ export function WeeklyMailingPlanner({
           ) : null}
           {weeklyPlan && !planIsCurrent ? <Button variant="secondary" disabled={isGenerating} onClick={() => void discardSequence()}>Descartar estrategia desactualizada</Button> : null}
           {weeklyPlan && planIsCurrent ? <Button variant="secondary" disabled={isGenerating} onClick={() => void discardSequence()}>Descartar estrategia</Button> : null}
-          <Button disabled={isGenerating || isRestoringSequence ||
+          <Button disabled={isGenerating || isRestoringSequence || Boolean(campaignSequenceId) ||
             (sequenceStatus === "generating" && !generationLeaseExpired) ||
             Boolean(weeklyPlan && !planIsCurrent)} onClick={() => void generate()}>
             {isRestoringSequence ? "Recuperando estrategia…" : isGenerating ? (planIsCurrent ? "Creando borradores…" : "Diseñando estrategia…") : planIsCurrent ? "Aprobar estrategia y crear borradores" : "Generar estrategia para revisar"}
           </Button>
         </div>
       </div>
+      {campaignSequenceId ? (
+        <div className="mt-5">
+          <MailingCampaignPanel
+            organizationId={organizationId}
+            sequenceId={campaignSequenceId}
+            viewerIsStaff={viewerIsStaff}
+            onNotGraph={() => setCampaignSequenceId(null)}
+          />
+        </div>
+      ) : null}
       {error ? <div className="mt-4"><ErrorBlock>{error}</ErrorBlock></div> : null}
     </Card>
   );

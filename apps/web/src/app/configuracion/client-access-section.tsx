@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  Banner,
   Badge,
   Button,
   Card,
@@ -41,6 +42,8 @@ type Member = {
   id: string;
   user_id: string;
   role: string;
+  access_scope: "organization" | "store";
+  store_id: string | null;
   is_active: boolean;
   joined_at: string | null;
   profile: { full_name: string | null; platform_role: string } | null;
@@ -57,12 +60,29 @@ type PendingInvite = {
   id: string;
   email: string;
   expires_at: string;
+  access_scope: "organization" | "store";
+  store_id: string | null;
 };
 
+type ClientStore = { id: string; shop_name: string | null; myshopify_domain: string | null };
+
 type ClientAccess = {
+  plan: {
+    plan_code: string;
+    status: string;
+    store_limit: number | null;
+    member_limit: number | null;
+  } | null;
+  usage: {
+    store_count: number;
+    member_count: number;
+    active_member_count: number;
+    pending_invite_count: number;
+  };
   members: Member[];
   consultants: ConsultantRow[];
   pending_invites: PendingInvite[];
+  stores: ClientStore[];
 };
 
 export function ClientAccessSection({
@@ -77,9 +97,13 @@ export function ClientAccessSection({
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState("member");
+  const [accessScope, setAccessScope] = useState<"organization" | "store">("organization");
+  const [storeId, setStoreId] = useState("");
   const [inviting, setInviting] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [lastInviteCode, setLastInviteCode] = useState<string | null>(null);
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
+  const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -117,6 +141,8 @@ export function ClientAccessSection({
             email: email.trim(),
             full_name: fullName.trim() || undefined,
             role,
+            access_scope: accessScope,
+            store_id: accessScope === "store" ? storeId : null,
           }),
         },
       );
@@ -125,15 +151,19 @@ export function ClientAccessSection({
         return;
       }
       const payload = (await response.json()) as {
-        invite: { access_url: string };
+        invite: { code: string; access_url: string; delivery: "email" | "manual_link" };
       };
-      // El enlace se enseña y no se manda por correo: el reparto lo hace el
-      // consultor, igual que en el alta de un cliente.
+      setLastInviteCode(payload.invite.code);
       setLastInviteUrl(payload.invite.access_url);
       setEmail("");
       setFullName("");
+      setAccessScope("organization");
+      setStoreId("");
       toast.success("Invitación creada", {
-        description: "Copia el enlace y mándaselo tú.",
+        description:
+          payload.invite.delivery === "email"
+            ? "Hemos enviado el enlace de acceso por correo."
+            : "No se pudo enviar el correo. Copia el enlace y compártelo.",
       });
       await load();
     } catch {
@@ -145,7 +175,7 @@ export function ClientAccessSection({
 
   async function patchMember(
     userId: string,
-    body: { role?: string; isActive?: boolean },
+    body: { role?: string; isActive?: boolean; access_scope?: "organization" | "store"; store_id?: string | null },
   ) {
     setBusyUserId(userId);
     try {
@@ -169,13 +199,83 @@ export function ClientAccessSection({
     }
   }
 
+  async function revokeInvite(inviteId: string) {
+    setBusyInviteId(inviteId);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organizationId}/client-access/invites/${inviteId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      toast.success("Código revocado");
+      await load();
+    } catch {
+      toast.danger("No se pudo revocar el código por un error de red.");
+    } finally {
+      setBusyInviteId(null);
+    }
+  }
+
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!access) return <LoadingBlock label="Cargando accesos…" />;
 
   const activeMembers = access.members.filter((member) => member.is_active);
+  const memberLimit = access.plan?.member_limit ?? null;
+  const atMemberLimit =
+    !access.plan ||
+    (memberLimit !== null && access.usage.member_count >= memberLimit);
+  const storeOptions = access.stores.map((store) => ({
+    value: store.id,
+    label: store.shop_name || store.myshopify_domain || "Tienda",
+  }));
+  const storeName = (id: string | null) =>
+    id ? (storeOptions.find((store) => store.value === id)?.label ?? "Tienda") : "Toda la organización";
 
   return (
     <div className="space-y-4">
+      <Card
+        title="Lo que incluye tu plan"
+        description="Las invitaciones pendientes también ocupan una plaza hasta que se acepten o caduquen."
+      >
+        <dl className="grid gap-4 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-muted">Plan activo</dt>
+            <dd className="mt-1 font-medium text-foreground">
+              {access.plan ? `${access.plan.plan_code} · ${access.plan.status}` : "Sin plan activo"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Tiendas incluidas</dt>
+            <dd className="mt-1 font-medium text-foreground">
+              {access.plan
+                ? `${access.usage.store_count} / ${access.plan.store_limit ?? "sin límite"}`
+                : "No disponible"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Usuarios incluidos</dt>
+            <dd className="mt-1 font-medium text-foreground">
+              {access.plan
+                ? `${access.usage.member_count} / ${memberLimit ?? "sin límite"}`
+                : "No disponible"}
+            </dd>
+          </div>
+        </dl>
+        {access.usage.pending_invite_count > 0 ? (
+          <p className="mt-3 text-xs text-muted">
+            {access.usage.pending_invite_count} {access.usage.pending_invite_count === 1 ? "invitación pendiente" : "invitaciones pendientes"} reservan plaza.
+          </p>
+        ) : null}
+        {!access.plan ? (
+          <Banner className="mt-3" tone="warn">
+            No hay una suscripción activa para esta organización. Hace falta un plan activo para invitar usuarios.
+          </Banner>
+        ) : null}
+      </Card>
+
       <Card
         title="Quién entra en este cliente"
         description="Las personas del cliente y los consultores asignados."
@@ -222,6 +322,38 @@ export function ClientAccessSection({
                   <Badge>{ROLE_LABEL[member.role] ?? member.role}</Badge>
                 )}
                 {canManage ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      className="w-48"
+                      aria-label={`Alcance de ${member.profile?.full_name ?? "el miembro"}`}
+                      value={member.access_scope ?? "organization"}
+                      onChange={(next) =>
+                        void patchMember(member.user_id, {
+                          access_scope: next as "organization" | "store",
+                          store_id: next === "store" ? (member.store_id ?? storeOptions[0]?.value ?? null) : null,
+                        })
+                      }
+                      options={[
+                        { value: "organization", label: "Toda la organización" },
+                        { value: "store", label: "Una tienda" },
+                      ]}
+                      disabled={busyUserId === member.user_id || storeOptions.length === 0}
+                    />
+                    {member.access_scope === "store" ? (
+                      <Select
+                        className="w-48"
+                        aria-label={`Tienda permitida para ${member.profile?.full_name ?? "el miembro"}`}
+                        value={member.store_id ?? ""}
+                        onChange={(next) => void patchMember(member.user_id, { access_scope: "store", store_id: next })}
+                        options={storeOptions}
+                        disabled={busyUserId === member.user_id || storeOptions.length === 0}
+                      />
+                    ) : null}
+                  </div>
+                ) : (
+                  <Badge>{storeName(member.store_id)}</Badge>
+                )}
+                {canManage ? (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -258,8 +390,15 @@ export function ClientAccessSection({
       {canManage ? (
         <Card
           title="Invitar a una persona"
-          description="Se crea su cuenta y un enlace de acceso. El correo no se envía solo: el enlace lo repartes tú."
+          description="Elige si podrá entrar a toda la organización o solo a una tienda. La invitación reserva una plaza; si no recibe el correo, copia el enlace."
         >
+          {atMemberLimit ? (
+            <Banner className="mb-3" tone="warn">
+              {!access.plan
+                ? "No puedes invitar hasta que la organización tenga un plan activo."
+                : `Se han ocupado las ${memberLimit} plazas incluidas. Amplía el plan o libera una plaza para invitar a otra persona.`}
+            </Banner>
+          ) : null}
           <form className="flex flex-wrap items-end gap-3" onSubmit={invite}>
             <Field label="Correo">
               <Input
@@ -287,14 +426,54 @@ export function ClientAccessSection({
                 options={ROLE_OPTIONS}
               />
             </Field>
-            <Button type="submit" disabled={inviting || !email.trim()}>
+            <Field label="Alcance del acceso">
+              <Select
+                className="mt-1 w-52"
+                aria-label="Alcance del acceso"
+                value={accessScope}
+                onChange={(next) => setAccessScope(next as "organization" | "store")}
+                options={[
+                  { value: "organization", label: "Toda la organización" },
+                  { value: "store", label: "Una tienda concreta" },
+                ]}
+              />
+            </Field>
+            {accessScope === "store" ? (
+              <Field label="Tienda permitida">
+                <Select
+                  className="mt-1 w-56"
+                  aria-label="Tienda permitida"
+                  value={storeId}
+                  onChange={setStoreId}
+                  options={storeOptions}
+                  disabled={storeOptions.length === 0}
+                />
+              </Field>
+            ) : null}
+            <Button type="submit" disabled={inviting || !email.trim() || atMemberLimit || (accessScope === "store" && !storeId)}>
               {inviting ? "Invitando…" : "Invitar"}
             </Button>
           </form>
 
           {lastInviteUrl ? (
             <div className="mt-4 border-t border-separator pt-3">
-              <p className="text-xs text-muted">Enlace de acceso</p>
+              <p className="text-xs text-muted">Código de un solo uso</p>
+              <p className="mt-1 font-mono text-sm">{lastInviteCode}</p>
+              <Button
+                className="mt-2"
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  if (!lastInviteCode) return;
+                  void navigator.clipboard
+                    .writeText(lastInviteCode)
+                    .then(() => toast.success("Código copiado"))
+                    .catch(() => toast.danger("No se pudo copiar."));
+                }}
+              >
+                Copiar código
+              </Button>
+              <p className="mt-3 text-xs text-muted">Enlace de acceso</p>
               <p className="mt-1 break-all font-mono text-sm">
                 {lastInviteUrl}
               </p>
@@ -317,14 +496,28 @@ export function ClientAccessSection({
           {access.pending_invites.length > 0 ? (
             <div className="mt-4 border-t border-separator pt-3">
               <p className="text-xs text-muted">
-                Invitaciones sin usar:{" "}
-                {access.pending_invites
-                  .map(
-                    (invite) =>
-                      `${invite.email} (caduca el ${new Date(invite.expires_at).toLocaleDateString("es-ES")})`,
-                  )
-                  .join(" · ")}
+                Códigos pendientes
               </p>
+              <List as="ul" className="mt-2">
+                {access.pending_invites.map((invite) => (
+                  <List.Item key={invite.id} as="li" className="flex flex-wrap items-center gap-3 py-2">
+                    <span className="min-w-0 flex-1 text-sm">
+                      {invite.email} · {storeName(invite.store_id)}
+                      <span className="block text-xs text-muted">
+                        Caduca el {new Date(invite.expires_at).toLocaleDateString("es-ES")}
+                      </span>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busyInviteId === invite.id}
+                      onClick={() => void revokeInvite(invite.id)}
+                    >
+                      Revocar código
+                    </Button>
+                  </List.Item>
+                ))}
+              </List>
             </div>
           ) : null}
         </Card>

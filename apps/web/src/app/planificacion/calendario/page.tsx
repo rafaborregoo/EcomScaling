@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -15,8 +16,9 @@ import {
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
-  ConfirmDialog,
+  Dialog,
   EmptyState,
   ErrorBlock,
   Field,
@@ -24,8 +26,8 @@ import {
   Input,
   List,
   LoadingBlock,
-  Modal,
   Select,
+  Textarea,
   toast,
 } from "@/components/ui";
 import { agendaSignal, sortAgenda } from "../agenda-signal";
@@ -156,6 +158,7 @@ function ItemEditor({
   const [verdict, setVerdict] = useState("worked");
   const [verdictReason, setVerdictReason] = useState("");
   const [savingVerdict, setSavingVerdict] = useState(false);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -167,23 +170,35 @@ function ItemEditor({
     setVerdict(item?.outcome_verdict ?? "worked");
     setVerdictReason(item?.outcome_reason ?? "");
     setError(null);
+    setConfirmingArchive(false);
   }, [item, day, open]);
 
-  async function saveVerdict() {
-    if (!item || !organizationId || verdictReason.trim().length < 8) return;
+  // El aprendizaje se guarda junto con el resto de la acción («Guardar
+  // cambios»): un diálogo, una sola forma de guardar.
+  async function persistVerdict(): Promise<boolean> {
+    if (!item || !organizationId) return false;
     setSavingVerdict(true);
     try {
       const response = await apiFetch(`/v1/organizations/${organizationId}/campaign-planning/items/${item.id}/verdict`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ verdict, reason: verdictReason.trim() }),
       });
-      if (!response.ok) { setError(await readApiError(response)); return; }
-      toast.success("Aprendizaje de campaña guardado");
-      await onSaved();
+      if (!response.ok) { setError(await readApiError(response)); return false; }
+      return true;
     } catch {
       setError("No se pudo guardar el veredicto. Reintenta.");
+      return false;
     } finally { setSavingVerdict(false); }
   }
+
+  const verdictChanged = Boolean(
+    canRecordVerdict &&
+      item &&
+      ["published", "completed"].includes(status) &&
+      verdictReason.trim().length >= 8 &&
+      (verdict !== (item.outcome_verdict ?? "worked") ||
+        verdictReason.trim() !== (item.outcome_reason ?? "")),
+  );
 
   async function acceptSuggestion() {
     if (!item) return;
@@ -255,6 +270,7 @@ function ItemEditor({
         setError(await readApiError(response));
         return;
       }
+      if (verdictChanged && !(await persistVerdict())) return;
       toast.success(
         item ? "Acción actualizada" : "Acción añadida al calendario",
       );
@@ -272,177 +288,209 @@ function ItemEditor({
     const signal = agendaSignal(item);
     const milestone = milestones.find((m) => m.id === item.milestone_id);
     return (
-      <Modal isOpen={open} onOpenChange={onOpenChange}>
-        <Modal.Backdrop>
-          <Modal.Container size="md">
-            <Modal.Dialog aria-label={item.title}>
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>{item.title}</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <div className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone="neutral">{item.channel}</Badge>
-                    <Badge tone={signal.tone}>
-                      {item.status === "completed" ? "Completada" : signal.label}
-                    </Badge>
-                    {milestone ? <Badge tone="brand">Hito · {milestone.name}</Badge> : null}
-                    {isPendingSuggestion(item) ? <Badge tone="warn">Propuesta pendiente</Badge> : null}
-                  </div>
-                  <p className="text-sm">
-                    {new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long" }).format(new Date(item.starts_at))}
-                    {item.blocked_reason ? ` · ${item.blocked_reason}` : ""}
-                  </p>
-                </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button onClick={() => onDiscuss(item)}>Escribir sobre esto</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog
+        isOpen={open}
+        onOpenChange={onOpenChange}
+        eyebrow={item.channel}
+        title={item.title}
+        cancelLabel="Cerrar"
+        primary={{ label: "Escribir sobre esto", onClick: () => onDiscuss(item) }}
+      >
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={signal.tone}>
+            {item.status === "completed" ? "Completada" : signal.label}
+          </Badge>
+          {isPendingSuggestion(item) ? <Badge tone="warn">Propuesta pendiente</Badge> : null}
+        </div>
+        <dl className="divide-y divide-line border-y border-line">
+          <div className="flex justify-between gap-4 py-3">
+            <dt className="text-muted">Día</dt>
+            <dd className="font-medium text-ink">
+              {new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long" }).format(new Date(item.starts_at))}
+            </dd>
+          </div>
+          {milestone ? (
+            <div className="flex justify-between gap-4 py-3">
+              <dt className="text-muted">Hito</dt>
+              <dd className="font-medium text-ink">{milestone.name}</dd>
+            </div>
+          ) : null}
+          {item.blocked_reason ? (
+            <div className="flex justify-between gap-4 py-3">
+              <dt className="text-muted">Bloqueo</dt>
+              <dd className="font-medium text-ink">{item.blocked_reason}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {item.description ? <p className="text-muted">{item.description}</p> : null}
+      </Dialog>
     );
   }
 
   return (
-    <Modal isOpen={open} onOpenChange={onOpenChange}>
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog aria-label={item ? "Editar acción" : "Nueva acción"}>
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>
-                {item ? "Editar acción" : "Nueva acción"}
-              </Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <div className="space-y-4">
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                {item && isPendingSuggestion(item) ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-warning/10 p-3 text-sm">
-                    <span>
-                      <strong>Propuesta del cliente.</strong>
-                      {item.description ? ` ${item.description}` : ""}
-                    </span>
-                    <Button size="sm" onClick={acceptSuggestion} disabled={saving}>
-                      Aceptar propuesta
-                    </Button>
-                  </div>
-                ) : null}
-                <Field label="Título">
-                  <Input
-                    className="mt-1"
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                  />
-                </Field>
-                <Field label="Canal">
-                  <Select
-                    className="mt-1"
-                    aria-label="Canal de la acción"
-                    value={channel}
-                    onChange={setChannel}
-                    options={CHANNELS.map((value) => ({ value, label: value }))}
-                  />
-                </Field>
-                <Field label="Día">
-                  <Input
-                    className="mt-1"
-                    type="date"
-                    value={date}
-                    onChange={(event) => setDate(event.target.value)}
-                  />
-                </Field>
-                {/* El estado solo tiene sentido sobre algo que ya existe: una
-                    acción nueva nace planificada. */}
-                {item ? (
-                  <Field label="Estado">
-                    <Select
-                      className="mt-1"
-                      aria-label="Estado de la acción"
-                      value={status}
-                      onChange={setStatus}
-                      options={STATUSES}
-                    />
-                  </Field>
-                ) : null}
-                {!item && milestones.length > 0 ? (
-                  <Field label="Hito de Mi Camino (opcional)">
-                    <Select
-                      className="mt-1"
-                      aria-label="Hito de Mi Camino"
-                      value={milestoneId}
-                      onChange={setMilestoneId}
-                      options={[
-                        { value: "", label: "Sin vincular" },
-                        ...milestones.map((milestone) => ({
-                          value: milestone.id,
-                          label: `${milestone.name}${milestone.target_date ? ` · ${milestone.target_date}` : ""}`,
-                        })),
-                      ]}
-                    />
-                    {milestoneId ? (
-                      <p className="mt-1 text-xs text-muted">
-                        Se creará también una tarea enlazada a este hito.
-                      </p>
-                    ) : null}
-                  </Field>
-                ) : null}
-                {item?.milestone_id ? (
-                  <Badge tone="brand">
-                    Hito ·{" "}
-                    {milestones.find((m) => m.id === item.milestone_id)?.name ??
-                      "Mi Camino"}
-                  </Badge>
-                ) : null}
-                {canRecordVerdict && item && ["published", "completed"].includes(status) ? (
-                  <div className="space-y-3 rounded-lg border border-separator p-3">
-                    <div>
-                      <h3 className="text-sm font-semibold">Aprendizaje tras la ejecución</h3>
-                      <p className="mt-1 text-xs text-muted">Veredicto del consultor. No se deduce automáticamente de las métricas.</p>
-                    </div>
-                    <Field label="¿Cómo funcionó?"><Select className="mt-1" value={verdict} onChange={setVerdict} options={[
-                      { value: "worked", label: "Funcionó" },
-                      { value: "did_not_work", label: "No funcionó" },
-                      { value: "mixed", label: "Resultado mixto" },
-                    ]} /></Field>
-                    <Field label="Motivo y contexto (mínimo 8 caracteres)"><textarea className="field mt-1 min-h-20 w-full" maxLength={2000} value={verdictReason} onChange={(event) => setVerdictReason(event.target.value)} /></Field>
-                    {item.outcome_decided_at ? <p className="text-xs text-muted">Última revisión: {new Date(item.outcome_decided_at).toLocaleDateString("es-ES")}</p> : null}
-                    <Button type="button" size="sm" variant="secondary" onClick={saveVerdict} disabled={savingVerdict || verdictReason.trim().length < 8}>{savingVerdict ? "Guardando…" : item.outcome_verdict ? "Actualizar aprendizaje" : "Guardar aprendizaje"}</Button>
-                  </div>
-                ) : null}
-              </div>
-            </Modal.Body>
-            <Modal.Footer>
-              {/* Archivar vive donde está la acción que se archiva. Suelto en
-                  la página, el botón aparecía debajo del calendario sin que se
-                  viera a qué se refería. */}
-              {item ? (
-                <ConfirmDialog
-                  title="Archivar la acción"
-                  description={`"${item.title}" sale del calendario. El histórico se conserva.`}
-                  confirmLabel="Archivar"
-                  onConfirm={() => onArchive(item)}
-                  trigger={
-                    <Button variant="ghost" disabled={saving}>
-                      Archivar
-                    </Button>
-                  }
-                />
-              ) : null}
-              <Button
-                onClick={save}
-                disabled={saving || !title.trim() || !date}
-              >
-                {saving ? "Guardando…" : item ? "Guardar cambios" : "Añadir"}
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      title={item ? "Editar acción" : "Nueva acción"}
+      isBusy={saving || savingVerdict}
+      isDirty={
+        item
+          ? title.trim() !== item.title ||
+            channel !== item.channel ||
+            date !== localDayKey(new Date(item.starts_at)) ||
+            status !== item.status ||
+            verdictChanged
+          : Boolean(title.trim())
+      }
+      formId="calendar-item-form"
+      // Archivar vive donde está la acción y se confirma en el propio pie, sin
+      // abrir un segundo modal encima.
+      start={
+        item ? (
+          confirmingArchive ? (
+            <span className="text-[13px] font-medium text-ink">
+              ¿Archivar esta acción? El histórico se conserva.
+            </span>
+          ) : (
+            <Button variant="ghost" className="text-danger" disabled={saving} onClick={() => setConfirmingArchive(true)}>
+              Archivar
+            </Button>
+          )
+        ) : undefined
+      }
+      footer={
+        confirmingArchive && item ? (
+          <>
+            <Button variant="ghost" onClick={() => setConfirmingArchive(false)}>
+              Volver
+            </Button>
+            <Button variant="danger" onClick={() => void onArchive(item)}>
+              Archivar
+            </Button>
+          </>
+        ) : undefined
+      }
+      primary={{
+        label: item ? "Guardar cambios" : "Añadir",
+        busyLabel: "Guardando…",
+        disabled: !title.trim() || !date,
+      }}
+    >
+      <form
+        id="calendar-item-form"
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        {item && isPendingSuggestion(item) ? (
+          <Banner tone="warn">
+            <span className="block">
+              <strong>Propuesta del cliente.</strong>
+              {item.description ? ` ${item.description}` : ""}
+            </span>
+            <span className="mt-2 block">
+              <Button size="sm" onClick={acceptSuggestion} disabled={saving}>
+                Aceptar propuesta
               </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+            </span>
+          </Banner>
+        ) : null}
+        <Field label="Título">
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Canal">
+            <Select
+              aria-label="Canal de la acción"
+              value={channel}
+              onChange={setChannel}
+              options={CHANNELS.map((value) => ({ value, label: value }))}
+            />
+          </Field>
+          <Field label="Día">
+            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </Field>
+        </div>
+        {/* El estado solo tiene sentido sobre algo que ya existe: una
+            acción nueva nace planificada. */}
+        {item ? (
+          <Field label="Estado">
+            <Select aria-label="Estado de la acción" value={status} onChange={setStatus} options={STATUSES} />
+          </Field>
+        ) : null}
+        {!item && milestones.length > 0 ? (
+          <Field label="Hito de Mi Camino (opcional)">
+            <Select
+              aria-label="Hito de Mi Camino"
+              value={milestoneId}
+              onChange={setMilestoneId}
+              options={[
+                { value: "", label: "Sin vincular" },
+                ...milestones.map((milestone) => ({
+                  value: milestone.id,
+                  label: `${milestone.name}${milestone.target_date ? ` · ${milestone.target_date}` : ""}`,
+                })),
+              ]}
+            />
+            {milestoneId ? (
+              <p className="mt-1 text-xs text-muted">Se creará también una tarea enlazada a este hito.</p>
+            ) : null}
+          </Field>
+        ) : null}
+        {item?.milestone_id ? (
+          <Badge tone="brand">
+            Hito · {milestones.find((m) => m.id === item.milestone_id)?.name ?? "Mi Camino"}
+          </Badge>
+        ) : null}
+        {item?.marketing_draft_id ? (
+          <ButtonLink
+            variant="secondary"
+            href={`/marketing?draft=${encodeURIComponent(item.marketing_draft_id)}${storeId ? `&connectionId=${encodeURIComponent(storeId)}` : ""}`}
+          >
+            Abrir pieza creada
+          </ButtonLink>
+        ) : item?.channel && ["Email", "Meta", "Instagram"].includes(item.channel) ? (
+          <ButtonLink
+            variant="secondary"
+            href={`/marketing?section=crear&campaignId=${encodeURIComponent(item.id)}${storeId ? `&connectionId=${encodeURIComponent(storeId)}` : ""}`}
+          >
+            {item.channel === "Email"
+              ? "Preparar mailing con este brief"
+              : item.channel === "Meta"
+                ? "Preparar creativo Meta con este brief"
+                : "Preparar publicación de Instagram con este brief"}
+          </ButtonLink>
+        ) : null}
+        {canRecordVerdict && item && ["published", "completed"].includes(status) ? (
+          <div className="space-y-4 border-t border-line pt-4">
+            <div>
+              <h3 className="text-sm font-semibold text-ink">Aprendizaje tras la ejecución</h3>
+              <p className="mt-1 text-xs text-muted">Veredicto del consultor. No se deduce automáticamente de las métricas.</p>
+            </div>
+            <Field label="¿Cómo funcionó?">
+              <Select
+                value={verdict}
+                onChange={setVerdict}
+                options={[
+                  { value: "worked", label: "Funcionó" },
+                  { value: "did_not_work", label: "No funcionó" },
+                  { value: "mixed", label: "Resultado mixto" },
+                ]}
+              />
+            </Field>
+            <Field label="Motivo y contexto (mínimo 8 caracteres)">
+              <Textarea maxLength={2000} value={verdictReason} onChange={(event) => setVerdictReason(event.target.value)} />
+            </Field>
+            {item.outcome_decided_at ? (
+              <p className="text-xs text-muted">Última revisión: {new Date(item.outcome_decided_at).toLocaleDateString("es-ES")}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </form>
+    </Dialog>
   );
 }
 
@@ -511,63 +559,44 @@ function SuggestModal({
   }
 
   return (
-    <Modal isOpen={open} onOpenChange={onOpenChange}>
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog aria-label="Sugerir una acción">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Sugerir una acción</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <div className="space-y-4">
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <Field label="Qué propones">
-                  <Input
-                    className="mt-1"
-                    placeholder="Sorteo en Instagram por el aniversario"
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Canal">
-                    <Select
-                      className="mt-1"
-                      aria-label="Canal"
-                      value={channel}
-                      onChange={setChannel}
-                      options={CHANNELS.map((value) => ({ value, label: value }))}
-                    />
-                  </Field>
-                  <Field label="Cuándo">
-                    <Input
-                      className="mt-1"
-                      type="date"
-                      value={date}
-                      onChange={(event) => setDate(event.target.value)}
-                    />
-                  </Field>
-                </div>
-                <Field label="Por qué (opcional)">
-                  <Input
-                    className="mt-1"
-                    maxLength={300}
-                    value={why}
-                    onChange={(event) => setWhy(event.target.value)}
-                  />
-                </Field>
-              </div>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button onClick={send} disabled={saving || !title.trim() || !date}>
-                {saving ? "Enviando…" : "Enviar a mi consultor"}
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      title="Sugerir una acción"
+      isBusy={saving}
+      isDirty={Boolean(title.trim() || why.trim())}
+      formId="calendar-suggest-form"
+      primary={{
+        label: "Enviar a mi consultor",
+        busyLabel: "Enviando…",
+        disabled: !title.trim() || !date,
+      }}
+    >
+      <form
+        id="calendar-suggest-form"
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        <Field label="Qué propones">
+          <Input placeholder="Sorteo en Instagram por el aniversario" value={title} onChange={(event) => setTitle(event.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Canal">
+            <Select aria-label="Canal" value={channel} onChange={setChannel} options={CHANNELS.map((value) => ({ value, label: value }))} />
+          </Field>
+          <Field label="Cuándo">
+            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </Field>
+        </div>
+        <Field label="Por qué (opcional)">
+          <Textarea maxLength={300} value={why} onChange={(event) => setWhy(event.target.value)} />
+        </Field>
+      </form>
+    </Dialog>
   );
 }
 
@@ -609,6 +638,8 @@ function ItemChip({
 }
 
 function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
+  const searchParams = useSearchParams();
+  const focusDate = searchParams.get("date");
   const { organizationId } = useActiveOrganization();
   // Con consultor asignado la agenda la lleva él (la API lo exige); un cliente
   // sin consultor sigue llevando la suya.
@@ -632,6 +663,12 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [discuss, setDiscuss] = useState<CalendarItem | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+
+  useEffect(() => {
+    if (!focusDate || !/^\d{4}-\d{2}-\d{2}$/.test(focusDate)) return;
+    const date = new Date(`${focusDate}T12:00:00`);
+    if (!Number.isNaN(date.getTime())) setCursor(startOfDay(date));
+  }, [focusDate]);
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -803,7 +840,16 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <Heading>Agenda</Heading>
+        <div>
+          <Heading>Agenda</Heading>
+          <p className="mt-1 text-sm text-muted">Todas las acciones fechadas de la tienda, incluidas las campañas de marketing.</p>
+        </div>
+        <ButtonLink
+          variant="secondary"
+          href={`/marketing?section=campanas${connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : ""}`}
+        >
+          Ver campañas de marketing
+        </ButtonLink>
         {calendars.length ? (
           canEdit ? (
             <Button onClick={() => openNew(null)}>Nueva acción</Button>
@@ -986,11 +1032,11 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
       )}
 
       <ItemEditor
-        item={selected}
+                item={selected}
         day={creatingOn}
         calendarId={calendarId}
         organizationId={organizationId}
-        storeId={connectionId || null}
+                storeId={connectionId || null}
         milestones={planning.milestones ?? []}
         open={editorOpen}
         onOpenChange={(open) => {

@@ -297,7 +297,7 @@ export async function getShopifyInsights(
   connectionId?: string,
 ) {
   if (
-    !context.memberships.some(
+    ![...context.memberships, ...(context.storeMemberships ?? [])].some(
       (membership) => membership.organization_id === organizationId,
     )
   ) {
@@ -339,6 +339,21 @@ export async function getShopifyInsights(
     }
 
     const storeId = storeScope.storeId;
+    const membership = [...context.memberships, ...(context.storeMemberships ?? [])].find(
+      (item) => item.organization_id === organizationId,
+    );
+    if (
+      membership?.accessSource === "membership" &&
+      membership.access_scope === "store" &&
+      membership.store_id !== storeId
+    ) {
+      return {
+        ok: false as const,
+        statusCode: 403,
+        error: "store_access_denied",
+        message: "Esta cuenta no tiene acceso a la tienda seleccionada.",
+      };
+    }
     if (!storeId) {
       return {
         ok: false as const,
@@ -367,6 +382,9 @@ export async function getShopifyInsights(
       store_count: 1,
       compared_sources: [],
       mismatched_sources: [],
+      klaviyo_status: "unknown" as const,
+      klaviyo_currency_code: null,
+      klaviyo_unknown: true,
       unknown_sources: ["comprobación de moneda"],
       as_of: new Date().toISOString(),
     }));

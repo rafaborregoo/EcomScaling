@@ -26,6 +26,8 @@ export type BootstrapResponse = {
     // "membership" = tienda propia del usuario (fila real en organization_members).
     // "consultant_assignment" / "platform_admin" = acceso de cartera, no es suya.
     accessSource: "membership" | "consultant_assignment" | "platform_admin";
+    access_scope?: "organization" | "store";
+    store_id?: string | null;
     organization: {
       id: string;
       display_name: string;

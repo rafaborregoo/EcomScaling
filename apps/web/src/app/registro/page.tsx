@@ -8,6 +8,7 @@ import { getSupabaseClient } from "@/lib/supabase";
 import { PasswordRequirements } from "@/components/password-requirements";
 import { PasswordConfirmation } from "@/components/password-confirmation";
 import { PasswordInput } from "@/components/password-input";
+import { LegalFooterLinks } from "@/components/legal-page";
 import {
   getPasswordErrorMessage,
   isPasswordValid,
@@ -278,6 +279,17 @@ function RegistroContent() {
           >
             {isSubmitting ? "Creando cuenta..." : "Crear cuenta"}
           </Button>
+          <p className="text-xs text-muted">
+            Al crear la cuenta aceptas las{" "}
+            <Link className="underline" href="/condiciones">
+              condiciones del servicio
+            </Link>{" "}
+            y la{" "}
+            <Link className="underline" href="/politica-privacidad">
+              política de privacidad
+            </Link>
+            .
+          </p>
         </form>
       </Card>
 
@@ -287,6 +299,7 @@ function RegistroContent() {
           Inicia sesión
         </Link>
       </p>
+      <LegalFooterLinks />
     </main>
   );
 }

@@ -12,6 +12,7 @@ export type MailingCampaignMetricRow = {
 };
 
 type CampaignAggregate = {
+  id: string;
   name: string;
   subject: string | null;
   revenue: number;
@@ -57,6 +58,7 @@ export function summarizeCampaignMailingLearnings(
   for (const row of matureRows) {
     const id = row.entity_id!;
     const current = byCampaign.get(id) ?? {
+      id,
       name: row.entity_name ?? "(sin nombre)",
       subject: row.subject,
       revenue: 0,
@@ -76,6 +78,7 @@ export function summarizeCampaignMailingLearnings(
 
   const eligible = [...byCampaign.values()].filter((campaign) => campaign.delivered >= minimumDelivered);
   const shape = (campaign: CampaignAggregate) => ({
+    campaign_id: campaign.id,
     campana: campaign.name,
     asunto: campaign.subject,
     entregados: campaign.delivered,

@@ -1,0 +1,38 @@
+mutation EnoraTestInventoryAdjustments {
+  stock: inventoryAdjustQuantities(input: {
+    name: "available"
+    reason: "correction"
+    changes: [
+{inventoryItemId: "gid://shopify/InventoryItem/66813826138489", locationId: "gid://shopify/Location/121357369721", delta: 14, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813826859385", locationId: "gid://shopify/Location/121357369721", delta: -32, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825646969", locationId: "gid://shopify/Location/121357369721", delta: -38, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825614201", locationId: "gid://shopify/Location/121357369721", delta: -46, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825941881", locationId: "gid://shopify/Location/121357369721", delta: -2, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825974649", locationId: "gid://shopify/Location/121357369721", delta: -5, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813826007417", locationId: "gid://shopify/Location/121357369721", delta: -8, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813826040185", locationId: "gid://shopify/Location/121357369721", delta: -10, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813826072953", locationId: "gid://shopify/Location/121357369721", delta: -4, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825810809", locationId: "gid://shopify/Location/121357369721", delta: 14, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825843577", locationId: "gid://shopify/Location/121357369721", delta: -2, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813825876345", locationId: "gid://shopify/Location/121357369721", delta: -10, changeFromQuantity: 10}
+{inventoryItemId: "gid://shopify/InventoryItem/66813826924921", locationId: "gid://shopify/Location/121357369721", delta: -45, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813828596089", locationId: "gid://shopify/Location/121357369721", delta: -43, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813827121529", locationId: "gid://shopify/Location/121357369721", delta: -38, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813827121529", locationId: "gid://shopify/Location/121357402489", delta: -44, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813827154297", locationId: "gid://shopify/Location/121357369721", delta: -42, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813827154297", locationId: "gid://shopify/Location/121357435257", delta: -35, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813830300025", locationId: "gid://shopify/Location/121357369721", delta: -41, changeFromQuantity: 50}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901472121", locationId: "gid://shopify/Location/121357369721", delta: 26, changeFromQuantity: -1}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901504889", locationId: "gid://shopify/Location/121357369721", delta: 40, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901537657", locationId: "gid://shopify/Location/121357369721", delta: 18, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901570425", locationId: "gid://shopify/Location/121357369721", delta: 8, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901635961", locationId: "gid://shopify/Location/121357369721", delta: 45, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901668729", locationId: "gid://shopify/Location/121357369721", delta: 12, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901701497", locationId: "gid://shopify/Location/121357369721", delta: 6, changeFromQuantity: 0}
+{inventoryItemId: "gid://shopify/InventoryItem/66813901734265", locationId: "gid://shopify/Location/121357369721", delta: 75, changeFromQuantity: 0}
+    ]
+  }) @idempotent(key: "75fd6470-55a1-45db-b2bc-c167e8d80c62") {
+    inventoryAdjustmentGroup { reason changes { name delta quantityAfterChange } }
+    userErrors { field message }
+  }
+}

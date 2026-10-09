@@ -27,6 +27,7 @@ export type KCampaign = {
   name: string;
   status: string | null;
   send_time: string | null;
+  created_at?: string | null;
   channel: string;
   subject: string | null;
   preview_text: string | null;

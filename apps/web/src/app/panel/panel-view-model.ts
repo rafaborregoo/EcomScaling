@@ -34,12 +34,6 @@ export type PanelFinancial = {
   breakeven_roas: number | null;
 };
 
-export type MetricTarget = {
-  metric_key: string;
-  target_value: number;
-  period: string;
-};
-
 export type MonthlyRow = {
   month: string;
   orders_count: number;
@@ -47,21 +41,16 @@ export type MonthlyRow = {
   net_profit: number;
 };
 
-/**
- * Objetivos por clave. Si llegan varios de la misma metrica con distinta
- * periodicidad, manda el mensual: el panel enseña un periodo, no un año.
- */
-export function targetsByKey(targets: MetricTarget[]): Record<string, number> {
-  const byKey: Record<string, number> = {};
-
-  for (const target of targets) {
-    if (byKey[target.metric_key] === undefined || target.period === "monthly") {
-      byKey[target.metric_key] = Number(target.target_value);
-    }
-  }
-
-  return byKey;
-}
+// Los objetivos y las palancas viven en @e-nora/contracts: la API calcula las
+// mismas palancas por tienda para la cartera y el cliente, y una cuenta que se
+// escribe dos veces acaba dando dos cifras.
+export {
+  opportunities,
+  opportunitiesTotal,
+  targetsByKey,
+  type MetricTarget,
+  type Opportunity,
+} from "@e-nora/contracts";
 
 export type TargetStatus = "cumple" | "no_cumple" | null;
 
@@ -255,101 +244,4 @@ export function funnelSteps(funnel: PanelFunnel | null): FunnelStep[] {
       pct_del_total: total > 0 ? (step.valor / total) * 100 : null,
     };
   });
-}
-
-export type Opportunity = {
-  palanca: string;
-  /** Euros de BENEFICIO extra al mes. Todos los escenarios en la misma unidad. */
-  eur_mes: number;
-  /** La cuenta, en palabras, para poder discutirla con el cliente. */
-  regla: string;
-};
-
-/** Dias de un mes medio: el mismo divisor que usa el prorrateo de gastos fijos. */
-const DIAS_MES = 30.44;
-
-/**
- * "Dinero sobre la mesa": lo que ganarias si cada metrica llegara al objetivo
- * que TU le has puesto.
- *
- * Tres reglas para que esto sea una herramienta y no un powerpoint:
- *
- *  1. **Solo con objetivo puesto.** Sin objetivo no hay escenario. No se
- *     inventan "medias del sector": el numero tiene que poder defenderse
- *     delante del cliente, y para eso alguien ha tenido que decidirlo.
- *  2. **Todo en euros de beneficio al mes.** Mezclar euros de facturacion con
- *     euros de beneficio en la misma lista es como se construye una cifra
- *     bonita que no significa nada.
- *  3. **Solo si vas por debajo.** Una metrica que ya cumple no tiene dinero
- *     encima de la mesa; sale de la lista en vez de restar.
- *
- * El ticket medio se queda fuera a proposito: subirlo da mas facturacion, pero
- * cuanto de eso es beneficio depende de si sube por precio (casi todo) o por
- * unidades (casi nada, porque el producto cuesta). Sin saber cual, el numero
- * seria inventado.
- */
-export function opportunities(
-  financial: PanelFinancial,
-  funnel: PanelFunnel | null,
-  targets: Record<string, number>,
-  periodDays: number,
-): Opportunity[] {
-  const found: Opportunity[] = [];
-  const aMes = (valorDelPeriodo: number) =>
-    periodDays > 0 ? (valorDelPeriodo * DIAS_MES) / periodDays : 0;
-
-  // Margen: misma facturacion, mejor margen. La cuenta mas directa que hay.
-  const margenObjetivo = targets.net_margin_pct;
-  if (margenObjetivo !== undefined && financial.net_margin_pct < margenObjetivo) {
-    const puntos = margenObjetivo - financial.net_margin_pct;
-    found.push({
-      palanca: "Margen neto al objetivo",
-      eur_mes: aMes((financial.net_revenue_ex_tax * puntos) / 100),
-      regla: `${puntos.toFixed(2)} puntos de margen sobre la facturación actual`,
-    });
-  }
-
-  // Conversion: mismas visitas, mas pedidos, cada uno dejando lo que deja hoy.
-  const conversionObjetivo = targets.conversion_rate;
-  const conversionActual =
-    funnel && funnel.has_sessions && funnel.sessions > 0
-      ? (funnel.orders_count / funnel.sessions) * 100
-      : null;
-  if (
-    conversionObjetivo !== undefined &&
-    conversionActual !== null &&
-    conversionActual < conversionObjetivo &&
-    financial.contribution_per_order > 0
-  ) {
-    const pedidosExtra =
-      (funnel!.sessions * (conversionObjetivo - conversionActual)) / 100;
-    found.push({
-      palanca: "Conversión al objetivo",
-      eur_mes: aMes(pedidosExtra * financial.contribution_per_order),
-      regla: `${pedidosExtra.toFixed(0)} pedidos más con el mismo tráfico, a ${financial.contribution_per_order.toFixed(2)} € de margen cada uno`,
-    });
-  }
-
-  // CAC: mismos clientes, pagando menos por cada uno. Lo que te ahorras es
-  // beneficio directo.
-  const cacObjetivo = targets.cac_blended;
-  if (
-    cacObjetivo !== undefined &&
-    financial.cac_blended !== null &&
-    financial.cac_blended > cacObjetivo &&
-    financial.new_customers > 0
-  ) {
-    const ahorroPorCliente = financial.cac_blended - cacObjetivo;
-    found.push({
-      palanca: "CAC al objetivo",
-      eur_mes: aMes(financial.new_customers * ahorroPorCliente),
-      regla: `${ahorroPorCliente.toFixed(2)} € menos por cada uno de los ${financial.new_customers} clientes nuevos`,
-    });
-  }
-
-  return found.sort((a, b) => b.eur_mes - a.eur_mes);
-}
-
-export function opportunitiesTotal(found: Opportunity[]): number {
-  return found.reduce((total, item) => total + item.eur_mes, 0);
 }

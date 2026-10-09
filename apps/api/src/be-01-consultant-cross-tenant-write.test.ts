@@ -49,6 +49,7 @@ const TEST_PASSWORD = "Be01-Consultant-Cross-Tenant-P4ss-9!";
 let app: FastifyInstance;
 let orgA = "";
 let orgB = "";
+let consultingOrg = "";
 let consultantUserId = "";
 let consultantAccessToken = "";
 
@@ -66,16 +67,25 @@ before(async () => {
         slug: `be01-consultant-xt-b-${RUN_TAG}`,
         status: "active",
       },
+      {
+        display_name: `BE-01 Consultant XT Consulting ${RUN_TAG}`,
+        slug: `be01-consultant-xt-consulting-${RUN_TAG}`,
+        kind: "consulting",
+        status: "active",
+      },
     ])
     .select("id, slug");
 
-  if (orgsError || !orgs || orgs.length !== 2) {
+  if (orgsError || !orgs || orgs.length !== 3) {
     throw new Error(
       `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
     );
   }
   orgA = orgs.find((org) => org.slug.startsWith("be01-consultant-xt-a"))!.id;
   orgB = orgs.find((org) => org.slug.startsWith("be01-consultant-xt-b"))!.id;
+  consultingOrg = orgs.find((org) =>
+    org.slug.startsWith("be01-consultant-xt-consulting"),
+  )!.id;
 
   const email = `be01-consultant-xt-${RUN_TAG}@ecomscaling.test`;
   const { data: created, error: createError } =
@@ -90,10 +100,48 @@ before(async () => {
     );
   }
   consultantUserId = created.user.id;
-  await admin
+  const { data: profile, error: profileError } = await admin
     .from("profiles")
     .update({ platform_role: "consultant" })
-    .eq("id", consultantUserId);
+    .eq("id", consultantUserId)
+    .select("id, platform_role")
+    .maybeSingle();
+  if (
+    profileError ||
+    profile?.id !== consultantUserId ||
+    profile.platform_role !== "consultant"
+  ) {
+    throw new Error(
+      `No se pudo configurar el perfil consultor de prueba: ${profileError?.message ?? "profile_missing_or_role_not_applied"}`,
+    );
+  }
+
+  const { error: membershipError } = await admin
+    .from("organization_members")
+    .insert({
+      organization_id: consultingOrg,
+      user_id: consultantUserId,
+      role: "owner",
+      is_active: true,
+    });
+  if (membershipError) {
+    throw new Error(
+      `No se pudo anadir el consultor a su consultora de prueba: ${membershipError.message}`,
+    );
+  }
+  const { error: subscriptionError } = await admin
+    .from("service_subscriptions")
+    .insert({
+      organization_id: consultingOrg,
+      plan_code: "consultant",
+      status: "active",
+      starts_at: new Date().toISOString(),
+    });
+  if (subscriptionError) {
+    throw new Error(
+      `No se pudo configurar el plan de la consultora de prueba: ${subscriptionError.message}`,
+    );
+  }
 
   // Asignado SOLO a orgA -- nunca a orgB, ese es exactamente el escenario del bug.
   const { error: assignmentError } = await admin
@@ -101,6 +149,7 @@ before(async () => {
     .insert({
       organization_id: orgA,
       consultant_user_id: consultantUserId,
+      consulting_organization_id: consultingOrg,
       is_primary: true,
       is_active: true,
     });
@@ -126,8 +175,42 @@ before(async () => {
   }
   consultantAccessToken = session.session.access_token;
 
+  const { data: visibleAssignments, error: visibleAssignmentsError } =
+    await anon
+      .from("consultant_assignments")
+      .select("organization_id")
+      .eq("consultant_user_id", consultantUserId)
+      .eq("is_active", true);
+  if (
+    visibleAssignmentsError ||
+    !visibleAssignments?.some((assignment) => assignment.organization_id === orgA)
+  ) {
+    throw new Error(
+      `El fixture no es visible por RLS para el consultor: ${visibleAssignmentsError?.message ?? "assignment_not_visible"}`,
+    );
+  }
+  const { data: consultantRole, error: consultantRoleError } = await anon.rpc(
+    "es_consultor",
+  );
+  if (consultantRoleError || consultantRole !== true) {
+    throw new Error(
+      `El proyecto de test no reconoce al usuario como consultor: ${consultantRoleError?.message ?? `es_consultor=${consultantRole}`}`,
+    );
+  }
+
   app = await buildApp();
   await app.ready();
+
+  const ownOrganizationAccess = await app.inject({
+    method: "GET",
+    url: `/v1/consultant/organizations/${orgA}/stores`,
+    headers: { authorization: `Bearer ${consultantAccessToken}` },
+  });
+  if (ownOrganizationAccess.statusCode !== 200) {
+    throw new Error(
+      `El consultor de prueba debe poder acceder a su organización asignada: ${ownOrganizationAccess.statusCode} ${ownOrganizationAccess.body}`,
+    );
+  }
 });
 
 after(async () => {
@@ -140,7 +223,7 @@ after(async () => {
   await admin
     .from("organizations")
     .delete()
-    .in("id", [orgA, orgB].filter(Boolean));
+    .in("id", [orgA, orgB, consultingOrg].filter(Boolean));
 });
 
 test("calls.ts: un consultor asignado solo a org A NO puede crear una llamada en org B (bug real corregido)", async () => {
@@ -244,9 +327,9 @@ test("control positivo: el mismo consultor SI puede operar sobre su propia organ
     headers: { authorization: `Bearer ${consultantAccessToken}` },
   });
 
-  assert.notEqual(
+  assert.equal(
     response.statusCode,
-    403,
-    `un consultor asignado no deberia recibir 403 en su propia organizacion: ${response.body}`,
+    200,
+    `un consultor asignado debe poder acceder a su propia organización: ${response.body}`,
   );
 });

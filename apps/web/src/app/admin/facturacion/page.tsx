@@ -28,6 +28,7 @@ type Subscription = {
   plan_code: string;
   status: string;
   store_limit: number | null;
+  member_limit: number | null;
   starts_at: string | null;
   ends_at: string | null;
   external_subscription_id: string | null;
@@ -932,6 +933,12 @@ function BillingPanel() {
         row.store_limit === null ? "sin límite" : String(row.store_limit),
     },
     {
+      key: "member_limit",
+      label: "Usuarios",
+      render: (row) =>
+        row.member_limit === null ? "sin límite" : String(row.member_limit),
+    },
+    {
       key: "source",
       label: "Origen",
       render: (row) => (
@@ -1021,6 +1028,8 @@ function GrantForm({
   const [planCode, setPlanCode] = useState("consultor");
   const [storeLimit, setStoreLimit] = useState("");
   const [sinLimite, setSinLimite] = useState(false);
+  const [memberLimit, setMemberLimit] = useState("");
+  const [sinLimiteUsuarios, setSinLimiteUsuarios] = useState(true);
   const [endsAt, setEndsAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1033,7 +1042,8 @@ function GrantForm({
   const puedeEnviar =
     subjectId !== "" &&
     planCode.trim() !== "" &&
-    (sinLimite || /^[1-9]\d*$/.test(storeLimit));
+    (sinLimite || /^[1-9]\d*$/.test(storeLimit)) &&
+    (sinLimiteUsuarios || /^[1-9]\d*$/.test(memberLimit));
 
   async function enviar() {
     setBusy(true);
@@ -1047,6 +1057,9 @@ function GrantForm({
           subject_id: subjectId,
           plan_code: planCode.trim(),
           store_limit: sinLimite ? null : Number.parseInt(storeLimit, 10),
+          member_limit: sinLimiteUsuarios
+            ? null
+            : Number.parseInt(memberLimit, 10),
           ...(endsAt ? { ends_at: new Date(endsAt).toISOString() } : {}),
         }),
       });
@@ -1098,7 +1111,7 @@ function GrantForm({
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Código de plan">
             <Input
               value={planCode}
@@ -1112,6 +1125,15 @@ function GrantForm({
               onChange={(event) => setStoreLimit(event.target.value)}
               placeholder="3"
               disabled={sinLimite}
+              inputMode="numeric"
+            />
+          </Field>
+          <Field label="Usuarios incluidos">
+            <Input
+              value={memberLimit}
+              onChange={(event) => setMemberLimit(event.target.value)}
+              placeholder="5"
+              disabled={sinLimiteUsuarios}
               inputMode="numeric"
             />
           </Field>
@@ -1131,6 +1153,14 @@ function GrantForm({
             onChange={(event) => setSinLimite(event.target.checked)}
           />
           Sin límite de tiendas
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={sinLimiteUsuarios}
+            onChange={(event) => setSinLimiteUsuarios(event.target.checked)}
+          />
+          Sin límite de usuarios
         </label>
 
         {/* El aviso va aquí y no en un subtexto suelto: es la consecuencia de la

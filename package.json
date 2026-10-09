@@ -26,6 +26,8 @@
     "seed:shopify-store": "dotenv -e .env.local -- tsx scripts/seed-shopify-store.ts",
     "seed:meta-history": "dotenv -e .env.local -- tsx scripts/seed-meta-history.ts",
     "seed:klaviyo-history": "dotenv -e .env.local -- tsx scripts/seed-klaviyo-history.ts",
+    "lab:reset": "node scripts/e-nora-test-lab.mjs reset",
+    "lab:run": "node scripts/e-nora-test-lab.mjs run",
     "stripe:catalogo": "dotenv -e .env.local -- node scripts/stripe-catalogo.mjs",
     "db:types": "dotenv -e .env.local -- node scripts/db-types.mjs",
     "db:push": "dotenv -e .env.local -- node scripts/db-push.mjs",

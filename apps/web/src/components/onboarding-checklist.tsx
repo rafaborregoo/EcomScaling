@@ -63,7 +63,7 @@ export function OnboardingChecklist({
   const actionHref = !shopifyConnected
     ? "/integraciones"
     : !financialModelReady
-      ? "/configuracion"
+      ? "/configuracion?section=rentabilidad"
       : "/integraciones";
   const actionLabel = !shopifyConnected
     ? "Conectar Shopify"

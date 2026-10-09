@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./copilot-evidence.js";
 
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),
@@ -296,6 +297,7 @@ export * from "./offer-pricing.js";
 export * from "./retention-crm.js";
 export * from "./unit-economics.js";
 export * from "./product-inventory.js";
+export * from "./stock-demand-forecast.js";
 export * from "./measurement-experimentation.js";
 export * from "./scalability-constraints.js";
 export * from "./recovery-crisis.js";
@@ -378,3 +380,6 @@ export * from "./learning-blocks-knowledge.js";
 export * from "./learning-blocks-governance.js";
 export * from "./copilot-navigation.js";
 export * from "./cross-channel-attribution.js";
+export * from "./panel-profitability.js";
+export * from "./campaigns-overview.js";
+export * from "./mailing-campaign-graph.js";

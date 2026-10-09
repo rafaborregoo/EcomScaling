@@ -13,7 +13,7 @@ import {
   LoadingBlock,
   Link,
   List,
-  Modal,
+  Sheet,
   Popover,
   RetryIcon,
   toast,
@@ -312,7 +312,7 @@ export function NotificationsBell({ token }: { token: string }) {
         >
           <Popover.Dialog
             aria-label="Notificaciones"
-            className="flex max-h-[min(34rem,calc(100vh-6rem))] flex-col p-0"
+            className="flex max-h-[min(34rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col p-0"
           >
             {header}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -330,19 +330,30 @@ export function NotificationsBell({ token }: { token: string }) {
   return (
     <>
       {renderBell(() => handleOpenChange(true))}
-      <Modal isOpen={isOpen} onOpenChange={handleOpenChange}>
-        <Modal.Backdrop>
-          <Modal.Container>
-            <Modal.Dialog
-              aria-label="Notificaciones"
-              className="w-full max-w-none overflow-hidden p-0"
+      <Sheet
+        isOpen={isOpen}
+        onOpenChange={handleOpenChange}
+        placement="bottom"
+        flush
+        title="Notificaciones"
+        meta={unreadCount > 0 ? <span>{unreadCount} sin leer</span> : undefined}
+        headerActions={
+          unreadCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="min-w-0 gap-1.5 px-2 text-xs"
+              onClick={() => void markAllRead()}
             >
-              {header}
-              <div className="max-h-[70svh] overflow-y-auto">{body}</div>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+              <CheckAllIcon aria-hidden="true" className="size-3.5" />
+              Marcar todas
+            </Button>
+          ) : undefined
+        }
+      >
+        {body}
+      </Sheet>
     </>
   );
 }

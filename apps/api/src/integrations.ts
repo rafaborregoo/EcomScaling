@@ -401,7 +401,9 @@ async function loadLatestRuns(
       ].join(", "),
     )
     .in("connection_id", connectionIds)
-    .order("created_at", { ascending: false })
+    // Un upsert de reintento actualiza started_at, pero conserva created_at;
+    // ordenar por inicio evita que la UI lea como actual una pasada anterior.
+    .order("started_at", { ascending: false, nullsFirst: false })
     // Unas 30 por conexion: el historial de la ficha y, por bloque, lo ultimo
     // que trajo cada uno.
     .limit(Math.min(1000, connectionIds.length * 30));
@@ -533,6 +535,7 @@ export async function listIntegrations(
               lastSyncAt: connection.last_sync_at,
               lastErrorAt: connection.last_error_at,
               latestSyncStatus: latestSync?.status ?? null,
+              latestSyncStartedAt: latestSync?.started_at ?? null,
             });
 
             return {

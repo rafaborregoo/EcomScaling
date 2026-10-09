@@ -37,10 +37,13 @@ import {
 import { useAttributionReport } from "@/hooks/use-attribution-report";
 import { useActiveConnection } from "@/components/active-connection";
 import { useKlaviyoWorkspace } from "./klaviyo-workspace";
-import { buildCampaignRows, type CampaignRow } from "./campaign-rows";
+import { buildCampaignRows, type CampaignPlanSummary, type CampaignRow } from "./campaign-rows";
+import type { MetaCampaignsResponse } from "../meta/campaign-types";
 import { CampaignDrawer } from "./campaign-drawer";
 import { TodayView } from "./today-view";
 import { CampaignsView } from "./campaigns-view";
+import { useCampaignsNav } from "./campanas/campanas-nav";
+import { PortfolioCampaigns } from "./campanas/portfolio-campaigns";
 import { FlowsView } from "./flows-view";
 import { TemplatesView } from "./templates-view";
 import { AudiencesView } from "./audiences-view";
@@ -76,7 +79,7 @@ import {
   Field,
   Heading,
   Input,
-  Modal,
+  Dialog,
   Select,
   MessageIcon,
   Tabs,
@@ -720,6 +723,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const aiRuntimeQuery = useCachedQuery<AiRuntimeStatus>("/v1/ai/status");
   const aiRuntimeStatus = aiRuntimeQuery.data ?? null;
+  const { connectionId: activeConnectionId } = useActiveConnection();
 
   // La lista de borradores es el estado que comparten las tres pestañas, asi
   // que sale del componente a su propio hook (ver use-marketing-drafts.ts):
@@ -731,7 +735,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     error,
     setError,
     reload: loadDrafts,
-  } = useMarketingDrafts(organizationId, canView);
+  } = useMarketingDrafts(organizationId, canView, activeConnectionId);
 
   // Pieza que el estudio tiene que abrir. `asCopy` = punto de partida para
   // una pieza nueva (plantilla de la biblioteca), no editar la original.
@@ -753,10 +757,12 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     .slice(0, 15);
 
   const referenceTemplateId = searchParams.get("reference");
+  const draftIntentId = searchParams.get("draft");
   const systemTemplateId = searchParams.get("system");
   // Constructor de flows abierto (Marketing → Flows): va a pantalla completa.
   const flowBuilderOpen = tab === "flows" && Boolean(searchParams.get("flow"));
   const handledReferenceTemplate = useRef<string | null>(null);
+  const handledDraftIntent = useRef<string | null>(null);
   /* eslint-disable react-hooks/set-state-in-effect -- A deliberate one-shot URL intent hydrates the email editor from the selected library template. */
   useEffect(() => {
     if (!referenceTemplateId) {
@@ -814,6 +820,22 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setTab("crear");
     router.replace("/marketing?section=crear", { scroll: false });
   }, [editInBuilder, isLoading, referenceTemplateId, router, savedTemplates, setTab]);
+
+  useEffect(() => {
+    if (!draftIntentId) {
+      handledDraftIntent.current = null;
+      return;
+    }
+    if (isLoading || handledDraftIntent.current === draftIntentId) return;
+    const draft = drafts.find((item) => item.id === draftIntentId);
+    if (!draft) return;
+    handledDraftIntent.current = draftIntentId;
+    editInBuilder(draft);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("draft");
+    params.set("section", "crear");
+    router.replace(`/marketing?${params.toString()}`, { scroll: false });
+  }, [draftIntentId, drafts, editInBuilder, isLoading, router, searchParams]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const askCopilot = useCopilotAsk();
@@ -828,6 +850,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     askCopilot({
       question: buildPieceAnalysisQuestion(analyzablePiece(draft)),
       focusLabel: draft.template_name || draft.subject || "Pieza de marketing",
+      reference: { kind: "entity", entity: { type: "marketing_draft", id: draft.id } },
       saveAnswer: async (text) => {
         const response = await apiFetch(
           `/v1/organizations/${organizationId}/marketing/drafts/${draft.id}/notes`,
@@ -848,8 +871,11 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // cada borrador (a que campaña sirve).
   const {
     items: campaignItems,
+    agenda: campaignAgenda,
+    isLoading: campaignItemsLoading,
     reload: reloadCampaignItems,
-  } = useCampaignItems(organizationId);
+  } = useCampaignItems(organizationId, activeConnectionId);
+  const campaignsNav = useCampaignsNav();
 
   // El tramo final del hilo. Una sola carga para los tres sitios que la
   // necesitan (la tira de KPIs, el resultado por campaña en Plan y la pestaña
@@ -858,7 +884,16 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [performanceDays, setPerformanceDays] = useState("30");
   // El panel de rendimiento se lee de la tienda activa del selector: con dos
   // tiendas en el mismo cliente, el agregado no es de ninguna de las dos.
-  const { connectionId: activeConnectionId } = useActiveConnection();
+  const campaignPlanQuery = useCachedQuery<{ proposal: CampaignPlanSummary | null }>(
+    organizationId && activeConnectionId
+      ? `/v1/organizations/${organizationId}/ai/campaign-plan?connectionId=${encodeURIComponent(activeConnectionId)}`
+      : null,
+  );
+  const metaCampaignQuery = useCachedQuery<MetaCampaignsResponse>(
+    organizationId && activeConnectionId
+      ? `/v1/organizations/${organizationId}/meta/campaigns?page=1&sort=spend&periodDays=30&connectionId=${encodeURIComponent(activeConnectionId)}`
+      : null,
+  );
   const attribution = useAttributionReport(
     organizationId,
     Number(performanceDays),
@@ -875,6 +910,17 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     campaignItems,
     drafts,
     klaviyoWorkspace.data?.campaigns ?? [],
+  );
+  const campaignListRows = buildCampaignRows(
+    campaignItems,
+    drafts,
+    klaviyoWorkspace.data?.campaigns ?? [],
+    contentNow,
+    campaignPlanQuery.data?.proposal ?? null,
+    metaCampaignQuery.data?.campaigns ?? [],
+  );
+  const todayRows = campaignRows.filter(
+    (row) => Boolean(row.item || row.campaign || !row.draft),
   );
   const [openRow, setOpenRow] = useState<CampaignRow | null>(null);
   const reloadMarketing = () => {
@@ -906,6 +952,18 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setCampaignTarget(item);
     setTab("crear");
   }
+
+  useEffect(() => {
+    const campaignId = searchParams.get("campaignId");
+    if (!campaignId) return;
+    const item = campaignItems.find((candidate) => candidate.id === campaignId);
+    if (!item) return;
+    setCampaignTarget(item);
+    setTab("crear");
+    const params = new URLSearchParams({ section: "crear" });
+    if (activeConnectionId) params.set("connectionId", activeConnectionId);
+    router.replace(`/marketing?${params.toString()}`, { scroll: false });
+  }, [activeConnectionId, campaignItems, router, searchParams, setTab]);
 
   /**
    * Cierra el hilo: la primera vez que el estudio guarda la pieza de una
@@ -1724,25 +1782,54 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           plan: (
             <TodayView
               organizationId={organizationId}
-              rows={campaignRows}
+              campaignPlan={campaignPlanQuery.data?.proposal ?? null}
+              rows={todayRows}
               items={campaignItems}
               drafts={drafts}
               workspace={klaviyoWorkspace.data}
               onOpenRow={setOpenRow}
               onWritePiece={writePieceFor}
               onOpenDraft={focusDraft}
-              onPropose={() => setIsCampaignProposalOpen(true)}
+              onPropose={() => setTab("campanas")}
               onPrepareMailing={() => setIsMailingPlannerOpen(true)}
               onGoTo={setTab}
             />
           ),
           campanas: (
             <CampaignsView
-              rows={campaignRows}
+              rows={campaignListRows}
               workspace={klaviyoWorkspace.data}
+              organizationId={organizationId}
+              organizationName={activeMembership?.organization?.display_name ?? "Cliente"}
+              connectionId={activeConnectionId}
+              viewer={isConsultantRole ? "consultant" : "client"}
+              viewerUserId={bootstrap.profile.id}
+              hasConsultant={isConsultantRole ? true : (campaignAgenda?.has_consultant ?? null)}
+              campaignId={searchParams.get("campaign")}
+              quickActions={searchParams.get("acciones") === "1"}
+              itemsLoading={campaignItemsLoading}
+              nav={campaignsNav}
+              onChanged={reloadMarketing}
+              onOpenStudio={(draft) => editInBuilder(draft)}
+              onWritePiece={writePieceFor}
+              onWriteWithAi={(itemId) =>
+                router.push(`/marketing?section=crear&campaignId=${encodeURIComponent(itemId)}`)
+              }
               onOpenRow={setOpenRow}
+              onOpenDraft={focusDraft}
+              onReviewPlan={() => setIsCampaignProposalOpen(true)}
+              onOpenMetaCampaign={(campaignId) => {
+                const params = new URLSearchParams({ organizationId });
+                if (activeConnectionId) params.set("connectionId", activeConnectionId);
+                router.push(`/meta/campanas/${encodeURIComponent(campaignId)}?${params.toString()}`);
+              }}
               onPropose={() => setIsCampaignProposalOpen(true)}
               onCreate={() => setTab("crear")}
+              onOpenAgenda={() => {
+                const params = new URLSearchParams();
+                if (activeConnectionId) params.set("connectionId", activeConnectionId);
+                router.push(`/planificacion/calendario${params.size ? `?${params.toString()}` : ""}`);
+              }}
             />
           ),
           flows: (
@@ -1790,22 +1877,42 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
           ),
           crear: organizationId ? (
-            <ContentStudio
-              key={organizationId}
-              organizationId={organizationId}
-              connectionId={activeConnectionId || null}
-              storeName={activeMembership?.organization?.display_name ?? "Tu tienda"}
-              workspace={klaviyoWorkspace.data}
-              drafts={drafts}
-              campaignTarget={campaignTarget}
-              onClearCampaignTarget={() => setCampaignTarget(null)}
-              openRequest={studioOpen}
-              startTemplate={systemTemplateId}
-              onTemplateStarted={() => router.replace("/marketing?section=crear", { scroll: false })}
-              aiReady={aiRuntimeStatus?.configured !== false}
-              onDraftsChanged={() => void loadDrafts()}
-              onCreated={(draftId) => void linkStudioDraft(draftId)}
-            />
+            <div className="space-y-3">
+              {studioOpen?.draft.request?.camino_task ? (
+                <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-separator bg-surface px-4 py-3 text-sm">
+                  <div className="min-w-0 space-y-1">
+                    <p>
+                      Borrador creado desde Mi Camino: <strong>{studioOpen.draft.request.camino_task.title}</strong>
+                      {studioOpen.draft.request.camino_task.milestone_name
+                        ? ` · Hito: ${studioOpen.draft.request.camino_task.milestone_name}`
+                        : ""}
+                    </p>
+                    <p className="max-w-4xl text-xs text-muted">
+                      Antes de enviarlo a aprobación, revisa oferta y condiciones, audiencia y elegibilidad, fecha y horario, disponibilidad, contenido, enlaces y medición. La pieza no se envía a Klaviyo hasta que una persona la apruebe.
+                    </p>
+                  </div>
+                  <ButtonLink href="/camino" size="sm" variant="secondary">
+                    Volver a Mi Camino
+                  </ButtonLink>
+                </div>
+              ) : null}
+              <ContentStudio
+                key={organizationId}
+                organizationId={organizationId}
+                connectionId={activeConnectionId || null}
+                storeName={activeMembership?.organization?.display_name ?? "Tu tienda"}
+                workspace={klaviyoWorkspace.data}
+                drafts={drafts}
+                campaignTarget={campaignTarget}
+                onClearCampaignTarget={() => setCampaignTarget(null)}
+                openRequest={studioOpen}
+                startTemplate={systemTemplateId}
+                onTemplateStarted={() => router.replace("/marketing?section=crear", { scroll: false })}
+                aiReady={aiRuntimeStatus?.configured !== false}
+                onDraftsChanged={() => void loadDrafts()}
+                onCreated={(draftId) => void linkStudioDraft(draftId)}
+              />
+            </div>
           ) : null,
           rendimiento: (
             <div className={s.root}>
@@ -1846,61 +1953,57 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }}
       />
 
-              <Modal
+              <Dialog
                 isOpen={isMailingPlannerOpen}
                 onOpenChange={setIsMailingPlannerOpen}
+                size="xl"
+                title="Crear secuencia semanal de emails"
               >
-                <Modal.Backdrop>
-                  <Modal.Container size="cover">
-                    <Modal.Dialog aria-label="Preparar mailing semanal">
-                      <Modal.CloseTrigger />
-                      <Modal.Header>
-                        <Modal.Heading>Preparar mailing semanal</Modal.Heading>
-                      </Modal.Header>
-                      <Modal.Body>
-                        <WeeklyMailingPlanner
-                          organizationId={organizationId}
-                          storeConnectionId={activeConnectionId}
-                          isOpen={isMailingPlannerOpen}
-                          onGenerated={async () => {
-                            await Promise.all([
-                              loadDrafts(),
-                              reloadCampaignItems(),
-                            ]);
-                            setIsMailingPlannerOpen(false);
-                            setTab("contenido");
-                          }}
-                        />
-                      </Modal.Body>
-                    </Modal.Dialog>
-                  </Modal.Container>
-                </Modal.Backdrop>
-              </Modal>
-              <Modal
+                <WeeklyMailingPlanner
+                  organizationId={organizationId}
+                  storeConnectionId={activeConnectionId}
+                  isOpen={isMailingPlannerOpen}
+                  onGenerated={async () => {
+                    await Promise.all([
+                      loadDrafts(),
+                      reloadCampaignItems(),
+                    ]);
+                    setIsMailingPlannerOpen(false);
+                    setTab("contenido");
+                  }}
+                />
+              </Dialog>
+              <Dialog
                 isOpen={isCampaignProposalOpen}
                 onOpenChange={setIsCampaignProposalOpen}
+                size="xl"
+                title="Planificar campañas con A05"
               >
-                <Modal.Backdrop>
-                  <Modal.Container size="lg">
-                    <Modal.Dialog aria-label="Proponer campañas">
-                      <Modal.CloseTrigger />
-                      <Modal.Header>
-                        <Modal.Heading>Propuesta de campañas</Modal.Heading>
-                      </Modal.Header>
-                      <Modal.Body>
-                        <CampaignPlanProposal
-                          organizationId={organizationId}
-                          initialBrief={campaignProposalBrief}
-                          onApplied={() => {
-                            void loadDrafts();
-                            void reloadCampaignItems();
-                          }}
-                        />
-                      </Modal.Body>
-                    </Modal.Dialog>
-                  </Modal.Container>
-                </Modal.Backdrop>
-              </Modal>
+                <CampaignPlanProposal
+                  organizationId={organizationId}
+                  connectionId={activeConnectionId || undefined}
+                  initialBrief={campaignProposalBrief}
+                  redirectOnComplete={false}
+                  onProposed={() => {
+                    campaignPlanQuery.reload();
+                    void reloadCampaignItems();
+                  }}
+                  onApplied={(complete) => {
+                    void loadDrafts();
+                    void reloadCampaignItems();
+                    campaignPlanQuery.reload();
+                    if (complete) {
+                      setIsCampaignProposalOpen(false);
+                      setTab("campanas");
+                    }
+                  }}
+                  onRejected={() => {
+                    campaignPlanQuery.reload();
+                    void reloadCampaignItems();
+                    setIsCampaignProposalOpen(false);
+                  }}
+                />
+              </Dialog>
 
       <CampaignDrawer
         row={openRow}
@@ -1999,6 +2102,7 @@ function ConsultantMarketingDraftPanel({
         channel: draft.request?.channel,
       }),
       focusLabel: `${draft.template_name || draft.subject || "Pieza"} · ${draft.organization_name}`,
+      reference: { kind: "entity", entity: { type: "marketing_draft", id: draft.id } },
       saveAnswer: async (text) => {
         const response = await apiFetch(`${base}/notes`, {
           method: "POST",
@@ -2361,13 +2465,21 @@ function ConsultantMarketingView({
   );
 }
 
+/** Campañas del consultor sin cliente elegido: la cartera entera. */
+function PortfolioCampaignsRoute() {
+  const nav = useCampaignsNav();
+  return <PortfolioCampaigns nav={nav} />;
+}
+
 function MarketingRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
+  const searchParams = useSearchParams();
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
 
   if (isConsultant && !organizationId) {
+    if (searchParams.get("section") === "campanas") return <PortfolioCampaignsRoute />;
     return (
       <ConsultantMarketingView
         viewerKind={

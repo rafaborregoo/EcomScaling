@@ -74,7 +74,7 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const linksMax = Math.max(...data.links.map((link) => link.clicks), 1);
 
   const askCopilot = (question: string, focusLabel: string) =>
-    ask({ question: `${question} («${entity.name}», últimos ${periodDays} días)`, focusLabel });
+    ask({ question: `${question} («${entity.name}», últimos ${periodDays} días)`, focusLabel, reference: { filters: { periodDays: String(periodDays) } } });
 
   return (
     <div className={pulse.root}>

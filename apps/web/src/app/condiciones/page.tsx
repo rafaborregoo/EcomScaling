@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { BrandLogo, Card, Heading, Link } from "@/components/ui";
+import { Card, Link } from "@/components/ui";
+import { LegalPage, MailLink } from "@/components/legal-page";
+import { LEGAL_ENTITY } from "@/lib/legal";
 
 // URL publica que piden las plataformas al registrar la app (Meta la exige en
 // "URL de las Condiciones del servicio"; Shopify la pide para el App Store).
@@ -12,24 +14,19 @@ export const metadata: Metadata = {
     "Condiciones del servicio de E-NORA IA: qué incluye la plataforma, qué responsabilidades asume cada parte y cómo se contrata o cancela.",
 };
 
-const LAST_UPDATED = "14 de septiembre de 2026";
-const CONTACT_EMAIL = "rafael@noraapp.es";
-
 export default function TermsOfServicePage() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
-      <header className="flex flex-col gap-2">
-        <BrandLogo />
-        <Heading level={1} size="lg">
-          Condiciones del servicio
-        </Heading>
-        <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
-      </header>
+    <LegalPage title="Condiciones del servicio" current="/condiciones">
 
       <Card title="Titular">
         <p>
-          E-NORA es una marca comercial de Rafael Manuel Borrego Reyes (DNI
-          49832956Y), con domicilio en Calle Argentea, 8, 29010 Málaga, España.
+          {LEGAL_ENTITY.brand} es una marca comercial de {LEGAL_ENTITY.name} (NIF{" "}
+          {LEGAL_ENTITY.taxId}), con domicilio en {LEGAL_ENTITY.address}. Los datos
+          completos están en el{" "}
+          <Link className="underline" href="/aviso-legal">
+            aviso legal
+          </Link>
+          .
         </p>
       </Card>
 
@@ -47,6 +44,10 @@ export default function TermsOfServicePage() {
           describe aparte, en la{" "}
           <Link className="underline" href="/politica-privacidad">
             política de privacidad
+          </Link>{" "}
+          y, para los datos de la tienda del cliente, en el{" "}
+          <Link className="underline" href="/dpa">
+            contrato de encargado del tratamiento
           </Link>
           .
         </p>
@@ -139,6 +140,35 @@ export default function TermsOfServicePage() {
         </p>
       </Card>
 
+      <Card title="Protección de datos">
+        <p>
+          Respecto a los datos personales de los clientes finales y visitantes de la
+          tienda, el cliente es el responsable del tratamiento y E-NORA su
+          encargado, conforme al{" "}
+          <Link className="underline" href="/dpa">
+            contrato de encargado del tratamiento
+          </Link>
+          , que forma parte de estas condiciones. Los proveedores que intervienen
+          están en{" "}
+          <Link className="underline" href="/subencargados">
+            subencargados del tratamiento
+          </Link>
+          .
+        </p>
+      </Card>
+
+      <Card title="Confidencialidad">
+        <p>
+          Cada parte mantendrá en secreto la información no pública de la otra a
+          la que acceda por el servicio —datos de negocio, métricas, estrategias
+          y condiciones comerciales— y la usará solo para cumplir estas
+          condiciones. Esta obligación no alcanza a la información que sea
+          pública, la que ya se conociera legítimamente o la que deba
+          comunicarse por mandato legal o de una autoridad, y se mantiene tras
+          la baja.
+        </p>
+      </Card>
+
       <Card title="Propiedad">
         <p>
           El software, la interfaz y la lógica de la plataforma son propiedad de
@@ -162,6 +192,42 @@ export default function TermsOfServicePage() {
         <p>Nada de lo anterior limita la responsabilidad que la ley no permita excluir.</p>
       </Card>
 
+      <Card title="Duración, suspensión y terminación">
+        <p>
+          El servicio dura el periodo contratado y se renueva según lo descrito
+          en «Precios, facturación y cancelación». Podemos suspenderlo por
+          impago, por incumplimiento grave de estas condiciones o por riesgo para
+          la seguridad del servicio, avisando al cliente salvo que la urgencia lo
+          impida, y resolver el contrato si la causa no se corrige en un plazo
+          razonable. Tras la terminación, el cliente puede descargar sus datos
+          y después se eliminan como se explica en{" "}
+          <Link className="underline" href="/eliminacion-de-datos">
+            eliminación de datos
+          </Link>
+          .
+        </p>
+      </Card>
+
+      <Card title="Fuerza mayor">
+        <p>
+          Ninguna parte responde de los retrasos o incumplimientos causados por
+          hechos fuera de su control razonable, como caídas generalizadas de
+          internet o de proveedores de infraestructura, cambios o cortes de las
+          APIs de plataformas de terceros, ataques informáticos pese a haber
+          aplicado medidas razonables, o decisiones de una autoridad.
+        </p>
+      </Card>
+
+      <Card title="Comunicaciones y cesión">
+        <p>
+          Las comunicaciones se hacen por correo electrónico a la dirección de la
+          cuenta o a la indicada arriba, y también dentro de la plataforma. El
+          cliente no puede ceder estas condiciones sin nuestro consentimiento;
+          nosotros podemos hacerlo a quien continúe el negocio, avisando al
+          cliente.
+        </p>
+      </Card>
+
       <Card title="Cambios en estas condiciones">
         <p>
           Podemos actualizar estas condiciones cuando cambie el servicio o la
@@ -178,13 +244,9 @@ export default function TermsOfServicePage() {
           Málaga, salvo que la normativa de consumo imponga otro fuero.
         </p>
         <p>
-          Para cualquier duda sobre estas condiciones, escríbenos a{" "}
-          <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
-            {CONTACT_EMAIL}
-          </Link>
-          .
+          Para cualquier duda sobre estas condiciones, escríbenos a <MailLink />.
         </p>
       </Card>
-    </main>
+    </LegalPage>
   );
 }

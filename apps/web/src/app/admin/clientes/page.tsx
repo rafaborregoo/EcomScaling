@@ -8,7 +8,7 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue, organizationStatusTone } from "@/lib/display-labels";
 import {
   CLIENT_STATUS_OPTIONS,
-  CreateClientForm,
+  CreateClientSheet,
   type Client,
 } from "@/components/admin-client-detail";
 import { VerComoButton } from "@/components/ver-como-button";
@@ -20,7 +20,6 @@ import {
   ButtonLink,
   Card,
   ConfirmDialog,
-  Drawer,
   ErrorBlock,
   Metric,
   Select,
@@ -147,9 +146,11 @@ function ClientsPanel() {
               </Button>
             }
             title={`Eliminar ${row.display_name}`}
-            description="Borra TODO al instante: datos de Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay vuelta atrás."
+            note="Borra TODO al instante: datos de Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay vuelta atrás."
+            irreversible
+            confirmPhrase={row.display_name}
             confirmLabel="Eliminar definitivamente"
-            onConfirm={() => void deleteClient(row.id)}
+            onConfirm={() => deleteClient(row.id)}
           />
         </div>
       ),
@@ -206,30 +207,15 @@ function ClientsPanel() {
         />
       </Card>
 
-      <Drawer isOpen={creating} onOpenChange={setCreating}>
-        <Drawer.Backdrop>
-          <Drawer.Content placement="right" className="w-full max-w-3xl">
-            <Drawer.Dialog aria-label="Alta de cliente">
-              <Drawer.Header className="admin-detail-header">
-                <div className="min-w-0">
-                  <Drawer.Heading>Nuevo cliente</Drawer.Heading>
-                  <p className="mt-1 text-sm text-muted">Crea la organización y configura su acceso inicial</p>
-                </div>
-                <Drawer.CloseTrigger />
-              </Drawer.Header>
-              <Drawer.Body className="admin-detail-body">
-                <CreateClientForm
-                  onCreated={async (msg) => {
-                    setNotice(msg);
-                    setCreating(false);
-                    reload();
-                  }}
-                />
-              </Drawer.Body>
-            </Drawer.Dialog>
-          </Drawer.Content>
-        </Drawer.Backdrop>
-      </Drawer>
+      <CreateClientSheet
+        isOpen={creating}
+        onOpenChange={setCreating}
+        onCreated={async (msg) => {
+          setNotice(msg);
+          setCreating(false);
+          reload();
+        }}
+      />
 
     </div>
   );

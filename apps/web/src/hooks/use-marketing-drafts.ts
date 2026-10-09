@@ -30,6 +30,16 @@ export type MarketingDraft = {
     template_profile?: Record<string, unknown>;
     source?: string;
     klaviyo_template_id?: string;
+    store_id?: string | null;
+    camino_task?: {
+      task_id: string;
+      title: string;
+      description: string | null;
+      categories: string[];
+      milestone_id: string | null;
+      milestone_name: string | null;
+      milestone_target_date: string | null;
+    };
   } | null;
   summary: string;
   template_name: string;
@@ -86,11 +96,15 @@ export type MarketingDraft = {
   } | null;
 };
 
-export function useMarketingDrafts(organizationId: string, canView: boolean) {
+export function useMarketingDrafts(
+  organizationId: string,
+  canView: boolean,
+  connectionId?: string | null,
+) {
   const [manualError, setManualError] = useState<string | null>(null);
   const key =
     organizationId && canView
-      ? `/v1/organizations/${organizationId}/marketing/drafts`
+      ? `/v1/organizations/${organizationId}/marketing/drafts${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`
       : null;
   const query = useCachedQuery<{ drafts?: MarketingDraft[] }>(key);
 

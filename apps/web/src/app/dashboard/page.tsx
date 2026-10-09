@@ -4,7 +4,6 @@ import { PortalShell } from "@/components/portal-shell";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { ClientDashboard } from "./client-dashboard";
 import { ConsultantDashboard } from "./consultant-desk";
-import { ProblemReport } from "./problem-report";
 
 function DashboardRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["platform_admin", "consultant"].includes(
@@ -18,10 +17,7 @@ function DashboardRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return isConsultant ? (
     <ConsultantDashboard bootstrap={bootstrap} />
   ) : (
-    <>
-      <ClientDashboard bootstrap={bootstrap} />
-      <ProblemReport />
-    </>
+    <ClientDashboard bootstrap={bootstrap} />
   );
 }
 

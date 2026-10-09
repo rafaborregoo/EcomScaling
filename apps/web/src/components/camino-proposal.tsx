@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { A01_CAMINO_BRIEF_KEY, parseA01BriefHandoff } from "@/lib/a01-call-handoff";
 import { EvidenceChips } from "@/components/ai-proposed-tasks";
+import { calendarHorizonDays } from "@/app/camino/camino-calendar";
 import {
   AiEvidence,
   Badge,
@@ -65,6 +66,7 @@ type CaminoGoal = {
   baseline: number | null;
   target: number | null;
   target_offset_days: number;
+  monthly_targets?: Array<{ month: number; target_value: number | null; rationale: string }>;
   rationale: string;
   assumptions: string[];
   confidence: "low" | "medium" | "high";
@@ -260,6 +262,13 @@ export function CaminoProposal({
   }
 
   const content = proposal?.content ?? null;
+  const proposalHorizon = Math.max(1, content?.horizon_months ?? proposal?.horizon_months ?? Number(horizon));
+  const proposalHorizonDays = calendarHorizonDays(proposalHorizon);
+  const adjustedHorizonDays = calendarHorizonDays(Number(adjustedHorizon));
+  const scaledMilestoneOffset = (days: number) => Math.min(
+    adjustedHorizonDays,
+    Math.round((days * adjustedHorizonDays) / proposalHorizonDays),
+  );
   const alreadyApplied = proposal?.status === "published";
   const totalMilestones =
     content?.phases.reduce(
@@ -348,6 +357,19 @@ export function CaminoProposal({
               <p className="mt-1 text-xs text-muted">
                 Plazo recomendado: {Math.max(1, Math.ceil(content.goal.target_offset_days / 30))} meses · {content.goal.rationale}
               </p>
+              {content.goal.monthly_targets?.length ? (
+                <div className="mt-3 rounded-md border border-separator bg-surface p-3">
+                  <p className="text-xs font-medium">Trayectoria de revisión mensual</p>
+                  <ol className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {content.goal.monthly_targets.map((checkpoint) => (
+                      <li key={checkpoint.month} className="rounded border border-separator p-2 text-xs">
+                        <strong>Mes {checkpoint.month}: {goalValue(content.goal!, checkpoint.target_value)}</strong>
+                        <p className="mt-1 text-muted">{checkpoint.rationale}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-medium">
                   Plazo al crear el borrador
@@ -401,7 +423,7 @@ export function CaminoProposal({
                           {milestone.name}
                         </p>
                         <span className="shrink-0 text-[0.65rem] text-muted">
-                          {targetDateLabel(Math.min(Number(adjustedHorizon) * 30, Math.round(milestone.target_offset_days * Number(adjustedHorizon) / Math.max(1, content.horizon_months ?? proposal?.horizon_months ?? Number(horizon)))))}
+                          {targetDateLabel(scaledMilestoneOffset(milestone.target_offset_days))}
                         </span>
                       </div>
                       <p className="mt-0.5 text-xs text-muted">

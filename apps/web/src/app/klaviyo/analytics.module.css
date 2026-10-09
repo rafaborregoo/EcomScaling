@@ -1,0 +1,714 @@
+/* Piezas propias de /klaviyo. Los tokens (colores, fuente) y las piezas
+   comunes (.root, .hero, .panel, .chip, .seg) vienen de client-pulse.module.css;
+   aquí solo va lo que esa hoja no tiene. Color con significado: --store (verde
+   petróleo) es la serie de datos, --accent (azafrán) las campañas, y
+   verde/ámbar/rojo solo estados. */
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.top h1 {
+  font: 700 30px/1.1 var(--f-display);
+  letter-spacing: -0.03em;
+}
+.top p {
+  margin-top: 4px;
+  color: var(--ink-3);
+}
+.topR {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- hero: la cifra a la izquierda, las barras por mes a la derecha ---------- */
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 32px;
+}
+.heroBig {
+  margin-top: 10px !important;
+  font: 600 clamp(40px, 6vw, 60px) / 1 var(--f-display);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.heroRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 14px !important;
+  color: var(--hero-muted);
+  font-size: 13px;
+}
+.split {
+  display: flex;
+  gap: 3px;
+  height: 14px;
+  margin-top: 26px;
+  overflow: hidden;
+  border-radius: 6px;
+}
+.split i {
+  display: block;
+  height: 100%;
+}
+.splitL {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.splitL div {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.splitL b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.splitL .m {
+  color: var(--hero-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.caveat {
+  margin-top: 22px !important;
+  padding-top: 14px;
+  border-top: 1px solid var(--hero-line);
+  color: var(--hero-muted);
+  font-size: 12.5px;
+}
+.flowColor {
+  background: var(--hero-series);
+}
+.campColor {
+  background: var(--accent);
+}
+
+.chart {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-rows: 230px auto;
+  column-gap: 8px;
+}
+.y {
+  position: relative;
+}
+.y span {
+  position: absolute;
+  right: 0;
+  color: var(--hero-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(50%);
+}
+.plot {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-rows: 100%;
+  gap: 14px;
+}
+.gl {
+  position: absolute;
+  inset-inline: 0;
+  border-top: 1px solid var(--hero-line);
+}
+.col {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+.stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.stack i {
+  display: block;
+  border-radius: 3px;
+}
+.stack i:first-child {
+  border-radius: 5px 5px 3px 3px;
+}
+.tot {
+  position: absolute;
+  inset-inline: -6px;
+  bottom: calc(100% + 6px);
+  color: var(--hero-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+.xl {
+  grid-column: 2;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 8px;
+  color: var(--hero-muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+.legend {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 14px;
+  color: var(--hero-muted);
+  font-size: 12px;
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ---------- cifras ---------- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--line);
+}
+
+/* ---------- fiabilidad ---------- */
+.rel {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 24px;
+  align-items: start;
+}
+.counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.count {
+  padding: 12px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.count b {
+  display: block;
+  margin-top: 2px;
+  font: 600 24px/1.2 var(--f-num);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.alerts {
+  display: grid;
+  gap: 8px;
+}
+.alert {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+.alertWarn {
+  background: var(--warn-soft);
+  --alert: var(--warn);
+}
+.alertBad {
+  background: var(--bad-soft);
+  --alert: var(--bad);
+}
+.alertGood {
+  background: var(--good-soft);
+  --alert: var(--good);
+}
+.ic {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--alert);
+  color: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+}
+.alert b {
+  font-weight: 600;
+}
+.alert p {
+  margin-top: 2px !important;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.foot {
+  margin-top: 14px !important;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* ---------- entrega ---------- */
+.gauges {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.gauge {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.gaugeT {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gaugeT span:first-child {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.gaugeV {
+  margin-top: 8px !important;
+  font: 600 32px/1 var(--f-num);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.stateGood .gaugeV {
+  color: var(--good);
+}
+.stateWarn .gaugeV {
+  color: var(--warn);
+}
+.stateBad .gaugeV {
+  color: var(--bad);
+}
+.zwrap {
+  position: relative;
+  margin-top: 22px;
+}
+.zones {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+}
+.zones i {
+  display: block;
+  height: 100%;
+}
+.zg {
+  background: var(--good-soft);
+}
+.zw {
+  background: var(--warn-soft);
+}
+.zb {
+  background: var(--bad-soft);
+}
+.mk {
+  position: absolute;
+  top: -6px;
+  width: 4px;
+  height: 22px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+.zl {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px !important;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+/* ---------- asuntos ---------- */
+.two {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 16px;
+  align-items: start;
+}
+.twoEven {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.one {
+  grid-template-columns: minmax(0, 1fr);
+}
+.scroll {
+  overflow-x: auto;
+}
+.rowsH,
+.row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1.2fr) minmax(120px, 1fr) 62px 62px;
+  align-items: center;
+  gap: 12px;
+}
+.rowsH {
+  padding-bottom: 8px;
+  color: var(--ink-3);
+  font: 500 10.5px/1.2 var(--f-num);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rowsH span:nth-child(n + 4),
+.rate {
+  text-align: right;
+}
+.row {
+  padding: 11px 0;
+  border-top: 1px solid var(--line-2);
+}
+.rk {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.nm {
+  min-width: 0;
+}
+.nm b {
+  display: block;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nm span {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.bar {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.tr {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--sunken);
+}
+.tr i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--store);
+}
+.tr i.soft {
+  opacity: 0.4;
+}
+.tr i.good {
+  background: var(--good);
+}
+.tr i.warn {
+  background: var(--warn);
+}
+.tr i.bad {
+  background: var(--bad);
+}
+.tr i.mute {
+  background: var(--ink-3);
+}
+.tr u {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--ink);
+}
+.bv {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rate .chip {
+  min-width: 52px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* rasgos del asunto */
+.trait {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-2);
+}
+.trait:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.trait b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.pair {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 5px;
+}
+.pr {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.pr .w {
+  color: var(--ink-3);
+}
+.pr .n {
+  color: var(--ink-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pr .n small {
+  color: var(--ink-3);
+}
+
+/* enlaces y flujos */
+.lh,
+.link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(70px, 110px) 54px 54px;
+  align-items: center;
+  gap: 12px;
+}
+.lh {
+  padding-bottom: 8px;
+  color: var(--ink-3);
+  font: 500 10.5px/1.2 var(--f-num);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.lh span:nth-child(n + 3),
+.link .c {
+  text-align: right;
+}
+.link {
+  padding: 10px 0;
+  border-top: 1px solid var(--line-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.link .lk {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link .c.m {
+  color: var(--ink-3);
+}
+.flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(110px, 1fr) 62px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line-2);
+}
+
+/* inventario de emails */
+.inv {
+  display: grid;
+  gap: 8px;
+}
+.inv details {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.inv summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+.inv summary::-webkit-details-marker {
+  display: none;
+}
+.inv summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  transform: rotate(-45deg);
+  transition: transform 0.12s ease;
+}
+.inv details[open] > summary::before {
+  transform: rotate(45deg);
+}
+.inv summary b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.inv .tg {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.inv .sp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.em {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 76px 64px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line-2);
+  font-size: 13px;
+}
+.em .o {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.em .s b {
+  display: block;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.em .s span {
+  display: block;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.em .kb {
+  color: var(--ink-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.em .kb.none {
+  color: var(--warn);
+  font-weight: 600;
+}
+.em .u {
+  text-align: right;
+}
+
+/* ---------- responsive: por ancho del panel, no de la ventana ---------- */
+@container (max-width: 1000px) {
+  .heroGrid,
+  .rel,
+  .two,
+  .twoEven {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .gauges {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container (max-width: 680px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rowsH {
+    display: none;
+  }
+  .row {
+    grid-template-columns: 20px minmax(0, 1fr) auto auto;
+    gap: 6px 10px;
+  }
+  .row .bar {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+  .chart {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  .plot,
+  .xl {
+    gap: 8px;
+  }
+  .lh,
+  .link {
+    grid-template-columns: minmax(0, 1fr) 54px 54px;
+  }
+  .link .tr,
+  .lh span:nth-child(2) {
+    display: none;
+  }
+  .flow {
+    grid-template-columns: minmax(0, 1fr) 62px;
+  }
+  .flow .bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .em {
+    grid-template-columns: 24px minmax(0, 1fr) 56px;
+  }
+  .em .kb {
+    display: none;
+  }
+}
+
+/* Trabajo en Klaviyo (consultor): entradas a Campañas, Flows, Plantillas y Audiencias. */
+.work { display: grid; gap: 12px; }
+.work h3 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.work p { color: var(--ink-2, var(--color-muted)); font-size: 13.5px; }
+.workTiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.workTile { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid var(--line, var(--color-separator)); border-radius: 14px; background: var(--surface, var(--color-surface)); color: inherit; text-decoration: none; transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s; }
+.workTile:hover { transform: translateY(-2px); border-color: var(--ink-3, var(--color-muted)); box-shadow: 0 6px 18px rgb(0 0 0 / 0.08); }
+.workTile b { font-size: 14px; font-weight: 600; }
+.workTile span { color: var(--ink-3, var(--color-muted)); font-size: 12.5px; line-height: 1.4; }
+@media (max-width: 960px) { .workTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .workTiles { grid-template-columns: minmax(0, 1fr); } }

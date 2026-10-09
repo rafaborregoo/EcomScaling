@@ -1,3 +1,26 @@
+/* Mi Camino del cliente: petróleo + azafrán, igual que el panel Pulso y el mapa.
+   Sin esto el mapa salía en azafrán y todo lo de debajo (fase en curso, árbol,
+   revisión) en el verde de globals.css. Mismos tokens que .desk, otra paleta. */
+
+.client {
+  --accent: #f2b705;
+  --accent-hover: #d9a304;
+  --accent-foreground: #1d1500;
+  --accent-soft: #fcf0c4;
+  --accent-soft-foreground: #6e5000;
+  --focus: #f2b705;
+  --color-accent: #f2b705;
+  --color-accent-hover: #d9a304;
+  --color-accent-foreground: #1d1500;
+  --color-accent-soft: #fcf0c4;
+  --color-accent-soft-foreground: #6e5000;
+  --color-focus: #f2b705;
+  --color-brand: #6e5000;
+  --color-brand-bright: #f2b705;
+  --color-brand-deep: #6e5000;
+  --color-brand-tint: #fcf0c4;
+}
+
 /* Mesa del consultor en Mi Camino: grafito + mandarina, igual que su panel.
    Se re-declaran también los tokens de HeroUI/Tailwind (--accent y
    --color-accent se resuelven en :root, hay que pisar los dos) para que el

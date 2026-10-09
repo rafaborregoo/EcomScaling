@@ -41,12 +41,14 @@ export function Table<T extends { id: string }>({
   ariaLabel,
   emptyLabel,
   className,
+  mobileLayout = "cards",
 }: {
   columns: TableColumnDef<T>[];
   rows: T[];
   ariaLabel: string;
   emptyLabel?: string;
   className?: string;
+  mobileLayout?: "cards" | "list";
 }) {
   if (rows.length === 0 && emptyLabel) {
     return <p className="text-sm text-muted">{emptyLabel}</p>;
@@ -59,41 +61,52 @@ export function Table<T extends { id: string }>({
   return (
     <>
       {/* Movil y tablet (`<lg`, sin sidebar): filas apiladas como Card nativo. */}
-      <ul className={cn("grid gap-3 lg:hidden", className)} aria-label={ariaLabel}>
-        {rows.map((row) => (
-          <li key={row.id}>
-            <HeroCard className="w-full">
-              <HeroCard.Content className="text-sm">
-                {titleColumn ? (
-                  <div className="font-medium text-foreground">
-                    {cellValue(titleColumn, row)}
-                  </div>
-                ) : null}
-                {labelledColumns.length ? (
-                  <dl className="mt-2 grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 gap-y-1.5">
-                    {labelledColumns.map((column) => (
-                      <div key={column.key} className="contents">
-                        <dt className={cn(EYEBROW, "self-center")}>
-                          {column.label}
-                        </dt>
-                        <dd className="min-w-0 text-right">
-                          {cellValue(column, row)}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
-                {actionColumns.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2 border-t border-separator pt-3">
-                    {actionColumns.map((column) => (
-                      <div key={column.key}>{cellValue(column, row)}</div>
-                    ))}
-                  </div>
-                ) : null}
-              </HeroCard.Content>
-            </HeroCard>
-          </li>
-        ))}
+      <ul
+        className={cn(
+          mobileLayout === "list" ? "divide-y divide-separator" : "grid gap-3",
+          "lg:hidden",
+          className,
+        )}
+        aria-label={ariaLabel}
+      >
+        {rows.map((row) => {
+          const content = (
+            <div className="text-sm">
+              {titleColumn ? (
+                <div className="font-medium text-foreground">
+                  {cellValue(titleColumn, row)}
+                </div>
+              ) : null}
+              {labelledColumns.length ? (
+                <dl className="mt-2 grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 gap-y-1.5">
+                  {labelledColumns.map((column) => (
+                    <div key={column.key} className="contents">
+                      <dt className={cn(EYEBROW, "self-center")}>
+                        {column.label}
+                      </dt>
+                      <dd className="min-w-0 text-right">
+                        {cellValue(column, row)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+              {actionColumns.length ? (
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-separator pt-3">
+                  {actionColumns.map((column) => (
+                    <div key={column.key}>{cellValue(column, row)}</div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+
+          return (
+            <li key={row.id} className={mobileLayout === "list" ? "py-3 first:pt-0 last:pb-0" : undefined}>
+              {mobileLayout === "list" ? content : <HeroCard className="w-full"><HeroCard.Content>{content}</HeroCard.Content></HeroCard>}
+            </li>
+          );
+        })}
       </ul>
 
       {/* lg+ (con sidebar): tabla nativa con scroll horizontal de reserva. */}

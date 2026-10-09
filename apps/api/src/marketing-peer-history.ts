@@ -25,15 +25,44 @@ export type MarketingPeerSummary = {
   warnings: string[];
   recommendations: string[];
   flow_architecture?: NonNullable<ReturnType<typeof summarizeKlaviyoFlowArchitecture>>;
+  mailing_strategy?: {
+    plan_name: string;
+    strategy_decision: string;
+    objective_rationale: string;
+    audience_rationale: string;
+    cadence_recommendation: string;
+    requested_schedule_assessment: string;
+    confidence: string;
+    sources: Array<{ kind: string; reference: string; period: string | null }>;
+    email_angles: Array<{
+      sequence_number: number;
+      title: string;
+      sequence_role: string;
+      angle: string;
+      subject_direction: string;
+      cta: string;
+      copy_brief: string;
+      evidence: Array<{
+        label: string;
+        value: string;
+        period: string | null;
+        source: string;
+      }>;
+    }>;
+  };
 };
 
 const RELEVANT_MARKETING_PEERS = new Set([
   "a01_analista_llamadas",
   "a02_monitor_negocio",
   "a05_estrategia_campanas",
+  "a27_planificador_mailing",
   "a12_analista_email",
   "a17_plan_semanal",
   "a18_plan_mensual",
+  "a23_creatividad_meta",
+  "a24_medicion_meta",
+  "a25_cambios_meta",
   "a26_contenido_email",
   "a28_arquitecto_flujos",
 ]);
@@ -46,9 +75,14 @@ export function summarizeMarketingPeerHistory(
   rows: readonly MarketingPeerHistoryRow[],
   storeId: string | null,
   maxAgents = 7,
+  options: {
+    now?: Date;
+    maxAgeDaysByCode?: Readonly<Record<string, number>>;
+  } = {},
 ): MarketingPeerSummary[] {
   const summaries: MarketingPeerSummary[] = [];
   const seen = new Set<string>();
+  const now = options.now ?? new Date();
 
   for (const row of rows) {
     if (row.status !== "approved" && row.status !== "published") continue;
@@ -60,6 +94,15 @@ export function summarizeMarketingPeerHistory(
     if (!code || !RELEVANT_MARKETING_PEERS.has(code) || seen.has(code)) continue;
     const generatedAt = typeof row.created_at === "string" ? row.created_at : null;
     if (!generatedAt) continue;
+    const maxAgeDays = options.maxAgeDaysByCode?.[code];
+    if (maxAgeDays !== undefined) {
+      const generatedAtMs = Date.parse(generatedAt);
+      if (
+        !Number.isFinite(generatedAtMs) ||
+        generatedAtMs > now.getTime() ||
+        now.getTime() - generatedAtMs > maxAgeDays * 86_400_000
+      ) continue;
+    }
 
     const output = typeof row.output === "object" && row.output !== null
       ? row.output as Record<string, unknown>
@@ -93,7 +136,74 @@ export function summarizeMarketingPeerHistory(
           })
         : []),
     ].slice(0, 3);
-    const conclusion = [output.answer, output.diagnosis, output.summary]
+    const text = (value: unknown, limit: number) =>
+      typeof value === "string" ? value.trim().slice(0, limit) : "";
+    const cadence = typeof output.cadence === "object" && output.cadence !== null
+      ? output.cadence as Record<string, unknown>
+      : {};
+    const mailingStrategy = code === "a27_planificador_mailing"
+      ? {
+          plan_name: text(output.plan_name, 180),
+          strategy_decision: text(output.strategy_decision, 700),
+          objective_rationale: text(output.objective_rationale, 400),
+          audience_rationale: text(output.audience_rationale, 400),
+          cadence_recommendation: text(cadence.recommendation, 400),
+          requested_schedule_assessment: text(cadence.requested_schedule_assessment, 400),
+          confidence: text(output.confidence, 20),
+          sources: Array.isArray(output.sources)
+            ? output.sources.slice(0, 8).flatMap((item) => {
+                if (typeof item !== "object" || item === null) return [];
+                const source = item as Record<string, unknown>;
+                const reference = text(source.reference, 180);
+                const kind = text(source.kind, 40);
+                if (!reference || !kind) return [];
+                return [{
+                  kind,
+                  reference,
+                  period: text(source.period, 120) || null,
+                }];
+              })
+            : [],
+          email_angles: Array.isArray(output.emails)
+            ? output.emails.slice(0, 5).flatMap((item) => {
+                if (typeof item !== "object" || item === null) return [];
+                const email = item as Record<string, unknown>;
+                if (typeof email.sequence_number !== "number" || !Number.isInteger(email.sequence_number)) return [];
+                return [{
+                  sequence_number: email.sequence_number,
+                  title: text(email.title, 140),
+                  sequence_role: text(email.sequence_role, 120),
+                  angle: text(email.angle, 240),
+                  subject_direction: text(email.subject_direction, 200),
+                  cta: text(email.cta, 160),
+                  copy_brief: text(email.copy_brief, 320),
+                  evidence: Array.isArray(email.evidence)
+                    ? email.evidence.slice(0, 2).flatMap((item) => {
+                        if (typeof item !== "object" || item === null) return [];
+                        const evidence = item as Record<string, unknown>;
+                        const label = text(evidence.label, 120);
+                        const value = text(evidence.value, 180);
+                        const source = text(evidence.source, 40);
+                        if (!label || !value || !source) return [];
+                        return [{
+                          label,
+                          value,
+                          period: text(evidence.period, 100) || null,
+                          source,
+                        }];
+                      })
+                    : [],
+                }];
+              })
+            : [],
+        }
+      : null;
+    const conclusion = [
+      output.answer,
+      output.strategy_decision,
+      output.diagnosis,
+      output.summary,
+    ]
       .find((value): value is string => typeof value === "string")
       ?.slice(0, 700) ?? "";
     const agent = typeof definition?.name === "string" ? definition.name : code;
@@ -111,6 +221,7 @@ export function summarizeMarketingPeerHistory(
       warnings,
       recommendations,
       ...(flowArchitecture ? { flow_architecture: flowArchitecture } : {}),
+      ...(mailingStrategy ? { mailing_strategy: mailingStrategy } : {}),
     });
     seen.add(code);
     if (summaries.length >= Math.max(0, Math.floor(maxAgents))) break;

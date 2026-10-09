@@ -128,9 +128,11 @@ function ConsultantControlPanel({ consultantId }: { consultantId: string }) {
             <ConfirmDialog
               trigger={<Button variant="ghost" disabled={busy}>Eliminar</Button>}
               title={`Eliminar a ${consultant.full_name ?? consultant.id} para siempre`}
-              description="Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor; no se borran. No hay vuelta atrás."
+              note="Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor; no se borran. No hay vuelta atrás."
+              irreversible
+              confirmPhrase={consultant.full_name ?? consultant.id}
               confirmLabel="Eliminar definitivamente"
-              onConfirm={() => void deleteConsultant()}
+              onConfirm={() => deleteConsultant()}
             />
           </div>
         </div>

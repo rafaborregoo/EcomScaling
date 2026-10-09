@@ -70,7 +70,11 @@ test("tocar a OTRO miembro nunca se bloquea por esta regla", () => {
 const ORG = "org-accesos";
 const env = {} as Parameters<typeof inviteClientMember>[0];
 
-function contextFor(platformRole: string, organizationId = ORG): AuthContext {
+function contextFor(
+  platformRole: string,
+  organizationId = ORG,
+  memberRole?: string,
+): AuthContext {
   return {
     user: { id: "user-actor" },
     profile: {
@@ -83,7 +87,9 @@ function contextFor(platformRole: string, organizationId = ORG): AuthContext {
     memberships: [
       {
         organization_id: organizationId,
-        role: platformRole === "consultant" ? "consultant" : "owner",
+        role:
+          memberRole ??
+          (platformRole === "consultant" ? "consultant" : "owner"),
         accessSource: "membership",
         organization: null,
       },
@@ -95,13 +101,29 @@ function contextFor(platformRole: string, organizationId = ORG): AuthContext {
 const failure = (result: { ok: boolean; error?: string }) =>
   result.ok === false ? result.error : null;
 
-test("solo consultor o platform admin gestionan los accesos de un cliente", async () => {
-  // El owner del propio cliente no entra por aqui: esta es la puerta del
-  // consultor, y la de platform admin sigue siendo la de siempre.
+test("propietario, gestor o consultor asignado gestiona el equipo; miembro no", async () => {
+  // Sin el secreto configurado se corta antes del IO. Ese resultado demuestra
+  // que owner y manager han pasado la autorización; member debe caer antes.
   const owner = await inviteClientMember(env, contextFor("user"), ORG, {
     email: "alguien@tienda.com",
   });
-  assert.equal(failure(owner), "consultant_access_required");
+  assert.equal(failure(owner), "invite_codes_not_configured");
+
+  const manager = await inviteClientMember(
+    env,
+    contextFor("user", ORG, "manager"),
+    ORG,
+    { email: "alguien@tienda.com" },
+  );
+  assert.equal(failure(manager), "invite_codes_not_configured");
+
+  const member = await inviteClientMember(
+    env,
+    contextFor("user", ORG, "member"),
+    ORG,
+    { email: "alguien@tienda.com" },
+  );
+  assert.equal(failure(member), "organization_manage_denied");
 
   // Y un consultor no toca una organizacion que no tiene asignada.
   const ajena = await inviteClientMember(

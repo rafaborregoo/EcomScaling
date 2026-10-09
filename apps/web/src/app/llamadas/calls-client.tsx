@@ -19,7 +19,7 @@ import { useModuleSummary } from "@/components/module-summary";
 import { daysSince, isUpcoming } from "@/lib/elapsed";
 import {
   LoadingBlock,
-  Button,
+  Dialog,
   Checkbox,
   ConfirmDialog,
   EmptyState,
@@ -27,7 +27,6 @@ import {
   Field,
   Input,
   Link,
-  Modal,
   Select,
   Textarea,
   toast,
@@ -678,47 +677,42 @@ function PendingSummaryReview({
         </button>
       </div>
 
-      <Modal isOpen={rejectOpen} onOpenChange={setRejectOpen}>
-        <Modal.Backdrop>
-          <Modal.Container size="md">
-            <Modal.Dialog aria-label="Rechazar resumen">
-              <Modal.Header>
-                <Modal.Heading>Rechazar resumen</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <Field label="Motivo del rechazo">
-                  <Textarea
-                    className="h-24"
-                    autoFocus
-                    value={rejectReason}
-                    onChange={(event) => setRejectReason(event.target.value)}
-                    placeholder="Qué falló o qué debería corregir el análisis. Queda registrado y sirve de feedback."
-                  />
-                </Field>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setRejectOpen(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  disabled={isBusy || !rejectReason.trim()}
-                  onClick={() => {
-                    onReject(rejectReason.trim());
-                    setRejectOpen(false);
-                  }}
-                >
-                  Rechazar resumen
-                </Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog
+        isOpen={rejectOpen}
+        onOpenChange={setRejectOpen}
+        title="Rechazar resumen"
+        isBusy={isBusy}
+        isDirty={Boolean(rejectReason.trim())}
+        formId="reject-summary-form"
+        primary={{
+          label: "Rechazar resumen",
+          busyLabel: "Rechazando…",
+          disabled: !rejectReason.trim(),
+        }}
+      >
+        <form
+          id="reject-summary-form"
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onReject(rejectReason.trim());
+            setRejectOpen(false);
+          }}
+        >
+          <Field label="Motivo del rechazo">
+            <Textarea
+              className="h-24"
+              autoFocus
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+              placeholder="Qué falló o qué debería corregir el análisis"
+            />
+          </Field>
+          <p className="text-xs text-muted">
+            Obligatorio. Queda registrado y sirve de feedback para el análisis.
+          </p>
+        </form>
+      </Dialog>
     </section>
   );
 }
@@ -1829,109 +1823,79 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             >
               Registrar llamada
             </button>
-            <Modal
+            <Dialog
               isOpen={showCreateForm}
               onOpenChange={(open) => {
                 setShowCreateForm(open);
                 if (!open) setCreateError(null);
               }}
+              title="Registrar llamada"
+              isBusy={isCreating}
+              isDirty={Boolean(newTitle.trim() || newRecordingUrl.trim())}
+              formId="create-call-form"
+              primary={{
+                label: "Crear llamada",
+                busyLabel: "Creando…",
+                disabled: !newTitle.trim(),
+              }}
             >
-              <Modal.Backdrop>
-                <Modal.Container size="lg">
-                  <Modal.Dialog aria-label="Registrar llamada">
-                    <form onSubmit={submitCreate}>
-                      <Modal.Header>
-                        <Modal.Heading>Registrar llamada</Modal.Heading>
-                      </Modal.Header>
-                      <Modal.Body>
-                        <div className="space-y-4">
-                          <Field label="Título">
-                            <Input
-                              value={newTitle}
-                              onChange={(event) =>
-                                setNewTitle(event.target.value)
-                              }
-                              placeholder="Ej: Revisión mensual julio"
-                            />
-                          </Field>
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <Field label="Fecha y hora">
-                              {/* `type="date"` perdia la hora de la llamada, que
-                                es justo lo que hace falta para agendarla. */}
-                              <Input
-                                type="datetime-local"
-                                value={newScheduledAt}
-                                onChange={(event) =>
-                                  setNewScheduledAt(event.target.value)
-                                }
-                              />
-                            </Field>
-                            <Field label="Tipo">
-                              <Select
-                                aria-label="Tipo"
-                                value={newType}
-                                onChange={setNewType}
-                                options={Object.entries(callTypeLabels).map(
-                                  ([value, label]) => ({ value, label }),
-                                )}
-                              />
-                            </Field>
-                          </div>
-                          {/* La grabacion ya la aceptaba la API desde el primer
-                            dia, pero el formulario no la pedia y no habia
-                            ninguna otra pantalla para añadirla. */}
-                          <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
-                            <Field label="Grabación (opcional)">
-                              <Input
-                                type="url"
-                                value={newRecordingUrl}
-                                onChange={(event) =>
-                                  setNewRecordingUrl(event.target.value)
-                                }
-                                placeholder="https://..."
-                              />
-                            </Field>
-                            <Field label="Proveedor">
-                              <Select
-                                aria-label="Proveedor de la grabación"
-                                value={newRecordingProvider}
-                                onChange={setNewRecordingProvider}
-                                options={[
-                                  { value: "", label: "Sin especificar" },
-                                  { value: "loom", label: "Loom" },
-                                  { value: "fathom", label: "Fathom" },
-                                  { value: "meet", label: "Meet" },
-                                  { value: "zoom", label: "Zoom" },
-                                  { value: "other", label: "Otro" },
-                                ]}
-                              />
-                            </Field>
-                          </div>
-                          {createError ? (
-                            <ErrorBlock>{createError}</ErrorBlock>
-                          ) : null}
-                        </div>
-                      </Modal.Body>
-                      <Modal.Footer>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => setShowCreateForm(false)}
-                        >
-                          Cancelar
-                        </Button>
-                        <Button
-                          type="submit"
-                          disabled={isCreating || !newTitle.trim()}
-                        >
-                          {isCreating ? "Creando..." : "Crear llamada"}
-                        </Button>
-                      </Modal.Footer>
-                    </form>
-                  </Modal.Dialog>
-                </Modal.Container>
-              </Modal.Backdrop>
-            </Modal>
+              <form id="create-call-form" className="space-y-4" onSubmit={submitCreate}>
+                <Field label="Título">
+                  <Input
+                    value={newTitle}
+                    onChange={(event) => setNewTitle(event.target.value)}
+                    placeholder="Ej: Revisión mensual julio"
+                  />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Fecha y hora">
+                    {/* `type="date"` perdia la hora de la llamada, que es justo lo
+                        que hace falta para agendarla. */}
+                    <Input
+                      type="datetime-local"
+                      value={newScheduledAt}
+                      onChange={(event) => setNewScheduledAt(event.target.value)}
+                    />
+                  </Field>
+                  <Field label="Tipo">
+                    <Select
+                      aria-label="Tipo"
+                      value={newType}
+                      onChange={setNewType}
+                      options={Object.entries(callTypeLabels).map(([value, label]) => ({ value, label }))}
+                    />
+                  </Field>
+                </div>
+                {/* La grabacion ya la aceptaba la API desde el primer dia, pero el
+                    formulario no la pedia y no habia otra pantalla para añadirla. */}
+                <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
+                  <Field label="Grabación (opcional)">
+                    <Input
+                      type="url"
+                      value={newRecordingUrl}
+                      onChange={(event) => setNewRecordingUrl(event.target.value)}
+                      placeholder="https://..."
+                    />
+                  </Field>
+                  <Field label="Proveedor">
+                    <Select
+                      aria-label="Proveedor de la grabación"
+                      value={newRecordingProvider}
+                      onChange={setNewRecordingProvider}
+                      options={[
+                        { value: "", label: "Sin especificar" },
+                        { value: "loom", label: "Loom" },
+                        { value: "fathom", label: "Fathom" },
+                        { value: "meet", label: "Meet" },
+                        { value: "zoom", label: "Zoom" },
+                        { value: "other", label: "Otro" },
+                      ]}
+                    />
+                  </Field>
+                </div>
+                {createError ? <ErrorBlock>{createError}</ErrorBlock> : null}
+              </form>
+            </Dialog>
           </>
         ) : null}
       </section>

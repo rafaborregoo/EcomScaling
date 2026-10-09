@@ -16,14 +16,14 @@ import {
   Banner,
   Button,
   Card,
+  Dialog,
   IconChevronLeft,
   IntegrationActivationChecklist,
   InfoIcon,
   Link,
-  Modal,
   ProviderIcon,
 } from "@/components/ui";
-import { explainHealth } from "./store-view-model";
+import { connectionStatusLabel, explainHealth } from "./store-view-model";
 import { signalOf } from "./hub-model";
 import hub from "./hub.module.css";
 
@@ -549,7 +549,7 @@ export function InfoModalButton({
     <>
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         size="sm"
         aria-label={label}
         onClick={() => setIsOpen(true)}
@@ -557,27 +557,15 @@ export function InfoModalButton({
         <InfoIcon aria-hidden className="size-4" />
         {label}
       </Button>
-      <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
-        <Modal.Backdrop>
-          <Modal.Container size="sm">
-            <Modal.Dialog aria-label={title}>
-              <Modal.Header>
-                <Modal.Heading>{title}</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <div className="space-y-3 text-sm leading-6 text-muted">
-                  {children}
-                </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button variant="ghost" onClick={() => setIsOpen(false)}>
-                  Cerrar
-                </Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+        size="md"
+        title={title}
+        cancelLabel="Cerrar"
+      >
+        <div className="space-y-3 leading-relaxed">{children}</div>
+      </Dialog>
     </>
   );
 }
@@ -594,7 +582,7 @@ export function ProviderStatusCard({
 }) {
   const cfg = provider.configuration.status;
   const connection = provider.connection;
-  const explanation = explainHealth(provider.health, connection);
+  const explanation = explainHealth(provider.health, connection, provider.id);
   const signal = provider.available
     ? signalOf(connection?.health.status ?? null, Boolean(connection))
     : "off";
@@ -621,7 +609,7 @@ export function ProviderStatusCard({
             {!provider.available
               ? "Aún no disponible"
               : connection
-                ? explanation.label
+                ? connectionStatusLabel(connection, explanation.label)
                 : "Sin conectar"}
           </span>
           {connection?.provider_account_name || connection?.provider_account_id ? (

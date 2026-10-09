@@ -3,13 +3,14 @@ import { z } from "zod";
 /**
  * Permisos que pedimos a Klaviyo. Lectura para el sync y los informes, y
  * `templates:read`/`templates:write` para leer plantillas de la cuenta y
- * publicar en ella las piezas aprobadas desde /marketing.
+ * publicar en ella las piezas aprobadas desde /marketing, y `flows:write`
+ * para crear flows en borrador desde Marketing.
  *
  * Ampliar esta lista obliga a reautorizar las conexiones OAuth ya existentes:
  * el token viejo conserva los permisos que se concedieron entonces.
  */
 export const DEFAULT_KLAVIYO_SCOPES =
-  "accounts:read events:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write campaigns:write";
+  "accounts:read events:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write campaigns:write flows:write";
 
 const apiEnvSchema = z.object({
   API_HOST: z.string().default("0.0.0.0"),
@@ -74,6 +75,10 @@ const apiEnvSchema = z.object({
   // A26 puede leer variaciones de campañas mediante la revisión beta de
   // Klaviyo. Desactivado por defecto hasta que ese endpoint sea GA/validado.
   KLAVIYO_VARIATION_CONTENT_BETA: z.enum(["true", "false"]).optional(),
+  // ADR-0025: campaña de mailing orquestada con LangGraph. Apagado por
+  // defecto; MAILING_GRAPH_ORGS (uuids separados por coma) limita el piloto.
+  MAILING_GRAPH_ENABLED: z.enum(["true", "false"]).optional(),
+  MAILING_GRAPH_ORGS: z.string().optional(),
   // Fathom API key interna para registrar webhooks cuando exista una cuenta
   // de prueba aprobada. Nunca se expone al frontend.
   FATHOM_API_KEY: z.string().min(1).optional(),
@@ -203,6 +208,8 @@ export type LoadedApiEnv = {
   KLAVIYO_REDIRECT_URI?: string;
   KLAVIYO_SCOPES?: string;
   KLAVIYO_VARIATION_CONTENT_BETA?: "true" | "false";
+  MAILING_GRAPH_ENABLED?: "true" | "false";
+  MAILING_GRAPH_ORGS?: string;
   FATHOM_API_KEY?: string;
   FATHOM_WEBHOOK_SECRET?: string;
   STRIPE_SECRET_KEY?: string;
@@ -437,6 +444,8 @@ export function loadApiEnv(
     ...(env.KLAVIYO_VARIATION_CONTENT_BETA
       ? { KLAVIYO_VARIATION_CONTENT_BETA: env.KLAVIYO_VARIATION_CONTENT_BETA }
       : {}),
+    ...(env.MAILING_GRAPH_ENABLED ? { MAILING_GRAPH_ENABLED: env.MAILING_GRAPH_ENABLED } : {}),
+    ...(env.MAILING_GRAPH_ORGS ? { MAILING_GRAPH_ORGS: env.MAILING_GRAPH_ORGS } : {}),
     ...(env.FATHOM_API_KEY ? { FATHOM_API_KEY: env.FATHOM_API_KEY } : {}),
     ...(env.FATHOM_WEBHOOK_SECRET
       ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET }

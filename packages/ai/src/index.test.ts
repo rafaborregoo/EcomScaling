@@ -43,6 +43,14 @@ import {
   agentOutputJsonSchema,
   chatOutputSchema,
   chatJsonSchema,
+  caminoPlanJsonSchema,
+  campaignPlanJsonSchema,
+  klaviyoEmailJsonSchema,
+  metaAdsJsonSchema,
+  instagramPostJsonSchema,
+  instagramImageAnalysisJsonSchema,
+  instagramOverlayDraftJsonSchema,
+  callSummaryJsonSchema,
   callProposedTaskSchema,
   callSummaryOutputSchema,
   monitorOutputJsonSchema,
@@ -184,7 +192,7 @@ test("propuestas admiten estimaciones acotadas y rechazan divisa/coste inventado
   assert.equal(agentProposedWriteSchema.parse(write).financial_cost_estimate, null);
   assert.equal(agentProposedWriteSchema.safeParse({ ...write, financial_cost_estimate: { amount: -1, currency: "EUR", basis: "" } }).success, false);
   const properties = agentOutputJsonSchema.properties.proposed_writes.items.properties;
-  assert.deepEqual(properties.effort_estimate.enum, ["low", "medium", "high", "unknown"]);
+  assert.deepEqual(properties.effort_estimate.enum, ["low", "medium", "high", "unknown", null]);
   assert.ok(properties.financial_cost_estimate.anyOf);
 });
 
@@ -443,6 +451,65 @@ test("A09 devuelve acciones de UI con destino semantico, no URLs libres", () => 
     ).items.properties.kind.enum,
     ["open_insight"],
   );
+});
+
+test("todos los contratos JSON estrictos requieren cada propiedad de sus objetos", () => {
+  const schemas: Record<string, unknown> = {
+    agentOutputJsonSchema,
+    monitorOutputJsonSchema,
+    caminoPlanJsonSchema,
+    campaignPlanJsonSchema,
+    weeklyMailingPlanJsonSchema,
+    chatJsonSchema,
+    klaviyoEmailJsonSchema,
+    metaAdsJsonSchema,
+    instagramPostJsonSchema,
+    instagramImageAnalysisJsonSchema,
+    instagramOverlayDraftJsonSchema,
+    callSummaryJsonSchema,
+  };
+
+  function inspect(node: unknown, schemaName: string, path = "root") {
+    if (!node || typeof node !== "object") return;
+    const schema = node as {
+      type?: unknown;
+      additionalProperties?: unknown;
+      properties?: Record<string, unknown>;
+      required?: unknown;
+      [key: string]: unknown;
+    };
+    if (schema.type === "object") {
+      assert.equal(
+        schema.additionalProperties,
+        false,
+        `${schemaName}.${path} must reject unknown properties`,
+      );
+      if (schema.properties) {
+        const required = new Set(
+          Array.isArray(schema.required) ? schema.required : [],
+        );
+        const missing = Object.keys(schema.properties).filter(
+          (key) => !required.has(key),
+        );
+        assert.deepEqual(
+          missing,
+          [],
+          `${schemaName}.${path} must require every declared property`,
+        );
+      }
+    }
+    for (const [key, value] of Object.entries(schema)) {
+      if (Array.isArray(value)) {
+        value.forEach((child, index) =>
+          inspect(child, schemaName, `${path}.${key}[${index}]`),
+        );
+      } else if (value && typeof value === "object") {
+        inspect(value, schemaName, `${path}.${key}`);
+      }
+    }
+  }
+
+  for (const [name, schema] of Object.entries(schemas)) inspect(schema, name);
 });
 
 test("chunking conserva contexto de secciones y estructura de tablas", () => {
@@ -750,6 +817,24 @@ test("rechaza hallazgos sin evidencia auditable", () => {
     },
     "findings_con_evidencia_vacia",
   );
+});
+
+test("acepta variantes de campo propias del copiloto y del resumen de llamada", () => {
+  assertOk({
+    answer: "Revisaría primero la caída de conversión.",
+    findings: [{
+      title: "Más visitas abandonan el checkout",
+      detail: "La conversión cayó del 2,4 % al 1,8 % en los últimos 30 días.",
+      impact: "high",
+    }],
+  });
+  assertOk({
+    summary: "El cliente quiere recuperar margen.",
+    recommendations: [{
+      action: "Revisar los descuentos activos",
+      rationale: "La llamada detectó tres promociones sin medición de margen.",
+    }],
+  });
 });
 
 test("rechaza recomendaciones sin acción o impacto esperado", () => {
@@ -1651,7 +1736,7 @@ test("las propuestas tipan el contrato de entrega semanal y siguen aceptando sal
   assert.equal(agentProposedWriteSchema.safeParse({ ...write, due_hint: " " }).success, false);
 
   const properties = agentOutputJsonSchema.properties.proposed_writes.items.properties;
-  assert.deepEqual(properties.owner_role.enum, ["cliente", "consultor"]);
+  assert.deepEqual(properties.owner_role.enum, ["cliente", "consultor", null]);
   assert.equal(properties.completion_criteria.maxLength, 500);
   assert.equal(properties.expected_metric.maxLength, 240);
   assert.equal(properties.due_hint.maxLength, 100);
@@ -1686,8 +1771,9 @@ test("las propuestas admiten línea base y objetivo nulos sin confundirlos con c
     false,
   );
   const properties = agentOutputJsonSchema.properties.proposed_writes.items.properties;
-  assert.deepEqual(properties.initiative_measurement.required, [
+  const initiativeMeasurementObject = properties.initiative_measurement.anyOf[1];
+  assert.deepEqual(initiativeMeasurementObject.required, [
     "metric_name", "unit", "baseline", "target", "evaluation_window",
   ]);
-  assert.deepEqual(properties.initiative_measurement.properties.target.type, ["number", "null"]);
+  assert.deepEqual(initiativeMeasurementObject.properties.target.type, ["number", "null"]);
 });

@@ -10,9 +10,10 @@ import type { BootstrapResponse } from "@/lib/bootstrap";
 import { timeAgo } from "@/lib/elapsed";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { useModuleSummary } from "@/components/module-summary";
-import { AsyncState, Banner, Button, Drawer, ErrorBlock, Link, Modal, ProviderIcon, toast } from "@/components/ui";
+import { AsyncState, Banner, Button, ButtonLink, cn, Dialog, ErrorBlock, Field, Input, Link, ProviderIcon, Sheet, toast } from "@/components/ui";
 import { classifyAuthorizationAttempt } from "@e-nora/contracts";
 import { ClientDataQualityNotice } from "./data-quality-panel";
+import { ShopifyAccountAssignmentModal } from "./shopify-account-assignment-modal";
 import {
   PROVIDER_SLUG,
   readOAuthNotice,
@@ -26,6 +27,7 @@ import {
 import {
   STORE_PROVIDERS,
   buildStoreViews,
+  connectionStatusLabel,
   explainError,
   explainHealth,
   unassignedConnections,
@@ -261,10 +263,16 @@ function StoreMap({ stores, selected, onSelect }: { stores: StoreView[]; selecte
                       role="cell"
                       className={s.cell}
                       aria-pressed={pressed}
-                      aria-label={`${view.name} de ${store.name}: ${connected ? view.explanation.label : "sin conectar"}`}
+                      aria-label={`${view.name} de ${store.name}: ${connected ? connectionStatusLabel(view.target, view.explanation.label) : "sin conectar"}`}
                       onClick={() => onSelect({ provider: view.provider, storeId: store.connectionId })}
                     >
-                      <Status signal={signal}>{connected ? view.explanation.label : view.available ? "Sin conectar" : "Aún no disponible"}</Status>
+                      <Status signal={signal}>
+                        {connected
+                          ? connectionStatusLabel(view.target, view.explanation.label)
+                          : view.available
+                            ? "Sin conectar"
+                            : "Aún no disponible"}
+                      </Status>
                       {connected ? (
                         <>
                           <span className={s.acc}>
@@ -300,14 +308,20 @@ function AccountRow({ providers, onSelect }: { providers: IntegrationProvider[];
       <div className={s.orgRow}>
         {providers.map((provider) => {
           const connection = provider.connections[0] ?? null;
-          const explanation = explainHealth(provider.health, connection);
+          const explanation = explainHealth(provider.health, connection, provider.id);
           const signal = provider.available ? signalOf(connection?.health.status ?? null, Boolean(connection)) : "off";
           return (
             <button key={provider.id} type="button" className={s.orgCard} onClick={() => onSelect({ provider: provider.id, storeId: null })}>
               <Logo provider={provider.id} />
               <div>
                 <b>{provider.name}</b>
-                <Status signal={signal}>{!provider.available ? "Aún no disponible" : connection ? explanation.label : "Sin conectar"}</Status>
+                <Status signal={signal}>
+                  {!provider.available
+                    ? "Aún no disponible"
+                    : connection
+                      ? connectionStatusLabel(connection, explanation.label)
+                      : "Sin conectar"}
+                </Status>
                 <small>{connection?.provider_account_name ?? provider.description}</small>
               </div>
             </button>
@@ -415,7 +429,7 @@ function ConnectionDrawer({
   const provider = payload.providers.find((item) => item.id === selection?.provider) ?? null;
   const view = store?.providers.find((item) => item.provider === selection?.provider) ?? null;
   const connection = view ? view.target : (provider?.connections[0] ?? null);
-  const explanation = connection ? explainHealth(connection.health, connection) : null;
+  const explanation = connection ? explainHealth(connection.health, connection, selection?.provider) : null;
   const error = explainError(connection?.latest_sync?.error_message ?? connection?.last_error_message);
   const signal = signalOf(connection?.health.status ?? null, Boolean(connection));
   const slug = selection ? PROVIDER_SLUG[selection.provider] : undefined;
@@ -427,24 +441,49 @@ function ConnectionDrawer({
   const { actions, pending } = integrations;
 
   return (
-    <Drawer isOpen={Boolean(selection)} onOpenChange={(open) => (open ? null : onClose())}>
-      <Drawer.Backdrop>
-        <Drawer.Content placement="right">
-          <Drawer.Dialog className={`${s.drawer} w-full max-w-[640px]`} aria-label={provider ? `Ficha de ${provider.name}` : "Ficha de la conexión"}>
-            <Drawer.Header>
-              <div className={s.drawerHead}>
-                {selection ? <Logo provider={selection.provider} /> : null}
-                <div>
-                  <Drawer.Heading>
-                    <b>{provider?.name ?? ""}</b>
-                  </Drawer.Heading>
-                  <span>{store?.name ?? "De la cuenta"}</span>
-                </div>
-                <Drawer.CloseTrigger />
-              </div>
-            </Drawer.Header>
-            <Drawer.Body>
-              <div className={s.drawerBody}>
+    <Sheet
+      isOpen={Boolean(selection)}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      size="md"
+      title={
+        <span className="flex items-center gap-3">
+          {selection ? <Logo provider={selection.provider} /> : null}
+          {provider?.name ?? ""}
+        </span>
+      }
+      meta={store?.name ?? "De la cuenta"}
+      start={
+        store ? (
+          <ButtonLink variant="ghost" href={`/integraciones/tienda/${store.connectionId}`}>
+            Ficha de la tienda
+          </ButtonLink>
+        ) : undefined
+      }
+      footer={
+        <>
+          {canSync ? (
+            <Button
+              variant={explanation?.fix === "retry" ? "primary" : "secondary"}
+              disabled={pending === `retry-${syncKey}`}
+              onClick={() => void actions.retrySync(syncKey as "shopify" | "klaviyo" | "meta", connection!.id)}
+            >
+              {pending === `retry-${syncKey}` ? "Sincronizando…" : "Sincronizar ahora"}
+            </Button>
+          ) : null}
+          {connection && slug ? (
+            <ButtonLink variant={explanation?.fix === "reconnect" ? "primary" : "secondary"} href={`/integraciones/${slug}`}>
+              {explanation?.fix === "reconnect" ? "Reconectar" : "Configurar"}
+            </ButtonLink>
+          ) : null}
+          {!connection && provider?.available ? (
+            <Button onClick={() => selection && onConnect(selection.provider)}>Conectar {provider.name}</Button>
+          ) : null}
+        </>
+      }
+    >
+      <div className={s.drawerBody}>
                 <div className={s.state} data-s={signal}>
                   <b>{connection ? explanation?.label : provider?.available ? "Sin conectar" : "Aún no disponible"}</b>
                   <span>{connection ? (error?.text ?? explanation?.detail ?? "Todo en orden.") : provider?.description}</span>
@@ -570,42 +609,8 @@ function ConnectionDrawer({
                     </dl>
                   </details>
                 ) : null}
-              </div>
-            </Drawer.Body>
-            <Drawer.Footer>
-              <div className={s.drawerFoot}>
-                {!connection && provider?.available ? (
-                  <button type="button" className={s.btn} data-primary onClick={() => selection && onConnect(selection.provider)}>
-                    Conectar {provider.name}
-                  </button>
-                ) : null}
-                {canSync ? (
-                  <button
-                    type="button"
-                    className={s.btn}
-                    data-primary={explanation?.fix === "retry" ? true : undefined}
-                    disabled={pending === `retry-${syncKey}`}
-                    onClick={() => void actions.retrySync(syncKey as "shopify" | "klaviyo" | "meta", connection!.id)}
-                  >
-                    {pending === `retry-${syncKey}` ? "Sincronizando…" : "Sincronizar ahora"}
-                  </button>
-                ) : null}
-                {connection && slug ? (
-                  <Link className={explanation?.fix === "reconnect" ? `${s.btn} ${s.btnPrimary}` : s.btn} href={`/integraciones/${slug}`}>
-                    {explanation?.fix === "reconnect" ? "Reconectar" : "Configurar"}
-                  </Link>
-                ) : null}
-                {store ? (
-                  <Link className={s.btn} href={`/integraciones/tienda/${store.connectionId}`}>
-                    Ficha de la tienda
-                  </Link>
-                ) : null}
-              </div>
-            </Drawer.Footer>
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
-    </Drawer>
+      </div>
+    </Sheet>
   );
 }
 
@@ -653,156 +658,162 @@ function ConnectWizard({
   const busy = pending === "shopify" || pending === "meta" || pending === "klaviyo" || pending === "klaviyo-key";
   const ready = app === "shopify" ? /\.myshopify\.com$/i.test(domain.trim()) : app === "klaviyo" && method === "key" ? apiKey.trim().startsWith("pk_") : Boolean(app);
 
+  const stepLabels = ["Elegir", "Conectar", "Comprobar"];
+
   return (
-    <Modal isOpen={open} onOpenChange={(value) => (value ? null : onClose())}>
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog aria-label="Conectar una aplicación" className={s.dialog}>
-            <Modal.Header>
-              <Modal.Heading>{provider ? `Conectar ${provider.name}` : "Conectar una aplicación"}</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <div style={{ display: "grid", gap: 14 }}>
-                <div className={s.steps} aria-label={`Paso ${step} de 3`}>
-                  {[1, 2, 3].map((index) => (
-                    <i key={index} data-on={index <= step ? true : undefined} />
-                  ))}
-                </div>
+    <Dialog
+      isOpen={open}
+      onOpenChange={(value) => {
+        if (!value) onClose();
+      }}
+      size="md"
+      title={provider ? `Conectar ${provider.name}` : "Conectar una aplicación"}
+      isBusy={busy}
+      cancelLabel={step === 3 ? "Cerrar" : "Cancelar"}
+      start={
+        step === 2 && !keyDone ? (
+          <Button variant="ghost" onClick={() => setApp(null)}>
+            Atrás
+          </Button>
+        ) : undefined
+      }
+      primary={
+        step === 2 && app !== "instagram"
+          ? {
+              label: app === "klaviyo" && method === "key" ? "Comprobar y conectar" : "Continuar",
+              busyLabel: "Conectando…",
+              disabled: !ready,
+              onClick: () => void submit(),
+            }
+          : undefined
+      }
+      footer={
+        step === 2 && app === "instagram" ? (
+          <>
+            <Button variant="ghost" onClick={onClose}>
+              Cancelar
+            </Button>
+            <ButtonLink href="/integraciones/instagram">Ir a Instagram</ButtonLink>
+          </>
+        ) : undefined
+      }
+    >
+      <ol className="flex items-center gap-2 text-xs text-muted" aria-label={`Paso ${step} de 3`}>
+        {stepLabels.map((label, index) => (
+          <li key={label} className="flex items-center gap-2">
+            <span
+              className={cn(
+                "grid size-5 place-items-center rounded-full text-[11px] font-medium",
+                index + 1 <= step ? "bg-accent text-accent-foreground" : "border border-edge",
+              )}
+            >
+              {index + 1}
+            </span>
+            <span className={index + 1 === step ? "font-medium text-ink" : undefined}>{label}</span>
+            {index < stepLabels.length - 1 ? <span aria-hidden className="h-px w-6 bg-line" /> : null}
+          </li>
+        ))}
+      </ol>
 
-                {step === 1 ? (
-                  <div className={s.apps}>
-                    {ordered.map((item) => (
-                      <button key={item.id} type="button" className={s.app} disabled={!item.available} aria-pressed={app === item.id} onClick={() => setApp(item.id)}>
-                        <Logo provider={item.id} />
-                        <b>{item.name}</b>
-                        <small>{item.available ? item.description : "Disponible más adelante"}</small>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+      {step === 1 ? (
+        <div className={s.apps}>
+          {ordered.map((item) => (
+            <button key={item.id} type="button" className={s.app} disabled={!item.available} aria-pressed={app === item.id} onClick={() => setApp(item.id)}>
+              <Logo provider={item.id} />
+              <b>{item.name}</b>
+              <small>{item.available ? item.description : "Disponible más adelante"}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-                {step === 2 && app === "shopify" ? (
-                  <>
-                    {payload.shopify_custom_app_available ? (
-                      <div className={s.apps}>
-                        <button type="button" className={s.opt} aria-pressed={appMode === "public"} onClick={() => setAppMode("public")}>
-                          <span className={s.dot} />
-                          <b>App pública</b>
-                          <small>La recomendada para tiendas nuevas.</small>
-                        </button>
-                        <button type="button" className={s.opt} aria-pressed={appMode === "custom"} onClick={() => setAppMode("custom")}>
-                          <span className={s.dot} />
-                          <b>App personalizada</b>
-                          <small>Solo si la tienda ya la tenía instalada.</small>
-                        </button>
-                      </div>
-                    ) : null}
-                    <label className={s.lbl} htmlFor="wizard-domain">
-                      Dominio .myshopify.com
-                    </label>
-                    <input
-                      id="wizard-domain"
-                      className={s.inp}
-                      placeholder="tu-tienda.myshopify.com"
-                      value={domain}
-                      onChange={(event) => setDomain(event.target.value)}
-                      autoComplete="off"
-                    />
-                    <p className={s.note}>Está en Shopify → Configuración → Dominios. No sirve el dominio público de la tienda.</p>
-                    <p className={s.callout}>Te llevamos a Shopify para aceptar los permisos; al volver, la tienda ya aparece aquí.</p>
-                  </>
-                ) : null}
+      {step === 2 && app === "shopify" ? (
+        <>
+          {payload.shopify_custom_app_available ? (
+            <div className={s.apps}>
+              <button type="button" className={s.opt} aria-pressed={appMode === "public"} onClick={() => setAppMode("public")}>
+                <span className={s.dot} />
+                <b>App pública</b>
+                <small>La recomendada para tiendas nuevas.</small>
+              </button>
+              <button type="button" className={s.opt} aria-pressed={appMode === "custom"} onClick={() => setAppMode("custom")}>
+                <span className={s.dot} />
+                <b>App personalizada</b>
+                <small>Solo si la tienda ya la tenía instalada.</small>
+              </button>
+            </div>
+          ) : null}
+          <Field label="Dominio .myshopify.com">
+            <Input placeholder="tu-tienda.myshopify.com" value={domain} onChange={(event) => setDomain(event.target.value)} autoComplete="off" />
+          </Field>
+          <p className={s.note}>Está en Shopify → Configuración → Dominios. No sirve el dominio público de la tienda.</p>
+          <p className={s.callout}>Te llevamos a Shopify para aceptar los permisos; al volver, la tienda ya aparece aquí.</p>
+        </>
+      ) : null}
 
-                {step === 2 && app === "meta_ads" ? (
-                  <>
-                    <p className={s.callout}>Te llevamos a Facebook para elegir el Business y las cuentas publicitarias. Al volver, asígnalas a su tienda.</p>
-                    <p className={s.note}>Hace falta ser administrador del Business Manager.</p>
-                  </>
-                ) : null}
+      {step === 2 && app === "meta_ads" ? (
+        <>
+          <p className={s.callout}>Te llevamos a Facebook para elegir el Business y las cuentas publicitarias. Al volver, asígnalas a su tienda.</p>
+          <p className={s.note}>Hace falta ser administrador del Business Manager.</p>
+        </>
+      ) : null}
 
-                {step === 2 && app === "klaviyo" ? (
-                  <>
-                    <div className={s.apps}>
-                      <button type="button" className={s.opt} aria-pressed={method === "oauth"} onClick={() => setMethod("oauth")}>
-                        <span className={s.dot} />
-                        <b>Iniciar sesión en Klaviyo</b>
-                        <small>Recomendado. Aceptas los permisos en Klaviyo.</small>
-                      </button>
-                      <button type="button" className={s.opt} aria-pressed={method === "key"} onClick={() => setMethod("key")}>
-                        <span className={s.dot} />
-                        <b>Clave privada</b>
-                        <small>Pega una clave pk_ creada en Klaviyo.</small>
-                      </button>
-                    </div>
-                    {method === "key" ? (
-                      <>
-                        <label className={s.lbl} htmlFor="wizard-key">
-                          Clave privada
-                        </label>
-                        <input id="wizard-key" className={s.inp} placeholder="pk_…" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" />
-                        <p className={s.note}>En Klaviyo → Ajustes → Claves API → Crear clave privada, con acceso de lectura a:</p>
-                        <div className={s.chips}>
-                          {KLAVIYO_KEY_SCOPES.map((scope) => (
-                            <code key={scope}>{scope}</code>
-                          ))}
-                        </div>
-                        <p className={s.note}>Y acceso completo a Templates, Campaigns y Flows si vas a crear piezas, campañas o flows desde NORA.</p>
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {step === 2 && app === "instagram" ? (
-                  <p className={s.callout}>Instagram se configura desde su página.</p>
-                ) : null}
-
-                {step === 3 ? (
-                  integrations.actionError ? (
-                    <p className={s.callout}>{integrations.actionError}</p>
-                  ) : klaviyo ? (
-                    <div className={s.blk}>
-                      <h3>Permisos comprobados</h3>
-                      <div>
-                        {permissionRows("klaviyo", klaviyo.scopes).map((row) => (
-                          <div key={row.scope} className={s.perm}>
-                            {row.granted ? <span data-ok>✓</span> : <span data-no>✕</span>}
-                            <div>
-                              {row.label}
-                              <small>{row.granted ? row.scope : row.required ? "Imprescindible: falta" : "Opcional: sin él, esta parte no está disponible"}</small>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className={s.note}>Comprobando…</p>
-                  )
-                ) : null}
+      {step === 2 && app === "klaviyo" ? (
+        <>
+          <div className={s.apps}>
+            <button type="button" className={s.opt} aria-pressed={method === "oauth"} onClick={() => setMethod("oauth")}>
+              <span className={s.dot} />
+              <b>Iniciar sesión en Klaviyo</b>
+              <small>Recomendado. Aceptas los permisos en Klaviyo.</small>
+            </button>
+            <button type="button" className={s.opt} aria-pressed={method === "key"} onClick={() => setMethod("key")}>
+              <span className={s.dot} />
+              <b>Clave privada</b>
+              <small>Pega una clave pk_ creada en Klaviyo.</small>
+            </button>
+          </div>
+          {method === "key" ? (
+            <>
+              <Field label="Clave privada">
+                <Input placeholder="pk_…" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" />
+              </Field>
+              <p className={s.note}>En Klaviyo → Ajustes → Claves API → Crear clave privada, con acceso de lectura a:</p>
+              <div className={s.chips}>
+                {KLAVIYO_KEY_SCOPES.map((scope) => (
+                  <code key={scope}>{scope}</code>
+                ))}
               </div>
-            </Modal.Body>
-            <Modal.Footer>
-              {step === 2 && !keyDone ? (
-                <Button variant="ghost" onClick={() => setApp(null)}>
-                  Atrás
-                </Button>
-              ) : null}
-              <Button variant="secondary" onClick={onClose}>
-                {step === 3 ? "Cerrar" : "Cancelar"}
-              </Button>
-              {step === 2 && app === "instagram" ? (
-                <Link className={`${s.btn} ${s.btnPrimary}`} href="/integraciones/instagram">
-                  Ir a Instagram
-                </Link>
-              ) : step === 2 ? (
-                <Button disabled={!ready || busy} onClick={() => void submit()}>
-                  {busy ? "Conectando…" : app === "klaviyo" && method === "key" ? "Comprobar y conectar" : "Continuar"}
-                </Button>
-              ) : null}
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+              <p className={s.note}>Y acceso completo a Templates, Campaigns y Flows si vas a crear piezas, campañas o flows desde NORA.</p>
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 2 && app === "instagram" ? <p className={s.callout}>Instagram se configura desde su página.</p> : null}
+
+      {step === 3 ? (
+        integrations.actionError ? (
+          <p className={s.callout}>{integrations.actionError}</p>
+        ) : klaviyo ? (
+          <div className={s.blk}>
+            <h3>Permisos comprobados</h3>
+            <div>
+              {permissionRows("klaviyo", klaviyo.scopes).map((row) => (
+                <div key={row.scope} className={s.perm}>
+                  {row.granted ? <span data-ok>✓</span> : <span data-no>✕</span>}
+                  <div>
+                    {row.label}
+                    <small>{row.granted ? row.scope : row.required ? "Imprescindible: falta" : "Opcional: sin él, esta parte no está disponible"}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className={s.note}>Comprobando…</p>
+        )
+      ) : null}
+    </Dialog>
   );
 }
 
@@ -816,8 +827,9 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
   const canDiscard =
     bootstrap.profile.platform_role === "platform_admin" ||
     bootstrap.memberships.some((membership) => membership.organization_id === organization?.id && ["owner", "manager"].includes(membership.role));
-  const { scope } = useStoreScope(organization?.id ?? null);
+  const { scope, error: scopeError, reload: reloadScope } = useStoreScope(organization?.id ?? null);
   const [welcomeStore, setWelcomeStore] = useState<string | null>(null);
+  const [shopifyAssignmentDomain, setShopifyAssignmentDomain] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [wizard, setWizard] = useState<{ open: boolean; app: string | null; key: number }>({ open: false, app: null, key: 0 });
   // La cuenta Klaviyo de la tienda (no una suelta) es la que se cruza con Shopify.
@@ -836,16 +848,59 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
   );
 
   useEffect(() => {
+    const isConnectedReturn = () => {
+      const params = new URLSearchParams(window.location.search);
+      return ["shopify", "meta", "klaviyo"].some((provider) =>
+        ["connected", "connected_partial"].includes(params.get(provider) ?? ""),
+      );
+    };
+    const params = new URLSearchParams(window.location.search);
+    const shopifyStatus = params.get("shopify");
+    const shopifyDomain = params.get("shop");
+    if (["connected", "connected_partial"].includes(shopifyStatus ?? "") && shopifyDomain) {
+      setShopifyAssignmentDomain(shopifyDomain);
+    }
+    const refreshIntegrationState = () => {
+      void reload();
+      void reloadScope();
+      void metrics.reload();
+      window.dispatchEvent(new Event("integration-status-changed"));
+    };
+
     // El resultado del OAuth es una noticia: sale flotando y se va.
     const notice = readOAuthNotice();
     if (notice) {
       if (notice.tone === "success") toast.success(notice.text);
       else if (notice.tone === "warn") toast.warning(notice.text);
       else toast.danger(notice.text, { timeout: 0 });
+      if (isConnectedReturn()) {
+        // El evento de cambio se dispara al iniciar OAuth, antes de que el
+        // proveedor haya autorizado y guardado la conexión. Al volver hay que
+        // pedir de nuevo los datos para mostrar el estado recién persistido.
+        refreshIntegrationState();
+      }
     }
     const welcome = new URLSearchParams(window.location.search).get("welcome");
     if (welcome) setWelcomeStore(welcome);
-  }, []);
+    const refreshAfterOAuthReturn = (event: PageTransitionEvent) => {
+      if (event.persisted && isConnectedReturn()) refreshIntegrationState();
+    };
+    window.addEventListener("pageshow", refreshAfterOAuthReturn);
+    return () => window.removeEventListener("pageshow", refreshAfterOAuthReturn);
+  }, [reload, reloadScope, metrics.reload]);
+
+  useEffect(() => {
+    if (!shopifyAssignmentDomain || !organization?.id) return;
+    const domain = shopifyAssignmentDomain.trim().toLowerCase();
+    const storeReady = scope?.stores.some(
+      (store) => store.myshopify_domain.trim().toLowerCase() === domain,
+    );
+    if (storeReady) return;
+    // El callback inicia el primer sync en segundo plano. Mantén el modal
+    // abierto y vuelve a consultar hasta que el sync registre shopify_stores.
+    const timer = window.setInterval(() => void reloadScope(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [organization?.id, reloadScope, scope?.stores, shopifyAssignmentDomain]);
 
   useEffect(() => {
     if (actionError && !wizard.open) toast.danger(actionError);
@@ -919,6 +974,14 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
     setWizard((current) => ({ open: true, app, key: current.key + 1 }));
   }
 
+  function closeShopifyAssignment() {
+    setShopifyAssignmentDomain(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("shopify");
+    url.searchParams.delete("shop");
+    window.history.replaceState({}, "", url);
+  }
+
   return (
     <div className={s.hub}>
       <header className={s.band}>
@@ -941,6 +1004,15 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
       {welcomeStore ? <Banner tone="success">Tienda «{welcomeStore}» creada. Conéctala a Shopify, Meta y Klaviyo para empezar a ver sus datos.</Banner> : null}
       <ClientDataQualityNotice organizationId={organization?.id ?? null} />
       {!payload.schema_ready ? <Banner tone="danger">No se pudo cargar el estado de las integraciones. Reintenta en unos minutos.</Banner> : null}
+      {(scope?.unassigned_count ?? 0) > 0 ? (
+        <Banner tone="warn">
+          E-NORA tiene {scope?.unassigned_count ?? 0} cuentas de Klaviyo o Meta conectadas, pero todavía no sabe a qué tienda pertenecen.
+          La relación que ya existe dentro de esas plataformas no se registra automáticamente aquí.{" "}
+          <Link href="/integraciones/cuentas" className={s.btn}>
+            Ver diagnóstico y asignar tienda
+          </Link>
+        </Banner>
+      ) : null}
 
       <Pulse stores={stores} accountProviders={accountProviders} queue={queue} />
       <FixQueue queue={queue} integrations={integrations} canDiscard={canDiscard} onOpen={openFix} />
@@ -967,6 +1039,16 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
         onConnect={(provider) => connect(provider)}
       />
       <ConnectWizard key={wizard.key} open={wizard.open} initial={wizard.app} payload={payload} integrations={integrations} onClose={() => setWizard((current) => ({ ...current, open: false }))} />
+      {shopifyAssignmentDomain && organization ? (
+        <ShopifyAccountAssignmentModal
+          organizationId={organization.id}
+          shopDomain={shopifyAssignmentDomain}
+          scope={scope ?? null}
+          loadError={scopeError}
+          reload={reloadScope}
+          onClose={closeShopifyAssignment}
+        />
+      ) : null}
     </div>
   );
 }

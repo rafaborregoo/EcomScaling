@@ -27,17 +27,18 @@ import {
   BrandLogo,
   Button,
   CloseIcon,
-  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   IconChevronRight,
   Link,
   LoadingBlock,
   MenuIcon,
+  OverlayRole,
   PanelLeftIcon,
   Popover,
   PlusIcon,
   Select,
+  SparklesIcon,
   StoreIcon,
   Tooltip,
 } from "@/components/ui";
@@ -51,12 +52,14 @@ import {
 } from "@/components/active-connection";
 import { CopilotPanel } from "@/components/copilot-panel";
 import { CopilotAskProvider, type CopilotAsk } from "@/components/copilot-ask";
+import { buildCopilotEvidenceReference } from "@/lib/copilot-evidence";
 import {
   ModuleSummaryProvider,
   type ModuleSummaryData,
 } from "@/components/module-summary";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { InsightsMenu } from "@/components/insights-menu";
+import { PortalFeedback } from "@/components/portal-feedback";
 import { InsightsProvider } from "@/components/insights-context";
 import {
   getActivePortalModule,
@@ -822,9 +825,18 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     : isConsultant
       ? "consultant"
       : "client";
+  const canManageClientAccess =
+    isConsultant ||
+    bootstrap.memberships.some(
+      (membership) =>
+        membership.organization_id === activeOrganizationId &&
+        membership.accessSource === "membership" &&
+        ["owner", "manager"].includes(membership.role),
+    );
   const navigationModules = getPortalNavigation(
     navigationRole,
     Boolean(activeOrganizationId),
+    canManageClientAccess,
   );
   const showAddStoreAction =
     navigationRole === "client" && Boolean(activeOrganizationId);
@@ -1045,28 +1057,22 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               Ver perfil
             </Link>
             <Link
-              href="/configuracion?section=general"
+              href="/configuracion?section=resumen"
               className="rounded-md px-2.5 py-2 text-sm text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
             >
               Configuración
             </Link>
           </div>
           <div className="border-t border-separator pt-2">
-            <ConfirmDialog
-              trigger={
-                <Button
-                  variant="secondary"
-                  className="flex w-full justify-start border-0 bg-transparent px-2.5 py-2 text-sm text-muted hover:bg-surface hover:text-foreground"
-                >
-                  Cerrar sesión
-                </Button>
-              }
-              title="Cerrar sesión"
-              description="Vas a salir de tu cuenta en este dispositivo."
-              confirmLabel="Cerrar sesión"
-              status="default"
-              onConfirm={signOut}
-            />
+            {/* Sin confirmación: salir es reversible (se vuelve a entrar) y la
+                pregunta frenaba más de lo que protegía. */}
+            <Button
+              variant="secondary"
+              className="flex w-full justify-start border-0 bg-transparent px-2.5 py-2 text-sm text-muted hover:bg-surface hover:text-foreground"
+              onClick={signOut}
+            >
+              Cerrar sesión
+            </Button>
           </div>
         </Popover.Dialog>
       </Popover.Content>
@@ -1192,6 +1198,30 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const activeSubscription = bootstrap.subscriptions.find(
     (subscription) => subscription.organization_id === activeOrganization?.id,
   );
+  const copilotLabel = isCopilotOpen
+    ? "Cerrar Consultor IA"
+    : "Abrir Consultor IA";
+  const copilotToggle = (compact: boolean) => (
+    <Button
+      size="sm"
+      variant={isCopilotOpen ? "secondary" : "ghost"}
+      className={compact ? "min-w-9 px-2" : "gap-2"}
+      aria-label={copilotLabel}
+      title={compact ? copilotLabel : undefined}
+      aria-expanded={isCopilotOpen}
+      aria-controls="copilot-panel"
+      onClick={() => {
+        // Al abrirlo desde la navegación, se inicia el chat libre.
+        setCopilotAsk(null);
+        setIsCopilotOpen((open) => !open);
+      }}
+    >
+      <SparklesIcon className="size-4 shrink-0" aria-hidden />
+      <span className={compact ? "sr-only" : ""}>
+        {isCopilotOpen ? "Cerrar" : "Consultor IA"}
+      </span>
+    </Button>
+  );
 
   return (
     <>
@@ -1207,6 +1237,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           }}
         >
         <main className={`min-h-dvh bg-white text-foreground lg:pt-2${isPlatformAdmin ? " admin-portal" : ""}`}>
+          <OverlayRole role={navigationRole === "platform_admin" ? "admin" : navigationRole} />
           <a className="skip-link" href="#portal-content">
             Saltar al contenido principal
           </a>
@@ -1245,6 +1276,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 </p>
               </div>
               <div className="flex shrink-0 items-center">
+                {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
+                {bootstrap.memberships.length > 0 ? copilotToggle(true) : null}
                 <InsightsMenu />
                 <NotificationsBell token={token} />
                 {profileMenu}
@@ -1583,10 +1616,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             <section
               id="portal-content"
               tabIndex={-1}
+              data-module={activeModule?.id}
+              data-role={navigationRole === "client" ? "client" : "consultant"}
               className={`min-w-0${isPlatformAdmin ? " admin-portal-content" : ""}${
                 // Marketing e Integraciones comparten los colores de Trabajo e Inicio (petróleo +
                 // azafrán en cliente, grafito + mandarina en consultor).
-                activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "integraciones"
+                activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "integraciones" || activeModule?.id === "configuracion"
                   ? ` trabajo-theme trabajo-theme--${navigationRole === "client" ? "client" : "consultant"}`
                   : ""
               }`}
@@ -1620,6 +1655,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 ) : null}
                 <div className="ml-auto flex items-center gap-3">
                   {ownStoreSelectNode}
+                  {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
+                  {bootstrap.memberships.length > 0 ? copilotToggle(false) : null}
                   <InsightsMenu />
                   <NotificationsBell token={token} />
                   {profileMenu}
@@ -1690,7 +1727,19 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       <ModuleSummaryProvider publish={setModuleSummary}>
                         <CopilotAskProvider
                           ask={(next) => {
-                            setCopilotAsk({ ...next, key: Date.now() });
+                            setCopilotAsk({
+                              ...next,
+                              reference: buildCopilotEvidenceReference({
+                                route: pathname,
+                                title,
+                                focusLabel: next.focusLabel,
+                                connectionId: activeConnectionId,
+                                periodLabel: moduleSummary?.period,
+                                searchParams,
+                                target: next.reference,
+                              }),
+                              key: Date.now(),
+                            });
                             setIsCopilotOpen(true);
                           }}
                         >
@@ -1782,32 +1831,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             </button>
           </nav>
 
-          {/* El Consultor IA existe en cualquier pantalla, tambien en vista
-          general: A09 es mono-tenant (el gateway SQL fija la organizacion por
-          transaccion y toda la aislacion cuelga de ahi), asi que en vista
-          general no se consulta "la cartera" -- el panel pide el cliente
-          sobre el que preguntar. Antes el boton simplemente no existia y el
-          consultor tenia que salir a elegir cliente para poder preguntar. */}
-          {bootstrap.memberships.length > 0 ? (
-            <>
-              <Button
-                className={[
-                  "fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
-                  isCopilotOpen ? "lg:hidden" : "",
-                ].join(" ")}
-                aria-expanded={isCopilotOpen}
-                aria-controls="copilot-panel"
-                onClick={() => {
-                  // Abrir el panel a mano lo devuelve a chat libre: si quedara la
-                  // pregunta anterior colgada, se relanzaría al reabrirlo.
-                  setCopilotAsk(null);
-                  setIsCopilotOpen((open) => !open);
-                }}
-              >
-                {isCopilotOpen ? "Cerrar Consultor IA" : "Consultor IA"}
-              </Button>
-            </>
-          ) : null}
         </main>
         </InsightsProvider>
       </PortalSessionContext.Provider>

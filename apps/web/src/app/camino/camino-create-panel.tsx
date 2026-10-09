@@ -6,8 +6,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { A01_CAMINO_BRIEF_KEY, parseA01BriefHandoff } from "@/lib/a01-call-handoff";
 import { EvidenceChips } from "@/components/ai-proposed-tasks";
-import { AiEvidence, Button, ButtonLink, ErrorBlock, Input, LoadingBlock, Select, Textarea, toast } from "@/components/ui";
+import { AiEvidence, Button, ButtonLink, ErrorBlock, Input, LoadingBlock, Select, Tabs, Textarea, toast } from "@/components/ui";
 import { CaminoDraftMap, CaminoDrawing, type DraftPhase } from "./camino-map";
+import { CaminoIntakeWizard, type CaminoIntake } from "./camino-intake-wizard";
+import { calendarHorizonDays, calendarMonthsTouched } from "./camino-calendar";
+import { MonthlyRoute } from "./monthly-route";
+import { summarizeCaminoOperations } from "./camino-operating-summary";
+import { countByTrack } from "./task-tracks";
+import { comparePlans, shapeOfPlan, shapeOfProposal, type ComparablePhase } from "./plan-compare";
 import s from "./camino-create-panel.module.css";
 
 /**
@@ -22,10 +28,10 @@ type CatalogEntry = { key: string; label: string; unit: "money" | "pct" | "count
 
 export const CAMINO_CURRENCIES = ["EUR", "USD", "GBP", "MXN", "COP", "ARS", "CLP", "PEN", "CHF"] as const;
 
-const MODES: Array<{ key: CaminoCreateMode; icon: string; label: string; hint: string }> = [
-  { key: "ia", icon: "✦", label: "Que lo trace la IA", hint: "Lee los datos de la tienda y propone fases e hitos con fecha." },
-  { key: "manual", icon: "✎", label: "Dibujarlo a mano", hint: "Fase a fase; cada hito con su fecha y su meta." },
-  { key: "import", icon: "⇪", label: "Desde una plantilla", hint: "Sube un .md y revísalo como mapa antes de crearlo." },
+const MODES: Array<{ key: CaminoCreateMode; label: string }> = [
+  { key: "ia", label: "Crear con IA" },
+  { key: "manual", label: "Crear a mano" },
+  { key: "import", label: "Usar plantilla" },
 ];
 
 function formatAmount(value: number, unit: string, currency: string) {
@@ -45,6 +51,18 @@ function isoInDays(days: number) {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
+function displayOffsetDate(days: number) {
+  const date = new Date(`${isoInDays(days)}T00:00:00`);
+  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short" }).format(date);
+}
+
+function displayFullDate(date: string) {
+  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${date}T00:00:00Z`));
+}
+
+const TASK_PRIORITY_LABELS = { low: "baja", medium: "media", high: "alta", urgent: "urgente" } as const;
+
 export function CaminoCreatePanel({
   variant,
   title,
@@ -53,6 +71,7 @@ export function CaminoCreatePanel({
   defaultCurrency,
   catalog,
   onCreated,
+  replacePlan,
 }: {
   variant: "client" | "consultant";
   title: string;
@@ -61,8 +80,10 @@ export function CaminoCreatePanel({
   defaultCurrency: string;
   catalog: CatalogEntry[];
   onCreated: () => void;
+  /** Replanificar: la IA propone y, al aceptar, la propuesta sustituye a este camino. */
+  replacePlan?: { id: string; name: string; phases: ComparablePhase[] };
 }) {
-  const [mode, setMode] = useState<CaminoCreateMode>(variant === "consultant" ? "manual" : "ia");
+  const [mode, setMode] = useState<CaminoCreateMode>(replacePlan || variant === "client" ? "ia" : "manual");
   const [currency, setCurrency] = useState(
     (CAMINO_CURRENCIES as readonly string[]).includes(defaultCurrency) ? defaultCurrency : "EUR",
   );
@@ -71,7 +92,6 @@ export function CaminoCreatePanel({
     <section className={`${s.root} ${variant === "consultant" ? s.consultant : ""}`} aria-labelledby="camino-create-title">
       <div className={s.head}>
         <div className={s.headText}>
-          <span className={s.eyebrow}>{variant === "consultant" ? "Mi Camino · para tu cliente" : "Mi Camino"}</span>
           <h2 id="camino-create-title" className={s.title}>
             {title}
           </h2>
@@ -86,6 +106,7 @@ export function CaminoCreatePanel({
             ))}
           </select>
         </label>
+        {replacePlan ? null : (
         <div className={s.modes} role="group" aria-label="Cómo crear el camino">
           {MODES.map((item) => (
             <button
@@ -95,18 +116,15 @@ export function CaminoCreatePanel({
               aria-pressed={mode === item.key}
               onClick={() => setMode(item.key)}
             >
-              <span className={s.modeIcon} aria-hidden="true">
-                {item.icon}
-              </span>
               <span className={s.modeLabel}>{item.label}</span>
-              <span className={s.modeHint}>{item.hint}</span>
             </button>
           ))}
         </div>
+        )}
       </div>
       <div className={s.body}>
         {mode === "ia" ? (
-          <IaCreator organizationId={organizationId} connectionId={connectionId} currency={currency} onCreated={onCreated} variant={variant} />
+          <IaCreator organizationId={organizationId} connectionId={connectionId} currency={currency} onCreated={onCreated} variant={variant} replacePlan={replacePlan} />
         ) : mode === "import" ? (
           <ImportCreator organizationId={organizationId} connectionId={connectionId} currency={currency} onCreated={onCreated} variant={variant} />
         ) : (
@@ -134,29 +152,151 @@ type ProposalContent = {
     target_offset_days: number;
     rationale: string;
     assumptions: string[];
+    monthly_targets?: Array<{ month: number; target_value: number | null; seasonal_baseline?: number | null; rationale: string }>;
+    decision_gates?: Array<{ decision: string; proceed_when: string; hold_when: string; evidence_needed: string }>;
   };
   phases: Array<{
     name: string;
     description: string;
     rationale: string;
     evidence: Array<{ label: string; value: string; period: string | null; source: string }>;
-    milestones: Array<{ name: string; description: string; target_offset_days: number; success_metric: string }>;
+    milestones: Array<{
+      name: string;
+      description: string;
+      target_offset_days: number;
+      success_metric: string;
+      tasks?: Array<{ title: string; description: string; target_offset_days: number; priority: "low" | "medium" | "high" | "urgent"; owner?: "client" | "consultant" | "shared"; effort_hours?: number | null; track?: string; cadence?: string }>;
+    }>;
   }>;
   sources: Array<{ kind: string; reference: string; period: string | null }>;
   confidence: "low" | "medium" | "high";
   warnings: string[];
 };
 
-type Proposal = { output_id: string; status: string; horizon_months: number | null; content: ProposalContent | null };
+type ContextSource = { key: string; label: string; status: "ok" | "empty" | "unavailable" | "not_provided"; critical: boolean };
+type Proposal = {
+  output_id: string;
+  status: string;
+  horizon_months: number | null;
+  content: ProposalContent | null;
+  context_sources?: ContextSource[] | null;
+};
+
+type RunProgress = {
+  state: "idle" | "running" | "failed" | "done";
+  started_at: number | null;
+  steps: Array<{ step_type: string; summary?: string | null }>;
+  tool_calls: number;
+  failure: { error: string; message: string | null } | null;
+  run_status?: string | null;
+  model?: string | null;
+  provider?: string | null;
+};
+
+function caminoFailureMessage(failure: RunProgress["failure"]): string {
+  const detail = failure?.message ?? failure?.error ?? "No se pudo generar el Camino. Vuelve a intentarlo.";
+  if (failure?.error === "agent_output_schema_mismatch" || detail.includes("agent_output_schema_mismatch")) {
+    return "La IA devolvió un Camino incompleto. Vuelve a trazarlo.";
+  }
+  return detail;
+}
+
+/** Qué está haciendo la IA ahora, según los pasos reales que ha registrado el servidor. */
+function progressStage(progress: RunProgress | null): string | undefined {
+  if (!progress || progress.state !== "running") return undefined;
+  const types = progress.steps.map((step) => step.step_type);
+  if (types.includes("event_coverage") && !types.includes("task_detailing")) return "Añadiendo la preparación de las fechas clave que faltaban";
+  const detailed = types.filter((type) => type === "task_detailing").length;
+  if (detailed > 0) return `Estrategia lista. Redactando la guía paso a paso de cada hito · ${detailed} hechos`;
+  if (types.includes("model_call")) return "Validando el camino que ha diseñado";
+  if (types.includes("context_build")) {
+    return progress.tool_calls > 0
+      ? `Diseñando fases e hitos · ${progress.tool_calls} consultas hechas`
+      : "Datos leídos. Diseñando fases e hitos";
+  }
+  return "Leyendo los datos de la tienda";
+}
+
+const SOURCE_STATUS_LABEL = { unavailable: "No disponible", not_provided: "Sin aportar", empty: "Sin datos", ok: "" };
+
+/** Qué datos recibió la IA al diseñar el camino. Lo que falta se dice, no se esconde. */
+function ContextUsed({ sources }: { sources: ContextSource[] }) {
+  const used = sources.filter((source) => source.status === "ok");
+  const others = sources.filter((source) => source.status !== "ok");
+  const missingCritical = others.filter((source) => source.critical);
+  return (
+    <section className={s.contextBlock} aria-labelledby="camino-context-used">
+      <div className={s.contextHeading}>
+        <h4 id="camino-context-used">
+          Datos usados ({used.length} de {sources.length})
+        </h4>
+      </div>
+      <ul className={s.sources}>
+        {used.map((source) => (
+          <li key={source.key} className={s.source}>
+            ✓ {source.label}
+          </li>
+        ))}
+        {others.map((source) => (
+          <li key={source.key} className={`${s.source} ${source.critical ? s.sourceMissing : s.sourceMuted}`}>
+            {SOURCE_STATUS_LABEL[source.status]} · {source.label}
+          </li>
+        ))}
+      </ul>
+      {missingCritical.length ? (
+        <p className={s.hintLine}>
+          Faltan datos clave ({missingCritical.map((source) => source.label.toLowerCase()).join(", ")}): el camino se apoya en
+          suposiciones en esa parte. Revisa la conexión de la tienda y traza otro cuando estén.
+        </p>
+      ) : null}
+    </section>
+  );
+}
 
 const CONFIDENCE = { low: "Confianza baja", medium: "Confianza media", high: "Confianza alta" };
 
-function IaCreator({ organizationId, connectionId, currency, onCreated, variant }: {
+/** Qué cambia respecto al camino vigente: hitos que se mantienen, nuevos y retirados. */
+function PlanComparisonCard({ currentName, comparison }: { currentName: string; comparison: ReturnType<typeof comparePlans> }) {
+  return (
+    <section className={s.contextBlock} aria-labelledby="camino-compare">
+      <div className={s.contextHeading}>
+        <h4 id="camino-compare">Frente a «{currentName}»</h4>
+      </div>
+      <p className={s.hintLine}>
+        Ahora: {comparison.current.phases} fases, {comparison.current.milestones.length} hitos, {comparison.current.tasks} tareas · Propuesta:{" "}
+        {comparison.proposed.phases} fases, {comparison.proposed.milestones.length} hitos, {comparison.proposed.tasks} tareas
+      </p>
+      <ul className={s.sources}>
+        {comparison.kept.map((name) => (
+          <li key={`k-${name}`} className={s.sourceMuted + " " + s.source}>
+            = {name}
+          </li>
+        ))}
+        {comparison.added.map((name) => (
+          <li key={`a-${name}`} className={s.source}>
+            + {name}
+          </li>
+        ))}
+        {comparison.removed.map((name) => (
+          <li key={`r-${name}`} className={`${s.source} ${s.sourceMissing}`}>
+            − {name}
+          </li>
+        ))}
+      </ul>
+      <p className={s.hintLine}>
+        Al reemplazar, «{currentName}» se archiva (no se borra nada) y sus tareas abiertas siguen en Tareas.
+      </p>
+    </section>
+  );
+}
+
+function IaCreator({ organizationId, connectionId, currency, onCreated, variant, replacePlan }: {
   variant: "client" | "consultant";
   organizationId: string;
   connectionId?: string | null;
   currency: string;
   onCreated: () => void;
+  replacePlan?: { id: string; name: string; phases: ComparablePhase[] };
 }) {
   const searchParams = useSearchParams();
   const fromCall = searchParams.get("fromCall") === "1";
@@ -165,10 +305,26 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [goalTarget, setGoalTarget] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [showIntake, setShowIntake] = useState(true);
+  const [diagnosisExpanded, setDiagnosisExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agentActive, setAgentActive] = useState<boolean | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isRejecting, setIsRejecting] = useState(false);
+  // epoch ms del arranque del run en segundo plano; mientras exista se consulta el progreso.
+  const [runSince, setRunSince] = useState<number | null>(null);
+  const [tab, setTab] = useState("ruta");
+  const [progress, setProgress] = useState<RunProgress | null>(null);
   const handoffDone = useRef(false);
+  const horizonEdited = useRef(false);
+
+  useEffect(() => {
+    horizonEdited.current = false;
+  }, [organizationId, connectionId]);
 
   useEffect(() => {
     if (!fromCall || handoffDone.current) return;
@@ -181,50 +337,119 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const query = new URLSearchParams({ horizonMonths: String(horizon) });
+      const query = new URLSearchParams();
       if (connectionId) query.set("connectionId", connectionId);
       const response = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal?${query.toString()}`);
       if (!response.ok) {
         setError(await readApiError(response));
-        return;
+        return false;
       }
-      const payload = (await response.json()) as { proposal: Proposal | null };
-      setProposal(payload.proposal);
-      const target = payload.proposal?.content?.goal?.target;
+      const payload = (await response.json()) as { proposal: Proposal | null; agent_active?: boolean | null };
+      setAgentActive(payload.agent_active ?? null);
+      // Si se cerró la pestaña con un camino en marcha, se retoma el seguimiento.
+      const progressQuery = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
+      const progressResponse = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal/progress${progressQuery}`).catch(() => null);
+      let currentProgress: RunProgress | null = null;
+      if (progressResponse?.ok) {
+        currentProgress = (await progressResponse.json()) as RunProgress;
+        if (currentProgress.state === "running" && currentProgress.started_at) {
+          setProgress(currentProgress);
+          setIsGenerating(true);
+          setRunSince(currentProgress.started_at);
+        } else if (currentProgress.state === "failed") {
+          setProgress(currentProgress);
+          setError(caminoFailureMessage(currentProgress.failure));
+        }
+      }
+      // El rechazo vive en servidor: una propuesta rechazada ya no llega aquí.
+      const visibleProposal = payload.proposal;
+      setProposal(visibleProposal);
+      if (!horizonEdited.current && visibleProposal?.horizon_months) setHorizon(visibleProposal.horizon_months);
+      setShowIntake(!visibleProposal?.content);
+      const target = visibleProposal?.content?.goal?.target;
       setGoalTarget(target == null ? "" : String(target));
-      setError(null);
+      if (currentProgress?.state !== "failed") setError(null);
+      return true;
     } catch {
       setError("No se pudo cargar la propuesta de camino. Reintenta.");
+      return false;
     } finally {
       setIsLoading(false);
+      setHasLoaded(true);
     }
-  }, [organizationId, connectionId, horizon]);
+  }, [organizationId, connectionId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function generate() {
+  async function generate(intake: CaminoIntake) {
     setIsGenerating(true);
     setError(null);
     try {
       const query = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
-      const response = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal/run${query}`, {
+      const contextResponse = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-context${query}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(intake),
+      });
+      if (!contextResponse.ok) throw new Error(await readApiError(contextResponse));
+      const response = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal/run${query ? `${query}&async=1` : "?async=1"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ horizon_months: horizon, ...(brief.trim() ? { brief: brief.trim().slice(0, 2000) } : {}) }),
       });
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      await load();
-    } catch {
-      setError("No se pudo generar el camino. Reintenta.");
-    } finally {
+      if (!response.ok) throw new Error(await readApiError(response));
+      const started = (await response.json()) as { started_at: number };
+      // El resto lo lleva el efecto de seguimiento: la petición ya no queda abierta minutos.
+      setProgress(null);
+      setRunSince(started.started_at);
+    } catch (cause) {
       setIsGenerating(false);
+      const message = cause instanceof Error ? cause.message : "No se pudo generar el camino. Reintenta.";
+      throw new Error(message);
     }
   }
+
+  useEffect(() => {
+    if (runSince === null) return;
+    let cancelled = false;
+    const query = new URLSearchParams({ since: String(runSince) });
+    if (connectionId) query.set("connectionId", connectionId);
+    const poll = async () => {
+      try {
+        const response = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal/progress?${query.toString()}`);
+        if (cancelled || !response.ok) return;
+        const next = (await response.json()) as RunProgress;
+        if (cancelled) return;
+        setProgress(next);
+        if (next.state === "done") {
+          setRunSince(null);
+          if (await load()) setShowIntake(false);
+          else setError("El camino se generó, pero no se pudo cargar la propuesta. Reintenta la carga.");
+          setIsGenerating(false);
+        } else if (next.state === "failed") {
+          setRunSince(null);
+          setIsGenerating(false);
+          setShowIntake(true);
+          setError(caminoFailureMessage(next.failure));
+        } else if (next.state === "idle" && Date.now() - runSince > 30_000) {
+          // Ni el servidor ni la base de datos conocen ese run: no se queda girando para siempre.
+          setRunSince(null);
+          setIsGenerating(false);
+          setError("No se encontró la generación en curso. Vuelve a intentarlo.");
+        }
+      } catch {
+        // Un fallo de red puntual no corta el seguimiento: se reintenta en el siguiente ciclo.
+      }
+    };
+    const id = window.setInterval(() => void poll(), 2500);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [runSince, organizationId, connectionId, load]);
 
   async function accept() {
     if (!proposal) return;
@@ -238,6 +463,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
           output_id: proposal.output_id,
           horizon_months: horizon,
           currency_code: currency,
+          ...(replacePlan ? { replace_plan_id: replacePlan.id } : {}),
           ...(proposal.content?.goal ? { goal_target: goalTarget.trim() ? Number(goalTarget) : null } : {}),
         }),
       });
@@ -245,7 +471,9 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
         setError(await readApiError(response));
         return;
       }
-      toast.success("Camino creado como borrador. Revísalo y actívalo.");
+      toast.success(
+        replacePlan ? "Camino reemplazado. El anterior quedó archivado; revisa el nuevo y actívalo." : "Camino creado como borrador. Revísalo y actívalo.",
+      );
       onCreated();
     } catch {
       setError("No se pudo crear el camino. Reintenta.");
@@ -254,69 +482,189 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
     }
   }
 
+  async function reject() {
+    if (!proposal) return;
+    setIsRejecting(true);
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal/${proposal.output_id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: rejectReason.trim() }),
+      });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setProposal(null);
+      setGoalTarget("");
+      setRejecting(false);
+      setRejectReason("");
+      setShowIntake(true);
+      toast.success("Camino rechazado. No se ha creado ningún borrador.");
+    } catch {
+      setError("No se pudo rechazar el camino. Reintenta.");
+    } finally {
+      setIsRejecting(false);
+    }
+  }
+
   const content = proposal?.content ?? null;
-  const baseHorizon = Math.max(1, content?.horizon_months ?? proposal?.horizon_months ?? horizon);
-  // Misma escala que aplica el backend al aceptar con otro plazo.
-  const scaled = (days: number) => Math.min(horizon * 30, Math.round((days * horizon) / baseHorizon));
-  const draft: DraftPhase[] = (content?.phases ?? []).map((phase) => ({
+  const proposalHorizonMonths = proposal?.horizon_months ?? content?.horizon_months ?? null;
+  const proposalNeedsRegeneration = content !== null && proposalHorizonMonths !== null && horizon !== proposalHorizonMonths;
+  // Mismo criterio que el backend al aceptar con otro plazo: las fechas son de
+  // calendario y no se reescalan; un plazo mas corto deja fuera los hitos que
+  // ya no caben.
+  const adjustedHorizonDays = calendarHorizonDays(horizon);
+  const scaled = (days: number) => Math.min(adjustedHorizonDays, days);
+  const phases = (content?.phases ?? [])
+    .map((phase) => ({ ...phase, milestones: phase.milestones.filter((milestone) => milestone.target_offset_days <= adjustedHorizonDays) }))
+    .filter((phase) => phase.milestones.length > 0);
+  const hiddenMilestones = (content?.phases.reduce((sum, phase) => sum + phase.milestones.length, 0) ?? 0) - phases.reduce((sum, phase) => sum + phase.milestones.length, 0);
+  const draft: DraftPhase[] = phases.map((phase) => ({
     name: phase.name,
     milestones: phase.milestones.map((milestone) => ({
       name: milestone.name,
       date: isoInDays(scaled(milestone.target_offset_days)),
       detail: milestone.description,
       criterion: milestone.success_metric,
+      tasks: milestone.tasks?.map((task) => ({
+        title: task.title,
+        description: task.description,
+        date: isoInDays(scaled(task.target_offset_days)),
+        priority: TASK_PRIORITY_LABELS[task.priority],
+      })),
     })),
   }));
   const goal = content?.goal;
+  const operations = summarizeCaminoOperations(phases);
+  const milestoneCount = phases.reduce((sum, phase) => sum + phase.milestones.length, 0);
+  const taskCount = phases.reduce(
+    (sum, phase) => sum + phase.milestones.reduce((phaseSum, milestone) => phaseSum + (milestone.tasks?.length ?? 0), 0),
+    0,
+  );
+  const trackTotals = countByTrack(phases.flatMap((phase) => phase.milestones.flatMap((milestone) => milestone.tasks ?? [])));
   const goalNumber = goalTarget.trim() ? Number(goalTarget) : null;
+  const checkpointMonths = calendarMonthsTouched(new Date(), adjustedHorizonDays);
+  const previewMonthlyTargets = goal?.monthly_targets
+    ? Array.from({ length: checkpointMonths }, (_, index) => {
+        const source = goal.monthly_targets?.[index];
+        return source ?? { month: index + 1, target_value: null, seasonal_baseline: null, rationale: "Mes añadido al ampliar el plazo: replanifica para definir un objetivo propio." };
+      })
+    : [];
   const finalLabel = goal && goalNumber !== null && Number.isFinite(goalNumber) ? formatAmount(goalNumber, goal.unit, currency) : null;
   const dataCurrencyDiffers = goal?.unit === "money" && goal.currency_code && goal.currency_code !== currency;
+  const proposalTabs = [
+    ...(previewMonthlyTargets.length ? [{ value: "ruta", label: "Ruta mes a mes" }] : []),
+    { value: "fases", label: "Fases y tareas" },
+    { value: "porque", label: "Por qué y fuentes" },
+  ];
+  const activeTab = proposalTabs.some((item) => item.value === tab) ? tab : proposalTabs[0]!.value;
 
   return (
     <div className={s.flow}>
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      {error ? (
+        <ErrorBlock>
+          <div>
+            <strong>{error}</strong>
+            {progress?.state === "failed" && content ? <p>La propuesta que ves abajo es anterior a este intento.</p> : null}
+            {progress?.state === "failed" ? (
+              <details style={{ marginTop: 8 }}>
+                <summary>Diagnóstico de ejecución</summary>
+                <div style={{ marginTop: 8 }}>
+                  <div>Estado: {progress.run_status ?? progress.failure?.error ?? "fallido"}</div>
+                  {progress.model ? <div>Modelo: {progress.model}</div> : null}
+                  {progress.provider ? <div>Proveedor: {progress.provider}</div> : null}
+                  {progress.steps.length ? (
+                    <ul>
+                      {progress.steps.slice(-8).map((step, index) => (
+                        <li key={`${step.step_type}-${index}`}>{step.step_type}{step.summary ? `: ${step.summary}` : ""}</li>
+                      ))}
+                    </ul>
+                  ) : <div>No hay pasos guardados para esta ejecución.</div>}
+                  <div>Consultas a herramientas: {progress.tool_calls}</div>
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </ErrorBlock>
+      ) : null}
 
       <div className={s.controls}>
-        <div className={s.control}>
-          <span className={s.controlLabel}>
-            Horizonte · <b>{horizon === 1 ? "1 mes" : `${horizon} meses`}</b>
-          </span>
+        <div className={`${s.control} ${s.durationControl}`}>
+          <div className={s.durationHeading}>
+            <label className={s.durationTitle} htmlFor="camino-duration">Duración del Camino</label>
+            <output className={s.durationValue} htmlFor="camino-duration" aria-live="polite">{horizon} {horizon === 1 ? "mes" : "meses"}</output>
+          </div>
           <input
+            id="camino-duration"
             type="range"
             min={1}
             max={12}
+            step={1}
             value={horizon}
             className={s.range}
-            aria-label="Horizonte del camino en meses"
             disabled={isGenerating || isCreating}
-            onChange={(event) => setHorizon(Number(event.target.value))}
+            onChange={(event) => {
+              const months = Number(event.target.value);
+              horizonEdited.current = true;
+              setHorizon(months);
+              setError(null);
+              setProgress(null);
+              if (content && proposalHorizonMonths !== null && months !== proposalHorizonMonths) {
+                setShowIntake(true);
+              }
+            }}
           />
           <span className={s.rangeScale}>
             <span>1 mes</span>
-            <span>6</span>
             <span>12 meses</span>
           </span>
+          <span className={s.durationDates}>{displayFullDate(isoInDays(0))} — {displayFullDate(isoInDays(adjustedHorizonDays))}</span>
         </div>
         <div className={s.control}>
-          <span className={s.controlLabel}>Algo que la IA deba tener en cuenta (opcional)</span>
+          <label className={s.controlLabel} htmlFor="camino-brief">Indicaciones para la IA (opcional)</label>
           <Textarea
+            id="camino-brief"
             value={brief}
             maxLength={2000}
             rows={2}
             onChange={(event) => setBrief(event.target.value)}
-            placeholder="p. ej. «en noviembre lanzamos la colección de invierno» o lo acordado en la última llamada"
+            placeholder="Ej. Lanzamos una colección en noviembre"
           />
         </div>
-        <Button type="button" variant={content ? "secondary" : "primary"} disabled={isGenerating || isCreating} onClick={() => void generate()}>
-          {content ? "Trazar otro camino" : "Trazar mi camino"}
-        </Button>
+        {content && !proposalNeedsRegeneration ? (
+          <Button type="button" variant="secondary" className={s.contextAction} disabled={isGenerating || isCreating} onClick={() => setShowIntake((open) => !open)}>
+            {showIntake ? "Cerrar contexto" : "Trazar otro Camino"}
+          </Button>
+        ) : null}
       </div>
+
+      {proposalNeedsRegeneration ? (
+        <p className={s.hintLine}>El borrador actual es de {proposalHorizonMonths} meses. Traza uno nuevo para {horizon} meses.</p>
+      ) : null}
+
+      {agentActive === false ? (
+        <ErrorBlock>
+          La IA que traza caminos no está activada para este cliente, así que no se puede generar uno ahora. Puedes crearlo a mano o
+          desde una plantilla, o pedir al consultor que active el agente de caminos.
+        </ErrorBlock>
+      ) : null}
+
+      {showIntake && hasLoaded && agentActive !== false ? (
+        <CaminoIntakeWizard
+          organizationId={organizationId}
+          connectionId={connectionId}
+          horizonMonths={horizon}
+          disabled={isGenerating || isCreating}
+          onGenerate={generate}
+        />
+      ) : null}
 
       {isLoading ? (
         <LoadingBlock label="Buscando la última propuesta..." />
       ) : isGenerating ? (
-        <CaminoDrawing variant={variant} />
-      ) : !content ? (
+        <CaminoDrawing variant={variant} stage={progressStage(progress)} />
+      ) : !content || proposalNeedsRegeneration ? (
         null
       ) : (
         <>
@@ -329,20 +677,29 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
               {CONFIDENCE[content.confidence]}
             </span>
           </div>
-          <p className={s.diagnosis}>{content.diagnosis}</p>
+          <div className={s.proposalCounts} aria-label="Estructura de la propuesta">
+            <span><b>{phases.length}</b> fases</span>
+            <span><b>{milestoneCount}</b> hitos</span>
+            <span><b>{taskCount}</b> tareas</span>
+            {trackTotals.puesta_a_punto + trackTotals.temporada + trackTotals.crecimiento > 0 ? (
+              <span>
+                <b>{trackTotals.puesta_a_punto}</b> puesta a punto · <b>{trackTotals.temporada}</b> fechas clave · <b>{trackTotals.crecimiento}</b> de crecimiento
+              </span>
+            ) : null}
+          </div>
 
           {goal ? (
             <div className={s.goal}>
               <div>
-                <span className={s.controlLabel}>Meta del camino · {goal.metric_label}</span>
+                <span className={s.controlLabel}>Objetivo propuesto</span>
+                <p className={s.goalMetric}>{goal.metric_label}</p>
                 <p className={s.goalLine}>
-                  {goal.baseline !== null ? formatAmount(goal.baseline, goal.unit, currency) : "sin punto de partida"} <span aria-hidden="true">→</span>{" "}
-                  <b>{finalLabel ?? "por definir"}</b>
+                  <span className={s.goalStep}>Ahora: {goal.baseline !== null ? formatAmount(goal.baseline, goal.unit, currency) : "sin punto de partida"}</span> <span aria-hidden="true">→</span>{" "}
+                  <b>{finalLabel ? `Meta: ${finalLabel}` : "Meta por definir"}</b>
                 </p>
-                <p className={s.goalWhy}>{goal.rationale}</p>
               </div>
               <label className={s.goalInput}>
-                <span>Ajustar la meta</span>
+                <span>Meta al final del camino</span>
                 <Input type="number" step="any" value={goalTarget} onChange={(event) => setGoalTarget(event.target.value)} placeholder="Sin cifra" disabled={isCreating} />
               </label>
             </div>
@@ -353,30 +710,176 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant 
             </p>
           ) : null}
 
+          {operations.dueTaskCount > 0 ? (
+            <section className={s.goal} aria-label="Trabajo de los primeros 14 días">
+              <div>
+                <strong>Primeros 14 días · {operations.dueTaskCount} tareas</strong>
+                <p className={s.goalWhy}>{operations.estimatedHours} h estimadas{operations.withoutEstimate ? ` · ${operations.withoutEstimate} sin estimación` : ""}</p>
+                <ol>
+                  {operations.next.map((task, index) => (
+                    <li key={`${task.title}-${index}`} className={s.goalWhy}>
+                      <b>Día {task.target_offset_days}: {task.title}</b> · {task.owner === "client" ? "cliente" : task.owner === "consultant" ? "consultor" : "equipo compartido"} · {task.effort_hours != null ? `${task.effort_hours} h` : "esfuerzo por estimar"}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+          ) : null}
+          {goal?.decision_gates?.length ? (
+            <details className={s.phaseDetails}>
+              <summary>Decisiones antes de invertir o lanzar</summary>
+              <div className={s.phaseCards}>
+                {goal.decision_gates.map((gate, index) => (
+                  <div className={s.phaseCard} key={`${gate.decision}-${index}`}>
+                    <b>{gate.decision}</b>
+                    <p>Avanzar si: {gate.proceed_when}</p>
+                    <p>Pausar si: {gate.hold_when}</p>
+                    <p>Comprobar: {gate.evidence_needed}</p>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
+
+          {hiddenMilestones > 0 ? (
+            <p className={s.hintLine}>
+              {hiddenMilestones} {hiddenMilestones === 1 ? "hito queda fuera" : "hitos quedan fuera"} del plazo elegido. Amplía la duración para incluirlos.
+            </p>
+          ) : null}
+          {replacePlan ? (
+            <PlanComparisonCard
+              currentName={replacePlan.name}
+              comparison={comparePlans(shapeOfPlan(replacePlan.phases), shapeOfProposal(phases))}
+            />
+          ) : null}
+
+          {trackTotals.puesta_a_punto + trackTotals.temporada + trackTotals.crecimiento > 0 && trackTotals.crecimiento === 0 ? (
+            <p className={s.hintLine}>
+              Falta el ciclo de crecimiento semanal o mensual.
+            </p>
+          ) : null}
+          <Tabs
+            items={proposalTabs}
+            value={activeTab}
+            onChange={setTab}
+            panels={{
+              ruta: (
+                <div className="space-y-4 pt-3">
+          {goal && previewMonthlyTargets.length ? (
+            <MonthlyRoute
+              targets={previewMonthlyTargets}
+              baseline={goal.baseline}
+              baselineLabel="ritmo de los últimos 3 meses"
+              format={(value) => formatAmount(value, goal.unit, currency)}
+              startDate={isoInDays(0)}
+              endDate={isoInDays(adjustedHorizonDays)}
+              milestones={draft.flatMap((phase) => phase.milestones.map((milestone) => ({ name: milestone.name, date: milestone.date ?? null })))}
+              goalTarget={goalNumber}
+            />
+          ) : null}
+</div>
+              ),
+              fases: (
+                <div className="space-y-4 pt-3">
           <CaminoDraftMap phases={draft} finalLabel={finalLabel} variant={variant} />
 
-          <ol className={s.phaseCards}>
-            {content.phases.map((phase, index) => (
+          <details className={s.phaseDetails}>
+            <summary>Ver contexto y evidencias por fase</summary>
+            <ol className={s.phaseCards}>
+            {phases.map((phase, index) => (
               <li key={`${phase.name}-${index}`} className={s.phaseCard}>
                 <span className={s.phaseNo}>Fase {index + 1}</span>
                 <b>{phase.name}</b>
                 {phase.rationale ? <p>{phase.rationale}</p> : null}
+                {phase.milestones.length ? (
+                  <div className={s.milestonePreviewList}>
+                    {phase.milestones.map((milestone, milestoneIndex) => (
+                      <section className={s.milestonePreview} key={`${milestone.name}-${milestoneIndex}`}>
+                        <b>{milestone.name}</b>
+                        <span className={s.milestonePreviewDate}>Hito · {displayOffsetDate(scaled(milestone.target_offset_days))}</span>
+                        {milestone.success_metric ? <p>{milestone.success_metric}</p> : null}
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
                 <EvidenceChips evidence={phase.evidence} />
               </li>
             ))}
-          </ol>
+            </ol>
+          </details>
 
-          <AiEvidence sources={content.sources} warnings={content.warnings} />
+</div>
+              ),
+              porque: (
+                <div className="space-y-4 pt-3">
+          <section className={s.contextBlock} aria-labelledby="camino-proposal-context">
+            <div className={s.contextHeading}>
+              <h4 id="camino-proposal-context">Por qué propone este camino</h4>
+              <button
+                type="button"
+                className={s.contextToggle}
+                aria-expanded={diagnosisExpanded}
+                onClick={() => setDiagnosisExpanded((expanded) => !expanded)}
+              >
+                {diagnosisExpanded ? "Mostrar menos" : "Leer análisis completo"}
+              </button>
+            </div>
+            <p className={`${s.diagnosis} ${diagnosisExpanded ? s.diagnosisExpanded : ""}`}>
+              {content.diagnosis}
+            </p>
+          </section>
+
+          {goal?.rationale ? (
+            <details className={s.phaseDetails}>
+              <summary>Por qué esta meta</summary>
+              <p>{goal.rationale}</p>
+            </details>
+          ) : null}
+
+          {proposal?.context_sources ? <ContextUsed sources={proposal.context_sources} /> : null}
+
+          <details className={s.phaseDetails}>
+            <summary>Ver {content.sources.length} fuentes y límites de la propuesta</summary>
+            <AiEvidence sources={content.sources} warnings={content.warnings} />
+          </details>
+
+</div>
+              ),
+            }}
+          />
 
           {proposal?.status === "published" ? (
             <p className={s.hintLine}>Esta propuesta ya se convirtió en un camino. Traza otra si quieres empezar de nuevo.</p>
           ) : (
-            <div className={s.actions}>
-              <Button type="button" disabled={isCreating} onClick={() => void accept()}>
-                {isCreating ? "Creando..." : "Crear este camino"}
-              </Button>
-              <span className={s.hintLine}>Nace en borrador: podrás tocar fases e hitos antes de activarlo.</span>
-            </div>
+            <>
+              <div className={s.actions}>
+                <Button type="button" disabled={isCreating || isRejecting} onClick={() => void accept()}>
+                  {isCreating ? "Creando..." : replacePlan ? "Reemplazar el camino actual" : "Crear este camino"}
+                </Button>
+                <Button type="button" variant="secondary" disabled={isCreating || isRejecting} onClick={() => setRejecting((open) => !open)}>
+                  Rechazar este camino
+                </Button>
+              </div>
+              {rejecting ? (
+                <div className={s.rejectBox}>
+                  <Textarea
+                    value={rejectReason}
+                    maxLength={500}
+                    rows={2}
+                    onChange={(event) => setRejectReason(event.target.value)}
+                    placeholder="¿Qué no encaja? (opcional) La IA lo tendrá en cuenta en la próxima propuesta."
+                  />
+                  <div className={s.actions}>
+                    <Button type="button" disabled={isRejecting} onClick={() => void reject()}>
+                      {isRejecting ? "Rechazando..." : "Confirmar rechazo"}
+                    </Button>
+                    <Button type="button" variant="secondary" disabled={isRejecting} onClick={() => setRejecting(false)}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
         </>
       )}

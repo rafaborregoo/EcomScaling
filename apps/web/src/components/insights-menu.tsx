@@ -13,7 +13,7 @@ import {
   IconChevronRight,
   Link,
   List,
-  Modal,
+  Sheet,
   Popover,
   SparklesIcon,
 } from "@/components/ui";
@@ -118,7 +118,7 @@ export function InsightsMenu() {
         >
           <Popover.Dialog
             aria-label="Lo que ve la IA"
-            className="flex max-h-[min(30rem,calc(100vh-6rem))] flex-col p-0"
+            className="flex max-h-[min(30rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col p-0"
           >
             {header}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -133,19 +133,16 @@ export function InsightsMenu() {
   return (
     <>
       {trigger(() => setIsOpen(true))}
-      <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
-        <Modal.Backdrop>
-          <Modal.Container>
-            <Modal.Dialog
-              aria-label="Lo que ve la IA"
-              className="w-full max-w-none overflow-hidden p-0"
-            >
-              {header}
-              <div className="max-h-[70svh] overflow-y-auto">{body}</div>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Sheet
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+        placement="bottom"
+        flush
+        title="Lo que ve la IA"
+        meta={count > 0 ? <span>{count} por revisar</span> : undefined}
+      >
+        {body}
+      </Sheet>
     </>
   );
 }

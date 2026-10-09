@@ -21,12 +21,18 @@ export function fmtEur(value: number, decimals = 0) {
 export function fmtCurrency(value: number | null | undefined, currencyCode: string | null | undefined, decimals = 0) {
   if (value == null || !currencyCode) return "—";
   try {
+    // `useGrouping: "always"`: en es-ES Intl no agrupa los números de cuatro
+    // cifras ("7463 €") y en la misma columna salía "19.561 €". El signo es el
+    // menos tipográfico, igual que en `fmtNum`.
     return new Intl.NumberFormat("es-ES", {
       style: "currency",
       currency: currencyCode,
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
-    }).format(value);
+      useGrouping: "always",
+    })
+      .format(value)
+      .replace(/^-/, "−");
   } catch {
     return `${fmtNum(value, decimals)} ${currencyCode}`;
   }
@@ -69,14 +75,17 @@ const RESIDUAL_EUR = 1;
  * de más.
  */
 export function moneyFlow(f: PulseFinancial, adsHint?: string): FlowRow[] {
-  const rows: FlowRow[] = [
-    { label: "Ventas netas", value: f.net_sales, kind: "total", hint: "Con IVA y envío cobrado" },
-  ];
+  const rows: FlowRow[] = [];
   const taxGap = f.net_revenue_ex_tax - f.net_sales;
+  // Sin diferencia entre ventas e ingreso sin IVA, dos filas iguales no dicen
+  // nada: se enseña una sola, que además es la base de los porcentajes.
   if (Math.abs(taxGap) >= RESIDUAL_EUR) {
-    rows.push({ label: "IVA", value: taxGap, kind: "cost" });
+    rows.push(
+      { label: "Ventas netas", value: f.net_sales, kind: "total", hint: "Con IVA y envío cobrado" },
+      { label: "IVA", value: taxGap, kind: "cost" },
+    );
   }
-  rows.push({ label: "Ingreso sin IVA", value: f.net_revenue_ex_tax, kind: "total" });
+  rows.push({ label: "Ingreso sin IVA", value: f.net_revenue_ex_tax, kind: "total", hint: "Base de los porcentajes" });
 
   const costs: FlowRow[] = [
     { label: "Producto", value: -f.cogs, kind: "cost", hint: "Coste de lo vendido" },

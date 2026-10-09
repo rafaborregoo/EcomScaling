@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageThread } from "@/components/consultant-messages";
-import { Modal } from "@/components/ui";
+import { Dialog } from "@/components/ui";
 
 /**
  * «Escribir sobre esto»: el chat consultor↔cliente en un modal, con el mensaje
@@ -23,25 +23,19 @@ export function DiscussModal({
 }) {
   if (!title || !organizationId) return null;
   return (
-    <Modal isOpen onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container size="lg">
-          <Modal.Dialog aria-label={`Conversación: ${title}`}>
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>{title}</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <MessageThread
-                organizationId={organizationId}
-                viewerIsClient={viewerIsClient}
-                initialDraft={draft}
-                className="h-[60svh] min-h-72"
-              />
-            </Modal.Body>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog
+      isOpen
+      onOpenChange={(open) => !open && onClose()}
+      size="lg"
+      eyebrow="Escribir sobre esto"
+      title={title}
+    >
+      <MessageThread
+        organizationId={organizationId}
+        viewerIsClient={viewerIsClient}
+        initialDraft={draft}
+        className="h-[min(70dvh,40rem)]"
+      />
+    </Dialog>
   );
 }

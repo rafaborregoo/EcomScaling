@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import { ChannelBadge, channelStyle, toChannel } from "@/components/marketing-channel";
-import { Badge, Button, Drawer, EmptyState, MessageIcon } from "@/components/ui";
+import { Badge, Button, EmptyState, MessageIcon, Sheet } from "@/components/ui";
 import { getMetaCallToAction, getMetaDestinationUrl, isInstagramDraft } from "./meta-ad-plan";
 import { dueText, needsViewer, PIECE_STATE, piecesOnDay, queueOrder, weekDays } from "./content-state";
 import { threadIndicator, type PieceAuthorKind } from "./piece-analysis";
@@ -386,42 +386,31 @@ export function ContentDrawer({
 }) {
   const state = draft ? PIECE_STATE[draft.status] : null;
   return (
-    <Drawer isOpen={Boolean(draft)} onOpenChange={(open) => !open && onClose()}>
-      <Drawer.Backdrop>
-        <Drawer.Content placement="right">
-          <Drawer.Dialog
-            aria-label={draft ? pieceTitle(draft) : "Pieza"}
-            className={`${s.tok} w-[min(64rem,94vw)] max-w-[94vw] sm:w-[min(64rem,94vw)]`}
-          >
-            {draft && state ? (
-              <>
-                <Drawer.Header>
-                  <div className="grid min-w-0 gap-1">
-                    <Drawer.Heading>{pieceTitle(draft)}</Drawer.Heading>
-                    <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                      <Badge tone={state.tone}>{state.label}</Badge>
-                      <ChannelBadge channel={draft.request?.channel} />
-                      <span>{pieceKind(draft)}</span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">{tools}</div>
-                  <Drawer.CloseTrigger />
-                </Drawer.Header>
-                <Drawer.Body>
-                  <div className={s.dgrid}>
-                    <PiecePreview key={draft.id} draft={draft} />
-                    <div className={s.side}>{side}</div>
-                  </div>
-                </Drawer.Body>
-                <Drawer.Footer>
-                  <div className={s.foot}>{footer}</div>
-                </Drawer.Footer>
-              </>
-            ) : null}
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
-    </Drawer>
+    <Sheet
+      isOpen={Boolean(draft)}
+      onOpenChange={(open) => !open && onClose()}
+      size="lg"
+      className={s.tok}
+      title={draft ? pieceTitle(draft) : "Pieza"}
+      meta={
+        draft && state ? (
+          <>
+            <Badge tone={state.tone}>{state.label}</Badge>
+            <ChannelBadge channel={draft.request?.channel} />
+            <span>{pieceKind(draft)}</span>
+          </>
+        ) : undefined
+      }
+      headerActions={tools}
+      footer={draft ? <div className={s.foot}>{footer}</div> : undefined}
+    >
+      {draft && state ? (
+        <div className={s.dgrid}>
+          <PiecePreview key={draft.id} draft={draft} />
+          <div className={s.side}>{side}</div>
+        </div>
+      ) : null}
+    </Sheet>
   );
 }
 

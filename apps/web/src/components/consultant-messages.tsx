@@ -8,9 +8,9 @@ import {
   Button,
   Card,
   DownloadIcon,
+  Dialog,
   ErrorBlock,
   LoadingBlock,
-  Modal,
   Textarea,
 } from "@/components/ui";
 import s from "./message-thread.module.css";
@@ -569,24 +569,15 @@ function MessageThreadModal({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <Modal isOpen={open} onOpenChange={onOpenChange}>
-      <Modal.Backdrop>
-        <Modal.Container size="lg">
-          <Modal.Dialog aria-label={`Chat con ${title}`}>
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>{title}</Modal.Heading>
-              {subtitle ? (
-                <p className="text-xs text-muted">{subtitle}</p>
-              ) : null}
-            </Modal.Header>
-            <Modal.Body>
-              {open ? <MessageThread organizationId={organizationId} /> : null}
-            </Modal.Body>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      size="lg"
+      eyebrow={subtitle ?? undefined}
+      title={title}
+    >
+      {open ? <MessageThread organizationId={organizationId} className="h-[min(70dvh,40rem)]" /> : null}
+    </Dialog>
   );
 }
 

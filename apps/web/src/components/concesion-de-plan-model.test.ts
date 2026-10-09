@@ -41,7 +41,11 @@ test("ida y vuelta: cargar un plan y guardarlo sin tocar nada da el mismo cuerpo
     ends_at: null,
   });
   const cuerpo = grantPlanBody(cargado);
-  assert.deepEqual(cuerpo, { plan_code: "consultant", store_limit: 3 });
+  assert.deepEqual(cuerpo, {
+    plan_code: "consultant",
+    store_limit: 3,
+    member_limit: null,
+  });
 });
 
 test("no conceder nada al dar de alta no manda cuerpo", () => {

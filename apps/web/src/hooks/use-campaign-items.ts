@@ -19,12 +19,22 @@ export type CampaignItem = {
   description: string | null;
   channel: string;
   status: "planned" | "in_progress" | "published" | "completed" | "cancelled";
+  created_at?: string;
   starts_at: string;
   ends_at: string | null;
   marketing_draft_id: string | null;
   /** Campaña real del proveedor, para poder leer lo que atribuyó. */
   meta_campaign_id: string | null;
   klaviyo_campaign_id: string | null;
+  /** Quién la creó: staff (o el cliente sin consultor), el cliente con consultor, o la IA (A05). */
+  origin?: "staff" | "client" | "ai";
+  /** Revisión del consultor sobre lo que crea un cliente con consultor. */
+  review_status?: "pending" | "changes_requested" | "reviewed" | null;
+  review_requested_at?: string | null;
+  reviewed_at?: string | null;
+  is_visible_to_client?: boolean;
+  store_id?: string | null;
+  metadata?: { a05_proposal?: { initiative?: string; output_id?: string; campaign_index?: number; action_index?: number; hierarchy?: Record<string, unknown> | null } } | null;
 };
 
 export type CampaignResources = {
@@ -32,8 +42,11 @@ export type CampaignResources = {
   klaviyoCampaigns: Array<{ id: string; name: string }>;
 };
 
-export function useCampaignItems(organizationId: string) {
+export type CampaignAgenda = { has_consultant: boolean; is_staff: boolean };
+
+export function useCampaignItems(organizationId: string, connectionId?: string | null) {
   const [items, setItems] = useState<CampaignItem[]>([]);
+  const [agenda, setAgenda] = useState<CampaignAgenda | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const reload = useCallback(async () => {
@@ -45,23 +58,24 @@ export function useCampaignItems(organizationId: string) {
     setIsLoading(true);
     try {
       const response = await apiFetch(
-        `/v1/organizations/${organizationId}/campaign-planning`,
+        `/v1/organizations/${organizationId}/campaign-planning${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`,
       );
       if (!response.ok) return;
-      const payload = (await response.json()) as { items?: CampaignItem[] };
+      const payload = (await response.json()) as { items?: CampaignItem[]; agenda?: CampaignAgenda };
       setItems(payload.items ?? []);
+      setAgenda(payload.agenda ?? null);
     } catch {
       // El calendario es contexto: si no carga, Marketing sigue funcionando.
     } finally {
       setIsLoading(false);
     }
-  }, [organizationId]);
+  }, [organizationId, connectionId]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { items, isLoading, reload };
+  return { items, agenda, isLoading, reload };
 }
 
 /**

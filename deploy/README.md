@@ -11,7 +11,7 @@ fallidos y ningun job arrancaba). El build de api/worker se hace en el propio VP
 vive en el crontab del sistema y dentro del worker.
 
 ```
-bash ops/vps/deploy.sh  ->  verificacion en local  ->  rsync a /opt/ecomscaling/src  ->  build en el VPS  ->  up -d
+bash ops/vps/deploy.sh  ->  verificacion en local  ->  rsync a /opt/e-nora/src  ->  build en el VPS  ->  up -d
 ```
 
 ---
@@ -21,14 +21,14 @@ bash ops/vps/deploy.sh  ->  verificacion en local  ->  rsync a /opt/ecomscaling/
 ### 1. Crontab del sistema (usuario `deploy`, reloj del VPS en UTC)
 
 `crontab -l` en el VPS; fuente de verdad versionada en
-[../ops/vps/ecomscaling.crontab](../ops/vps/ecomscaling.crontab), que `deploy.sh` reinstala en cada
-despliegue. Cada linea llama a `/opt/ecomscaling/run-worker-job.sh <job>`, que toma un `flock` por
+[../ops/vps/e-nora.crontab](../ops/vps/e-nora.crontab), que `deploy.sh` reinstala en cada
+despliegue. Cada linea llama a `/opt/e-nora/run-worker-job.sh <job>`, que toma un `flock` por
 job, lanza `docker compose run --rm --no-deps worker node apps/worker/dist/<job>-once.js` y escribe
-en `/opt/ecomscaling/logs/<job>.log`. **24 jobs**:
+en `/opt/e-nora/logs/<job>.log`. **22 jobs**:
 
 | Bloque | Jobs | Cuando (UTC) |
 |---|---|---|
-| Integraciones y mantenimiento | `meta-reconcile`, `klaviyo-reconcile`, `purge-expired-deletions`, `ai-pricing-sync` (tarifa de modelos desde LiteLLM) | 0:17 / cada 6 h / 3:07 / 0:40 |
+| Integraciones y mantenimiento | `purge-expired-deletions`, `ai-pricing-sync` (tarifa de modelos desde LiteLLM) | 3:07 / 0:40 |
 | Cadena nocturna F3 -> F7 | `nightly-chain`: los 57 motores de diagnostico, playbooks y recomendacion, en orden y en serie ([nightly-chain-once.ts](../apps/worker/src/nightly-chain-once.ts)) | 1:00 |
 | Benchmarks por dimension | `conversion-cro`, `offer-pricing`, `retention-crm`, `unit-economics`, `operations-cx`, `product-inventory`, `scalability` | 3:35 -> 4:50 |
 | Lectura transversal | `anomalies-red-flags`, `benchmark-confidence` | 5:05, 5:20 |
@@ -44,18 +44,23 @@ que no deben coincidir dos. El `flock` cubre lo otro (que un job se solape consi
 - **Lista blanca de jobs**: uno que no este ahi sale con codigo 64 sin ejecutar nada, aunque lo
   pongas en el crontab. Job nuevo = las dos cosas.
 - **Invoca compose con los dos ficheros** (`prod` + `build`), y aborta con codigo 69 si falta la
-  imagen `ecomscaling-worker:local` en vez de ponerse a construirla en plena madrugada. Sin el
+  imagen `e-nora-worker:local` en vez de ponerse a construirla en plena madrugada. Sin el
   override, compose resuelve el worker desde `docker-compose.prod.yml`, o sea
   `ghcr.io/...:${IMAGE_TAG}`. Eso ya mordio dos veces el 2026-09-24: con un `IMAGE_TAG` que existia
   en GHCR, **los 22 jobs corrieron durante dias codigo 5 commits mas viejo** que el de los
   contenedores largos, sin un solo error; y al corregir `IMAGE_TAG` al SHA real, que no esta
   publicado en GHCR, los 22 dejaron de arrancar (`status=1`, "not found").
-### 2. Dentro del worker (BullMQ repeatable, zona Europe/Madrid)
+### 2. Dentro del worker (BullMQ repeatable)
 
 Los registra `apps/worker/src/repeatable-jobs.ts` al arrancar el contenedor; no dependen del cron
-del sistema. Son 6 y estan los 6 en Redis: `shopify-reconcile` (2:00), `fathom-webhook-processing`
-(cada minuto), `webhook-retention` (3:30), `ai-context-retention` (3:45), `ai-diagnostics-tick`
-(6:00 y 15:00), `instagram-image-queue` (cada minuto).
+del sistema y se ejecutan igual en local. Son 8: `meta-reconcile` (00:17 UTC),
+`klaviyo-reconcile` (cada 6 horas UTC), `shopify-reconcile` (2:00 Madrid),
+`fathom-webhook-processing` (cada minuto), `webhook-retention` (3:30), `ai-context-retention`
+(3:45), `ai-diagnostics-tick` (6:00 y 15:00) e `instagram-image-queue` (cada minuto).
+
+Meta y Klaviyo vuelven a intentar automáticamente los fallos temporales. Si el error indica que
+caducó el token o faltan permisos, se pausa ese intento hasta que alguien reconecte la cuenta; el
+panel de Integraciones muestra ese estado para evitar reintentos ruidosos que no pueden resolverlo.
 
 ### 3. La verificacion (lo que era `ci.yml`)
 
@@ -103,7 +108,7 @@ resuelto: estan en la tabla del punto 1 desde el 2026-09-24.
 
 ### 5. `GIT_SHA` / `IMAGE_TAG`: que etiqueta que
 
-`IMAGE_TAG` (en `/opt/ecomscaling/.env`) **ya no elige ninguna imagen**: desde que se construye en
+`IMAGE_TAG` (en `/opt/e-nora/.env`) **ya no elige ninguna imagen**: desde que se construye en
 el VPS, tanto los contenedores largos como los jobs del cron usan `:local` via
 `docker-compose.build.yml`. Su unico trabajo es alimentar `GIT_SHA` ->
 `agent_runs.deployment_version`, y precisamente por eso tiene que ser cierto: si no, la
@@ -116,14 +121,14 @@ No conviene dejarlo apuntando a una etiqueta que **si** exista en GHCR: cualquie
 invoque sin el override bajaria esa imagen y correria codigo viejo en silencio, que es exactamente
 como el cron estuvo desactualizado sin que se notara.
 
-Para comprobar que lo desplegado es de verdad un commit —`/opt/ecomscaling/src` no es un clon de
+Para comprobar que lo desplegado es de verdad un commit —`/opt/e-nora/src` no es un clon de
 git, no se puede preguntar alli— se comparan los blobs. Ojo: la copia del VPS tiene CRLF, hay que
 normalizar o todo parece distinto:
 
 ```bash
 git ls-tree -r HEAD --format='%(objectname) %(path)' -- apps/api/src apps/worker/src packages \
   | sort > /tmp/head.txt
-ssh ecom 'cd /opt/ecomscaling/src && find apps/api/src apps/worker/src packages -type f \
+ssh ecom 'cd /opt/e-nora/src && find apps/api/src apps/worker/src packages -type f \
   ! -path "*/node_modules/*" -print0 | xargs -0 -P4 -n1 sh -c \
   '"'"'printf "%s %s\n" "$(sed "s/\r$//" "$1" | git hash-object --stdin)" "$1"'"'"' _' \
   | sort | diff /tmp/head.txt -
@@ -136,21 +141,21 @@ bash ops/vps/deploy.sh          # desde la raiz del repo, en local
 ```
 
 [../ops/vps/deploy.sh](../ops/vps/deploy.sh) hace los 6 pasos en orden: **verificacion** (punto 3),
-rsync del codigo a `/opt/ecomscaling/src`, `IMAGE_TAG` con el SHA de `HEAD`, sincronizar `ops/vps/`
+rsync del codigo a `/opt/e-nora/src`, `IMAGE_TAG` con el SHA de `HEAD`, sincronizar `ops/vps/`
 + reinstalar el crontab, `build api` y `build worker` **en serie** (1.6 GB no aguantan dos `tsc` a
 la vez) y `up -d`.
 
 Aborta en dos sitios: si hay cambios sin commitear (`ECOM_ALLOW_DIRTY=1` lo fuerza y etiqueta el
 SHA como `<sha>-dirty`) y si una comprobacion sale roja (`ECOM_SKIP_CHECKS=1`).
 
-`/opt/ecomscaling/src` es una **copia del arbol, no un clon de git** (no tiene `.git`), y llega con
+`/opt/e-nora/src` es una **copia del arbol, no un clon de git** (no tiene `.git`), y llega con
 CRLF: para los `.ts` da igual, pero tenlo en cuenta al comparar hashes (punto 5).
 
 A mano, si hace falta desviarse del script:
 
 ```bash
 ssh ecom
-cd /opt/ecomscaling
+cd /opt/e-nora
 docker compose -f docker-compose.prod.yml -f docker-compose.build.yml up -d --build
 ```
 
@@ -165,8 +170,8 @@ scp deploy/bootstrap.sh deploy/docker-compose.prod.yml deploy/Caddyfile deploy/.
 ssh ecom 'sudo bash /tmp/bootstrap.sh'
 ```
 
-Instala Docker, crea `/opt/ecomscaling` y abre 80/443. Las variables reales van en
-`/opt/ecomscaling/.env.production` (minimo: `WEB_ORIGIN`, `SUPABASE_URL`,
+Instala Docker, crea `/opt/e-nora` y abre 80/443. Las variables reales van en
+`/opt/e-nora/.env.production` (minimo: `WEB_ORIGIN`, `SUPABASE_URL`,
 `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `SHOPIFY_API_KEY`,
 `SHOPIFY_API_SECRET`, `INTERNAL_API_SECRET`).
 
@@ -181,7 +186,7 @@ Instala Docker, crea `/opt/ecomscaling` y abre 80/443. Las variables reales van 
 
 ```bash
 ssh ecom
-cd /opt/ecomscaling
+cd /opt/e-nora
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f api
 docker compose -f docker-compose.prod.yml logs -f worker

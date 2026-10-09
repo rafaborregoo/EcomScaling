@@ -18,6 +18,7 @@ export function Button({
   disabled,
   onClick,
   type = "button",
+  form,
   title,
   children,
   "aria-expanded": ariaExpanded,
@@ -31,6 +32,9 @@ export function Button({
   disabled?: boolean;
   onClick?: () => void;
   type?: "button" | "submit" | "reset";
+  // Id del <form> al que pertenece un `type="submit"` que vive fuera de el:
+  // el pie de un Dialog envia el formulario del cuerpo sin anidarlo.
+  form?: string;
   title?: string;
   children?: ReactNode;
   "aria-expanded"?: boolean;
@@ -43,6 +47,7 @@ export function Button({
   const button = (
     <HeroButton
       type={type}
+      form={form}
       variant={variant}
       size={size}
       isDisabled={disabled}

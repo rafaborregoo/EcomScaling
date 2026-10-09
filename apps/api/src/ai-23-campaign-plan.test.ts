@@ -15,6 +15,8 @@ import test from "node:test";
 import {
   campaignPlanOutputSchema,
   CAMPAIGN_PLAN_HORIZON_DAYS,
+  currentCampaignPlanOutputSchema,
+  flattenCampaignPlanActions,
 } from "@e-nora/ai";
 import { campaignPlanToCalendarItems } from "./campaign-planning.js";
 
@@ -90,6 +92,58 @@ test("el contrato exige hipotesis y criterio de exito en cada campana", () => {
   );
 });
 
+test("las propuestas nuevas requieren fuente y evidencia por iniciativa; permite no proponer sin contexto", () => {
+  const currentPlan = {
+    ...plan,
+    planning_window: {
+      start_date: "2026-10-07",
+      end_date: "2026-11-05",
+      timezone: "Europe/Madrid",
+    },
+    campaigns: [],
+    initiatives: [{
+      name: "Preparar temporada",
+      objective: "Captar demanda temprana",
+      audience: "Clientes de la tienda",
+      offer: { status: "none" as const, description: "Sin oferta", evidence: [] },
+      start_date: "2026-10-07",
+      end_date: "2026-11-05",
+      hypothesis: "La guía puede iniciar la preparación.",
+      evidence: [{ label: "Informe Shopify", value: "ventas estacionales", period: "2025", source: "shopify" as const }],
+      success_metric: "Ingresos de la campaña",
+      klaviyo: {
+        campaigns: [{
+          name: "Guía de temporada",
+          objective: "Presentar la guía",
+          paths: [{
+            name: "Clientes",
+            audience: "Clientes activos",
+            messages: [{ title: "Guía de preparación", scheduled_date: "2026-10-10", purpose: "Dar ideas", creative_brief: "CTA a la guía; sin oferta confirmada." }],
+          }],
+        }],
+        flows: [],
+      },
+      meta_campaigns: [],
+    }],
+  };
+  assert.equal(currentCampaignPlanOutputSchema.safeParse(currentPlan).success, true);
+
+  const withoutCampaignEvidence = structuredClone(currentPlan);
+  (withoutCampaignEvidence.initiatives[0] as Record<string, any>).evidence = [];
+  assert.equal(currentCampaignPlanOutputSchema.safeParse(withoutCampaignEvidence).success, false);
+
+  const withoutPlanSource = { ...currentPlan, sources: [] };
+  assert.equal(currentCampaignPlanOutputSchema.safeParse(withoutPlanSource).success, false);
+
+  const noContextPlan = {
+    ...currentPlan,
+    initiatives: [],
+    sources: [],
+    warnings: ["No hay evidencia estacional o comercial suficiente."],
+  };
+  assert.equal(currentCampaignPlanOutputSchema.safeParse(noContextPlan).success, true);
+});
+
 test("una campana no puede durar cero dias ni arrancar en negativo", () => {
   const duracionCero = structuredClone(plan) as Record<string, any>;
   duracionCero.campaigns[0].duration_days = 0;
@@ -121,9 +175,9 @@ test("las fechas se anclan al momento de aprobar, no al de generar", () => {
   );
 
   assert.equal(items.length, 3);
-  // 5 de septiembre + 3 dias = 8 de septiembre; +14 de duracion = 22.
+  // 5 de septiembre + 3 dias = 8 de septiembre; es una accion de un dia.
   assert.equal(items[0]?.startsAt.slice(0, 10), "2026-09-08");
-  assert.equal(items[0]?.endsAt.slice(0, 10), "2026-09-22");
+  assert.equal(items[0]?.endsAt.slice(0, 10), "2026-09-09");
 
   // Aprobar una semana mas tarde corre TODO el plan esa misma semana.
   const unaSemanaDespues = campaignPlanToCalendarItems(
@@ -131,7 +185,7 @@ test("las fechas se anclan al momento de aprobar, no al de generar", () => {
     aprobadoEl + 7 * 86_400_000,
   );
   assert.equal(unaSemanaDespues[0]?.startsAt.slice(0, 10), "2026-09-15");
-  assert.equal(unaSemanaDespues[0]?.endsAt.slice(0, 10), "2026-09-29");
+  assert.equal(unaSemanaDespues[0]?.endsAt.slice(0, 10), "2026-09-16");
 });
 
 test("descartar campanas no reindexa: se crea la que el consultor eligio", () => {
@@ -178,6 +232,102 @@ test("la hipotesis y el criterio viajan a la descripcion del item", () => {
   assert.ok(description.includes("Audiencia:"));
 });
 
-test("los dos horizontes del plan son un mes y un trimestre", () => {
-  assert.deepEqual(CAMPAIGN_PLAN_HORIZON_DAYS, { month: 30, quarter: 90 });
+test("los horizontes incluyen semanas, mes, trimestre y rango personalizado", () => {
+  assert.deepEqual(CAMPAIGN_PLAN_HORIZON_DAYS, {
+    week_1: 7,
+    week_2: 14,
+    week_3: 21,
+    month: 30,
+    quarter: 90,
+    custom: 366,
+  });
+});
+
+test("una iniciativa aplana mensajes, preparacion de flow y anuncios con jerarquia y fechas propias", () => {
+  const canonicalPlan = campaignPlanOutputSchema.parse({
+    plan_name: "Preparar invierno",
+    diagnosis: "Plan de temporada con oferta pendiente de confirmar.",
+    planning_window: {
+      start_date: "2026-10-01",
+      end_date: "2026-10-31",
+      timezone: "Europe/Madrid",
+    },
+    campaigns: [],
+    initiatives: [{
+      name: "Preparar Navidad para la tienda de nieve",
+      objective: "Activar demanda temprana con margen protegido",
+      audience: "Clientes y personas interesadas en nieve",
+      offer: { status: "proposal", description: "Valorar una oferta de temporada", evidence: [] },
+      start_date: "2026-10-01",
+      end_date: "2026-10-31",
+      hypothesis: "La preparacion anticipada puede captar compradores de invierno.",
+      evidence: [{ label: "Ventas octubre", value: "sin datos concluyentes", period: "2025-10", source: "shopify" }],
+      success_metric: "Ingresos y margen por campaña",
+      klaviyo: {
+        campaigns: [{
+          name: "Lanzamiento de temporada",
+          objective: "Presentar equipamiento de invierno",
+          paths: [{
+            name: "Clientes activos",
+            audience: "Clientes con actividad reciente",
+            messages: [
+              { title: "Guia de preparacion", scheduled_date: "2026-10-05", purpose: "Dar ideas de preparacion", creative_brief: "Contenido util sin descuento confirmado." },
+              { title: "Selección de equipamiento", scheduled_date: "2026-10-12", scheduled_time: "11:30", purpose: "Mostrar categorias relevantes", creative_brief: "Presentar productos con disponibilidad comprobada." },
+            ],
+          }],
+        }],
+        flows: [{
+          name: "Bienvenida de invierno",
+          trigger: "Suscripcion nueva",
+          preparation_date: "2026-10-03",
+          audience: "Nuevas personas suscritas",
+          steps: [
+            { order: 1, title: "Bienvenida", wait_days: 0, purpose: "Orientar", creative_brief: "Guia breve." },
+            { order: 2, title: "Inspiracion", wait_days: 3, purpose: "Ayudar a elegir", creative_brief: "Selección por actividad." },
+          ],
+        }],
+      },
+      meta_campaigns: [{
+        name: "Preparacion de temporada",
+        objective: "Ventas",
+        start_date: "2026-10-01",
+        end_date: "2026-10-31",
+        budget_guidance: "Definir tras revisar margen y resultados",
+        ad_sets: [{
+          name: "Interes en montaña",
+          audience: "Personas con interes en actividades de montaña",
+          placements: ["Reels", "Stories"],
+          ads: [
+            { name: "Video de preparacion", format: "video_vertical", scheduled_date: "2026-10-08", scheduled_time: "17:45", purpose: "Mostrar preparación", creative_brief: "Video vertical de equipo y uso real." },
+            { name: "Carrusel de capas", format: "carousel", scheduled_date: "2026-10-20", purpose: "Explicar capas", creative_brief: "Carrusel educativo por capas." },
+          ],
+        }],
+      }],
+    }],
+    sources: [{ kind: "metric", reference: "shopify_sales_monthly", period: "2025-10" }],
+    confidence: "medium",
+    warnings: [],
+  });
+
+  const actions = flattenCampaignPlanActions(canonicalPlan, Date.parse("2026-10-01T00:00:00Z"));
+  assert.deepEqual(actions.map((action) => action.action_type), [
+    "klaviyo_campaign_message",
+    "klaviyo_campaign_message",
+    "klaviyo_flow_preparation",
+    "meta_ad_creative",
+    "meta_ad_creative",
+  ]);
+  assert.deepEqual(actions.map((action) => action.scheduled_date), [
+    "2026-10-05", "2026-10-12", "2026-10-03", "2026-10-08", "2026-10-20",
+  ]);
+  assert.equal(actions[2]?.title, "Preparar flow: Bienvenida de invierno");
+  assert.equal((actions[3]?.hierarchy as { ad_set_name?: string }).ad_set_name, "Interes en montaña");
+  assert.equal((actions[3]?.hierarchy as { creative_format?: string }).creative_format, "video_vertical");
+
+  const calendarItems = campaignPlanToCalendarItems(canonicalPlan, Date.parse("2026-10-01T00:00:00Z"), [1, 3]);
+  assert.deepEqual(calendarItems.map((item) => item.index), [1, 3]);
+  assert.equal(calendarItems[0]?.startsAt, "2026-10-12T09:30:00.000Z");
+  assert.equal(calendarItems[1]?.startsAt, "2026-10-08T15:45:00.000Z");
+  assert.ok(calendarItems[0]?.description.includes("Oferta (proposal):"));
+  assert.ok(calendarItems[1]?.description.includes("Conjunto de anuncios: Interes en montaña"));
 });

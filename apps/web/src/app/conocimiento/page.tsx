@@ -20,12 +20,12 @@ import {
   Button,
   Banner,
   Card,
+  Dialog,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   List,
-  Modal,
   Select,
   Tabs,
   Textarea,
@@ -554,82 +554,51 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }}
       />
 
-      <Modal isOpen={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
-        <Modal.Backdrop>
-          <Modal.Container size="lg">
-            <Modal.Dialog aria-label="Escribir documento a mano">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>Escribir documento a mano</Modal.Heading>
-              </Modal.Header>
-              <form onSubmit={submitDocument}>
-                <Modal.Body>
-                  <div className="space-y-4">
-                    <Field label="Título">
-                      <Input
-                        value={title}
-                        onChange={(event) => setTitle(event.target.value)}
-                        placeholder="Ej: Playbook de reposición de stock"
-                      />
-                    </Field>
-                    <Field label="Contenido">
-                      <Textarea
-                        className="mt-1 h-40"
-                        value={content}
-                        onChange={(event) => setContent(event.target.value)}
-                        placeholder="Pega aquí la metodología, guía o proceso..."
-                      />
-                    </Field>
-                    {canMarkInternal ? (
-                      <Field label="Quién puede leerlo">
-                        <Select
-                          aria-label="Quién puede leerlo"
-                          className="mt-2"
-                          value={audience}
-                          onChange={(value) =>
-                            setAudience(
-                              value as "client_visible" | "consultant_only",
-                            )
-                          }
-                          options={[
-                            {
-                              value: "client_visible",
-                              label: "Cliente y agentes",
-                            },
-                            {
-                              value: "consultant_only",
-                              label: "Solo consultores",
-                            },
-                          ]}
-                        />
-                        {audience === "consultant_only" ? (
-                          <p className="mt-1 text-xs text-muted">
-                            No aparece en el portal del cliente ni en las
-                            salidas de los agentes automáticos. El Consultor
-                            IA sí lo usa cuando pregunta un consultor.
-                          </p>
-                        ) : null}
-                      </Field>
-                    ) : null}
-                  </div>
-                </Modal.Body>
-                <Modal.Footer>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setIsAddDocOpen(false)}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={isSaving}>
-                    {isSaving ? "Guardando..." : "Ingerir texto"}
-                  </Button>
-                </Modal.Footer>
-              </form>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog
+        isOpen={isAddDocOpen}
+        onOpenChange={setIsAddDocOpen}
+        title="Añadir documento"
+        isBusy={isSaving}
+        isDirty={Boolean(title.trim() || content.trim())}
+        formId="add-document-form"
+        primary={{ label: "Guardar en conocimiento", busyLabel: "Guardando…" }}
+      >
+        <form id="add-document-form" className="space-y-4" onSubmit={submitDocument}>
+          <Field label="Título">
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Ej: Playbook de reposición de stock"
+            />
+          </Field>
+          <Field label="Contenido">
+            <Textarea
+              className="h-40"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="Pega aquí la metodología, guía o proceso..."
+            />
+          </Field>
+          {canMarkInternal ? (
+            <Field label="Quién puede leerlo">
+              <Select
+                aria-label="Quién puede leerlo"
+                value={audience}
+                onChange={(value) => setAudience(value as "client_visible" | "consultant_only")}
+                options={[
+                  { value: "client_visible", label: "Cliente y agentes" },
+                  { value: "consultant_only", label: "Solo consultores" },
+                ]}
+              />
+            </Field>
+          ) : null}
+          {canMarkInternal && audience === "consultant_only" ? (
+            <Banner tone="warn">
+              No aparece en el portal del cliente ni en las salidas de los agentes automáticos. El Consultor IA sí lo usa cuando pregunta un consultor.
+            </Banner>
+          ) : null}
+        </form>
+      </Dialog>
     </div>
   );
 }

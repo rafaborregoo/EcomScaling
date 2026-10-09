@@ -21,6 +21,7 @@ import {
   assertConnectionIngestible,
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
+import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
 import { syncKlaviyoMarketingBlocks } from "./klaviyo-sync-marketing.js";
 import { readKlaviyoFlowDefinitionSummary, summarizeKlaviyoFlowDefinition } from "./klaviyo-flow-definition-summary.js";
 import {
@@ -36,6 +37,7 @@ import {
 type SyncMode = "initial" | "incremental";
 
 export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 6;
+export const KLAVIYO_SYNC_STALE_AFTER_MS = 60 * 60 * 1000;
 
 // Ventana de clicks que se re-pide en cada pasada. Lo anterior ya esta
 // guardado: cada click es un evento y traerlo todo crece sin limite.
@@ -1862,9 +1864,9 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
   const client = serviceClient(env);
   const { data: connections, error } = await client
     .from("integration_connections")
-    .select("id, organization_id")
+    .select("id, organization_id, status, last_error_message")
     .eq("provider", "klaviyo")
-    .eq("status", "connected")
+    .in("status", ["connected", "error"])
     .order("created_at", { ascending: true });
   if (error)
     throw new Error(`klaviyo_connections_list_failed:${error.message}`);
@@ -1875,6 +1877,55 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
     .slice(0, 10);
   const results = await mapWithConcurrency(connections ?? [], 2, async (connection) => {
     try {
+      // Cierra las pasadas que sobrevivieron como `running` a la muerte o
+      // reinicio del proceso. Solo toca runs con más de una hora: una pasada
+      // activa conserva su fila y no se marca como fallida.
+      const staleBefore = new Date(
+        Date.now() - KLAVIYO_SYNC_STALE_AFTER_MS,
+      ).toISOString();
+      const { data: staleRuns, error: staleRunsError } = await client
+        .from("integration_sync_runs")
+        .select("id")
+        .eq("connection_id", connection.id)
+        .eq("provider", "klaviyo")
+        .eq("status", "running")
+        .lt("started_at", staleBefore);
+      if (staleRunsError) {
+        throw new Error(`klaviyo_stale_runs_load_failed:${staleRunsError.message}`);
+      }
+      const staleRunIds = (staleRuns ?? []).map((run) => run.id);
+      if (staleRunIds.length > 0) {
+        const recoveredAt = new Date().toISOString();
+        const { error: recoverError } = await client
+          .from("integration_sync_runs")
+          .update({
+            status: "failed",
+            records_failed: 1,
+            error_message: "klaviyo_sync_stale_recovered: el worker anterior no terminó la pasada.",
+            finished_at: recoveredAt,
+          })
+          .in("id", staleRunIds)
+          .eq("status", "running");
+        if (recoverError) {
+          throw new Error(`klaviyo_stale_runs_recovery_failed:${recoverError.message}`);
+        }
+        console.warn("klaviyo_stale_runs_recovered", {
+          connection_id: connection.id,
+          count: staleRunIds.length,
+        });
+      }
+
+      if (
+        connection.status === "error" &&
+        requiresIntegrationReauthorization(connection.last_error_message)
+      ) {
+        return {
+          connectionId: connection.id,
+          status: "skipped",
+          detail: "reauthorization_required",
+        } as const;
+      }
+
       await runKlaviyoSync(env, connection.id, "incremental");
       const { data: account } = await client
         .from("klaviyo_accounts")

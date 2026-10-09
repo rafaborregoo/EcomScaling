@@ -261,7 +261,7 @@ function RouteCardView({ card, openLabel, onOpen }: { card: RouteCard; openLabel
                     {ratio(plan.review?.expected ?? null) !== null ? <b style={{ left: `${ratio(plan.review!.expected)! * 100}%` }} /> : null}
                   </div>
                 ) : (
-                  <p className={s.meta}>Se mide con la primera revisión semanal</p>
+                  <p className={s.meta}>Se mide con la primera revisión periódica</p>
                 )}
               </>
             ) : (

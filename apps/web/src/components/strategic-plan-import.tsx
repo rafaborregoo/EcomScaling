@@ -4,10 +4,12 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
-  Button,
+  Accordion,
+  Banner,
   ButtonLink,
+  Dialog,
   ErrorBlock,
-  Modal,
+  Metric,
   UploadButton,
   toast,
 } from "@/components/ui";
@@ -127,98 +129,75 @@ export function StrategicPlanImport({
       {error && !open ? (
         <p className="mt-2 text-sm text-danger">{error}</p>
       ) : null}
-      <Modal
+      <Dialog
         isOpen={open}
         onOpenChange={(nextOpen) => {
           if (!nextOpen && !saving) setOpen(false);
         }}
+        size="lg"
+        title="Revisar camino importado"
+        isBusy={saving}
+        primary={{
+          label: "Crear camino",
+          busyLabel: "Importando…",
+          disabled: !preview?.ok,
+          onClick: () => void importPlan(),
+        }}
       >
-        <Modal.Backdrop isDismissable={!saving}>
-          <Modal.Container size="lg">
-            <Modal.Dialog aria-label="Revisar importación de Mi Camino">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>Revisar camino importado</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <div className="space-y-4">
-                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                  {preview?.fileName ? (
-                    <p className="text-sm text-muted">{preview.fileName}</p>
-                  ) : null}
-                  {preview?.ok && preview.data ? (
-                    <>
-                      <div>
-                        <p className="text-lg font-semibold">
-                          {preview.data.name}
-                        </p>
-                        <p className="text-sm text-muted">
-                          {preview.counts.phases} fases ·{" "}
-                          {preview.counts.milestones} hitos ·{" "}
-                          {preview.counts.tasks} tareas
-                        </p>
-                      </div>
-                      <ul className="space-y-3 text-sm">
-                        {preview.data.phases.map((phase) => (
-                          <li key={phase.name}>
-                            <p className="font-semibold">{phase.name}</p>
-                            <ul className="ml-4 mt-1 list-disc space-y-1 text-muted">
-                              {phase.milestones.map((milestone) => (
-                                <li key={milestone.name}>
-                                  {milestone.name}
-                                  {milestone.tasks.length > 0
-                                    ? ` · ${milestone.tasks.length} tareas`
-                                    : ""}
-                                </li>
-                              ))}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                      {preview.warnings.length > 0 ? (
-                        <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-                          {preview.warnings.map((warning) => (
-                            <p key={`${warning.line}-${warning.message}`}>
-                              {warning.message}
-                            </p>
-                          ))}
-                        </div>
-                      ) : null}
-                    </>
-                  ) : (
-                    <ErrorBlock>
-                      <ul className="space-y-1">
-                        {(preview?.errors ?? []).map((issue) => (
-                          <li key={`${issue.line}-${issue.message}`}>
-                            Línea {issue.line}: {issue.message}
-                          </li>
-                        ))}
-                      </ul>
-                    </ErrorBlock>
-                  )}
-                </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={saving}
-                  onClick={() => setOpen(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  disabled={saving || !preview?.ok}
-                  onClick={() => void importPlan()}
-                >
-                  {saving ? "Importando..." : "Crear camino"}
-                </Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        {preview?.ok && preview.data ? (
+          <>
+            <div>
+              {preview.fileName ? (
+                <p className="text-xs text-muted">{preview.fileName}</p>
+              ) : null}
+              <p className="text-sm font-medium text-ink">{preview.data.name}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Metric size="sm" label="Fases" value={preview.counts.phases} />
+              <Metric size="sm" label="Hitos" value={preview.counts.milestones} />
+              <Metric size="sm" label="Tareas" value={preview.counts.tasks} />
+            </div>
+            <Accordion
+              items={preview.data.phases.map((phase) => ({
+                id: phase.name,
+                title: phase.name,
+                content: (
+                  <ul className="list-disc space-y-1 pl-4 text-muted">
+                    {phase.milestones.map((milestone) => (
+                      <li key={milestone.name}>
+                        {milestone.name}
+                        {milestone.tasks.length > 0
+                          ? ` · ${milestone.tasks.length} tareas`
+                          : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              }))}
+            />
+            {preview.warnings.length > 0 ? (
+              <Banner tone="warn">
+                {preview.warnings.map((warning) => (
+                  <span key={`${warning.line}-${warning.message}`} className="block">
+                    {warning.message}
+                  </span>
+                ))}
+              </Banner>
+            ) : null}
+          </>
+        ) : (
+          <ErrorBlock>
+            <ul className="space-y-1">
+              {(preview?.errors ?? []).map((issue) => (
+                <li key={`${issue.line}-${issue.message}`}>
+                  Línea {issue.line}: {issue.message}
+                </li>
+              ))}
+            </ul>
+          </ErrorBlock>
+        )}
+      </Dialog>
     </>
   );
 }

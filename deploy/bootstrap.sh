@@ -4,7 +4,7 @@
 #   ssh deploy@194.164.161.151
 #   sudo bash /tmp/bootstrap.sh
 #
-# Hace: backup + borra la app NORA, instala Docker, crea /opt/ecomscaling.
+# Hace: backup + borra la app NORA, instala Docker, crea /opt/e-nora.
 set -uo pipefail
 TS=$(date +%Y%m%d-%H%M%S)
 
@@ -52,14 +52,14 @@ usermod -aG docker deploy
 docker --version
 docker compose version
 
-echo "############ 3/4  /opt/ecomscaling ############"
-install -d -o deploy -g deploy /opt/ecomscaling
+echo "############ 3/4  /opt/e-nora ############"
+install -d -o deploy -g deploy /opt/e-nora
 for f in docker-compose.prod.yml Caddyfile .env.production.example; do
-  [ -f "/tmp/$f" ] && install -o deploy -g deploy -m 0644 "/tmp/$f" "/opt/ecomscaling/$f"
+  [ -f "/tmp/$f" ] && install -o deploy -g deploy -m 0644 "/tmp/$f" "/opt/e-nora/$f"
 done
-if [ ! -f /opt/ecomscaling/.env.production ]; then
-  install -o deploy -g deploy -m 0600 /opt/ecomscaling/.env.production.example /opt/ecomscaling/.env.production
-  echo "   -> creado /opt/ecomscaling/.env.production (RELLENA los valores reales)"
+if [ ! -f /opt/e-nora/.env.production ]; then
+  install -o deploy -g deploy -m 0600 /opt/e-nora/.env.production.example /opt/e-nora/.env.production
+  echo "   -> creado /opt/e-nora/.env.production (RELLENA los valores reales)"
 fi
 
 echo "############ 4/4  FIREWALL ############"
@@ -74,7 +74,7 @@ fi
 
 echo
 echo "LISTO. Siguiente:"
-echo "  1) nano /opt/ecomscaling/.env.production   (valores reales de Supabase, Shopify, WEB_ORIGIN)"
+echo "  1) nano /opt/e-nora/.env.production   (valores reales de Supabase, Shopify, WEB_ORIGIN)"
 echo "  2) Configura los secrets del repo en GitHub (ver deploy/README.md)"
 echo "  3) git push a main  ->  se despliega solo"
 echo "  Backups de NORA en /root/nora-*-$TS*"

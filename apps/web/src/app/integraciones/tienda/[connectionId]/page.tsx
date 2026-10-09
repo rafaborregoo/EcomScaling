@@ -26,6 +26,7 @@ import {
 import { PROVIDER_SLUG, useIntegrations, useStoreScope } from "../../shared";
 import {
   buildStoreViews,
+  connectionStatusLabel,
   healthTone,
   type StoreProviderView,
   type StoreView,
@@ -97,7 +98,10 @@ function ProviderCard({
       }
       actions={
         <Badge tone={healthTone(provider.status)} variant={connected ? "solid" : "soft"}>
-          {explanation.label}
+          {connectionStatusLabel(
+            provider.connections[0] ?? null,
+            explanation.label,
+          )}
         </Badge>
       }
     >
@@ -415,7 +419,8 @@ function StoreDetail({
                 title="Eliminar esta tienda de E-NORA"
                 description="La tienda desaparecerá de E-NORA y dejará de sincronizar ahora. Sus datos se conservarán 30 días para que puedas restaurarla desde Integraciones; después se eliminarán definitivamente. Esto no desinstala E-NORA en Shopify ni desconecta cuentas de Meta o Klaviyo que puedas usar con otras tiendas."
                 confirmLabel={pending === `remove-${connectionId}` ? "Eliminando…" : "Eliminar tienda"}
-                onConfirm={() => void removeStore()}
+                confirmPhrase={store.name}
+                onConfirm={() => removeStore()}
               />
             ) : null}
             {canManageStore && removalPending ? (

@@ -1,0 +1,362 @@
+.root {
+  --intake-bg: #f7f9f8;
+  --intake-line: #dce5e3;
+  --intake-ink: #173c3b;
+  --intake-muted: #607572;
+  --intake-accent: #dfad1f;
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--intake-line);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #fbfcfa, var(--intake-bg));
+  color: var(--intake-ink);
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 18px;
+}
+.top h3 {
+  margin: 4px 0 5px;
+  font-size: 19px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+.step > p {
+  max-width: 70ch;
+  margin: 0;
+  color: var(--intake-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.stepCount {
+  flex: none;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stepCount span {
+  color: #879592;
+  font-size: 12px;
+  font-weight: 500;
+}
+.progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.progress span {
+  height: 3px;
+  border-radius: 9px;
+  background: #dce5e3;
+}
+.progress .progressActive {
+  background: var(--intake-accent);
+}
+.step {
+  display: grid;
+  gap: 12px;
+}
+.step h4 {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.selectionHint {
+  color: var(--intake-muted);
+  font-size: 11px;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--intake-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--intake-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.choice:hover,
+.choiceSelected {
+  border-color: #c5a238;
+  background: #fff9e8;
+}
+.selectionMark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid #a9b7b4;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+}
+.choiceSelected .selectionMark {
+  border-color: #a47b09;
+  background: #a47b09;
+}
+.choice:disabled:not(.choiceSelected) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.field {
+  display: grid;
+  gap: 6px;
+  color: #354f4c;
+  font-size: 12px;
+  font-weight: 600;
+}
+.field em {
+  color: #82918e;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+}
+.dateList {
+  display: grid;
+  gap: 10px;
+}
+.knownPanel {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--intake-line);
+  border-radius: 11px;
+  background: #fff;
+}
+.knownPanel > strong {
+  font-size: 12px;
+}
+.knownPanel ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.knownPanel li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #4b625e;
+  font-size: 10px;
+}
+.knownPanel li em {
+  flex: none;
+  font-style: normal;
+  font-weight: 600;
+}
+.signalAvailable {
+  color: #16745f;
+}
+.signalEmpty {
+  color: #7a6a35;
+}
+.signalUnavailable {
+  color: #a44b3d;
+}
+.followUps {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e8dfbf;
+  border-radius: 12px;
+  background: #fffaf0;
+}
+.followUps > div {
+  display: grid;
+  gap: 4px;
+}
+.unknownAnswer {
+  justify-self: start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: #71652f;
+  font: inherit;
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.unknownAnswer:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.calendarIdeas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.calendarIdeas > span {
+  grid-column: 1 / -1;
+  color: #475f5c;
+  font-size: 11px;
+  font-weight: 600;
+}
+.idea {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--intake-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--intake-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.idea:hover:not(:disabled) {
+  border-color: #c5a238;
+  background: #fff9e8;
+}
+.idea:disabled {
+  cursor: default;
+  opacity: 0.68;
+}
+.idea span {
+  display: grid;
+  gap: 2px;
+}
+.idea strong,
+.idea b {
+  font-size: 11px;
+}
+.idea small {
+  color: var(--intake-muted);
+  font-size: 10px;
+}
+.idea b {
+  color: #806311;
+  white-space: nowrap;
+}
+.dateRow {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(135px, 0.8fr) minmax(180px, 1.3fr);
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--intake-line);
+  border-radius: 12px;
+  background: #fff;
+}
+.repeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--intake-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.repeat input {
+  accent-color: #8b6d12;
+}
+.dateFlags {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.dateRow > .repeat {
+  grid-column: 1 / 3;
+}
+.removeDate {
+  justify-self: end;
+  border: 0;
+  background: transparent;
+  color: #7c5147;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.dateActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.memoryNote {
+  margin: 0;
+  color: var(--intake-muted);
+  font-size: 12px;
+}
+.error {
+  margin: 0;
+  color: #9a362d;
+  font-size: 13px;
+}
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--intake-line);
+}
+.validationHint {
+  color: var(--intake-muted);
+  font-size: 11px;
+}
+.footerActions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .choices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dateRow {
+    grid-template-columns: 1fr 1fr;
+  }
+  .calendarIdeas {
+    grid-template-columns: 1fr;
+  }
+  .knownPanel ul {
+    grid-template-columns: 1fr;
+  }
+  .dateRow .field:last-of-type {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 500px) {
+  .root {
+    padding: 15px;
+  }
+  .choices,
+  .dateRow {
+    grid-template-columns: 1fr;
+  }
+  .dateRow > .repeat {
+    grid-column: 1;
+  }
+  .removeDate {
+    justify-self: start;
+  }
+  .footer {
+    align-items: stretch;
+  }
+  .footerActions {
+    justify-content: end;
+  }
+}

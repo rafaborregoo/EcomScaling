@@ -220,6 +220,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const [adFilter, setAdFilter] = useState<AdFilter>("all");
   const [activePin, setActivePin] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
+  const [monitorRunning, setMonitorRunning] = useState(false);
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
@@ -227,14 +228,14 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const insights = useCachedQuery<MetaInsights>(`${base}/meta/insights?days=${days}${scope}`);
   const metrics = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=${days}`);
   const shop = useCachedQuery<ShopifyFinance>(`${base}/shopify/metrics?days=${days}${scope}`);
-  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30${scope}`);
+  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=meta${scope}`);
   // "Operativa de Meta Ads" es consultantOnly (ver dashboard-ai-agents.ts): sin
   // consultor mirando esta pestaña, no hay nadie que la pida.
   const operativaMeta = useCachedQuery<Diagnostic>(asConsultant ? `${base}/ai/operativa-meta?days=30${scope}` : null);
   const operations = useCachedQuery<Operations>(`${base}/operations`);
 
   const data = insights.data;
-  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Meta Ads, ${periodPhrase(days)})`, focusLabel });
+  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Meta Ads, ${periodPhrase(days)})`, focusLabel, reference: { period_label: periodPhrase(days), filters: { days: String(days) } } });
   const proposals = [operativaMeta.data].filter((d): d is Diagnostic => Boolean(d));
 
   async function runOperativaMeta() {
@@ -246,13 +247,28 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         return;
       }
       toast.success("Operativa de Meta Ads actualizada.");
-      invalidateApiGetCache();
-      invalidateCachedQueries(base);
       operativaMeta.reload();
     } catch {
       toast.danger("No se pudo lanzar el análisis por un error de red.");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function runMonitorMeta() {
+    setMonitorRunning(true);
+    try {
+      const response = await apiFetch(`${base}/ai/monitor-run?days=30${scope}&view=meta`, { method: "POST" });
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      toast.success("Lectura A02 de Meta Ads actualizada.");
+      monitor.reload();
+    } catch {
+      toast.danger("No se pudo lanzar el análisis de Meta por un error de red.");
+    } finally {
+      setMonitorRunning(false);
     }
   }
 
@@ -332,6 +348,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   // Sin ROAS de equilibrio (faltan costes), la referencia es recuperar lo
   // gastado: ROAS 1.
   const roasFloor = breakeven ?? 1;
+  const floorLabel = breakeven ? "Equilibrio" : "Referencia";
   const adKind = (c: Creative): Exclude<AdFilter, "all"> => (!c.enough_volume ? "low" : c.roas != null && c.roas >= roasFloor ? "good" : "bad");
   const allCreatives = data.creatives.slice().sort((a, b) => b.spend - a.spend);
   const adCounts = { all: allCreatives.length, good: 0, bad: 0, low: 0 };
@@ -370,11 +387,14 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               {fmtNum(summary.purchases)} compras atribuidas por Meta{attributionWindow ? ` (ventana ${attributionWindow})` : ""}. Son las que Meta se adjudica, no las ventas de tu tienda.
             </p>
             <div className={s.heroActions}>
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("¿Cómo van mis anuncios de Meta y qué cambiarías primero?", "Meta Ads")}>
+              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("En el periodo analizado, ¿qué resultado de Meta Ads merece atención primero y qué cambio probarías? Cita campaña, métrica y gasto; señala las limitaciones de atribución.", "Meta Ads")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
                   IA
                 </span>
                 Preguntar qué haría
+              </button>
+              <button type="button" className={cx(s.btn, s.ghost)} disabled={monitorRunning} onClick={() => void runMonitorMeta()}>
+                {monitorRunning ? "Analizando Meta…" : "Actualizar análisis Meta"}
               </button>
               {hideFullLink ? null : (
                 <a className={cx(s.btn, s.ghost)} href="/meta">
@@ -457,6 +477,15 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         ) : null}
       </section>
 
+      <section className={s.sec} aria-label="Lectura ejecutiva de Meta Ads">
+        <div className={s.panel}>
+          <p className={s.lbl}>A02 · Meta Ads</p>
+          <p className={s.headlineDetail}>
+            {monitor.data?.output.headline ?? "El análisis específico de Meta Ads aparecerá aquí cuando termine su primera ejecución."}
+          </p>
+        </div>
+      </section>
+
       {afterHero}
 
       {/* ------------------------------ Cifras ------------------------------ */}
@@ -498,7 +527,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           title="Pendiente en Meta Ads"
           ai={null}
           fallback="Si tienes consultor, aquí caen sus propuestas de operativa sobre esta cuenta."
-          onAsk={() => askCopilot("¿Qué debería resolver primero en mis anuncios de Meta esta semana?", "Pendiente en Meta Ads")}
+          onAsk={() => askCopilot("Con el rendimiento de Meta y las tareas abiertas, ¿qué única revisión priorizarías esta semana? Cita la campaña, la métrica y el periodo; indica si faltan datos.", "Pendiente en Meta Ads")}
         />
         {asConsultant || proposals.length ? (
           <WorkQueue
@@ -525,18 +554,18 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           id="meta-ads"
           title="Anuncios"
           ai={findingFor(diagnostic, /creativ|anuncio|fatiga|frecuen|hook|v[ií]deo/i)?.title ?? null}
-          fallback="Ordenados por gasto. La línea roja de cada ROAS es tu punto de equilibrio."
-          onAsk={() => askCopilot("¿Qué anuncios debería pausar, cuáles escalar y por qué?", "Anuncios de Meta")}
+          fallback={`Ordenados por gasto. La marca indica ${breakeven ? "el ROAS de equilibrio de la tienda" : "el ROAS 1× para recuperar la inversión en anuncios"}.`}
+          onAsk={() => askCopilot("¿Qué anuncios tienen evidencia suficiente para probar una pausa o un aumento gradual de presupuesto? Para cada propuesta, cita gasto, resultado, ventana y limitaciones; si no alcanza la evidencia, recomienda observar.", "Anuncios de Meta")}
         />
         {!failed("creatives") && allCreatives.length > 1 ? (
           <div className={s.panel}>
             <div className={s.panelH}>
               <div>
-                <h3>Gasto frente a retorno</h3>
-                <p className={s.sub}>Cada punto es un anuncio; el tamaño, sus compras atribuidas</p>
+                <h3>ROAS por anuncio</h3>
+                <p className={s.sub}>El largo de cada barra representa el ROAS.</p>
               </div>
             </div>
-            <SpendRoasScatter creatives={allCreatives} floor={roasFloor} floorLabel={breakeven ? "Equilibrio" : "ROAS 1"} kind={adKind} />
+            <SpendRoasRanking creatives={allCreatives} floor={roasFloor} floorLabel={floorLabel} kind={adKind} />
           </div>
         ) : null}
         <div className={s.panel}>
@@ -703,7 +732,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               ? `${learning.length} conjunto(s) todavía aprendiendo. Mientras aprenden, los resultados son inestables: mejor no tocarlos.`
               : "Ningún conjunto está en fase de aprendizaje."
           }
-          onAsk={() => askCopilot("¿Qué conjuntos de anuncios están en aprendizaje y qué debería hacer con ellos?", "Aprendizaje de Meta")}
+          onAsk={() => askCopilot("¿Qué conjuntos figuran en fase de aprendizaje según Meta y qué decisión permite tomar la evidencia disponible? Cita estado y volumen de resultados; no recomiendes cambios basados solo en la etiqueta de aprendizaje.", "Aprendizaje de Meta")}
         />
         {learning.length ? (
           <div className={s.panel}>
@@ -750,7 +779,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           title="Medición"
           ai={findingFor(diagnostic, /p[ií]xel|medici|evento|tracking|seguimiento/i)?.title ?? null}
           fallback="Si el píxel no dispara, Meta optimiza a ciegas y las cifras de arriba se quedan cortas."
-          onAsk={() => askCopilot("¿Está bien medido mi píxel de Meta y hay algún evento que falle?", "Píxel de Meta")}
+          onAsk={() => askCopilot("Según el estado de diagnóstico y los eventos recibidos, ¿hay señales verificables de fallo de medición? Cita evento, estado y última fecha; separa errores confirmados de eventos sin actividad reciente.", "Píxel de Meta")}
         />
         <div className={s.two}>
           <div className={s.panel}>
@@ -862,7 +891,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           title="Cambios y su efecto"
           ai={null}
           fallback={`Qué pasó ${data.change_window_days} días antes y después de cada cambio en la cuenta.`}
-          onAsk={() => askCopilot("¿Qué cambios en mi cuenta de Meta funcionaron y cuáles empeoraron los resultados?", "Cambios en Meta")}
+          onAsk={() => askCopilot("Compara los resultados observados antes y después de cada cambio de Meta en la misma entidad y ventana. ¿Qué cambios muestran una variación consistente? Cita fechas, métricas y límites de atribución; no presentes correlación como causa.", "Cambios en Meta")}
         />
         <div className={s.panel}>
           {failed("changes") ? (
@@ -918,75 +947,66 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   );
 }
 
-/**
- * Gasto frente a ROAS atribuido, un punto por anuncio. La línea marca el
- * equilibrio (o ROAS 1 si faltan costes): lo que queda debajo con mucho gasto
- * es lo primero que revisar. Los anuncios sin volumen van en gris porque
- * cualquier tasa suya es todavía ruido.
- */
-function SpendRoasScatter({ creatives, floor, floorLabel, kind }: {
+/** ROAS comparable por anuncio; gasto y compras quedan escritos junto al nombre. */
+function SpendRoasRanking({ creatives, floor, floorLabel, kind }: {
   creatives: Creative[];
   floor: number;
   floorLabel: string;
   kind: (c: Creative) => "good" | "bad" | "low";
 }) {
-  const W = 800;
-  const H = 280;
-  const left = 44;
-  const bottom = 250;
-  const maxSpend = Math.max(...creatives.map((c) => c.spend), 1);
-  const maxRoas = Math.max(floor * 2, ...creatives.map((c) => c.roas ?? 0)) * 1.1;
-  const x = (spend: number) => left + (spend / maxSpend) * (W - left - 24);
-  const y = (roas: number) => bottom - (Math.min(roas, maxRoas) / maxRoas) * (bottom - 12);
-  const color = { good: "var(--meta)", bad: "var(--bad)", low: "var(--ink-3)" } as const;
+  const shown = creatives.slice().sort((a, b) => b.spend - a.spend).slice(0, 8);
+  const scale = Math.max(2, floor * 1.15, ...shown.map((c) => c.roas ?? 0));
+  const status = {
+    good: { label: "Sobre equilibrio", className: s.adGood, textClassName: s.adTextGood },
+    bad: { label: "Bajo equilibrio", className: s.adBad, textClassName: s.adTextBad },
+    low: { label: "Poco volumen", className: s.adLow, textClassName: s.adTextLow },
+  } as const;
+  const floorPosition = `${Math.min((floor / scale) * 100, 100)}%`;
   return (
-    <div className={s.scatter}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Dispersión de ${creatives.length} anuncios por gasto y ROAS atribuido`}>
-        <line x1={left} y1={bottom} x2={W} y2={bottom} stroke="var(--line)" />
-        <line x1={left} y1={0} x2={left} y2={bottom} stroke="var(--line)" />
-        <line x1={left} y1={y(floor)} x2={W} y2={y(floor)} stroke="var(--accent)" strokeWidth={1.5} strokeDasharray="4 4" />
-        <text x={left + 6} y={y(floor) - 6} className={s.scAxis}>
-          {floorLabel} {roasText(floor)}
-        </text>
-        <text x={left - 6} y={16} textAnchor="end" className={s.scAxis}>
-          {roasText(maxRoas)}
-        </text>
-        <text x={W - 4} y={H - 8} textAnchor="end" className={s.scAxis}>
-          Gasto → {formatMetaAmount(maxSpend, creatives[0]?.spend_currency ?? null)}
-        </text>
-        {creatives
-          .slice()
-          .sort((a, b) => b.purchases - a.purchases)
-          .map((c) => {
-            const k = kind(c);
-            return (
-              <circle
-                key={c.ad_id}
-                cx={x(c.spend)}
-                cy={y(c.roas ?? 0)}
-                r={Math.min(4 + Math.sqrt(c.purchases) * 2, 22)}
-                fill={color[k]}
-                fillOpacity={k === "low" ? 0.55 : 0.75}
-              >
-                <title>{`${c.ad_name} · ${formatMetaAmount(c.spend, c.spend_currency)} · ROAS ${roasText(c.roas)} · ${fmtNum(c.purchases)} compras`}</title>
-              </circle>
-            );
-          })}
-      </svg>
-      <div className={s.scLeg}>
-        <span>
-          <i className={s.sw} style={{ background: "var(--meta)" }} />
-          Rentan
-        </span>
-        <span>
-          <i className={s.sw} style={{ background: "var(--bad)" }} />
-          Por debajo de {floorLabel.toLowerCase()}
-        </span>
-        <span>
-          <i className={s.sw} style={{ background: "var(--ink-3)" }} />
-          Sin volumen para juzgar
-        </span>
+    <div className={s.adChart}>
+      <div className={s.adAxis} aria-hidden="true">
+        <span>0×</span>
+        <span>{roasText(scale)}</span>
       </div>
+      <p className={s.adBenchmark}>
+        <i className={s.adBenchmarkLine} /> {floorLabel} {roasText(floor)}
+      </p>
+      <ol className={s.adRows} aria-label="Anuncios ordenados por gasto">
+        {shown.map((creative) => {
+          const result = status[kind(creative)];
+          const width = creative.roas == null ? 0 : Math.max(0, Math.min((creative.roas / scale) * 100, 100));
+          return (
+            <li className={s.adRow} key={creative.ad_id}>
+              <div className={s.adIdentity}>
+                <strong title={creative.ad_name}>{creative.ad_name || "Anuncio sin nombre"}</strong>
+                <span title={creative.campaign_name}>{creative.campaign_name || "Campaña sin nombre"}</span>
+              </div>
+              <div className={s.adMeasure}>
+                <div
+                  className={s.adTrack}
+                  role="img"
+                  aria-label={`ROAS ${roasText(creative.roas)}; ${result.label}; referencia ${floorLabel} ${roasText(floor)}`}
+                >
+                  <span className={s.adFloor} style={{ left: floorPosition }} />
+                  <span className={cx(s.adFill, result.className)} style={{ width: `${width}%` }} />
+                </div>
+                <div className={s.adDetails}>
+                  <span>{formatMetaAmount(creative.spend, creative.spend_currency)} gastados</span>
+                  <span>{fmtNum(creative.purchases)} compras</span>
+                  <span className={cx(s.adStatus, result.textClassName)}>{result.label}</span>
+                </div>
+              </div>
+              <div className={s.adReturn}>
+                <strong>{roasText(creative.roas)}</strong>
+                <span>ROAS</span>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {creatives.length > shown.length ? (
+        <p className={s.adChartNote}>Mostrando los {shown.length} anuncios con más gasto de {creatives.length}.</p>
+      ) : null}
     </div>
   );
 }

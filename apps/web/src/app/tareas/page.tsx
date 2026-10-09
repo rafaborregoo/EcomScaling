@@ -3,6 +3,9 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { useActiveConnection } from "@/components/active-connection";
+import { useMarketingDrafts } from "@/hooks/use-marketing-drafts";
+import { latestMarketingAssetByTask, marketingAssetHref, marketingAssetStatusLabel, marketingDraftAsCaminoAsset, type CaminoMarketingAsset } from "@/lib/camino-marketing-assets";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -31,8 +34,8 @@ import {
   ErrorBlock,
   Field,
   Input,
+  Dialog,
   List,
-  Modal,
   Pagination,
   Select,
   Textarea,
@@ -88,6 +91,43 @@ type TaskOutcomeInput = {
   measured_at: string;
 };
 
+function taskCanGenerateMarketing(task: Task) {
+  const context = `${task.title} ${task.categories.join(" ")}`
+    .toLocaleLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /mail(?:ing)?|email|e-mail|correo|newsletter|klaviyo|lista de espera|acceso anticipado|campana/.test(context);
+}
+
+/** Cáscara única del detalle de tarea (vista de cartera y vista de cliente). */
+function TaskDetailDialog({
+  task,
+  eyebrow,
+  onClose,
+  onDiscuss,
+  children,
+}: {
+  task: Task;
+  eyebrow?: string;
+  onClose: () => void;
+  onDiscuss?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog
+      isOpen
+      onOpenChange={(open) => !open && onClose()}
+      size="lg"
+      eyebrow={eyebrow}
+      title={task.title}
+      cancelLabel="Cerrar"
+      primary={onDiscuss ? { label: "Escribir sobre esto", onClick: onDiscuss } : undefined}
+    >
+      {children}
+    </Dialog>
+  );
+}
+
 function TaskOutcomeDialog({
   taskTitle,
   mode,
@@ -129,52 +169,53 @@ function TaskOutcomeDialog({
   }
 
   return (
-    <Modal isOpen onOpenChange={(open) => !open && !isPending && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container size="md">
-          <Modal.Dialog>
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>{mode === "record" ? "Registrar medición posterior" : "¿Qué resultado observaste?"}</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <div className="space-y-4">
-                <p className="text-sm text-muted">{mode === "record" ? `Añade o actualiza el resultado medido de «${taskTitle}».` : `Vas a completar «${taskTitle}». Si ya mediste su resultado, guárdalo para que los próximos planes aprendan.`} Completar una tarea por sí solo no demuestra impacto.</p>
-                <form id="task-outcome-form" className="space-y-3" onSubmit={submit}>
-                  <Field label="Métrica observada">
-                    <Input value={metricName} onChange={(event) => setMetricName(event.target.value)} maxLength={120} placeholder="Ej. conversión, margen, tiempo de preparación" />
-                  </Field>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Field label="Antes">
-                      <Input type="number" step="any" value={beforeValue} onChange={(event) => setBeforeValue(event.target.value)} placeholder="Opcional" />
-                    </Field>
-                    <Field label="Después">
-                      <Input type="number" step="any" value={afterValue} onChange={(event) => setAfterValue(event.target.value)} placeholder="Opcional" />
-                    </Field>
-                    <Field label="Unidad">
-                      <Input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="%, €, días…" />
-                    </Field>
-                  </div>
-                  <Field label="Fecha de medición">
-                    <Input type="date" max={maxMeasuredAt} value={measuredAt} onChange={(event) => setMeasuredAt(event.target.value)} />
-                  </Field>
-                  <Field label="Contexto del resultado (opcional)">
-                    <Textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={1000} placeholder="Ventana comparada, fuente o limitaciones de la medición…" />
-                  </Field>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button type="button" variant="secondary" disabled={isPending} onClick={onClose}>Cancelar</Button>
-                    {mode === "complete" ? <Button type="button" variant="ghost" disabled={isPending} onClick={onCompleteWithoutMetric}>Completar sin métrica</Button> : null}
-                    <Button type="submit" disabled={isPending || !metricName.trim() || (!afterValue.trim() && !summary.trim())}>
-                    {isPending ? "Guardando…" : mode === "record" ? "Guardar medición" : "Guardar resultado y completar"}
-                    </Button>
-                  </div>
-                </form>
-              </div>
-            </Modal.Body>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog
+      isOpen
+      onOpenChange={(open) => !open && onClose()}
+      title={mode === "record" ? "Registrar medición posterior" : "¿Qué resultado observaste?"}
+      isBusy={isPending}
+      formId="task-outcome-form"
+      start={
+        mode === "complete" ? (
+          <Button variant="ghost" disabled={isPending} onClick={onCompleteWithoutMetric}>
+            Completar sin métrica
+          </Button>
+        ) : undefined
+      }
+      primary={{
+        label: mode === "record" ? "Guardar medición" : "Guardar y completar",
+        busyLabel: "Guardando…",
+        disabled: !metricName.trim() || (!afterValue.trim() && !summary.trim()),
+      }}
+    >
+      <p className="text-muted">
+        {mode === "record"
+          ? `Añade o actualiza el resultado medido de «${taskTitle}».`
+          : `Vas a completar «${taskTitle}». Si ya mediste su resultado, guárdalo para que los próximos planes aprendan.`}
+      </p>
+      <form id="task-outcome-form" className="space-y-4" onSubmit={submit}>
+        <Field label="Métrica observada">
+          <Input value={metricName} onChange={(event) => setMetricName(event.target.value)} maxLength={120} placeholder="Ej. conversión, margen, tiempo de preparación" />
+        </Field>
+        <div className="grid grid-cols-[1fr_1fr_5rem] gap-3">
+          <Field label="Antes">
+            <Input type="number" step="any" value={beforeValue} onChange={(event) => setBeforeValue(event.target.value)} placeholder="Opcional" />
+          </Field>
+          <Field label="Después">
+            <Input type="number" step="any" value={afterValue} onChange={(event) => setAfterValue(event.target.value)} placeholder="Opcional" />
+          </Field>
+          <Field label="Unidad">
+            <Input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="%, €…" />
+          </Field>
+        </div>
+        <Field label="Fecha de medición">
+          <Input type="date" max={maxMeasuredAt} value={measuredAt} onChange={(event) => setMeasuredAt(event.target.value)} />
+        </Field>
+        <Field label="Contexto del resultado (opcional)">
+          <Textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={1000} placeholder="Ventana comparada, fuente o limitaciones de la medición…" />
+        </Field>
+      </form>
+    </Dialog>
   );
 }
 
@@ -327,6 +368,10 @@ function TaskDetail({
   onInternalChange,
   onSubmitComment,
   onStatusChange,
+  onGenerateMarketing,
+  isGeneratingMarketing,
+  linkedMarketingAsset,
+  onOpenMarketingAsset,
 }: {
   task: Task;
   showVisibility: boolean;
@@ -342,6 +387,10 @@ function TaskDetail({
    * cliente. El backend ya lo exige (updateTaskStatus); esto evita ademas
    * enseñar un boton que devolveria 403 al pulsarlo. */
   onStatusChange?: (status: string) => void;
+  onGenerateMarketing?: () => void;
+  isGeneratingMarketing?: boolean;
+  linkedMarketingAsset?: CaminoMarketingAsset | null;
+  onOpenMarketingAsset?: (asset: CaminoMarketingAsset) => void;
 }) {
   const meta = [
     task.categories.map((c) => CATEGORY_LABELS[c] ?? c).join(" · "),
@@ -363,6 +412,21 @@ function TaskDetail({
           <p className="mt-1 text-xs text-muted">{meta.join(" · ")}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
+          {onGenerateMarketing ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={isGeneratingMarketing}
+              onClick={onGenerateMarketing}
+            >
+              {isGeneratingMarketing ? "Agente trabajando…" : "Activar agente de email"}
+            </Button>
+          ) : null}
+          {linkedMarketingAsset && onOpenMarketingAsset ? (
+            <Button variant="secondary" size="sm" onClick={() => onOpenMarketingAsset(linkedMarketingAsset)}>
+              Abrir borrador · {marketingAssetStatusLabel(linkedMarketingAsset)}
+            </Button>
+          ) : null}
           {onStatusChange && task.status === "pending" ? (
             <Button
               variant="ghost"
@@ -679,6 +743,7 @@ function TaskRow({
   isPending,
   onStatusChange,
   onOpenDetail,
+  linkedMarketingAsset,
 }: {
   task: Task;
   showVisibility: boolean;
@@ -688,6 +753,7 @@ function TaskRow({
   /** Sin ella: proponer y comentar, no resolver (ver TaskDetail). */
   onStatusChange?: (status: string) => void;
   onOpenDetail: () => void;
+  linkedMarketingAsset?: CaminoMarketingAsset | null;
 }) {
   const due = dueSignal(task);
   // La prioridad ya no la tapa el vencimiento: antes el badge "Vencida"
@@ -734,6 +800,11 @@ function TaskRow({
           <p className="text-sm font-medium text-foreground">{task.title}</p>
           {task.milestone ? (
             <Badge tone="brand">Hito · {milestoneLabel(task)}</Badge>
+          ) : null}
+          {linkedMarketingAsset ? (
+            <Badge tone={linkedMarketingAsset.status === "rejected" ? "danger" : linkedMarketingAsset.status === "approved" ? "success" : "neutral"}>
+              Marketing · {marketingAssetStatusLabel(linkedMarketingAsset)}
+            </Badge>
           ) : null}
           {SOURCE_LABELS[task.source] && task.source !== "strategic_plan" ? (
             <Badge tone="neutral">{SOURCE_LABELS[task.source]}</Badge>
@@ -1547,17 +1618,11 @@ function ConsultantOperationsView({
       ) : null}
 
       {detailTask ? (
-        <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>
-          <Modal.Backdrop>
-            <Modal.Container size="md">
-              <Modal.Dialog>
-                <Modal.CloseTrigger />
-                <Modal.Header>
-                  <Modal.Heading>
-                    Detalle de tarea · {detailTask.organization_name}
-                  </Modal.Heading>
-                </Modal.Header>
-                <Modal.Body>
+        <TaskDetailDialog
+          task={detailTask}
+          eyebrow={detailTask.organization_name}
+          onClose={() => setDetailTaskId(null)}
+        >
                   <TaskDetail
                     task={detailTask}
                     showVisibility={isConsultant}
@@ -1596,11 +1661,7 @@ function ConsultantOperationsView({
                         : undefined
                     }
                   />
-                </Modal.Body>
-              </Modal.Dialog>
-            </Modal.Container>
-          </Modal.Backdrop>
-        </Modal>
+        </TaskDetailDialog>
       ) : null}
     </div>
   );
@@ -1608,6 +1669,7 @@ function ConsultantOperationsView({
 
 function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
+  const { connectionId } = useActiveConnection();
   const activeMembership =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
@@ -1623,6 +1685,15 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
+  const canViewMarketingDrafts =
+    isConsultant || ["owner", "manager"].includes(activeMembership?.role ?? "");
+  const marketingDraftsQuery = useMarketingDrafts(organization?.id ?? "", canViewMarketingDrafts);
+  const marketingAssets: CaminoMarketingAsset[] = [];
+  for (const draft of marketingDraftsQuery.drafts) {
+    const asset = marketingDraftAsCaminoAsset(draft, connectionId);
+    if (asset) marketingAssets.push(asset);
+  }
+  const marketingAssetByTask = latestMarketingAssetByTask(marketingAssets);
   // Un cliente sin consultor se apoya en los agentes: son su única fuente de
   // trabajo propuesto. Con consultor, es el consultor quien decide qué entra.
   const { isAutonomous } = useAssignedConsultant(
@@ -1669,6 +1740,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // que recargaba la lista entera).
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [pendingAlertId, setPendingAlertId] = useState<string | null>(null);
+  const [generatingMarketingTaskId, setGeneratingMarketingTaskId] = useState<string | null>(null);
   const { clients: proposedClients, reload: reloadProposed } = useProposedTasks(
     { enabled: isConsultant },
   );
@@ -1683,6 +1755,52 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setActionError(null);
     operationsQuery.reload();
   }, [operationsQuery.reload]);
+
+  async function generateMarketingForTask(task: Task) {
+    if (!taskCanGenerateMarketing(task) || !canViewMarketingDrafts) return;
+    if (!organization || !connectionId) {
+      toast.info("Selecciona la tienda de esta tarea antes de generar el borrador.");
+      return;
+    }
+    const existingAsset = marketingAssetByTask.get(task.id);
+    if (existingAsset) {
+      window.location.assign(marketingAssetHref(existingAsset.id));
+      return;
+    }
+    setGeneratingMarketingTaskId(task.id);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/marketing/drafts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_type: "campaign",
+            channel: "email_klaviyo",
+            store_id: connectionId,
+            camino_task_id: task.id,
+            idempotency_key: `${task.id}:99`,
+            brief: `Prepara un borrador de email para esta tarea de Mi Camino: "${task.title}". Usa la descripcion y el hito verificados como contexto. Si faltan oferta, descuento, audiencia o condiciones, no los inventes: indica que debe confirmar el equipo. Deja el contenido en borrador para revision humana; no lo envies ni lo programes.`,
+          }),
+        },
+        180_000,
+      );
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      const body = (await response.json()) as { draft?: { id?: string } };
+      if (!body.draft?.id) {
+        toast.danger("El agente respondiÃ³ sin devolver un borrador de Marketing.");
+        return;
+      }
+      window.location.assign(marketingAssetHref(body.draft.id));
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "No se pudo activar el agente de email.");
+    } finally {
+      setGeneratingMarketingTaskId(null);
+    }
+  }
 
   const milestonePlanQuery = useCachedQuery<{
     plan?: {
@@ -2199,6 +2317,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           : undefined
                       }
                       onOpenDetail={() => setDetailTaskId(task.id)}
+                      linkedMarketingAsset={marketingAssetByTask.get(task.id) ?? null}
                     />
                   ))}
                 </List>
@@ -2309,15 +2428,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {detailTask ? (
-        <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>
-          <Modal.Backdrop>
-            <Modal.Container size="md">
-              <Modal.Dialog>
-                <Modal.CloseTrigger />
-                <Modal.Header>
-                  <Modal.Heading>Detalle de tarea</Modal.Heading>
-                </Modal.Header>
-                <Modal.Body>
+        <TaskDetailDialog
+          task={detailTask}
+          onClose={() => setDetailTaskId(null)}
+          onDiscuss={() => {
+            setDetailTaskId(null);
+            setDiscussTask(detailTask);
+          }}
+        >
                   <TaskDetail
                     task={detailTask}
                     showVisibility={isConsultant}
@@ -2347,23 +2465,18 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         ? (status) => void changeTaskStatus(detailTask.id, status)
                         : undefined
                     }
+                    linkedMarketingAsset={marketingAssetByTask.get(detailTask.id) ?? null}
+                    onOpenMarketingAsset={(asset) => window.location.assign(marketingAssetHref(asset.id))}
+                    onGenerateMarketing={
+                      (isConsultant || ["owner", "manager"].includes(activeMembership?.role ?? "")) &&
+                      taskCanGenerateMarketing(detailTask) &&
+                      !marketingAssetByTask.has(detailTask.id)
+                        ? () => void generateMarketingForTask(detailTask)
+                        : undefined
+                    }
+                    isGeneratingMarketing={generatingMarketingTaskId === detailTask.id}
                   />
-                </Modal.Body>
-                <Modal.Footer>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setDetailTaskId(null);
-                      setDiscussTask(detailTask);
-                    }}
-                  >
-                    Escribir sobre esto
-                  </Button>
-                </Modal.Footer>
-              </Modal.Dialog>
-            </Modal.Container>
-          </Modal.Backdrop>
-        </Modal>
+        </TaskDetailDialog>
       ) : null}
     </div>
   );

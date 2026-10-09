@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
+import { useCopilotAsk } from "@/components/copilot-ask";
 import {
   groupRankingRowsByDimensionCurrency,
   summarizeCreativeSpendByCurrency,
@@ -288,6 +289,28 @@ type PixelEventRow = MetaPixelRow & { id: string };
  * (ADR-0021).
  */
 function OverviewSection({ insights }: { insights: MetaInsights }) {
+  const askCopilot = useCopilotAsk();
+  const askAboutDay = (metric: string, metricKey: "meta_spend" | "meta_roas") => (row: Record<string, number | string>) => [
+    {
+      label: "Preguntar a la IA",
+      onPress: () =>
+        askCopilot({
+          question: `¿Qué pasó el ${row.isoDate} con ${metric} en mi cuenta de Meta? Compáralo con los días de alrededor y dime si hay algo que corregir.`,
+          focusLabel: "Meta Ads",
+          reference: {
+            kind: "chart_point",
+            metric: { key: metricKey, date: String(row.isoDate) },
+            period: {
+              start: (insights.period.start?.slice(0, 10)
+                ?? insights.daily_spend[0]?.bucket_date
+                ?? insights.daily_roas?.[0]?.bucket_date
+                ?? insights.period.end.slice(0, 10)),
+              end: insights.period.end.slice(0, 10),
+            },
+          },
+        }),
+    },
+  ];
   const summary = insights.summary;
 
   if (!summary) {
@@ -425,6 +448,7 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
                   { day: "2-digit", month: "short" },
                 ),
                 Inversión: day.spend,
+                isoDate: day.bucket_date,
               }))}
               xKey="date"
               series={[
@@ -432,6 +456,7 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
               ]}
               height={220}
               valueFormatter={(value) => money(value, insights.currency)}
+              actions={askAboutDay("la inversión", "meta_spend")}
             />
           </div>
         ) : null}
@@ -455,6 +480,7 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
                           { day: "2-digit", month: "short" },
                         ),
                         ROAS: day.roas,
+                        isoDate: day.bucket_date,
                       },
                     ],
               )}
@@ -464,6 +490,7 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
               valueFormatter={(value) =>
                 `${value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}x`
               }
+              actions={askAboutDay("el ROAS", "meta_roas")}
             />
           </div>
         ) : null}

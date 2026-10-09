@@ -8,7 +8,7 @@ import { AVATAR_PRESETS } from "@/components/avatar-picker";
 import { PasswordInput } from "@/components/password-input";
 import { PasswordRequirements } from "@/components/password-requirements";
 import type { StoreQuestion, StoreQuestionCategory } from "@/app/conocimiento/store-knowledge";
-import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { apiFetch } from "@/lib/bootstrap";
 import type { IntegrationsResponse } from "@/app/integraciones/shared";
 import {
   Avatar,
@@ -159,7 +159,7 @@ const IMPORT_DATA_SOURCES = [
   },
 ] as const;
 
-function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
+function OnboardingPreview() {
   const [signupKind, setSignupKind] = useState<SignupKind>("self_signup");
   const [role, setRole] = useState<ProfileRole>("client");
   const [step, setStep] = useState(1);
@@ -175,8 +175,8 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [showShopifyDomain, setShowShopifyDomain] = useState(false);
   const [organizationMode, setOrganizationMode] = useState<OrganizationMode>("create");
   const [organizationName, setOrganizationName] = useState("");
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [consultantCode, setConsultantCode] = useState("");
+  const [organizationInviteEmail, setOrganizationInviteEmail] = useState("");
   const [consultantCodePreview, setConsultantCodePreview] = useState<ConsultantCodePreview | null>(null);
   const [isCheckingConsultantCode, setIsCheckingConsultantCode] = useState(false);
   const [testOrganizationId, setTestOrganizationId] = useState("");
@@ -205,15 +205,8 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const visibleStep = step;
   const currentQuestionCategory = ONBOARDING_QUESTION_CATEGORIES[step - firstQuestionStep];
   const passwordMismatch = passwordConfirmationState(password, confirm) === "mismatch";
-  const testOrganizations = bootstrap.memberships
-    .filter((membership) => membership.organization)
-    .map((membership) => ({
-      value: membership.organization_id,
-      label: membership.organization?.display_name ?? membership.organization_id,
-    }));
-  const assignedOrganizationName = organizationMode === "existing"
-    ? testOrganizations.find((organization) => organization.value === selectedOrganizationId)?.label ?? ""
-    : consultantCodePreview?.organization?.display_name || organizationName;
+  const assignedOrganizationName =
+    consultantCodePreview?.organization?.display_name || organizationName;
 
   function updateIntegrationProgress(
     integration: OnboardingIntegration,
@@ -254,8 +247,8 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
           shopifyDomain?: string;
           organizationMode?: OrganizationMode;
           organizationName?: string;
-          selectedOrganizationId?: string;
           consultantCode?: string;
+          organizationInviteEmail?: string;
           consultantCodePreview?: ConsultantCodePreview | null;
           testOrganizationId?: string;
           currencyCode?: string;
@@ -279,8 +272,8 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }
         if (saved.organizationMode) setOrganizationMode(saved.organizationMode);
         if (saved.organizationName) setOrganizationName(saved.organizationName);
-        if (saved.selectedOrganizationId) setSelectedOrganizationId(saved.selectedOrganizationId);
         if (saved.consultantCode) setConsultantCode(saved.consultantCode);
+        if (saved.organizationInviteEmail) setOrganizationInviteEmail(saved.organizationInviteEmail);
         if (saved.consultantCodePreview) setConsultantCodePreview(saved.consultantCodePreview);
         if (saved.testOrganizationId) setTestOrganizationId(saved.testOrganizationId);
         if (saved.currencyCode) setCurrencyCode(saved.currencyCode);
@@ -537,9 +530,10 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setShowShopifyDomain(false);
     setOrganizationMode("create");
     setOrganizationName("");
-    setSelectedOrganizationId("");
     setConsultantCode("");
+    setOrganizationInviteEmail("");
     setConsultantCodePreview(null);
+    setTestOrganizationId("");
     setIntegrationProgress({});
     setAuthorizingIntegration(null);
     setIsLoadingImportReview(false);
@@ -568,7 +562,11 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setError(null);
     setConsultantCodePreview(null);
     if (!consultantCode.trim()) {
-      setError("Introduce el código que te ha facilitado tu consultor.");
+      setError("Introduce el código de acceso que te han facilitado.");
+      return;
+    }
+    if (organizationMode === "existing" && !organizationInviteEmail.trim()) {
+      setError("Introduce el correo al que se envió la invitación de la organización.");
       return;
     }
     setIsCheckingConsultantCode(true);
@@ -576,7 +574,12 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
       const response = await apiFetch("/v1/invites/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: consultantCode.trim() }),
+        body: JSON.stringify({
+          code: consultantCode.trim(),
+          ...(organizationMode === "existing"
+            ? { email: organizationInviteEmail.trim() }
+            : {}),
+        }),
       });
       const payload = (await response.json().catch(() => ({}))) as ConsultantCodePreview & {
         message?: string;
@@ -586,9 +589,14 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setError(payload.message || payload.error || "No hemos podido validar el código. Comprueba que esté bien escrito.");
         return;
       }
+      if (organizationMode === "existing" && !payload.organization) {
+        setError("Este código no corresponde a una invitación para una organización existente.");
+        return;
+      }
       setConsultantCodePreview(payload);
       if (payload.organization) {
         setOrganizationName(payload.organization.display_name);
+        setTestOrganizationId(payload.organization.id);
       }
     } catch {
       setError("No se pudo validar el código por un error de conexión. Inténtalo de nuevo.");
@@ -603,8 +611,8 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
       setError("Escribe el nombre que quieres para tu organización.");
       return;
     }
-    if (organizationMode === "existing" && !selectedOrganizationId) {
-      setError("Selecciona la organización a la que pertenece esta tienda.");
+    if (organizationMode === "existing" && !consultantCodePreview?.organization) {
+      setError("Valida primero un código de invitación de la organización.");
       return;
     }
     if (organizationMode === "consultant" && !consultantCodePreview) {
@@ -704,8 +712,8 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
         shopifyDomain: normalizedShop || shopifyDomain,
         organizationMode,
         organizationName,
-        selectedOrganizationId,
         consultantCode,
+        organizationInviteEmail,
         consultantCodePreview,
         testOrganizationId,
         currencyCode,
@@ -872,18 +880,9 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ]}
             />
           </Field>
-          <Field label="Destino de conexiones reales de prueba">
-            <Select
-              value={testOrganizationId}
-              onChange={setTestOrganizationId}
-              options={testOrganizations}
-              placeholder={testOrganizations.length ? "Seleccionar organización" : "No hay organizaciones disponibles"}
-              disabled={testOrganizations.length === 0}
-            />
-          </Field>
         </div>
         <p className="mt-3 text-xs text-muted">
-          Este destino solo se usa al autorizar Shopify, Meta o Klaviyo desde el panel. La organización elegida dentro del onboarding es una simulación independiente.
+          Las conexiones reales de prueba solo se habilitan después de validar un código de invitación de la organización. El código determina el destino; no se muestra un listado de organizaciones.
         </p>
         <div className="mt-4">
           <Button variant="secondary" onClick={reset}>
@@ -942,7 +941,7 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
             </Card>
           ) : step === organizationStep ? (
-            <Card title="¿Con qué organización vas a trabajar?" description="Cada tienda quedará asociada a la organización que elijas aquí.">
+            <Card title="¿Con qué organización vas a trabajar?" description="Para acceder a una organización existente, necesitas una invitación válida de esa organización.">
               <div className="mt-6 grid gap-5">
                 <Field label="Forma de acceso">
                   <Select
@@ -950,11 +949,12 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     onChange={(value) => {
                       setOrganizationMode(value as OrganizationMode);
                       setConsultantCodePreview(null);
+                      setTestOrganizationId("");
                       setError(null);
                     }}
                     options={[
                       { value: "create", label: "Alta directa · crear una organización" },
-                      { value: "existing", label: "Elegir una organización existente" },
+                      { value: "existing", label: "Unirme a una organización existente · tengo una invitación" },
                       { value: "consultant", label: "Vengo de un consultor · tengo un código" },
                     ]}
                   />
@@ -963,25 +963,26 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <Field label="Nombre de la organización">
                     <Input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="El nombre que quieras" required />
                   </Field>
-                ) : organizationMode === "existing" ? (
-                  <Field label="Organización de esta tienda">
-                    <Select value={selectedOrganizationId} onChange={setSelectedOrganizationId} options={testOrganizations} placeholder="Seleccionar organización" disabled={testOrganizations.length === 0} />
-                  </Field>
                 ) : (
                   <>
                     <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-                      <Field label="Código del consultor">
-                        <Input value={consultantCode} onChange={(event) => { setConsultantCode(event.target.value.toUpperCase()); setConsultantCodePreview(null); }} placeholder="Ej. ENORA-1234" autoComplete="off" required />
+                      <Field label={organizationMode === "existing" ? "Código de invitación de la organización" : "Código del consultor"}>
+                        <Input value={consultantCode} onChange={(event) => { setConsultantCode(event.target.value.toUpperCase()); setConsultantCodePreview(null); setTestOrganizationId(""); }} placeholder="Ej. ENORA-1234" autoComplete="off" required />
                       </Field>
                       <Button variant="secondary" disabled={isCheckingConsultantCode || !consultantCode.trim()} onClick={() => void validateConsultantCode()}>
                         {isCheckingConsultantCode ? "Comprobando…" : "Validar código"}
                       </Button>
                     </div>
+                    {organizationMode === "existing" ? (
+                      <Field label="Correo al que se envió la invitación">
+                        <Input type="email" value={organizationInviteEmail} onChange={(event) => { setOrganizationInviteEmail(event.target.value); setConsultantCodePreview(null); setTestOrganizationId(""); }} autoComplete="email" required />
+                      </Field>
+                    ) : null}
                     {consultantCodePreview ? (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
                         <div className="flex items-center gap-2 font-semibold"><Check size={17} aria-hidden /> Código válido</div>
                         {consultantCodePreview.organization ? (
-                          <p className="mt-1">Organización: <span className="font-medium">{consultantCodePreview.organization.display_name}</span>. Esta tienda se asociará a ella.</p>
+                          <p className="mt-1">Organización: <span className="font-medium">{consultantCodePreview.organization.display_name}</span>. La prueba y sus conexiones usarán esta organización.</p>
                         ) : (
                           <>
                             <p className="mt-1">Consultor: <span className="font-medium">{consultantCodePreview.consultant?.display_name ?? "Consultor E-NORA"}</span>.</p>
@@ -998,7 +999,7 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 {error ? <ErrorBlock>{error}</ErrorBlock> : null}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="secondary" onClick={() => setStep(organizationStep)}>Volver</Button>
-                  <Button disabled={organizationMode === "consultant" && isCheckingConsultantCode} onClick={continueOrganization}>Continuar</Button>
+                  <Button disabled={organizationMode !== "create" && isCheckingConsultantCode} onClick={continueOrganization}>Continuar</Button>
                 </div>
               </div>
             </Card>
@@ -1196,7 +1197,7 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </div>
               ) : null}
               {!testOrganizationId ? (
-                <p className="mt-4 rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted">Elige un destino real de prueba en la configuración de arriba para consultar conexiones y datos importados.</p>
+                <p className="mt-4 rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted">Para consultar conexiones reales y datos importados, vuelve al paso de organización y valida un código de invitación a una organización existente.</p>
               ) : null}
               <div className="mt-5 flex flex-wrap gap-3">
                 <Button variant="secondary" onClick={() => setStep(storeStep)}>Volver a las conexiones</Button>
@@ -1315,7 +1316,7 @@ function OnboardingPreview({ bootstrap }: { bootstrap: BootstrapResponse }) {
 export default function AdminOnboardingPage() {
   return (
     <PlatformAdminShell title="Onboarding de prueba">
-      {(bootstrap) => <OnboardingPreview bootstrap={bootstrap} />}
+      {() => <OnboardingPreview />}
     </PlatformAdminShell>
   );
 }

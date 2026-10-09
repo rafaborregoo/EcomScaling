@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, Link } from "@/components/ui";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 
 /**
@@ -39,6 +39,10 @@ export function ConsultantStatusSection({
           </strong>{" "}
           lleva esta cuenta. El módulo <strong>Chats</strong> es vuestra
           conversación, y está activo.
+          <span className="mt-3 flex flex-wrap gap-4">
+            <Link href="/mensajes">Abrir chat</Link>
+            <Link href="/llamadas">Ver llamadas</Link>
+          </span>
         </p>
       ) : (
         <p className="text-sm">

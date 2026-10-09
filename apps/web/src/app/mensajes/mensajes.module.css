@@ -68,11 +68,11 @@
   border: 1px solid var(--ms-line);
   border-radius: 10px;
   overflow: hidden;
-  height: calc(100svh - 17rem);
+  height: calc(100svh / var(--ui-zoom, 1) - 17rem);
   min-height: 34rem;
 }
 .inbox[data-client] {
-  height: calc(100svh - 11rem);
+  height: calc(100svh / var(--ui-zoom, 1) - 11rem);
 }
 .inbox[data-nolist] {
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -383,7 +383,7 @@
   }
   .inbox {
     grid-template-columns: minmax(0, 1fr);
-    height: calc(100svh - 14rem);
+    height: calc(100svh / var(--ui-zoom, 1) - 14rem);
   }
   .inbox[data-open] .list {
     display: none;

@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { fmtEur, moneyFlow, monthlyWithProjection, unitEconomics } from "./client-pulse-model";
+import { fmtCurrency, fmtEur, moneyFlow, monthlyWithProjection, unitEconomics } from "./client-pulse-model";
 
 const financial = {
   net_sales: 48230,
@@ -66,4 +66,18 @@ test("la proyección arranca del último mes cerrado y llega a diciembre", () =>
 test("los euros se agrupan también con cuatro cifras", () => {
   assert.equal(fmtEur(9870), "9.870 €");
   assert.equal(fmtEur(-14350.5, 2), "−14.350,50 €");
+});
+
+test("sin diferencia entre ventas e ingreso sin IVA hay una sola fila de ingreso", () => {
+  const rows = moneyFlow({ ...financial, net_sales: 39860 });
+  assert.deepEqual(
+    rows.filter((r) => r.kind === "total").map((r) => r.label),
+    ["Ingreso sin IVA"],
+  );
+  assert.equal(landing(rows), 6940);
+});
+
+test("las monedas agrupan también con cuatro cifras y usan el menos tipográfico", () => {
+  assert.equal(fmtCurrency(7463, "EUR").replace(/ /g, " "), "7.463 €");
+  assert.equal(fmtCurrency(-7463, "EUR").replace(/ /g, " "), "−7.463 €");
 });

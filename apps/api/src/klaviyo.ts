@@ -9,6 +9,7 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { sanitizeGeneratedEmailHtml } from "@e-nora/ai";
 import {
+  requireOperationalOrganization,
   requireOwnOrganizationAccess,
   isOperationalOrganizationError,
   type AuthContext,
@@ -126,6 +127,28 @@ export function canManage(context: AuthContext, organizationId: string) {
     return "organization_manage_denied";
   }
   return null;
+}
+
+/**
+ * Programar o cancelar el envio de una campaña ya aprobada. Ademas de
+ * owner/manager (canManage), lo puede hacer el consultor asignado o un
+ * platform_admin: el trabajo del consultor es sacar las campañas de su cliente.
+ * Solo abre ESTO: cuentas, tokens y el resto de la integracion siguen siendo del
+ * cliente (ver requireOwnOrganizationAccess). El servidor es quien habla con
+ * Klaviyo; el consultor nunca ve la credencial.
+ */
+export function canOperateCampaigns(context: AuthContext, organizationId: string) {
+  const manage = canManage(context, organizationId);
+  if (!manage) return null;
+  const operational = requireOperationalOrganization(context, organizationId);
+  if (
+    operational.ok &&
+    operational.membership.accessSource === "consultant_assignment" &&
+    ["platform_admin", "consultant"].includes(context.profile.platform_role)
+  ) {
+    return null;
+  }
+  return manage;
 }
 
 export async function createKlaviyoConnectionAuthUrl(
@@ -338,10 +361,11 @@ export async function connectKlaviyoWithApiKey(
         name: accountName,
         timezone:
           typeof attributes.timezone === "string" ? attributes.timezone : null,
-        currency_code:
-          typeof attributes.currency_code === "string"
-            ? attributes.currency_code.toUpperCase()
-            : null,
+        currency_code: (typeof attributes.preferred_currency === "string"
+          ? attributes.preferred_currency
+          : typeof attributes.currency_code === "string"
+            ? attributes.currency_code
+            : null)?.toUpperCase() ?? null,
         raw_data: attributes,
         last_synced_at: now,
       },
@@ -641,10 +665,11 @@ export async function handleKlaviyoOAuthCallback(
             typeof accountAttributes.timezone === "string"
               ? accountAttributes.timezone
               : null,
-          currency_code:
-            typeof accountAttributes.currency_code === "string"
-              ? accountAttributes.currency_code.toUpperCase()
-              : null,
+          currency_code: (typeof accountAttributes.preferred_currency === "string"
+            ? accountAttributes.preferred_currency
+            : typeof accountAttributes.currency_code === "string"
+              ? accountAttributes.currency_code
+              : null)?.toUpperCase() ?? null,
           raw_data: accountAttributes,
           last_synced_at: now,
         },
@@ -1578,8 +1603,12 @@ export async function pushDraftToKlaviyoTemplate(
   context: AuthContext,
   organizationId: string,
   draftId: string,
+  /** Programar una campaña: tambien lo puede hacer el consultor asignado (canOperateCampaigns). */
+  options: { campaignOperator?: boolean } = {},
 ): Promise<Result<{ klaviyo_template_id: string; created: boolean }>> {
-  const accessError = canManage(context, organizationId);
+  const accessError = options.campaignOperator
+    ? canOperateCampaigns(context, organizationId)
+    : canManage(context, organizationId);
   if (accessError) return { ok: false, statusCode: 403, error: accessError };
   if (!draftId.trim()) {
     return { ok: false, statusCode: 400, error: "missing_draft_id" };
@@ -1609,6 +1638,27 @@ export async function pushDraftToKlaviyoTemplate(
       statusCode: 409,
       error: "marketing_draft_not_approved",
       message: "Aprueba la pieza antes de enviarla a Klaviyo.",
+    };
+  }
+  // ADR-0025: el cliente la aprobo pero, en una campaña con consultor, falta su
+  // revision. `approved` no basta: hasta que la de por revisada no sale a Klaviyo.
+  const { data: pendingReview, error: pendingReviewError } = await supabase
+    .from("marketing_mailing_campaign_emails")
+    .select("sequence_number")
+    .eq("organization_id", organizationId)
+    .eq("draft_id", draftId)
+    .eq("status", "awaiting_consultant_review")
+    .limit(1)
+    .maybeSingle();
+  if (pendingReviewError) {
+    return { ok: false, statusCode: 500, error: "marketing_draft_review_check_failed" };
+  }
+  if (pendingReview) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "marketing_draft_awaiting_consultant_review",
+      message: "El consultor tiene que revisar esta pieza antes de enviarla a Klaviyo.",
     };
   }
 

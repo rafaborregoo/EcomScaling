@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { isCaminoReviewDue } from "./camino-review-scheduling.js";
 import {
   agentRpcEvidence,
   diagnosticCacheFreshness,
@@ -19,7 +20,6 @@ import {
   scoreDiagnosticPriority,
   isPlanHorizon,
   orchestratorMinRunAgeFor,
-  isCaminoWeeklyReviewDue,
   MONITOR_CADENCES,
   monitorMetaSpendArgs,
   PLAN_HORIZONS,
@@ -291,12 +291,12 @@ test("cada horizonte de plan tiene su propia antiguedad minima", () => {
   assert.ok(month >= 27 * DAY_MS, "el mensual no se regenera a media mes");
 });
 
-test("la revision A19 solo vence cada siete dias y no depende del digest", () => {
+test("la revision A19 solo vence cada tres dias y no depende del digest", () => {
   const now = Date.now();
   const cadence = orchestratorMinRunAgeFor("a19_revision_camino");
-  assert.equal(cadence, 7 * DAY_MS);
+  assert.equal(cadence, 3 * DAY_MS);
   const notYetDue = decideOrchestratorAction({
-    lastRunAt: now - 6 * DAY_MS,
+    lastRunAt: now - 2 * DAY_MS,
     storedDigest: null,
     currentDigest: "changed",
     hasUnreviewedPending: false,
@@ -316,12 +316,12 @@ test("la revision A19 solo vence cada siete dias y no depende del digest", () =>
   assert.equal(due.run, true);
 });
 
-test("A19 espera siete dias desde la activacion para la primera revision", () => {
+test("A19 espera tres dias desde la activacion para la primera revision", () => {
   const now = Date.parse("2026-09-27T12:00:00.000Z");
-  assert.equal(isCaminoWeeklyReviewDue("2026-09-25T12:00:00.000Z", now), false);
-  assert.equal(isCaminoWeeklyReviewDue("2026-09-20T12:00:00.000Z", now), true);
-  assert.equal(isCaminoWeeklyReviewDue(null, now), false);
-  assert.equal(isCaminoWeeklyReviewDue("invalid", now), false);
+  assert.equal(isCaminoReviewDue("2026-09-25T12:00:00.000Z", now), false);
+  assert.equal(isCaminoReviewDue("2026-09-24T12:00:00.000Z", now), true);
+  assert.equal(isCaminoReviewDue(null, now), false);
+  assert.equal(isCaminoReviewDue("invalid", now), false);
 });
 
 test("A02 separa tres ventanas de diagnostico con sus propias cadencias", () => {

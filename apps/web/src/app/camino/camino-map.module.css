@@ -181,6 +181,10 @@
   padding: 12px 18px 16px;
   border-top: 1px solid var(--hero-line);
 }
+.mapHint {
+  color: var(--hero-muted);
+  font-size: 11px;
+}
 .phaseBtn {
   display: flex;
   align-items: center;
@@ -442,6 +446,136 @@
   margin: 4px 0 0;
   font-weight: 500;
 }
+.draftTaskSection {
+  margin-top: 16px;
+}
+.taskTrail {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 14px;
+  padding: 0;
+  list-style: none;
+}
+.taskTrailItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-height: 48px;
+  padding-bottom: 12px;
+}
+.taskTrailItem:not(:last-child)::before {
+  position: absolute;
+  top: 26px;
+  bottom: 0;
+  left: 13px;
+  width: 2px;
+  background: var(--line);
+  content: "";
+}
+.taskTrailDone:not(:last-child)::before {
+  background: var(--good);
+}
+.taskTrailNode {
+  z-index: 1;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.taskTrailDone .taskTrailNode {
+  border-color: var(--good);
+  background: var(--good);
+  color: #fff;
+}
+.taskTrailActive .taskTrailNode {
+  border-color: var(--store);
+  background: var(--store);
+  color: #fff;
+}
+.taskTrailCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
+  font-size: 13px;
+}
+.taskTrailCopy strong {
+  font-weight: 600;
+}
+.taskTrailDone .taskTrailCopy strong {
+  color: var(--good);
+}
+.taskTrailCopy > span,
+.taskTrailCopy > small {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.draftTaskHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.draftTaskHeader h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.draftTaskHeader > span,
+.draftTaskDate {
+  color: var(--ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.draftTaskList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.draftTask {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-2);
+}
+.draftTaskMarker {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border: 2px solid var(--store);
+  border-radius: 50%;
+  color: var(--store);
+  font-size: 16px;
+  line-height: 1;
+}
+.draftTaskCopy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 13px;
+}
+.draftTaskCopy > strong {
+  font-weight: 550;
+}
+.draftTaskCopy > span,
+.draftTaskCopy > small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
 .dates {
   margin-top: 18px;
   padding-top: 16px;
@@ -491,10 +625,9 @@
   font-size: 12.5px;
 }
 .dateText strong {
-  overflow: hidden;
+  min-width: 0;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .dateText > span {
   flex: 0 0 auto;
@@ -546,11 +679,13 @@
   color: var(--ink-3);
 }
 .tasks {
+  position: relative;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .task {
+  position: relative;
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) auto;
   gap: 10px;
@@ -558,11 +693,28 @@
   padding: 10px 0;
   border-top: 1px solid var(--line-2);
 }
+.task:not(:last-child)::before {
+  position: absolute;
+  z-index: 0;
+  top: 31px;
+  bottom: -21px;
+  left: 10px;
+  width: 2px;
+  background: var(--line);
+  content: "";
+}
+.task:first-child:not(:last-child)::before {
+  top: 23px;
+}
+.taskDone:not(:last-child)::before {
+  background: var(--good);
+}
 .task:first-child {
   border-top: 0;
   padding-top: 2px;
 }
 .task input {
+  z-index: 1;
   appearance: none;
   width: 22px;
   height: 22px;
@@ -581,9 +733,10 @@
 .task input:checked::after {
   content: "";
   width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #fff;
+  height: 5px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  transform: rotate(-45deg) translateY(-1px);
 }
 .task input:disabled {
   cursor: default;
@@ -613,6 +766,40 @@
 .late {
   color: var(--bad);
   font-weight: 600;
+}
+.prio {
+  color: var(--warn);
+  font-weight: 600;
+}
+/* "Como hacerlo": lo que A19 escribe para cada tarea y antes no se veia. */
+.how {
+  grid-column: 2 / -1;
+  font-size: 12.5px;
+}
+.how summary {
+  width: fit-content;
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.how p {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.evidenceChip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--ink-2);
+  font-size: 11.5px;
 }
 .empty {
   margin: 0;
@@ -982,6 +1169,31 @@
 .discussion strong {
   font-size: 12.5px;
   font-weight: 600;
+}
+.taskAction {
+  grid-column: 2 / -1;
+  justify-self: start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.taskAssetStatus {
+  grid-column: 2 / -1;
+  justify-self: start;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.taskAction:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.taskAction:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 @media (max-width: 860px) {
   .sheetGrid {

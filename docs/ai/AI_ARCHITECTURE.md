@@ -342,6 +342,15 @@ independientes con presupuesto propio, o cuando un catálogo de herramientas no 
 prompt — el candidato natural ahí es `a09_copiloto_consultor`, con 20 tools declaradas. La
 infraestructura de correlación ya está lista para ese día.
 
+### Orquestación de flujos con LangGraph (ADR-0025)
+
+LangGraph vuelve, pero **por encima de los runners**, no dentro del turno: el primer grafo
+(`apps/api/src/mailing-campaign-graph.ts`) ordena la campaña de mailing (A11 en paralelo,
+revisión automática, aprobación humana con pausa de días, programar). Presupuesto, breaker,
+validación y aprobación siguen siendo de los runners; el estado vive en un checkpointer propio
+sobre Supabase con tenant/tienda. Solo se usa el módulo de grafo, ningún modelo de LangChain.
+Detrás de `MAILING_GRAPH_ENABLED`, apagado por defecto.
+
 ### Lo que sigue abierto
 
 1. **Árbol de subagentes en el panel.** Las columnas existen y el detalle ya sabría pintarlo,

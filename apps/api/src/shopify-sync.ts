@@ -123,6 +123,16 @@ type BulkInventoryLevelLine = BulkLine & {
   quantities?: Array<{ id: string; name: string; quantity: number }> | null;
 };
 
+type BulkInventoryItemLine = BulkLine & {
+  sku?: string | null;
+  tracked?: boolean | null;
+  requiresShipping?: boolean | null;
+  countryCodeOfOrigin?: string | null;
+  provinceCodeOfOrigin?: string | null;
+  harmonizedSystemCode?: string | null;
+  unitCost?: { amount?: string | null; currencyCode?: string | null } | null;
+};
+
 type BulkOrderLine = BulkLine & {
   name: string;
   createdAt?: string | null;
@@ -2342,6 +2352,172 @@ export async function runShopifyInitialSync(
           shop_domain: shopDomain,
           error: message,
         });
+      }
+
+      // Shopify's bulk JSONL export does not reliably emit inventoryLevels
+      // when the connection is nested under ProductVariant.inventoryItem.
+      // Export InventoryItem as the root connection so each level is a child
+      // of its inventory item and can be mapped to our persisted location.
+      try {
+        accessToken = await getValidShopifyAccessToken(env, connectionId);
+        const inventoryLevelsBulkResult = await runBulkOperation(
+          shopDomain,
+          accessToken,
+          `{
+            inventoryItems {
+              edges {
+                node {
+                  id
+                  sku
+                  tracked
+                  requiresShipping
+                  countryCodeOfOrigin
+                  provinceCodeOfOrigin
+                  harmonizedSystemCode
+                  unitCost { amount currencyCode }
+                  inventoryLevels {
+                    edges {
+                      node {
+                        id
+                        location { id name }
+                        quantities(names: ["available", "on_hand", "committed", "incoming"]) {
+                          id
+                          name
+                          quantity
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+        );
+        let separateInventoryLevelCount = 0;
+        await forEachBulkRootBatch(
+          inventoryLevelsBulkResult.url,
+          UPSERT_BATCH_SIZE,
+          async (groups) => {
+            const externalInventoryItemIds = groups.map(
+              ({ root }) => root.id,
+            );
+            const existingInventoryRefs = await selectAll<{
+              id: string;
+              external_inventory_item_id: string;
+              variant_id: string;
+            }>(
+              supabase,
+              "shopify_inventory_items",
+              "id, external_inventory_item_id, variant_id",
+              "external_inventory_item_id",
+              externalInventoryItemIds,
+              connection.organization_id,
+              "store_id",
+              [storeId],
+            );
+            const variantIdByExternalId = new Map(
+              existingInventoryRefs.map((item) => [
+                item.external_inventory_item_id,
+                item.variant_id,
+              ]),
+            );
+            const inventoryItemRows = groups.map(({ root }) => {
+              const item = root as BulkInventoryItemLine;
+              return {
+                organization_id: connection.organization_id,
+                store_id: storeId,
+                variant_id: variantIdByExternalId.get(item.id),
+                external_inventory_item_id: item.id,
+                sku: item.sku ?? null,
+                tracked: item.tracked ?? false,
+                requires_shipping: item.requiresShipping ?? true,
+                country_code_of_origin: item.countryCodeOfOrigin ?? null,
+                province_code_of_origin: item.provinceCodeOfOrigin ?? null,
+                harmonized_system_code: item.harmonizedSystemCode ?? null,
+                current_unit_cost: item.unitCost?.amount ?? null,
+                cost_currency_code: item.unitCost?.currencyCode ?? null,
+                external_updated_at: new Date().toISOString(),
+              };
+            });
+            blocks.inventory.read += inventoryItemRows.length;
+            await upsertBlockRows(
+              supabase,
+              blocks.inventory,
+              "shopify_inventory_items",
+              inventoryItemRows,
+              "store_id,external_inventory_item_id",
+            );
+            const inventoryRefs = await selectAll<{
+              id: string;
+              external_inventory_item_id: string;
+            }>(
+              supabase,
+              "shopify_inventory_items",
+              "id, external_inventory_item_id",
+              "external_inventory_item_id",
+              externalInventoryItemIds,
+              connection.organization_id,
+              "store_id",
+              [storeId],
+            );
+            const inventoryIdByExternalId = new Map(
+              inventoryRefs.map((item) => [
+                item.external_inventory_item_id,
+                item.id,
+              ]),
+            );
+            const snapshotRows: Array<Record<string, unknown>> = [];
+            for (const { root, childrenByParentId } of groups) {
+              const inventoryItemId = inventoryIdByExternalId.get(root.id);
+              if (!inventoryItemId) continue;
+              const levels = (childrenByParentId.get(root.id) ?? []) as BulkInventoryLevelLine[];
+              for (const level of levels) {
+                const locationId = locationMap.get(level.location.id);
+                if (!locationId) continue;
+                const quantities = level.quantities ?? [];
+                const quantityMap = Object.fromEntries(
+                  quantities.map((quantity) => [quantity.name, quantity.quantity]),
+                ) as Record<string, number>;
+                snapshotRows.push({
+                  organization_id: connection.organization_id,
+                  inventory_item_id: inventoryItemId,
+                  location_id: locationId,
+                  external_inventory_level_id: level.id,
+                  available_quantity: quantityMap.available ?? null,
+                  on_hand_quantity: quantityMap.on_hand ?? null,
+                  committed_quantity: quantityMap.committed ?? null,
+                  incoming_quantity: quantityMap.incoming ?? null,
+                  quantities_data: quantityMap,
+                  is_active: true,
+                  updated_at: new Date().toISOString(),
+                });
+              }
+            }
+            separateInventoryLevelCount += snapshotRows.length;
+            blocks.inventory.read += snapshotRows.length;
+            await upsertBlockRows(
+              supabase,
+              blocks.inventory,
+              "shopify_inventory_current_state",
+              snapshotRows,
+              "inventory_item_id,location_id",
+            );
+          },
+        );
+        inventoryLevelCount += separateInventoryLevelCount;
+        logger.info("Shopify inventory levels bulk sync completed", {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          shop_domain: shopDomain,
+          inventory_levels_written: separateInventoryLevelCount,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "shopify_inventory_levels_sync_failed";
+        blocks.inventory.failed += 1;
+        blocks.inventory.error = blocks.inventory.error ?? message;
       }
 
       if (inventoryItemCount && locationMap.size && !inventoryLevelCount) {

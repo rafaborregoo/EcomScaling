@@ -6,6 +6,7 @@ import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { toast } from "@/components/ui";
+import { BarRows } from "@/components/data-bars";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { DELIVERY_AREAS, DELIVERY_EXCEPTION_LABELS, DELIVERY_NEXT_ACTIONS } from "../shopify/insights-sections";
 import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
@@ -55,6 +56,9 @@ type ShopifyMetrics = Metrics & {
     currency_code: string | null;
     mismatched_sources: Array<{ source: string; currencies: string[] }>;
     unknown_sources: string[];
+    klaviyo_status: "compatible" | "incompatible" | "unknown";
+    klaviyo_currency_code: string | null;
+    klaviyo_unknown: boolean;
   };
   sales: Metrics["sales"] & { gross_sales: number; discounts: number; refunds: number; units_sold: number };
   margin: { revenue: number; cogs: number; gross_margin: number; margin_pct: number; items_without_cost: number; items_with_estimated_cost: number; lines_with_exact_metrics: number; lines_with_estimated_metrics: number; lines_without_metrics: number };
@@ -162,7 +166,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
 
   const metrics = useCachedQuery<ShopifyMetrics>(`${base}/shopify/metrics?days=${days}${scope}`);
   const insights = useCachedQuery<Insights>(`${base}/shopify/insights?days=${days}${scope}`);
-  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30${scope}`);
+  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=shopify${scope}`);
   const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
   // "Operativa de Shopify" es consultantOnly (ver dashboard-ai-agents.ts): el
   // cliente no la pide, por eso la key es null cuando no hay consultor mirando.
@@ -190,7 +194,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
     : false;
   const pins = usePins(data?.daily, operations.data?.alerts);
 
-  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Shopify, ${periodPhrase(days)})`, focusLabel });
+  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Shopify, ${periodPhrase(days)})`, focusLabel, reference: { period_label: periodPhrase(days), filters: { days: String(days) } } });
 
   function reloadAll() {
     invalidateApiGetCache();
@@ -200,17 +204,16 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
     operativaShopify.reload();
   }
 
-  async function runAgent(path: string, label: string, reload: () => void) {
+  async function runAgent(path: string, label: string, reload: () => void, view?: string) {
     setRunning(path);
     try {
-      const response = await apiFetch(`${base}${path}?days=30${scope}`, { method: "POST" });
+      const viewQuery = view ? `&view=${encodeURIComponent(view)}` : "";
+      const response = await apiFetch(`${base}${path}?days=30${scope}${viewQuery}`, { method: "POST" });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
       }
       toast.success(`${label} actualizado.`);
-      invalidateApiGetCache();
-      invalidateCachedQueries(base);
       reload();
     } catch {
       toast.danger("No se pudo lanzar el análisis por un error de red.");
@@ -220,6 +223,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   }
   const runStockPlanner = () => runAgent("/ai/stock-planner-run", "Análisis de stock", stockAi.reload);
   const runOperativaShopify = () => runAgent("/ai/operativa-shopify-run", "Operativa de Shopify", operativaShopify.reload);
+  const runMonitorShopify = () => runAgent("/ai/monitor-run", "Lectura A02 de Shopify", monitor.reload, "shopify");
   // Older cached diagnostics may contain financial claims created before the
   // live currency-coverage guard existed. Keep stock advice, suppress finance.
   const proposals = [stockAi.data, financialCurrencyComparable ? operativaShopify.data : undefined]
@@ -288,7 +292,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   // ---- derivados ----
   const { sales } = data;
   const previous = data.previous_period;
-  const diagnostic = financialCurrencyComparable ? monitor.data : undefined;
+  const diagnostic = monitor.data;
   const ins = insights.data;
   const daily = data.daily;
   const previousAverage = previous && daily.length ? previous.sales.net_sales / daily.length : null;
@@ -306,6 +310,13 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   const recovery = ins?.checkout_recovery ?? null;
   const top = data.top_products.slice(0, 8);
   const topMax = Math.max(...top.map((p) => p.revenue), 1);
+  const stockRecommendations = (stockAi.data?.output.proposed_writes ?? []).flatMap((write) => {
+    const productId = write.related_product_id?.toLowerCase();
+    if (!productId) return [];
+    const matchedProduct = top.find((item) => item.product_id.toLowerCase() === productId);
+    const product = matchedProduct ?? { product_id: productId, title: write.title };
+    return [{ write, product }];
+  });
 
   return (
     <div className={s.root}>
@@ -336,6 +347,9 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                   IA
                 </span>
                 Preguntar por qué
+              </button>
+              <button type="button" className={cx(s.btn, s.ghost)} disabled={running !== null} onClick={() => void runMonitorShopify()}>
+                {running === "/ai/monitor-run" ? "Analizando Shopify…" : "Actualizar análisis Shopify"}
               </button>
               {hideFullLink ? null : (
                 <a className={cx(s.btn, s.ghost)} href="/shopify">
@@ -399,6 +413,15 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
             </div>
           </>
         ) : null}
+      </section>
+
+      <section className={s.sec} aria-label="Lectura ejecutiva de Shopify">
+        <div className={s.panel}>
+          <p className={s.lbl}>A02 · Shopify</p>
+          <p className={s.headlineDetail}>
+            {monitor.data?.output.headline ?? "El análisis específico de Shopify aparecerá aquí cuando termine su primera ejecución."}
+          </p>
+        </div>
       </section>
 
       {!financialCurrencyComparable ? (
@@ -493,7 +516,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           title="Pendiente en esta tienda"
           ai={null}
           fallback="Propuestas de reposición de stock y, si tienes consultor, de su operativa en Shopify."
-          onAsk={() => askCopilot("¿Qué debería resolver primero en mi tienda esta semana?", "Pendiente en Shopify")}
+          onAsk={() => askCopilot("Con las señales de Shopify y las tareas abiertas, ¿qué única prioridad debería iniciar esta semana? Cita la métrica, fuente y periodo; señala si falta evidencia.", "Pendiente en Shopify")}
         />
         <WorkQueue
           base={base}
@@ -524,7 +547,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           title="Conversión"
           ai={findingFor(diagnostic, /conver|embudo|carrito|checkout|cro|web/i)?.title ?? null}
           fallback={funnel?.has_sessions && funnel.conversion_rate_own != null ? `De cada 100 visitas compran ${fmtNum(funnel.conversion_rate_own * 100, 1)}.` : null}
-          onAsk={() => askCopilot("¿Dónde pierdo más visitas en mi tienda y qué cambiarías primero?", "Conversión")}
+          onAsk={() => askCopilot("¿En qué etapa medible del embudo cae más la conversión y qué cambio probarías primero? Cita sesiones, eventos y periodo; si no hay cobertura, indícalo.", "Conversión")}
         />
         <div className={s.two}>
           <div className={s.panel}>
@@ -536,8 +559,8 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
             </div>
             {funnel?.has_sessions ? (
               <>
-                <div className={s.fn}>
-                  {[
+                {(() => {
+                  const steps = [
                     { label: "Sesiones", value: funnel.sessions, pct: 1, hint: "Visitas a la tienda online" },
                     ...(funnel.has_funnel_steps
                       ? [
@@ -546,19 +569,23 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                           { label: "Compran", value: funnel.purchases, pct: funnel.purchases / (funnel.checkouts_reached || 1), hint: "de los que llegan al pago" },
                         ]
                       : [{ label: "Pedidos", value: funnel.orders_count, pct: funnel.conversion_rate_own ?? 0, hint: "de las sesiones" }]),
-                  ].map((step, i) => (
-                    <div key={step.label} className={s.fnR}>
-                      <div className={s.fnT}>
-                        <span>{step.label}</span>
-                        <span className={s.num}>{fmtNum(step.value)}</span>
-                      </div>
-                      <div className={s.bar}>
-                        <i style={{ width: `${Math.max(Math.min(step.pct * 100, 100), 1)}%` }} />
-                      </div>
-                      <span className={s.fnS}>{i === 0 ? step.hint : `${pct(step.pct)} ${step.hint}`}</span>
-                    </div>
-                  ))}
-                </div>
+                  ];
+                  const sessions = Math.max(steps[0]?.value ?? 0, 1);
+                  return (
+                    <BarRows
+                      variant="stack"
+                      ariaLabel="Embudo de la tienda online"
+                      max={sessions}
+                      rows={steps.map((step, i) => ({
+                        key: step.label,
+                        label: step.label,
+                        value: Math.max(step.value, sessions * 0.01),
+                        display: fmtNum(step.value),
+                        sub: i === 0 ? step.hint : `${pct(step.pct)} ${step.hint}`,
+                      }))}
+                    />
+                  );
+                })()}
                 {data.funnel_daily.length > 1 ? (
                   <div className={s.headroom}>
                     <p className={s.lbl}>Conversión por día</p>
@@ -622,13 +649,12 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           id="shop-prod"
           title="Productos"
           ai={stockAi.data?.output.headline ?? findingFor(diagnostic, /producto|stock|invent|devol/i)?.title ?? null}
-          onAsk={() => askCopilot("¿Qué productos me están funcionando, cuáles debería reponer y cuáles me devuelven más?", "Productos")}
         />
         <div className={s.two}>
           <div className={s.panel}>
             <div className={s.panelH}>
               <div>
-                <h3>Los que más venden</h3>
+                <h3>Los que más venden y su reposición</h3>
                 <p className={s.sub}>Por ventas en el periodo</p>
               </div>
             </div>
@@ -680,6 +706,56 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
             ) : (
               <Empty>Sin ventas de productos en este periodo.</Empty>
             )}
+            <div className={s.restockBlock}>
+              <div className={s.restockHeading}>
+                <p className={s.lbl}>Propuestas de reposición</p>
+                <button
+                  type="button"
+                  className={cx(s.btn, s.ghost, s.sm)}
+                  disabled={running !== null}
+                  onClick={() => void runStockPlanner()}
+                >
+                  {running === "/ai/stock-planner-run" ? "Actualizando…" : "Actualizar previsión"}
+                </button>
+              </div>
+              {stockRecommendations.length ? (
+                <ul className={s.restockList}>
+                  {stockRecommendations.map(({ write, product }) => (
+                    <li className={s.restockItem} key={`${product.product_id}:${write.title}`}>
+                      <div>
+                        <a
+                          className={s.restockProduct}
+                          href={`/shopify/productos/${encodeURIComponent(product.product_id)}?${new URLSearchParams({ organizationId, ...(connectionId ? { connectionId } : {}) }).toString()}`}
+                        >
+                          {product.title}
+                        </a>
+                        <p className={s.restockStatus}>Propuesto para reponer · pendiente de aprobación</p>
+                      </div>
+                      <details className={s.restockWhy}>
+                        <summary aria-label={`Por qué se propone reponer ${product.title}`} title="Por qué se propone">
+                          ?
+                        </summary>
+                        <div className={s.restockReason}>
+                          <strong>Por qué se propone</strong>
+                          <p>{write.rationale || write.description}</p>
+                          {write.evidence?.length ? (
+                            <ul>{write.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul>
+                          ) : null}
+                          {write.due_hint ? <p>Horizonte sugerido: {write.due_hint}</p> : null}
+                        </div>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              ) : stockAi.data ? (
+                <p className={s.muted}>
+                  El análisis actual no propone reponer ninguno de estos productos. Consulta el panel de stock para ver otros riesgos.
+                </p>
+              ) : (
+                <p className={s.muted}>Aún no hay una previsión disponible. Actualiza el análisis para ver productos priorizados.</p>
+              )}
+              <p className={s.restockFootnote}>Son propuestas para revisar; no se envía ningún pedido automáticamente.</p>
+            </div>
           </div>
           <div className={s.panel}>
             <div className={s.panelH}>
@@ -725,7 +801,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
             ) : (
               <div className={s.qfB} style={{ marginTop: 16 }}>
                 <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={running !== null} onClick={() => void runStockPlanner()}>
-                  {running === "/ai/stock-planner-run" ? "Cruzando stock y ventas…" : "Pedir a la IA qué reponer"}
+                  {running === "/ai/stock-planner-run" ? "Actualizando previsión…" : "Actualizar previsión"}
                 </button>
               </div>
             )}
@@ -850,7 +926,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           title="Clientes"
           ai={findingFor(diagnostic, /client|recurren|repet|fideli|retenc|ltv|churn/i)?.title ?? null}
           fallback={ins?.recurrence?.repeat_order_rate != null ? `${pct(ins.recurrence.repeat_order_rate)} de tus pedidos son de clientes que repiten.` : null}
-          onAsk={() => askCopilot("¿Mis clientes repiten? ¿Cuánto vale un cliente y cómo hago que vuelvan?", "Clientes")}
+          onAsk={() => askCopilot("¿Qué muestran la repetición de compra y el valor observado por cliente? Recomienda una acción de retención respaldada por esos datos y el periodo; no estimes un LTV si no hay antigüedad suficiente.", "Clientes")}
         />
         {!ins ? (
           <div className={s.panel}>{insights.isLoading ? <p className={s.empty}>Cargando…</p> : <Unavailable what="los datos de clientes" />}</div>
@@ -914,7 +990,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           title="Origen de las ventas"
           ai={null}
           fallback="Según tu propia tienda: cada pedido cuenta una sola vez, a diferencia de lo que se atribuyen Meta o Klaviyo."
-          onAsk={() => askCopilot("¿De dónde vienen mis ventas según Shopify y qué canal trae más clientes nuevos?", "Origen de las ventas")}
+          onAsk={() => askCopilot("Según los pedidos de Shopify con origen registrado, ¿qué canal aporta más ventas y clientes nuevos? Cita cobertura, cifra y periodo; no completes los orígenes desconocidos.", "Origen de las ventas")}
         />
         <div className={s.panel}>
           {!ins ? (
@@ -933,7 +1009,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           id="shop-env"
           title="Envíos"
           ai={findingFor(diagnostic, /env[ií]o|entrega|log[ií]stic|fulfil|transport/i)?.title ?? null}
-          onAsk={() => askCopilot("¿Cómo van mis envíos y qué incidencias debería revisar?", "Envíos")}
+          onAsk={() => askCopilot("¿Qué incidencias de envío están respaldadas por pedidos o eventos de Shopify y cuál debería revisar primero? Cita cantidad, estado y periodo; diferencia retrasos confirmados de datos incompletos.", "Envíos")}
         />
         <div className={s.two}>
           <div className={s.panel}>

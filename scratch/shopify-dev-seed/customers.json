@@ -1,0 +1,42 @@
+{
+  "c1": {
+    "firstName": "Lucía",
+    "lastName": "Serrano",
+    "email": "demo.customer.1@example.invalid"
+  },
+  "c2": {
+    "firstName": "Mateo",
+    "lastName": "Vidal",
+    "email": "demo.customer.2@example.invalid"
+  },
+  "c3": {
+    "firstName": "Sofía",
+    "lastName": "Ríos",
+    "email": "demo.customer.3@example.invalid"
+  },
+  "c4": {
+    "firstName": "Hugo",
+    "lastName": "Prieto",
+    "email": "demo.customer.4@example.invalid"
+  },
+  "c5": {
+    "firstName": "Carmen",
+    "lastName": "Nadal",
+    "email": "demo.customer.5@example.invalid"
+  },
+  "c6": {
+    "firstName": "Leo",
+    "lastName": "Molina",
+    "email": "demo.customer.6@example.invalid"
+  },
+  "c7": {
+    "firstName": "Valeria",
+    "lastName": "Santos",
+    "email": "demo.customer.7@example.invalid"
+  },
+  "c8": {
+    "firstName": "Daniel",
+    "lastName": "Costa",
+    "email": "demo.customer.8@example.invalid"
+  }
+}

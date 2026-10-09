@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { PasswordInput } from "@/components/password-input";
+import { LegalFooterLinks } from "@/components/legal-page";
 import {
   Banner,
   BrandLogo,
@@ -142,6 +143,7 @@ function LoginPageContent() {
             </Link>
           </p>
         </Card>
+        <LegalFooterLinks className="mt-6" />
       </div>
     </main>
   );

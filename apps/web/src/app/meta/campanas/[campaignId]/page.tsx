@@ -102,7 +102,7 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const colorFor = (index: number) => ["var(--store)", "var(--meta)", "var(--klaviyo)", "var(--warn)", "var(--good)"][index % 5];
 
   const askCopilot = (question: string, focusLabel: string) =>
-    ask({ question: `${question} (campaña «${campaign.name}», últimos ${periodDays} días)`, focusLabel });
+    ask({ question: `${question} (campaña «${campaign.name}», últimos ${periodDays} días)`, focusLabel, reference: { filters: { periodDays: String(periodDays) } } });
 
   return (
     <div className={pulse.root}>

@@ -1,0 +1,40 @@
+{
+  "datasetId": "e-nora-test-lab/2026-10-02.v1",
+  "createdAt": "2026-10-02",
+  "source": "synthetic",
+  "integrationMode": "local-simulators-only",
+  "catalog": [
+    {
+      "productId": "lab-product-bikini-coral",
+      "title": "Bikini Coral (synthetic)",
+      "status": "ACTIVE",
+      "imageUrl": "https://example.com/lab/bikini-coral.jpg",
+      "variants": [
+        { "variantId": "lab-variant-bikini-coral-s", "sku": "LAB-BIKINI-CORAL-S", "option": "S", "price": 49.9, "inventory": 4 },
+        { "variantId": "lab-variant-bikini-coral-m", "sku": "LAB-BIKINI-CORAL-M", "option": "M", "price": 49.9, "inventory": 0 }
+      ]
+    },
+    {
+      "productId": "lab-product-towel-blue",
+      "title": "Toalla Azul (synthetic)",
+      "status": "DRAFT",
+      "imageUrl": "https://example.com/lab/towel-blue.jpg",
+      "variants": [
+        { "variantId": "lab-variant-towel-blue-one", "sku": "LAB-TOWEL-BLUE-ONE", "option": "Única", "price": 24.5, "inventory": 8 }
+      ]
+    }
+  ],
+  "profiles": [
+    { "profileId": "lab-profile-consented", "email": "buyer.one@example.com", "emailConsent": "SUBSCRIBED" },
+    { "profileId": "lab-profile-unsubscribed", "email": "buyer.two@example.com", "emailConsent": "UNSUBSCRIBED" }
+  ],
+  "scenarios": [
+    { "id": "catalog-search", "description": "Encuentra un producto publicado por nombre y devuelve su variante, SKU y precio.", "checks": ["product_found", "variant_and_price_returned"] },
+    { "id": "out-of-stock-variant", "description": "Detecta que la variante M está agotada y no permite añadirla al carrito.", "checks": ["variant_reported_unavailable", "cart_unchanged"] },
+    { "id": "payment-approved", "description": "Completa una compra de prueba y registra los eventos que enviarían los conectores simulados.", "checks": ["order_marked_paid", "klaviyo_order_event_queued", "meta_purchase_event_queued", "no_external_delivery"] },
+    { "id": "payment-declined", "description": "Un pago rechazado no crea un pedido pagado ni un evento de compra.", "checks": ["payment_failure_reported", "no_paid_order", "no_purchase_event"] },
+    { "id": "return-refund", "description": "Devuelve una línea de un pedido pagado y registra el reembolso simulado.", "checks": ["order_marked_refunded", "refund_event_queued", "no_external_delivery"] },
+    { "id": "unsubscribe", "description": "Respeta la baja y bloquea eventos de marketing para ese perfil.", "checks": ["consent_is_unsubscribed", "no_marketing_event_for_profile"] },
+    { "id": "duplicate-event", "description": "Procesa dos veces el mismo webhook y aplica sus efectos una sola vez.", "checks": ["one_effect", "duplicate_acknowledged"] }
+  ]
+}

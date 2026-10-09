@@ -212,6 +212,8 @@ export async function createKnowledgeDocument(
     content?: unknown;
     source_type?: unknown;
     audience?: unknown;
+    /** connectionId from the store selector; never accept a raw store_id. */
+    connection_id?: unknown;
   },
 ) {
   const access = requireKnowledgeManager(context, organizationId);
@@ -290,12 +292,33 @@ export async function createKnowledgeDocument(
   const vectors = await embedChunksInOrder(chunks, embeddings.provider);
 
   const supabase = createServiceClient(env);
+  let storeId: string | null = null;
+  if (typeof payload.connection_id === "string" && payload.connection_id.trim()) {
+    if (!organizationId) {
+      return { ok: false as const, statusCode: 400, error: "store_scope_requires_organization" };
+    }
+    const { data: store, error: storeError } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("connection_id", payload.connection_id.trim())
+      .eq("is_active", true)
+      .maybeSingle();
+    if (storeError) {
+      return { ok: false as const, statusCode: 500, error: "knowledge_store_scope_failed", detail: storeError.message };
+    }
+    if (!store) {
+      return { ok: false as const, statusCode: 404, error: "knowledge_store_not_found" };
+    }
+    storeId = store.id;
+  }
   const checksum = crypto.createHash("sha256").update(content).digest("hex");
 
   const { data: document, error: documentError } = await supabase
     .from("knowledge_documents")
     .insert({
       organization_id: organizationId,
+      store_id: storeId,
       title: title.slice(0, 255),
       description:
         typeof payload.description === "string" ? payload.description : null,
