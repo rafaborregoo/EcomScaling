@@ -51,6 +51,6 @@ test("A23 inspects imported video thumbnails as stills and never fetches video b
   assert.match(runtime, /\.slice\(0, 8\)/);
   assert.match(bank, /resolveMetaVisualRepresentation/);
   assert.match(bank, /imported_representation: params\.assetType === "video" \? "static_thumbnail_only"/);
-  assert.match(ui, /no se importa el vídeo completo/);
-  assert.match(ui, /miniatura de vídeo/);
+  assert.match(ui, /El vídeo completo no se\s*importa:\s*solo la imagen fija/);
+  assert.match(ui, /miniatura de vídeo/i);
 });

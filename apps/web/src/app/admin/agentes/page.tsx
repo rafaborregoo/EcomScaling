@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
+import { AgentReleaseGatePanel } from "./release-gate-panel";
+import { JudgeDatasetPanel } from "./judge-dataset-panel";
+import { AgentReleaseEvalFixturesPanel } from "./release-eval-fixtures-panel";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
@@ -181,6 +184,9 @@ export default function AdminAiAgentsPage() {
     <PlatformAdminShell title="Configuración de IA">
       {() => (
         <div className="grid gap-6">
+          <JudgeDatasetPanel />
+          <AgentReleaseEvalFixturesPanel />
+          <AgentReleaseGatePanel />
           <Card
             kicker="Activación por cliente"
             title="Agente y modelo de ejecución"

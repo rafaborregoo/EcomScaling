@@ -52,7 +52,7 @@ const TITLES: Array<[string, string]> = [
   ["/planificacion", "Planificación"],
   ["/shopify", "Shopify"],
   ["/tareas", "Tareas"],
-  ["/tiendas", "Mis tiendas"],
+  ["/tiendas", "Tiendas"],
 ];
 
 function matchesPath(pathname: string, prefix: string) {

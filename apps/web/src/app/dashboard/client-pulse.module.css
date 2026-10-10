@@ -1647,9 +1647,12 @@
    en qué lado está. Se aplica envolviendo cualquier vista con .consultant. */
 .consultant .root,
 .root.consultant,
-/* Analítica (Shopify, Meta, Klaviyo): el consultor ve las mismas páginas del cliente en su paleta. */
-:global(#portal-content[data-module="analitica"][data-role="consultant"]) .root {
-  --paper: #f2f2f0;
+/* Cualquier página del portal del consultor que reutiliza esta gramática
+   (Analítica, Conocimiento, Llamadas...) va en su paleta. Antes solo Analítica:
+   Conocimiento salía con petróleo y azafrán, los colores del cliente. El panel
+   de administración tiene su propio tema y queda fuera. */
+:global(#portal-content[data-role="consultant"]:not(.admin-portal-content)) .root {
+  --paper: #faf9f7;
   --surface: #ffffff;
   --surface-2: #f7f7f5;
   --sunken: #e7e7e3;

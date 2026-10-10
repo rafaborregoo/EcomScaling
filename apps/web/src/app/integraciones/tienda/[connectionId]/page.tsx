@@ -23,15 +23,12 @@ import {
   TrashIcon,
   toast,
 } from "@/components/ui";
-import { PROVIDER_SLUG, useIntegrations, useStoreScope } from "../../shared";
+import { PROVIDER_SLUG, StateBadge, useIntegrations, useStoreScope } from "../../shared";
 import {
   buildStoreViews,
-  connectionStatusLabel,
-  healthTone,
   type StoreProviderView,
   type StoreView,
 } from "../../store-view-model";
-import hub from "../../hub.module.css";
 
 // Una tienda y sus tres conexiones.
 //
@@ -97,12 +94,7 @@ function ProviderCard({
         </span>
       }
       actions={
-        <Badge tone={healthTone(provider.status)} variant={connected ? "solid" : "soft"}>
-          {connectionStatusLabel(
-            provider.connections[0] ?? null,
-            explanation.label,
-          )}
-        </Badge>
+        <StateBadge connection={provider.target} providerId={provider.provider} available={provider.available} />
       }
     >
       {explanation.detail ? (
@@ -374,31 +366,25 @@ function StoreDetail({
   }
 
   return (
-    <div className={hub.page}>
+    <div className="portal-page space-y-6">
       <BackToStores />
 
-      <section className={hub.providerHead}>
-        <header className={hub.band}>
-          <span className={hub.bandLogo}>
-            <ProviderIcon provider="shopify" size={26} />
+      <Card
+        kicker="Tienda"
+        title={
+          <span className="flex items-center gap-3">
+            <ProviderIcon provider="shopify" size={24} />
+            {store.name}
           </span>
-          <div className={hub.bandText}>
-            <p>Tienda</p>
-            <h1>{store.name}</h1>
-          </div>
-          <div className={hub.bandState}>
-            <span className={hub.st} data-s={store.severity === 0 ? "ok" : healthTone(store.status) === "danger" ? "bad" : "warn"}>
-              <i aria-hidden />
-              {store.status === "syncing"
-                ? "Sincronizando"
-                : store.severity === 0
-                  ? "Al d\u00eda"
-                  : "Necesita atenci\u00f3n"}
-            </span>
-            <small>{store.domain}</small>
-          </div>
-        </header>
-        <div className={hub.providerBody}>
+        }
+        description={store.domain}
+        actions={
+          <Badge tone={store.severity === 0 ? "success" : store.severity >= 4 ? "danger" : "warn"}>
+            {store.status === "syncing" ? "Importando" : store.severity === 0 ? "Al d\u00eda" : "Necesita atenci\u00f3n"}
+          </Badge>
+        }
+      >
+        <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <ButtonLink variant="secondary" href="/shopify">
               Ver datos de la tienda
@@ -453,7 +439,7 @@ function StoreDetail({
           </Banner>
         ) : null}
         </div>
-      </section>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {store.providers.map((provider) => {

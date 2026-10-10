@@ -23,6 +23,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { assertMigrationReleasePreflight } from "./agent-release-migration-preflight.mjs";
 
 const dir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -131,6 +132,7 @@ try {
       process.stdout.write(`Aplicando ${m.file}... `);
       await client.query("begin");
       try {
+        await assertMigrationReleasePreflight(client, { file: m.file, sql });
         await client.query(sql);
         await client.query(
           `insert into supabase_migrations.schema_migrations (version, name, statements)

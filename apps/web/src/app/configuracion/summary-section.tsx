@@ -1,7 +1,6 @@
 "use client";
 
-import { useCachedQuery } from "@/lib/use-cached-query";
-import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
+import { useSettingsStatus } from "./settings-status";
 import { HeroBlock, StatusStrip, heroPrimary } from "@/components/trabajo-ui";
 import { Button, Card, List } from "@/components/ui";
 
@@ -9,12 +8,6 @@ import { Button, Card, List } from "@/components/ui";
  * Qué falta para que las cifras de la tienda sean fiables. Cada fila sale de un
  * dato real (no de un porcentaje inventado) y lleva a la sección que lo arregla.
  */
-
-type Config = {
-  settings: unknown;
-  fixed_expenses: unknown[];
-  metric_targets: unknown[];
-};
 
 type Item = {
   key: string;
@@ -36,33 +29,14 @@ export function SummarySection({
   isConsultant: boolean;
   onNavigate: (section: string) => void;
 }) {
-  const base = `/v1/organizations/${organizationId}`;
-  const config = useCachedQuery<Config>(`${base}/financial-config`);
-  const rules = useCachedQuery<{ rules: Array<{ is_enabled: boolean }> }>(`${base}/alert-rules`);
-  const integrations = useCachedQuery<{
-    providers: Array<{ id: string; connection: { status: string } | null }>;
-  }>(`${base}/integrations`);
-  const { consultant, resolved } = useAssignedConsultant(organizationId);
-
-  const shopifyConnected = integrations.data
-    ? integrations.data.providers.some(
-        (provider) =>
-          provider.id.toLowerCase().includes("shopify") &&
-          provider.connection?.status === "connected",
-      )
-    : null;
-  const enabledAlerts = rules.data
-    ? rules.data.rules.filter((rule) => rule.is_enabled).length
-    : null;
-  const totalAlerts = rules.data?.rules.length ?? null;
-  const fixedExpenses = config.data ? config.data.fixed_expenses.length : null;
-  const targets = config.data ? config.data.metric_targets.length : null;
+  const status = useSettingsStatus(organizationId);
+  const { fixedExpenses, targets, enabledAlerts, totalAlerts } = status.counts;
 
   const items: Item[] = [
     {
       key: "shopify",
       label: "Shopify conectado",
-      done: shopifyConnected,
+      done: status.shopify,
       section: "/integraciones",
       action: "Conectar",
       next: {
@@ -73,7 +47,7 @@ export function SummarySection({
     {
       key: "costs",
       label: "Comisión de pago y envío medio",
-      done: config.data ? config.data.settings !== null : null,
+      done: status.costs,
       section: "rentabilidad",
       action: "Configurar",
       next: {
@@ -84,7 +58,7 @@ export function SummarySection({
     {
       key: "fixed",
       label: "Gastos fijos del mes",
-      done: fixedExpenses === null ? null : fixedExpenses > 0,
+      done: status.fixed,
       section: "rentabilidad",
       action: "Añadir",
       next: {
@@ -96,7 +70,7 @@ export function SummarySection({
     {
       key: "targets",
       label: "Objetivos de tus métricas",
-      done: targets === null ? null : targets > 0,
+      done: status.targets,
       section: "objetivos",
       action: "Fijar",
       next: {
@@ -107,7 +81,7 @@ export function SummarySection({
     {
       key: "alerts",
       label: "Alertas encendidas",
-      done: enabledAlerts === null ? null : enabledAlerts > 0,
+      done: status.alerts,
       section: "alertas",
       action: "Revisar",
       next: {
@@ -121,7 +95,7 @@ export function SummarySection({
           {
             key: "consultant",
             label: "Consultor asignado",
-            done: resolved ? Boolean(consultant) : null,
+            done: status.consultant,
             section: "tienda",
             action: "Ver",
             next: {
@@ -130,6 +104,19 @@ export function SummarySection({
             },
           } satisfies Item,
         ]),
+    {
+      key: "twoFactor",
+      label: "Verificación en dos pasos",
+      done: status.twoFactor,
+      section: "seguridad",
+      action: "Activar",
+      next: {
+        title: isConsultant
+          ? "Activa la verificación en dos pasos: entras en las tiendas de todos tus clientes"
+          : "Activa la verificación en dos pasos",
+        body: "Con la contraseña sola, quien la consiga entra. Con el código de tu móvil, no.",
+      },
+    },
   ];
 
   const known = items.filter((item) => item.done !== null);

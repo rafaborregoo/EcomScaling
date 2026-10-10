@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
+import { planName } from "@/lib/plan-labels";
 import type { CopilotBalance } from "@/components/copilot-saldo";
 import { StatusStrip } from "@/components/trabajo-ui";
 import {
@@ -127,7 +128,7 @@ export function BillingSection({ organizationId }: { organizationId: string }) {
       <StatusStrip
         items={[
           {
-            value: billing.plan_code ?? "Sin plan",
+            value: planName(billing.plan_code),
             label: "Plan actual",
             text: true,
             hint: billing.status ? displayValue(billing.status) : undefined,

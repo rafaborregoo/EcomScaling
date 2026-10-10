@@ -23,9 +23,7 @@ import {
   Link,
   ProviderIcon,
 } from "@/components/ui";
-import { connectionStatusLabel, explainHealth } from "./store-view-model";
-import { signalOf } from "./hub-model";
-import hub from "./hub.module.css";
+import { CONNECTION_STATES, connectionState, explainHealth } from "./store-view-model";
 
 // --- Tipos de la respuesta del backend ------------------------------------
 
@@ -240,27 +238,27 @@ function integrationErrorSummary(message: string): string {
   return "La última sincronización no se pudo completar. Puedes reintentarlo o revisar el detalle técnico.";
 }
 
-export function healthLabel(status: string): string {
-  const labels: Record<string, string> = {
-    healthy: "Saludable",
-    syncing: "Sincronizando",
-    degraded: "Degradado",
-    reauthorization_required: "Reautorizar",
-    stale: "Desactualizado",
-    unknown: "Pendiente",
-  };
-  return labels[status] ?? displayValue(status);
+/** El estado de una conexión con las seis palabras de CONNECTION_STATES. */
+export function stateOf(connection: IntegrationConnection, providerId?: string) {
+  const state = connectionState(connection, explainHealth(connection.health, connection, providerId));
+  return CONNECTION_STATES[state ?? "desconectado"];
 }
 
-export function healthTone(
-  status: string,
-): "success" | "warn" | "danger" | "neutral" {
-  if (status === "healthy") return "success";
-  if (status === "syncing") return "neutral";
-  if (["degraded", "stale"].includes(status)) return "warn";
-  if (["reauthorization_required", "needs_reauth", "error"].includes(status))
-    return "danger";
-  return "neutral";
+/** Badge del estado. Sin conexión: «Sin conectar» o «Aún no disponible». */
+export function StateBadge({
+  connection,
+  providerId,
+  available = true,
+}: {
+  connection: IntegrationConnection | null | undefined;
+  providerId?: string;
+  available?: boolean;
+}) {
+  if (!connection) {
+    return <Badge tone="neutral">{available ? "Sin conectar" : "Aún no disponible"}</Badge>;
+  }
+  const state = stateOf(connection, providerId);
+  return <Badge tone={state.tone}>{state.label}</Badge>;
 }
 
 export function readOAuthNotice(): {
@@ -292,6 +290,20 @@ export function readOAuthNotice(): {
       text: `${tienda ?? "Esa tienda"} ya está conectada en otra cuenta de E-NORA, y una tienda solo puede estar en una. Hemos registrado el intento: escribe a soporte para liberarla.`,
     };
   }
+  // Shopify abrio la instalacion por su cuenta (sin pasar por E-NORA): por
+  // seguridad no se adivina a que tienda va; se repite desde aqui.
+  if (result === "iniciar") {
+    const tienda = params.get("shop");
+    return {
+      tone: "warn",
+      text: `Para terminar de conectar ${tienda ?? "la tienda"}, pulsa «Conectar» y elige Shopify: así sabemos que la conexión es tuya.`,
+    };
+  }
+  if (result === "caducado")
+    return {
+      tone: "warn",
+      text: `El enlace de autorización de ${label} caducó (dura 30 minutos). Vuelve a pulsar «Conectar».`,
+    };
   if (result === "denied")
     return {
       tone: "warn",
@@ -489,8 +501,11 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         setPending(null);
       }
     },
-    retrySync: (provider: "shopify" | "klaviyo" | "meta", connectionId: string) =>
-      withPending(`retry-${provider}`, async () => {
+    // Devuelve si se lanzo: "Sincronizar todo" cuenta los fallos en vez de
+    // anunciar exito siempre.
+    retrySync: async (provider: "shopify" | "klaviyo" | "meta", connectionId: string): Promise<boolean> => {
+      let ok = false;
+      await withPending(`retry-${provider}`, async () => {
         const response = await apiFetch(
           `/v1/organizations/${organizationId}/${provider}/sync?connectionId=${encodeURIComponent(connectionId)}`,
           { method: "POST" },
@@ -499,9 +514,41 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           setActionError(await readErr(response));
           return;
         }
+        ok = true;
         reload();
         notifyIntegrationStatusChanged();
-      }),
+      });
+      return ok;
+    },
+    // Desconectar Meta Ads o Klaviyo: el backend retira el permiso en el
+    // proveedor cuando puede y borra las credenciales guardadas.
+    disconnect: async (
+      provider: "meta_ads" | "klaviyo",
+      connectionId: string,
+    ): Promise<{ ok: boolean; providerRevoked: boolean; reason: string | null }> => {
+      if (!organizationId) return { ok: false, providerRevoked: false, reason: null };
+      setPending(`disconnect-${connectionId}`);
+      setActionError(null);
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organizationId}/integrations/${provider}/connections/${connectionId}/disconnect`,
+          { method: "POST" },
+        );
+        if (!response.ok) {
+          setActionError(await readErr(response));
+          return { ok: false, providerRevoked: false, reason: null };
+        }
+        const data = (await response.json()) as { provider_revoked?: boolean; revoke_reason?: string };
+        await reload();
+        notifyIntegrationStatusChanged();
+        return { ok: true, providerRevoked: Boolean(data.provider_revoked), reason: data.revoke_reason ?? null };
+      } catch {
+        setActionError("No se pudo desconectar por un error de red. Reintenta.");
+        return { ok: false, providerRevoked: false, reason: null };
+      } finally {
+        setPending(null);
+      }
+    },
   };
 
   return {
@@ -525,10 +572,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
 
 export function BackToHub() {
   return (
-    <Link
-      className={hub.back}
-      href="/integraciones"
-    >
+    <Link className="inline-flex items-center gap-1 text-sm" href="/integraciones">
       <IconChevronLeft aria-hidden /> Todas las integraciones
     </Link>
   );
@@ -582,10 +626,6 @@ export function ProviderStatusCard({
 }) {
   const cfg = provider.configuration.status;
   const connection = provider.connection;
-  const explanation = explainHealth(provider.health, connection, provider.id);
-  const signal = provider.available
-    ? signalOf(connection?.health.status ?? null, Boolean(connection))
-    : "off";
   const label =
     {
       shopify: "Datos de la tienda",
@@ -593,34 +633,21 @@ export function ProviderStatusCard({
       klaviyo: "Email y SMS",
       instagram: "Contenido e insights",
     }[provider.id] ?? "Fuente de datos";
+  const account = connection?.provider_account_name ?? connection?.provider_account_id;
   return (
-    <section className={hub.providerHead}>
-      <header className={hub.band}>
-        <span className={hub.bandLogo}>
-          <ProviderIcon provider={provider.id} size={26} />
+    <Card
+      kicker={label}
+      title={
+        <span className="flex items-center gap-3">
+          <ProviderIcon provider={provider.id} size={24} />
+          {provider.name}
         </span>
-        <div className={hub.bandText}>
-          <p>{label}</p>
-          <h1>{provider.name}</h1>
-        </div>
-        <div className={hub.bandState}>
-          <span className={hub.st} data-s={signal}>
-            <i aria-hidden />
-            {!provider.available
-              ? "Aún no disponible"
-              : connection
-                ? connectionStatusLabel(connection, explanation.label)
-                : "Sin conectar"}
-          </span>
-          {connection?.provider_account_name || connection?.provider_account_id ? (
-            <small>
-              {connection.provider_account_name ?? connection.provider_account_id}
-            </small>
-          ) : null}
-        </div>
-      </header>
-      <div className={hub.providerBody}>
-        <p className={hub.note}>{provider.description}</p>
+      }
+      description={account ?? provider.description}
+      actions={<StateBadge connection={connection} providerId={provider.id} available={provider.available} />}
+    >
+      <div className="space-y-3">
+        {account ? <p className="text-sm text-muted">{provider.description}</p> : null}
         <IntegrationActivationChecklist
           ready={provider.activation.ready}
           missing={provider.activation.missing}
@@ -646,7 +673,7 @@ export function ProviderStatusCard({
         ) : null}
         {children}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -772,7 +799,7 @@ export function ConnectionPicker({
                 {item.provider_account_name ?? item.provider_account_id ?? item.id}
               </span>
               <span className="text-xs opacity-75">
-                {store ? storeLabel(store) : healthLabel(item.health.status)}
+                {store ? storeLabel(store) : stateOf(item).label}
               </span>
             </Button>
           );
@@ -814,9 +841,7 @@ export function ConnectionHealthList({
           key={connection.id}
           className="flex flex-wrap items-center gap-2 text-xs"
         >
-          <Badge tone={healthTone(connection.health.status)}>
-            {healthLabel(connection.health.status)}
-          </Badge>
+          <StateBadge connection={connection} />
           <span className="min-w-0 break-all font-mono">
             {connection.provider_account_id ??
               connection.provider_account_name ??

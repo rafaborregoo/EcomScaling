@@ -61,6 +61,7 @@ import { NotificationsBell } from "@/components/notifications-bell";
 import { InsightsMenu } from "@/components/insights-menu";
 import { PortalFeedback } from "@/components/portal-feedback";
 import { InsightsProvider } from "@/components/insights-context";
+import { SettingsNavStatus } from "@/app/configuracion/settings-status";
 import {
   getActivePortalModule,
   getPortalNavigation,
@@ -104,6 +105,10 @@ type PrimaryNavMode = "hover" | "collapsed" | "expanded";
 // pantalla desde la que podia conseguir uno. La pagina ya degrada por pestaña
 // cuando no hay organizacion activa.
 const ORG_SCOPED_PREFIXES = ["/agentes"];
+// Cartera (Clientes y Tiendas) solo existe para consultor/platform_admin. Un
+// cliente que llegaba por URL veia la pagina con un error de carga (el API
+// responde 403); se le dice que no es suya y se le devuelve a su panel.
+const CONSULTANT_ONLY_PREFIXES = ["/consultor", "/tiendas"];
 
 type ShopifyConnectionSummary = {
   id: string;
@@ -820,6 +825,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     ORG_SCOPED_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );
+  const consultantOnlyRoute =
+    !isConsultant &&
+    CONSULTANT_ONLY_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
   const navigationRole: PortalRole = isPlatformAdmin
     ? "platform_admin"
     : isConsultant
@@ -833,10 +843,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         membership.accessSource === "membership" &&
         ["owner", "manager"].includes(membership.role),
     );
+  // Tienda propia = membership que no viene de una asignacion de consultor
+  // (mismo criterio que requireOwnOrganizationAccess en la API).
+  const hasOwnStore = bootstrap.memberships.some(
+    (membership) => membership.accessSource !== "consultant_assignment",
+  );
   const navigationModules = getPortalNavigation(
     navigationRole,
     Boolean(activeOrganizationId),
     canManageClientAccess,
+    hasOwnStore,
   );
   const showAddStoreAction =
     navigationRole === "client" && Boolean(activeOrganizationId);
@@ -907,9 +923,27 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const renderModuleItems = (
     module: PortalNavModule,
     compact = false,
+  ) =>
+    // Configuración lleva un punto por sección (completa o pendiente). El
+    // cálculo usa hooks, así que va en un componente propio y no aquí.
+    module.id === "configuracion" ? (
+      <SettingsNavStatus organizationId={activeOrganizationId || null}>
+        {(dots) => renderItems(module, compact, dots)}
+      </SettingsNavStatus>
+    ) : (
+      renderItems(module, compact, null)
+    );
+
+  const renderItems = (
+    module: PortalNavModule,
+    compact: boolean,
+    dots: Record<string, boolean | null> | null,
   ) => (
     <div className={compact ? "grid gap-1" : "grid gap-0.5"}>
       {module.items.map((item, index) => {
+        const dot = dots
+          ? dots[new URLSearchParams(item.href.split("?")[1] ?? "").get("section") ?? ""]
+          : undefined;
         const itemPath = navItemPath(item);
         const active = isPortalNavItemActive(item, pathname, searchParams);
         const badge = navBadges[itemPath] ?? 0;
@@ -943,6 +977,13 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 ].join(" ")}
               >
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {dot === true || dot === false ? (
+                  <span
+                    className={`ml-2 size-2 shrink-0 rounded-full ${dot ? "bg-success" : "bg-accent"}`}
+                    role="img"
+                    aria-label={dot ? "Completa" : "Pendiente"}
+                  />
+                ) : null}
                 {badge > 0 ? (
                   <span
                     className={`ml-2 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${navBadgeClass(itemPath)}`}
@@ -1051,7 +1092,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           </div>
           <div className="grid gap-0.5 py-2">
             <Link
-              href="/perfil"
+              href="/configuracion?section=perfil"
               className="rounded-md px-2.5 py-2 text-sm text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
             >
               Ver perfil
@@ -1619,9 +1660,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               data-module={activeModule?.id}
               data-role={navigationRole === "client" ? "client" : "consultant"}
               className={`min-w-0${isPlatformAdmin ? " admin-portal-content" : ""}${
-                // Marketing e Integraciones comparten los colores de Trabajo e Inicio (petróleo +
+                // Marketing, Integraciones y Cartera comparten los colores de Trabajo e Inicio (petróleo +
                 // azafrán en cliente, grafito + mandarina en consultor).
-                activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "integraciones" || activeModule?.id === "configuracion"
+                // Comunicación y Conocimiento, solo en el consultor: el cliente las sigue viendo con la paleta base.
+                activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "integraciones" || activeModule?.id === "configuracion" || activeModule?.id === "cartera" ||
+                (navigationRole === "consultant" && (activeModule?.id === "comunicacion" || activeModule?.id === "conocimiento"))
                   ? ` trabajo-theme trabajo-theme--${navigationRole === "client" ? "client" : "consultant"}`
                   : ""
               }`}
@@ -1717,7 +1760,13 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       setConnectionId: selectConnection,
                     }}
                   >
-                    {needsClientForRoute ? (
+                    {consultantOnlyRoute ? (
+                      <EmptyState
+                        title="Esta sección es del consultor"
+                        hint="Clientes y Tiendas reúnen la cartera de un consultor. Tu tienda está en Inicio."
+                        action={<Link href="/dashboard">Ir a Inicio</Link>}
+                      />
+                    ) : needsClientForRoute ? (
                       <EmptyState
                         title="Estás en vista general"
                         hint="Esta sección opera sobre un cliente concreto. Elige uno en el selector «Cliente activo» de arriba, o abre tu cartera en Clientes."

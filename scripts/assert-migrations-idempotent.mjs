@@ -29,6 +29,13 @@ const EXCEPCIONES = new Map([
   // reaplicable. Un `drop` delante borraria los grants y el search_path que
   // fijaron migraciones anteriores, y esta ya esta aplicada en produccion.
   ["20261106090000_klaviyo_email_report_created_at.sql", ["function-returns-table"]],
+  // Both functions are introduced with their final TABLE signatures in this
+  // migration and later replace only their bodies. Dropping the public wrapper
+  // would also discard its grant; signatures are unchanged on replay.
+  ["20261215120000_agent_judge_holdout_freeze_release_gate.sql", ["function-returns-table"]],
+  // This migration introduces the monthly sales RPC with its final row shape;
+  // reapplication replaces only the query body.
+  ["20261130000000_a19_seasonal_intelligence.sql", ["function-returns-table"]],
 ]);
 
 /** Quita comentarios y cuerpos $$...$$ para no analizar el texto de un prompt. */

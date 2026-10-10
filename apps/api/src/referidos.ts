@@ -143,7 +143,23 @@ export async function createMyReferralCode(
       message: "De 3 a 32 caracteres: letras minúsculas, números y guiones.",
     };
   }
-  const { data, error } = await createServiceClient(env)
+  const supabase = createServiceClient(env);
+  // Un consultor tiene un solo código: decirlo antes de que el 23505 lo confunda
+  // con un código ocupado por otro.
+  const { data: mine } = await supabase
+    .from("referral_codes")
+    .select("code")
+    .eq("consultant_user_id", context.user.id)
+    .maybeSingle();
+  if (mine) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "referral_code_already_yours",
+      message: "Ya tienes un código y no se puede cambiar.",
+    };
+  }
+  const { data, error } = await supabase
     .from("referral_codes")
     .insert({ consultant_user_id: context.user.id, code })
     .select("code, discount_percent, discount_months, is_active")
@@ -352,8 +368,30 @@ export async function upsertReferralCodeAdmin(
     }
     patch.code = code;
   }
-  if (body.discount_percent !== undefined) patch.discount_percent = body.discount_percent;
-  if (body.discount_months !== undefined) patch.discount_months = body.discount_months;
+  // Los mismos límites que el CHECK de la tabla, para contestar 400 con mensaje
+  // en vez de un 500 genérico cuando la base lo rechaza.
+  if (body.discount_percent !== undefined) {
+    if (!Number.isInteger(body.discount_percent) || body.discount_percent < 0 || body.discount_percent > 100) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "referral_discount_invalid",
+        message: "El descuento es un número entero entre 0 y 100.",
+      };
+    }
+    patch.discount_percent = body.discount_percent;
+  }
+  if (body.discount_months !== undefined) {
+    if (!Number.isInteger(body.discount_months) || body.discount_months < 1 || body.discount_months > 36) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "referral_discount_invalid",
+        message: "Los meses de descuento son un número entero entre 1 y 36.",
+      };
+    }
+    patch.discount_months = body.discount_months;
+  }
   if (body.is_active !== undefined) patch.is_active = body.is_active;
 
   if (!existing && !patch.code) {
@@ -423,4 +461,96 @@ export async function upsertReferralCodeAdmin(
     ...patch,
   });
   return { ok: true as const, data };
+}
+
+// ---------------------------------------------------------------------------
+// Captación: lo que el consultor hace con su propio código y sus leads.
+
+/** Pausa o reactiva el código propio. Los enlaces ya repartidos dejan de dar descuento. */
+export async function setMyReferralCodeActive(
+  env: Env,
+  context: AuthContext,
+  body: { is_active?: unknown },
+) {
+  if (!esConsultor(context)) return noConsultor;
+  if (typeof body.is_active !== "boolean") {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "referral_active_invalid",
+      message: "Indica si el código queda activo o pausado.",
+    };
+  }
+  const { data, error } = await createServiceClient(env)
+    .from("referral_codes")
+    .update({ is_active: body.is_active, updated_at: new Date().toISOString() })
+    .eq("consultant_user_id", context.user.id)
+    .select("code, discount_percent, discount_months, is_active")
+    .maybeSingle();
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "referral_code_save_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "referral_code_not_found" };
+  }
+  return { ok: true as const, data };
+}
+
+/** Marca (o desmarca) un lead como contactado. Solo los referidos de tu código. */
+export async function setReferralContacted(
+  env: Env,
+  context: AuthContext,
+  referralId: string,
+  body: { contacted?: unknown },
+) {
+  if (!esConsultor(context)) return noConsultor;
+  if (typeof body.contacted !== "boolean") {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "referral_contacted_invalid",
+      message: "Indica si el lead queda contactado o pendiente.",
+    };
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(referralId)) {
+    return { ok: false as const, statusCode: 404, error: "referral_not_found" };
+  }
+  const supabase = createServiceClient(env);
+  const { data: referral, error: loadError } = await supabase
+    .from("referrals")
+    .select("id, referral_codes(consultant_user_id)")
+    .eq("id", referralId)
+    .maybeSingle();
+  if (loadError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "referral_load_failed",
+      detail: loadError.message,
+    };
+  }
+  const owner = (referral?.referral_codes as unknown as { consultant_user_id?: string } | null)
+    ?.consultant_user_id;
+  // Mismo 404 para "no existe" y "es de otro consultor": no se sondean ids.
+  if (!referral || (owner !== context.user.id && context.profile.platform_role !== "platform_admin")) {
+    return { ok: false as const, statusCode: 404, error: "referral_not_found" };
+  }
+  const { error } = await supabase
+    .from("referrals")
+    .update({ contacted_at: body.contacted ? new Date().toISOString() : null })
+    .eq("id", referralId);
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "referral_contacted_failed",
+      detail: error.message,
+    };
+  }
+  return { ok: true as const, data: { referral_id: referralId, contacted: body.contacted } };
 }

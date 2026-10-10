@@ -104,6 +104,11 @@ export type ConsultantProfitability = {
   /** Tiendas cuya lectura fallo: no se enseñan con datos a medias. */
   failed_stores: Array<{ store_id: string; shop_name: string }>;
   truncated: boolean;
+  /**
+   * Estado y ultimo sync de cada conexion (Shopify, Meta, Klaviyo) por cliente.
+   * Solo lo que ya ve la mesa del consultor: ni cuentas ni mensajes de error.
+   */
+  connections: Array<{ organization_id: string; provider: string; status: string; last_sync_at: string | null }>;
 };
 
 export async function getConsultantProfitability(
@@ -130,7 +135,7 @@ export async function getConsultantProfitability(
     }
   }
 
-  const cacheKey = `consultant:profitability:v1:${context.user.id}:${query.organizationId ?? "all"}:${days}`;
+  const cacheKey = `consultant:profitability:v2:${context.user.id}:${query.organizationId ?? "all"}:${days}`;
   const cached = await getCached<ConsultantProfitability>(env.REDIS_URL, cacheKey);
   if (cached) return { ok: true as const, data: cached };
 
@@ -147,7 +152,7 @@ export async function getConsultantProfitability(
   const previousStart = new Date(start.getTime() - days * DAY_MS);
   const today = end.toISOString().slice(0, 10);
 
-  const [storesResult, targetsResult] = await Promise.all([
+  const [storesResult, targetsResult, connectionsResult] = await Promise.all([
     supabase
       .from("shopify_stores")
       .select("id, organization_id, connection_id, shop_name, myshopify_domain, currency_code")
@@ -160,7 +165,15 @@ export async function getConsultantProfitability(
       .lte("valid_from", today)
       .order("store_id", { ascending: false, nullsFirst: false })
       .order("valid_from", { ascending: false }),
+    supabase
+      .from("integration_connections")
+      .select("organization_id, provider, status, last_sync_at")
+      .in("organization_id", orgIds),
   ]);
+  // Sin conexiones la pagina sigue siendo util: solo pierde la columna de datos.
+  if (connectionsResult.error) {
+    logger.error("consultant_profitability_connections_failed", connectionsResult.error.message);
+  }
 
   if (storesResult.error) {
     return {
@@ -299,6 +312,9 @@ export async function getConsultantProfitability(
     monthly: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
     failed_stores: failed,
     truncated,
+    connections: ((connectionsResult.data ?? []) as ConsultantProfitability["connections"]).filter(
+      (connection) => connection.status !== "pending_deletion",
+    ),
   };
 
   await setCached(env.REDIS_URL, cacheKey, data, CACHE_TTL_SECONDS);
@@ -318,5 +334,6 @@ function emptyResult(organizationId: string | null, days: number): ConsultantPro
     monthly: [],
     failed_stores: [],
     truncated: false,
+    connections: [],
   };
 }

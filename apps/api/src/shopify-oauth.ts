@@ -100,7 +100,9 @@ export function verifyShopifyHmac(
   const digest = crypto.createHmac("sha256", secret).update(entries.join("&")).digest("hex");
   const hmac = typeof query.hmac === "string" ? query.hmac : "";
 
-  if (!hmac || hmac.length !== digest.length) {
+  // Solo hex de la longitud exacta: con otros caracteres Buffer.from(…, "hex")
+  // devuelve menos bytes y timingSafeEqual lanza en vez de devolver false.
+  if (!/^[0-9a-f]+$/i.test(hmac) || hmac.length !== digest.length) {
     return false;
   }
 

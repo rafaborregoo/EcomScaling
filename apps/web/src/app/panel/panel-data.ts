@@ -23,6 +23,8 @@ export type ProfitabilityPayload = {
   monthly: Array<{ month: string; revenue: number; profit: number }>;
   failed_stores: Array<{ store_id: string; shop_name: string }>;
   truncated: boolean;
+  /** Estado y ultimo sync de cada conexion por cliente (sin cuentas ni errores). */
+  connections?: Array<{ organization_id: string; provider: string; status: string; last_sync_at: string | null }>;
 };
 
 export function useProfitability(days: number, organizationId: string | null) {

@@ -23,12 +23,9 @@ import {
   createIntegrationAdapters,
   toIntegrationConnection,
 } from "./integration-adapters.js";
-import {
-  decryptShopifyCredential,
-  encryptShopifyCredential,
-} from "./shopify-oauth.js";
-import { resolveCredentialSecret } from "./shopify-token-store.js";
+import { credentialKeyVersion, decryptCredential, encryptCredential } from "./credential-crypto.js";
 import { recordAuditLog } from "./audit-log.js";
+import { findConnectionByOAuthState, isOAuthStateExpired, issuedStateMetadata } from "./oauth-state.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -296,7 +293,7 @@ export async function createMetaConnectionAuthUrl(
         .update({
           status: "pending",
           metadata: {
-            state,
+            ...issuedStateMetadata(state),
             source: "oauth_start",
             ...(onboardingReturnTo === ADMIN_ONBOARDING_RETURN_TO
               ? { onboarding_return_to: onboardingReturnTo }
@@ -314,7 +311,7 @@ export async function createMetaConnectionAuthUrl(
         provider_account_name: "Meta Ads",
         status: "pending",
         metadata: {
-          state,
+          ...issuedStateMetadata(state),
           source: "oauth_start",
           ...(onboardingReturnTo === ADMIN_ONBOARDING_RETURN_TO
             ? { onboarding_return_to: onboardingReturnTo }
@@ -359,11 +356,8 @@ async function saveMetaToken(
       {
         connection_id: connectionId,
         credential_kind: CREDENTIAL_KIND,
-        encrypted_payload: encryptShopifyCredential(
-          payload,
-          resolveCredentialSecret(env),
-        ),
-        encryption_key_version: "v1",
+        encrypted_payload: encryptCredential(payload, env, connectionId),
+        encryption_key_version: credentialKeyVersion(env),
         expires_at: expiresAt,
         rotated_at: new Date().toISOString(),
       },
@@ -412,10 +406,7 @@ export async function getValidMetaAccessToken(
 
   try {
     const payload = JSON.parse(
-      decryptShopifyCredential(
-        data.encrypted_payload,
-        resolveCredentialSecret(env),
-      ),
+      decryptCredential(data.encrypted_payload, env, connectionId),
     ) as { access_token?: string };
     return payload.access_token ?? null;
   } catch {
@@ -1053,33 +1044,44 @@ export async function handleMetaOAuthCallback(
 
   const supabase = createServiceClient(env);
 
-  const { data: connections, error: lookupError } = await supabase
-    .from("integration_connections")
-    .select("id, organization_id, metadata")
-    .eq("provider", PROVIDER)
-    .order("updated_at", { ascending: false })
-    .limit(20);
+  // El state no se ata a la sesion del navegador: el flujo de negocio exige
+  // poder generar la URL de autorizacion desde el portal y enviarsela al owner
+  // real de la cuenta. Es un UUID no adivinable, de un solo uso y con
+  // caducidad, y solo vincula la cuenta Meta a la organizacion que lo sembro.
+  // Se busca por su valor exacto: antes se buscaba entre las 20 conexiones
+  // Meta mas recientes de toda la plataforma y con trafico no aparecia.
+  const lookup = await findConnectionByOAuthState<{
+    id: string;
+    organization_id: string;
+    metadata: unknown;
+  }>(supabase, PROVIDER, state, "id, organization_id, metadata");
 
-  if (lookupError) {
+  if (lookup.error) {
     return {
       ok: false,
       statusCode: 500,
       error: "meta_pending_connection_lookup_failed",
-      detail: lookupError.message,
+      detail: lookup.error,
     };
   }
 
-  // El state se compara contra el sembrado server-side en /connect, pero no se ata a la
-  // sesion del navegador: el flujo de negocio exige poder generar la URL de autorizacion
-  // desde el portal y enviarsela al owner real de la cuenta (mismo criterio que Shopify,
-  // commit f74fcc0). El state es un UUID aleatorio no adivinable y solo puede vincular la
-  // cuenta Meta a la organizacion que lo sembro, nunca a una elegida por el atacante.
-  const pending = (connections ?? []).find(
-    (connection) => parseState(connection.metadata) === state,
-  );
-
+  const pending = lookup.data;
   if (!pending) {
     return { ok: false, statusCode: 400, error: "invalid_meta_oauth_state" };
+  }
+  if (isOAuthStateExpired(pending.metadata)) {
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: "meta_oauth_state_expired",
+      })
+      .eq("id", pending.id);
+    return {
+      ok: true,
+      data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=caducado` },
+    };
   }
   const pendingMetadata = pending.metadata;
 
@@ -1272,7 +1274,10 @@ export async function handleMetaOAuthCallback(
         ...(typeof pendingMetadata === "object" && pendingMetadata !== null
           ? (pendingMetadata as Record<string, unknown>)
           : {}),
-        state,
+        // El state es de un solo uso: consumido aqui.
+        state: null,
+        state_issued_at: null,
+        state_used_at: now,
         source: "oauth_start",
         discovery,
       },

@@ -1530,7 +1530,14 @@ export async function draftInstagramOverlayText(
       detail: result.detail,
     };
   }
-  return { ok: true as const, data: { draft: result.draft, run_id: result.runId } };
+  return {
+    ok: true as const,
+    data: {
+      draft: result.draft,
+      run_id: result.runId,
+      ...(result.judgment ? { judgment: result.judgment } : {}),
+    },
+  };
 }
 
 // Caption del post a partir de la publicación: pasa el formato + las fichas de

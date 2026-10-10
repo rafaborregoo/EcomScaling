@@ -16,7 +16,6 @@ import {
   Steps,
   useIntegrations,
 } from "../shared";
-import hub from "../hub.module.css";
 
 function InstagramIntegrationPage({
   bootstrap,
@@ -51,7 +50,7 @@ function InstagramIntegrationPage({
   }
 
   return (
-    <div className={hub.page}>
+    <div className="portal-page space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={instagram}>

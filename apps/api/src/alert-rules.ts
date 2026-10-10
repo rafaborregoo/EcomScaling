@@ -90,7 +90,10 @@ export async function listAlertRules(
     authorization.slice("Bearer ".length),
   );
 
-  const [templatesResult, overridesResult] = await Promise.all([
+  // Cuantas veces salto cada aviso en 30 dias: sin esto el umbral se ajusta a
+  // ciegas. Si la lectura falla, la lista sigue saliendo sin el recuento.
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [templatesResult, overridesResult, firedResult] = await Promise.all([
     supabase
       .from("alert_rule_templates")
       .select(
@@ -102,7 +105,24 @@ export async function listAlertRules(
       .from("organization_alert_rules")
       .select("template_id, is_enabled, severity_override, condition_override")
       .eq("organization_id", organizationId),
+    supabase
+      .from("alerts")
+      .select("rule_template_id, first_detected_at")
+      .eq("organization_id", organizationId)
+      .gte("first_detected_at", since)
+      .limit(2000),
   ]);
+  const fired = new Map<string, { count: number; last: string }>();
+  if (!firedResult.error) {
+    for (const row of (firedResult.data ?? []) as Array<{ rule_template_id: string | null; first_detected_at: string }>) {
+      if (!row.rule_template_id) continue;
+      const current = fired.get(row.rule_template_id);
+      fired.set(row.rule_template_id, {
+        count: (current?.count ?? 0) + 1,
+        last: current && current.last > row.first_detected_at ? current.last : row.first_detected_at,
+      });
+    }
+  }
 
   if (templatesResult.error || overridesResult.error) {
     return {
@@ -138,6 +158,8 @@ export async function listAlertRules(
         default_severity: template.default_severity,
         default_threshold: template.default_condition?.threshold ?? null,
         is_customized: override !== undefined,
+        fired_30d: firedResult.error ? null : (fired.get(template.id)?.count ?? 0),
+        last_fired_at: fired.get(template.id)?.last ?? null,
       };
     },
   );

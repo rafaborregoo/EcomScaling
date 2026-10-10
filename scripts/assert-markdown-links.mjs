@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -33,7 +33,7 @@ async function walk(directory) {
 
       const resolved = path.resolve(path.dirname(filePath), fileTarget);
       try {
-        await readFile(resolved);
+        await stat(resolved);
       } catch {
         broken.push(`${path.relative(root, filePath)} -> ${target}`);
       }

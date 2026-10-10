@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ACTIVE_AGENT_CODES } from "@e-nora/ai";
 import {
   buildAgentEvalReadinessResponse,
   getAgentEvalReadinessFromClient,
@@ -77,6 +78,78 @@ test("las evaluaciones de versiones inactivas no cuentan como readiness", async 
   const response = await getAgentEvalReadinessFromClient(client);
   assert.equal(response.coveredAgents, 0);
   assert.equal(response.offlineRunRecorded, false);
+});
+
+test("no trata una evaluación antigua aprobada como release verificado", async () => {
+  const client = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: async () => ({
+            data: [
+              {
+                evaluation_mode: "offline",
+                status: "passed",
+                evaluated_agent_codes: ["a17_plan_semanal"],
+                evidence: { runner: "old-smoke" },
+                agent_versions: { is_active: true, agent_version_release_manifests: null },
+              },
+              {
+                evaluation_mode: "live",
+                status: "passed",
+                evaluated_agent_codes: ["a17_plan_semanal"],
+                evidence: { scope: "single_missing_data_smoke", release_eligible: false },
+                agent_versions: { is_active: true, agent_version_release_manifests: null },
+              },
+            ],
+            error: null,
+          }),
+        }),
+      }),
+    }),
+  } as any;
+  const response = await getAgentEvalReadinessFromClient(client);
+  assert.equal(response.coveredAgents, 0);
+  assert.equal(response.offlineRunRecorded, false);
+  assert.equal(response.liveVerified, false);
+});
+
+test("readiness solo acepta evidencia con fingerprint y suite live gold/holdout", async () => {
+  const fingerprint = "a".repeat(64);
+  const data = ACTIVE_AGENT_CODES.flatMap((agentCode) => [
+    {
+      evaluation_mode: "offline",
+      status: "passed",
+      evaluated_agent_codes: [agentCode],
+      evidence: { candidate_fingerprint: fingerprint, release_eligible: true },
+      agent_versions: { is_active: true, agent_version_release_manifests: { manifest_sha256: fingerprint } },
+    },
+    {
+      evaluation_mode: "live",
+      status: "passed",
+      evaluated_agent_codes: [agentCode],
+      evidence: {
+        candidate_fingerprint: fingerprint,
+        release_eligible: true,
+        gold_cases: 10,
+        holdout_cases: 3,
+      },
+      agent_versions: { is_active: true, agent_version_release_manifests: { manifest_sha256: fingerprint } },
+    },
+  ]);
+  const client = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: async () => ({ data, error: null }),
+        }),
+      }),
+    }),
+  } as any;
+  const response = await getAgentEvalReadinessFromClient(client);
+  assert.equal(response.coveredAgents, ACTIVE_AGENT_CODES.length);
+  assert.equal(response.offlineRunRecorded, true);
+  assert.equal(response.liveVerified, true);
 });
 
 test("degrada a preparado cuando AI-26 aún no existe en Supabase", async () => {

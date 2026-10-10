@@ -53,6 +53,8 @@ export type WorkbenchCallRow = {
   scheduled_at: string | null;
   held_at: string | null;
   summary_pending: boolean;
+  /** Resumen pendiente que se puede decidir desde la mesa (el mas reciente). */
+  pending_summary_id?: string | null;
 };
 
 export type WorkbenchProposalRow = {
@@ -62,6 +64,9 @@ export type WorkbenchProposalRow = {
   priority: string;
   phase: string | null;
   evidence: Array<{ label: string; value: string; source?: string | null }>;
+  /** Salida del agente que contiene la propuesta y cuantas propuestas vivas tiene. */
+  output_id?: string | null;
+  sibling_count?: number;
 };
 
 export type WorkbenchThreadRow = {
@@ -119,6 +124,13 @@ export type WorkbenchAction = {
   assignee_name: string | null;
   href: string;
   action_label: string;
+  /**
+   * Decision que se puede tomar sin salir de la mesa: POST { decision:
+   * "approved" | "rejected" } a este endpoint. Solo cuando la decision es
+   * atomica (un resumen, o la unica propuesta de su salida); si no, se decide
+   * en el modulo donde se ven las hermanas.
+   */
+  decision?: { endpoint: string } | null;
 };
 
 export type PortfolioHealthRow = {
@@ -389,11 +401,16 @@ export function buildWorkbench(input: {
       assignee_name: null,
       href: withOrg("/llamadas", call.organization_id),
       action_label: "Revisar en Llamadas",
+      decision: call.pending_summary_id
+        ? {
+            endpoint: `/v1/organizations/${call.organization_id}/call-summaries/${call.pending_summary_id}/decision`,
+          }
+        : null,
     });
   }
 
   // --- Propuestas de IA esperando decision humana -------------------------
-  // La mesa NO aprueba: enlaza al flujo de aprobacion de /tareas.
+  // Con una sola propuesta en su salida se decide en la mesa; si no, en /tareas.
   for (const proposal of proposals) {
     if (!inPortfolio(proposal.organization_id)) continue;
     actions.push({
@@ -420,6 +437,14 @@ export function buildWorkbench(input: {
       assignee_name: null,
       href: withOrg("/tareas", proposal.organization_id),
       action_label: "Decidir en Tareas",
+      // Aprobar una salida aprueba todas sus propuestas: desde la mesa solo se
+      // decide cuando esta es la unica; con hermanas se decide en /tareas.
+      decision:
+        proposal.output_id && (proposal.sibling_count ?? 0) === 1
+          ? {
+              endpoint: `/v1/organizations/${proposal.organization_id}/ai/outputs/${proposal.output_id}/decision`,
+            }
+          : null,
     });
   }
 

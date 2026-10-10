@@ -112,7 +112,11 @@ test("la fecha del hito se ancla al momento de aceptar, no al de generar", () =>
 
   assert.equal(plan.name, proposal.plan_name);
   assert.equal(plan.horizonMonths, proposal.horizon_months);
-  assert.deepEqual(plan.goal, { ...proposal.goal, target_date: "2026-12-04" });
+  assert.deepEqual(plan.goal, {
+    ...proposal.goal,
+    target_date: "2026-12-04",
+    horizon_end_date: "2026-12-05",
+  });
   assert.equal(plan.phases?.length, 2);
 
   // 5 de septiembre + 14 dias = 19 de septiembre.
@@ -178,9 +182,9 @@ test("la meta A19 exige métrica/unidad/plazo y permite baseline o target descon
   delete wrongCurrency.goal.currency_code;
   assert.equal(caminoPlanOutputSchema.safeParse(wrongCurrency).success, false);
 
-  const unboundedDate = structuredClone(proposal) as Record<string, any>;
-  unboundedDate.goal.target_offset_days = 366;
-  assert.equal(caminoPlanOutputSchema.safeParse(unboundedDate).success, false);
+  const outOfRangeDate = structuredClone(proposal) as Record<string, any>;
+  outOfRangeDate.goal.target_offset_days = 367;
+  assert.equal(caminoPlanOutputSchema.safeParse(outOfRangeDate).success, false);
 });
 
 test("los cuatro horizontes del camino cubren de un mes a un ano", () => {

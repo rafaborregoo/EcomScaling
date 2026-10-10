@@ -2,7 +2,7 @@
    como único acento, IBM Plex Sans para todo, cifras tabulares. */
 
 .stage {
-  --paper: #f2f2f0; --surface: #ffffff; --surface-2: #f7f7f5; --sunken: #e7e7e3;
+  --paper: #faf9f7; --surface: #ffffff; --surface-2: #f7f7f5; --sunken: #e7e7e3;
   --ink: #16181b; --ink-2: #474b51; --ink-3: #62666d;
   --line: #dadad5; --line-2: #ebebe7;
   --accent: #ff8a5b; --accent-soft: #ffe7dc; --accent-ink: #8a3310; --on-accent: #2b0e02;

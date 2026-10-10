@@ -1,3 +1,12 @@
+import { internalSecretMatches } from "./internal-auth.js";
+import { disconnectIntegration } from "./integration-disconnect.js";
+import { createSingleFlight } from "./single-flight.js";
+import { submitAgentJudgeFeedback } from "./agent-judge-feedback.js";
+import { adjudicateAgentJudgeEvalCase, createAgentJudgeEvalCase, getAgentJudgeHoldoutState, listAgentJudgeEvalQueue, loadApprovedAgentJudgeHoldout, runAgentJudgeDatasetEvaluation, submitAgentJudgeEvalReview } from "./agent-judge-dataset.js";
+import { createAgentReleaseEvalFixture, listAgentReleaseEvalFixtures, runAgentReleaseEvalAsPlatformAdmin } from "./agent-release-eval-fixtures.js";
+// Una pasada global a la vez por proceso: si el cron se solapa, la segunda
+// llamada se une a la que ya corre en vez de lanzar otra en paralelo.
+const internalPass = createSingleFlight<unknown>();
 import { pathToFileURL } from "node:url";
 import { timingSafeEqual } from "node:crypto";
 import cors from "@fastify/cors";
@@ -293,6 +302,8 @@ import {
   listConsultantReferralsAdmin,
   listReferralProgramAdmin,
   revokeReferralConsent,
+  setMyReferralCodeActive,
+  setReferralContacted,
   upsertReferralCodeAdmin,
 } from "./referidos.js";
 import {
@@ -404,6 +415,7 @@ import {
   updateTaskStatus,
 } from "./operations.js";
 import { listAlertRules, upsertAlertRule } from "./alert-rules.js";
+import { deleteReportSchedule, generatePortfolioReport, generateReportOnDemand, listReports, upsertReportSchedule } from "./reports-api.js";
 import {
   getAuditLog,
   getPlatformErrors,
@@ -439,8 +451,10 @@ import {
   updateCampaignCalendarItem,
   upsertKpiSnapshot,
 } from "./campaign-planning.js";
+import { getConsultora } from "./capacidad-cartera.js";
 import {
   decideAgentOutput,
+  createServiceClient,
   type ProposedWriteEdit,
   getConsultantChatMessages,
   getEmailAnalystDiagnostic,
@@ -523,6 +537,7 @@ import {
   describeProviderRedundancy,
   isAgentAutorunEnabled,
 } from "./ai-runtime.js";
+import { processAgentJudgeQueue } from "./agent-judge-runtime.js";
 import { getCopilotBalance } from "./copilot-saldo.js";
 import { createStripeCheckout } from "./stripe-checkout.js";
 import { createBillingPortal, getOrganizationBilling } from "./billing-overview.js";
@@ -545,6 +560,11 @@ import {
   generatePublicationCaption,
 } from "./instagram-image-bank.js";
 import { getAgentEvalReadiness } from "./agent-eval-readiness.js";
+import {
+  evaluateAgentReleaseCandidateOffline,
+  listAgentReleaseCandidates,
+  promoteAgentReleaseCandidate,
+} from "./agent-release-admin.js";
 import {
   createKnowledgeDocument,
   updateKnowledgeDocument,
@@ -896,8 +916,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // todos los clientes. Contar preflights ademas gastaba el limite por
       // duplicado sin que hubiera una sola peticion real de mas.
       request.method === "OPTIONS" ||
-      (Boolean(env.INTERNAL_API_SECRET) &&
-        request.headers["x-internal-secret"] === env.INTERNAL_API_SECRET),
+      internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET),
   });
 
   const aiEndpointRateLimit = {
@@ -1056,7 +1075,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         .send({ error: "internal_api_secret_not_configured" });
     }
 
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
 
@@ -1071,7 +1090,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(503)
         .send({ error: "internal_api_secret_not_configured" });
     }
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
     return evaluateHttpSlo(apiMetrics.snapshot());
@@ -1252,6 +1271,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // La consultora de quien pide y sus plazas (Configuración › Plan y plazas).
+  app.get("/v1/consultant/consultora", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    if (!["consultant", "platform_admin"].includes(auth.context.profile.platform_role)) {
+      return reply.code(403).send({ error: "consultant_access_required" });
+    }
+    const result = await getConsultora(createServiceClient(env), auth.context);
+    return result.data;
+  });
+
   // Con quien comparte cartera un consultor. Emparejarse reparte las tiendas
   // que ya tienen los dos y hace que las nuevas nazcan compartidas.
   app.get("/v1/consultant/partners", async (request, reply) => {
@@ -1311,6 +1341,35 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{ Body: { is_active?: unknown } }>(
+    "/v1/consultant/referidos/code",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await setMyReferralCodeActive(env, auth.context, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{ Params: { referralId: string }; Body: { contacted?: unknown } }>(
+    "/v1/consultant/referidos/:referralId/contacted",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await setReferralContacted(
+        env,
+        auth.context,
+        request.params.referralId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
     },
   );
 
@@ -1478,6 +1537,59 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.send(result.data);
     },
   );
+
+  // Informes: historial, generación desde la pantalla, envío mensual y cartera.
+  app.get<{ Params: { organizationId: string } }>("/v1/organizations/:organizationId/reports", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await listReports(env, auth.context, request.params.organizationId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Params: { organizationId: string }; Body: { template_id?: unknown; store_id?: unknown; period_start?: unknown; period_end?: unknown } }>(
+    "/v1/organizations/:organizationId/reports",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await generateReportOnDemand(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.put<{ Params: { organizationId: string }; Body: { template_id?: unknown; recipients?: unknown; is_active?: unknown } }>(
+    "/v1/organizations/:organizationId/report-schedules",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await upsertReportSchedule(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; scheduleId: string } }>(
+    "/v1/organizations/:organizationId/report-schedules/:scheduleId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await deleteReportSchedule(env, auth.context, request.params.organizationId, request.params.scheduleId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Body: { days?: unknown } }>("/v1/consultant/portfolio-report", aiEndpointRateLimit, async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await generatePortfolioReport(env, authorization, auth.context, request.body?.days);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
 
   app.get("/v1/admin/subscriptions", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -1700,6 +1812,188 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
   });
+
+  app.get("/v1/admin/agent-release-candidates", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    if (auth.context.profile.platform_role !== "platform_admin") {
+      return reply.code(403).send({ error: "platform_admin_required" });
+    }
+    try {
+      return reply.send({ candidates: await listAgentReleaseCandidates(env) });
+    } catch (error) {
+      request.log.error({ err: error }, "agent_release_candidates_load_failed");
+      return reply.code(503).send({ error: "agent_release_candidates_unavailable" });
+    }
+  });
+
+  app.get<{ Querystring: { split?: string; datasetVersion?: string; page?: string } }>("/v1/admin/agent-judge-dataset/cases", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const split = request.query.split === "holdout" || request.query.split === "calibration" ? request.query.split : "development";
+    const page = request.query.page === undefined ? 0 : Number(request.query.page);
+    const result = await listAgentJudgeEvalQueue(env, auth.context, split, request.query.datasetVersion, page);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error });
+    return reply.send(result.data);
+  });
+
+  app.get<{ Querystring: { split?: string; datasetVersion?: string; agentCode?: string; page?: string } }>("/v1/admin/agent-release-eval-fixtures", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const page = request.query.page === undefined ? 0 : Number(request.query.page);
+    const result = await listAgentReleaseEvalFixtures(env, auth.context, {
+      ...(request.query.split === undefined ? {} : { split: request.query.split }),
+      ...(request.query.datasetVersion === undefined ? {} : { dataset_version: request.query.datasetVersion }),
+      ...(request.query.agentCode === undefined ? {} : { agent_code: request.query.agentCode }),
+      page,
+    });
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error });
+    return reply.send(result.data);
+  });
+
+  app.post<{ Body: unknown }>("/v1/admin/agent-release-eval-fixtures", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await createAgentReleaseEvalFixture(env, auth.context, request.body);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error, detail: "detail" in result ? result.detail : undefined });
+    return reply.code(201).send(result.data);
+  });
+
+  app.post<{ Body: unknown }>("/v1/admin/agent-release-eval-fixtures/run", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    if (auth.context.profile.platform_role !== "platform_admin") return reply.code(403).send({ error: "platform_admin_required" });
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body as Record<string, unknown> : {};
+    const candidateVersionId = typeof body.candidate_version_id === "string" ? body.candidate_version_id.trim() : "";
+    const fixtureIds = Array.isArray(body.fixture_ids) && body.fixture_ids.every((id) => typeof id === "string")
+      ? body.fixture_ids as string[] : [];
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidateVersionId)
+      || fixtureIds.length < 1 || fixtureIds.length > 100
+      || fixtureIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
+      return reply.code(400).send({ error: "invalid_release_eval_run_request" });
+    }
+    try {
+      const run = await runAgentReleaseEvalAsPlatformAdmin(env, auth.context, { candidateVersionId, fixtureIds });
+      if (!run.ok) return reply.code(run.statusCode).send({ error: run.error });
+      const result = run.result;
+      return reply.send({
+        evaluation_id: result.evaluationId,
+        status: result.payload.evaluation.status,
+        release_eligible: result.payload.evaluation.evidence.release_eligible === true,
+        evidence: result.payload.evaluation.evidence,
+        results: result.results,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "agent_release_eval_run_failed";
+      const invalid = /fixture_(ids_invalid|ids_missing|invalid|agent_mismatch|rubric_mismatch|dataset_version_mismatch|mixed_dataset_versions)|candidate_agent_mismatch/.test(message);
+      request.log.error({ err: error }, "agent_release_eval_run_failed");
+      return reply.code(invalid ? 400 : 503).send({ error: invalid ? message : "agent_release_eval_unavailable" });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/v1/admin/agent-judge-dataset/cases", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await createAgentJudgeEvalCase(env, auth.context, request.body);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error, detail: "detail" in result ? result.detail : undefined });
+    return reply.code(201).send(result.data);
+  });
+
+  app.post<{ Params: { caseId: string }; Body: unknown }>("/v1/admin/agent-judge-dataset/cases/:caseId/reviews", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await submitAgentJudgeEvalReview(env, auth.context, request.params.caseId, request.body);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error, detail: "detail" in result ? result.detail : undefined });
+    return reply.code(201).send(result.data);
+  });
+
+  app.post<{ Params: { caseId: string }; Body: unknown }>("/v1/admin/agent-judge-dataset/cases/:caseId/adjudication", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await adjudicateAgentJudgeEvalCase(env, auth.context, request.params.caseId, request.body);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error, detail: "detail" in result ? result.detail : undefined });
+    return reply.code(201).send(result.data);
+  });
+
+  app.get<{ Querystring: { datasetVersion?: string } }>("/v1/admin/agent-judge-dataset/holdout", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await loadApprovedAgentJudgeHoldout(env, auth.context, request.query.datasetVersion ?? "");
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error });
+    return reply.send(result.data);
+  });
+
+  app.get<{ Querystring: { datasetVersion?: string } }>("/v1/admin/agent-judge-dataset/holdout-state", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await getAgentJudgeHoldoutState(env, auth.context, request.query.datasetVersion ?? "");
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error });
+    return reply.send(result.data);
+  });
+
+  app.post<{ Body: unknown }>("/v1/admin/agent-judge-dataset/calibrate", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await runAgentJudgeDatasetEvaluation(env, auth.context, "calibration", request.body);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error, ...( "detail" in result ? { detail: result.detail } : {} ), ...( "case_id" in result ? { case_id: result.case_id } : {} ), ...( "maximum_cost_usd" in result ? { maximum_cost_usd: result.maximum_cost_usd } : {} ) });
+    return reply.code(201).send(result.data);
+  });
+
+  app.post<{ Body: unknown }>("/v1/admin/agent-judge-dataset/certify", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await runAgentJudgeDatasetEvaluation(env, auth.context, "holdout", request.body);
+    if (!result.ok) return reply.code(result.statusCode).send({ error: result.error, ...( "detail" in result ? { detail: result.detail } : {} ), ...( "case_id" in result ? { case_id: result.case_id } : {} ), ...( "maximum_cost_usd" in result ? { maximum_cost_usd: result.maximum_cost_usd } : {} ) });
+    return reply.code(201).send(result.data);
+  });
+
+  app.post<{ Params: { agentVersionId: string } }>(
+    "/v1/admin/agent-release-candidates/:agentVersionId/evaluate-offline",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (auth.context.profile.platform_role !== "platform_admin") {
+        return reply.code(403).send({ error: "platform_admin_required" });
+      }
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(request.params.agentVersionId)) {
+        return reply.code(400).send({ error: "agent_version_id_invalid" });
+      }
+      try {
+        const result = await evaluateAgentReleaseCandidateOffline(env, request.params.agentVersionId);
+        if (!result) return reply.code(404).send({ error: "agent_release_candidate_not_found" });
+        return reply.send({ evaluation: result });
+      } catch (error) {
+        request.log.error({ err: error }, "agent_release_offline_evaluation_failed");
+        return reply.code(422).send({ error: "agent_release_offline_evaluation_failed" });
+      }
+    },
+  );
+
+  app.post<{ Params: { agentVersionId: string } }>(
+    "/v1/admin/agent-release-candidates/:agentVersionId/promote",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (auth.context.profile.platform_role !== "platform_admin") {
+        return reply.code(403).send({ error: "platform_admin_required" });
+      }
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(request.params.agentVersionId)) {
+        return reply.code(400).send({ error: "agent_version_id_invalid" });
+      }
+      try {
+        await promoteAgentReleaseCandidate(env, request.params.agentVersionId);
+        return reply.send({ ok: true, agent_version_id: request.params.agentVersionId });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("agent_release_gate:evaluation_missing_or_failed")) {
+          return reply.code(409).send({ error: "agent_release_evidence_required" });
+        }
+        request.log.error({ err: error }, "agent_release_promotion_failed");
+        return reply.code(422).send({ error: "agent_release_promotion_failed" });
+      }
+    },
+  );
 
   app.get<{
     Params: { organizationId: string };
@@ -6738,6 +7032,29 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Desconectar Meta Ads o Klaviyo: retira el permiso en el proveedor cuando se
+  // puede, borra las credenciales y lo deja en la auditoria.
+  app.post<{ Params: { organizationId: string; provider: string; connectionId: string } }>(
+    "/v1/organizations/:organizationId/integrations/:provider/connections/:connectionId/disconnect",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const provider = request.params.provider === "meta" ? "meta_ads" : request.params.provider;
+      if (provider !== "meta_ads" && provider !== "klaviyo") {
+        return reply.code(404).send({ error: "disconnect_not_supported" });
+      }
+      const result = await disconnectIntegration(
+        env,
+        auth.context,
+        request.params.organizationId,
+        provider,
+        request.params.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/klaviyo/templates",
     async (request, reply) => {
@@ -9767,6 +10084,30 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.post<{
+    Params: { organizationId: string; runId: string; judgmentId: string };
+    Body: unknown;
+  }>(
+    "/v1/organizations/:organizationId/ai/runs/:runId/judgments/:judgmentId/feedback",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const result = await submitAgentJudgeFeedback(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.params.runId,
+        request.params.judgmentId,
+        request.body,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
   app.get<{
     Params: { organizationId: string; runId: string; fileName: string };
   }>(
@@ -11364,11 +11705,11 @@ export async function buildApp(): Promise<FastifyInstance> {
         .send({ error: "internal_api_secret_not_configured" });
     }
 
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
 
-    void runAlertRulesForAllOrganizations(env).catch((error: unknown) => {
+    void internalPass("alert-rules", () => runAlertRulesForAllOrganizations(env)).catch((error: unknown) => {
       logger.error("Alert rules pass failed", error);
     });
 
@@ -11382,11 +11723,11 @@ export async function buildApp(): Promise<FastifyInstance> {
         .send({ error: "internal_api_secret_not_configured" });
     }
 
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
 
-    void reconcileAllShopifyConnections(env).catch((error: unknown) => {
+    void internalPass("shopify-reconcile", () => reconcileAllShopifyConnections(env)).catch((error: unknown) => {
       logger.error("Shopify reconciliation pass failed", error);
     });
 
@@ -11399,7 +11740,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(503)
         .send({ error: "internal_api_secret_not_configured" });
     }
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
     try {
@@ -11421,7 +11762,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           .code(503)
           .send({ error: "internal_api_secret_not_configured" });
       }
-      if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
         return reply.code(401).send({ error: "invalid_internal_secret" });
       }
       try {
@@ -11442,7 +11783,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(503)
         .send({ error: "internal_api_secret_not_configured" });
     }
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
     try {
@@ -11462,7 +11803,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(503)
         .send({ error: "internal_api_secret_not_configured" });
     }
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
     try {
@@ -11485,7 +11826,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         .code(503)
         .send({ error: "internal_api_secret_not_configured" });
     }
-    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
     }
     try {
@@ -11663,6 +12004,12 @@ if (isDirectRun) {
   try {
       await app.listen({ host: env.API_HOST, port: env.API_PORT });
       logger.info(`API listening on ${env.API_HOST}:${env.API_PORT}`);
+      if (env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off" && env.SUPABASE_SERVICE_ROLE_KEY) {
+        const judgeQueueClient = createServiceClient(env);
+        void processAgentJudgeQueue(env, judgeQueueClient);
+        setInterval(() => void processAgentJudgeQueue(env, judgeQueueClient), 10_000).unref();
+        logger.info("Agent judge recovery worker enabled (10s poll)");
+      }
       if (process.env.PLATFORM_ALERT_WEBHOOK_URL && env.REDIS_URL) {
         void monitorPlatformHealth(env);
         setInterval(() => void monitorPlatformHealth(env), 60_000).unref();

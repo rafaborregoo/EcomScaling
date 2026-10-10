@@ -52,6 +52,9 @@ export * from "./langsmith-observability.js";
 export * from "./resilience.js";
 export * from "./untrusted-context.js";
 export * from "./agent-evals.js";
+export * from "./agent-eval-catalog.js";
+export * from "./agent-judge.js";
+export * from "./agent-judge-calibration.js";
 export * from "./evidence-evals.js";
 export * from "./agent-eval-dataset.js";
 export * from "./agent-eval-evidence.js";
@@ -1057,6 +1060,7 @@ export const caminoWeeklyReviewSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type CaminoWeeklyReview = z.infer<typeof caminoWeeklyReviewSchema>;
+export { caminoWeeklyReviewJsonSchema } from "./camino-weekly-review-json-schema.js";
 
 const caminoEvidenceJsonSchema = {
   type: "array",

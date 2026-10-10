@@ -34,7 +34,7 @@ export function Tabs({
           className="max-w-full overflow-x-auto"
         >
           {items.map((item) => (
-            <HeroTabs.Tab key={item.value} id={item.value}>
+            <HeroTabs.Tab key={item.value} id={item.value} className="whitespace-nowrap">
               {item.icon}
               {item.label}
               <HeroTabs.Indicator />

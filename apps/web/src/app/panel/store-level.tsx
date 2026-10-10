@@ -38,6 +38,7 @@ import {
   type PanelFinancial,
   type PanelFunnel,
 } from "./panel-view-model";
+import { StoreSimulator } from "./store-simulator";
 import s from "./panel.module.css";
 
 /**
@@ -468,6 +469,14 @@ export function StoreLevel({
           </div>
         </div>
       </Section>
+
+      {!estimated && aov > 0 ? (
+        <StoreSimulator
+          row={row}
+          creating={creating === "simulador"}
+          onCreateTask={(title, description) => makeTask("simulador", title, description)}
+        />
+      ) : null}
 
       <Section
         id="ads"

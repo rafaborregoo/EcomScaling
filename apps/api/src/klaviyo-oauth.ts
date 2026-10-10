@@ -166,3 +166,23 @@ export function refreshKlaviyoAccessToken(
     }),
   );
 }
+
+/**
+ * Retira el permiso en Klaviyo al desconectar: revocar el refresh token anula
+ * tambien los access tokens que salieron de el. Si falla no se bloquea la
+ * desconexion en E-NORA; quien llama decide si lo registra.
+ */
+export async function revokeKlaviyoToken(env: KlaviyoOAuthEnv, refreshToken: string): Promise<void> {
+  const response = await fetch(KLAVIYO_REVOKE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: basicClientAuthorization(env),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ token: refreshToken, token_type_hint: "refresh_token" }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`klaviyo_revoke_failed:${response.status}`);
+  }
+}

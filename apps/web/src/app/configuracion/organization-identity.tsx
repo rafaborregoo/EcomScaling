@@ -7,10 +7,9 @@ import {
   Button,
   Card,
   Combobox,
-  Field,
   Input,
-  Link,
   Select,
+  SettingRow,
   toast,
   type ComboboxOption,
 } from "@/components/ui";
@@ -113,17 +112,17 @@ export function OrganizationIdentity({
       title="Organización activa"
       description="Cómo se llama este cliente y en qué moneda y huso opera."
     >
-      <form className="space-y-4" onSubmit={save}>
-        <Field label="Nombre">
+      <form onSubmit={save}>
+        <SettingRow label="Nombre" hint="Cómo aparece en informes y correos." htmlFor="org-name">
           <Input
-            className="mt-1 max-w-md"
+            id="org-name"
+            className="max-w-md"
             value={displayName}
             disabled={!canManage}
             onChange={(event) => setDisplayName(event.target.value)}
           />
-        </Field>
-
-        <div className="flex flex-wrap items-end gap-4">
+        </SettingRow>
+        <SettingRow label="Zona horaria" hint="Decide cuándo empieza «hoy» en las cifras.">
           <Combobox
             className="w-64"
             label="Zona horaria"
@@ -132,32 +131,28 @@ export function OrganizationIdentity({
             onChange={setTimezone}
             placeholder="Busca una zona"
           />
-          <Field label="Moneda">
-            <Select
-              className="mt-1 w-32"
-              aria-label="Moneda"
-              value={currency}
-              onChange={setCurrency}
-              options={currencyOptions}
-              disabled={!canManage}
-            />
-          </Field>
-          <Field label="Plan">
-            <p className="mt-2 font-mono text-sm">{planLabel}</p>
-          </Field>
-        </div>
-
+        </SettingRow>
+        <SettingRow label="Moneda" hint="La de la tienda. Las cifras no se convierten entre monedas.">
+          <Select
+            className="w-32"
+            aria-label="Moneda"
+            value={currency}
+            onChange={setCurrency}
+            options={currencyOptions}
+            disabled={!canManage}
+          />
+        </SettingRow>
+        <SettingRow label="Plan">
+          <span className="text-sm">{planLabel}</span>
+        </SettingRow>
         {canManage && dirty ? (
-          <Button type="submit" disabled={saving}>
-            {saving ? "Guardando…" : "Guardar cambios"}
-          </Button>
+          <div className="border-t border-separator pt-4">
+            <Button type="submit" disabled={saving}>
+              {saving ? "Guardando…" : "Guardar cambios"}
+            </Button>
+          </div>
         ) : null}
       </form>
-
-      <p className="mt-4 text-xs text-muted">
-        Tu nombre, avatar y datos de cuenta están en{" "}
-        <Link href="/perfil">Perfil</Link>.
-      </p>
     </Card>
   );
 }

@@ -537,3 +537,34 @@ test("una fecha de revision corrupta cae a la ventana en vez de reventar", () =>
     { since: windowStartIso, kind: "window" },
   );
 });
+
+test("la mesa decide en el sitio solo lo que es atomico", () => {
+  const proposal = {
+    organization_id: "org-a",
+    title: "Reactivar flujo de carrito",
+    rationale: "",
+    priority: "high",
+    phase: null,
+    evidence: [],
+  };
+  const result = build({
+    calls: [call({ id: "call-1", pending_summary_id: "sum-1" })],
+    proposals: [
+      { ...proposal, title: "Sola", output_id: "out-1", sibling_count: 1 },
+      { ...proposal, title: "Con hermana", output_id: "out-2", sibling_count: 2 },
+    ],
+  });
+  const byTitle = (needle: string) =>
+    result.actions.find((action) => action.title.includes(needle));
+
+  assert.equal(
+    byTitle("Revisión mensual")?.decision?.endpoint,
+    "/v1/organizations/org-a/call-summaries/sum-1/decision",
+  );
+  assert.equal(
+    byTitle("Sola")?.decision?.endpoint,
+    "/v1/organizations/org-a/ai/outputs/out-1/decision",
+  );
+  // Aprobar out-2 aprobaria tambien su hermana: se decide en /tareas.
+  assert.equal(byTitle("Con hermana")?.decision ?? null, null);
+});

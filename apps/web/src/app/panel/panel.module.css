@@ -3,16 +3,16 @@
    como único acento, IBM Plex Sans para todo, cifras tabulares. */
 
 .stage {
-  --paper: #f2f2f0; --surface: #ffffff; --surface-2: #f7f7f5; --sunken: #e7e7e3;
-  --ink: #16181b; --ink-2: #474b51; --ink-3: #62666d;
-  --line: #dadad5; --line-2: #ebebe7;
-  --accent: #ff8a5b; --accent-soft: #ffe7dc; --accent-ink: #8a3310; --on-accent: #2b0e02;
+  --paper: #faf9f7; --surface: #ffffff; --surface-2: #f7f7f5; --sunken: #efeeeb;
+  --ink: #17171a; --ink-2: #4a4743; --ink-3: #6b655f;
+  --line: #e7e4e0; --line-2: #eeebe7;
+  --accent: #ff8a5b; --accent-soft: #ffe7dc; --accent-ink: #c4440f; --on-accent: #17171a;
   --good: #0f7455; --good-soft: #dcf1e8; --good-bar: #2aa17f;
   --warn: #8f4c07; --warn-soft: #fbead6; --warn-bar: #e0a030;
   --bad: #b62a45; --bad-soft: #f9dee4; --bad-bar: #d9475f;
   --meta: #0064e0;
-  --hero: #17191c; --hero-2: #212428; --hero-3: #2a2e33; --hero-ink: #f2f2ef;
-  --hero-muted: #a9adb3; --hero-line: #33373d; --hero-series: #ffb08f;
+  --hero: #ffffff; --hero-2: #f7f7f5; --hero-3: #efeeeb; --hero-ink: #17171a;
+  --hero-muted: #6b655f; --hero-line: #e7e4e0; --hero-series: #c4440f;
   box-sizing: border-box;
   width: min(100%, 96rem);
   margin-inline: auto;
@@ -70,7 +70,7 @@
 .heroTop { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; align-items: start; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 14px !important; color: var(--hero-muted); font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; line-height: 1.4; text-transform: uppercase; }
 .meta .tier { color: var(--t); }
-.headline { max-width: 32ch; font-size: clamp(26px, 3vw, 40px); font-weight: 400; letter-spacing: -0.018em; line-height: 1.16; text-wrap: balance; }
+.headline { max-width: 32ch; font-size: clamp(26px, 3vw, 40px); font-weight: 600; letter-spacing: -0.018em; line-height: 1.16; text-wrap: balance; }
 .detail { max-width: 64ch; margin-top: 12px !important; color: var(--hero-muted); font-size: 14.5px; }
 .detail .ia { margin-right: 6px; vertical-align: 2px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
@@ -79,7 +79,8 @@
 .counter:hover { border-color: var(--hero-muted); }
 .counter b { font-size: 22px; font-weight: 500; line-height: 1; }
 .counter span { color: var(--hero-muted); font-size: 11.5px; line-height: 1.3; }
-.counter.hot b { color: var(--accent); }
+.counter.hot { border-color: var(--accent); background: var(--accent-soft); }
+.counter.hot b { color: var(--accent-ink); }
 .counter.wide { grid-column: 1 / -1; }
 .side { display: grid; gap: 11px; padding: 16px 18px; border: 1px solid var(--hero-line); border-radius: 16px; color: var(--hero-muted); font-size: 13px; }
 .side h3 { color: var(--hero-ink); font-size: 13px; font-weight: 600; }
@@ -281,3 +282,14 @@
 .sideNote { margin: 0; }
 .wfSolo.wfH, .wfSolo.wfR { grid-template-columns: 150px minmax(0, 1fr) 84px; }
 .linkBtn { text-decoration: none; }
+
+/* ---------- hilo con el cliente ---------- */
+.thread { display: flex; flex-direction: column; height: 520px; min-height: 0; }
+
+/* ---------- simulador ---------- */
+.simCtl { display: grid; gap: 18px; }
+.simCtl label { display: grid; gap: 8px; font-size: 13px; }
+.simCtl label span { display: flex; justify-content: space-between; gap: 10px; }
+.simCtl b { color: var(--accent-ink); font-weight: 600; }
+.simCtl input[type="range"] { width: 100%; accent-color: var(--accent); }
+.mini .simHot { background: var(--accent-soft); }

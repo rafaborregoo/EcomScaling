@@ -178,6 +178,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "claude-sonnet-5": { inputPerMTok: 2, outputPerMTok: 10 },
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
   "gpt-5.5": { inputPerMTok: 5, outputPerMTok: 30 },
+  "gpt-6-luna": { inputPerMTok: 0.1, outputPerMTok: 0.5 },
   "gpt-4.1": { inputPerMTok: 2, outputPerMTok: 8 },
   "gpt-4.1-mini": { inputPerMTok: 0.4, outputPerMTok: 1.6 },
   "gpt-4.1-nano": { inputPerMTok: 0.1, outputPerMTok: 0.4 },

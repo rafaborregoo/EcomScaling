@@ -31,7 +31,6 @@ import {
   type KlaviyoMetricsResponse,
   type KlaviyoReportsResponse,
 } from "../shared";
-import hub from "../hub.module.css";
 
 function useKlaviyoConfig(
   organizationId: string | null,
@@ -217,7 +216,7 @@ function KlaviyoIntegrationPage({
   }
 
   return (
-    <div className={hub.page}>
+    <div className="portal-page space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={selectedProvider}>

@@ -42,6 +42,20 @@ const serviceOnlyTables = new Set([
   "organization_ai_agent_runtime_config",
   "platform_health_feedback",
   "campaign_quick_actions",
+  "agent_run_judgments",
+  "agent_judge_jobs",
+  "agent_judgment_feedback",
+  "mailing_campaign_checkpoints",
+  "mailing_campaign_checkpoint_writes",
+  "agent_version_release_manifests",
+  "agent_judge_eval_cases",
+  "agent_judge_eval_case_reviews",
+  "agent_judge_eval_case_adjudications",
+  "agent_judge_calibration_runs",
+  "agent_judge_eval_dataset_freezes",
+  "agent_judge_holdout_claims",
+  "agent_release_eval_cases",
+  "agent_release_eval_holdout_claims",
 ]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));

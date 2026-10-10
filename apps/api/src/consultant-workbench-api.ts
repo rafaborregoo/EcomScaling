@@ -221,7 +221,7 @@ export async function getDailyWorkbench(
         supabase
           .from("consulting_calls")
           .select(
-            "id, organization_id, title, scheduled_at, held_at, call_ai_summaries(status)",
+            "id, organization_id, title, scheduled_at, held_at, call_ai_summaries(id, status, created_at)",
           )
           .in("organization_id", safeIds)
           .order("created_at", { ascending: false })
@@ -229,16 +229,18 @@ export async function getDailyWorkbench(
       (rows) =>
         rows.map((row) => {
           const summaries =
-            (row.call_ai_summaries as Array<{ status: string }> | null) ?? [];
+            (row.call_ai_summaries as Array<{ id: string; status: string; created_at: string }> | null) ?? [];
+          const pending = summaries
+            .filter((summary) => summary.status === "pending_approval")
+            .sort((a, b) => b.created_at.localeCompare(a.created_at));
           return {
             id: str(row.id),
             organization_id: str(row.organization_id),
             title: str(row.title),
             scheduled_at: nullableStr(row.scheduled_at),
             held_at: nullableStr(row.held_at),
-            summary_pending: summaries.some(
-              (summary) => summary.status === "pending_approval",
-            ),
+            summary_pending: pending.length > 0,
+            pending_summary_id: pending[0]?.id ?? null,
           };
         }),
     ),
@@ -365,19 +367,24 @@ export async function getDailyWorkbench(
   if (!proposalsResult || proposalsResult.ok === false) {
     proposalsState = "error";
   } else {
-    proposals = proposalsResult.data.clients.flatMap((client) =>
-      client.tasks
-        // Solo lo que espera una decision humana; lo ya decidido vive en /tareas.
-        .filter((task) => task.pending_approval)
-        .map((task) => ({
-          organization_id: client.organization_id,
-          title: task.title,
-          rationale: task.rationale,
-          priority: task.priority,
-          phase: task.phase,
-          evidence: task.evidence,
-        })),
-    );
+    proposals = proposalsResult.data.clients.flatMap((client) => {
+      // Solo lo que espera una decision humana; lo ya decidido vive en /tareas.
+      const pending = client.tasks.filter((task) => task.pending_approval);
+      const perOutput = new Map<string, number>();
+      for (const task of pending) {
+        perOutput.set(task.output_id, (perOutput.get(task.output_id) ?? 0) + 1);
+      }
+      return pending.map((task) => ({
+        organization_id: client.organization_id,
+        title: task.title,
+        rationale: task.rationale,
+        priority: task.priority,
+        phase: task.phase,
+        evidence: task.evidence,
+        output_id: task.output_id,
+        sibling_count: perOutput.get(task.output_id) ?? 0,
+      }));
+    });
   }
 
   const threadsResult = await listClientMessageThreads(

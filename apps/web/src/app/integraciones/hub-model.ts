@@ -13,18 +13,6 @@ import {
   type StoreView,
 } from "./store-view-model";
 
-export type Signal = "ok" | "sync" | "warn" | "bad" | "off";
-
-/** El punto de color de una casilla o de la ficha. */
-export function signalOf(status: string | null, connected: boolean): Signal {
-  if (!connected || !status) return "off";
-  if (status === "syncing") return "sync";
-  const severity = healthSeverity(status);
-  if (severity >= 4) return "bad";
-  if (severity >= 1) return status === "unknown" ? "off" : "warn";
-  return "ok";
-}
-
 // --- Cola de arreglos -----------------------------------------------------
 
 export type FixItem = {

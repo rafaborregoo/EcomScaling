@@ -3,6 +3,7 @@ import {
   type KlaviyoSubjectRow,
   type SubjectTraitComparison,
 } from "./klaviyo-subject-patterns.js";
+import { isOAuthStateExpired, issuedStateMetadata } from "./oauth-state.js";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@e-nora/config";
@@ -195,7 +196,7 @@ export async function createKlaviyoConnectionAuthUrl(
       scopes: parseKlaviyoScopes(oauthEnv.KLAVIYO_SCOPES),
       api_version: "2026-07-15",
       metadata: {
-        state,
+        ...issuedStateMetadata(state),
         code_verifier: verifier,
         source: "oauth_start",
         ...(onboardingReturnTo === ADMIN_ONBOARDING_RETURN_TO
@@ -572,6 +573,20 @@ export async function handleKlaviyoOAuthCallback(
     };
   if (!pending || metadataString(pending.metadata, "state") !== state)
     return { ok: false, statusCode: 400, error: "invalid_klaviyo_oauth_state" };
+  if (isOAuthStateExpired(pending.metadata)) {
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: "klaviyo_oauth_state_expired",
+      })
+      .eq("id", pending.id);
+    return {
+      ok: true,
+      data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?klaviyo=caducado` },
+    };
+  }
   const verifier = metadataString(pending.metadata, "code_verifier");
   if (!verifier)
     return (await redirectKlaviyoOnboardingError(

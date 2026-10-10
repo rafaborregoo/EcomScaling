@@ -26,6 +26,8 @@ export type ReportTable = {
   columns: Array<{ key: string; label: string; align?: "left" | "right"; width?: number }>;
   rows: Array<Record<string, string | number | null>>;
   emptyMessage?: string;
+  /** Columnas numéricas en % que se pintan como mapa de calor (0–100). */
+  heatColumns?: string[];
 };
 
 export type ReportChart = {
@@ -39,7 +41,39 @@ export type ReportSection =
   | { kind: "metrics"; title: string; metrics: ReportMetric[] }
   | { kind: "chart"; title: string; chart: ReportChart }
   | { kind: "table"; title: string; table: ReportTable }
-  | { kind: "note"; title: string; body: string; tone: "info" | "warning" };
+  | { kind: "note"; title: string; body: string; tone: "info" | "warning" }
+  // Lista de frases. `copilot` = la redactó la IA (se marca así en el PDF);
+  // `data` = calculada a partir de las cifras del propio informe.
+  | { kind: "summary"; title: string; points: string[]; author: "copilot" | "data" }
+  | { kind: "trend"; title: string; trend: ReportTrend };
+
+/** Serie diaria. La primera serie es el periodo; la segunda (discontinua), el anterior alineado por día. */
+export type ReportTrend = {
+  unit: "currency" | "number";
+  currencyCode?: string;
+  dates: string[];
+  series: Array<{ label: string; values: number[]; style: "solid" | "dashed" }>;
+};
+
+/** Lectura que redacta el copiloto tras ver las cifras (preview) del informe. */
+export type ReportAnalysis = { highlights: string[]; recommendations: string[] };
+
+export function formatReportMetric(metric: ReportMetric, currencyCode: string): string {
+  if (metric.value === null || !Number.isFinite(metric.value)) return "Sin datos";
+  const number = (value: number, digits: number) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+  if (metric.format === "currency") {
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency: metric.currencyCode ?? currencyCode, maximumFractionDigits: 2 }).format(metric.value);
+  }
+  if (metric.format === "percent") return `${number(metric.value, 1)} %`;
+  if (metric.format === "ratio") return `${number(metric.value, 2)}×`;
+  return number(metric.value, metric.decimalPlaces ?? 0);
+}
+
+/** Variación % frente al periodo anterior; null si no hay base comparable. */
+export function metricChangePct(metric: ReportMetric): number | null {
+  if (metric.previous === undefined || metric.previous === null || metric.value === null || metric.previous === 0) return null;
+  return ((metric.value - metric.previous) / Math.abs(metric.previous)) * 100;
+}
 
 export type ReportSource = {
   provider: ReportProvider;
@@ -49,7 +83,8 @@ export type ReportSource = {
 };
 
 export type ReportDocument = {
-  templateId: ReportTemplateId;
+  /** `cartera` es el informe de cartera del consultor: no es una plantilla del copiloto. */
+  templateId: ReportTemplateId | "cartera";
   templateVersion: "v1";
   title: string;
   subtitle: string;
@@ -62,6 +97,8 @@ export type ReportDocument = {
   previousPeriodEnd: string;
   generatedAt: string;
   sample: boolean;
+  /** Consultora que firma el informe; sin ella sale solo E-NORA. */
+  preparedBy?: string;
   sections: ReportSection[];
   sources: ReportSource[];
 };

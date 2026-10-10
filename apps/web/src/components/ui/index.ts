@@ -20,6 +20,7 @@ export type { Tone } from "./badge";
 export { Badge } from "./badge";
 export { Banner } from "./banner";
 export { Field } from "./field";
+export { SettingRow } from "./setting-row";
 export { ColorField } from "./color-field";
 export { Input } from "./input";
 export { Select } from "./select";

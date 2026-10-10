@@ -22,6 +22,11 @@ const apiEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SUPABASE_JWT_SECRET: z.string().min(1).optional(),
+  // Clave propia para cifrar los tokens de Shopify/Meta/Klaviyo (32+ caracteres).
+  // Sin ella se sigue usando la clave heredada (derivada de SUPABASE_JWT_SECRET).
+  // _PREVIOUS permite rotar: se descifra con las dos y se cifra con la actual.
+  CREDENTIALS_ENCRYPTION_KEY: z.string().min(32).optional(),
+  CREDENTIALS_ENCRYPTION_KEY_PREVIOUS: z.string().min(32).optional(),
   SMTP_HOST: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().min(1).optional(),
@@ -122,6 +127,10 @@ const apiEnvSchema = z.object({
   // AI-09: JSON opcional para routing por agente/proveedor y budgets por turno.
   // Sin esta variable se conservan los defaults actuales del runtime.
   AI_MODEL_ROUTING_JSON: z.string().min(1).optional(),
+  // LLM judge: off | shadow (persist only) | visible (surface review state).
+  // Missing means off; enabling it never changes human approval or writes.
+  AI_JUDGE_MODE: z.enum(["off", "shadow", "visible"]).optional(),
+  AI_JUDGE_MODEL: z.string().min(1).optional(),
   // AI-09: limites diarios y por turno por plan comercial. Se mantiene
   // server-side; el cliente nunca recibe este JSON.
   AI_PLAN_BUDGETS_JSON: z.string().min(1).optional(),
@@ -180,6 +189,8 @@ export type LoadedApiEnv = {
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_JWT_SECRET?: string;
+  CREDENTIALS_ENCRYPTION_KEY?: string;
+  CREDENTIALS_ENCRYPTION_KEY_PREVIOUS?: string;
   SMTP_HOST?: string;
   SMTP_PORT?: number;
   SMTP_USER?: string;
@@ -225,6 +236,8 @@ export type LoadedApiEnv = {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   AI_MODEL_ROUTING_JSON?: string;
+  AI_JUDGE_MODE?: "off" | "shadow" | "visible";
+  AI_JUDGE_MODEL?: string;
   AI_PLAN_BUDGETS_JSON?: string;
   LANGSMITH_TRACING?: "true" | "false";
   LANGSMITH_API_KEY?: string;
@@ -390,6 +403,12 @@ export function loadApiEnv(
     ...(env.SUPABASE_JWT_SECRET
       ? { SUPABASE_JWT_SECRET: env.SUPABASE_JWT_SECRET }
       : {}),
+    ...(env.CREDENTIALS_ENCRYPTION_KEY
+      ? { CREDENTIALS_ENCRYPTION_KEY: env.CREDENTIALS_ENCRYPTION_KEY }
+      : {}),
+    ...(env.CREDENTIALS_ENCRYPTION_KEY_PREVIOUS
+      ? { CREDENTIALS_ENCRYPTION_KEY_PREVIOUS: env.CREDENTIALS_ENCRYPTION_KEY_PREVIOUS }
+      : {}),
     ...(env.SMTP_HOST ? { SMTP_HOST: env.SMTP_HOST } : {}),
     ...(env.SMTP_PORT !== undefined ? { SMTP_PORT: env.SMTP_PORT } : {}),
     ...(env.SMTP_USER ? { SMTP_USER: env.SMTP_USER } : {}),
@@ -486,6 +505,8 @@ export function loadApiEnv(
     ...(env.AI_MODEL_ROUTING_JSON
       ? { AI_MODEL_ROUTING_JSON: env.AI_MODEL_ROUTING_JSON }
       : {}),
+    ...(env.AI_JUDGE_MODE ? { AI_JUDGE_MODE: env.AI_JUDGE_MODE } : {}),
+    ...(env.AI_JUDGE_MODEL ? { AI_JUDGE_MODEL: env.AI_JUDGE_MODEL } : {}),
     ...(env.AI_PLAN_BUDGETS_JSON
       ? { AI_PLAN_BUDGETS_JSON: env.AI_PLAN_BUDGETS_JSON }
       : {}),

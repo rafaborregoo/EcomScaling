@@ -1,7 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { Badge, Card, LoadingBlock, ProgressBar, type Tone } from "@/components/ui";
+import { formatMoney } from "@/lib/money";
+import { Badge, ProgressBar, type Tone } from "@/components/ui";
 
 /**
  * Dónde está hoy cada objetivo. Compara con los últimos 30 días, el mismo dato
@@ -70,7 +72,7 @@ function readingFor(
   }
 }
 
-export function formatMetric(key: string, value: number) {
+export function formatMetric(key: string, value: number, currency = "EUR") {
   const unit =
     ["net_margin_pct", "conversion_rate", "recurrence_pct", "email_attributed_pct"].includes(key)
       ? "pct"
@@ -80,7 +82,7 @@ export function formatMetric(key: string, value: number) {
   const number = new Intl.NumberFormat("es-ES", {
     maximumFractionDigits: unit === "num" && Number.isInteger(value) ? 0 : 2,
   }).format(value);
-  return unit === "pct" ? `${number} %` : unit === "eur" ? `${number} €` : number;
+  return unit === "pct" ? `${number} %` : unit === "eur" ? formatMoney(value, currency) : number;
 }
 
 const PERIOD: Record<string, string> = {
@@ -89,14 +91,23 @@ const PERIOD: Record<string, string> = {
   yearly: "al año",
 };
 
+/**
+ * Lista de objetivos con su progreso en la misma fila (antes "Cómo vas" era
+ * una tarjeta aparte y había que cruzarla con la lista). `action` pinta el
+ * botón de quitar a la derecha de cada objetivo.
+ */
 export function ObjectivesProgress({
   organizationId,
   targets,
   labelFor,
+  currency = "EUR",
+  action,
 }: {
   organizationId: string;
   targets: ObjectiveTarget[];
   labelFor: (key: string) => string;
+  currency?: string;
+  action?: (target: ObjectiveTarget) => ReactNode;
 }) {
   const base = `/v1/organizations/${organizationId}`;
   const shopify = useCachedQuery<ShopifyMetrics>(`${base}/shopify/metrics?days=30`);
@@ -105,13 +116,6 @@ export function ObjectivesProgress({
   if (targets.length === 0) return null;
 
   return (
-    <Card
-      title="Cómo vas"
-      description="Últimos 30 días frente a cada objetivo."
-    >
-      {!shopify.data && !shopify.error ? (
-        <LoadingBlock label="Calculando..." />
-      ) : (
         <ul className="divide-y divide-separator">
           {targets.map((target) => {
             const reading = shopify.data
@@ -133,7 +137,9 @@ export function ObjectivesProgress({
               : reading.lowerIsBetter
                 ? Math.min(100, (goal / Math.max(value, 0.0001)) * 100)
                 : Math.min(100, (value / goal) * 100);
-            const status: { label: string; tone: Tone } = !comparable
+            const status: { label: string; tone: Tone } = !shopify.data && !shopify.error
+              ? { label: "Calculando…", tone: "neutral" }
+              : !comparable
               ? { label: "Sin dato comparable", tone: "neutral" }
               : met
                 ? { label: "Cumplido", tone: "success" }
@@ -146,12 +152,13 @@ export function ObjectivesProgress({
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                   <p className="text-sm font-medium">{labelFor(target.metric_key)}</p>
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-sm">
-                      {comparable ? `${formatMetric(target.metric_key, value)} / ` : ""}
-                      {formatMetric(target.metric_key, goal)}{" "}
+                    <span className="text-sm tabular-nums">
+                      {comparable ? `${formatMetric(target.metric_key, value, currency)} / ` : ""}
+                      {formatMetric(target.metric_key, goal, currency)}{" "}
                       {PERIOD[target.period] ?? target.period}
                     </span>
                     <Badge tone={status.tone}>{status.label}</Badge>
+                    {action ? action(target) : null}
                   </div>
                 </div>
                 {comparable ? (
@@ -168,7 +175,5 @@ export function ObjectivesProgress({
             );
           })}
         </ul>
-      )}
-    </Card>
   );
 }

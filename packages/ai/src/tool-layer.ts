@@ -38,6 +38,14 @@ export const toolCostSchema = z.object({
   euros: z.number().nonnegative(),
 });
 
+const reportKeyMetricSchema = z.object({
+  section: z.string(),
+  label: z.string(),
+  value: z.string(),
+  previous: z.string().nullable(),
+  change_pct: z.number().nullable(),
+});
+
 export const provenanceSchema = z.object({
   source: z.string().min(1),
   as_of: z.string().datetime(),
@@ -272,7 +280,7 @@ export const TOOL_DESCRIPTIONS = {
   get_task_history: "Lee hasta 100 tareas recientes de la organizacion activa para entender decisiones y resultados previos.",
   get_call_history: "Lee hasta 50 llamadas de consultoria de la organizacion activa sin notas internas ni transcripciones completas.",
   get_financial_settings: "Lee los parametros financieros configurados para la organizacion activa, sin ejecutar calculos ni escrituras.",
-  generate_report: "Genera un informe PDF nativo desde una plantilla reutilizable: shopify_comercial, shopify_rentabilidad, shopify_clientes, meta_publicidad, klaviyo_email, adquisicion_multicanal o resumen_multicanal. Si se omiten ambas fechas usa el último mes natural completo UTC. Máximo 92 días. Selecciona tienda cuando haya varias; el backend consulta métricas y devuelve un enlace privado temporal. No afirmes que existe hasta recibirlo.",
+  generate_report: "Genera un informe PDF nativo desde una plantilla reutilizable: shopify_comercial, shopify_rentabilidad, shopify_clientes, meta_publicidad, klaviyo_email, adquisicion_multicanal o resumen_multicanal. Si se omiten ambas fechas usa el último mes natural completo UTC. Máximo 92 días. Selecciona tienda cuando haya varias. Dos pasos: 1) preview=true devuelve las cifras clave (key_metrics) sin crear el PDF; 2) con esas cifras llama de nuevo con analysis (highlights 1–5, recommendations 0–3) y el backend crea el PDF con tu lectura al principio. Usa solo cifras de key_metrics. No afirmes que el PDF existe hasta recibir report_id.",
   request_missing_data: "Solicita una conexión o dato que falta; nunca inventa resultados ni modifica el conector.",
   escalate_to_human: "Declara una abstención segura cuando faltan datos o el riesgo supera lo que el agente puede decidir.",
   flag_data_quality_issue: "Reporta datos incoherentes o incompletos para que el consultor los revise antes de razonar sobre ellos.",
@@ -517,6 +525,11 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
       template_id: z.enum(["shopify_comercial", "shopify_rentabilidad", "shopify_clientes", "meta_publicidad", "klaviyo_email", "adquisicion_multicanal", "resumen_multicanal"]).default("shopify_comercial"),
       period_start: z.string().date().optional(),
       period_end: z.string().date().optional(),
+      preview: z.boolean().optional(),
+      analysis: z.object({
+        highlights: z.array(z.string().trim().min(1).max(300)).min(1).max(5),
+        recommendations: z.array(z.string().trim().min(1).max(300)).max(3).default([]),
+      }).strict().optional(),
     }).strict().refine((input) => {
       if (Boolean(input.period_start) !== Boolean(input.period_end)) return false;
       if (!input.period_start || !input.period_end) return true;
@@ -529,13 +542,24 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
       template_id: z.enum(["shopify_comercial", "shopify_rentabilidad", "shopify_clientes", "meta_publicidad", "klaviyo_email", "adquisicion_multicanal", "resumen_multicanal"]),
       template_version: z.literal("v1"),
       file_name: z.string().min(1),
-      download_url: z.string().url(),
       period_start: z.string().date(),
       period_end: z.string().date(),
       store_scope: z.enum(["selected_store", "single_store", "organization_scope"]),
       currency_code: z.string().regex(/^[A-Z]{3}$/),
+      key_metrics: z.array(reportKeyMetricSchema),
       provenance: provenanceSchema,
-    }).or(toolErrorSchema),
+    }).or(z.object({
+      preview: z.literal(true),
+      template_id: z.enum(["shopify_comercial", "shopify_rentabilidad", "shopify_clientes", "meta_publicidad", "klaviyo_email", "adquisicion_multicanal", "resumen_multicanal"]),
+      period_start: z.string().date(),
+      period_end: z.string().date(),
+      previous_period_start: z.string().date(),
+      previous_period_end: z.string().date(),
+      currency_code: z.string().regex(/^[A-Z]{3}$/),
+      key_metrics: z.array(reportKeyMetricSchema),
+      coverage: z.array(z.object({ provider: z.string(), status: z.enum(["available", "partial", "unavailable"]), detail: z.string() })),
+      provenance: provenanceSchema,
+    })).or(toolErrorSchema),
   },
   sql_select: {
     definition: getDefinition("sql_select"),

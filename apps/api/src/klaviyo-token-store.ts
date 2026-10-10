@@ -1,9 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@e-nora/config";
-import {
-  decryptShopifyCredential,
-  encryptShopifyCredential,
-} from "./shopify-oauth.js";
+import { credentialKeyVersion, decryptCredential, encryptCredential } from "./credential-crypto.js";
 import {
   refreshKlaviyoAccessToken,
   type KlaviyoOAuthTokens,
@@ -12,6 +9,9 @@ import {
 const CREDENTIAL_KIND = "klaviyo_oauth_tokens";
 const API_KEY_CREDENTIAL_KIND = "klaviyo_private_api_key";
 const REFRESH_BUFFER_MS = 2 * 60 * 1000;
+const CLAIM_STALE_MS = 30 * 1000;
+const CLAIM_POLL_MS = 1_500;
+const CLAIM_MAX_ATTEMPTS = 4;
 
 type KlaviyoCredentialPayload = {
   access_token: string;
@@ -25,22 +25,16 @@ function serviceClient(env: LoadedApiEnv) {
   });
 }
 
-function secretFor(env: LoadedApiEnv) {
-  return (
-    env.SUPABASE_JWT_SECRET ??
-    env.SUPABASE_SERVICE_ROLE_KEY ??
-    env.KLAVIYO_CLIENT_SECRET ??
-    ""
-  );
-}
+
 
 function decode(
   payload: string,
-  secret: string,
+  env: LoadedApiEnv,
+  connectionId: string,
 ): KlaviyoCredentialPayload | null {
   try {
     const parsed = JSON.parse(
-      decryptShopifyCredential(payload, secret),
+      decryptCredential(payload, env, connectionId),
     ) as Partial<KlaviyoCredentialPayload>;
     if (!parsed.access_token || !parsed.refresh_token || !parsed.expires_at)
       return null;
@@ -67,12 +61,10 @@ export async function saveKlaviyoTokens(
       {
         connection_id: connectionId,
         credential_kind: CREDENTIAL_KIND,
-        encrypted_payload: encryptShopifyCredential(
-          JSON.stringify(payload),
-          secretFor(env),
-        ),
-        encryption_key_version: "v1",
+        encrypted_payload: encryptCredential(JSON.stringify(payload), env, connectionId),
+        encryption_key_version: credentialKeyVersion(env),
         expires_at: payload.expires_at,
+        refresh_locked_at: null,
         rotated_at: new Date().toISOString(),
       },
       { onConflict: "connection_id,credential_kind" },
@@ -97,11 +89,8 @@ export async function saveKlaviyoApiKey(
       {
         connection_id: connectionId,
         credential_kind: API_KEY_CREDENTIAL_KIND,
-        encrypted_payload: encryptShopifyCredential(
-          JSON.stringify({ api_key: apiKey }),
-          secretFor(env),
-        ),
-        encryption_key_version: "v1",
+        encrypted_payload: encryptCredential(JSON.stringify({ api_key: apiKey }), env, connectionId),
+        encryption_key_version: credentialKeyVersion(env),
         expires_at: null,
         rotated_at: new Date().toISOString(),
       },
@@ -142,7 +131,7 @@ export async function getValidKlaviyoAccessToken(
   if (apiKeyRow?.encrypted_payload) {
     try {
       const parsed = JSON.parse(
-        decryptShopifyCredential(apiKeyRow.encrypted_payload, secretFor(env)),
+        decryptCredential(apiKeyRow.encrypted_payload, env, connectionId),
       ) as { api_key?: string };
       if (parsed.api_key) return parsed.api_key;
     } catch {
@@ -159,7 +148,7 @@ export async function getValidKlaviyoAccessToken(
     .maybeSingle();
   if (error) throw new Error(`klaviyo_credential_load_failed:${error.message}`);
   const current = row?.encrypted_payload
-    ? decode(row.encrypted_payload, secretFor(env))
+    ? decode(row.encrypted_payload, env, connectionId)
     : null;
   if (!current) throw new Error("klaviyo_access_token_unavailable");
   if (new Date(current.expires_at).getTime() - Date.now() > REFRESH_BUFFER_MS)
@@ -177,10 +166,63 @@ export async function getValidKlaviyoAccessToken(
         }
       : null;
   if (!oauthEnv) throw new Error("klaviyo_app_not_configured");
-  const refreshed = await refreshKlaviyoAccessToken(
-    oauthEnv,
-    current.refresh_token,
-  );
-  await saveKlaviyoTokens(env, connectionId, refreshed);
-  return refreshed.access_token;
+
+  // Un solo proceso renueva a la vez (mismo claim que Shopify): API y worker
+  // podian renovar en paralelo y, si Klaviyo invalida el refresh anterior al
+  // rotarlo, uno de los dos dejaba la conexion pidiendo reconectar.
+  for (let attempt = 0; attempt < CLAIM_MAX_ATTEMPTS; attempt += 1) {
+    const claimStaleBefore = new Date(Date.now() - CLAIM_STALE_MS).toISOString();
+    const { data: claimed, error: claimError } = await client
+      .schema("private")
+      .from("integration_credentials")
+      .update({ refresh_locked_at: new Date().toISOString() })
+      .eq("connection_id", connectionId)
+      .eq("credential_kind", CREDENTIAL_KIND)
+      .or(`refresh_locked_at.is.null,refresh_locked_at.lt.${claimStaleBefore}`)
+      .select("encrypted_payload")
+      .maybeSingle();
+    if (claimError) throw new Error(`klaviyo_token_refresh_claim_failed:${claimError.message}`);
+
+    if (!claimed) {
+      // Otro proceso esta renovando: esperar y releer lo que haya guardado.
+      await new Promise((resolve) => setTimeout(resolve, CLAIM_POLL_MS));
+      const { data: again } = await client
+        .schema("private")
+        .from("integration_credentials")
+        .select("encrypted_payload")
+        .eq("connection_id", connectionId)
+        .eq("credential_kind", CREDENTIAL_KIND)
+        .maybeSingle();
+      const latest = again?.encrypted_payload ? decode(again.encrypted_payload, env, connectionId) : null;
+      if (latest && new Date(latest.expires_at).getTime() - Date.now() > REFRESH_BUFFER_MS) {
+        return latest.access_token;
+      }
+      continue;
+    }
+
+    const latest = decode(claimed.encrypted_payload, env, connectionId) ?? current;
+    // Quien tuvo el claim antes ya pudo renovar: no se gasta otro refresh.
+    if (new Date(latest.expires_at).getTime() - Date.now() > REFRESH_BUFFER_MS) {
+      await releaseRefreshClaim(client, connectionId);
+      return latest.access_token;
+    }
+    try {
+      const refreshed = await refreshKlaviyoAccessToken(oauthEnv, latest.refresh_token);
+      await saveKlaviyoTokens(env, connectionId, refreshed);
+      return refreshed.access_token;
+    } catch (error) {
+      await releaseRefreshClaim(client, connectionId);
+      throw error;
+    }
+  }
+  throw new Error("klaviyo_token_refresh_contended");
+}
+
+async function releaseRefreshClaim(client: ReturnType<typeof serviceClient>, connectionId: string) {
+  await client
+    .schema("private")
+    .from("integration_credentials")
+    .update({ refresh_locked_at: null })
+    .eq("connection_id", connectionId)
+    .eq("credential_kind", CREDENTIAL_KIND);
 }

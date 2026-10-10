@@ -124,3 +124,33 @@ export async function assertCapacidadDeCartera(
 
   return null;
 }
+
+/**
+ * La consultora de quien pide y sus plazas, para Configuración › Plan y
+ * plazas. Antes el consultor solo se enteraba de su tope cuando un alta
+ * fallaba con "Has ocupado las N plazas".
+ */
+export async function getConsultora(
+  supabase: SupabaseClient,
+  context: AuthContext,
+) {
+  const consultingOrganizationId = consultingOrganizationIdOf(context);
+  if (!consultingOrganizationId) {
+    return { ok: true as const, data: { consultora: null } };
+  }
+  const membership = context.memberships.find(
+    (item) => item.organization_id === consultingOrganizationId,
+  );
+  const capacidad = await loadCapacidad(supabase, consultingOrganizationId);
+  return {
+    ok: true as const,
+    data: {
+      consultora: {
+        organization_id: consultingOrganizationId,
+        display_name: membership?.organization?.display_name ?? null,
+        role: membership?.role ?? null,
+        capacidad,
+      },
+    },
+  };
+}

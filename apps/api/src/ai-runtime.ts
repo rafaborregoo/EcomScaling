@@ -171,6 +171,7 @@ import {
   caminoTaskSchema,
   caminoMilestoneSchema,
   caminoWeeklyReviewSchema,
+  caminoWeeklyReviewJsonSchema,
   type CaminoWeeklyReview,
   CAMINO_HORIZON_MONTHS,
   chatJsonSchema,
@@ -188,6 +189,7 @@ import {
   getToolDefinition,
   normalizeToolConnectorId,
   type AgentInput,
+  type AgentJudgeResult,
   type PlatformAgentInput,
   type AgentTurnInput,
   type AgentImageAttachment,
@@ -208,6 +210,10 @@ import {
   type OutputContract,
 } from "@e-nora/ai";
 import type { LoadedApiEnv } from "@e-nora/config";
+import {
+  judgePersistedAgentOutput,
+  loadPersistedJudgeVisualEvidence,
+} from "./agent-judge-runtime.js";
 import type {
   AgentOutputEnvelope,
   AgentProposal,
@@ -256,9 +262,9 @@ import {
 } from "./klaviyo-template-history.js";
 import { buildKlaviyoVariationContext } from "./klaviyo-variation-report.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
-import { renderReportPdf } from "./report-pdf.js";
-import { buildLiveReportDocument } from "./report-data.js";
-import { getReportTemplate, resolveReportTemplateId, reportTemplateSelectionInstructions } from "./report-templates.js";
+import { reportDigest } from "./report-data.js";
+import { buildOrganizationReport, lastFullMonth, saveReport } from "./report-generate.js";
+import { resolveReportTemplateId, reportTemplateSelectionInstructions, type ReportAnalysis } from "./report-templates.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
 import {
   fetchKlaviyoCampaignVariations,
@@ -497,7 +503,7 @@ function hasConfiguredAiProvider(env: ApiEnv): boolean {
   return Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY);
 }
 
-function createServiceClient(env: ApiEnv) {
+export function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
     realtime: { transport: WebSocket as any },
@@ -2207,7 +2213,7 @@ function buildAgentTools(
     allowedToolNames.includes("generate_report") &&
     getToolDefinition("generate_report")?.status === "implemented_partial"
   ) {
-    systemPrompt = `${systemPrompt}\n\nPara generar un informe PDF, usa generate_report con el identificador de plantilla adecuado. Catálogo compacto:\n${reportTemplateSelectionInstructions()}\nUsa resumen_multicanal para todas las aplicaciones o un resumen ejecutivo; adquisicion_multicanal para comparar ventas y atribución. Si la tool tiene éxito, confirma el informe y el periodo; la interfaz mostrará acciones de descarga y de compartir. No copies la URL firmada en el texto ni afirmes que está listo si la tool falla. No inventes datos ni sumes ingresos atribuidos entre plataformas.`;
+    systemPrompt = `${systemPrompt}\n\nPara generar un informe PDF, usa generate_report con el identificador de plantilla adecuado. Catálogo compacto:\n${reportTemplateSelectionInstructions()}\nUsa resumen_multicanal para todas las aplicaciones o un resumen ejecutivo; adquisicion_multicanal para comparar ventas y atribución. Siempre en dos pasos: primero preview=true (mismas fechas y plantilla) para leer key_metrics y coverage; después la llamada definitiva con analysis. En highlights escribe 3–5 frases de consultor: qué pasó, por qué importa y el dato que lo prueba, citando solo cifras de key_metrics (con su variación si la hay). En recommendations, 1–3 acciones concretas para el próximo periodo, sin prometer resultados. Si coverage marca una fuente parcial o sin datos, dilo en un highlight en vez de interpretar ceros. Si la llamada definitiva tiene éxito, resume en el chat las 2–3 conclusiones principales y el periodo; la interfaz mostrará acciones de descarga y de compartir. No afirmes que está listo si la tool falla. No inventes datos ni sumes ingresos atribuidos entre plataformas.`;
     tools.push({
       name: "generate_report",
       description: TOOL_DESCRIPTIONS.generate_report,
@@ -2217,6 +2223,17 @@ function buildAgentTools(
           template_id: { type: "string", enum: ["shopify_comercial", "shopify_rentabilidad", "shopify_clientes", "meta_publicidad", "klaviyo_email", "adquisicion_multicanal", "resumen_multicanal"], description: "Identificador de plantilla reutilizable. Usa resumen_multicanal si piden todas las aplicaciones." },
           period_start: { type: "string", format: "date", description: "Fecha UTC inclusiva de inicio. Omítela junto con period_end para usar el último mes completo." },
           period_end: { type: "string", format: "date", description: "Fecha UTC inclusiva de fin. Omítela junto con period_start para usar el último mes completo." },
+          preview: { type: "boolean", description: "true = devuelve key_metrics y coverage sin crear el PDF. Primer paso obligatorio." },
+          analysis: {
+            type: "object",
+            description: "Tu lectura del periodo, escrita a partir de key_metrics del preview. Va al principio del PDF marcada como redactada por el copiloto.",
+            properties: {
+              highlights: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", maxLength: 300 }, description: "3–5 conclusiones con la cifra que las respalda." },
+              recommendations: { type: "array", maxItems: 3, items: { type: "string", maxLength: 300 }, description: "1–3 acciones concretas para el próximo periodo." },
+            },
+            required: ["highlights"],
+            additionalProperties: false,
+          },
         },
         additionalProperties: false,
       },
@@ -2225,206 +2242,74 @@ function buildAgentTools(
         const parsedInput = parseToolInput("generate_report", toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const templateId = resolveReportTemplateId(parsedInput.data.template_id) ?? "shopify_comercial";
-        const template = getReportTemplate(templateId);
-        if (!template) return { error: "report_template_unavailable", why: "La plantilla solicitada no existe.", how_to_fix: "Elige una plantilla disponible.", retry_after: null };
         const inputStart = parsedInput.data.period_start;
         const inputEnd = parsedInput.data.period_end;
-        const now = new Date();
-        let periodStart: Date;
-        let periodEnd: Date;
-        if (typeof inputStart === "string" && typeof inputEnd === "string") {
-          periodStart = new Date(`${inputStart}T00:00:00.000Z`);
-          periodEnd = new Date(`${inputEnd}T23:59:59.999Z`);
-        } else {
-          periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59, 999));
-          periodStart = new Date(Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth(), 1));
-        }
-        const periodDurationMs = periodEnd.getTime() - periodStart.getTime() + 1;
-        const previousPeriodEnd = new Date(periodStart.getTime() - 1);
-        const previousPeriodStart = new Date(previousPeriodEnd.getTime() - periodDurationMs + 1);
-        const isoDate = (date: Date) => date.toISOString().slice(0, 10);
-        const failure = (error: string, why: string, howToFix: string) => ({
-          error,
-          why,
-          how_to_fix: howToFix,
-          retry_after: null,
-        });
-
-        let storesQuery = supabase
-          .from("shopify_stores")
-          .select("id, currency_code")
-          .eq("organization_id", organizationId)
-          .eq("is_active", true);
-        if (storeId) storesQuery = storesQuery.eq("id", storeId);
-        const { data: stores, error: storesError } = await storesQuery.limit(2);
-        if (storesError) {
-          const output = failure("report_store_scope_unavailable", storesError.message, "Reintentar cuando Shopify esté disponible.");
+        const period = typeof inputStart === "string" && typeof inputEnd === "string"
+          ? { start: new Date(`${inputStart}T00:00:00.000Z`), end: new Date(`${inputEnd}T23:59:59.999Z`) }
+          : lastFullMonth();
+        const fail = async (output: { error: string; why: string; how_to_fix: string }) => {
           await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
-        }
-        const activeStores = stores ?? [];
-        if (!storeId && activeStores.length > 1) {
-          const output = failure("shopify_store_selection_required", "Hay varias tiendas y no se pueden mezclar sus monedas en un único informe.", "Selecciona una tienda en el copiloto y vuelve a pedir el informe.");
-          await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
-        }
-        const store = activeStores[0];
-        if (!store && template.applications.includes("Shopify")) {
-          const output = failure("shopify_store_unavailable", "No hay una tienda Shopify activa en el alcance seleccionado.", "Conecta Shopify o selecciona una tienda activa.");
-          await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
-        }
-        const currencyCode = typeof store?.currency_code === "string" ? store.currency_code.toUpperCase() : "EUR";
-        if (store && !/^[A-Z]{3}$/.test(currencyCode)) {
-          const output = failure("shopify_currency_unavailable", "La moneda de la tienda no está confirmada.", "Sincroniza la tienda y confirma su moneda antes de generar importes.");
-          await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
-        }
-
-        const rpcArgs = (start: Date, end: Date) => ({
-          target_organization_id: organizationId,
-          period_start: start.toISOString(),
-          period_end: end.toISOString(),
-          target_store_id: store?.id ?? storeId ?? null,
-        });
-        const providerArgs = {
-          target_organization_id: organizationId,
-          period_start: isoDate(periodStart),
-          period_end: isoDate(periodEnd),
-          target_store_id: store?.id ?? storeId ?? null,
+          return { error: output.error, why: output.why, how_to_fix: output.how_to_fix, retry_after: null };
         };
-        const financeArgs = { ...providerArgs, period_start: periodStart.toISOString(), period_end: periodEnd.toISOString() };
-        const needsShopify = template.applications.includes("Shopify");
-        const needsMeta = template.applications.includes("Meta Ads");
-        const needsKlaviyo = template.applications.includes("Klaviyo");
-        const needsProducts = ["shopify_comercial", "adquisicion_multicanal", "resumen_multicanal"].includes(templateId);
-        const needsFinance = templateId === "shopify_rentabilidad" || templateId === "resumen_multicanal";
-        const calls = await Promise.all([
-          needsShopify ? supabase.rpc("shopify_sales_summary", rpcArgs(periodStart, periodEnd)) : Promise.resolve({ data: null, error: null }),
-          needsShopify ? supabase.rpc("shopify_sales_summary", rpcArgs(previousPeriodStart, previousPeriodEnd)) : Promise.resolve({ data: null, error: null }),
-          needsFinance ? supabase.rpc("shopify_financial_summary", financeArgs) : Promise.resolve({ data: null, error: null }),
-          templateId === "shopify_clientes" ? supabase.rpc("shopify_customer_value", { target_organization_id: organizationId, target_store_id: store?.id ?? storeId ?? null }) : Promise.resolve({ data: null, error: null }),
-          templateId === "shopify_clientes" ? supabase.rpc("shopify_cohorts", { target_organization_id: organizationId, target_store_id: store?.id ?? storeId ?? null, months_back: 12 }) : Promise.resolve({ data: null, error: null }),
-          needsProducts ? supabase.rpc("shopify_top_products", { ...rpcArgs(periodStart, periodEnd), result_limit: 8 }) : Promise.resolve({ data: null, error: null }),
-          needsMeta ? supabase.rpc("meta_spend_summary", providerArgs) : Promise.resolve({ data: null, error: null }),
-          needsMeta ? supabase.rpc("meta_spend_by_campaign", providerArgs) : Promise.resolve({ data: null, error: null }),
-          needsMeta ? (() => { let query = supabase.from("meta_ad_accounts").select("currency_code").eq("organization_id", organizationId).eq("is_active", true); if (store?.id) query = query.eq("store_id", store.id); return query; })() : Promise.resolve({ data: [], error: null }),
-          needsKlaviyo ? supabase.rpc("klaviyo_email_report", providerArgs) : Promise.resolve({ data: null, error: null }),
-          supabase.from("organizations").select("display_name, currency_code").eq("id", organizationId).maybeSingle(),
-        ]);
-        const [currentResult, previousResult, financeResult, customerResult, cohortResult, productsResult, metaResult, campaignResult, metaAccountsResult, klaviyoResult, organizationResult] = calls;
-        if (organizationResult.error) {
-          const output = failure("report_data_unavailable", organizationResult.error.message, "Vuelve a intentarlo más tarde.");
-          await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
-        }
-        const firstRow = (value: unknown): Record<string, unknown> => {
-          const row = Array.isArray(value) ? value[0] : value;
-          return row && typeof row === "object" ? row as Record<string, unknown> : {};
-        };
-        const current = firstRow(currentResult.data);
-        const previous = firstRow(previousResult.data);
-        const generatedAt = new Date().toISOString();
-        const rows = (value: unknown) => Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object")) : [];
-        const metaCurrencies = [...new Set(rows(metaAccountsResult.data).map((row) => String(row.currency_code ?? "").toUpperCase()).filter((code) => /^[A-Z]{3}$/.test(code)))];
-        const metaAccountRows = rows(metaAccountsResult.data);
-        const metaCurrencyMismatch = metaCurrencies.length > 1;
-        const metaCurrencyUnconfirmed = needsMeta && (metaCurrencies.length !== 1 || metaAccountRows.length === 0 || metaAccountRows.some((row) => !/^[A-Z]{3}$/.test(String(row.currency_code ?? "").toUpperCase())));
-        const hideMetaTotals = metaCurrencyMismatch || metaCurrencyUnconfirmed;
-        const organizationCurrencyCode = typeof organizationResult.data?.currency_code === "string" ? organizationResult.data.currency_code.toUpperCase() : "";
-        const reportCurrencyCode = store ? currencyCode : metaCurrencies.length === 1 ? metaCurrencies[0]! : /^[A-Z]{3}$/.test(organizationCurrencyCode) ? organizationCurrencyCode : currencyCode;
-        const sourceState = (data: unknown, error: { message?: string } | null, emptyIsPartial = false) => ({
-          status: error ? "unavailable" as const : data === null || data === undefined ? "unavailable" as const : emptyIsPartial ? "partial" as const : "available" as const,
-          detail: error?.message ? `Fuente no disponible: ${error.message}` : data === null || data === undefined ? "La fuente no devolvió datos para este periodo." : emptyIsPartial ? "La consulta no contiene actividad registrada; revisa sincronización y cobertura antes de interpretar el cero." : "Datos sincronizados consultados directamente por el backend.",
-        });
-        const report = buildLiveReportDocument({
+        const built = await buildOrganizationReport(supabase, {
+          organizationId,
+          storeId,
           templateId,
-          organizationName: organizationResult.data?.display_name ?? "Organización",
-          storeName: store ? `Tienda (${String(store.id).slice(0, 8)})` : "Alcance de integraciones",
-          currencyCode: reportCurrencyCode,
-          periodStart: isoDate(periodStart),
-          periodEnd: isoDate(periodEnd),
-          previousPeriodStart: isoDate(previousPeriodStart),
-          previousPeriodEnd: isoDate(previousPeriodEnd),
-          generatedAt,
-          data: {
-            shopify: current,
-            previousShopify: previous,
-            finance: firstRow(financeResult.data),
-            customer: firstRow(customerResult.data),
-            cohorts: rows(cohortResult.data),
-            products: rows(productsResult.data),
-            ...(hideMetaTotals ? {} : { meta: firstRow(metaResult.data) }),
-            ...(metaCurrencies[0] ? { metaCurrencyCode: metaCurrencies[0] } : {}),
-            campaigns: rows(campaignResult.data),
-            metaCampaigns: hideMetaTotals ? [] : rows(campaignResult.data),
-            klaviyo: rows(klaviyoResult.data),
-          },
-          sourceStatus: {
-            Shopify: sourceState(
-              templateId === "shopify_clientes" ? customerResult.data : needsFinance ? financeResult.data : currentResult.data,
-              templateId === "shopify_clientes" ? customerResult.error : needsFinance ? financeResult.error : currentResult.error,
-              templateId === "shopify_clientes"
-                ? Number(firstRow(customerResult.data).customers ?? 0) === 0
-                : needsFinance
-                  ? firstRow(financeResult.data).has_settings === false || Number(firstRow(financeResult.data).items_without_cost ?? 0) > 0
-                  : Number(current.orders_count ?? 0) === 0,
-            ),
-            "Meta Ads": hideMetaTotals
-              ? { status: "partial" as const, detail: metaCurrencyMismatch ? "Las cuentas conectadas usan monedas distintas; se ocultan los totales para no sumar importes incompatibles." : "No se pudo confirmar una moneda única para las cuentas de Meta; se omiten los importes." }
-              : sourceState(metaResult.data, metaResult.error ?? metaAccountsResult.error, Number(firstRow(metaResult.data).days_with_data ?? 0) === 0),
-            Klaviyo: sourceState(klaviyoResult.data, klaviyoResult.error, rows(klaviyoResult.data).length === 0),
-          },
+          periodStart: period.start,
+          periodEnd: period.end,
+          ...(parsedInput.data.analysis ? { analysis: parsedInput.data.analysis as ReportAnalysis } : {}),
         });
-        const pdf = await renderReportPdf(report);
-        const reportId = crypto.randomUUID();
-        const fileName = `informe-${templateId}-${isoDate(periodStart)}-${isoDate(periodEnd)}.pdf`;
-        const storagePath = `${organizationId}/${reportId}.pdf`;
-        const { error: uploadError } = await supabase.storage.from("copilot-reports")
-          .upload(storagePath, pdf, { contentType: "application/pdf", upsert: false });
-        if (uploadError) {
-          const output = failure("report_storage_unavailable", uploadError.message, "Reintentar más tarde.");
-          await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
+        if (!built.ok) return fail(built);
+        const { report } = built;
+        const keyMetrics = reportDigest(report);
+        if (parsedInput.data.preview) {
+          const output = {
+            preview: true as const,
+            template_id: templateId,
+            period_start: report.periodStart,
+            period_end: report.periodEnd,
+            previous_period_start: report.previousPeriodStart,
+            previous_period_end: report.previousPeriodEnd,
+            currency_code: report.currencyCode,
+            key_metrics: keyMetrics,
+            coverage: report.sources.map(({ provider, status, detail }) => ({ provider, status, detail })),
+            provenance: { source: `report_preview:${templateId}`, as_of: report.generatedAt, freshness_seconds: null },
+          };
+          await recordToolCall("generate_report", parsedInput.data, { preview: true, template_id: templateId, metrics: keyMetrics.length }, false, Date.now() - started);
+          const validatedPreview = validateToolOutput("generate_report", output);
+          return validatedPreview.ok ? validatedPreview.data : validatedPreview;
         }
-        const { data: signedUrl, error: signedUrlError } = await supabase.storage.from("copilot-reports")
-          .createSignedUrl(storagePath, 60 * 60, { download: fileName });
-        if (signedUrlError || !signedUrl?.signedUrl) {
-          await supabase.storage.from("copilot-reports").remove([storagePath]);
-          const output = failure("report_link_unavailable", signedUrlError?.message ?? "signed_url_missing", "Vuelve a generar el informe.");
-          await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
-          return output;
-        }
+        const saved = await saveReport(supabase, report, {
+          organizationId,
+          storeId: built.storeId,
+          source: "copilot",
+          requestedBy: authorization?.actorUserId ?? null,
+        });
+        if (!saved.ok) return fail(saved);
         const output = {
-          report_id: reportId,
+          report_id: saved.reportId,
           template_id: templateId,
           template_version: "v1" as const,
-          file_name: fileName,
-          download_url: signedUrl.signedUrl,
-          period_start: isoDate(periodStart),
-          period_end: isoDate(periodEnd),
-          currency_code: reportCurrencyCode,
-          store_scope: storeId ? "selected_store" as const : store ? "single_store" as const : "organization_scope" as const,
-          provenance: {
-            source: [
-              ...(needsShopify ? [templateId === "shopify_clientes" ? "shopify_customer_value+shopify_cohorts" : needsFinance ? "shopify_financial_summary" : "shopify_sales_summary"] : []),
-              ...(needsMeta ? ["meta_spend_summary+meta_spend_by_campaign"] : []),
-              ...(needsKlaviyo ? ["klaviyo_email_report"] : []),
-            ].join(";"),
-            as_of: generatedAt,
-            freshness_seconds: null,
-          },
+          file_name: saved.fileName,
+          period_start: report.periodStart,
+          period_end: report.periodEnd,
+          currency_code: report.currencyCode,
+          store_scope: built.storeScope,
+          key_metrics: keyMetrics,
+          provenance: { source: built.sources, as_of: report.generatedAt, freshness_seconds: null },
         };
         await recordToolCall("generate_report", parsedInput.data, {
-          report_id: reportId,
+          report_id: saved.reportId,
           template_id: output.template_id,
           template_version: output.template_version,
-          file_name: fileName,
+          file_name: saved.fileName,
           period_start: output.period_start,
           period_end: output.period_end,
           store_scope: output.store_scope,
-          currency_code: reportCurrencyCode,
+          currency_code: output.currency_code,
           sources: output.provenance.source,
+          with_analysis: Boolean(parsedInput.data.analysis),
+          ...(saved.historyError ? { history_error: saved.historyError } : {}),
         }, false, Date.now() - started);
         const validatedOutput = validateToolOutput("generate_report", output);
         if (validatedOutput.ok) {
@@ -5787,6 +5672,49 @@ async function runGenericDiagnosticAgent(
       throw new Error(`agent_output_persist_failed: ${outputError?.message}`);
     }
 
+    let judgeOutcome: Awaited<ReturnType<typeof judgePersistedAgentOutput>> | null = null;
+    if (env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off") {
+      const visualEvidence = visionImages.length > 0
+        ? await loadPersistedJudgeVisualEvidence(env, organizationId, visionImages)
+        : null;
+      judgeOutcome = await judgePersistedAgentOutput(env, supabase, {
+        organizationId,
+        actorUserId: context.user.id,
+        runId,
+        outputId: outputRow.id,
+        agentCode,
+        artifactKind: "agent_output",
+        output: turn.output,
+        generationStatus: "succeeded",
+        triggerType: input.trigger_type,
+        expectedToolCallCount: turn.toolCallCount,
+        visualEvidence,
+      }).catch((error) => {
+        logger.error("agent_output_judgment_failed", {
+          organization_id: organizationId,
+          run_id: runId,
+          agent_code: agentCode,
+          error: error instanceof Error ? error.message.slice(0, 240) : "unknown",
+        });
+        return { judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" };
+      });
+      await recordStep(
+        supabase,
+        runId,
+        organizationId,
+        3,
+        "quality_judgment",
+        judgeOutcome.status === "disabled" ? "Juez desactivado" : `Juez: ${judgeOutcome.status}`,
+        {
+          judgment_id: judgeOutcome.judgment_id,
+          status: judgeOutcome.status,
+          mode: env.AI_JUDGE_MODE,
+          error_code: judgeOutcome.error_code ?? null,
+        },
+        null,
+      );
+    }
+
     if (agentCode === "a19_arquitecto_camino") {
       const seasonalKnowledge = await saveCaminoSeasonalKnowledge(
         env,
@@ -5822,6 +5750,9 @@ async function runGenericDiagnosticAgent(
         output_status: outputRow.status,
         approval_required: approvalRequired,
         output: turn.output,
+        ...(env.AI_JUDGE_MODE === "visible" && judgeOutcome && "result" in judgeOutcome && judgeOutcome.result
+          ? { judgment: judgeOutcome.result }
+          : {}),
         usage: {
           input_tokens: turn.inputTokens,
           output_tokens: turn.outputTokens,
@@ -8256,166 +8187,6 @@ async function detailCaminoProposalTasks(
   return changed && saved && valid.success ? valid.data : null;
 }
 
-const caminoWeeklyReviewJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "plan_version",
-    "period_start",
-    "period_end",
-    "executive_summary",
-    "goal_progress",
-    "progress",
-    "risks",
-    "learnings",
-    "next_actions",
-    "change_proposals",
-    "confidence",
-    "warnings",
-  ],
-  properties: {
-    plan_version: { type: "integer", minimum: 1 },
-    period_start: { type: "string" },
-    period_end: { type: "string" },
-    executive_summary: { type: "string" },
-    goal_progress: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "status",
-        "observed_value",
-        "comparison_value",
-        "explanation",
-        "metric_label",
-        "unit",
-        "baseline_value",
-        "expected_value",
-        "target_value",
-        "measurement_period",
-        "measurement_window_days",
-      ],
-      properties: {
-        status: {
-          type: "string",
-          enum: [
-            "on_track",
-            "at_risk",
-            "blocked",
-            "insufficient_data",
-            "achieved",
-          ],
-        },
-        observed_value: { type: ["number", "null"] },
-        comparison_value: { type: ["number", "null"] },
-        explanation: { type: "string" },
-        metric_label: { type: "string" },
-        unit: { type: "string", enum: ["money", "pct", "count", "ratio"] },
-        baseline_value: { type: ["number", "null"] },
-        expected_value: { type: ["number", "null"] },
-        target_value: { type: ["number", "null"] },
-        measurement_period: {
-          type: "string",
-          enum: ["equivalent_monthly", "calendar_month_to_date", "rolling_7_days", "point_in_time"],
-        },
-        measurement_window_days: { type: "integer", minimum: 0, maximum: 31 },
-      },
-    },
-    progress: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["item", "status", "evidence"],
-        properties: {
-          item: { type: "string" },
-          status: {
-            type: "string",
-            enum: [
-              "completed",
-              "in_progress",
-              "delayed",
-              "blocked",
-              "unchanged",
-            ],
-          },
-          evidence: { type: "string" },
-        },
-      },
-    },
-    risks: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["severity", "detail", "evidence"],
-        properties: {
-          severity: { type: "string", enum: ["low", "medium", "high"] },
-          detail: { type: "string" },
-          evidence: { type: "string" },
-        },
-      },
-    },
-    learnings: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["title", "learning", "evidence", "applies_to", "confidence"],
-        properties: {
-          title: { type: "string" },
-          learning: { type: "string" },
-          evidence: { type: "string" },
-          applies_to: { type: "string" },
-          confidence: { type: "string", enum: ["low", "medium", "high"] },
-        },
-      },
-    },
-    next_actions: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["priority", "title", "rationale", "owner", "due_in_days"],
-        properties: {
-          priority: { type: "string", enum: ["low", "medium", "high"] },
-          title: { type: "string" },
-          rationale: { type: "string" },
-          owner: {
-            type: "string",
-            enum: ["client", "consultant", "shared", "unknown"],
-          },
-          due_in_days: { type: "integer", minimum: 0, maximum: 30 },
-        },
-      },
-    },
-    change_proposals: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "change",
-          "target_type",
-          "target_id",
-          "description",
-          "reason",
-          "evidence",
-        ],
-        properties: {
-          change: { type: "string", enum: ["add", "edit", "retire"] },
-          target_type: { type: "string", enum: ["phase", "milestone", "goal"] },
-          target_id: { type: ["string", "null"] },
-          description: { type: "string" },
-          reason: { type: "string" },
-          evidence: { type: "string" },
-        },
-      },
-    },
-    confidence: { type: "string", enum: ["low", "medium", "high"] },
-    warnings: { type: "array", items: { type: "string" } },
-  },
-} as const;
-
 async function loadCaminoIntegrationCoverage(
   supabase: SupabaseClient,
   organizationId: string,
@@ -9722,8 +9493,7 @@ async function loadCampaignMailingContentEvidence(
       .from("klaviyo_accounts")
       .select("id")
       .eq("organization_id", organizationId)
-      .eq("store_id", storeId)
-      .eq("is_active", true),
+      .eq("store_id", storeId),
   ]);
   if (messagesResult.error || accountsResult.error)
     return { status: "unavailable", reason: "historical_content_lookup_failed", learnings };
@@ -13894,8 +13664,7 @@ export async function runContenidoEmailAgent(
         let accountsQuery = supabase
           .from("klaviyo_accounts")
           .select("id, connection_id")
-          .eq("organization_id", organizationId)
-          .eq("is_active", true);
+          .eq("organization_id", organizationId);
         if (storeId) accountsQuery = accountsQuery.eq("store_id", storeId);
         const { data: accounts, error: accountsError } = campaignMessages.length
           ? await accountsQuery
@@ -16322,7 +16091,7 @@ export async function runCallAnalyst(
         call_id: callId,
         transcript_id: transcript.id,
         transcript_version: transcript.version,
-        context_blocks: contextBlocks.map((block) => block.label),
+        blocks: contextBlocks,
       },
     });
 
@@ -16419,6 +16188,29 @@ export async function runCallAnalyst(
       turn.estimatedCostUsd,
     );
 
+    const judgeOutcome = await judgePersistedAgentOutput(env, supabase, {
+      organizationId,
+      actorUserId: context.user.id,
+      runId,
+      outputId: null,
+      agentCode: "a01_analista_llamadas",
+      artifactKind: "call_summary",
+      output,
+      generationStatus: "succeeded",
+      triggerType: input.trigger_type,
+      expectedToolCallCount: turn.toolCallCount,
+    }).catch((error) => {
+      logger.error("agent_output_judgment_failed", { organization_id: organizationId, run_id: runId, agent_code: "a01_analista_llamadas", error: error instanceof Error ? error.message.slice(0, 240) : "unknown" });
+      return { judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" };
+    });
+    if (judgeOutcome.status !== "disabled") {
+      await recordStep(supabase, runId, organizationId, 3, "quality_judgment", `Juez A01: ${judgeOutcome.status}`, {
+        judgment_id: judgeOutcome.judgment_id,
+        status: judgeOutcome.status,
+        error_code: judgeOutcome.error_code,
+      }, null);
+    }
+
     return {
       ok: true as const,
       data: {
@@ -16426,6 +16218,9 @@ export async function runCallAnalyst(
         summary_id: summaryRow.id,
         status: summaryRow.status,
         output,
+        ...(env.AI_JUDGE_MODE === "visible" && "result" in judgeOutcome && judgeOutcome.result
+          ? { judgment: judgeOutcome.result }
+          : {}),
         usage: {
           input_tokens: turn.inputTokens,
           output_tokens: turn.outputTokens,
@@ -17751,6 +17546,13 @@ export async function runMarketingContentDraft(
           }
         : {}),
     };
+    const marketingContextBlocks = [
+      { label: "Brief del consultor", data: request },
+      ...(approvedEmailSpecialistContext.length > 0
+        ? [{ label: "Contexto aprobado de A26/A28 para esta misma tienda", data: approvedEmailSpecialistContext }]
+        : []),
+      await loadConsultantAssignmentBlock(supabase, organizationId),
+    ];
     await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: organizationId,
@@ -17758,6 +17560,7 @@ export async function runMarketingContentDraft(
       snapshot: {
         request,
         approved_email_specialist_context: approvedEmailSpecialistContext,
+        blocks: marketingContextBlocks,
       },
     });
     await recordStep(
@@ -17781,19 +17584,7 @@ export async function runMarketingContentDraft(
         model: agentVersion.model,
         systemPrompt: `${systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}`,
         input,
-        contextBlocks: [
-          { label: "Brief del consultor", data: request },
-          ...(approvedEmailSpecialistContext.length > 0
-            ? [
-                {
-                  label:
-                    "Contexto aprobado de A26/A28 para esta misma tienda; úsalo como aprendizaje y diseño propuesto, no como verdad universal ni como prueba de rendimiento o de un flow ya activo",
-                  data: approvedEmailSpecialistContext,
-                },
-              ]
-            : []),
-          await loadConsultantAssignmentBlock(supabase, organizationId),
-        ],
+        contextBlocks: marketingContextBlocks,
         ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
         tools,
         outputContract: isMetaAds
@@ -18120,6 +17911,29 @@ export async function runMarketingContentDraft(
       turn.estimatedCostUsd,
     );
 
+    const judgeOutcome = await judgePersistedAgentOutput(env, supabase, {
+      organizationId,
+      actorUserId: context.user.id,
+      runId,
+      outputId: outputRow.id,
+      agentCode: "a11_generador_marketing",
+      artifactKind: "marketing_content_draft",
+      output: sanitizedOutput,
+      generationStatus: "succeeded",
+      triggerType: input.trigger_type,
+      expectedToolCallCount: turn.toolCallCount,
+    }).catch((error) => {
+      logger.error("agent_output_judgment_failed", { organization_id: organizationId, run_id: runId, agent_code: "a11_generador_marketing", error: error instanceof Error ? error.message.slice(0, 240) : "unknown" });
+      return { judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" };
+    });
+    if (judgeOutcome.status !== "disabled") {
+      await recordStep(supabase, runId, organizationId, 3, "quality_judgment", `Juez A11: ${judgeOutcome.status}`, {
+        judgment_id: judgeOutcome.judgment_id,
+        status: judgeOutcome.status,
+        error_code: judgeOutcome.error_code,
+      }, null);
+    }
+
     return {
       ok: true as const,
       data: {
@@ -18128,6 +17942,9 @@ export async function runMarketingContentDraft(
         output_id: outputRow.id,
         output_status: outputRow.status,
         approval_required: true,
+        ...(env.AI_JUDGE_MODE === "visible" && "result" in judgeOutcome && judgeOutcome.result
+          ? { judgment: judgeOutcome.result }
+          : {}),
         usage: {
           input_tokens: turn.inputTokens,
           output_tokens: turn.outputTokens,
@@ -18652,6 +18469,7 @@ export async function analyzeInstagramImage(
   | {
       ok: true;
       analysis: InstagramImageAnalysis;
+      judgment?: AgentJudgeResult;
       runId: string;
       analysisFingerprint: string;
       /** AI-30: null = modelo sin precio conocido, no gratis. */
@@ -18756,22 +18574,29 @@ export async function analyzeInstagramImage(
   }
 
   try {
+    const contextBlocks = [
+      await loadConsultantAssignmentBlock(supabase, params.organizationId),
+      {
+        label: "Archivo y procedencia (metadatos; nombre no fiable)",
+        data: {
+          filename_untrusted: params.filename,
+          content_type: params.contentType ?? "unknown",
+          source_channels: [...new Set(params.sourceChannels ?? [])],
+          note: "El canal describe procedencia; no es una señal de rendimiento ni de éxito.",
+        },
+      },
+    ];
+    await supabase.from("agent_context_snapshots").insert({
+      run_id: runId,
+      organization_id: params.organizationId,
+      context_level: "C1",
+      snapshot: { blocks: contextBlocks },
+    });
     const turn = await runAgentTurnWithFallback<InstagramImageAnalysis>(env, {
       model: agentVersion.model,
       systemPrompt: prompt.content,
       input,
-      contextBlocks: [
-        await loadConsultantAssignmentBlock(supabase, params.organizationId),
-        {
-          label: "Archivo y procedencia (metadatos; nombre no fiable)",
-          data: {
-            filename_untrusted: params.filename,
-            content_type: params.contentType ?? "unknown",
-            source_channels: [...new Set(params.sourceChannels ?? [])],
-            note: "El canal describe procedencia; no es una señal de rendimiento ni de éxito.",
-          },
-        },
-      ],
+      contextBlocks,
       images: [{ url: params.imageUrl, role: "contenido" }],
       outputContract: {
         jsonSchema: instagramImageAnalysisJsonSchema as unknown as Record<
@@ -18810,9 +18635,35 @@ export async function analyzeInstagramImage(
       turn.estimatedCostUsd,
     );
 
+    let judgment: Awaited<ReturnType<typeof judgePersistedAgentOutput>> | null = null;
+    if (env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off") {
+      const visualEvidence = await loadPersistedJudgeVisualEvidence(env, params.organizationId, [
+        { url: params.imageUrl, role: "imagen original evaluada", label: "Activo visual original" },
+      ]);
+      judgment = await judgePersistedAgentOutput(env, supabase, {
+        organizationId: params.organizationId,
+        actorUserId: params.actorUserId,
+        runId,
+        outputId: null,
+        agentCode: "a15_analista_imagenes",
+        artifactKind: "instagram_image_analysis",
+        output: turn.output,
+        generationStatus: "succeeded",
+        triggerType: input.trigger_type,
+        expectedToolCallCount: 0,
+        visualEvidence,
+      }).catch(() => ({ judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" }));
+      await recordStep(supabase, runId, params.organizationId, 2, "quality_judgment", `Juez A15: ${judgment.status}`, {
+        judgment_id: judgment.judgment_id,
+        status: judgment.status,
+        error_code: judgment.error_code,
+      }, null);
+    }
+
     return {
       ok: true,
       analysis: turn.output,
+      ...(env.AI_JUDGE_MODE === "visible" && judgment?.result ? { judgment: judgment.result } : {}),
       runId,
       analysisFingerprint,
       // AI-30: null cuando el modelo no esta tarifado. Quien consuma esto debe
@@ -18864,7 +18715,7 @@ export async function draftInstagramOverlay(
     slideCount: number;
   },
 ): Promise<
-  | { ok: true; draft: InstagramOverlayDraft; runId: string }
+  | { ok: true; draft: InstagramOverlayDraft; runId: string; judgment?: AgentJudgeResult }
   | { ok: false; statusCode: number; error: string; detail: string }
 > {
   if (!hasConfiguredAiProvider(env)) {
@@ -18967,33 +18818,31 @@ export async function draftInstagramOverlay(
   }
 
   try {
+    const contextBlocks = [
+      await loadConsultantAssignmentBlock(supabase, params.organizationId),
+      {
+        label: "Formato de la publicación",
+        data: {
+          format: params.format,
+          ratio: params.ratio,
+          posicion: params.format === "single" ? "imagen única" : `slide ${params.slideIndex + 1} de ${params.slideCount}`,
+          total_slides: params.slideCount,
+        },
+      },
+      { label: "Ficha de la imagen (dato no fiable)", data: { markdown: params.fichaMarkdown ?? "sin ficha todavía" } },
+      { label: "Objetivo de la pieza (dato no fiable)", data: { objective: params.objective || "no especificado" } },
+    ];
+    await supabase.from("agent_context_snapshots").insert({
+      run_id: runId,
+      organization_id: params.organizationId,
+      context_level: "C1",
+      snapshot: { blocks: contextBlocks },
+    });
     const turn = await runAgentTurnWithFallback<InstagramOverlayDraft>(env, {
       model: agentVersion.model,
       systemPrompt: prompt.content,
       input,
-      contextBlocks: [
-        await loadConsultantAssignmentBlock(supabase, params.organizationId),
-        {
-          label: "Formato de la publicación",
-          data: {
-            format: params.format,
-            ratio: params.ratio,
-            posicion:
-              params.format === "single"
-                ? "imagen única"
-                : `slide ${params.slideIndex + 1} de ${params.slideCount}`,
-            total_slides: params.slideCount,
-          },
-        },
-        {
-          label: "Ficha de la imagen (dato no fiable)",
-          data: { markdown: params.fichaMarkdown ?? "sin ficha todavía" },
-        },
-        {
-          label: "Objetivo de la pieza (dato no fiable)",
-          data: { objective: params.objective || "no especificado" },
-        },
-      ],
+      contextBlocks,
       images: [{ url: params.imageUrl, role: "contenido" }],
       outputContract: {
         jsonSchema: instagramOverlayDraftJsonSchema as unknown as Record<
@@ -19029,7 +18878,32 @@ export async function draftInstagramOverlay(
       turn.estimatedCostUsd,
     );
 
-    return { ok: true, draft: turn.output, runId };
+    let judgment: Awaited<ReturnType<typeof judgePersistedAgentOutput>> | null = null;
+    if (env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off") {
+      const visualEvidence = await loadPersistedJudgeVisualEvidence(env, params.organizationId, [
+        { url: params.imageUrl, role: "imagen original evaluada", label: "Activo visual original; no es un render del diseño final" },
+      ]);
+      judgment = await judgePersistedAgentOutput(env, supabase, {
+        organizationId: params.organizationId,
+        actorUserId: params.actorUserId,
+        runId,
+        outputId: null,
+        agentCode: "a16_texto_sobre_imagen",
+        artifactKind: "instagram_overlay_copy_proposal",
+        output: turn.output,
+        generationStatus: "succeeded",
+        triggerType: input.trigger_type,
+        expectedToolCallCount: 0,
+        visualEvidence,
+      }).catch(() => ({ judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" }));
+      await recordStep(supabase, runId, params.organizationId, 2, "quality_judgment", `Juez A16: ${judgment.status}`, {
+        judgment_id: judgment.judgment_id,
+        status: judgment.status,
+        error_code: judgment.error_code,
+      }, null);
+    }
+
+    return { ok: true, draft: turn.output, runId, ...(env.AI_JUDGE_MODE === "visible" && judgment?.result ? { judgment: judgment.result } : {}) };
   } catch (error) {
     const { status, message } = describeAgentTurnFailure(error);
     await supabase
@@ -20229,6 +20103,19 @@ export async function runConsultantChatTurn(
       ...(currencyContext ? [{ label: CURRENCY_BLOCK_LABEL, data: currencyContext }] : []),
     ];
 
+    await supabase.from("agent_context_snapshots").insert({
+      run_id: runId,
+      organization_id: organizationId,
+      context_level: "C2",
+      snapshot: {
+        conversation_id: activeConversationId,
+        store_scope: knowledgeStoreId ? { kind: "store", store_id: knowledgeStoreId } : { kind: "organization" },
+        current_user_message: trimmedMessage,
+        prior_messages: history,
+        blocks: contextBlocks,
+      },
+    });
+
     const answerStream = onStreamEvent
       ? createCopilotAnswerStream((delta) => onStreamEvent({ type: "answer_delta", delta }))
       : null;
@@ -20359,6 +20246,29 @@ export async function runConsultantChatTurn(
       turn.estimatedCostUsd,
     );
 
+    const judgeOutcome = await judgePersistedAgentOutput(env, supabase, {
+      organizationId,
+      actorUserId: context.user.id,
+      runId,
+      outputId,
+      agentCode: "a09_copiloto_consultor",
+      artifactKind: "consultant_chat_turn",
+      output: chatOutput,
+      generationStatus: "succeeded",
+      triggerType: input.trigger_type,
+      expectedToolCallCount: turn.toolCallCount,
+    }).catch((error) => {
+      logger.error("agent_output_judgment_failed", { organization_id: organizationId, run_id: runId, agent_code: "a09_copiloto_consultor", error: error instanceof Error ? error.message.slice(0, 240) : "unknown" });
+      return { judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" };
+    });
+    if (judgeOutcome.status !== "disabled") {
+      await recordStep(supabase, runId, organizationId, 3, "quality_judgment", `Juez A09: ${judgeOutcome.status}`, {
+        judgment_id: judgeOutcome.judgment_id,
+        status: judgeOutcome.status,
+        error_code: judgeOutcome.error_code,
+      }, null);
+    }
+
     return {
       ok: true as const,
       data: {
@@ -20368,6 +20278,9 @@ export async function runConsultantChatTurn(
         output_id: outputId,
         approval_required: approvalRequired,
         output: chatOutput,
+        ...(env.AI_JUDGE_MODE === "visible" && "result" in judgeOutcome && judgeOutcome.result
+          ? { judgment: judgeOutcome.result }
+          : {}),
         report_artifacts: reportArtifacts,
         proposal_guidance: proposalGuidance,
         usage: {
@@ -21783,7 +21696,8 @@ export async function getAgentRunTrace(
     };
   }
 
-  const [steps, toolCalls, contextSnapshots, queryRuns, securityEvents] =
+  const judgeServiceClient = createServiceClient(env);
+  const [steps, toolCalls, contextSnapshots, queryRuns, securityEvents, judgments, judgeJobs, judgeFeedback] =
     await Promise.all([
       supabase
         .from("agent_run_steps")
@@ -21817,9 +21731,41 @@ export async function getAgentRunTrace(
         .select("id, event_type, severity, source, detail, created_at")
         .eq("run_id", runId)
         .order("created_at", { ascending: true }),
+      // Solo se consulta después de verificar membresía, permiso de traza y
+      // pertenencia del run. La tabla del juez no es legible por usuarios.
+      judgeServiceClient
+        .from("agent_run_judgments")
+        .select("id, agent_code, artifact_kind, rubric_version, status, overall_score, result, error_code, model, estimated_cost_usd, latency_ms, created_at")
+        .eq("agent_run_id", runId)
+        .eq("organization_id", organizationId)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      judgeServiceClient
+        .from("agent_judge_jobs")
+        .select("id, agent_code, status, attempts, max_attempts, last_error, available_at, created_at, updated_at")
+        .eq("agent_run_id", runId)
+        .eq("organization_id", organizationId)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      judgeServiceClient
+        .from("agent_judgment_feedback")
+        .select("id, judgment_id, criterion_id, decision, reason_code, note, corrected_status, corrected_score, request_id, created_at")
+        .eq("agent_run_id", runId)
+        .eq("organization_id", organizationId)
+        .eq("reviewer_id", context.user.id)
+        .order("created_at", { ascending: true })
+        .limit(200),
     ]);
 
   const replayFixture = createToolReplayFixture(toolCalls.data ?? []);
+
+  if (judgments.error || judgeJobs.error || judgeFeedback.error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "agent_judgment_load_failed",
+    };
+  }
 
   return {
     ok: true as const,
@@ -21831,6 +21777,9 @@ export async function getAgentRunTrace(
       context_snapshots: contextSnapshots.data ?? [],
       query_runs: queryRuns.data ?? [],
       security_events: securityEvents.data ?? [],
+      judgments: judgments.data ?? [],
+      judge_jobs: judgeJobs.data ?? [],
+      judge_feedback: judgeFeedback.data ?? [],
     },
   };
 }

@@ -10,13 +10,36 @@ import type { BootstrapResponse } from "@/lib/bootstrap";
 import { timeAgo } from "@/lib/elapsed";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { useModuleSummary } from "@/components/module-summary";
-import { AsyncState, Banner, Button, ButtonLink, cn, Dialog, ErrorBlock, Field, Input, Link, ProviderIcon, Sheet, toast } from "@/components/ui";
+import {
+  AsyncState,
+  Badge,
+  Banner,
+  Button,
+  ButtonLink,
+  Card,
+  cn,
+  Dialog,
+  EmptyState,
+  ErrorBlock,
+  EYEBROW,
+  Field,
+  Input,
+  Link,
+  List,
+  Metric,
+  ProviderIcon,
+  Sheet,
+  Table,
+  toast,
+} from "@/components/ui";
 import { classifyAuthorizationAttempt } from "@e-nora/contracts";
 import { ClientDataQualityNotice } from "./data-quality-panel";
 import { ShopifyAccountAssignmentModal } from "./shopify-account-assignment-modal";
 import {
   PROVIDER_SLUG,
   readOAuthNotice,
+  StateBadge,
+  stateOf,
   useIntegrations,
   useStoreScope,
   type IntegrationConnection,
@@ -27,7 +50,8 @@ import {
 import {
   STORE_PROVIDERS,
   buildStoreViews,
-  connectionStatusLabel,
+  CONNECTION_STATES,
+  connectionState,
   explainError,
   explainHealth,
   unassignedConnections,
@@ -41,11 +65,9 @@ import {
   permissionRows,
   runHistory,
   runMark,
-  signalOf,
   type FixItem,
-  type Signal,
+  type RunMark,
 } from "./hub-model";
-import s from "./hub.module.css";
 
 const ACCOUNT_PROVIDERS = ["instagram", "fathom"];
 const KLAVIYO_INTEGRATIONS_URL = "https://www.klaviyo.com/integrations";
@@ -53,19 +75,18 @@ const KLAVIYO_INTEGRATIONS_URL = "https://www.klaviyo.com/integrations";
 type Integrations = ReturnType<typeof useIntegrations>;
 type Selection = { provider: string; storeId: string | null };
 
+// Opción seleccionable (aplicación del asistente, método de conexión, casilla
+// del mapa): borde del catálogo y el acento solo en la elegida.
+const OPTION =
+  "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 rounded-lg border border-edge bg-surface p-3 text-left transition hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-55 aria-pressed:border-accent aria-pressed:ring-2 aria-pressed:ring-accent-soft";
+const NOTE = "text-sm text-muted";
+const CALLOUT = "rounded-md bg-accent-soft px-3 py-2 text-sm text-accent-soft-foreground";
+const MARK: Record<RunMark, string> = { ok: "bg-success", partial: "bg-warning", fail: "bg-danger", run: "bg-accent" };
+
 function Logo({ provider, small = false }: { provider: string; small?: boolean }) {
   return (
-    <span className={s.logo} data-size={small ? "sm" : undefined}>
+    <span className={cn("grid shrink-0 place-items-center border border-edge bg-white", small ? "size-6 rounded-md" : "size-8 rounded-lg")}>
       <ProviderIcon provider={provider} size={small ? 14 : 20} />
-    </span>
-  );
-}
-
-function Status({ signal, children }: { signal: Signal; children: React.ReactNode }) {
-  return (
-    <span className={s.st} data-s={signal}>
-      <i aria-hidden />
-      {children}
     </span>
   );
 }
@@ -75,11 +96,22 @@ function Runs({ connection }: { connection: IntegrationConnection | null }) {
   if (marks.length === 0) return null;
   const failed = marks.filter((mark) => mark === "fail").length;
   return (
-    <span className={s.runs} role="img" aria-label={`Últimas ${marks.length} sincronizaciones: ${failed} con error`}>
+    <span className="flex gap-0.5" role="img" aria-label={`Últimas ${marks.length} sincronizaciones: ${failed} con error`}>
       {marks.map((mark, index) => (
-        <i key={index} data-r={mark} />
+        <i key={index} className={cn("h-3 w-1.5 rounded-sm", MARK[mark])} />
       ))}
     </span>
+  );
+}
+
+function SectionTitle({ id, title, hint }: { id: string; title: string; hint?: string }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id={id} className="text-base font-semibold">
+        {title}
+      </h2>
+      {hint ? <p className={NOTE}>{hint}</p> : null}
+    </div>
   );
 }
 
@@ -108,25 +140,11 @@ function Pulse({ stores, accountProviders, queue }: { stores: StoreView[]; accou
   });
 
   return (
-    <section className={s.pulse} aria-label="Resumen">
-      <div data-tone={connections.length && healthy === connections.length ? "good" : undefined}>
-        <b>
-          {healthy}/{connections.length}
-        </b>
-        <span>conexiones al día</span>
-      </div>
-      <div data-tone={queue.length ? "bad" : "good"}>
-        <b>{queue.length}</b>
-        <span>{queue.length === 1 ? "necesita que hagas algo" : "necesitan que hagas algo"}</span>
-      </div>
-      <div>
-        <b>{timeAgo(latest) ?? "—"}</b>
-        <span>último dato recibido</span>
-      </div>
-      <div>
-        <b>{missing}</b>
-        <span>canales sin conectar</span>
-      </div>
+    <section className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Resumen">
+      <Metric card label="Conexiones al día" value={`${healthy}/${connections.length}`} tone={connections.length && healthy === connections.length ? "success" : "default"} />
+      <Metric card label="Necesitan que hagas algo" value={queue.length} tone={queue.length ? "danger" : "success"} />
+      <Metric card label="Último dato recibido" value={timeAgo(latest) ?? "—"} />
+      <Metric card label="Canales sin conectar" value={missing} />
     </section>
   );
 }
@@ -147,71 +165,74 @@ function FixQueue({
   const { actions, pending } = integrations;
   return (
     <section aria-labelledby="fix-title">
-      <div className={s.secHead}>
-        <h2 id="fix-title">Qué hay que arreglar</h2>
-        <p>Lo más grave primero</p>
-      </div>
+      <SectionTitle id="fix-title" title="Qué hay que arreglar" hint="Lo más grave primero" />
       {queue.length === 0 ? (
-        <p className={s.allOk}>Todo al día: no hay nada que arreglar.</p>
+        <Banner tone="success">Todo al día: no hay nada que arreglar.</Banner>
       ) : (
-        <ul className={s.queue}>
-          {queue.map((item) => {
-            const slug = PROVIDER_SLUG[item.provider];
-            const retryable = item.connection && (item.provider === "shopify" || item.provider === "klaviyo" || item.provider === "meta_ads");
-            return (
-              <li key={item.key} className={s.fix} data-sev={item.severity}>
-                <span className={s.stripe} aria-hidden />
-                <Logo provider={item.provider} />
-                <div className={s.fixText}>
-                  <b>{item.title}</b>
-                  {item.detail ? <span>{item.detail}</span> : null}
-                  <small>{item.store ?? "Cuenta"}</small>
-                </div>
-                <div className={s.fixActs}>
-                  {item.href ? (
-                    <a className={s.btn} data-primary href={item.href} target="_blank" rel="noreferrer">
-                      {item.hrefLabel ?? "Abrir"}
-                    </a>
-                  ) : item.fix === "reconnect" && slug ? (
-                    <Link className={`${s.btn} ${s.btnPrimary}`} href={`/integraciones/${slug}`}>
-                      Reconectar
-                    </Link>
-                  ) : item.fix === "retry" && retryable ? (
-                    <button
-                      type="button"
-                      className={s.btn}
-                      data-primary
-                      disabled={pending === `retry-${item.provider === "meta_ads" ? "meta" : item.provider}`}
-                      onClick={() =>
-                        void actions.retrySync(item.provider === "meta_ads" ? "meta" : (item.provider as "shopify" | "klaviyo"), item.connection!.id)
-                      }
-                    >
-                      Reintentar
-                    </button>
-                  ) : item.fix === "discard" && canDiscard && item.connection ? (
-                    <button
-                      type="button"
-                      className={s.btn}
-                      disabled={pending === `discard-${item.connection.id}`}
-                      onClick={() => void actions.discardAuthorizationAttempt(item.connection!.id)}
-                    >
-                      Descartar
-                    </button>
-                  ) : slug ? (
-                    <Link className={`${s.btn} ${s.btnPrimary}`} href={`/integraciones/${slug}`}>
-                      {item.fix === "connect" || item.fix === "discard" ? "Retomar" : "Revisar"}
-                    </Link>
-                  ) : null}
-                  {item.connection ? (
-                    <button type="button" className={s.btn} onClick={() => onOpen(item)}>
-                      Ver
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <Card>
+          <List as="ul">
+            {queue.map((item) => {
+              const slug = PROVIDER_SLUG[item.provider];
+              const retryable = item.connection && (item.provider === "shopify" || item.provider === "klaviyo" || item.provider === "meta_ads");
+              return (
+                <List.Item
+                  as="li"
+                  key={item.key}
+                  className={cn(
+                    "flex flex-wrap items-center gap-3 border-l-4 py-3 pl-3",
+                    item.severity === "bad" ? "border-l-danger" : "border-l-warning",
+                  )}
+                >
+                  <Logo provider={item.provider} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">{item.title}</p>
+                    {item.detail ? <p className="text-sm">{item.detail}</p> : null}
+                    <p className="text-xs text-muted">{item.store ?? "Cuenta"}</p>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {item.href ? (
+                      <ButtonLink size="sm" href={item.href} target="_blank" rel="noreferrer">
+                        {item.hrefLabel ?? "Abrir"}
+                      </ButtonLink>
+                    ) : item.fix === "reconnect" && slug ? (
+                      <ButtonLink size="sm" href={`/integraciones/${slug}`}>
+                        Reconectar
+                      </ButtonLink>
+                    ) : item.fix === "retry" && retryable ? (
+                      <Button
+                        size="sm"
+                        disabled={pending === `retry-${item.provider === "meta_ads" ? "meta" : item.provider}`}
+                        onClick={() =>
+                          void actions.retrySync(item.provider === "meta_ads" ? "meta" : (item.provider as "shopify" | "klaviyo"), item.connection!.id)
+                        }
+                      >
+                        Reintentar
+                      </Button>
+                    ) : item.fix === "discard" && canDiscard && item.connection ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={pending === `discard-${item.connection.id}`}
+                        onClick={() => void actions.discardAuthorizationAttempt(item.connection!.id)}
+                      >
+                        Descartar
+                      </Button>
+                    ) : slug ? (
+                      <ButtonLink size="sm" href={`/integraciones/${slug}`}>
+                        {item.fix === "connect" || item.fix === "discard" ? "Retomar" : "Revisar"}
+                      </ButtonLink>
+                    ) : null}
+                    {item.connection ? (
+                      <Button size="sm" variant="secondary" onClick={() => onOpen(item)}>
+                        Ver
+                      </Button>
+                    ) : null}
+                  </div>
+                </List.Item>
+              );
+            })}
+          </List>
+        </Card>
       )}
     </section>
   );
@@ -219,80 +240,68 @@ function FixQueue({
 
 // --- Mapa tienda × canal ---------------------------------------------------
 
+type StoreRow = StoreView & { id: string };
+
 function StoreMap({ stores, selected, onSelect }: { stores: StoreView[]; selected: Selection | null; onSelect: (selection: Selection) => void }) {
+  const rows: StoreRow[] = stores.map((store) => ({ ...store, id: store.connectionId }));
   return (
     <section aria-labelledby="stores-title">
-      <div className={s.secHead}>
-        <h2 id="stores-title">Tus tiendas</h2>
-        <p>Pulsa una casilla para ver su ficha</p>
-      </div>
-      <div className={s.map}>
-        <div className={s.grid} role="table" aria-label="Tiendas y canales">
-          <div className={s.gh} role="columnheader">
-            Tienda
-          </div>
-          {STORE_PROVIDERS.map((provider) => (
-            <div key={provider} className={s.gh} role="columnheader">
-              <Logo provider={provider} small />
-              {stores[0]?.providers.find((view) => view.provider === provider)?.name ?? provider}
-            </div>
-          ))}
-          {stores.map((store) => {
-            const signals = store.providers.map((view) => signalOf(view.status, view.connections.length > 0));
-            return (
-              <div key={store.connectionId} role="row" style={{ display: "contents" }}>
-                <Link className={s.store} href={`/integraciones/tienda/${store.connectionId}`}>
-                  <b>{store.name}</b>
-                  <span>{store.domain}</span>
-                  <span className={s.health} aria-hidden>
-                    {signals.map((signal, index) => (
-                      <i key={index} data-s={signal} />
-                    ))}
-                  </span>
+      <SectionTitle id="stores-title" title="Tus tiendas" hint="Pulsa una casilla para ver su ficha" />
+      <Card>
+        <Table<StoreRow>
+          ariaLabel="Tiendas y canales"
+          rows={rows}
+          columns={[
+            {
+              key: "name",
+              label: "Tienda",
+              render: (store) => (
+                <Link href={`/integraciones/tienda/${store.connectionId}`} className="grid min-w-0 gap-0.5 text-foreground">
+                  <span className="font-semibold">{store.name}</span>
+                  <span className="truncate text-xs text-muted">{store.domain}</span>
                 </Link>
-                {store.providers.map((view) => {
-                  const connected = view.connections.length > 0;
-                  const signal = signalOf(view.status, connected);
-                  const account = view.target?.provider_account_name ?? view.target?.provider_account_id;
-                  const when = timeAgo(view.lastSyncAt);
-                  const pressed = selected?.storeId === store.connectionId && selected.provider === view.provider;
-                  return (
-                    <button
-                      key={view.provider}
-                      type="button"
-                      role="cell"
-                      className={s.cell}
-                      aria-pressed={pressed}
-                      aria-label={`${view.name} de ${store.name}: ${connected ? connectionStatusLabel(view.target, view.explanation.label) : "sin conectar"}`}
-                      onClick={() => onSelect({ provider: view.provider, storeId: store.connectionId })}
-                    >
-                      <Status signal={signal}>
-                        {connected
-                          ? connectionStatusLabel(view.target, view.explanation.label)
-                          : view.available
-                            ? "Sin conectar"
-                            : "Aún no disponible"}
-                      </Status>
-                      {connected ? (
-                        <>
-                          <span className={s.acc}>
-                            {account ?? "Cuenta sin nombre"}
-                            {view.connections.length > 1 ? ` · +${view.connections.length - 1}` : ""}
-                          </span>
-                          <span className={s.when}>{when ? `Último dato ${when}` : "Aún sin datos"}</span>
-                          <Runs connection={view.target} />
-                        </>
-                      ) : view.available ? (
-                        <span className={s.cta}>Conectar</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              ),
+            },
+            ...STORE_PROVIDERS.map((provider) => ({
+              key: provider,
+              label: stores[0]?.providers.find((view) => view.provider === provider)?.name ?? provider,
+              render: (store: StoreRow) => {
+                const view = store.providers.find((item) => item.provider === provider)!;
+                const connected = view.connections.length > 0;
+                const account = view.target?.provider_account_name ?? view.target?.provider_account_id;
+                const when = timeAgo(view.lastSyncAt);
+                const pressed = selected?.storeId === store.connectionId && selected.provider === view.provider;
+                return (
+                  <button
+                    type="button"
+                    aria-pressed={pressed}
+                    aria-label={`${view.name} de ${store.name}: ${connected ? stateOf(view.target!, view.provider).label : "sin conectar"}`}
+                    className="grid w-full min-w-0 gap-1 rounded-md p-2 text-left transition hover:bg-surface-secondary aria-pressed:bg-accent-soft aria-pressed:ring-2 aria-pressed:ring-accent"
+                    onClick={() => onSelect({ provider: view.provider, storeId: store.connectionId })}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Logo provider={view.provider} small />
+                      <StateBadge connection={view.target} providerId={view.provider} available={view.available} />
+                    </span>
+                    {connected ? (
+                      <>
+                        <span className="truncate text-xs">
+                          {account ?? "Cuenta sin nombre"}
+                          {view.connections.length > 1 ? ` · +${view.connections.length - 1}` : ""}
+                        </span>
+                        <span className="text-xs text-muted">{when ? `Último dato ${when}` : "Aún sin datos"}</span>
+                        <Runs connection={view.target} />
+                      </>
+                    ) : view.available ? (
+                      <span className="text-xs font-medium text-accent">Conectar</span>
+                    ) : null}
+                  </button>
+                );
+              },
+            })),
+          ]}
+        />
+      </Card>
     </section>
   );
 }
@@ -301,29 +310,20 @@ function AccountRow({ providers, onSelect }: { providers: IntegrationProvider[];
   if (providers.length === 0) return null;
   return (
     <section aria-labelledby="account-title">
-      <div className={s.secHead}>
-        <h2 id="account-title">De la cuenta</h2>
-        <p>No dependen de ninguna tienda</p>
-      </div>
-      <div className={s.orgRow}>
+      <SectionTitle id="account-title" title="De la cuenta" hint="No dependen de ninguna tienda" />
+      <div className="grid gap-3 sm:grid-cols-2">
         {providers.map((provider) => {
           const connection = provider.connections[0] ?? null;
-          const explanation = explainHealth(provider.health, connection, provider.id);
-          const signal = provider.available ? signalOf(connection?.health.status ?? null, Boolean(connection)) : "off";
           return (
-            <button key={provider.id} type="button" className={s.orgCard} onClick={() => onSelect({ provider: provider.id, storeId: null })}>
-              <Logo provider={provider.id} />
-              <div>
-                <b>{provider.name}</b>
-                <Status signal={signal}>
-                  {!provider.available
-                    ? "Aún no disponible"
-                    : connection
-                      ? connectionStatusLabel(connection, explanation.label)
-                      : "Sin conectar"}
-                </Status>
-                <small>{connection?.provider_account_name ?? provider.description}</small>
-              </div>
+            <button key={provider.id} type="button" className={OPTION} onClick={() => onSelect({ provider: provider.id, storeId: null })}>
+              <span className="row-span-2">
+                <Logo provider={provider.id} />
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                <b className="text-sm font-semibold">{provider.name}</b>
+                <StateBadge connection={connection} providerId={provider.id} available={provider.available} />
+              </span>
+              <small className="text-xs text-muted">{connection?.provider_account_name ?? provider.description}</small>
             </button>
           );
         })}
@@ -350,63 +350,98 @@ function LooseAccounts({
   const { actions, pending } = integrations;
   return (
     <section aria-labelledby="loose-title">
-      <div className={s.secHead}>
-        <h2 id="loose-title">Sueltas</h2>
-        <p>Cuentas sin tienda y tiendas que se van a borrar</p>
-      </div>
-      <ul className={s.loose}>
-        {loose.map(({ provider, name, connection }) => {
-          const attempt = classifyAuthorizationAttempt(connection);
-          return (
-            <li key={connection.id} className={s.looseRow}>
-              <Logo provider={provider} small />
-              <div className={s.grow}>
-                <b>{connection.provider_account_name ?? connection.provider_account_id ?? name}</b>
-                <small>
-                  {attempt === "abandoned"
-                    ? `${name}: se empezó a conectar y nunca se autorizó.`
-                    : attempt === "in_progress"
-                      ? `${name}: autorización en curso.`
-                      : `${name} conectado, pero sus cifras no entran en ninguna tienda.`}
-                </small>
+      <SectionTitle id="loose-title" title="Sueltas" hint="Cuentas sin tienda y tiendas que se van a borrar" />
+      <Card>
+        <List as="ul">
+          {loose.map(({ provider, name, connection }) => {
+            const attempt = classifyAuthorizationAttempt(connection);
+            return (
+              <List.Item as="li" key={connection.id} className="flex flex-wrap items-center gap-3 py-3">
+                <Logo provider={provider} small />
+                <div className="min-w-[200px] flex-1">
+                  <p className="text-sm font-semibold">{connection.provider_account_name ?? connection.provider_account_id ?? name}</p>
+                  <p className="text-xs text-muted">
+                    {attempt === "abandoned"
+                      ? `${name}: se empezó a conectar y nunca se autorizó.`
+                      : attempt === "in_progress"
+                        ? `${name}: autorización en curso.`
+                        : `${name} conectado, pero sus cifras no entran en ninguna tienda.`}
+                  </p>
+                </div>
+                {attempt === "abandoned" ? (
+                  canDiscard ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={pending === `discard-${connection.id}`}
+                      onClick={() => void actions.discardAuthorizationAttempt(connection.id)}
+                    >
+                      {pending === `discard-${connection.id}` ? "Descartando…" : "Descartar"}
+                    </Button>
+                  ) : null
+                ) : attempt ? null : (
+                  <ButtonLink size="sm" variant="secondary" href="/integraciones/cuentas">
+                    Asignar a una tienda
+                  </ButtonLink>
+                )}
+              </List.Item>
+            );
+          })}
+          {pendingStores.map((store) => (
+            <List.Item as="li" key={store.connectionId} className="flex flex-wrap items-center gap-3 py-3">
+              <Logo provider="shopify" small />
+              <div className="min-w-[200px] flex-1">
+                <p className="text-sm font-semibold">{store.name}</p>
+                <p className="text-xs text-muted">Borrado programado: se puede restaurar durante 30 días.</p>
               </div>
-              {attempt === "abandoned" ? (
-                canDiscard ? (
-                  <button
-                    type="button"
-                    className={s.btn}
-                    disabled={pending === `discard-${connection.id}`}
-                    onClick={() => void actions.discardAuthorizationAttempt(connection.id)}
-                  >
-                    {pending === `discard-${connection.id}` ? "Descartando…" : "Descartar"}
-                  </button>
-                ) : null
-              ) : attempt ? null : (
-                <Link className={s.btn} href="/integraciones/cuentas">
-                  Asignar a una tienda
-                </Link>
-              )}
-            </li>
-          );
-        })}
-        {pendingStores.map((store) => (
-          <li key={store.connectionId} className={s.looseRow}>
-            <Logo provider="shopify" small />
-            <div className={s.grow}>
-              <b>{store.name}</b>
-              <small>Borrado programado: se puede restaurar durante 30 días.</small>
-            </div>
-            <Link className={s.btn} href={`/integraciones/tienda/${store.connectionId}`}>
-              Restaurar
-            </Link>
-          </li>
-        ))}
-      </ul>
+              <ButtonLink size="sm" variant="secondary" href={`/integraciones/tienda/${store.connectionId}`}>
+                Restaurar
+              </ButtonLink>
+            </List.Item>
+          ))}
+        </List>
+      </Card>
     </section>
   );
 }
 
 // --- Ficha ------------------------------------------------------------------
+
+function DrawerBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-2">
+      <h3 className={EYEBROW}>{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+const KV = "grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm [&_dd]:break-words [&_dt]:text-muted";
+const MONO = "font-mono text-xs";
+
+function PermissionList({ rows, withNote = true }: { rows: ReturnType<typeof permissionRows>; withNote?: boolean }) {
+  return (
+    <List as="ul">
+      {rows.map((row) => (
+        <List.Item as="li" key={row.scope} className="grid grid-cols-[20px_minmax(0,1fr)] gap-2 py-2 text-sm">
+          <span aria-hidden className={cn("font-bold", row.granted ? "text-success" : "text-danger")}>
+            {row.granted ? "✓" : "✕"}
+          </span>
+          <div>
+            {row.label}
+            <span className="block text-xs text-muted">
+              {row.granted
+                ? row.scope
+                : row.required
+                  ? "Imprescindible: falta"
+                  : ((withNote ? row.note : null) ?? "Opcional: sin él, esta parte no está disponible")}
+            </span>
+          </div>
+        </List.Item>
+      ))}
+    </List>
+  );
+}
 
 function ConnectionDrawer({
   selection,
@@ -414,6 +449,7 @@ function ConnectionDrawer({
   payload,
   klaviyoStore,
   integrations,
+  canManage,
   onClose,
   onConnect,
 }: {
@@ -422,16 +458,18 @@ function ConnectionDrawer({
   payload: IntegrationsResponse;
   klaviyoStore: boolean | null;
   integrations: Integrations;
+  canManage: boolean;
   onClose: () => void;
   onConnect: (provider: string) => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
   const store = selection?.storeId ? (stores.find((item) => item.connectionId === selection.storeId) ?? null) : null;
   const provider = payload.providers.find((item) => item.id === selection?.provider) ?? null;
   const view = store?.providers.find((item) => item.provider === selection?.provider) ?? null;
   const connection = view ? view.target : (provider?.connections[0] ?? null);
   const explanation = connection ? explainHealth(connection.health, connection, selection?.provider) : null;
+  const state = connection && explanation ? connectionState(connection, explanation) : null;
   const error = explainError(connection?.latest_sync?.error_message ?? connection?.last_error_message);
-  const signal = signalOf(connection?.health.status ?? null, Boolean(connection));
   const slug = selection ? PROVIDER_SLUG[selection.provider] : undefined;
   const syncKey = selection?.provider === "meta_ads" ? "meta" : selection?.provider;
   const canSync = connection && (syncKey === "shopify" || syncKey === "klaviyo" || syncKey === "meta");
@@ -439,12 +477,41 @@ function ConnectionDrawer({
   const permissions = connection ? permissionRows(selection!.provider, connection.scopes) : [];
   const history = (connection?.recent_syncs ?? []).slice(0, 10);
   const { actions, pending } = integrations;
+  const disconnectable =
+    canManage &&
+    Boolean(connection) &&
+    connection?.status !== "disconnected" &&
+    (selection?.provider === "meta_ads" || selection?.provider === "klaviyo");
+  const sharedStores =
+    selection?.provider === "meta_ads" && connection
+      ? stores
+          .filter((item) => item.providers.some((view) => view.connections.some((c) => c.id === connection.id)))
+          .map((item) => item.name)
+      : [];
+  const stateTone = state ? CONNECTION_STATES[state].tone : "neutral";
+
+  async function disconnect() {
+    if (!connection || !selection) return;
+    const result = await actions.disconnect(selection.provider as "meta_ads" | "klaviyo", connection.id);
+    if (!result.ok) return;
+    setConfirming(false);
+    onClose();
+    if (result.providerRevoked) toast.success(`${provider?.name ?? "La aplicación"} desconectada y permiso retirado.`);
+    else if (result.reason === "api_key")
+      toast.warning("Desconectada. Era una clave privada: bórrala también en Klaviyo → Ajustes → Claves API.", { timeout: 0 });
+    else if (result.reason === "shared_meta_user")
+      toast.warning("Desconectada aquí. El permiso de Meta sigue vivo porque tu usuario de Facebook lo usa en otra conexión.");
+    else toast.warning("Desconectada. No pudimos retirar el permiso en el proveedor; puedes quitarlo desde su panel.");
+  }
 
   return (
     <Sheet
       isOpen={Boolean(selection)}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) {
+          setConfirming(false);
+          onClose();
+        }
       }}
       size="md"
       title={
@@ -462,155 +529,231 @@ function ConnectionDrawer({
         ) : undefined
       }
       footer={
-        <>
-          {canSync ? (
-            <Button
-              variant={explanation?.fix === "retry" ? "primary" : "secondary"}
-              disabled={pending === `retry-${syncKey}`}
-              onClick={() => void actions.retrySync(syncKey as "shopify" | "klaviyo" | "meta", connection!.id)}
-            >
-              {pending === `retry-${syncKey}` ? "Sincronizando…" : "Sincronizar ahora"}
+        confirming ? (
+          <>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Cancelar
             </Button>
-          ) : null}
-          {connection && slug ? (
-            <ButtonLink variant={explanation?.fix === "reconnect" ? "primary" : "secondary"} href={`/integraciones/${slug}`}>
-              {explanation?.fix === "reconnect" ? "Reconectar" : "Configurar"}
-            </ButtonLink>
-          ) : null}
-          {!connection && provider?.available ? (
-            <Button onClick={() => selection && onConnect(selection.provider)}>Conectar {provider.name}</Button>
-          ) : null}
-        </>
+            <Button variant="danger" disabled={pending === `disconnect-${connection?.id}`} onClick={() => void disconnect()}>
+              {pending === `disconnect-${connection?.id}` ? "Desconectando…" : "Sí, desconectar"}
+            </Button>
+          </>
+        ) : (
+          <>
+            {disconnectable ? (
+              <Button variant="ghost" onClick={() => setConfirming(true)}>
+                Desconectar
+              </Button>
+            ) : null}
+            {canSync ? (
+              <Button
+                variant={state === "atrasado" || state === "error" ? "primary" : "secondary"}
+                disabled={pending === `retry-${syncKey}`}
+                onClick={() => void actions.retrySync(syncKey as "shopify" | "klaviyo" | "meta", connection!.id)}
+              >
+                {pending === `retry-${syncKey}` ? "Sincronizando…" : "Sincronizar ahora"}
+              </Button>
+            ) : null}
+            {connection && slug ? (
+              <ButtonLink variant={state === "reconectar" ? "primary" : "secondary"} href={`/integraciones/${slug}`}>
+                {state === "reconectar" ? "Reconectar" : "Configurar"}
+              </ButtonLink>
+            ) : null}
+            {!connection && provider?.available ? (
+              <Button onClick={() => selection && onConnect(selection.provider)}>Conectar {provider.name}</Button>
+            ) : null}
+          </>
+        )
       }
     >
-      <div className={s.drawerBody}>
-                <div className={s.state} data-s={signal}>
-                  <b>{connection ? explanation?.label : provider?.available ? "Sin conectar" : "Aún no disponible"}</b>
-                  <span>{connection ? (error?.text ?? explanation?.detail ?? "Todo en orden.") : provider?.description}</span>
-                </div>
+      <div className="grid content-start gap-5">
+        {confirming && connection ? (
+          <Banner tone="danger">
+            <b>
+              ¿Desconectar {provider?.name}
+              {store ? ` de ${store.name}` : ""}?
+            </b>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              <li>Retiramos el permiso también en {provider?.name} cuando es posible: dejamos de leer datos al momento.</li>
+              {sharedStores.length > 1 ? (
+                <li>
+                  Esta cuenta la usan {sharedStores.length} tiendas: {sharedStores.join(", ")}. Se desconecta en todas.
+                </li>
+              ) : null}
+              <li>Los datos ya importados se conservan: si vuelves a conectar no se pierde el histórico.</li>
+              <li>Los paneles y agentes que usan {provider?.name} dejan de actualizarse.</li>
+            </ul>
+          </Banner>
+        ) : null}
 
-                {(selection?.provider === "klaviyo" && connection) || (selection?.provider === "shopify" && klaviyoStore !== null) ? (
-                  <div className={s.cross} data-s={klaviyoStore === false ? "bad" : undefined}>
-                    <span className={s.pair}>
-                      <Logo provider="klaviyo" small /> Klaviyo ↔ <Logo provider="shopify" small /> Shopify
-                    </span>
-                    {klaviyoStore === null ? (
-                      <span>Aún no hay métricas de Klaviyo para comprobarlo.</span>
-                    ) : klaviyoStore ? (
-                      <span>Klaviyo recibe los pedidos y carritos de la tienda.</span>
-                    ) : (
-                      <>
-                        <span>Klaviyo no recibe eventos de la tienda: sin carrito abandonado, post-compra ni ingresos atribuidos.</span>
-                        <a className={s.btn} href={KLAVIYO_INTEGRATIONS_URL} target="_blank" rel="noreferrer" style={{ justifySelf: "start" }}>
-                          Conectar Shopify en Klaviyo
-                        </a>
-                      </>
-                    )}
+        <div
+          className={cn(
+            "grid gap-1 rounded-lg border p-3 text-sm",
+            stateTone === "success" && "border-success bg-success-soft",
+            stateTone === "warn" && "border-warning bg-warning-soft",
+            stateTone === "danger" && "border-danger bg-danger-soft",
+            (stateTone === "neutral" || stateTone === "brand") && "border-edge",
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <StateBadge connection={connection} providerId={selection?.provider} available={provider?.available ?? false} />
+            {explanation && state && state !== "conectado" && explanation.label !== CONNECTION_STATES[state].label ? (
+              <span className="font-medium">{explanation.label}</span>
+            ) : null}
+          </span>
+          <span>{connection ? (error?.text ?? explanation?.detail ?? "Todo en orden.") : provider?.description}</span>
+        </div>
+
+        {(selection?.provider === "klaviyo" && connection) || (selection?.provider === "shopify" && klaviyoStore !== null) ? (
+          <div className={cn("grid gap-1.5 rounded-lg border p-3 text-sm", klaviyoStore === false ? "border-danger" : "border-edge")}>
+            <span className="flex items-center gap-1.5 font-semibold">
+              <Logo provider="klaviyo" small /> Klaviyo ↔ <Logo provider="shopify" small /> Shopify
+            </span>
+            {klaviyoStore === null ? (
+              <span>Aún no hay métricas de Klaviyo para comprobarlo.</span>
+            ) : klaviyoStore ? (
+              <span>Klaviyo recibe los pedidos y carritos de la tienda.</span>
+            ) : (
+              <>
+                <span>Klaviyo no recibe eventos de la tienda: sin carrito abandonado, post-compra ni ingresos atribuidos.</span>
+                <ButtonLink size="sm" variant="secondary" href={KLAVIYO_INTEGRATIONS_URL} target="_blank" rel="noreferrer">
+                  Conectar Shopify en Klaviyo
+                </ButtonLink>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {connection ? (
+          <DrawerBlock title="Cuenta">
+            <dl className={KV}>
+              <dt>Nombre</dt>
+              <dd>{connection.provider_account_name ?? "—"}</dd>
+              <dt>Id</dt>
+              <dd className={MONO}>{connection.provider_account_id ?? "—"}</dd>
+              <dt>Conectada</dt>
+              <dd>{connection.connected_at ? new Date(connection.connected_at).toLocaleDateString("es-ES") : "—"}</dd>
+              <dt>Último dato</dt>
+              <dd>{timeAgo(connection.health.lastSyncAt ?? connection.last_sync_at) ?? "Aún sin datos"}</dd>
+              {view && view.connections.length > 1 ? (
+                <>
+                  <dt>Otras cuentas</dt>
+                  <dd>{view.connections.slice(1).map((item) => item.provider_account_name ?? item.provider_account_id).join(", ")}</dd>
+                </>
+              ) : null}
+            </dl>
+          </DrawerBlock>
+        ) : null}
+
+        {blocks.length > 0 ? (
+          <DrawerBlock title="Qué trae">
+            <List as="ul">
+              {blocks.map((run) => {
+                const mark = runMark(run.status);
+                return (
+                  <List.Item as="li" key={run.sync_scope} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 py-2 text-sm">
+                    <i aria-hidden className={cn("size-2 rounded-full", MARK[mark])} />
+                    <span>{blockLabel(run.sync_scope!)}</span>
+                    <b className="font-semibold tabular-nums">{run.records_written.toLocaleString("es-ES")}</b>
+                    <small className="text-xs text-muted">{timeAgo(run.finished_at ?? run.started_at) ?? "en curso"}</small>
+                  </List.Item>
+                );
+              })}
+            </List>
+          </DrawerBlock>
+        ) : null}
+
+        {permissions.length > 0 ? (
+          <DrawerBlock title="Permisos">
+            <PermissionList rows={permissions} />
+          </DrawerBlock>
+        ) : null}
+
+        {history.length > 0 ? (
+          <DrawerBlock title="Últimas sincronizaciones">
+            <List as="ul">
+              {history.map((run, index) => (
+                <List.Item as="li" key={index} className="grid grid-cols-[12px_minmax(0,1fr)_auto] gap-2.5 py-1.5 text-sm">
+                  <i aria-hidden className={cn("mt-1.5 size-2 rounded-full", MARK[runMark(run.status)])} />
+                  <div>
+                    {run.sync_scope ? blockLabel(run.sync_scope) : run.sync_type}
+                    {run.error_message ? <span> · {explainError(run.error_message)?.text}</span> : null}
                   </div>
-                ) : null}
+                  <span className="text-muted">{timeAgo(run.finished_at ?? run.started_at ?? run.created_at) ?? "—"}</span>
+                </List.Item>
+              ))}
+            </List>
+          </DrawerBlock>
+        ) : null}
 
-                {connection ? (
-                  <div className={s.blk}>
-                    <h3>Cuenta</h3>
-                    <dl className={s.kv}>
-                      <dt>Nombre</dt>
-                      <dd>{connection.provider_account_name ?? "—"}</dd>
-                      <dt>Id</dt>
-                      <dd className={s.mono}>{connection.provider_account_id ?? "—"}</dd>
-                      <dt>Conectada</dt>
-                      <dd>{connection.connected_at ? new Date(connection.connected_at).toLocaleDateString("es-ES") : "—"}</dd>
-                      <dt>Último dato</dt>
-                      <dd>{timeAgo(connection.health.lastSyncAt ?? connection.last_sync_at) ?? "Aún sin datos"}</dd>
-                      {view && view.connections.length > 1 ? (
-                        <>
-                          <dt>Otras cuentas</dt>
-                          <dd>{view.connections.slice(1).map((item) => item.provider_account_name ?? item.provider_account_id).join(", ")}</dd>
-                        </>
-                      ) : null}
-                    </dl>
-                  </div>
-                ) : null}
-
-                {blocks.length > 0 ? (
-                  <div className={s.blk}>
-                    <h3>Qué trae</h3>
-                    <div className={s.data}>
-                      {blocks.map((run) => (
-                        <div key={run.sync_scope} className={s.drow} data-s={runMark(run.status)}>
-                          <span>{blockLabel(run.sync_scope!)}</span>
-                          <b>{run.records_written.toLocaleString("es-ES")}</b>
-                          <small>{timeAgo(run.finished_at ?? run.started_at) ?? "en curso"}</small>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {permissions.length > 0 ? (
-                  <div className={s.blk}>
-                    <h3>Permisos</h3>
-                    <div>
-                      {permissions.map((row) => (
-                        <div key={row.scope} className={s.perm}>
-                          {row.granted ? <span data-ok>✓</span> : <span data-no>✕</span>}
-                          <div>
-                            {row.label}
-                            <small>
-                              {row.granted ? row.scope : row.required ? "Imprescindible: falta" : (row.note ?? "Opcional: sin él, esta parte no está disponible")}
-                            </small>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {history.length > 0 ? (
-                  <div className={s.blk}>
-                    <h3>Últimas sincronizaciones</h3>
-                    <div>
-                      {history.map((run, index) => (
-                        <div key={index} className={s.tl} data-r={runMark(run.status)}>
-                          <i aria-hidden />
-                          <div>
-                            {run.sync_scope ? blockLabel(run.sync_scope) : run.sync_type}
-                            {run.error_message ? <span> · {explainError(run.error_message)?.text}</span> : null}
-                          </div>
-                          <span>{timeAgo(run.finished_at ?? run.started_at ?? run.created_at) ?? "—"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {error?.technical || connection ? (
-                  <details className={s.details}>
-                    <summary>Detalle técnico</summary>
-                    <dl className={s.kv} style={{ marginTop: 8 }}>
-                      <dt>Conexión</dt>
-                      <dd className={s.mono}>{connection?.id}</dd>
-                      <dt>Estado</dt>
-                      <dd className={s.mono}>
-                        {connection?.status} · {connection?.health.status}
-                        {connection?.health.reason ? ` · ${connection.health.reason}` : ""}
-                      </dd>
-                      {connection?.api_version ? (
-                        <>
-                          <dt>API</dt>
-                          <dd className={s.mono}>{connection.api_version}</dd>
-                        </>
-                      ) : null}
-                      {error?.technical ? (
-                        <>
-                          <dt>Error</dt>
-                          <dd className={s.mono}>{error.technical}</dd>
-                        </>
-                      ) : null}
-                    </dl>
-                  </details>
-                ) : null}
+        {error?.technical || connection ? (
+          <details>
+            <summary className="cursor-pointer text-sm text-muted">Detalle técnico</summary>
+            <dl className={cn(KV, "mt-2")}>
+              <dt>Conexión</dt>
+              <dd className={MONO}>{connection?.id}</dd>
+              <dt>Estado</dt>
+              <dd className={MONO}>
+                {connection?.status} · {connection?.health.status}
+                {connection?.health.reason ? ` · ${connection.health.reason}` : ""}
+              </dd>
+              {connection?.api_version ? (
+                <>
+                  <dt>API</dt>
+                  <dd className={MONO}>{connection.api_version}</dd>
+                </>
+              ) : null}
+              {error?.technical ? (
+                <>
+                  <dt>Error</dt>
+                  <dd className={MONO}>{error.technical}</dd>
+                </>
+              ) : null}
+            </dl>
+          </details>
+        ) : null}
       </div>
     </Sheet>
+  );
+}
+
+// --- Qué se autoriza -------------------------------------------------------
+// Antes de mandar a alguien a la pantalla del proveedor (en inglés, con nombres
+// de permisos técnicos), se le dice qué lee E-NORA, qué escribe y qué no hace
+// nunca. Tiene que coincidir con los scopes que pide el backend.
+const ACCESS_SUMMARY: Record<string, Array<{ kind: "Lee" | "Escribe" | "Nunca"; text: string }>> = {
+  shopify: [
+    { kind: "Lee", text: "Pedidos, productos, clientes, stock y devoluciones" },
+    { kind: "Lee", text: "Informes de sesiones, para el embudo de compra" },
+    { kind: "Nunca", text: "Cambiar precios, pedidos ni pagos" },
+  ],
+  meta_ads: [
+    { kind: "Lee", text: "Campañas, gasto y resultados de tus cuentas publicitarias" },
+    { kind: "Escribe", text: "Borradores de anuncios, solo cuando tú los apruebas" },
+    { kind: "Nunca", text: "Publicar ni gastar sin tu aprobación" },
+  ],
+  klaviyo: [
+    { kind: "Lee", text: "Campañas, flows, listas, métricas e ingresos atribuidos" },
+    { kind: "Escribe", text: "Plantillas y borradores de campaña que tú apruebas" },
+    { kind: "Nunca", text: "Enviar emails a tus clientes sin tu aprobación" },
+  ],
+};
+
+function AccessSummary({ provider }: { provider: string }) {
+  const rows = ACCESS_SUMMARY[provider];
+  if (!rows) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-sm">Esto es lo que vas a autorizar. Puedes retirarlo cuando quieras desde la ficha de la conexión.</p>
+      <List as="ul" className="rounded-md border border-edge">
+        {rows.map((row) => (
+          <List.Item as="li" key={row.text} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <Badge tone={row.kind === "Nunca" ? "neutral" : row.kind === "Escribe" ? "warn" : "success"}>{row.kind}</Badge>
+            <span>{row.text}</span>
+          </List.Item>
+        ))}
+      </List>
+    </div>
   );
 }
 
@@ -703,25 +846,27 @@ function ConnectWizard({
           <li key={label} className="flex items-center gap-2">
             <span
               className={cn(
-                "grid size-5 place-items-center rounded-full text-[11px] font-medium",
+                "grid size-5 place-items-center rounded-full text-xs font-medium",
                 index + 1 <= step ? "bg-accent text-accent-foreground" : "border border-edge",
               )}
             >
               {index + 1}
             </span>
             <span className={index + 1 === step ? "font-medium text-ink" : undefined}>{label}</span>
-            {index < stepLabels.length - 1 ? <span aria-hidden className="h-px w-6 bg-line" /> : null}
+            {index < stepLabels.length - 1 ? <span aria-hidden className="h-px w-6 bg-edge" /> : null}
           </li>
         ))}
       </ol>
 
       {step === 1 ? (
-        <div className={s.apps}>
+        <div className="grid gap-2 sm:grid-cols-2">
           {ordered.map((item) => (
-            <button key={item.id} type="button" className={s.app} disabled={!item.available} aria-pressed={app === item.id} onClick={() => setApp(item.id)}>
-              <Logo provider={item.id} />
-              <b>{item.name}</b>
-              <small>{item.available ? item.description : "Disponible más adelante"}</small>
+            <button key={item.id} type="button" className={OPTION} disabled={!item.available} aria-pressed={app === item.id} onClick={() => setApp(item.id)}>
+              <span className="row-span-2">
+                <Logo provider={item.id} />
+              </span>
+              <b className="text-sm font-semibold">{item.name}</b>
+              <small className="text-xs text-muted">{item.available ? item.description : "Disponible más adelante"}</small>
             </button>
           ))}
         </div>
@@ -730,87 +875,79 @@ function ConnectWizard({
       {step === 2 && app === "shopify" ? (
         <>
           {payload.shopify_custom_app_available ? (
-            <div className={s.apps}>
-              <button type="button" className={s.opt} aria-pressed={appMode === "public"} onClick={() => setAppMode("public")}>
-                <span className={s.dot} />
-                <b>App pública</b>
-                <small>La recomendada para tiendas nuevas.</small>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" className={OPTION} aria-pressed={appMode === "public"} onClick={() => setAppMode("public")}>
+                <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", appMode === "public" ? "border-[5px] border-accent" : "border-edge-strong")} />
+                <b className="text-sm font-semibold">App pública</b>
+                <small className="text-xs text-muted">La recomendada para tiendas nuevas.</small>
               </button>
-              <button type="button" className={s.opt} aria-pressed={appMode === "custom"} onClick={() => setAppMode("custom")}>
-                <span className={s.dot} />
-                <b>App personalizada</b>
-                <small>Solo si la tienda ya la tenía instalada.</small>
+              <button type="button" className={OPTION} aria-pressed={appMode === "custom"} onClick={() => setAppMode("custom")}>
+                <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", appMode === "custom" ? "border-[5px] border-accent" : "border-edge-strong")} />
+                <b className="text-sm font-semibold">App personalizada</b>
+                <small className="text-xs text-muted">Solo si la tienda ya la tenía instalada.</small>
               </button>
             </div>
           ) : null}
           <Field label="Dominio .myshopify.com">
             <Input placeholder="tu-tienda.myshopify.com" value={domain} onChange={(event) => setDomain(event.target.value)} autoComplete="off" />
           </Field>
-          <p className={s.note}>Está en Shopify → Configuración → Dominios. No sirve el dominio público de la tienda.</p>
-          <p className={s.callout}>Te llevamos a Shopify para aceptar los permisos; al volver, la tienda ya aparece aquí.</p>
+          <p className={NOTE}>Está en Shopify → Configuración → Dominios. No sirve el dominio público de la tienda.</p>
+          <AccessSummary provider="shopify" />
+          <p className={CALLOUT}>Te llevamos a Shopify para aceptar los permisos; al volver, la tienda ya aparece aquí.</p>
         </>
       ) : null}
 
       {step === 2 && app === "meta_ads" ? (
         <>
-          <p className={s.callout}>Te llevamos a Facebook para elegir el Business y las cuentas publicitarias. Al volver, asígnalas a su tienda.</p>
-          <p className={s.note}>Hace falta ser administrador del Business Manager.</p>
+          <AccessSummary provider="meta_ads" />
+          <p className={CALLOUT}>Te llevamos a Facebook para elegir el Business y las cuentas publicitarias. Al volver, asígnalas a su tienda.</p>
+          <p className={NOTE}>Hace falta ser administrador del Business Manager.</p>
         </>
       ) : null}
 
       {step === 2 && app === "klaviyo" ? (
         <>
-          <div className={s.apps}>
-            <button type="button" className={s.opt} aria-pressed={method === "oauth"} onClick={() => setMethod("oauth")}>
-              <span className={s.dot} />
-              <b>Iniciar sesión en Klaviyo</b>
-              <small>Recomendado. Aceptas los permisos en Klaviyo.</small>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button type="button" className={OPTION} aria-pressed={method === "oauth"} onClick={() => setMethod("oauth")}>
+              <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", method === "oauth" ? "border-[5px] border-accent" : "border-edge-strong")} />
+              <b className="text-sm font-semibold">Iniciar sesión en Klaviyo</b>
+              <small className="text-xs text-muted">Recomendado. Aceptas los permisos en Klaviyo.</small>
             </button>
-            <button type="button" className={s.opt} aria-pressed={method === "key"} onClick={() => setMethod("key")}>
-              <span className={s.dot} />
-              <b>Clave privada</b>
-              <small>Pega una clave pk_ creada en Klaviyo.</small>
+            <button type="button" className={OPTION} aria-pressed={method === "key"} onClick={() => setMethod("key")}>
+              <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", method === "key" ? "border-[5px] border-accent" : "border-edge-strong")} />
+              <b className="text-sm font-semibold">Clave privada</b>
+              <small className="text-xs text-muted">Pega una clave pk_ creada en Klaviyo.</small>
             </button>
           </div>
+          {method === "oauth" ? <AccessSummary provider="klaviyo" /> : null}
           {method === "key" ? (
             <>
               <Field label="Clave privada">
                 <Input placeholder="pk_…" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" />
               </Field>
-              <p className={s.note}>En Klaviyo → Ajustes → Claves API → Crear clave privada, con acceso de lectura a:</p>
-              <div className={s.chips}>
+              <p className={NOTE}>En Klaviyo → Ajustes → Claves API → Crear clave privada, con acceso de lectura a:</p>
+              <div className="flex flex-wrap gap-1.5">
                 {KLAVIYO_KEY_SCOPES.map((scope) => (
-                  <code key={scope}>{scope}</code>
+                  <Badge key={scope}>{scope}</Badge>
                 ))}
               </div>
-              <p className={s.note}>Y acceso completo a Templates, Campaigns y Flows si vas a crear piezas, campañas o flows desde NORA.</p>
+              <p className={NOTE}>Y acceso completo a Templates, Campaigns y Flows si vas a crear piezas, campañas o flows desde NORA.</p>
             </>
           ) : null}
         </>
       ) : null}
 
-      {step === 2 && app === "instagram" ? <p className={s.callout}>Instagram se configura desde su página.</p> : null}
+      {step === 2 && app === "instagram" ? <p className={CALLOUT}>Instagram se configura desde su página.</p> : null}
 
       {step === 3 ? (
         integrations.actionError ? (
-          <p className={s.callout}>{integrations.actionError}</p>
+          <p className={CALLOUT}>{integrations.actionError}</p>
         ) : klaviyo ? (
-          <div className={s.blk}>
-            <h3>Permisos comprobados</h3>
-            <div>
-              {permissionRows("klaviyo", klaviyo.scopes).map((row) => (
-                <div key={row.scope} className={s.perm}>
-                  {row.granted ? <span data-ok>✓</span> : <span data-no>✕</span>}
-                  <div>
-                    {row.label}
-                    <small>{row.granted ? row.scope : row.required ? "Imprescindible: falta" : "Opcional: sin él, esta parte no está disponible"}</small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <DrawerBlock title="Permisos comprobados">
+            <PermissionList rows={permissionRows("klaviyo", klaviyo.scopes)} withNote={false} />
+          </DrawerBlock>
         ) : (
-          <p className={s.note}>Comprobando…</p>
+          <p className={NOTE}>Comprobando…</p>
         )
       ) : null}
     </Dialog>
@@ -898,7 +1035,17 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
     if (storeReady) return;
     // El callback inicia el primer sync en segundo plano. Mantén el modal
     // abierto y vuelve a consultar hasta que el sync registre shopify_stores.
-    const timer = window.setInterval(() => void reloadScope(), 2_000);
+    // Hasta 2 minutos: si el primer sync tarda mas, la tienda aparecera sola
+    // al recargar; no se sigue consultando para siempre.
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      if (ticks > 60) {
+        window.clearInterval(timer);
+        return;
+      }
+      void reloadScope();
+    }, 2_000);
     return () => window.clearInterval(timer);
   }, [organization?.id, reloadScope, scope?.stores, shopifyAssignmentDomain]);
 
@@ -959,9 +1106,13 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
   const syncing = Boolean(pending?.startsWith("retry-"));
 
   async function syncAll() {
-    for (const item of syncable) await actions.retrySync(item.provider, item.id);
-    if (payload?.providers.find((provider) => provider.id === "meta_ads")?.connections.length) await actions.retrySync("meta", "");
-    toast.success("Sincronización lanzada. Los datos llegan en unos minutos.");
+    const jobs = syncable.map((item) => actions.retrySync(item.provider, item.id));
+    if (payload?.providers.find((provider) => provider.id === "meta_ads")?.connections.length) jobs.push(actions.retrySync("meta", ""));
+    const results = await Promise.all(jobs);
+    const failed = results.filter((ok) => !ok).length;
+    if (failed === 0) toast.success("Sincronización lanzada. Los datos llegan en unos minutos.");
+    else if (failed === results.length) toast.danger("No se pudo lanzar ninguna sincronización. Revisa el aviso y reintenta.");
+    else toast.warning(`Lanzadas ${results.length - failed} de ${results.length}. Las que fallaron muestran el motivo en su ficha.`);
   }
 
   function openFix(item: FixItem) {
@@ -983,23 +1134,16 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
   }
 
   return (
-    <div className={s.hub}>
-      <header className={s.band}>
-        <div>
-          <h1>Integraciones</h1>
-          <p>
-            {stores.length} {stores.length === 1 ? "tienda" : "tiendas"} · Shopify, Meta Ads y Klaviyo por tienda
-          </p>
-        </div>
-        <div className={s.bandActions}>
-          <button type="button" className={s.bandBtn} disabled={syncing || syncable.length === 0} onClick={() => void syncAll()}>
-            {syncing ? "Sincronizando…" : "Sincronizar todo"}
-          </button>
-          <button type="button" className={s.bandBtn} data-primary onClick={() => connect(null)}>
-            Conectar
-          </button>
-        </div>
-      </header>
+    <div className="portal-page space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className={cn(NOTE, "mr-auto")}>
+          {stores.length} {stores.length === 1 ? "tienda" : "tiendas"} · Shopify, Meta Ads y Klaviyo por tienda
+        </p>
+        <Button variant="secondary" disabled={syncing || syncable.length === 0} onClick={() => void syncAll()}>
+          {syncing ? "Sincronizando…" : "Sincronizar todo"}
+        </Button>
+        <Button onClick={() => connect(null)}>Conectar</Button>
+      </div>
 
       {welcomeStore ? <Banner tone="success">Tienda «{welcomeStore}» creada. Conéctala a Shopify, Meta y Klaviyo para empezar a ver sus datos.</Banner> : null}
       <ClientDataQualityNotice organizationId={organization?.id ?? null} />
@@ -1008,9 +1152,7 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
         <Banner tone="warn">
           E-NORA tiene {scope?.unassigned_count ?? 0} cuentas de Klaviyo o Meta conectadas, pero todavía no sabe a qué tienda pertenecen.
           La relación que ya existe dentro de esas plataformas no se registra automáticamente aquí.{" "}
-          <Link href="/integraciones/cuentas" className={s.btn}>
-            Ver diagnóstico y asignar tienda
-          </Link>
+          <Link href="/integraciones/cuentas">Ver diagnóstico y asignar tienda</Link>
         </Banner>
       ) : null}
 
@@ -1019,12 +1161,13 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
       {stores.length > 0 ? (
         <StoreMap stores={stores} selected={selection} onSelect={setSelection} />
       ) : (
-        <section className={s.allOk} style={{ background: "var(--ih-surface-2)", color: "inherit", fontWeight: 400 }}>
-          Todavía no hay ninguna tienda. Una tienda nace al conectar Shopify; después se le añaden Meta Ads y Klaviyo.{" "}
-          <button type="button" className={s.btn} data-primary onClick={() => connect("shopify")}>
-            Conectar Shopify
-          </button>
-        </section>
+        <Card>
+          <EmptyState
+            title="Todavía no hay ninguna tienda"
+            hint="Una tienda nace al conectar Shopify; después se le añaden Meta Ads y Klaviyo."
+            action={<Button onClick={() => connect("shopify")}>Conectar Shopify</Button>}
+          />
+        </Card>
       )}
       <AccountRow providers={accountProviders} onSelect={setSelection} />
       <LooseAccounts payload={payload} scope={scope} integrations={integrations} canDiscard={canDiscard} pendingStores={pendingStores} />
@@ -1035,6 +1178,7 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
         payload={payload}
         klaviyoStore={klaviyoStore}
         integrations={integrations}
+        canManage={canDiscard}
         onClose={() => setSelection(null)}
         onConnect={(provider) => connect(provider)}
       />

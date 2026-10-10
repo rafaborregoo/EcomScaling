@@ -78,7 +78,7 @@ export async function resolveAccountScope(
   organizationId: string,
   storeId: string | null,
 ): Promise<{ id: string | undefined; currency: string | null }> {
-  let query = supabase.from("klaviyo_accounts").select("id, currency_code, raw_data").eq("organization_id", organizationId).eq("is_active", true);
+  let query = supabase.from("klaviyo_accounts").select("id, currency_code, raw_data").eq("organization_id", organizationId);
   if (storeId) query = query.eq("store_id", storeId);
   const { data } = await query;
   const rows = data ?? [];

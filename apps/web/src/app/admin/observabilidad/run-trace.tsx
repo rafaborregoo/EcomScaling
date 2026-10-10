@@ -10,10 +10,9 @@
  * son lo que uno mira cuando algo huele raro -- y solo al final la cronologia
  * y el detalle de herramientas.
  *
- * Consume `/v1/organizations/:organizationId/ai/runs/:runId/trace`, que ya
- * existia y ya devolvia todo esto. No hay endpoint nuevo: platform_admin tiene
- * membresia sintetica a todas las organizaciones (ver auth-context), asi que la
- * ruta por organizacion sirve tal cual desde el panel de plataforma.
+ * Consume la traza de ejecucion y registra feedback por criterio en una ruta
+ * separada. Los resultados del juez se leen por el API con scope de
+ * organizacion; el navegador nunca accede directamente a sus tablas.
  */
 
 import { useEffect, useState } from "react";
@@ -116,7 +115,151 @@ type TracePayload = {
   tool_calls: TraceToolCall[];
   query_runs: TraceQueryRun[];
   security_events?: TraceSecurityEvent[];
+  judgments?: Array<{
+    id: string;
+    agent_code: string;
+    artifact_kind: string;
+    rubric_version: string;
+    status: string;
+    overall_score: number | null;
+    result: {
+      summary?: string;
+      evaluated_criteria?: number;
+      criteria?: Array<{
+        criterion_id: string;
+        score: number | null;
+        status: string;
+        rationale: string;
+      }>;
+    } | null;
+    error_code: string | null;
+    model: string | null;
+    estimated_cost_usd: number | null;
+    latency_ms: number | null;
+    created_at: string;
+  }>;
+  judge_jobs?: Array<{
+    id: string;
+    agent_code: string;
+    status: string;
+    attempts: number;
+    max_attempts: number;
+    last_error: string | null;
+    available_at: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  judge_feedback?: Array<{
+    id: string;
+    judgment_id: string;
+    criterion_id: string;
+    decision: "agree" | "incorrect" | "not_applicable" | "corrected";
+    reason_code: string | null;
+    note: string | null;
+    corrected_status: "evaluable" | "no_evaluable" | null;
+    corrected_score: number | null;
+    request_id: string;
+    created_at: string;
+  }>;
 };
+type JudgeFeedbackRecord = NonNullable<TracePayload["judge_feedback"]>[number];
+
+function JudgeFeedbackEditor({
+  organizationId,
+  runId,
+  judgmentId,
+  criterionId,
+  existing,
+}: {
+  organizationId: string;
+  runId: string;
+  judgmentId: string;
+  criterionId: string;
+  existing?: JudgeFeedbackRecord;
+}) {
+  const [decision, setDecision] = useState<"agree" | "incorrect" | "not_applicable" | "corrected">(existing?.decision ?? "agree");
+  const [reason, setReason] = useState(existing?.reason_code ?? "accuracy");
+  const [correctedStatus, setCorrectedStatus] = useState<"evaluable" | "no_evaluable">(existing?.corrected_status ?? "evaluable");
+  const [correctedScore, setCorrectedScore] = useState(String(existing?.corrected_score ?? 3));
+  const [note, setNote] = useState(existing?.note ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(Boolean(existing));
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/ai/runs/${runId}/judgments/${judgmentId}/feedback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            criterion_id: criterionId,
+            decision,
+            reason_code: decision === "agree" ? null : reason,
+            note: note.trim() || null,
+            corrected_status: decision === "corrected" ? correctedStatus : null,
+            corrected_score: decision === "corrected" && correctedStatus === "evaluable" ? Number(correctedScore) : null,
+            request_id: crypto.randomUUID(),
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      setSaved(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar la revisión.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-2 rounded-md bg-muted/30 p-3">
+      <p className="text-xs font-medium">Tu revisión</p>
+      <div className="flex flex-wrap gap-2">
+        <select aria-label="Valoración del criterio" className="rounded border bg-background px-2 py-1 text-sm" value={decision} onChange={(event) => { setDecision(event.target.value as typeof decision); setSaved(false); }}>
+          <option value="agree">De acuerdo</option>
+          <option value="incorrect">Incorrecto</option>
+          <option value="not_applicable">No aplica</option>
+          <option value="corrected">Corregido</option>
+        </select>
+        {decision === "corrected" ? (
+          <>
+            <select aria-label="Estado corregido" className="rounded border bg-background px-2 py-1 text-sm" value={correctedStatus} onChange={(event) => { setCorrectedStatus(event.target.value as typeof correctedStatus); setSaved(false); }}>
+              <option value="evaluable">Se puede evaluar</option>
+              <option value="no_evaluable">Sin evidencia suficiente</option>
+            </select>
+            {correctedStatus === "evaluable" ? (
+              <select aria-label="Puntuación corregida" className="rounded border bg-background px-2 py-1 text-sm" value={correctedScore} onChange={(event) => { setCorrectedScore(event.target.value); setSaved(false); }}>
+                {[0, 1, 2, 3, 4].map((score) => <option key={score} value={score}>{score}/4</option>)}
+              </select>
+            ) : null}
+          </>
+        ) : null}
+        {decision !== "agree" ? (
+          <select aria-label="Motivo de la revisión" className="rounded border bg-background px-2 py-1 text-sm" value={reason} onChange={(event) => { setReason(event.target.value); setSaved(false); }}>
+            <option value="accuracy">Dato o conclusión incorrecta</option>
+            <option value="missing_evidence">Falta evidencia</option>
+            <option value="wrong_scope">Scope incorrecto</option>
+            <option value="not_actionable">No es accionable</option>
+            <option value="duplicate">Hallazgo duplicado</option>
+            <option value="other">Otro motivo</option>
+          </select>
+        ) : null}
+      </div>
+      <textarea aria-label="Nota de revisión" className="w-full rounded border bg-background px-2 py-1 text-sm" maxLength={1200} rows={2} value={note} onChange={(event) => { setNote(event.target.value); setSaved(false); }} placeholder="Nota breve para explicar tu revisión" />
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={saving || (decision !== "agree" && reason === "other" && !note.trim())} onClick={() => void submit()}>
+          {saving ? "Guardando…" : saved ? "Actualizar revisión" : "Guardar revisión"}
+        </Button>
+        {saved ? <span className="text-muted text-xs">Guardada</span> : null}
+        {error ? <span role="alert" className="text-danger text-xs">{error}</span> : null}
+      </div>
+    </div>
+  );
+}
 
 function CopyableId({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -235,6 +378,34 @@ export function RunTraceDetail({
     };
   }, [organizationId, runId]);
 
+  const judgePending = Boolean(data?.judge_jobs?.some(
+    (job) => job.status === "queued" || job.status === "running",
+  ));
+  useEffect(() => {
+    if (!judgePending) return;
+    let alive = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organizationId}/ai/runs/${runId}/trace`,
+        );
+        if (alive && response.ok) setData((await response.json()) as TracePayload);
+      } catch {
+        // Keep the last known queue state visible; the next interval retries.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [organizationId, runId, judgePending]);
+
   if (isLoading) {
     return (
       <AsyncState
@@ -249,6 +420,9 @@ export function RunTraceDetail({
 
   const { run } = data;
   const securityEvents = data.security_events ?? [];
+  const judgments = data.judgments ?? [];
+  const judgeJobs = data.judge_jobs ?? [];
+  const judgeFeedback = data.judge_feedback ?? [];
 
   const toolColumns: TableColumnDef<TraceToolCall>[] = [
     { key: "tool_name", label: "Herramienta" },
@@ -423,6 +597,58 @@ export function RunTraceDetail({
           />
         </div>
       ) : null}
+
+      <section aria-label="Evaluación de calidad del agente" className="rounded-lg border p-4">
+        <p className={EYEBROW}>Evaluación del juez</p>
+        {judgeJobs.filter((job) => job.status !== "completed").map((job) => (
+          <div key={job.id} className="mt-2 rounded-md bg-muted/40 p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={job.status === "failed" ? "danger" : job.status === "running" ? "warn" : "neutral"}>
+                {job.status === "queued" ? "En cola" : job.status === "running" ? "En revisión" : job.status === "failed" ? "Falló" : job.status}
+              </Badge>
+              <span className="text-muted text-xs">Intento {job.attempts}/{job.max_attempts}</span>
+              <span className="text-muted text-xs">{job.agent_code}</span>
+            </div>
+            {job.last_error ? <p className="mt-1 text-muted">{job.last_error}</p> : null}
+            {job.status === "queued" ? <p className="mt-1 text-muted">Próximo intento {new Date(job.available_at).toLocaleString()}</p> : null}
+          </div>
+        ))}
+        {judgments.length === 0 && judgeJobs.length === 0 ? (
+          <p className="text-muted mt-2 text-sm">Esta ejecución todavía no tiene evaluación.</p>
+        ) : judgments.length > 0 ? (
+          <div className="mt-3 space-y-4">
+            {judgments.map((judgment) => (
+              <article key={judgment.id} className="space-y-2 border-t pt-3 first:border-0 first:pt-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={judgment.status === "passed" ? "success" : judgment.status === "error" ? "danger" : "warn"}>
+                    {judgment.status === "passed" ? "Correcto" : judgment.status === "review" ? "Revisión" : judgment.status === "no_evaluable" ? "Sin evidencia suficiente" : judgment.status === "blocked" ? "Bloqueado" : "Error"}
+                  </Badge>
+                  {judgment.overall_score != null ? <span className="text-sm font-medium">{judgment.overall_score.toFixed(1)} / 4</span> : null}
+                  <span className="text-muted text-xs">{judgment.rubric_version} · {judgment.model ?? "modelo sin registrar"}</span>
+                </div>
+                <p className="text-sm">{judgment.result?.summary ?? judgment.error_code ?? "La evaluación no produjo un dictamen."}</p>
+                {judgment.result?.criteria?.length ? (
+                  <div className="space-y-3">
+                    {judgment.result.criteria.map((criterion) => {
+                      const existing = judgeFeedback.filter((feedback) => feedback.judgment_id === judgment.id && feedback.criterion_id === criterion.criterion_id).at(-1);
+                      return (
+                        <div key={criterion.criterion_id} className="border-t pt-3 first:border-0 first:pt-0">
+                          <p className="flex flex-wrap gap-x-2 text-sm">
+                            <span className="font-medium">{criterion.criterion_id}</span>
+                            <span className="text-muted">{criterion.score == null ? "Sin evaluar" : `${criterion.score}/4`} · {criterion.rationale}</span>
+                          </p>
+                          <JudgeFeedbackEditor organizationId={organizationId} runId={runId} judgmentId={judgment.id} criterionId={criterion.criterion_id} existing={existing} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <p className="text-muted text-xs">Coste {judgment.estimated_cost_usd == null ? "sin dato" : `$${judgment.estimated_cost_usd.toFixed(5)}`} · {judgment.latency_ms == null ? "duración sin dato" : `${judgment.latency_ms} ms`}</p>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
 
       <div>
         <p className={EYEBROW}>Cronología</p>

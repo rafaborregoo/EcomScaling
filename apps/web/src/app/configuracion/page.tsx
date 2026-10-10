@@ -14,6 +14,8 @@ import { PrivacySection } from "./privacy-section";
 import { SecuritySection } from "./security-section";
 import { SummarySection } from "./summary-section";
 import { OrganizationIdentity } from "./organization-identity";
+import { ProfileSection } from "./profile-section";
+import { ConsultoraSection, PortfolioSettingsMatrix } from "./consultant-settings";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -21,7 +23,8 @@ import {
   invalidateCachedQueries,
   useCachedQuery,
 } from "@/lib/use-cached-query";
-import { displayValue } from "@/lib/display-labels";
+import { formatMoney } from "@/lib/money";
+import { planLabel } from "@/lib/plan-labels";
 import { useUrlSection } from "@/lib/use-url-section";
 import {
   Badge,
@@ -36,6 +39,8 @@ import {
   List,
   LoadingBlock,
   Select,
+  SettingRow,
+  toast,
 } from "@/components/ui";
 
 type FinancialSettings = {
@@ -108,24 +113,7 @@ const METRIC_TARGET_OPTIONS: Array<{
   { value: "email_attributed_pct", label: "Facturación vía email", unit: "pct" },
 ];
 
-const METRIC_TARGET_PERIOD_LABELS: Record<string, string> = {
-  monthly: "al mes",
-  quarterly: "al trimestre",
-  yearly: "al año",
-};
-
 const FINANCIAL_CURRENCIES = ["EUR", "USD", "GBP", "MXN", "COP", "ARS", "CLP", "BRL"];
-
-function formatTargetValue(target: MetricTarget) {
-  const option = METRIC_TARGET_OPTIONS.find(
-    (item) => item.value === target.metric_key,
-  );
-  const value = Number(target.target_value);
-
-  if (option?.unit === "pct") return `${value.toFixed(2)} %`;
-  if (option?.unit === "eur") return `${value.toFixed(2)} €`;
-  return value.toFixed(2);
-}
 
 // Lo que queda de un pedido de ejemplo tras los costes que acabas de escribir:
 // enseña qué hace cada número sin texto de ayuda.
@@ -133,14 +121,15 @@ function OrderExample({
   paymentFeePct,
   paymentFeeFixed,
   shippingCost,
+  currency,
 }: {
   paymentFeePct: string;
   paymentFeeFixed: string;
   shippingCost: string;
+  currency: string;
 }) {
   const [order, setOrder] = useState(60);
-  const eur = (value: number) =>
-    new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(value);
+  const eur = (value: number) => formatMoney(value, currency);
   const fee = (order * (Number(paymentFeePct) || 0)) / 100;
   const fixed = Number(paymentFeeFixed) || 0;
   const shipping = Number(shippingCost) || 0;
@@ -198,15 +187,23 @@ function FinancialConfigSection({
   );
   // Mismo criterio que `assertCanManage` en el backend: el consultor asesora
   // sobre el margen, así que también lo configura.
+  const isConsultantRole = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
   const canManage =
-    ["platform_admin", "consultant"].includes(
-      bootstrap.profile.platform_role,
-    ) || ["owner", "manager"].includes(membership?.role ?? "");
+    isConsultantRole || ["owner", "manager"].includes(membership?.role ?? "");
+  // Los importes se escriben y se leen en la moneda de la tienda: antes salian
+  // como "10271.00 /mes", sin separador de miles ni simbolo.
 
   const configQuery = useCachedQuery<FinancialConfigResponse>(
     `/v1/organizations/${organizationId}/financial-config`,
   );
   const config = configQuery.data ?? null;
+  // Los importes se escriben y se leen en la moneda de la tienda: antes salian
+  // como "10271.00 /mes", sin separador de miles ni simbolo.
+  const currency =
+    config?.settings?.currency_code ?? membership?.organization?.currency_code ?? "EUR";
+  const money = (value: number) => formatMoney(value, currency);
   const [actionError, setActionError] = useState<string | null>(null);
   const error = actionError ?? (configQuery.error
     ? "No se pudo cargar la configuración financiera. Revisa la conexión e inténtalo de nuevo."
@@ -273,7 +270,6 @@ function FinancialConfigSection({
             paymentFeeFixed: paymentFeeFixed === "" ? 0 : Number(paymentFeeFixed),
             defaultShippingCost:
               defaultShippingCost === "" ? 0 : Number(defaultShippingCost),
-            klaviyoRevenueCurrencyCode: klaviyoRevenueCurrencyCode || null,
           }),
         },
       );
@@ -501,10 +497,30 @@ function FinancialConfigSection({
 
       {part === "costs" ? (
         <>
-      <Card title="Costes por pedido">
-        <form className="grid gap-4 md:grid-cols-4" onSubmit={saveSettings}>
-          <Field label="Comisión pago (%)">
+      <Card
+        title="Por cada pedido"
+        description="Lo que se descuenta de cada venta antes del producto y el IVA."
+        actions={
+          canManage && isConsultantRole ? (
+            <CopyCostsFrom
+              organizationId={organizationId}
+              currency={currency}
+              existingRuleNames={(config?.shipping_cost_rules ?? []).map((rule) => rule.name)}
+              onCopied={loadConfig}
+            />
+          ) : null
+        }
+      >
+        <form onSubmit={saveSettings}>
+          <SettingRow
+            label="Comisión de la pasarela"
+            hint="Lo que se queda Shopify Payments, Stripe o PayPal: un porcentaje y, si lo hay, un fijo."
+            htmlFor="fee-pct"
+          >
+            <div className="w-24">
             <Input
+              id="fee-pct"
+              aria-label="Comisión en porcentaje"
               type="number"
               step="0.01"
               min="0"
@@ -513,10 +529,12 @@ function FinancialConfigSection({
               onChange={(event) => setPaymentFeePct(event.target.value)}
               placeholder="2.9"
               disabled={!canManage}
-            />
-          </Field>
-          <Field label="Comisión fija por pedido">
+                          />
+            </div>
+            <span className="text-sm text-muted">% +</span>
+            <div className="w-24">
             <Input
+              aria-label={`Comisión fija por pedido en ${currency}`}
               type="number"
               step="0.01"
               min="0"
@@ -524,10 +542,18 @@ function FinancialConfigSection({
               onChange={(event) => setPaymentFeeFixed(event.target.value)}
               placeholder="0.30"
               disabled={!canManage}
-            />
-          </Field>
-          <Field label="Envío medio por pedido">
+                          />
+            </div>
+            <span className="text-sm text-muted">{currency} fijo</span>
+          </SettingRow>
+          <SettingRow
+            label="Envío medio"
+            hint="Lo que te cuesta a ti enviar un pedido, no lo que cobras. Las reglas por importe de abajo lo sustituyen."
+            htmlFor="shipping"
+          >
+            <div className="w-24">
             <Input
+              id="shipping"
               type="number"
               step="0.01"
               min="0"
@@ -535,98 +561,47 @@ function FinancialConfigSection({
               onChange={(event) => setDefaultShippingCost(event.target.value)}
               placeholder="4.50"
               disabled={!canManage}
-            />
-          </Field>
-          <div id="klaviyo-revenue-currency" className="md:col-span-4 rounded-lg border border-separator p-4">
-            <Field label="Moneda confirmada para ingresos atribuidos de Klaviyo">
-              <Select
-                className="mt-2 max-w-xs"
-                value={klaviyoRevenueCurrencyCode}
-                onChange={setKlaviyoRevenueCurrencyCode}
-                options={[
-                  { value: "", label: "Sin confirmar" },
-                  ...FINANCIAL_CURRENCIES.map((code) => ({ value: code, label: code })),
-                ]}
-                disabled={!canManage}
-              />
-            </Field>
-            <p className="mt-2 max-w-3xl text-xs text-muted">
-              Confirma aquí la moneda real de los ingresos que devuelve Klaviyo. Su moneda preferida solo cambia el símbolo y no sirve para confirmar ni convertir los importes. Si no estás seguro, déjalo sin confirmar.
-            </p>
-          </div>
-          <div className="flex items-end">
-            <Button className="w-full md:w-auto" type="submit" disabled={!canManage || isSaving}>
+                          />
+            </div>
+            <span className="text-sm text-muted">{currency} por pedido</span>
+          </SettingRow>
+          <SettingRow
+            label="Coste de producto"
+            hint="Se pone por referencia en Productos: es el coste que más pesa en el margen."
+          >
+            <Link href="/shopify/productos">Completar en Productos</Link>
+          </SettingRow>
+          <div className="flex flex-wrap items-center gap-3 border-t border-separator pt-4">
+            <Button type="submit" disabled={!canManage || isSaving}>
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
+            {savedAt ? (
+              <p className="text-xs text-muted">Guardado a las {savedAt}.</p>
+            ) : null}
           </div>
         </form>
-        {savedAt ? (
-          <p className="mt-2 text-xs text-muted">Guardado a las {savedAt}.</p>
-        ) : null}
         <OrderExample
           paymentFeePct={paymentFeePct}
           paymentFeeFixed={paymentFeeFixed}
           shippingCost={defaultShippingCost}
+          currency={currency}
         />
       </Card>
 
       <Card
         title="Gastos fijos"
+        description="Nóminas, alquiler, herramientas. Se reparten entre los días del mes para el punto de equilibrio."
         actions={
           <Badge tone="neutral" className="whitespace-nowrap text-sm">
-            {monthlyFixedTotal.toFixed(2)} /mes
+            {money(monthlyFixedTotal)}/mes
           </Badge>
         }
       >
-        {canManage ? (
-          <form className="grid gap-4 md:grid-cols-4" onSubmit={addExpense}>
-            <div className="md:col-span-2">
-              <Field label="Nombre del gasto">
-                <Input
-                  className="mt-2"
-                  value={expenseName}
-                  onChange={(event) => setExpenseName(event.target.value)}
-                  placeholder="Ej.: Klaviyo, nóminas..."
-                  required
-                />
-              </Field>
-            </div>
-            <Field label="Importe">
-              <Input
-                className="mt-2"
-                type="number"
-                step="0.01"
-                min="0"
-                value={expenseAmount}
-                onChange={(event) => setExpenseAmount(event.target.value)}
-                placeholder="Importe"
-                required
-              />
-            </Field>
-            <Field label="Periodicidad">
-              <Select
-                className="mt-2"
-                value={expensePeriod}
-                onChange={(value) =>
-                  setExpensePeriod(value === "yearly" ? "yearly" : "monthly")
-                }
-                options={[
-                  { value: "monthly", label: "al mes" },
-                  { value: "yearly", label: "al año" },
-                ]}
-              />
-            </Field>
-            <Button className="w-full md:w-auto" type="submit" disabled={isAddingExpense}>
-              {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
-            </Button>
-          </form>
-        ) : null}
-
-        <List className="mt-4 border-t border-separator">
+        <List>
           {(config?.fixed_expenses ?? []).length === 0 ? (
             <EmptyState
               title="Sin gastos fijos configurados"
-              hint="Sin ellos el break-even del dashboard no es fiable."
+              hint="Sin ellos el punto de equilibrio no es fiable."
             />
           ) : (
             (config?.fixed_expenses ?? []).map((expense) => (
@@ -637,13 +612,13 @@ function FinancialConfigSection({
                 <div>
                   <p className="text-sm font-medium">{expense.name}</p>
                   <p className="text-xs text-muted">
-                    desde {expense.valid_from}
-                    {expense.valid_until ? ` hasta ${expense.valid_until}` : ""}
+                    desde {formatDate(expense.valid_from)}
+                    {expense.valid_until ? ` hasta ${formatDate(expense.valid_until)}` : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <p className="font-mono text-sm">
-                    {Number(expense.amount).toFixed(2)}{" "}
+                  <p className="text-sm tabular-nums">
+                    {formatMoney(Number(expense.amount), expense.currency_code || currency)}
                     {expense.billing_period === "yearly" ? "/año" : "/mes"}
                   </p>
                   {canManage ? (
@@ -662,53 +637,119 @@ function FinancialConfigSection({
             ))
           )}
         </List>
-      </Card>
-        </>
-      ) : null}
-
-      {part === "targets" ? (
-        <>
-          <ObjectivesProgress
-            organizationId={organizationId}
-            targets={config?.metric_targets ?? []}
-            labelFor={(key) =>
-              METRIC_TARGET_OPTIONS.find((option) => option.value === key)?.label ?? key
-            }
-          />
-      <Card
-        title="Objetivos"
-        description="La cifra a batir en cada métrica. El panel la enseña junto al dato, para que se vea si va bien o mal sin tener que recordarlo."
-      >
         {canManage ? (
-          <form className="grid gap-4 md:grid-cols-4" onSubmit={addMetricTarget}>
-            <div className="md:col-span-2">
-              <Field label="Métrica">
-                <Select
-                  className="mt-2"
-                  value={targetMetricKey}
-                  onChange={(value) => setTargetMetricKey(value)}
-                  options={METRIC_TARGET_OPTIONS.map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                  }))}
-                />
-              </Field>
-            </div>
-            <Field label="Objetivo">
+          <form
+            className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_8rem_auto] md:items-end"
+            onSubmit={addExpense}
+          >
+            <Field label="Nombre del gasto">
               <Input
-                className="mt-2"
+                value={expenseName}
+                onChange={(event) => setExpenseName(event.target.value)}
+                placeholder="Ej.: Klaviyo, nóminas..."
+                required
+              />
+            </Field>
+            <Field label={`Importe (${currency})`}>
+              <Input
                 type="number"
                 step="0.01"
                 min="0"
-                value={targetValue}
-                onChange={(event) => setTargetValue(event.target.value)}
-                placeholder="30"
+                value={expenseAmount}
+                onChange={(event) => setExpenseAmount(event.target.value)}
                 required
               />
             </Field>
             <Field label="Periodicidad">
               <Select
-                className="mt-2"
+                value={expensePeriod}
+                onChange={(value) =>
+                  setExpensePeriod(value === "yearly" ? "yearly" : "monthly")
+                }
+                options={[
+                  { value: "monthly", label: "al mes" },
+                  { value: "yearly", label: "al año" },
+                ]}
+              />
+            </Field>
+            <Button type="submit" disabled={isAddingExpense}>
+              {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
+            </Button>
+          </form>
+        ) : null}
+      </Card>
+        </>
+      ) : null}
+
+      {part === "targets" ? (
+      <Card
+        title="Objetivos"
+        description="La cifra a batir en cada métrica, con cómo vas en los últimos 30 días. El panel la enseña junto al dato."
+      >
+        <ObjectivesProgress
+          organizationId={organizationId}
+          targets={config?.metric_targets ?? []}
+          currency={currency}
+          labelFor={(key) =>
+            METRIC_TARGET_OPTIONS.find((option) => option.value === key)?.label ?? key
+          }
+          action={
+            canManage
+              ? (target) => (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    onClick={() => void removeMetricTarget(target.id)}
+                    disabled={busyTargetId === target.id}
+                  >
+                    {busyTargetId === target.id ? "Quitando..." : "Quitar"}
+                  </Button>
+                )
+              : undefined
+          }
+        />
+        {(config?.metric_targets ?? []).length === 0 ? (
+          <EmptyState
+            title="Sin objetivos fijados"
+            hint="Sin objetivo, una cifra no dice si va bien o mal."
+          />
+        ) : null}
+        {canManage ? (
+          <form
+            className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_9rem_auto] md:items-end"
+            onSubmit={addMetricTarget}
+          >
+            <Field label="Métrica">
+              <Select
+                value={targetMetricKey}
+                onChange={(value) => setTargetMetricKey(value)}
+                options={METRIC_TARGET_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+              />
+            </Field>
+            <Field
+              label={`Objetivo${
+                METRIC_TARGET_OPTIONS.find((option) => option.value === targetMetricKey)?.unit === "eur"
+                  ? ` (${currency})`
+                  : METRIC_TARGET_OPTIONS.find((option) => option.value === targetMetricKey)?.unit === "pct"
+                    ? " (%)"
+                    : ""
+              }`}
+            >
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={targetValue}
+                onChange={(event) => setTargetValue(event.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Periodicidad">
+              <Select
                 value={targetPeriod}
                 onChange={(value) => setTargetPeriod(value)}
                 options={[
@@ -718,62 +759,12 @@ function FinancialConfigSection({
                 ]}
               />
             </Field>
-            <Button
-              className="w-full md:w-auto"
-              type="submit"
-              disabled={isAddingTarget}
-            >
+            <Button type="submit" disabled={isAddingTarget}>
               {isAddingTarget ? "Guardando..." : "Fijar objetivo"}
             </Button>
           </form>
         ) : null}
-
-        <List className="mt-4 border-t border-separator">
-          {(config?.metric_targets ?? []).length === 0 ? (
-            <EmptyState
-              title="Sin objetivos fijados"
-              hint="Sin objetivo, una cifra no dice si va bien o mal."
-            />
-          ) : (
-            (config?.metric_targets ?? []).map((target) => (
-              <List.Item
-                key={target.id}
-                className="flex items-center justify-between gap-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium">
-                    {METRIC_TARGET_OPTIONS.find(
-                      (option) => option.value === target.metric_key,
-                    )?.label ?? target.metric_key}
-                  </p>
-                  <p className="text-xs text-muted">
-                    desde {target.valid_from}
-                    {target.valid_until ? ` hasta ${target.valid_until}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="font-mono text-sm">
-                    {formatTargetValue(target)}{" "}
-                    {METRIC_TARGET_PERIOD_LABELS[target.period] ?? target.period}
-                  </p>
-                  {canManage ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      onClick={() => void removeMetricTarget(target.id)}
-                      disabled={busyTargetId === target.id}
-                    >
-                      {busyTargetId === target.id ? "Quitando..." : "Quitar"}
-                    </Button>
-                  ) : null}
-                </div>
-              </List.Item>
-            ))
-          )}
-        </List>
       </Card>
-        </>
       ) : null}
 
       {part === "costs" ? (
@@ -781,56 +772,7 @@ function FinancialConfigSection({
         title="Reglas de envío"
         description="Coste de envío por tramo de importe: sustituye al envío medio en los pedidos que entren en el tramo."
       >
-        {canManage ? (
-          <form
-            className="grid gap-4 md:grid-cols-4"
-            onSubmit={addShippingRule}
-          >
-            <div className="md:col-span-2">
-              <Field label="Nombre de la regla">
-                <Input
-                  className="mt-2"
-                  value={ruleName}
-                  onChange={(event) => setRuleName(event.target.value)}
-                  placeholder="Ej.: Envío nacional"
-                  required
-                />
-              </Field>
-            </div>
-            <Field label="Coste por pedido">
-              <Input
-                className="mt-2"
-                type="number"
-                step="0.01"
-                min="0"
-                value={ruleCostPerOrder}
-                onChange={(event) => setRuleCostPerOrder(event.target.value)}
-                placeholder="4.50"
-                required
-              />
-            </Field>
-            <Field label="Importe mínimo (opcional)">
-              <Input
-                className="mt-2"
-                type="number"
-                step="0.01"
-                min="0"
-                value={ruleMinOrderTotal}
-                onChange={(event) => setRuleMinOrderTotal(event.target.value)}
-                placeholder="0"
-              />
-            </Field>
-            <Button
-              className="w-full md:w-auto"
-              type="submit"
-              disabled={isAddingShippingRule}
-            >
-              {isAddingShippingRule ? "Añadiendo..." : "Añadir regla"}
-            </Button>
-          </form>
-        ) : null}
-
-        <List className="mt-4 border-t border-separator">
+        <List>
           {(config?.shipping_cost_rules ?? []).length === 0 ? (
             <EmptyState
               title="Sin reglas de envío"
@@ -849,16 +791,16 @@ function FinancialConfigSection({
                       ? `${rule.country_code} · no se aplica: el cálculo ignora el país`
                       : "cualquier país"}
                     {rule.min_order_total
-                      ? ` · desde ${Number(rule.min_order_total).toFixed(2)}`
+                      ? ` · desde ${formatMoney(Number(rule.min_order_total), rule.currency_code || currency)}`
                       : ""}
                     {rule.max_order_total
-                      ? ` hasta ${Number(rule.max_order_total).toFixed(2)}`
+                      ? ` hasta ${formatMoney(Number(rule.max_order_total), rule.currency_code || currency)}`
                       : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <p className="font-mono text-sm">
-                    {Number(rule.cost_per_order).toFixed(2)} /pedido
+                  <p className="text-sm tabular-nums">
+                    {formatMoney(Number(rule.cost_per_order), rule.currency_code || currency)}/pedido
                   </p>
                   {canManage ? (
                     <Button
@@ -878,11 +820,262 @@ function FinancialConfigSection({
             ))
           )}
         </List>
+        {canManage ? (
+          <form
+            className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_9rem_auto] md:items-end"
+            onSubmit={addShippingRule}
+          >
+            <Field label="Nombre de la regla">
+              <Input
+                value={ruleName}
+                onChange={(event) => setRuleName(event.target.value)}
+                placeholder="Ej.: Envío nacional"
+                required
+              />
+            </Field>
+            <Field label={`Coste (${currency})`}>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={ruleCostPerOrder}
+                onChange={(event) => setRuleCostPerOrder(event.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Desde (opcional)">
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={ruleMinOrderTotal}
+                onChange={(event) => setRuleMinOrderTotal(event.target.value)}
+                placeholder="0"
+              />
+            </Field>
+            <Button type="submit" disabled={isAddingShippingRule}>
+              {isAddingShippingRule ? "Añadiendo..." : "Añadir regla"}
+            </Button>
+          </form>
+        ) : null}
       </Card>
+      ) : null}
+
+      {part === "costs" ? (
+        <KlaviyoCurrencyCard
+          // Se remonta cuando cambia el valor guardado: sin efecto que sincronice estado.
+          key={klaviyoRevenueCurrencyCode}
+          organizationId={organizationId}
+          value={klaviyoRevenueCurrencyCode}
+          canManage={canManage}
+          onSaved={loadConfig}
+        />
       ) : null}
     </div>
   );
 }
+
+/**
+ * Copiar comisiones, envío medio y reglas de envío de otro cliente. Configurar
+ * doce tiendas parecidas era teclear lo mismo doce veces. Usa los mismos
+ * endpoints que el formulario (lectura del otro cliente + escritura en este),
+ * así que la autorización es la de siempre. Los gastos fijos no se copian: son
+ * de cada negocio. Solo entre clientes con la misma moneda.
+ */
+function CopyCostsFrom({
+  organizationId,
+  currency,
+  existingRuleNames,
+  onCopied,
+}: {
+  organizationId: string;
+  currency: string;
+  existingRuleNames: string[];
+  onCopied: () => void;
+}) {
+  const organizationsQuery = useCachedQuery<{
+    organizations?: Array<{ id: string; display_name: string; is_own_store?: boolean; currency_code?: string }>;
+  }>("/v1/consultant/organizations");
+  const [isOpen, setIsOpen] = useState(false);
+  const [sourceId, setSourceId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const options = (organizationsQuery.data?.organizations ?? []).filter(
+    (item) => item.id !== organizationId,
+  );
+
+  async function copy() {
+    if (!sourceId) return;
+    setBusy(true);
+    try {
+      const sourceResponse = await apiFetch(`/v1/organizations/${sourceId}/financial-config`);
+      if (!sourceResponse.ok) {
+        toast.danger(await readApiError(sourceResponse));
+        return;
+      }
+      const source = (await sourceResponse.json()) as FinancialConfigResponse;
+      if (!source.settings) {
+        toast.danger("Ese cliente todavía no tiene costes por pedido.");
+        return;
+      }
+      if (source.settings.currency_code !== currency) {
+        toast.danger(`Ese cliente trabaja en ${source.settings.currency_code} y este en ${currency}: no se copian importes entre monedas.`);
+        return;
+      }
+      const settingsResponse = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/settings`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            paymentFeePct: source.settings.payment_fee_pct,
+            paymentFeeFixed: source.settings.payment_fee_fixed,
+            defaultShippingCost: source.settings.default_shipping_cost,
+          }),
+        },
+      );
+      if (!settingsResponse.ok) {
+        toast.danger(await readApiError(settingsResponse));
+        return;
+      }
+      let rules = 0;
+      for (const rule of source.shipping_cost_rules) {
+        if (existingRuleNames.includes(rule.name)) continue;
+        const ruleResponse = await apiFetch(
+          `/v1/organizations/${organizationId}/financial-config/shipping-rules`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: rule.name,
+              countryCode: null,
+              costPerOrder: rule.cost_per_order,
+              minOrderTotal: rule.min_order_total ?? 0,
+            }),
+          },
+        );
+        if (ruleResponse.ok) rules += 1;
+      }
+      toast.success(
+        rules > 0
+          ? `Costes copiados y ${rules} ${rules === 1 ? "regla de envío" : "reglas de envío"}.`
+          : "Costes por pedido copiados.",
+      );
+      setIsOpen(false);
+      setSourceId("");
+      onCopied();
+    } catch {
+      toast.danger("No se pudo copiar por un error de red. Reintenta.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!isOpen) {
+    return (
+      <Button size="sm" variant="ghost" onClick={() => setIsOpen(true)}>
+        Copiar de otro cliente
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        aria-label="Cliente del que copiar"
+        className="w-52"
+        value={sourceId}
+        onChange={setSourceId}
+        options={[
+          { value: "", label: "Elige un cliente" },
+          ...options.map((item) => ({ value: item.id, label: item.display_name })),
+        ]}
+      />
+      <Button size="sm" disabled={!sourceId || busy} onClick={() => void copy()}>
+        {busy ? "Copiando…" : "Copiar"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setIsOpen(false)} disabled={busy}>
+        Cancelar
+      </Button>
+    </div>
+  );
+}
+
+// La moneda de los ingresos de Klaviyo no es un coste: iba dentro del
+// formulario de costes por pedido y se guardaba con él. Ahora es su propio
+// bloque, con su propio guardado (el PUT de ajustes acepta campos sueltos).
+function KlaviyoCurrencyCard({
+  organizationId,
+  value,
+  canManage,
+  onSaved,
+}: {
+  organizationId: string;
+  value: string;
+  canManage: boolean;
+  onSaved: () => void;
+}) {
+  const [code, setCode] = useState(value);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(next: string) {
+    setCode(next);
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/settings`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ klaviyoRevenueCurrencyCode: next || null }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success(next ? `Moneda de Klaviyo: ${next}.` : "Moneda de Klaviyo sin confirmar.");
+      invalidateCachedQueries(`/v1/organizations/${organizationId}/shopify/metrics`);
+      onSaved();
+    } catch {
+      setError("No se pudo guardar la moneda por un error de red. Reintenta.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Card title="Moneda de los ingresos de Klaviyo" className="scroll-mt-24">
+      <div id="klaviyo-revenue-currency">
+        <SettingRow
+          label="Moneda confirmada"
+          hint="La moneda real de los ingresos que devuelve Klaviyo. Su moneda preferida solo cambia el símbolo: no sirve para confirmar ni convertir. Si no estás seguro, déjalo sin confirmar."
+        >
+          <Select
+            aria-label="Moneda de los ingresos de Klaviyo"
+            className="max-w-xs"
+            value={code}
+            onChange={(next) => void save(next)}
+            options={[
+              { value: "", label: "Sin confirmar" },
+              ...FINANCIAL_CURRENCIES.map((item) => ({ value: item, label: item })),
+            ]}
+            disabled={!canManage || isSaving}
+          />
+          {isSaving ? <span className="text-xs text-muted">Guardando…</span> : null}
+        </SettingRow>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      </div>
+    </Card>
+  );
+}
+
+function formatDate(iso: string) {
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return iso;
+  return new Date(parsed).toLocaleDateString("es-ES", { month: "short", year: "numeric" });
+}
+
 
 function InfoRow({
   label,
@@ -909,7 +1102,8 @@ type SettingsTab =
   | "equipo"
   | "plan"
   | "accesos"
-  | "cartera"
+  | "consultora"
+  | "perfil"
   | "seguridad"
   | "privacidad";
 const SETTINGS_SECTIONS = [
@@ -922,7 +1116,8 @@ const SETTINGS_SECTIONS = [
   "equipo",
   "plan",
   "accesos",
-  "cartera",
+  "consultora",
+  "perfil",
   "seguridad",
   "privacidad",
 ] as const satisfies readonly SettingsTab[];
@@ -973,68 +1168,6 @@ function RolesCard() {
   );
 }
 
-// Cartera: el total de tus clientes y tus tiendas. Antes eran dos entradas de
-// nav (/consultor y /tiendas) que no se operan a diario, solo se consultan. Las
-// paginas siguen existiendo; aqui esta el recuento y el acceso.
-function PortfolioSection() {
-  const clientsQuery = useCachedQuery<{
-    organizations?: Array<{ is_own_store?: boolean }>;
-  }>("/v1/consultant/organizations");
-  const storesQuery = useCachedQuery<{ stores?: unknown[] }>(
-    "/v1/consultant/own-stores",
-  );
-  const counts =
-    clientsQuery.data && storesQuery.data
-      ? {
-          // Sin filtrar, las tiendas propias se contarian dos veces: aqui y
-          // en la tarjeta de al lado.
-          clients: (clientsQuery.data.organizations ?? []).filter(
-            (organization) => !organization.is_own_store,
-          ).length,
-          stores: (storesQuery.data.stores ?? []).length,
-        }
-      : null;
-  const error = clientsQuery.error || storesQuery.error
-    ? "No se pudo cargar la cartera. Revisa la conexión."
-    : null;
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Card title="Clientes" description="Las organizaciones que asesoras.">
-        {error ? (
-          <ErrorBlock>{error}</ErrorBlock>
-        ) : counts === null ? (
-          <LoadingBlock label="Contando clientes..." />
-        ) : (
-          <>
-            <p className="text-3xl font-semibold">{counts.clients}</p>
-            <p className="mt-3 text-sm">
-              <Link href="/consultor">Gestionar clientes</Link>
-            </p>
-          </>
-        )}
-      </Card>
-      <Card
-        title="Tiendas propias"
-        description="Las tiendas que llevas tú directamente."
-      >
-        {error ? (
-          <ErrorBlock>{error}</ErrorBlock>
-        ) : counts === null ? (
-          <LoadingBlock label="Contando tiendas..." />
-        ) : (
-          <>
-            <p className="text-3xl font-semibold">{counts.stores}</p>
-            <p className="mt-3 text-sm">
-              <Link href="/tiendas">Gestionar tiendas</Link>
-            </p>
-          </>
-        )}
-      </Card>
-    </div>
-  );
-}
-
 function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const activeMembership = bootstrap.memberships.find(
@@ -1042,20 +1175,21 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       membership.organization_id === selectedOrganizationId &&
       membership.accessSource === "membership",
   );
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
+  // El consultor sin cliente elegido está en vista general: no se le cuela la
+  // primera organización de su lista (su consultora o una tienda propia).
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
     )?.organization ??
-    bootstrap.memberships[0]?.organization ??
-    null;
+    (isConsultant ? null : (bootstrap.memberships[0]?.organization ?? null));
   const subscription = organization
     ? bootstrap.subscriptions.find(
         (item) => item.organization_id === organization.id,
       )
     : null;
-  const isConsultant = ["platform_admin", "consultant"].includes(
-    bootstrap.profile.platform_role,
-  );
   const canManageTeam = ["owner", "manager"].includes(
     activeMembership?.role ?? "",
   );
@@ -1083,11 +1217,13 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             isConsultant={isConsultant}
             onNavigate={(section) => setTab(section as SettingsTab)}
           />
+        ) : isConsultant ? (
+          <PortfolioSettingsMatrix />
         ) : (
           <Card title="Sin tienda activa">
             <p className="text-sm">
               Elige un cliente arriba para configurar su tienda. Tu cuenta está en{" "}
-              <Link href="/perfil">Perfil</Link> y{" "}
+              <Link href="/configuracion?section=perfil">Perfil</Link> y{" "}
               <Link href="/configuracion?section=seguridad">Seguridad</Link>.
             </p>
           </Card>
@@ -1099,7 +1235,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               organization={organization}
               planLabel={
                 subscription
-                  ? `${subscription.plan_code} · ${displayValue(subscription.status)}`
+                  ? planLabel(subscription.plan_code, subscription.status)
                   : "Sin plan"
               }
               canManage={canManageOrganization}
@@ -1111,7 +1247,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </dl>
               <p className="mt-4 text-xs text-muted">
                 Tu nombre, avatar y datos de cuenta están en{" "}
-                <Link href="/perfil">Perfil</Link>.
+                <Link href="/configuracion?section=perfil">Perfil</Link>.
               </p>
             </Card>
           )}
@@ -1160,8 +1296,10 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             canManage={canManageOrganization}
           />
         ) : null
-      ) : tab === "cartera" ? (
-        <PortfolioSection />
+      ) : tab === "consultora" ? (
+        <ConsultoraSection />
+      ) : tab === "perfil" ? (
+        <ProfileSection bootstrap={bootstrap} />
       ) : tab === "equipo" ? (
         organization && (canManageTeam || isConsultant) ? (
           <div className="space-y-4">

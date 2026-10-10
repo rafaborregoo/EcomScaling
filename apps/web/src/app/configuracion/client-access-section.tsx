@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { planLabel } from "@/lib/plan-labels";
 import {
   Banner,
   Badge,
@@ -223,6 +224,11 @@ export function ClientAccessSection({
   if (!access) return <LoadingBlock label="Cargando accesos…" />;
 
   const activeMembers = access.members.filter((member) => member.is_active);
+  // La API rechaza dejar la organización sin propietario (last_owner): no se
+  // ofrece ni bajarle el rol ni quitarle el acceso al único que queda.
+  const activeOwners = activeMembers.filter((member) => member.role === "owner").length;
+  const isLastOwner = (member: Member) =>
+    member.is_active && member.role === "owner" && activeOwners <= 1;
   const memberLimit = access.plan?.member_limit ?? null;
   const atMemberLimit =
     !access.plan ||
@@ -244,7 +250,7 @@ export function ClientAccessSection({
           <div>
             <dt className="text-muted">Plan activo</dt>
             <dd className="mt-1 font-medium text-foreground">
-              {access.plan ? `${access.plan.plan_code} · ${access.plan.status}` : "Sin plan activo"}
+              {access.plan ? planLabel(access.plan.plan_code, access.plan.status) : "Sin plan activo"}
             </dd>
           </div>
           <div>
@@ -316,7 +322,7 @@ export function ClientAccessSection({
                       void patchMember(member.user_id, { role: next })
                     }
                     options={ROLE_OPTIONS}
-                    disabled={busyUserId === member.user_id}
+                    disabled={busyUserId === member.user_id || isLastOwner(member)}
                   />
                 ) : (
                   <Badge>{ROLE_LABEL[member.role] ?? member.role}</Badge>
@@ -353,7 +359,9 @@ export function ClientAccessSection({
                 ) : (
                   <Badge>{storeName(member.store_id)}</Badge>
                 )}
-                {canManage ? (
+                {canManage && isLastOwner(member) ? (
+                  <span className="text-xs text-muted">Único propietario</span>
+                ) : canManage ? (
                   <Button
                     size="sm"
                     variant="ghost"

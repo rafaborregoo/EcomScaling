@@ -8,6 +8,8 @@ import {
   type LiveAgentEvalCase,
 } from "./live-eval-contract.js";
 import { ACTIVE_AGENT_CODES } from "./agent-evals.js";
+import { AGENT_JUDGE_RUBRICS, finalizeAgentJudgeResult } from "./agent-judge.js";
+import { hashLiveAgentEvalOutput } from "./live-eval-contract.js";
 
 // El registro de la suite live/shadow debe permanecer alineado con el catalogo
 // activo; el proveedor de eval es inyectable y puede ser un fixture sin API key.
@@ -28,6 +30,7 @@ test("genera un caso base para cada agente activo, sin dejarse ninguno", () => {
     ACTIVE_AGENT_CODES.length,
   );
   assert.ok(cases.every((item) => item.expectedAbstention));
+  assert.ok(cases.every((item) => item.datasetSplit === "smoke"));
 });
 
 const testCase: LiveAgentEvalCase = {
@@ -63,6 +66,32 @@ test("evalua abstencion, evidencia, coste, latencia y trace id", async () => {
   assert.equal(result.traceId, "trace-1");
 });
 
+test("valida la evidencia del contrato Camino A19 sin exigir el envelope genérico answer", async () => {
+  const result = await runLiveAgentEvalCase({
+    id: "a19-camino", agentCode: "a19_arquitecto_camino", objective: "Propón un Camino", expectedAbstention: false,
+    evidenceContext: { organizationId: "eval-org", availableSources: [{ reference: "shopify.summary", organizationId: "eval-org" }] },
+  }, "shadow", async () => ({
+    output: { plan_name: "Camino", diagnosis: "Ventas observadas en shopify.summary.", sources: [{ kind: "metric", reference: "shopify.summary", period: "30d" }], confidence: "medium", warnings: [], phases: [] },
+    latencyMs: 50, costUsd: 0.02, traceId: "a19-trace",
+  }));
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.failures, []);
+});
+
+test("evalúa A19 revisión con executive_summary y avance determinista del Camino", async () => {
+  const result = await runLiveAgentEvalCase({
+    id: "a19-review", agentCode: "a19_revision_camino", objective: "Revisa el avance", expectedAbstention: false,
+    evidenceContext: { organizationId: "eval-org", availableSources: [] },
+  }, "shadow", async () => ({
+    output: {
+      executive_summary: "El hito de medición sigue en curso.",
+      goal_progress: { status: "on_track", observed_value: 1200, comparison_value: 1100, explanation: "Evolución observada." },
+      confidence: "medium", warnings: [],
+    }, latencyMs: 60, costUsd: 0.02, traceId: "review-trace",
+  }));
+  assert.equal(result.passed, true);
+});
+
 test("marca una salida que no cumple la abstencion esperada", async () => {
   const result = await runLiveAgentEvalCase(testCase, "live", async () => ({
     output: {
@@ -90,12 +119,20 @@ test("convierte resultados shadow en evidencia AI-26 con coste, latencia y traza
       {
         caseId: "case-1",
         agentCode: "a14_operativa_meta",
+        datasetSplit: "smoke",
         mode: "shadow",
         passed: true,
         failures: [],
         latencyMs: 250,
         costUsd: 0.03,
         traceId: "trace-1",
+        executedAgentCode: null,
+        executedAgentVersionId: null,
+        executedCandidateFingerprint: null,
+        candidateJudgeStatus: null,
+        candidateJudgeScore: null,
+        candidateJudgeRubricVersion: null,
+        candidateJudgedOutputSha256: null,
       },
     ],
   });
@@ -108,12 +145,46 @@ test("convierte resultados shadow en evidencia AI-26 con coste, latencia y traza
       {
         case_id: "case-1",
         agent_code: "a14_operativa_meta",
+        dataset_split: "smoke",
         latency_ms: 250,
         cost_usd: 0.03,
         trace_id: "trace-1",
+        executed_agent_code: null,
+        executed_agent_version_id: null,
+        executed_candidate_fingerprint: null,
+        candidate_judge_status: null,
+        candidate_judge_score: null,
+        candidate_judge_rubric_version: null,
+        candidate_judged_output_sha256: null,
       },
     ],
   });
+});
+
+test("una suite live pinned rechaza una versión o huella distinta a la candidata", async () => {
+  const candidate = {
+    agentVersionId: "candidate-v2",
+    agentCode: "a14_operativa_meta" as const,
+    candidateFingerprint: "a".repeat(64),
+  };
+  const result = await runLiveAgentEvalCase(
+    testCase,
+    "live",
+    async (_testCase, _signal, requestedCandidate) => ({
+      output: { answer: "No hay datos suficientes.", sources: [], confidence: "low", warnings: ["missing_data"] },
+      latencyMs: 20,
+      costUsd: 0.01,
+      traceId: "candidate-run",
+      executedAgentCode: requestedCandidate!.agentCode,
+      executedAgentVersionId: requestedCandidate!.agentVersionId,
+      executedCandidateFingerprint: "b".repeat(64),
+    }),
+    undefined,
+    candidate,
+  );
+  assert.equal(result.passed, false);
+  assert.ok(result.failures.includes("candidate_fingerprint_mismatch"));
+  assert.equal(result.executedAgentVersionId, "candidate-v2");
 });
 
 test("ejecuta la suite con concurrencia I/O acotada y conserva errores por caso", async () => {
@@ -215,4 +286,67 @@ test("abre circuit breaker tras fallos repetidos del proveedor", async () => {
 
   assert.equal(calls, 2);
   assert.equal(results[2]?.failures.includes("circuit_open"), true);
+});
+
+test("a live candidate requires a passing judge result bound to the exact output", async () => {
+  const candidate = {
+    agentVersionId: "candidate-v2",
+    agentCode: testCase.agentCode,
+    candidateFingerprint: "a".repeat(64),
+  };
+  const output = { answer: "No hay datos suficientes.", sources: [], confidence: "low", warnings: ["missing_data"] };
+  const candidateJudgment = finalizeAgentJudgeResult(testCase.agentCode, {
+    summary: "La salida respeta la evidencia disponible.",
+    criteria: AGENT_JUDGE_RUBRICS[testCase.agentCode].map((criterion) => ({
+      criterion_id: criterion.id,
+      score: 4,
+      status: "evaluable" as const,
+      rationale: "El artefacto contiene evidencia suficiente para este criterio.",
+      evidence_refs: ["$.output.answer"],
+      critical_failure: false,
+    })),
+  }, () => true);
+  const accepted = await runLiveAgentEvalCase(testCase, "live", async (_item, _signal, requested) => ({
+    output, latencyMs: 20, costUsd: 0.01, traceId: "candidate-run",
+    executedAgentCode: requested!.agentCode,
+    executedAgentVersionId: requested!.agentVersionId,
+    executedCandidateFingerprint: requested!.candidateFingerprint,
+    candidateJudgment,
+    candidateJudgedOutputSha256: hashLiveAgentEvalOutput(output),
+  }), undefined, candidate);
+  assert.equal(accepted.passed, true);
+  assert.equal(accepted.candidateJudgeStatus, "passed");
+
+  const missing = await runLiveAgentEvalCase(testCase, "live", async (_item, _signal, requested) => ({
+    output, latencyMs: 20, costUsd: 0.01, traceId: null,
+    executedAgentCode: requested!.agentCode,
+    executedAgentVersionId: requested!.agentVersionId,
+    executedCandidateFingerprint: requested!.candidateFingerprint,
+  }), undefined, candidate);
+  assert.equal(missing.passed, false);
+  assert.ok(missing.failures.includes("candidate_judgment_missing_or_invalid"));
+
+  const mismatched = await runLiveAgentEvalCase(testCase, "live", async (_item, _signal, requested) => ({
+    output, latencyMs: 20, costUsd: 0.01, traceId: null,
+    executedAgentCode: requested!.agentCode,
+    executedAgentVersionId: requested!.agentVersionId,
+    executedCandidateFingerprint: requested!.candidateFingerprint,
+    candidateJudgment,
+    candidateJudgedOutputSha256: "f".repeat(64),
+  }), undefined, candidate);
+  assert.equal(mismatched.passed, false);
+  assert.ok(mismatched.failures.includes("candidate_judgment_output_mismatch"));
+
+  const scoreSpoof = { ...candidateJudgment, status: "passed" as const, overall_score: 4,
+    criteria: candidateJudgment.criteria.map((criterion) => ({ ...criterion, score: 0 })) };
+  const inconsistent = await runLiveAgentEvalCase(testCase, "live", async (_item, _signal, requested) => ({
+    output, latencyMs: 20, costUsd: 0.01, traceId: null,
+    executedAgentCode: requested!.agentCode,
+    executedAgentVersionId: requested!.agentVersionId,
+    executedCandidateFingerprint: requested!.candidateFingerprint,
+    candidateJudgment: scoreSpoof,
+    candidateJudgedOutputSha256: hashLiveAgentEvalOutput(output),
+  }), undefined, candidate);
+  assert.equal(inconsistent.passed, false);
+  assert.ok(inconsistent.failures.includes("candidate_judgment_not_passed"));
 });

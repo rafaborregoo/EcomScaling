@@ -1070,7 +1070,7 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   min-height: calc(100dvh / var(--ui-zoom, 1));
 }
 .trabajo-theme--consultant {
-  --tw-paper: #f3f3f0;
+  --tw-paper: #faf9f7;
   --tw-surface-2: #f7f7f5;
   --tw-ink: #16181b;
   --tw-ink-3: #686c72;
@@ -1081,6 +1081,12 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   --tw-accent-soft: #ffe7dc;
   --tw-accent-ink: #8a3310;
   --tw-good: #12805f;
+}
+/* Todo el portal del consultor va sobre el mismo papel, también Inicio y
+   Analítica, que pintan su propia paleta (client-pulse) y no pueden llevar
+   .trabajo-theme (congela /klaviyo). Solo el fondo; sus tokens no se tocan. */
+#portal-content[data-role="consultant"]:not(.admin-portal-content) {
+  background: #faf9f7;
 }
 .trabajo-theme--client {
   --tw-paper: #edf1f1;

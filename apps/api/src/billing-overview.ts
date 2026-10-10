@@ -25,11 +25,14 @@ function requireOwnerOrPlatformAdmin(
   if (context.profile.platform_role === "platform_admin") {
     return { ok: true as const };
   }
+  // La consultora también se factura: su propietario ve su plan y su portal
+  // igual que el dueño de una tienda ve el suyo.
   const isOwner = context.memberships.some(
     (membership) =>
       membership.organization_id === organizationId &&
       membership.role === "owner" &&
-      membership.accessSource === "membership",
+      (membership.accessSource === "membership" ||
+        membership.accessSource === "consulting_organization"),
   );
   if (isOwner) return { ok: true as const };
   return {

@@ -29,6 +29,9 @@ action-envelope|execution-supervision|continuous-learning)
   # Tarifa de modelos de IA desde LiteLLM (apps/worker/src/ai-pricing-sync-once.ts)
   ai-pricing-sync)
     ;;
+  # Informes PDF mensuales programados (apps/worker/src/scheduled-reports-once.ts)
+  scheduled-reports)
+    ;;
   *)
     echo "Unknown worker job: ${job:-<missing>}" >&2
     exit 64

@@ -10,7 +10,7 @@ import {
   passwordConfirmationState,
 } from "@/lib/password-policy";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Button, Card, ErrorBlock, Field, Input, toast } from "@/components/ui";
+import { Badge, Banner, Button, Card, ErrorBlock, Field, Input, toast } from "@/components/ui";
 
 /**
  * Seguridad de la cuenta con Supabase Auth, sin API propia: contraseña, segundo
@@ -118,7 +118,7 @@ function PasswordCard({ email }: { email: string | null }) {
 
 type Enrollment = { factorId: string; qr: string; secret: string };
 
-function TwoFactorCard() {
+function TwoFactorCard({ isConsultant }: { isConsultant: boolean }) {
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [verifiedFactorId, setVerifiedFactorId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -254,6 +254,14 @@ function TwoFactorCard() {
             Pide un código de tu app de autenticación al entrar. Aunque alguien
             tenga tu contraseña, no podrá acceder sin él.
           </p>
+          {/* El consultor entra en todas las tiendas de su cartera: su cuenta
+              es la más valiosa de robar. */}
+          {isConsultant && loaded && !verifiedFactorId ? (
+            <Banner tone="warn">
+              Con tu cuenta se entra en las tiendas de todos tus clientes. Actívala
+              antes de seguir.
+            </Banner>
+          ) : null}
           {error ? <ErrorBlock>{error}</ErrorBlock> : null}
           <div>
             {verifiedFactorId ? (
@@ -312,7 +320,9 @@ export function SecuritySection({ bootstrap }: { bootstrap: BootstrapResponse })
   return (
     <div className="space-y-4">
       <PasswordCard email={bootstrap.user.email ?? null} />
-      <TwoFactorCard />
+      <TwoFactorCard
+        isConsultant={["consultant", "platform_admin"].includes(bootstrap.profile.platform_role)}
+      />
       <SessionsCard />
     </div>
   );

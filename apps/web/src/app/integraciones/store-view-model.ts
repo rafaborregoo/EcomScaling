@@ -60,15 +60,6 @@ export function healthSeverity(status: string): number {
   }
 }
 
-export function healthTone(status: string): Tone {
-  if (status === "healthy") return "success";
-  if (status === "syncing") return "neutral";
-  if (["degraded", "stale"].includes(status)) return "warn";
-  if (["reauthorization_required", "needs_reauth", "error"].includes(status))
-    return "danger";
-  return "neutral";
-}
-
 /** Que le pasa a una conexion, en una etiqueta corta y una frase. */
 export type Explanation = {
   /** Para el badge. Dice el estado, no el codigo. */
@@ -77,17 +68,62 @@ export type Explanation = {
   detail: string | null;
   /** Lo que hay que hacer, si hay algo que hacer. */
   fix: "reconnect" | "retry" | "wait" | "connect" | "discard" | null;
+  /** E-NORA lo reintenta sola (Meta/Klaviyo); no cuenta como error tuyo. */
+  automaticRetry?: boolean;
 };
 
-/** Muestra por separado que OAuth terminó y cómo van los datos. */
-export function connectionStatusLabel(
+// --- Los seis estados ------------------------------------------------------
+// Todo lo que se pinta de una conexión (hub, ficha, tienda, subpáginas, vista
+// de cartera) sale de aquí: seis palabras, una acción cada una. El matiz
+// ("Atascada", "Faltan datos"…) va en la frase de `Explanation.detail`, no en
+// la etiqueta.
+
+export type ConnectionState =
+  | "conectado"
+  | "importando"
+  | "atrasado"
+  | "reconectar"
+  | "error"
+  | "desconectado";
+
+export const CONNECTION_STATES: Record<
+  ConnectionState,
+  { label: string; tone: Tone; action: string }
+> = {
+  conectado: { label: "Conectado", tone: "success", action: "Detalle" },
+  importando: { label: "Importando", tone: "brand", action: "Ver progreso" },
+  atrasado: { label: "Datos atrasados", tone: "warn", action: "Sincronizar" },
+  reconectar: { label: "Reconectar", tone: "warn", action: "Reconectar" },
+  error: { label: "Error", tone: "danger", action: "Ver qué pasa" },
+  desconectado: { label: "Desconectado", tone: "neutral", action: "Conectar" },
+};
+
+/** Sin conexión no hay estado: quien llama dice «Sin conectar» o «Aún no disponible». */
+export function connectionState(
   connection: IntegrationConnection | null | undefined,
-  healthLabel: string,
-): string {
-  if (!connection || !["connected", "syncing"].includes(connection.status)) {
-    return healthLabel;
-  }
-  return healthLabel === "Al día" ? "Conectado" : `Conectado · ${healthLabel}`;
+  explanation: Explanation,
+): ConnectionState | null {
+  if (!connection) return null;
+  if (["disconnected", "pending_deletion"].includes(connection.status)) return "desconectado";
+  if (explanation.fix === "reconnect") return "reconectar";
+  if (explanation.fix === "wait") return "importando";
+  if (explanation.fix === "connect" || explanation.fix === "discard") return "desconectado";
+  if (connection.health.status === "healthy") return "conectado";
+  // Meta/Klaviyo con un fallo que E-NORA reintenta sola: los datos van
+  // atrasados, pero no es un error que tengas que mirar tú.
+  if (connection.health.status === "error" && !explanation.automaticRetry) return "error";
+  return "atrasado";
+}
+
+/** Para la vista de cartera, que solo recibe el `status` crudo de cada conexión. */
+export function stateFromStatus(status: string): ConnectionState {
+  if (["connected", "healthy"].includes(status)) return "conectado";
+  if (status === "syncing") return "importando";
+  if (["reauthorization_required", "needs_reauth", "revoked"].includes(status)) return "reconectar";
+  if (status === "error") return "error";
+  // pending = OAuth sin terminar: con solo el status no se sabe si es de ahora.
+  if (["disconnected", "pending_deletion", "pending"].includes(status)) return "desconectado";
+  return "atrasado";
 }
 
 // Por `health.reason`, que es un codigo estable del backend (packages/
@@ -210,6 +246,7 @@ export function explainHealth(
         label: "Reintento automático",
         detail: `La última solicitud no terminó bien. E-NORA la volverá a intentar cada ${cadence}; no hace falta pulsar sincronizar.`,
         fix: "retry",
+        automaticRetry: true,
       };
     }
     if (

@@ -33,6 +33,7 @@ import {
 import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { recordAuditLog } from "./audit-log.js";
+import { findConnectionByOAuthState, isOAuthStateExpired, issuedStateMetadata } from "./oauth-state.js";
 import {
   describeShopifyMissingScopes,
   missingShopifyScopes,
@@ -87,19 +88,6 @@ function normalizeShopDomain(input: string) {
     .replace(/\/.*$/, "");
 }
 
-function parseState(metadata: unknown) {
-  if (
-    typeof metadata === "object" &&
-    metadata !== null &&
-    "state" in metadata
-  ) {
-    const value = (metadata as Record<string, unknown>).state;
-    return typeof value === "string" ? value : null;
-  }
-
-  return null;
-}
-
 function parseOnboardingReturn(metadata: unknown) {
   if (
     typeof metadata === "object" &&
@@ -128,14 +116,12 @@ async function findOnboardingReturnForState(
   state: string | null,
 ) {
   if (!state) return null;
-  const { data } = await supabase
-    .from("integration_connections")
-    .select("id, metadata")
-    .eq("provider", "shopify")
-    .eq("status", "pending")
-    .order("updated_at", { ascending: false })
-    .limit(25);
-  const pending = (data ?? []).find((connection) => parseState(connection.metadata) === state);
+  const { data: pending } = await findConnectionByOAuthState<{ id: string; metadata: unknown }>(
+    supabase,
+    "shopify",
+    state,
+    "id, metadata",
+  );
   if (!pending || !parseOnboardingReturn(pending.metadata)) return null;
   return pending;
 }
@@ -326,7 +312,7 @@ export async function createShopifyConnectionAuthUrl(
       provider_account_name: parseProviderAccountName(shopDomain),
       status: "pending",
       metadata: {
-        state,
+        ...issuedStateMetadata(state),
         shop_domain: shopDomain,
         source: "oauth_start",
         app_mode: appMode,
@@ -584,43 +570,57 @@ export async function handleShopifyOAuthCallback(
   }
 
   const supabase = createServiceClient(env);
-  const { data: connections, error: lookupError } = await supabase
-    .from("integration_connections")
-    .select(
-      "id, organization_id, provider, provider_account_id, provider_account_name, status, metadata",
-    )
-    .eq("provider", "shopify")
-    .eq("provider_account_id", shop)
-    .order("updated_at", { ascending: false })
-    .limit(20);
 
-  if (lookupError) {
+  // Sin state no se sabe que organizacion inicio la conexion: el HMAC prueba
+  // que la peticion viene de Shopify, no a que cliente pertenece. Antes se
+  // elegia la conexion pendiente mas reciente de ese dominio en cualquier
+  // organizacion, y quien hubiera sembrado ese dominio se quedaba el permiso.
+  // Una instalacion lanzada desde Shopify (sin state) vuelve al portal para
+  // que el usuario, ya identificado, pulse Conectar y repita el flujo con state.
+  if (!state) {
+    return {
+      ok: true,
+      data: {
+        redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=iniciar&shop=${encodeURIComponent(shop)}`,
+      },
+    };
+  }
+
+  const lookup = await findConnectionByOAuthState<{
+    id: string;
+    organization_id: string;
+    provider_account_id: string;
+    metadata: unknown;
+  }>(supabase, "shopify", state, "id, organization_id, provider_account_id, metadata");
+
+  if (lookup.error) {
     return {
       ok: false,
       statusCode: 500,
       error: "shopify_pending_connection_lookup_failed",
-      detail: lookupError.message,
+      detail: lookup.error,
     };
   }
 
-  const pending =
-    (connections ?? []).find(
-      (connection) => parseState(connection.metadata) === state,
-    ) ?? (connections ?? [])[0];
+  const pendingConnection = lookup.data;
+  // El state tiene que ser de una conexion de ESTA tienda: un state valido de
+  // otra tienda no autoriza a guardar el token de esta.
+  if (!pendingConnection || pendingConnection.provider_account_id !== shop) {
+    return { ok: false, statusCode: 400, error: "invalid_shopify_oauth_state" };
+  }
 
-  const pendingConnection = pending as
-    | {
-        id: string;
-        organization_id: string;
-        metadata: unknown;
-      }
-    | undefined;
-
-  if (!pendingConnection) {
+  if (isOAuthStateExpired(pendingConnection.metadata)) {
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: "shopify_oauth_state_expired",
+      })
+      .eq("id", pendingConnection.id);
     return {
-      ok: false,
-      statusCode: 404,
-      error: "pending_shopify_connection_not_found",
+      ok: true,
+      data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=caducado` },
     };
   }
 
@@ -664,18 +664,6 @@ export async function handleShopifyOAuthCallback(
       statusCode: 400,
       error: "invalid_shopify_hmac",
     };
-  }
-
-  const storedState = parseState(pendingConnection.metadata);
-  if (state !== null && storedState !== null && storedState !== state) {
-    // Con HMAC valido, un state distinto significa casi siempre que se repitio el flujo
-    // desde otra pestaña o que Shopify inicio la instalacion por su cuenta (managed
-    // install); se acepta pero queda rastro por si el supuesto falla.
-    console.warn("Shopify OAuth state mismatch tolerated (HMAC valid)", {
-      shop,
-      connection_id: pendingConnection.id,
-      has_incoming_state: state !== null,
-    });
   }
 
   let tokenResult: Awaited<ReturnType<typeof exchangeShopifyCodeForToken>>;
@@ -794,7 +782,10 @@ export async function handleShopifyOAuthCallback(
         pendingConnection.metadata !== null
           ? (pendingConnection.metadata as Record<string, unknown>)
           : {}),
-        state: state ?? storedState,
+        // El state es de un solo uso: consumido aqui, no vuelve a valer.
+        state: null,
+        state_issued_at: null,
+        state_used_at: now,
         shop_domain: shop,
         auth_mode: "offline",
         missing_scopes: missingScopes.map((item) => item.scope),
@@ -822,7 +813,7 @@ export async function handleShopifyOAuthCallback(
       supabase,
       pendingConnection.id,
       shop,
-      resolveCredentialSecret(env),
+      env,
       tokenResult,
     );
   } catch (error) {

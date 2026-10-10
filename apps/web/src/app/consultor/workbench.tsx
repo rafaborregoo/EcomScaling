@@ -18,6 +18,8 @@ import { type ReactNode, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
+import { panelPct } from "@e-nora/contracts";
+import { useProfitability } from "@/app/panel/panel-data";
 import { isWithinNextDays } from "@/lib/elapsed";
 import { invalidateCachedQueries } from "@/lib/use-cached-query";
 import {
@@ -63,6 +65,8 @@ export type WorkbenchAction = {
   assignee_name: string | null;
   href: string;
   action_label: string;
+  /** Decision atomica que se toma sin salir de la mesa (resumen o propuesta unica). */
+  decision?: { endpoint: string } | null;
 };
 
 export type PortfolioHealthRow = {
@@ -356,11 +360,13 @@ export function DailyActionInbox({
   emptyHint,
   filter,
   onFilterChange,
+  onDecided,
 }: {
   actions: WorkbenchAction[];
   emptyHint?: ReactNode;
   filter: InboxFilter;
   onFilterChange: (filter: InboxFilter) => void;
+  onDecided: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
 
@@ -441,7 +447,7 @@ export function DailyActionInbox({
                 <ul className="divide-y divide-separator">
                   {group.actions.map((action) => (
                     <li key={action.id}>
-                      <ActionRow action={action} />
+                      <ActionRow action={action} onDecided={onDecided} />
                     </li>
                   ))}
                 </ul>
@@ -468,7 +474,68 @@ export function DailyActionInbox({
   );
 }
 
-function ActionRow({ action }: { action: WorkbenchAction }) {
+const DECISION_LABELS: Partial<Record<WorkbenchActionKind, { approve: string; reject: string; done: string }>> = {
+  call_approval: { approve: "Aprobar y publicar", reject: "Rechazar", done: "Resumen publicado." },
+  ai_proposal: { approve: "Aprobar", reject: "Descartar", done: "Propuesta aprobada." },
+};
+
+/**
+ * Aprobar o descartar sin salir de la mesa. Usa el mismo endpoint que Llamadas
+ * y Tareas: la mesa no tiene logica de aprobacion propia, solo el atajo.
+ */
+function DecisionButtons({
+  action,
+  onDecided,
+}: {
+  action: WorkbenchAction;
+  onDecided: () => void;
+}) {
+  const [busy, setBusy] = useState<"approved" | "rejected" | null>(null);
+  const labels = DECISION_LABELS[action.kind];
+  if (!action.decision || !labels) return null;
+  const endpoint = action.decision.endpoint;
+
+  async function decide(decision: "approved" | "rejected") {
+    setBusy(decision);
+    try {
+      const response = await apiFetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      toast.success(decision === "approved" ? labels!.done : "Descartado.");
+      invalidateCachedQueries();
+      onDecided();
+    } catch {
+      toast.danger("No se pudo guardar la decisión por un error de red. Reintenta.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <Button type="button" size="sm" variant="primary" disabled={busy !== null} onClick={() => void decide("approved")}>
+        {busy === "approved" ? "Guardando…" : labels.approve}
+      </Button>
+      <Button type="button" size="sm" variant="ghost" disabled={busy !== null} onClick={() => void decide("rejected")}>
+        {busy === "rejected" ? "Guardando…" : labels.reject}
+      </Button>
+    </>
+  );
+}
+
+function ActionRow({
+  action,
+  onDecided,
+}: {
+  action: WorkbenchAction;
+  onDecided: () => void;
+}) {
   const badge = PRIORITY_BADGE[action.priority];
   const meta = [
     action.assignee_name ? `Responsable: ${action.assignee_name}` : null,
@@ -510,14 +577,15 @@ function ActionRow({ action }: { action: WorkbenchAction }) {
           <p className="mt-1 text-xs text-muted">{meta.join(" · ")}</p>
         ) : null}
       </div>
-      <div className="shrink-0">
+      <div className="flex shrink-0 flex-wrap gap-2">
+        <DecisionButtons action={action} onDecided={onDecided} />
         <ButtonLink
           href={action.href}
           size="sm"
-          variant="secondary"
+          variant={action.decision ? "ghost" : "secondary"}
           onClick={leaveForModule}
         >
-          {action.action_label}
+          {action.decision ? "Ver detalle" : action.action_label}
         </ButtonLink>
       </div>
 
@@ -659,14 +727,15 @@ export function PortfolioHealthBoard({
           })}
         </div>
         {rows.length > 6 ? (
-          <input
-            type="search"
-            aria-label="Buscar cliente en la cartera"
-            placeholder="Buscar cliente..."
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="w-48 rounded-md border border-edge px-3 py-2 text-sm"
-          />
+          <div className="w-48">
+            <Input
+              type="search"
+              aria-label="Buscar cliente en la cartera"
+              placeholder="Buscar cliente..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
         ) : null}
       </div>
 
@@ -1053,6 +1122,68 @@ function MarkReviewedButton({
  * duplica Dashboard ni Tareas: enlaza a ellos. La administracion de tiendas y
  * accesos baja al final, plegada.
  */
+/**
+ * Beneficio y margen del cliente en la propia mesa: antes la ficha solo decia
+ * "faltan costes" o nada, y para saber si el cliente gana dinero habia que
+ * salir al Panel. Misma lectura que el Panel (`/consultant/profitability`), sin
+ * recalcular nada aqui.
+ */
+function ClientProfitStrip({
+  organizationId,
+  days,
+}: {
+  organizationId: string;
+  days: number;
+}) {
+  const profitability = useProfitability(days, organizationId);
+  const row = profitability.data?.clients[0] ?? null;
+  if (profitability.isLoading) {
+    return <p className="mt-4 text-[13px] text-muted">Calculando beneficio…</p>;
+  }
+  if (!row || row.net_profit == null || !row.currency_code) {
+    return (
+      <p className="mt-4 text-[13px] text-muted">
+        Beneficio no disponible: {row && !row.currency_code ? "tiendas en monedas distintas" : "sin lectura de rentabilidad"}.
+      </p>
+    );
+  }
+  const money = (value: number) => formatMoney(value, row.currency_code);
+  const belowTarget =
+    row.margin_pct != null && row.margin_target != null && row.margin_pct < row.margin_target;
+  return (
+    <div className="mt-4 border-t border-separator pt-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Metric
+          label="Beneficio neto"
+          value={money(row.net_profit)}
+          tone={row.net_profit < 0 ? "danger" : "default"}
+          hint="Ventas menos producto, envío, comisiones, ads y fijos"
+        />
+        <Metric
+          label="Margen neto"
+          value={row.margin_pct == null ? "—" : panelPct(row.margin_pct)}
+          tone={belowTarget ? "warn" : "default"}
+          hint={row.margin_target == null ? "Sin objetivo pactado" : `Objetivo ${panelPct(row.margin_target)}`}
+        />
+        <Metric
+          label="Palancas detectadas"
+          value={row.lever_total > 0 ? `+${money(row.lever_total)}/mes` : "—"}
+          hint="Lo que el Panel estima recuperable"
+        />
+      </div>
+      <div className="mt-3">
+        <ButtonLink
+          href={`/panel?organizationId=${organizationId}`}
+          size="sm"
+          variant="ghost"
+        >
+          Abrir rentabilidad
+        </ButtonLink>
+      </div>
+    </div>
+  );
+}
+
 export function ClientDesk({
   client,
   actions,
@@ -1230,7 +1361,12 @@ export function ClientDesk({
                 }
               />
             </div>
-            {!business.has_financial_settings ? (
+            {business.has_financial_settings ? (
+              <ClientProfitStrip
+                organizationId={client.organization_id}
+                days={business.window_days}
+              />
+            ) : (
               <p className="mt-4 text-[13px] leading-relaxed text-warning">
                 Beneficio y margen no se muestran: faltan los costes de este
                 cliente.{" "}
@@ -1241,7 +1377,7 @@ export function ClientDesk({
                 </Link>
                 .
               </p>
-            ) : null}
+            )}
             {business.coverage.length > 0 ? (
               <ul className="mt-2 space-y-1 text-xs text-muted">
                 {business.coverage.map((note) => (
@@ -1330,7 +1466,7 @@ export function ClientDesk({
           <ul className="mt-4 divide-y divide-separator">
             {actions.slice(0, 3).map((action) => (
               <li key={action.id}>
-                <ActionRow action={action} />
+                <ActionRow action={action} onDecided={onReviewed} />
               </li>
             ))}
           </ul>

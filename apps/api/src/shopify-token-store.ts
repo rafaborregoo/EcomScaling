@@ -2,9 +2,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { createLogger } from "@e-nora/observability";
+import { credentialKeyVersion, decryptCredential, encryptCredential, legacyCredentialSecret } from "./credential-crypto.js";
 import {
-  decryptShopifyCredential,
-  encryptShopifyCredential,
   refreshShopifyOfflineToken,
   resolveShopifyAppEnv,
   type ShopifyAppMode,
@@ -45,8 +44,9 @@ type CredentialRow = {
   refresh_locked_at: string | null;
 };
 
+/** Clave heredada (v1). Se mantiene exportada para quien aun la importe. */
 export function resolveCredentialSecret(env: ApiEnv) {
-  return env.SUPABASE_JWT_SECRET ?? env.SUPABASE_SERVICE_ROLE_KEY ?? env.SHOPIFY_API_SECRET;
+  return legacyCredentialSecret(env);
 }
 
 function createServiceClient(env: ApiEnv) {
@@ -56,13 +56,13 @@ function createServiceClient(env: ApiEnv) {
   });
 }
 
-function encryptPayload(payload: ShopifyCredentialPayload, secret: string) {
-  return encryptShopifyCredential(JSON.stringify(payload), secret);
+function encryptPayload(payload: ShopifyCredentialPayload, env: ApiEnv, connectionId: string) {
+  return encryptCredential(JSON.stringify(payload), env, connectionId);
 }
 
-function decryptPayload(encryptedPayload: string, secret: string): ShopifyCredentialPayload | null {
+function decryptPayload(encryptedPayload: string, env: ApiEnv, connectionId: string): ShopifyCredentialPayload | null {
   try {
-    return JSON.parse(decryptShopifyCredential(encryptedPayload, secret)) as ShopifyCredentialPayload;
+    return JSON.parse(decryptCredential(encryptedPayload, env, connectionId)) as ShopifyCredentialPayload;
   } catch {
     return null;
   }
@@ -76,7 +76,7 @@ export async function saveShopifyTokens(
   supabase: SupabaseClient,
   connectionId: string,
   shop: string,
-  secret: string,
+  env: ApiEnv,
   token: ShopifyExpiringToken,
 ) {
   const payload: ShopifyCredentialPayload = {
@@ -93,8 +93,8 @@ export async function saveShopifyTokens(
       {
         connection_id: connectionId,
         credential_kind: CREDENTIAL_KIND,
-        encrypted_payload: encryptPayload(payload, secret),
-        encryption_key_version: "v1",
+        encrypted_payload: encryptPayload(payload, env, connectionId),
+        encryption_key_version: credentialKeyVersion(env),
         expires_at: token.accessTokenExpiresAt,
         refresh_token_expires_at: token.refreshTokenExpiresAt,
         refresh_locked_at: null,
@@ -146,7 +146,6 @@ function sleep(ms: number) {
  * reconectar (OAuth completo) cuando el refresh_token ya no es utilizable.
  */
 export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: string): Promise<string> {
-  const secret = resolveCredentialSecret(env);
   const supabase = createServiceClient(env);
 
   const { data: connection, error: connectionError } = await supabase
@@ -191,7 +190,7 @@ export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: stri
     const expiresAtMs = new Date(row.expires_at).getTime();
 
     if (expiresAtMs - Date.now() > REFRESH_BUFFER_MS) {
-      const payload = decryptPayload(row.encrypted_payload, secret);
+      const payload = decryptPayload(row.encrypted_payload, env, connectionId);
       if (!payload?.access_token) {
         throw new Error("shopify_access_token_unavailable");
       }
@@ -230,14 +229,14 @@ export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: stri
       continue;
     }
 
-    const currentPayload = decryptPayload(claimed.encrypted_payload, secret);
+    const currentPayload = decryptPayload(claimed.encrypted_payload, env, connectionId);
     if (!currentPayload?.refresh_token) {
       throw new Error("shopify_refresh_token_unavailable");
     }
 
     try {
       const refreshed = await refreshShopifyOfflineToken(appEnv, shop, currentPayload.refresh_token);
-      await saveShopifyTokens(supabase, connectionId, shop, secret, refreshed);
+      await saveShopifyTokens(supabase, connectionId, shop, env, refreshed);
       return refreshed.accessToken;
     } catch (error) {
       logger.error("Shopify token refresh failed", {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import {
   buildClientHeadline,
   overCacTarget,
@@ -31,6 +31,7 @@ import {
   cx,
 } from "./panel-parts";
 import { useCallNotes, usePanelReading, useProfitability, type PanelNav } from "./panel-data";
+import { ClientActions, ClientThread } from "./client-extras";
 import s from "./panel.module.css";
 
 /**
@@ -66,13 +67,10 @@ export function ClientLevel({
   onDays: (days: number) => void;
   nav: PanelNav;
 }) {
-  const base = `/v1/organizations/${organizationId}`;
   const query = useProfitability(days, organizationId);
   const reading = usePanelReading({ organizationId, connectionId: null, days });
   const { nextCall, queued, adding, add: addToCall } = useCallNotes(organizationId);
   const ask = useCopilotAsk();
-  const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
   const [reviewing, setReviewing] = useState(false);
 
   const bar = <ScopeBar days={days} onDays={onDays} />;
@@ -159,30 +157,6 @@ export function ClientLevel({
     .flatMap((store) => store.levers.map((lever) => ({ store, lever })))
     .sort((a, b) => b.lever.eur_mes - a.lever.eur_mes);
 
-  async function sendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const body = message.trim();
-    if (!body) return;
-    setSending(true);
-    try {
-      const response = await apiFetch(`${base}/consultant-messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, attachments: [] }),
-      });
-      if (!response.ok) {
-        toast.danger(await readApiError(response));
-        return;
-      }
-      toast.success(`Mensaje enviado a ${name}.`);
-      setMessage("");
-      invalidateApiGetCache();
-    } catch {
-      toast.danger("No se pudo enviar el mensaje por un error de red.");
-    } finally {
-      setSending(false);
-    }
-  }
 
   async function markReviewed() {
     setReviewing(true);
@@ -251,6 +225,23 @@ export function ClientLevel({
               >
                 <IaTag />
                 Preparar la llamada con {name}
+              </button>
+              <button
+                type="button"
+                className={cx(s.btn, s.ghost)}
+                onClick={() =>
+                  ask({
+                    question: `Escríbeme el guion de la llamada con ${name} en tres bloques: 1) qué le enseño primero (las cifras que mejor se explican), 2) qué le propongo y qué le pido permiso para cambiar, 3) cómo cierro con acuerdos concretos. ${
+                      queued.length > 0
+                        ? `Parte de los puntos que ya llevo: ${queued.map((note) => note.body).join("; ")}.`
+                        : "Todavía no llevo puntos añadidos."
+                    }`,
+                    focusLabel: `Guion · ${name}`,
+                  })
+                }
+              >
+                <IaTag />
+                Guion de la llamada
               </button>
               <button type="button" className={cx(s.btn, s.ghost)} onClick={nav.portfolio}>
                 ← Toda la cartera
@@ -553,22 +544,21 @@ export function ClientLevel({
                   </ul>
                 )
               ) : null}
-              <form className={s.say} onSubmit={sendMessage}>
-                <label className={s.sr} htmlFor="panel-mensaje">
-                  Mensaje para {name}
-                </label>
-                <input
-                  id="panel-mensaje"
-                  type="text"
-                  value={message}
-                  maxLength={2000}
-                  onChange={(event) => setMessage(event.target.value)}
-                  placeholder={`Escribe un mensaje para ${name}…`}
-                />
-                <button type="submit" className={cx(s.btn, s.sm)} disabled={sending || !message.trim()}>
-                  {sending ? "Enviando…" : "Enviar"}
-                </button>
-              </form>
+            </Panel>
+          </div>
+        </Section>
+
+        <Section
+          id="conversacion"
+          title="Conversación y acciones"
+          lead={`El hilo con ${name} y lo que tienes abierto con este cliente, sin salir de las cifras.`}
+        >
+          <div className={s.two}>
+            <Panel title={`Hilo con ${name}`} sub="El mismo canal que Mensajes: lo que escribes aquí le llega al cliente">
+              <ClientThread organizationId={organizationId} name={name} />
+            </Panel>
+            <Panel title="Acciones abiertas" sub="Tareas internas de este cliente, incluidas las que creas desde las palancas">
+              <ClientActions organizationId={organizationId} />
             </Panel>
           </div>
         </Section>

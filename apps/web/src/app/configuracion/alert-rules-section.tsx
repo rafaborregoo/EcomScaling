@@ -45,7 +45,19 @@ type AlertRule = {
   default_severity: string;
   default_threshold: number | null;
   is_customized: boolean;
+  /** Veces que saltó en 30 días; null si no se pudo leer. */
+  fired_30d?: number | null;
+  last_fired_at?: string | null;
 };
+
+function firedLabel(rule: AlertRule): string | null {
+  if (rule.fired_30d == null) return null;
+  if (rule.fired_30d === 0) return "No ha saltado en 30 días";
+  const last = rule.last_fired_at
+    ? ` · última el ${new Date(rule.last_fired_at).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`
+    : "";
+  return `Saltó ${rule.fired_30d} ${rule.fired_30d === 1 ? "vez" : "veces"} en 30 días${last}`;
+}
 
 /** Una fila con su propio borrador: guardar una regla no toca las demás. */
 function RuleRow({
@@ -106,6 +118,7 @@ function RuleRow({
       {rule.description ? (
         <p className="text-sm text-muted">{rule.description}</p>
       ) : null}
+      {firedLabel(rule) ? <p className="text-xs text-muted">{firedLabel(rule)}</p> : null}
 
       {enabled ? (
         <div className="flex flex-wrap items-end gap-3">

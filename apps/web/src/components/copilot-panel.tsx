@@ -7,6 +7,7 @@ import {
   Alert,
   Badge,
   Button,
+  ButtonLink,
   Card,
   CloseIcon,
   Sheet,
@@ -1153,6 +1154,9 @@ export function CopilotPanel({
                         <Button size="sm" variant="secondary" onClick={() => void openReport(report)}>
                           Descargar PDF
                         </Button>
+                        <ButtonLink href="/informes" size="sm" variant="ghost">
+                          Ver en Informes
+                        </ButtonLink>
                         <Button size="sm" variant="secondary" aria-label="Compartir informe por WhatsApp" onClick={() => void shareReportWhatsApp(report)}>
                           <WhatsAppIcon />
                           <span>WhatsApp</span>

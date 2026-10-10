@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  renderReportEmail,
   createCopilotReportShareLink,
   emailCopilotReport,
   isCopilotReportId,
@@ -56,4 +57,19 @@ test("share and email endpoints reject users without organization membership bef
   assert.equal(email.ok, false);
   if (!link.ok) assert.equal(link.error, "organization_access_denied");
   if (!email.ok) assert.equal(email.error, "organization_access_denied");
+});
+
+test("report email leads with the reading and signs with the consultora", () => {
+  const { subject, text, html } = renderReportEmail({
+    title: "Resumen ejecutivo de negocio",
+    period_start: "2026-09-01",
+    period_end: "2026-09-30",
+    prepared_by: "Consultora <Demo>",
+    highlights: ["Las ventas suben un 13 %.", 42],
+  }, "informe.pdf");
+  assert.match(subject, /^Resumen ejecutivo de negocio · 1 de septiembre de 2026 – 30 de septiembre de 2026$/);
+  assert.match(text, /- Las ventas suben un 13 %\./);
+  assert.match(text, /Consultora <Demo>, con E-NORA$/);
+  assert.ok(html.includes("Consultora &lt;Demo&gt;, con E-NORA"));
+  assert.equal(html.includes("42"), false);
 });

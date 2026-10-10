@@ -19,6 +19,13 @@ import {
   type InviteRejectionReason,
 } from "./invite-codes.js";
 import { isErr } from "./result-guard.js";
+import {
+  EMPTY_ATTENTION,
+  fetchAllByOrganization,
+  scoreAttention,
+  type AttentionAlertRow,
+  type AttentionTaskRow,
+} from "./consultant-attention.js";
 import { rankStores, type AgentSignal } from "./store-triage.js";
 import { rankMetaAccounts, type MetaSignalRow } from "./meta-triage.js";
 import {
@@ -284,80 +291,34 @@ export async function listConsultantOrganizations(
   }
 
   // FE-08: "que cliente necesita atencion hoy". Senal determinista con los
-  // mismos datos del motor de reglas: alertas vivas ponderadas por severidad
-  // y antiguedad + tareas vencidas. Nada de IA: es ordenable y explicable.
-  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
-
-  const [{ data: alertRows }, { data: taskRows }] = await Promise.all([
-    supabase
-      .from("alerts")
-      .select("organization_id, severity, first_detected_at")
-      .in("organization_id", safeIds)
-      .in("status", ["open", "acknowledged"]),
-    supabase
-      .from("tasks")
-      .select("organization_id, due_at")
-      .in("organization_id", safeIds)
-      .in("status", ["pending", "in_progress"]),
+  // mismos datos del motor de reglas (ver consultant-attention.ts). Si la
+  // lectura falla no se pintan ceros: unos ceros por un error parecen un
+  // cliente tranquilo, asi que se avisa con `attention_degraded`.
+  const [alertsResult, tasksResult] = await Promise.all([
+    fetchAllByOrganization<AttentionAlertRow>(ids, (chunk, from, to) =>
+      supabase
+        .from("alerts")
+        .select("organization_id, severity, first_detected_at")
+        .in("organization_id", chunk)
+        .in("status", ["open", "acknowledged"])
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllByOrganization<AttentionTaskRow>(ids, (chunk, from, to) =>
+      supabase
+        .from("tasks")
+        .select("organization_id, due_at")
+        .in("organization_id", chunk)
+        .in("status", ["pending", "in_progress"])
+        .order("id")
+        .range(from, to),
+    ),
   ]);
-
-  const severityWeight: Record<string, number> = {
-    critical: 10,
-    high: 5,
-    medium: 2,
-    low: 1,
-    info: 0,
-  };
-  const now = Date.now();
-
-  const attentionByOrganization = new Map<
-    string,
-    {
-      open_alerts: number;
-      critical_alerts: number;
-      high_alerts: number;
-      oldest_alert_days: number;
-      overdue_tasks: number;
-      open_tasks: number;
-      score: number;
-    }
-  >();
-
-  for (const id of ids) {
-    const orgAlerts = (alertRows ?? []).filter(
-      (row) => row.organization_id === id,
-    );
-    const orgTasks = (taskRows ?? []).filter(
-      (row) => row.organization_id === id,
-    );
-
-    const oldestAlertDays = orgAlerts.reduce((max, row) => {
-      const detectedAt = row.first_detected_at
-        ? Date.parse(row.first_detected_at as string)
-        : now;
-      return Math.max(max, Math.floor((now - detectedAt) / 86_400_000));
-    }, 0);
-
-    const overdueTasks = orgTasks.filter(
-      (row) => row.due_at && Date.parse(row.due_at as string) < now,
-    ).length;
-
-    const severityScore = orgAlerts.reduce(
-      (sum, row) => sum + (severityWeight[row.severity as string] ?? 1),
-      0,
-    );
-
-    attentionByOrganization.set(id, {
-      open_alerts: orgAlerts.length,
-      critical_alerts: orgAlerts.filter((row) => row.severity === "critical")
-        .length,
-      high_alerts: orgAlerts.filter((row) => row.severity === "high").length,
-      oldest_alert_days: oldestAlertDays,
-      overdue_tasks: overdueTasks,
-      open_tasks: orgTasks.length,
-      score: severityScore + Math.min(oldestAlertDays, 14) + overdueTasks * 3,
-    });
+  const attentionDegraded = Boolean(alertsResult.error || tasksResult.error);
+  if (attentionDegraded) {
+    console.error("consultant_attention_load_failed", alertsResult.error ?? tasksResult.error);
   }
+  const attentionByOrganization = scoreAttention(ids, alertsResult.data, tasksResult.data, Date.now());
 
   // Una tienda propia se opera igual que un cliente (integraciones, metricas,
   // tareas) pero no es cartera. Quien liste "Clientes" filtra por esto en vez
@@ -2719,7 +2680,8 @@ export async function listOwnStoresOverview(
     supabase
       .from("shopify_stores")
       .select("organization_id, currency_code")
-      .in("organization_id", ownOrganizationIds),
+      .in("organization_id", ownOrganizationIds)
+      .eq("is_active", true),
     supabase
       .from("meta_ad_accounts")
       .select("organization_id, currency_code")
@@ -4091,6 +4053,10 @@ export async function deleteOrganizationStore(
     };
   }
 
+  // La tienda deja de contar desde ya: sin esto seguia "activa" y su moneda y
+  // sus cifras se mezclaban con las de las tiendas vivas de la organizacion.
+  await setShopifyStoresActive(supabase, connectionId, false);
+
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
@@ -4116,6 +4082,20 @@ export async function deleteOrganizationStore(
  * purgado. Vuelve a 'connected' -- si el token OAuth ya no es valido, el
  * proximo sync la movera a 'error' de forma normal.
  */
+async function setShopifyStoresActive(
+  supabase: ReturnType<typeof createServiceClient>,
+  connectionId: string,
+  isActive: boolean,
+) {
+  const { error } = await supabase
+    .from("shopify_stores")
+    .update({ is_active: isActive })
+    .eq("connection_id", connectionId);
+  if (error) {
+    logger.error("shopify_stores_active_toggle_failed", error.message);
+  }
+}
+
 export async function restoreOrganizationStore(
   env: ApiEnv,
   context: AuthContext,
@@ -4182,6 +4162,8 @@ export async function restoreOrganizationStore(
       detail: updateError.message,
     };
   }
+
+  await setShopifyStoresActive(supabase, connectionId, true);
 
   await recordAuditLog(supabase, {
     organizationId,

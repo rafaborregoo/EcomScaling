@@ -20,6 +20,9 @@ MAILTO=""
 7 3 * * * /opt/e-nora/run-worker-job.sh purge-expired-deletions
 # Tarifa de modelos de IA (LiteLLM -> ai_model_prices) y coste de las ejecuciones sin el.
 40 0 * * * /opt/e-nora/run-worker-job.sh ai-pricing-sync
+# Informes mensuales programados (Informes › Envío mensual). Diario e idempotente:
+# cada programacion envia el ultimo mes completo una vez; si el dia 1 falla, se recupera.
+20 7 * * * /opt/e-nora/run-worker-job.sh scheduled-reports
 
 # --- Cadena nocturna F3 -> F7 (diagnostico, decision, playbooks, 6.00-6.04,
 # 7.01-7.14), en orden y en serie dentro de un solo job. Tiene hasta las 3:35,

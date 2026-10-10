@@ -6,7 +6,14 @@ test("F6.03 observa ventas y economics disponibles sin llamar adquisición a tod
   const context = buildAcquisitionDemandPlaybookContext("org-1", [], null, "2026-09-18T10:00:00.000Z");
   const enriched = applyAcquisitionDemandEvidence(context, {
     sales: { available: true, orders_count: 42, revenue: 1200 },
-    margin: { available: true, contribution: 420, items_with_cost: 12 },
+    margin: {
+      available: true,
+      contribution: 420,
+      items_with_cost: 12,
+      lines_with_exact_metrics: 12,
+      lines_with_estimated_metrics: 0,
+      lines_without_metrics: 0,
+    },
     funnel: { available: true, sessions: 900 },
   }, ["shopify_sales_summary:org-1:2026-09-18"]);
   assert.equal(enriched.facts?.["acquisition.sales.observed"], "TRUE");

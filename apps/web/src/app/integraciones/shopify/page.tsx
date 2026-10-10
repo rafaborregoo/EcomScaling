@@ -23,11 +23,9 @@ import {
   LastErrorBanner,
   ProviderStatusCard,
   Steps,
-  healthLabel,
-  healthTone,
+  StateBadge,
   useIntegrations,
 } from "../shared";
-import hub from "../hub.module.css";
 
 function ShopifyIntegrationPage({
   bootstrap,
@@ -102,7 +100,7 @@ function ShopifyIntegrationPage({
   }
 
   return (
-    <div className={hub.page}>
+    <div className="portal-page space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={shopify}>
@@ -346,9 +344,7 @@ function ShopifyIntegrationPage({
                     {/* Salud, no el estado crudo: una tienda 'connected' que
                       lleva dos semanas sin sincronizar no esta bien, y aqui
                       salia en verde. */}
-                    <Badge tone={healthTone(connection.health.status)}>
-                      {healthLabel(connection.health.status)}
-                    </Badge>
+                    <StateBadge connection={connection} providerId="shopify" />
                     {connection.id === activeConnectionId ? (
                       <Badge tone="brand">Tienda activa</Badge>
                     ) : null}

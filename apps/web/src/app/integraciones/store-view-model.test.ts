@@ -13,9 +13,11 @@ import type { IntegrationConnection, IntegrationsResponse } from "./shared";
 import type { StoreScope } from "./store-scope-model";
 import {
   buildStoreViews,
+  connectionState,
   explainError,
   explainHealth,
   looksLikeErrorCode,
+  stateFromStatus,
   unassignedConnections,
 } from "./store-view-model";
 
@@ -392,4 +394,26 @@ test("sin reason conocido se cae al estado, nunca a un hueco en blanco", () => {
   const explained = explainHealth({ status: "algo_nuevo" });
   assert.equal(typeof explained.detail, "string");
   assert.notEqual(explained.label, "");
+});
+
+test("seis estados: cada salud cae en uno solo", () => {
+  const state = (partial: Partial<IntegrationConnection>, providerId = "shopify") => {
+    const c = connection({ id: "c", ...partial });
+    return connectionState(c, explainHealth(c.health, c, providerId));
+  };
+  assert.equal(connectionState(null, explainHealth({ status: "unknown", reason: "not_connected" })), null);
+  assert.equal(state({}), "conectado");
+  assert.equal(state({ health: { status: "syncing", lastSyncAt: null } }), "importando");
+  assert.equal(state({ health: { status: "unknown", reason: "never_synced", lastSyncAt: null } }), "importando");
+  assert.equal(state({ health: { status: "stale", reason: "sync_stale", lastSyncAt: null } }), "atrasado");
+  assert.equal(state({ health: { status: "reauthorization_required", reason: "authorization_revoked", lastSyncAt: null } }), "reconectar");
+  assert.equal(state({ status: "error", health: { status: "error", reason: "connection_error", lastSyncAt: null } }), "error");
+  assert.equal(
+    state({ status: "error", last_error_message: "timeout", health: { status: "error", reason: "connection_error", lastSyncAt: null } }, "klaviyo"),
+    "atrasado",
+  );
+  assert.equal(state({ status: "disconnected", health: { status: "unknown", reason: "disconnected", lastSyncAt: null } }), "desconectado");
+  assert.equal(stateFromStatus("needs_reauth"), "reconectar");
+  assert.equal(stateFromStatus("pending"), "desconectado");
+  assert.equal(stateFromStatus("connected"), "conectado");
 });
