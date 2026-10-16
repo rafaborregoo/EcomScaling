@@ -1502,3 +1502,9 @@ La auditoría permanece cerrada como diagnóstico: las fichas y rúbricas cubren
 El gate de activación ya no está solo en el diseño. SQL read-only en TEST y producción confirmó el trigger activo `agent_versions_release_evidence_required`, el RPC `promote_agent_version` y el requisito común de evidencia offline/live candidate-pinned más certificación holdout del juez. Un probe negativo en ambos entornos intentó activar una versión inactiva sin evidencia: el trigger devolvió `check_violation` y mantuvo la versión inactiva. Esto prueba enforcement en la base para escrituras ordinarias; no reemplaza el control del canal privilegiado que ejecuta migraciones, ni la batería negativa para cada agente y camino CI.
 
 El holdout ahora es inmutable y de un solo uso; la calibración repetible está separada y no puede aprobar promociones. Las migraciones de split y claim se verificaron en ambos entornos. Permanecen pendientes el preflight CI del despliegue, los casos gold reales, la evaluación candidate-pinned conectada al flujo operativo y la certificación estadística por agente. El código sigue sin desplegarse y `AI_JUDGE_MODE=off`.
+
+## A29 Analista de métricas
+
+**Alta (16-oct-2026, ADR-0027):** A29 (`a29_analista_metrica`) explica la ficha de una métrica de `/metric-analysis`. Las reglas deciden el veredicto (good/watch/bad/insufficient) y A29 solo lo explica; contrato de solo lectura (`proposed_writes` vacío) y modelo de su versión.
+
+**Rúbrica del juez:** (1) no cambia ni contradice el veredicto calculado; (2) la causa sale del driver principal con cifra y periodo, y con `insufficient` pide el dato que falta en vez de inventar causa; (3) lo atribuido lleva su plataforma y no se suma (ADR-0021), y la metodología RAG se usa sin citar fichas internas. Pendiente: juicio real y calibración.

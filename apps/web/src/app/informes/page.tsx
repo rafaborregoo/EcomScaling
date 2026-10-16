@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import s from "./informes.module.css";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -162,12 +163,18 @@ function ReportSheet({ organizationId, report, onClose }: { organizationId: stri
 
 function ReportsTable({ organizationId, reports }: { organizationId: string; reports: ReportRow[] }) {
   const [selected, setSelected] = useState<ReportRow | null>(null);
+  const [search, setSearch] = useState("");
+  const matching = reports.filter((report) => `${report.title} ${SOURCE[report.source].label} ${periodLabel(report)}`.toLocaleLowerCase("es-ES").includes(search.trim().toLocaleLowerCase("es-ES")));
   return (
     <>
+      <div className={s.toolbar}>
+        <div className={s.search}><Input type="search" aria-label="Buscar informes por título, periodo u origen" placeholder="Buscar por título, periodo u origen" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+        <span className={s.count} role="status">{matching.length} de {reports.length} informes</span>
+      </div>
       <Table
         ariaLabel="Informes generados"
-        rows={reports}
-        emptyLabel="Aún no hay informes."
+        rows={matching}
+        emptyLabel="No hay informes que coincidan. Prueba otra búsqueda."
         columns={[
           {
             key: "title",
@@ -184,7 +191,7 @@ function ReportsTable({ organizationId, reports }: { organizationId: string; rep
           { key: "created_at", label: "Creado", render: (report) => dateLabel(report.created_at) },
           {
             key: "actions",
-            label: "",
+            label: "Acciones",
             render: (report) => (
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setSelected(report)}>Ver</Button>
@@ -294,7 +301,7 @@ function SchedulesCard({ organizationId, data }: { organizationId: string; data:
   };
 
   return (
-    <Card title="Envío mensual" description="El día 1 de cada mes se genera el informe del mes anterior y se envía por correo.">
+    <Card headingLevel={2} title="Envío mensual" description="El día 1 de cada mes se genera el informe del mes anterior y se envía por correo.">
       {data.schedules.length ? (
         <ul className="mb-4 divide-y divide-separator">
           {data.schedules.map((schedule) => (
@@ -324,8 +331,8 @@ function SchedulesCard({ organizationId, data }: { organizationId: string; data:
             void save({ template_id: templateId, recipients: list }).then((ok) => ok && setRecipients(""));
           }}
         >
-          <div className="w-56"><Select aria-label="Plantilla del envío" value={templateId} onChange={setTemplateId} options={data.templates.map((template) => ({ value: template.id, label: template.name }))} /></div>
-          <div className="min-w-64 flex-1"><Input aria-label="Destinatarios" placeholder="correos separados por comas" value={recipients} onChange={(event) => setRecipients(event.target.value)} /></div>
+          <div className="w-56"><p className="mb-2 text-sm font-medium">Plantilla del envío</p><Select aria-label="Plantilla del envío" value={templateId} onChange={setTemplateId} options={data.templates.map((template) => ({ value: template.id, label: template.name }))} /></div>
+          <div className="min-w-0 flex-1 basis-64"><label className="mb-2 block text-sm font-medium" htmlFor="report-recipients">Destinatarios</label><Input id="report-recipients" aria-label="Destinatarios" placeholder="correos separados por comas" value={recipients} onChange={(event) => setRecipients(event.target.value)} /></div>
           <Button type="submit" disabled={busy || !recipients.trim()}>Programar</Button>
         </form>
       ) : data.schedules.length ? null : (
@@ -339,12 +346,20 @@ function OrganizationReports({ organizationId }: { organizationId: string }) {
   const query = useCachedQuery<ReportsResponse>(`/v1/organizations/${organizationId}/reports`);
   const [creating, setCreating] = useState(false);
   if (query.isLoading) return <LoadingBlock label="Cargando informes..." />;
-  if (query.error || !query.data) return <ErrorBlock>No se pudieron cargar los informes. Revisa la conexión e inténtalo de nuevo.</ErrorBlock>;
+  if (query.error || !query.data) return <div className="space-y-4"><ErrorBlock>No se pudieron cargar los informes. Revisa la conexión e inténtalo de nuevo.</ErrorBlock><Button variant="secondary" onClick={query.reload}>Reintentar la carga</Button></div>;
   const data = query.data;
   return (
     <div className="space-y-4">
+      <header className={s.header}>
+        <div><h1>Informes de tu tienda</h1><p>Revisa las conclusiones del periodo, consulta el PDF y gestiona tus envíos mensuales.</p></div>
+        <dl className={s.stats}>
+          <div><dt>Informes disponibles</dt><dd>{data.reports.length}</dd></div>
+          <div><dt>Envíos mensuales activos</dt><dd>{data.schedules.filter((schedule) => schedule.is_active).length}</dd></div>
+        </dl>
+      </header>
       <Card
-        title="Informes"
+        headingLevel={2}
+        title="Biblioteca de informes"
         description="Los PDF generados desde el copiloto, desde aquí o en el envío mensual."
         actions={<Button onClick={() => setCreating(true)}>Nuevo informe</Button>}
       >
@@ -387,24 +402,27 @@ function PortfolioReports() {
   };
 
   if (consultora.isLoading || (organizationId && query.isLoading)) return <LoadingBlock label="Cargando informes..." />;
+  if (consultora.error) return <div className="space-y-4"><ErrorBlock>No se pudo cargar tu consultoría.</ErrorBlock><Button variant="secondary" onClick={consultora.reload}>Reintentar la carga</Button></div>;
   if (!organizationId) {
     return <EmptyState title="Elige un cliente" hint="Los informes son de cada cliente. Selecciónalo en la cabecera para ver los suyos." />;
   }
   const reports = (query.data?.reports ?? []).filter((report) => report.source === "portfolio");
   return (
     <div className="space-y-4">
+      <header className={s.header}><div><h1>Informes de cartera</h1><p>Una lectura conjunta de tus clientes para preparar la revisión y compartir conclusiones con el equipo.</p></div></header>
       <Card
-        title="Informes de cartera"
+        headingLevel={2}
+        title="Biblioteca de la cartera"
         description="Facturación, beneficio y estado de cada cliente, con las cifras del Panel de rentabilidad. Para los informes de un cliente, elígelo en la cabecera."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="w-40"><Select aria-label="Periodo" value={days} onChange={setDays} options={[{ value: "30", label: "Últimos 30 días" }, { value: "90", label: "Últimos 90 días" }]} /></div>
             <Button disabled={busy} onClick={() => void generate()}>{busy ? "Generando…" : "Generar"}</Button>
           </div>
         }
       >
         {query.error ? (
-          <ErrorBlock>No se pudieron cargar los informes de cartera.</ErrorBlock>
+          <div className="space-y-4"><ErrorBlock>No se pudieron cargar los informes de cartera.</ErrorBlock><Button variant="secondary" onClick={query.reload}>Reintentar la carga</Button></div>
         ) : reports.length ? (
           <ReportsTable organizationId={organizationId} reports={reports} />
         ) : (
@@ -425,7 +443,7 @@ function ReportsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 export default function ReportsPage() {
   return (
     <PortalShell title="Informes">
-      {(bootstrap: BootstrapResponse) => <ReportsContent bootstrap={bootstrap} />}
+      {(bootstrap: BootstrapResponse) => <div className={s.page}><ReportsContent bootstrap={bootstrap} /></div>}
     </PortalShell>
   );
 }

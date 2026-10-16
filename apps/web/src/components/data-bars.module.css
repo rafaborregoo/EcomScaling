@@ -1,19 +1,20 @@
 /* Barras de datos del portal: cascada (Waterfall) y filas etiqueta | barra |
    valor (BarRows). Los colores salen de los tokens de la vista que las pinta
-   (--ink, --line, --good...) con el petróleo + azafrán como respaldo. */
+   (--ink, --line, --good...) con el grafito del logo como respaldo. */
 
 .root {
-  --db-ink: var(--ink, #0b2a33);
-  --db-ink-3: var(--ink-3, #5c757b);
-  --db-line: var(--line-2, #e5eced);
-  --db-grid: var(--line, #d3dee0);
-  --db-track: var(--sunken, #e2e9ea);
+  --db-ink: var(--ink, #3d3b3a);
+  --db-ink-3: var(--ink-3, #6b6560);
+  --db-line: var(--line-2, #eeebe8);
+  --db-grid: var(--line, #e2dfdc);
+  --db-track: var(--sunken, #ebe8e5);
   --db-surface: var(--surface, #ffffff);
-  --db-good: var(--good, #11806a);
-  --db-bad: var(--bad, #bf2f49);
-  --db-warn: var(--warn, #c0600e);
-  --db-bar: var(--store, #0f7482);
-  --db-cost: color-mix(in srgb, var(--db-bad) 52%, var(--db-surface));
+  --db-good: var(--good, #2f7d5b);
+  --db-bad: var(--bad, #b8364a);
+  --db-warn: var(--warn, #b85f17);
+  --db-bar: var(--store, #4f8a6e);
+  /* Los costes en grafito claro: restar no es un error, no van en rojo. */
+  --db-cost: color-mix(in srgb, var(--db-ink-3) 55%, var(--db-surface));
   font-variant-numeric: tabular-nums;
 }
 
@@ -231,5 +232,43 @@
   .row {
     grid-template-columns: minmax(78px, 110px) minmax(0, 1fr) auto;
     column-gap: 10px;
+  }
+}
+
+/* Las barras crecen desde su base al montarse, escalonadas por fila. */
+@keyframes db-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes db-fade {
+  from {
+    opacity: 0;
+  }
+}
+.wfBar,
+.fill {
+  transform-origin: left center;
+  animation: db-grow-x 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.wfLink,
+.marker {
+  animation: db-fade 0.4s ease 0.8s both;
+}
+.wfRow:nth-child(2) .wfBar, .row:nth-child(2) .fill, .stack:nth-child(2) .fill { animation-delay: 0.08s; }
+.wfRow:nth-child(3) .wfBar, .row:nth-child(3) .fill, .stack:nth-child(3) .fill { animation-delay: 0.16s; }
+.wfRow:nth-child(4) .wfBar, .row:nth-child(4) .fill, .stack:nth-child(4) .fill { animation-delay: 0.24s; }
+.wfRow:nth-child(5) .wfBar, .row:nth-child(5) .fill, .stack:nth-child(5) .fill { animation-delay: 0.32s; }
+.wfRow:nth-child(6) .wfBar, .row:nth-child(6) .fill, .stack:nth-child(6) .fill { animation-delay: 0.4s; }
+.wfRow:nth-child(7) .wfBar, .row:nth-child(7) .fill, .stack:nth-child(7) .fill { animation-delay: 0.48s; }
+.wfRow:nth-child(8) .wfBar, .row:nth-child(8) .fill, .stack:nth-child(8) .fill { animation-delay: 0.56s; }
+.wfRow:nth-child(n + 9) .wfBar, .row:nth-child(n + 9) .fill, .stack:nth-child(n + 9) .fill { animation-delay: 0.64s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wfBar,
+  .fill,
+  .wfLink,
+  .marker {
+    animation: none;
   }
 }

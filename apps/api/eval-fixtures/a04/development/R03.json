@@ -1,0 +1,282 @@
+{
+  "schema_version": "agent-release-replay-v1",
+  "agent_code": "a04_generador_tareas",
+  "dataset_version": "2026-09-29.v2",
+  "rubric_version": "judge-rubrics-v7",
+  "split": "development",
+  "provenance": "synthetic",
+  "privacy_reviewed": false,
+  "scenario": "R03 Tras publicar un tema nuevo ayer, la finalización del checkout cae del 62 % al 31 % con las sesiones estables.",
+  "input": {
+    "objective": "Proponer las tareas que tiene sentido hacer HOY en la tienda \"E-NORA Demo\", a partir de los datos de los ultimos 30 dias. Cita en sources[].reference exactamente la clave (key) de cada fuente congelada que uses.",
+    "parameters": {
+      "horizon": "day",
+      "lookback_days": 30,
+      "reference_date": "2026-06-30"
+    }
+  },
+  "scope": {
+    "organization_ref": "org-demo-anon",
+    "store_ref": "store-demo-anon",
+    "timezone": "Europe/Madrid",
+    "period_start": "2026-06-01",
+    "period_end": "2026-07-01"
+  },
+  "sources": [
+    {
+      "key": "tareas_abiertas",
+      "status": "available",
+      "content": {
+        "near_term_window_days": 14,
+        "near_term": [],
+        "later_count": 0,
+        "later": [],
+        "note": "Una tarea de later NO cubre una urgencia de hoy."
+      },
+      "content_sha256": "386c7262e9d184b5aea35535fbdae82d9120e30aa40d9961abf0d46be880302e",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "historial_resultados_tareas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "alertas_activas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "ventas_shopify_30d",
+      "status": "available",
+      "content": {
+        "periodo": [
+          "2026-06-01",
+          "2026-07-01"
+        ],
+        "moneda": "EUR",
+        "orders": 1208,
+        "gross_sales": 67426,
+        "discounts": 431.7,
+        "refunds": 0,
+        "net_sales": 66994.3,
+        "aov": 55.46,
+        "units_sold": 1301
+      },
+      "content_sha256": "5eeef6b75a7044789e8e54c6901ccc1387db86f6c40381a6607d8102db56cee3",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "productos_mas_vendidos_30d",
+      "status": "available",
+      "content": {
+        "ventana": [
+          "2026-06-01",
+          "2026-07-01"
+        ],
+        "productos": [
+          {
+            "titulo": "Chaqueta Boreal Negra",
+            "unidades": 174,
+            "ingresos_netos_eur": 20563
+          },
+          {
+            "titulo": "Gorra Costa Cruda",
+            "unidades": 171,
+            "ingresos_netos_eur": 4087
+          },
+          {
+            "titulo": "Bolso Mini Bruma",
+            "unidades": 169,
+            "ingresos_netos_eur": 6568
+          },
+          {
+            "titulo": "Calcetín Rib Menta",
+            "unidades": 162,
+            "ingresos_netos_eur": 1928
+          },
+          {
+            "titulo": "Sudadera Oversize Arena",
+            "unidades": 161,
+            "ingresos_netos_eur": 9268
+          },
+          {
+            "titulo": "Camiseta Básica Niebla",
+            "unidades": 159,
+            "ingresos_netos_eur": 4579
+          },
+          {
+            "titulo": "Sudadera Capucha Arcilla",
+            "unidades": 153,
+            "ingresos_netos_eur": 10343
+          },
+          {
+            "titulo": "Pantalón Cargo Oliva",
+            "unidades": 152,
+            "ingresos_netos_eur": 9658
+          }
+        ]
+      },
+      "content_sha256": "ee530833768c5f4e8150f186741533ae76ba46b2032209cca4d7c2a914a1b465",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "propuestas_otros_horizontes",
+      "status": "available",
+      "content": [
+        {
+          "horizon": "semanal",
+          "proposals": []
+        },
+        {
+          "horizon": "mensual",
+          "proposals": []
+        }
+      ],
+      "content_sha256": "c954fc3e37027cba0db4fae273ddd3b24824a3012f81e00ca1a77fcf6a128513",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "mi_camino",
+      "status": "available",
+      "content": {
+        "status": "sin_camino_activo"
+      },
+      "content_sha256": "f0998820071fc31a42b03ccfddf5a0474abf47d63ed206cd080b61b1bc23767a",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_a02",
+      "status": "available",
+      "content": {
+        "generated_at": "2026-06-30T05:00:00Z",
+        "headline": "Sesiones estables pero la mitad de pedidos desde ayer.",
+        "findings": [
+          {
+            "area": "conversion",
+            "title": "Finalización del checkout del 62 % al 31 % desde el cambio de tema",
+            "severity": "critical"
+          }
+        ]
+      },
+      "content_sha256": "556c4520ccc2319dd08cab77dc22f4715b05bc0115b926679e446f2f7d239ff9",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "fechas_comerciales_45d",
+      "status": "available",
+      "content": {
+        "eventos": [
+          {
+            "evento": "Rebajas de verano",
+            "fecha": "2026-07-01",
+            "empieza_a_preparar": "2026-06-10",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Prime Day (referencia de mercado, julio)",
+            "fecha": "2026-07-14",
+            "empieza_a_preparar": "2026-06-23",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Vuelta al cole / septiembre",
+            "fecha": "2026-09-01",
+            "empieza_a_preparar": "2026-08-04",
+            "vas_tarde": false
+          },
+          {
+            "evento": "Cambio de temporada otoño-invierno (moda)",
+            "fecha": "2026-09-15",
+            "empieza_a_preparar": "2026-08-04",
+            "vas_tarde": false
+          }
+        ],
+        "campanas_planificadas": [],
+        "propuestas_aprobadas": []
+      },
+      "content_sha256": "a3076e1dfec1a56fdac33bc745c0ccb6caec5c9f26cc32fb6ac74272b49cf676",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "especialistas_aprobados",
+      "status": "available",
+      "content": {
+        "status": "no_recent_approved_outputs",
+        "outputs": []
+      },
+      "content_sha256": "90bcffbd14bf0ab4c5c4c3ae326cfd0b683f953b12e0bebb1d4a2c7b7ad08ea1",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_ejecutivo_d14",
+      "status": "available",
+      "content": {
+        "status": "no_canonical_diagnosis",
+        "diagnosticos": []
+      },
+      "content_sha256": "87b1f2d5be11855c34ae8f51d4886881e339025b78a439cfc8ff140d6fff037a",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "asignacion_consultor",
+      "status": "available",
+      "content": {
+        "has_consultant": true,
+        "decision_rule": "Las propuestas quedan pendientes de revision del consultor humano asignado."
+      },
+      "content_sha256": "1477ddadc3015f9a206f9c292767379625d485a0d810acd67af1288aebac6db0",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "conocimiento_rag",
+      "status": "available",
+      "content": [
+        {
+          "documento": "FASE 5.03 — PDP, carrito, checkout y fricciones de compra",
+          "extracto": "Las caídas bruscas de conversión en checkout tras un cambio de tema, app o método de pago se comprueban primero con un pedido de prueba completo en móvil y escritorio antes de tocar tráfico o precios."
+        },
+        {
+          "documento": "Cuestionario de la marca (reglas provisionales)",
+          "extracto": "No aplicar descuentos sin comprobar antes el margen real; no acumular promociones; no usar falsa escasez; no prometer disponibilidad ni plazos de entrega sin respaldo; no asumir autorización para activar anuncios ni comprometer gasto."
+        }
+      ],
+      "content_sha256": "a5f93da585e53fbb88e65974a635460ddc7327f6ad1cde6c2ac0dbe4617fd59d",
+      "as_of": "2026-06-30T07:00:00Z"
+    },
+    {
+      "key": "embudo_checkout",
+      "status": "available",
+      "content": {
+        "antes_cambio_tema": {
+          "sesiones_dia": 1480,
+          "checkouts_iniciados": 96,
+          "finalizados": 60
+        },
+        "desde_cambio_tema": {
+          "sesiones_dia": 1510,
+          "checkouts_iniciados": 98,
+          "finalizados": 30
+        },
+        "cambio": "tema publicado 2026-06-29 18:40"
+      },
+      "content_sha256": "bf06fe3c119d99c1f6a24747fef08ee09f506a71a822f372fba488b9cc19f4d5",
+      "as_of": "2026-06-30T07:00:00Z"
+    }
+  ],
+  "tool_replay": [],
+  "visual_artifacts": [],
+  "constraints": {
+    "expected_abstention": false,
+    "required_output_paths": [
+      "$.proposed_writes[0]"
+    ],
+    "forbidden_output_paths": [
+      "$.proposed_writes[5]"
+    ]
+  }
+}

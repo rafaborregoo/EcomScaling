@@ -23,9 +23,9 @@ export function GrowthCycle({ tasks }: { tasks: TrackTask[] }) {
   if (byTrack.every((entry) => entry.total === 0)) return null;
   const routines = growthRoutines(tasks);
   return (
-    <section className="space-y-3" aria-label="Carriles de trabajo del Camino">
+    <section className="space-y-3" aria-labelledby="camino-carriles-title">
       <div>
-        <h3 className="text-sm font-semibold">Tu trabajo, en tres carriles</h3>
+        <h2 id="camino-carriles-title" className="text-sm font-semibold">Tu trabajo, en tres carriles</h2>
         <p className="text-xs text-muted">Escalar la tienda no termina con una lista: se prepara, se aprovechan las fechas y se crece cada semana.</p>
       </div>
       <ul className="grid gap-2 sm:grid-cols-3">
@@ -43,9 +43,11 @@ export function GrowthCycle({ tasks }: { tasks: TrackTask[] }) {
         ))}
       </ul>
       {routines.length ? (
-        <div className="space-y-1.5">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">Ciclo de crecimiento</h4>
-          <ul className="space-y-1.5">
+        <details className="space-y-1.5">
+          <summary className="cursor-pointer text-sm font-semibold">
+            Ciclo de crecimiento <span className="font-normal text-muted">· {routines.length} rutinas que se repiten</span>
+          </summary>
+          <ul className="mt-2 space-y-1.5">
             {routines.map((routine) => (
               <li key={routine.name} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-lg border border-separator bg-surface px-3 py-2 text-sm">
                 <span className="min-w-0 flex-1 break-words">{routine.name}</span>
@@ -57,7 +59,7 @@ export function GrowthCycle({ tasks }: { tasks: TrackTask[] }) {
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       ) : null}
     </section>
   );

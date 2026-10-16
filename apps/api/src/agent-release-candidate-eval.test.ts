@@ -1,7 +1,8 @@
 ﻿import assert from "node:assert/strict";
 import { createHash as nodeCreateHash } from "node:crypto";
 import test from "node:test";
-import { caminoPlanJsonSchema, caminoWeeklyReviewJsonSchema } from "@e-nora/ai";
+import { JUDGE_RUBRIC_VERSION } from "@e-nora/ai";
+import { AGENT_EVAL_AGENT_CODES, caminoPlanJsonSchema, caminoWeeklyReviewJsonSchema } from "@e-nora/ai";
 import { buildAgentReleaseFixtureLiveEvalCases, validateAgentReleaseEvalFixture, agentReleaseEvalFixtureSchema } from "./agent-release-eval-fixture.js";
 import { buildAgentReleaseCandidateContext, buildAgentReleaseCandidateProvider, candidateOutputContract } from "./agent-release-candidate-eval.js";
 import { a19ReviewFixtureContextSchema } from "./agent-release-eval-fixture.js";
@@ -13,7 +14,7 @@ function fixture(agentCode: string, visual = false) {
     schema_version: "agent-release-replay-v1",
     agent_code: agentCode,
     dataset_version: "release-replay-v1",
-    rubric_version: "judge-rubrics-v1",
+    rubric_version: JUDGE_RUBRIC_VERSION,
     split: "development",
     provenance: "synthetic",
     privacy_reviewed: false,
@@ -22,7 +23,7 @@ function fixture(agentCode: string, visual = false) {
       ? { horizon_months: 3, reference_date: "2026-10-10" }
       : agentCode === "a19_revision_camino" ? { a19_review_context: a19ReviewContext() } : {} },
     scope: {
-      organization_ref: "fixture-org", store_ref: "fixture-store", timezone: "Europe/Madrid",
+      organization_ref: "00000000-0000-4000-8000-000000000001", store_ref: "00000000-0000-4000-8000-000000000002", timezone: "Europe/Madrid",
       period_start: "2026-01-01", period_end: "2026-01-30",
     },
     sources: (agentCode === "a19_revision_camino"
@@ -31,15 +32,17 @@ function fixture(agentCode: string, visual = false) {
         key, status: "available", content, content_sha256: "", as_of: "2026-01-30T10:00:00Z",
       })),
     tool_replay: [],
-    visual_artifacts: visual ? [{
-      artifact_id: "cd9da9f3-c120-4f88-8e7b-d10a24010afe", media_type: "image/png",
-      sha256: "a".repeat(64), role: "input",
-    }] : [],
+    visual_artifacts: (visual || ["a15_analista_imagenes", "a16_texto_sobre_imagen", "a23_creatividad_meta", "a26_contenido_email"].includes(agentCode))
+      ? (agentCode === "a16_texto_sobre_imagen"
+        ? [visualArtifact("input", "a16_render_capture", 1), visualArtifact("render", "a16_render_capture", 2), visualArtifact("neighbor", "a16_render_capture", 3)]
+        : agentCode === "a26_contenido_email"
+          ? [visualArtifact("render", "a26_email_render_capture"), visualArtifact("render", "a26_email_render_capture", 2)]
+          : [visualArtifact("input", agentCode === "a15_analista_imagenes" ? "instagram_image_bank" : agentCode === "a23_creatividad_meta" ? "meta_creative_image" : "a16_render_capture")]) : [],
     constraints: { expected_abstention: true, required_output_paths: [], forbidden_output_paths: [] },
   };
   for (const source of input.sources) source.content_sha256 = hash(content);
   const parsed = validateAgentReleaseEvalFixture(input);
-  if (!parsed.ok) throw new Error("fixture_invalid");
+  if (!parsed.ok) throw new Error(`fixture_invalid:${parsed.detail}`);
   return buildAgentReleaseFixtureLiveEvalCases([{ id: "case-1", fixture: parsed.fixture }])[0]!;
 }
 
@@ -71,6 +74,18 @@ function a19ReviewContext() {
 function hash(value: unknown): string {
   const stable = canonicalJson(value);
   return nodeCreateHash("sha256").update(stable).digest("hex");
+}
+
+const validPngBase64 = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64");
+function visualArtifact(role: "input" | "render" | "reference" | "neighbor", entity_type = "a16_render_capture", variant = 1) {
+  const bytes = Buffer.from(validPngBase64, "base64");
+  return {
+    artifact_id: ["cd9da9f3-c120-4f88-8e7b-d10a24010afe", "0d2c2d34-4a42-4c99-b56a-e9bb2c65d9e0", "2d2c2d34-4a42-4c99-b56a-e9bb2c65d9e0", "3d2c2d34-4a42-4c99-b56a-e9bb2c65d9e0"][variant - 1],
+    entity_type, organization_id: "00000000-0000-4000-8000-000000000001", store_id: "00000000-0000-4000-8000-000000000002",
+    period_start: "2026-01-01", period_end: "2026-01-30", related_entity_id: entity_type === "meta_creative_image" ? "00000000-0000-4000-8000-000000000003" : null, ad_id: entity_type === "meta_creative_image" ? "00000000-0000-4000-8000-000000000004" : null,
+    media_type: "image/png", sha256: nodeCreateHash("sha256").update(bytes).digest("hex"), bytes_base64: bytes.toString("base64"), role,
+    ...(entity_type === "a26_email_render_capture" ? { viewport: variant === 1 ? "desktop" : "mobile" } : {}),
+  };
 }
 
 function canonicalJson(value: unknown): string {
@@ -114,6 +129,19 @@ function candidateVersion(code: string, outputSchemaVersion = "v1") {
     agent_definitions: { code },
   };
 }
+
+test("every active catalog profile has a valid candidate fixture and output contract", () => {
+  assert.equal(AGENT_EVAL_AGENT_CODES.length, 27);
+  for (const code of AGENT_EVAL_AGENT_CODES) {
+    let testCase: ReturnType<typeof fixture>;
+    try { testCase = fixture(code); }
+    catch (error) { assert.fail(`${code}: fixture must validate (${error instanceof Error ? error.message : "unknown"})`); }
+    const parsedFixture = agentReleaseEvalFixtureSchema.safeParse(testCase.fixture);
+    assert.equal(parsedFixture.success, true, `${code}: fixture must validate`);
+    assert.ok(candidateOutputContract(code, parsedFixture.data!), `${code}: candidate output contract must resolve`);
+    assert.ok(buildAgentReleaseCandidateContext(parsedFixture.data!).length > 0, `${code}: candidate context must be constructible`);
+  }
+});
 
 test("provider fails closed when the exact candidate output schema is unsupported", async () => {
   const code = "a19_arquitecto_camino";
@@ -176,17 +204,24 @@ test("A19 weekly review uses the real schema with frozen plan, progress and metr
   assert.equal(agentReleaseEvalFixtureSchema.safeParse(missingPlan).success, false, "a missing approved plan cannot enter a release suite");
 });
 
-test("visual fixtures are no-evaluable without bytes and never certify a text-only verdict", async () => {
-  const code = "a15_analista_imagenes";
-  const { supabase, calls } = fakeSupabase(candidateVersion(code));
-  const { provider } = await buildAgentReleaseCandidateProvider({ OPENAI_API_KEY: "test" } as any, supabase, "candidate-version-1");
-  const result = await provider(fixture(code, true), undefined, {
-    agentVersionId: "candidate-version-1", agentCode: code, candidateFingerprint: "b".repeat(64),
-  });
-  assert.equal(result.candidateJudgment?.status, "no_evaluable");
-  assert.match(result.candidateJudgment?.summary ?? "", /visual_bytes_or_render_not_attached/);
-  assert.equal(result.output && typeof result.output === "object" ? (result.output as any).unavailable : null, "visual_bytes_or_render_not_attached");
-  assert.equal(calls.get("agent_versions"), 2, "loads the candidate again after verifying the pin");
+test("visual fixtures require hash-verified bytes and role coverage for each visual agent", () => {
+  const base = fixture("a15_analista_imagenes").fixture! as any;
+  const missing = structuredClone(base);
+  missing.visual_artifacts = [visualArtifact("input", "instagram_image_bank")];
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(missing).success, true);
+  const badHash = structuredClone(missing);
+  badHash.visual_artifacts[0].sha256 = "a".repeat(64);
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(badHash).success, false);
+  const a16 = { ...missing, agent_code: "a16_texto_sobre_imagen", visual_artifacts: [visualArtifact("input"), visualArtifact("render")] };
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(a16).success, false, "A16 requires input, rendered output, and neighboring reference");
+  const a16Complete = { ...missing, agent_code: "a16_texto_sobre_imagen", visual_artifacts: [visualArtifact("input"), visualArtifact("render", "a16_render_capture", 2), visualArtifact("neighbor", "a16_render_capture", 3)] };
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(a16Complete).success, true, "A16 accepts the full frozen visual set");
+  const a23 = { ...missing, agent_code: "a23_creatividad_meta", visual_artifacts: [visualArtifact("input", "meta_creative_image")] };
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(a23).success, true, "A23 accepts a scoped Meta creative bound to an ad and period");
+  const a26 = { ...missing, agent_code: "a26_contenido_email", visual_artifacts: [visualArtifact("render", "a26_email_render_capture")] };
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(a26).success, false, "A26 requires desktop and mobile render captures");
+  const a26Complete = { ...missing, agent_code: "a26_contenido_email", visual_artifacts: [visualArtifact("render", "a26_email_render_capture"), visualArtifact("render", "a26_email_render_capture", 2)] };
+  assert.equal(agentReleaseEvalFixtureSchema.safeParse(a26Complete).success, true, "A26 accepts both distinct viewport captures");
 });
 
 test("candidate context excludes replay, constraints, and visual references; replay results require exact calls", async () => {
@@ -205,10 +240,7 @@ test("candidate context excludes replay, constraints, and visual references; rep
       is_error: false,
     }],
     constraints: { expected_abstention: true, required_output_paths: ["$.calendar"], forbidden_output_paths: ["$.email_draft"] },
-    visual_artifacts: [{
-      artifact_id: "cd9da9f3-c120-4f88-8e7b-d10a24010afe",
-      media_type: "image/png", sha256: "a".repeat(64), role: "reference",
-    }],
+    visual_artifacts: [],
   });
 
   const contextText = JSON.stringify(buildAgentReleaseCandidateContext(fixtureWithReplay));

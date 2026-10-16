@@ -1,13 +1,103 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { LoadedApiEnv } from "@e-nora/config";
-import { AGENT_EVAL_AGENT_CODES, AGENT_JUDGE_RUBRICS, JUDGE_RUBRIC_VERSION, agentJudgeModelOutputSchema, agentJudgeOutputJsonSchema, buildAgentJudgeSystemPrompt, evaluateAgentJudgeHoldout, finalizeAgentJudgeResult, isExistingAgentJudgeJsonPath, prepareAgentJudgeRequest, runAgentTurnOpenAI, type EvalAgentCode, type JudgeCalibrationCaseResult, type JudgeGoldCase } from "@e-nora/ai";
+import { AGENT_EVAL_AGENT_CODES, AGENT_JUDGE_RUBRICS, JUDGE_RUBRIC_VERSION, agentJudgeModelOutputSchema, agentJudgeOutputJsonSchema, buildAgentJudgeSystemPrompt, evaluateAgentJudgeHoldout, finalizeAgentJudgeResult, isExistingAgentJudgeJsonPath, prepareAgentJudgeRequest, runAgentTurnOpenAI, type AgentImageAttachment, type EvalAgentCode, type JudgeCalibrationCaseResult, type JudgeGoldCase } from "@e-nora/ai";
 import { createServiceClient } from "./ai-runtime.js";
 import { estimateJudgeCost, getAgentJudgeRuntimeStatus, judgeProviderPreflightError, loadPersistedJudgeVisualEvidence } from "./agent-judge-runtime.js";
 import type { AuthContext } from "./auth-context.js";
 
 const uuid = z.string().uuid();
 const jsonObject = z.record(z.string(), z.unknown()).refine((value) => !Array.isArray(value));
+const datasetVisualImageSchema = z.object({
+  storage_bucket: z.enum(["marketing-assets", "marketing-source-assets"]),
+  storage_path: z.string().trim().min(1).max(700),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  media_type: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  role: z.enum(["input", "render", "reference", "neighbor"]),
+  viewport: z.enum(["desktop", "mobile"]).optional(),
+  entity_type: z.enum(["instagram_image_bank", "meta_creative_image", "a16_render_capture", "a26_email_render_capture"]).optional(),
+  period_start: z.string().date().nullable().optional(),
+  period_end: z.string().date().nullable().optional(),
+  store_id: uuid.nullable().optional(),
+  related_entity_id: uuid.optional(),
+  ad_id: uuid.optional(),
+  label: z.string().trim().min(1).max(100).optional(),
+}).strict();
+const judgeVisualUploadSchema = z.object({
+  bytes_base64: z.string().min(16).max(1_750_000),
+  media_type: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  role: z.enum(["input", "render", "reference", "neighbor"]),
+  viewport: z.enum(["desktop", "mobile"]).optional(),
+  entity_type: z.enum(["instagram_image_bank", "meta_creative_image", "a16_render_capture", "a26_email_render_capture"]),
+  period_start: z.string().date().nullable().optional(),
+  period_end: z.string().date().nullable().optional(),
+  store_id: uuid.nullable().optional(),
+  related_entity_id: uuid.optional(),
+  ad_id: uuid.optional(),
+  label: z.string().trim().min(1).max(100).optional(),
+}).strict();
+
+export function prepareJudgeDatasetVisualUploads(organizationId: string, raw: unknown) {
+  if (!uuid.safeParse(organizationId).success || !Array.isArray(raw) || raw.length < 1 || raw.length > 4) return null;
+  const parsed = raw.map((item) => judgeVisualUploadSchema.safeParse(item));
+  if (parsed.some((item) => !item.success)) return null;
+  let totalBytes = 0;
+  const prepared = [];
+  for (const item of parsed) {
+    if (!item.success) continue;
+    const bytes = Buffer.from(item.data.bytes_base64, "base64");
+    if (!bytes.length || bytes.toString("base64") !== item.data.bytes_base64) return null;
+    totalBytes += bytes.byteLength;
+    if (bytes.byteLength > 1_300_000 || totalBytes > 4_800_000) return null;
+    const valid = item.data.media_type === "image/png"
+      ? bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      : item.data.media_type === "image/jpeg"
+        ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        : bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+    if (!valid) return null;
+    if (item.data.period_start && item.data.period_end && item.data.period_end < item.data.period_start) return null;
+    if (item.data.entity_type === "meta_creative_image"
+      && (!item.data.related_entity_id || !item.data.ad_id || !item.data.period_start || !item.data.period_end)) return null;
+    if (item.data.entity_type !== "meta_creative_image" && (item.data.related_entity_id || item.data.ad_id)) return null;
+    if (item.data.entity_type !== "a26_email_render_capture" && item.data.viewport !== undefined) return null;
+    const { bytes_base64: _bytesBase64, ...metadata } = item.data;
+    prepared.push({
+      bytes,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      metadata,
+    });
+  }
+  return prepared;
+}
+
+/** Stores reviewed visual inputs in private tenant-scoped storage and rolls back partial uploads. */
+export async function storeJudgeDatasetVisualUploads(db: any, organizationId: string, datasetVersion: string, raw: unknown) {
+  const prepared = prepareJudgeDatasetVisualUploads(organizationId, raw);
+  if (!prepared) return null;
+  const safeVersion = datasetVersion.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+  const stored: Array<{ storage_path: string; ref: Record<string, unknown> }> = [];
+  for (const item of prepared) {
+    const extension = item.metadata.media_type === "image/png" ? "png" : item.metadata.media_type === "image/jpeg" ? "jpg" : "webp";
+    const storagePath = `${organizationId}/judge-dataset/${safeVersion}/${randomUUID()}.${extension}`;
+    const { error } = await db.storage.from("marketing-assets").upload(storagePath, item.bytes, {
+      contentType: item.metadata.media_type,
+      cacheControl: "31536000",
+      upsert: false,
+    });
+    if (error) {
+      if (stored.length) await db.storage.from("marketing-assets").remove(stored.map((entry) => entry.storage_path));
+      return null;
+    }
+    stored.push({ storage_path: storagePath, ref: {
+      storage_bucket: "marketing-assets", storage_path: storagePath, sha256: item.sha256,
+      ...item.metadata,
+    } });
+  }
+  return {
+    refs: stored.map((item) => item.ref),
+    rollback: async () => { await db.storage.from("marketing-assets").remove(stored.map((item) => item.storage_path)); },
+  };
+}
 export const agentJudgeEvalCaseInputSchema = z.object({
   agent_code: z.enum(AGENT_EVAL_AGENT_CODES),
   dataset_version: z.string().trim().min(1).max(80),
@@ -23,9 +113,112 @@ export const agentJudgeEvalCaseInputSchema = z.object({
   if (value.provenance === "anonymized_production" && !value.privacy_reviewed) ctx.addIssue({ code: "custom", path: ["privacy_reviewed"], message: "privacy_review_required" });
   if (Buffer.byteLength(JSON.stringify([value.evidence, value.artifact]), "utf8") > 100_000) ctx.addIssue({ code: "custom", path: ["artifact"], message: "case_payload_too_large" });
   if (!Object.keys(value.evidence).length || !Object.keys(value.artifact).length) ctx.addIssue({ code: "custom", path: ["evidence"], message: "case_evidence_and_artifact_required" });
-  const serialized = JSON.stringify([value.scenario, value.evidence, value.artifact]);
+  const visualImages = value.evidence.visual_images;
+  if (visualImages !== undefined) {
+    if (!uuid.safeParse(value.evidence.organization_id).success || !Array.isArray(visualImages)
+      || visualImages.length < 1 || visualImages.length > 4) {
+      ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "visual_dataset_scope_or_count_invalid" });
+    } else {
+      const parsedImages = visualImages.map((image) => datasetVisualImageSchema.safeParse(image));
+      if (parsedImages.some((image) => !image.success)) {
+        ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "visual_dataset_image_reference_invalid" });
+      } else {
+        const organizationId = value.evidence.organization_id as string;
+        for (const [index, image] of parsedImages.entries()) {
+          if (!image.success) continue;
+          const path = image.data.storage_path;
+          if (!path.startsWith(`${organizationId}/`) || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) {
+            ctx.addIssue({ code: "custom", path: ["evidence", "visual_images", index, "storage_path"], message: "visual_dataset_path_scope_invalid" });
+          }
+          if (image.data.entity_type === "meta_creative_image" && (!image.data.related_entity_id || !image.data.ad_id)) {
+            ctx.addIssue({ code: "custom", path: ["evidence", "visual_images", index], message: "meta_visual_binding_incomplete" });
+          }
+          if (image.data.entity_type === "meta_creative_image" && (!image.data.period_start || !image.data.period_end)) {
+            ctx.addIssue({ code: "custom", path: ["evidence", "visual_images", index], message: "meta_visual_period_required" });
+          }
+          if (image.data.period_start && image.data.period_end && image.data.period_end < image.data.period_start) {
+            ctx.addIssue({ code: "custom", path: ["evidence", "visual_images", index], message: "visual_dataset_period_invalid" });
+          }
+          if (image.data.entity_type !== "meta_creative_image" && (image.data.related_entity_id || image.data.ad_id)) {
+            ctx.addIssue({ code: "custom", path: ["evidence", "visual_images", index], message: "unexpected_visual_relation" });
+          }
+          if (image.data.entity_type !== "a26_email_render_capture" && image.data.viewport !== undefined) {
+            ctx.addIssue({ code: "custom", path: ["evidence", "visual_images", index, "viewport"], message: "viewport_only_valid_for_a26_email" });
+          }
+        }
+      }
+    }
+  }
+  if (["a15_analista_imagenes", "a16_texto_sobre_imagen", "a23_creatividad_meta", "a26_contenido_email"].includes(value.agent_code)) {
+    const parsedImages = Array.isArray(visualImages) ? visualImages.map((image) => datasetVisualImageSchema.safeParse(image)) : [];
+    const validImages = parsedImages.flatMap((image) => image.success ? [image.data] : []);
+    const roles = new Set(validImages.map((image) => image.role));
+    if (!validImages.length) ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "visual_gold_case_requires_images" });
+    if (value.agent_code === "a15_analista_imagenes" && validImages.some((image) => image.entity_type !== "instagram_image_bank")) {
+      ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "a15_requires_instagram_image_bank_asset" });
+    }
+    if (value.agent_code === "a23_creatividad_meta" && validImages.some((image) => image.entity_type !== "meta_creative_image")) {
+      ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "a23_requires_meta_creative_image" });
+    }
+    if (value.agent_code === "a16_texto_sobre_imagen" && (!roles.has("input") || !roles.has("render") || !roles.has("neighbor"))) {
+      ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "a16_input_render_neighbor_required" });
+    }
+    if (value.agent_code === "a16_texto_sobre_imagen" && validImages.some((image) =>
+      (image.role === "render" || image.role === "neighbor") && image.entity_type !== "a16_render_capture")) {
+      ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "a16_render_and_neighbor_must_be_captured_renders" });
+    }
+    if (value.agent_code === "a26_contenido_email") {
+      const viewports = new Set(validImages.filter((image) => image.role === "render").map((image) => image.viewport));
+      if (!viewports.has("desktop") || !viewports.has("mobile")) ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "a26_desktop_mobile_renders_required" });
+      if (validImages.some((image) => image.entity_type !== "a26_email_render_capture" || image.role !== "render")) {
+        ctx.addIssue({ code: "custom", path: ["evidence", "visual_images"], message: "a26_requires_email_render_captures_only" });
+      }
+    }
+  }
+  const serialized = JSON.stringify([value.scenario, value.evidence, value.artifact])
+    .replace(/\b[0-9a-f]{64}\b/gi, " ")
+    .replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, " ")
+    .replace(/\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)?\b/g, " ");
   if (/(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d ().-]{8,}\d)/i.test(serialized)) ctx.addIssue({ code: "custom", path: ["evidence"], message: "possible_personal_data_detected" });
 });
+
+/** Resolves gold-set images from private tenant-scoped Storage refs; external URLs are never accepted. */
+export async function createJudgeDatasetVisualAttachments(db: any, evidence: Record<string, unknown>): Promise<{
+  attachments: AgentImageAttachment[]; expectedSha256: string[]; refs: Array<z.infer<typeof datasetVisualImageSchema>>;
+} | null> {
+  const organizationId = evidence.organization_id;
+  const rawImages = evidence.visual_images;
+  if (typeof organizationId !== "string" || !uuid.safeParse(organizationId).success || !Array.isArray(rawImages)
+    || rawImages.length < 1 || rawImages.length > 4) return null;
+  const parsed = rawImages.map((image) => datasetVisualImageSchema.safeParse(image));
+  if (parsed.some((image) => !image.success)) return null;
+  const refs = parsed.map((image) => (image as { success: true; data: z.infer<typeof datasetVisualImageSchema> }).data);
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    if (!ref.storage_path.startsWith(`${organizationId}/`) || ref.storage_path.includes("\\") || ref.storage_path.split("/").some((part) => !part || part === "." || part === "..")
+      || seen.has(`${ref.storage_bucket}:${ref.storage_path}`)) return null;
+    seen.add(`${ref.storage_bucket}:${ref.storage_path}`);
+  }
+  const attachments: AgentImageAttachment[] = [];
+  for (const ref of refs) {
+    const { data, error } = await db.storage.from(ref.storage_bucket).createSignedUrl(ref.storage_path, 60);
+    if (error || typeof data?.signedUrl !== "string") return null;
+    attachments.push({ url: data.signedUrl, role: ref.role, label: ref.label ?? `${ref.entity_type ?? "visual"}:${ref.role}` });
+  }
+  return { attachments, expectedSha256: refs.map((ref) => ref.sha256), refs };
+}
+
+export function matchesJudgeDatasetVisualEvidence(
+  loaded: { imageSha256: string[]; images: AgentImageAttachment[] } | null,
+  expected: { expectedSha256: string[]; refs: Array<{ media_type: string }> } | null,
+): boolean {
+  return Boolean(loaded && expected
+    && loaded.imageSha256.length === expected.expectedSha256.length
+    && loaded.images.length === expected.refs.length
+    && loaded.imageSha256.every((hash, index) => hash === expected.expectedSha256[index]
+      && "base64" in (loaded.images[index] ?? {})
+      && (loaded.images[index] as Extract<AgentImageAttachment, { base64: string }>).mediaType === expected.refs[index]?.media_type));
+}
 
 export const agentJudgeEvalLabelsSchema = z.array(z.object({
   criterion_id: z.string().min(1).max(100),
@@ -90,13 +283,40 @@ async function readRowsForCases(db: any, table: string, columns: string, ids: st
 
 export async function createAgentJudgeEvalCase(env: LoadedApiEnv, auth: AuthContext, input: unknown) {
   if (!admin(auth)) return { ok: false as const, statusCode: 403, error: "platform_admin_required" };
-  const parsed = agentJudgeEvalCaseInputSchema.safeParse(input);
-  if (!parsed.success) return { ok: false as const, statusCode: 400, error: "invalid_agent_judge_eval_case", detail: parsed.error.issues[0]?.message };
+  const request = z.record(z.string(), z.unknown()).safeParse(input);
+  if (!request.success) return { ok: false as const, statusCode: 400, error: "invalid_agent_judge_eval_case" };
+  const { visual_uploads: rawVisualUploads, ...caseInput } = request.data;
+  let uploaded: Awaited<ReturnType<typeof storeJudgeDatasetVisualUploads>> = null;
+  if (rawVisualUploads !== undefined) {
+    const evidence = caseInput.evidence;
+    const organizationId = evidence && typeof evidence === "object" && !Array.isArray(evidence)
+      ? (evidence as Record<string, unknown>).organization_id : null;
+    if (typeof organizationId !== "string") return { ok: false as const, statusCode: 400, error: "visual_dataset_organization_required" };
+    uploaded = await storeJudgeDatasetVisualUploads(service(env), organizationId, String(caseInput.dataset_version ?? ""), rawVisualUploads);
+    if (!uploaded) return { ok: false as const, statusCode: 400, error: "invalid_visual_dataset_upload" };
+    const currentEvidence = caseInput.evidence as Record<string, unknown>;
+    caseInput.evidence = { ...currentEvidence, visual_images: uploaded.refs };
+  }
+  const parsed = agentJudgeEvalCaseInputSchema.safeParse(caseInput);
+  if (!parsed.success) {
+    if (uploaded) await uploaded.rollback();
+    return { ok: false as const, statusCode: 400, error: "invalid_agent_judge_eval_case", detail: parsed.error.issues[0]?.message };
+  }
   const value = parsed.data;
   // Hash the content, independent of split/version, to prevent train/holdout leakage.
-  const digest = createHash("sha256").update(stableJson({ agent_code: value.agent_code, scenario: value.scenario, evidence: value.evidence, artifact: value.artifact })).digest("hex");
+  const dedupeEvidence = { ...value.evidence };
+  if (Array.isArray(dedupeEvidence.visual_images)) {
+    dedupeEvidence.visual_images = dedupeEvidence.visual_images.map((image) => {
+      const { storage_path: _storagePath, ...contentIdentity } = image as Record<string, unknown>;
+      return contentIdentity;
+    });
+  }
+  const digest = createHash("sha256").update(stableJson({ agent_code: value.agent_code, scenario: value.scenario, evidence: dedupeEvidence, artifact: value.artifact })).digest("hex");
   const { data, error } = await service(env).from("agent_judge_eval_cases").insert({ ...value, content_sha256: digest, created_by: auth.user.id }).select("id").single();
-  if (error) return { ok: false as const, statusCode: error.code === "23505" || error.message?.includes("dataset_frozen") ? 409 : 500, error: error.message?.includes("dataset_frozen") ? "dataset_version_frozen" : error.code === "23505" ? "duplicate_eval_case" : "eval_case_create_failed" };
+  if (error) {
+    if (uploaded) await uploaded.rollback();
+    return { ok: false as const, statusCode: error.code === "23505" || error.message?.includes("dataset_frozen") ? 409 : 500, error: error.message?.includes("dataset_frozen") ? "dataset_version_frozen" : error.code === "23505" ? "duplicate_eval_case" : "eval_case_create_failed" };
+  }
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -275,10 +495,15 @@ export async function runAgentJudgeDatasetEvaluation(env: LoadedApiEnv, auth: Au
   let totalCost = 0;
   let failure: string | null = null;
   for (const item of cases as any[]) {
-    const images = Array.isArray(item.evidence?.visual_images) ? item.evidence.visual_images : [];
-    const visualEvidence = images.length ? await loadPersistedJudgeVisualEvidence(env, "", images) : null;
+    const datasetVisual = Array.isArray(item.evidence?.visual_images)
+      ? await createJudgeDatasetVisualAttachments(db, item.evidence) : null;
+    let visualEvidence = datasetVisual
+      ? await loadPersistedJudgeVisualEvidence(env, item.evidence.organization_id, datasetVisual.attachments)
+      : null;
+    if (datasetVisual && !matchesJudgeDatasetVisualEvidence(visualEvidence, datasetVisual)) visualEvidence = null;
     const snapshot = { ...item.evidence };
     delete snapshot.visual_images;
+    if (visualEvidence) snapshot.visual_image_sha256 = visualEvidence.imageSha256;
     const artifactHash = createHash("sha256").update(stableJson({ output: item.artifact, visual_sha256: visualEvidence?.sha256 ?? null })).digest("hex");
     const prepared = prepareAgentJudgeRequest({
       agentCode: item.agent_code,
@@ -306,7 +531,9 @@ export async function runAgentJudgeDatasetEvaluation(env: LoadedApiEnv, auth: Au
         tools: [], outputContract: { jsonSchema: agentJudgeOutputJsonSchema, schema: agentJudgeModelOutputSchema },
         budget: { maxCostUsd: 0.03, maxToolCalls: 0 }, maxCompletionTokens: 4096,
       });
-      const result = finalizeAgentJudgeResult(item.agent_code, agentJudgeModelOutputSchema.parse(turn.output), (reference) => isExistingAgentJudgeJsonPath(reference, { output: item.artifact, immutable_snapshot: snapshot }));
+      const allowedVisualRefs = new Set(visualEvidence ? [`visual_sha256:${visualEvidence.sha256}`] : []);
+      const result = finalizeAgentJudgeResult(item.agent_code, agentJudgeModelOutputSchema.parse(turn.output),
+        (reference) => allowedVisualRefs.has(reference) || isExistingAgentJudgeJsonPath(reference, { output: item.artifact, immutable_snapshot: snapshot }));
       const cost = turn.estimatedCostUsd && turn.estimatedCostUsd > 0 ? turn.estimatedCostUsd : estimateJudgeCost(model, turn.inputTokens, turn.outputTokens);
       if (cost == null) throw new Error("judge_model_price_unknown");
       totalCost += cost;

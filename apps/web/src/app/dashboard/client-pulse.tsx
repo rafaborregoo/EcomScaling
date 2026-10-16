@@ -1,24 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { toast } from "@/components/ui";
+import { Skeleton, toast } from "@/components/ui";
 import { BarRows, Waterfall } from "@/components/data-bars";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
 import {
+  changeText,
+  clientReadable,
   fmtCurrency,
   fmtEur,
   fmtNum,
+  isClientReadable,
+  MIN_NEW_CUSTOMERS_FOR_CAC,
   moneyFlow,
   monthlyWithProjection,
+  pickFinding,
+  shortMoney,
   unitEconomics,
   type PulseFinancial,
 } from "./client-pulse-model";
 import s from "./client-pulse.module.css";
+import { DashboardSections } from "./dashboard-sections";
 
 /**
  * Panel del cliente, vista "Pulso".
@@ -34,6 +42,10 @@ import s from "./client-pulse.module.css";
  */
 
 const DAY_MS = 86_400_000;
+// El widget enseña lo de corto plazo; el resto vive en Tareas.
+const SHORT_TERM_DAYS = 14;
+// Filas visibles antes de pedir "Ver todas".
+const QUEUE_PREVIEW = 5;
 export const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const WEEKDAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
@@ -63,6 +75,7 @@ export type Metrics = {
     net_margin_pct: number;
     ads_by_platform: Record<string, number>;
     cac_blended: number | null;
+    new_customers?: number;
     mbee: number;
     breakeven_roas: number | null;
   };
@@ -76,6 +89,7 @@ export type Metrics = {
   previous_period: {
     sales: { net_sales: number; orders_count: number; aov: number };
     financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null };
+    conversion_rate_own?: number | null;
   } | null;
   daily: Array<{ date: string; net_sales: number; orders_count: number }>;
   funnel: {
@@ -211,18 +225,13 @@ export function ago(iso: string | null) {
   return `hace ${Math.round(hours / 24)} días`;
 }
 
-function pctText(value: number) {
-  const magnitude = Math.abs(value);
-  return `${magnitude < 10 ? fmtNum(magnitude, 1) : fmtNum(magnitude)} %`;
-}
-
 export function Delta({ change, invert = false, suffix }: { change: number | null; invert?: boolean; suffix?: string }) {
   if (change === null || !Number.isFinite(change)) return null;
   const up = change > 0;
   const good = invert ? !up : up;
   return (
     <span className={cx(s.delta, good ? s.deltaGood : s.deltaBad)}>
-      {up ? "▲" : "▼"} {suffix ? `${fmtNum(Math.abs(change), 2)} ${suffix}` : pctText(change)}
+      {up ? "▲" : "▼"} {suffix ? `${fmtNum(Math.abs(change), 2)} ${suffix}` : changeText(change)}
     </span>
   );
 }
@@ -243,9 +252,11 @@ export function Spark({ values }: { values: number[] }) {
   return (
     <div className={s.spark}>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-        <path d={`${d}L${width} ${height}L0 ${height}Z`} style={{ fill: "var(--store)", opacity: 0.12 }} />
+        <path className={s.sparkArea} d={`${d}L${width} ${height}L0 ${height}Z`} style={{ fill: "var(--store)", opacity: 0.12 }} />
         <path
+          className={s.sparkLine}
           d={d}
+          pathLength={1}
           style={{ fill: "none", stroke: "var(--store)", strokeWidth: 1.6, strokeLinejoin: "round" }}
           vectorEffect="non-scaling-stroke"
         />
@@ -283,11 +294,21 @@ export function niceStep(raw: number) {
   return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * power;
 }
 
-export function findingFor(diagnostic: Diagnostic | undefined, pattern: RegExp): Finding | null {
-  if (!diagnostic) return null;
-  const section = diagnostic.output.sections?.find((sec) => pattern.test(`${sec.key} ${sec.label}`));
-  if (section?.findings[0]) return section.findings[0];
-  return diagnostic.output.findings.find((f) => pattern.test(`${f.area ?? ""} ${f.title}`)) ?? null;
+export function findingFor(diagnostic: Diagnostic | undefined, pattern: RegExp, taken?: Set<Finding>): Finding | null {
+  return pickFinding(diagnostic, pattern, taken);
+}
+
+/**
+ * Las notas de IA salen del último diagnóstico, que puede tener días. Si sus
+ * cifras no coinciden con las del panel (otro periodo), la fecha lo explica
+ * en vez de dejar al cliente con dos números distintos sin motivo.
+ */
+function datedAi(text: string | null | undefined, generatedAt: string | null | undefined) {
+  if (!text) return null;
+  if (!generatedAt) return text;
+  const ageDays = (Date.now() - new Date(generatedAt).getTime()) / 86_400_000;
+  if (ageDays < 2) return text;
+  return `${text} · análisis del ${new Date(generatedAt).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
 }
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -316,7 +337,7 @@ export type ChartPoint = { date: string; value: number; detail?: string };
 
 export type Pin = { index: number; title: string; source: string; date: string };
 
-export function SalesChart({ daily, previousAverage, averageLabel = "Media diaria del periodo anterior", pins, active, onPin, currencyCode }: {
+export function SalesChart({ daily, previousAverage, averageLabel = "Media diaria del periodo anterior", pins, active, onPin, currencyCode, label = "Ventas netas por día" }: {
   daily: ChartPoint[];
   previousAverage: number | null;
   averageLabel?: string;
@@ -324,7 +345,9 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
   active: number | null;
   onPin: (k: number) => void;
   currencyCode?: string | null;
+  label?: string;
 }) {
+  const chartId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
@@ -350,16 +373,17 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
   const line = daily.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(d.value).toFixed(1)}`).join("");
   const tickCount = Math.min(width < 620 ? 3 : 5, n);
   const ticks = [...new Set(Array.from({ length: tickCount }, (_, k) => Math.round((k * (n - 1)) / Math.max(tickCount - 1, 1))))];
-  const shown = hover ?? (active !== null ? pins[active]?.index ?? null : null);
+  const selectedIndex = hover ?? (active !== null ? pins[active]?.index ?? null : null);
+  const shown = selectedIndex !== null && n > 0 ? Math.max(0, Math.min(n - 1, selectedIndex)) : null;
   const formatChartMoney = (value: number) => currencyCode ? fmtCurrency(value, currencyCode) : fmtEur(value);
 
   return (
-    <div ref={ref} className={s.chart}>
+    <div ref={ref} className={s.chart} role="group" aria-label={label}>
       {width > 0 && n > 1 ? (
         <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
           <defs>
-            <linearGradient id="pulse-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" style={{ stopColor: "var(--hero-series)", stopOpacity: 0.34 }} />
+            <linearGradient id={chartId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" style={{ stopColor: "var(--hero-series)", stopOpacity: 0.14 }} />
               <stop offset="1" style={{ stopColor: "var(--hero-series)", stopOpacity: 0 }} />
             </linearGradient>
           </defs>
@@ -382,7 +406,7 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
               {dayLabel(daily[i].date)}
             </text>
           ))}
-          <path d={`${line}L${x(n - 1)} ${y(0)}L${x(0)} ${y(0)}Z`} style={{ fill: "url(#pulse-area)" }} />
+          <path className={s.hcArea} d={`${line}L${x(n - 1)} ${y(0)}L${x(0)} ${y(0)}Z`} style={{ fill: `url(#${chartId})` }} />
           {previousAverage !== null ? (
             <line className={s.hcPrev} x1={m.l} x2={width - m.r} y1={y(previousAverage)} y2={y(previousAverage)} />
           ) : null}
@@ -432,6 +456,26 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
           })}
         </svg>
       ) : null}
+      {n > 1 ? (
+        <div className={s.chartControl}>
+          <label htmlFor={`${chartId}-day`}>Explorar por día</label>
+          <input
+            id={`${chartId}-day`}
+            type="range"
+            min={0}
+            max={n - 1}
+            value={shown ?? n - 1}
+            onChange={(event) => setHover(Number(event.target.value))}
+            onFocus={() => setHover(shown ?? n - 1)}
+            onBlur={() => setHover(null)}
+            aria-valuetext={`${dayLabel(daily[shown ?? n - 1].date, true)}: ${formatChartMoney(daily[shown ?? n - 1].value)}`}
+          />
+          <output htmlFor={`${chartId}-day`}>
+            {dayLabel(daily[shown ?? n - 1].date, true)} · <b>{formatChartMoney(daily[shown ?? n - 1].value)}</b>
+            {daily[shown ?? n - 1].detail ? ` · ${daily[shown ?? n - 1].detail}` : ""}
+          </output>
+        </div>
+      ) : null}
       {shown !== null && width > 0 ? (
         <div
           className={s.tip}
@@ -459,7 +503,8 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
 // Piezas de sección
 // ---------------------------------------------------------------------------
 
-export function SectionHead({ id, title, ai, fallback, onAsk }: {
+export function SectionHead({ id, title, ai, fallback, onAsk, tag = "A02" }: {
+  tag?: string;
   id: string;
   title: string;
   ai: string | null;
@@ -471,7 +516,7 @@ export function SectionHead({ id, title, ai, fallback, onAsk }: {
       <h2 id={id}>{title}</h2>
       {ai ? (
         <p className={s.aiLine}>
-          <span className={s.ia}>IA</span>
+          <span className={s.ia}>{tag}</span>
           {ai}
         </p>
       ) : (
@@ -490,7 +535,7 @@ export function AiNote({ finding }: { finding: Finding | null }) {
   if (!finding) return null;
   return (
     <p className={s.aiNote}>
-      <span className={s.ia}>IA</span>
+      <span className={s.ia}>A02</span>
       {finding.title}
     </p>
   );
@@ -508,6 +553,30 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
 // ---------------------------------------------------------------------------
 // "Qué hacer": propuestas de la IA + avisos + tareas en una sola lista
 // ---------------------------------------------------------------------------
+
+// Las tareas del Camino llegan como un párrafo "1) … 2) …": se parten en pasos.
+function splitSteps(text: string): string[] {
+  const steps = text.split(/ *(?<![0-9,./])(?=[0-9]{1,2}[)] )/).map((part) => part.replace(/^[0-9]{1,2}[)] */, "").trim()).filter(Boolean);
+  return steps.length > 1 ? steps : [text.trim()];
+}
+
+function TaskDetail({ text, label = "Ver detalle" }: { text: string; label?: string }) {
+  const steps = splitSteps(text);
+  return (
+    <details className={s.qiD}>
+      <summary>{label}{steps.length > 1 ? ` (${steps.length} pasos)` : ""}</summary>
+      {steps.length > 1 ? (
+        <ol>
+          {steps.map((step, index) => (
+            <li key={index}>{step}</li>
+          ))}
+        </ol>
+      ) : (
+        <p>{steps[0]}</p>
+      )}
+    </details>
+  );
+}
 
 type QueueItem =
   | { kind: "proposal"; key: string; outputId: string; index: number; total: number; title: string; why: string; priority: string; mine: boolean; due: string | null; source: string }
@@ -529,6 +598,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   onComment: (text: string) => void;
 }) {
   const [filter, setFilter] = useState<"all" | "mine" | "consultant" | "ai">("all");
+  const [showAll, setShowAll] = useState(false);
   const [decisions, setDecisions] = useState<Record<string, Record<number, Decision>>>({});
   const [closing, setClosing] = useState<string | null>(null);
   const [outcome, setOutcome] = useState("");
@@ -563,10 +633,20 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
     }
     for (const task of operations?.tasks ?? []) {
       if (!["pending", "in_progress"].includes(task.status)) continue;
+      if (task.due_at && Date.parse(task.due_at) - now > SHORT_TERM_DAYS * DAY_MS) continue;
       list.push({ kind: "task", key: task.id, task, mine: !task.assigned_to || task.assigned_to === userId, priority: task.priority });
     }
-    return list.sort((a, b) => (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2));
-  }, [asConsultant, operations, proposals, userId]);
+    // Las propuestas de IA esperan una decision humana: van primero, si no quedan tapadas por tareas urgentes.
+    return list.sort(
+      (a, b) =>
+        Number(b.kind === "proposal") - Number(a.kind === "proposal") ||
+        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2),
+    );
+  }, [asConsultant, now, operations, proposals, userId]);
+
+  const laterCount = (operations?.tasks ?? []).filter(
+    (t) => ["pending", "in_progress"].includes(t.status) && t.due_at && Date.parse(t.due_at) - now > SHORT_TERM_DAYS * DAY_MS,
+  ).length;
 
   const done = (operations?.tasks ?? [])
     .filter((t) => t.status === "completed" && now - Date.parse(t.updated_at) < 7 * DAY_MS)
@@ -581,7 +661,8 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
     { key: "ai" as const, label: "Propuestas IA", test: (i: QueueItem) => i.kind === "proposal" },
   ];
   const activeFilter = filters.find((f) => f.key === filter) ?? filters[0];
-  const visible = items.filter(activeFilter.test);
+  const filtered = items.filter(activeFilter.test);
+  const visible = showAll ? filtered : filtered.slice(0, QUEUE_PREVIEW);
   const urgent = items.filter((i) => (PRIORITY_RANK[i.priority] ?? 2) === 0).length;
 
   async function decide(item: Extract<QueueItem, { kind: "proposal" }>, decision: Decision) {
@@ -670,7 +751,13 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
         <div>
           <h3>Qué hacer</h3>
           <p className={s.qSum}>
-            {items.length} por resolver
+            {items.length ? `${items.length} por resolver` : operations ? "Al día" : "Pendientes de comprobar"}
+            {laterCount ? (
+              <>
+                {" · "}
+                <a href="/tareas">{laterCount} más a largo plazo</a>
+              </>
+            ) : null}
             {urgent ? (
               <>
                 {" · "}
@@ -679,7 +766,9 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             ) : null}
           </p>
         </div>
-        <div className={s.seg} role="group" aria-label="Filtrar">
+        {/* Filtrar una lista vacía son cuatro botones a cero: solo con algo que filtrar. */}
+        {items.length > 0 ? (
+        <div className={s.seg} role="group" aria-label="Filtrar trabajo pendiente">
           {filters.map((f) => (
             <button key={f.key} type="button" aria-pressed={f.key === activeFilter.key} onClick={() => setFilter(f.key)}>
               {f.label}
@@ -687,10 +776,15 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             </button>
           ))}
         </div>
+        ) : null}
       </div>
 
       {visible.length === 0 ? (
-        <Empty>Nada pendiente por aquí.</Empty>
+        <Empty action={items.length
+          ? <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => setFilter("all")}>Ver todo el trabajo</button>
+          : !operations ? <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={reloadAll}>Volver a cargar las tareas</button> : undefined}>
+          {items.length ? "No hay trabajo pendiente con este filtro." : !operations ? "Aún no se han podido comprobar las tareas de esta tienda." : "No hay tareas ni propuestas pendientes. Puedes revisar tus resultados o continuar con el plan de la semana."}
+        </Empty>
       ) : (
         <ul>
           {visible.map((item) => {
@@ -705,7 +799,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                       <span className={s.ia}>IA</span>Propuesta · crear la tarea necesita tu visto bueno
                     </p>
                     <p className={s.qiT}>{item.title}</p>
-                    <p className={s.qiW}>{item.why}</p>
+                    {item.why ? <TaskDetail text={item.why} label="Por qué" /> : null}
                     <div className={s.qiM}>
                       <span className={cx(s.prioL, prioClass(item.priority) === s.prUrgent && s.prioUrgent)}>
                         {PRIORITY_LABEL[item.priority] ?? item.priority}
@@ -742,7 +836,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                   <div>
                     <p className={s.qiK} style={{ color: "var(--warn)" }}>Aviso</p>
                     <p className={s.qiT}>{item.title}</p>
-                    <p className={s.qiW}>{item.why}</p>
+                    {item.why ? <TaskDetail text={item.why} label="Por qué" /> : null}
                   </div>
                   <span />
                 </li>
@@ -754,7 +848,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                 <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                 <div>
                   <p className={s.qiT}>{task.title}</p>
-                  {task.description ? <p className={s.qiW}>{task.description}</p> : null}
+                  {task.description ? <TaskDetail text={task.description} label="Ver pasos" /> : null}
                   <div className={s.qiM}>
                     <span className={cx(s.prioL, prioClass(item.priority) === s.prUrgent && s.prioUrgent, prioClass(item.priority) === s.prHigh && s.prioHigh)}>
                       {PRIORITY_LABEL[item.priority] ?? item.priority}
@@ -815,6 +909,12 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
           })}
         </ul>
       )}
+
+      {filtered.length > QUEUE_PREVIEW ? (
+        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => setShowAll((value) => !value)}>
+          {showAll ? "Ver menos" : `Ver las ${filtered.length} (${filtered.length - QUEUE_PREVIEW} más)`}
+        </button>
+      ) : null}
 
       {done.length ? (
         <details className={s.done}>
@@ -997,6 +1097,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 }) {
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
+  const verdictOf = useMetricAnalysis(organizationId, 30, connectionId);
   const [agendaQuery] = useState(() => {
     const from = new Date();
     const to = new Date(from.getTime() + 28 * DAY_MS);
@@ -1009,6 +1110,8 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const operations = useCachedQuery<Operations>(`${base}/operations`);
   const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=overview${scope}`);
   const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
+  // A04: el plan diario propone tareas; sin esto sus propuestas nunca llegaban al widget.
+  const plannerAi = useCachedQuery<Diagnostic>(`${base}/ai/task-planner?days=30${scope}`);
   // Sin consultor, el análisis de email es parte del acompañamiento; con
   // consultor lo filtra él.
   const emailAi = useCachedQuery<Diagnostic>(consultant ? null : `${base}/ai/email-analyst?days=30${scope}`);
@@ -1032,6 +1135,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
     operations.reload();
     monitor.reload();
     stockAi.reload();
+    plannerAi.reload();
     emailAi.reload();
   }
 
@@ -1072,9 +1176,10 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   if (metrics.isLoading && !data) {
     return (
       <div className={s.root}>
-        <div className={s.hero}>
+        <div className={s.hero} role="status" aria-busy="true">
           <p className={s.heroMeta}>{organizationName}</p>
           <p className={s.headline}>Cargando tu tienda…</p>
+          <Skeleton className="h-32 w-full" aria-hidden="true" />
         </div>
       </div>
     );
@@ -1102,19 +1207,35 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const previousAverage = previous && daily.length ? previous.sales.net_sales / daily.length : null;
   const target = (key: string) => data?.metric_targets.find((t) => t.metric_key === key)?.target_value ?? null;
 
-  const proposals = [diagnostic, stockAi.data, emailAi.data].filter((d): d is Diagnostic => Boolean(d));
+  const proposals = [diagnostic, plannerAi.data, stockAi.data, emailAi.data].filter((d): d is Diagnostic => Boolean(d));
   const nextStep = diagnostic?.output.recommendations
     .slice()
     .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2))[0];
 
+  // Sin un mínimo de clientes nuevos el CAC no es una media sino una anécdota.
+  const cacReliable = (financial?.new_customers ?? MIN_NEW_CUSTOMERS_FOR_CAC) >= MIN_NEW_CUSTOMERS_FOR_CAC;
   const profitPerOrder = financialCurrencyComparable && financial && financial.orders_count > 0 ? financial.net_profit / financial.orders_count : null;
-  const moneyAi = findingFor(diagnostic, /rentab|margen|finan|beneficio|profit|coste|unit/i);
-  const channelsAi = findingFor(diagnostic, /adquis|marketing|canal|paid|meta|email/i);
-  const storeAi = findingFor(diagnostic, /conver|embudo|tienda|web|cro|carrito|checkout/i);
-  const metaAi = findingFor(diagnostic, /meta|anunc|ads|paid|adquis/i);
-  const klaviyoAi = emailAi.data?.output.findings[0] ?? findingFor(diagnostic, /email|klaviyo|crm|reten|flujo/i);
-  const planAi = findingFor(diagnostic, /objetivo|camino|crecim|plan|tendencia/i);
-  const stockHeadline = stockAi.data?.output.headline ?? stockAi.data?.output.findings[0]?.title ?? findingFor(diagnostic, /stock|invent|reposi/i)?.title ?? null;
+  // Cada sección se queda con un hallazgo distinto: las específicas eligen
+  // primero y la genérica (Canales) se queda con lo que sobra.
+  const takenFindings = new Set<Finding>();
+  const moneyAi = findingFor(diagnostic, /rentab|margen|finan|beneficio|profit|coste|unit/i, takenFindings);
+  const storeAi = findingFor(diagnostic, /conver|embudo|tienda|web|cro|carrito|checkout/i, takenFindings);
+  const metaAi = findingFor(diagnostic, /meta|anunc|ads|paid/i, takenFindings);
+  const klaviyoAi = emailAi.data?.output.findings[0] ?? findingFor(diagnostic, /email|klaviyo|crm|reten|flujo/i, takenFindings);
+  const channelsAi = findingFor(diagnostic, /adquis|marketing|canal/i, takenFindings);
+  const planAi = findingFor(diagnostic, /objetivo|camino|crecim|plan|tendencia/i, takenFindings);
+  // El planificador de stock a veces escribe con nombres de campo; al cliente
+  // solo le llega lo que se lee como una frase.
+  const stockHeadline =
+    [
+      stockAi.data?.output.headline,
+      ...(stockAi.data?.output.findings.map((finding) => finding.title) ?? []),
+      findingFor(diagnostic, /stock|invent|reposi/i, takenFindings)?.title,
+    ].find((text): text is string => typeof text === "string" && isClientReadable(text)) ?? null;
+  const stockFindings = (stockAi.data?.output.findings ?? [])
+    .filter((finding) => isClientReadable(finding.title))
+    .map((finding) => ({ ...finding, evidence: clientReadable(finding.evidence) ?? "" }));
+  const dated = (finding: Finding | null) => datedAi(finding?.title, diagnostic?.generated_at);
 
   const metaAcq = meta.data?.acquisition;
   const hasMeta = Boolean(metaAcq && metaAcq.days_with_data > 0);
@@ -1122,6 +1243,12 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 
   return (
     <div className={s.root}>
+      <DashboardSections items={[
+    { id: "pulse-headline", label: "Resumen" },
+    { id: "pulse-hoy", label: "Qué hacer" },
+    ...(financial ? [{ id: "pulse-dinero", label: "Dinero" }] : []),
+    ...(data ? [{ id: "pulse-canales", label: "Canales" }, { id: "pulse-stock", label: "Stock" }, { id: "pulse-plan", label: "Plan" }] : []),
+  ]} />
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.hero} aria-labelledby="pulse-headline">
         <div className={s.heroTop}>
@@ -1132,9 +1259,9 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               <span>Últimos 30 días frente a los 30 anteriores</span>
             </p>
             <h1 id="pulse-headline" className={s.headline}>
-              {data && !storeSelectionRequired ? formatStoreMoney(data.sales.net_sales) : "—"}
+              Tu tienda, de un vistazo
             </h1>
-            <p className={s.headlineDetail}>Ingresos netos de los últimos 30 días</p>
+            <p className={s.headlineDetail}>Tus resultados y las prioridades para esta semana.</p>
             {metrics.error && !data ? (
               <p className={s.headlineDetail}>
                 {storeSelectionRequired
@@ -1163,12 +1290,15 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           <aside className={s.heroSide} aria-label="Análisis de la IA">
             {diagnostic ? (
               <>
-                <p>
+                <details className={s.analysisDisclosure}>
+                  <summary>
                   <strong>
                     Análisis del {dayLabel(diagnostic.generated_at, true)},{" "}
                     {new Date(diagnostic.generated_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
                   </strong>
-                </p>
+                  </summary>
+                  <p>La lectura corresponde a esa fecha; las cifras muestran el periodo actual. Actualiza el análisis si necesitas una lectura nueva.</p>
+                </details>
                 <button
                   type="button"
                   className={cx(s.btn, s.ghost, s.sm)}
@@ -1183,7 +1313,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             ) : (
               <>
                 <p>
-                  <span className={s.ia}>IA</span>
+                  <span className={s.ia}>A02</span>
                   <strong>{monitorPending ? "El primer análisis está pendiente" : "Sin análisis todavía"}</strong>
                 </p>
                 <p>La IA revisa tus pedidos, costes y campañas y te dice qué está pasando y qué haría.</p>
@@ -1207,13 +1337,14 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               {data.financial_currency_coverage?.status === "incompatible"
                 ? `Hay fuentes en monedas distintas a ${data.currency_code ?? "la tienda"}: ${data.financial_currency_coverage.mismatched_sources.map((item) => `${item.source} (${item.currencies.join(", ")})`).join("; ")}.`
                 : `No se pudo confirmar la moneda de todas las fuentes financieras${data.financial_currency_coverage?.unknown_sources.length ? `: ${data.financial_currency_coverage.unknown_sources.join(", ")}` : ""}.`}
-              {" "}El A02 sigue disponible aunque la moneda esté pendiente. Los cálculos que comparan importes entre fuentes permanecen sujetos a validar la moneda; no se convierte moneda automáticamente.
+              {" "}La lectura de la IA sigue disponible aunque la moneda esté pendiente. Los cálculos que comparan importes entre fuentes permanecen sujetos a validar la moneda; no se convierte moneda automáticamente.
             </p>
           </div>
         ) : null}
 
         {daily.length > 1 ? (
-          <>
+          <details className={s.chartDisclosure}>
+            <summary>Evolución diaria de ventas <span>Comparar días y consultar alertas</span></summary>
           <SalesChart
             daily={daily.map((d) => ({ date: d.date, value: d.net_sales, detail: `${fmtNum(d.orders_count)} pedidos` }))}
             previousAverage={previousAverage}
@@ -1260,7 +1391,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                 ))}
               </ol>
             ) : null}
-          </>
+          </details>
         ) : null}
       </section>
 
@@ -1322,8 +1453,16 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             />
           )}
           <Kpi
+            verdict={<MetricVerdict analysis={verdictOf("conversion")} />}
+            anchorId="insight-metric-conversion"
             label="Conversión"
             value={data.funnel?.has_sessions && data.funnel.conversion_rate_own !== null ? `${fmtNum(data.funnel.conversion_rate_own * 100, 2)} %` : "—"}
+            delta={
+              data.funnel?.conversion_rate_own != null && previous?.conversion_rate_own != null ? (
+                <Delta change={(data.funnel.conversion_rate_own - previous.conversion_rate_own) * 100} suffix="pp" />
+              ) : null
+            }
+            vs={previous?.conversion_rate_own != null ? `${fmtNum(previous.conversion_rate_own * 100, 2)} %` : null}
             slot={
               target("conversion_rate") !== null && data.funnel?.conversion_rate_own != null ? (
                 <TargetBar
@@ -1340,10 +1479,17 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             }
           />
           <Kpi
+            verdict={<MetricVerdict analysis={verdictOf("cac_new")} />}
+            anchorId="insight-metric-cac_new"
             label="CAC combinado"
-            value={financialCurrencyComparable && financial?.cac_blended != null ? formatStoreMoney(financial.cac_blended, 2) : "—"}
+            value={financialCurrencyComparable && financial?.cac_blended != null && cacReliable ? formatStoreMoney(financial.cac_blended, 2) : "—"}
+            tag={financialCurrencyComparable && financial?.cac_blended != null && !cacReliable ? "muestra pequeña" : undefined}
             slot={
-              financialCurrencyComparable && target("cac_blended") !== null && financial?.cac_blended != null ? (
+              financialCurrencyComparable && financial?.cac_blended != null && !cacReliable ? (
+                <p className={s.trackTxt} title="Dividir toda la publicidad entre tan pocos clientes nuevos no da un coste por cliente fiable.">
+                  Solo {fmtNum(financial.new_customers ?? 0)} {financial.new_customers === 1 ? "cliente nuevo" : "clientes nuevos"} en el periodo
+                </p>
+              ) : financialCurrencyComparable && target("cac_blended") !== null && financial?.cac_blended != null ? (
                 <TargetBar
                   value={financial.cac_blended}
                   target={target("cac_blended") ?? 0}
@@ -1362,8 +1508,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       {diagnostic && aiHeadline ? (
         <section className={s.sec} aria-labelledby="pulse-reading">
           <div className={s.panel}>
-            <p className={s.lbl}>Lectura del A02</p>
-            <h2 id="pulse-reading" className={s.qiT}>Qué está pasando</h2>
+            <h2 id="pulse-reading" className={s.qiT}><span className={s.ia}>A02</span> Qué está pasando</h2>
             <p className={s.headlineDetail}>{aiHeadline}</p>
           </div>
         </section>
@@ -1407,7 +1552,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           <SectionHead
             id="pulse-dinero"
             title="Dinero"
-            ai={moneyAi?.title ?? null}
+            ai={dated(moneyAi)}
             fallback={showProfit && profitPerOrder !== null ? `De cada pedido te quedan ${formatStoreMoney(profitPerOrder, 2)}.` : null}
             onAsk={() => askCopilot("¿Qué partida reduce más mi rentabilidad y qué debería revisar primero? Cita cifra, fuente y periodo; si falta un coste, dime cuál.", "Dónde se va el dinero")}
           />
@@ -1444,7 +1589,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           <SectionHead
             id="pulse-canales"
             title="Canales"
-            ai={channelsAi?.title ?? null}
+            ai={dated(channelsAi)}
             fallback="Cada plataforma cuenta su parte de las ventas."
             onAsk={() =>
               askCopilot(
@@ -1532,6 +1677,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             id="pulse-stock"
             title="Stock"
             ai={stockHeadline}
+            tag={stockAi.data ? "A06" : "A02"}
             onAsk={() => askCopilot("¿Qué productos tienen mayor riesgo de rotura según ventas, stock y previsión disponibles? Prioriza la reposición y da cantidades solo si hay cobertura, plazo de entrega y unidades suficientes para calcularlas; cita la evidencia.", "Stock")}
           />
           <div className={s.panel}>
@@ -1551,12 +1697,12 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             </div>
             {stockAi.data ? (
               <ul className={s.findings}>
-                {stockAi.data.output.findings.slice(0, 5).map((finding, i) => (
+                {stockFindings.slice(0, 5).map((finding, i) => (
                   <li key={i} className={s.finding}>
                     <span className={cx(s.pr, prioClass(finding.severity))} aria-hidden="true" />
                     <div>
                       <p className={s.qiT}>{finding.title}</p>
-                      <p className={s.findingE}>{finding.evidence}</p>
+                      {finding.evidence ? <p className={s.findingE}>{finding.evidence}</p> : null}
                     </div>
                   </li>
                 ))}
@@ -1594,7 +1740,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           <SectionHead
             id="pulse-plan"
             title="Plan"
-            ai={planAi?.title ?? null}
+            ai={dated(planAi)}
             onAsk={() => askCopilot("Con las ventas del periodo y el objetivo configurado, ¿voy al ritmo necesario? Cuantifica la diferencia, cita la fecha y la fuente, y señala los datos que falten.", "Tu objetivo")}
           />
           <div className={s.two}>
@@ -1645,17 +1791,22 @@ export function usePins(daily: Array<{ date: string }> | undefined, alerts: Aler
   }, [daily, alerts]);
 }
 
-export function Kpi({ label, value, delta, vs, slot, tag }: {
+export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId }: {
   label: string;
   value: string;
   delta?: ReactNode;
   vs?: string | null;
   slot: ReactNode;
   tag?: string;
+  /** Punto del analista de métricas (`<MetricVerdict>`), junto a la etiqueta. */
+  verdict?: ReactNode;
+  /** Ancla del ✨ (`insight-metric-<id>`): el menú de la IA lleva hasta aquí y parpadea. */
+  anchorId?: string;
 }) {
   return (
-    <div className={s.kpi}>
+    <div id={anchorId} className={s.kpi} role="group" aria-label={label}>
       <p className={s.kpiL}>
+        {verdict}
         {label}
         {tag ? <span className={cx(s.chip, s.chipWarn)}>{tag}</span> : null}
       </p>
@@ -1676,12 +1827,12 @@ export function Kpi({ label, value, delta, vs, slot, tag }: {
 }
 
 const UNIT_COLORS: Record<string, string> = {
-  prod: "#5e7c84",
-  ship: "#93acb2",
-  fee: "#bdced1",
+  prod: "var(--ink-2)",
+  ship: "var(--ink-3)",
+  fee: "var(--line)",
   ads: "var(--warn)",
-  fix: "#2c4a53",
-  other: "#d9c7a6",
+  fix: "var(--ink)",
+  other: "var(--sunken)",
   profit: "var(--good)",
 };
 
@@ -1791,7 +1942,7 @@ function StorePanel({ data, note, onAsk }: { data: Metrics; note: Finding | null
             ? [
                 { label: "Añaden al carrito", value: funnel.cart_additions, pct: (funnel.cart_additions / (funnel.sessions || 1)) * 100, hint: "de las sesiones" },
                 { label: "Llegan al pago", value: funnel.checkouts_reached, pct: (funnel.checkouts_reached / (funnel.cart_additions || 1)) * 100, hint: "de los que añaden al carrito" },
-                { label: "Compran", value: funnel.purchases, pct: (funnel.purchases / (funnel.checkouts_reached || 1)) * 100, hint: "de los que llegan al pago" },
+                { label: "Sesiones con compra", value: funnel.purchases, pct: (funnel.purchases / (funnel.checkouts_reached || 1)) * 100, hint: "de los que llegan al pago (sesiones, no pedidos)" },
               ]
             : [{ label: "Pedidos", value: funnel.orders_count, pct: (funnel.conversion_rate_own ?? 0) * 100, hint: "de las sesiones" }]),
         ]
@@ -1887,14 +2038,14 @@ function MetaBody({ meta, breakeven, currencyCode }: { meta: MetaMetrics; breake
         </div>
       </div>
       {campaigns.length ? (
-        <div className={s.tblWrap}>
-          <table className={s.tbl}>
+        <div className={s.tblWrap} role="region" aria-label="Tabla de resultados; desliza para ver todas las columnas" tabIndex={0}>
+          <table className={s.tbl} aria-label="Resultados del periodo seleccionado">
             <thead>
               <tr>
-                <th>Campaña</th>
-                <th>Gasto</th>
-                <th>ROAS</th>
-                <th>Compras</th>
+                <th scope="col">Campaña</th>
+                <th scope="col">Gasto</th>
+                <th scope="col">ROAS</th>
+                <th scope="col">Compras</th>
               </tr>
             </thead>
             <tbody>
@@ -2040,6 +2191,7 @@ function GoalPanel({ monthly, revenueTarget, marginTarget, margin, currencyCode,
   today: Date;
 }) {
   const money = (value: number) => fmtCurrency(value, currencyCode);
+  const currencySymbol = currencyCode ? (new Intl.NumberFormat("es-ES", { style: "currency", currency: currencyCode }).formatToParts(0).find((part) => part.type === "currency")?.value ?? currencyCode) : "";
   const points = monthlyWithProjection(
     monthly.map((m) => ({ month: m.month, value: m.net_revenue_ex_tax })),
     today,
@@ -2080,7 +2232,7 @@ function GoalPanel({ monthly, revenueTarget, marginTarget, margin, currencyCode,
             >
               {labelled && point ? (
                 <span className={s.gcolV} style={{ bottom: `calc(${(point.value / max) * 100}% + 5px)` }}>
-                  {fmtNum(point.value / 1000, 1).replace(",0", "")}k
+                  {shortMoney(point.value, currencySymbol)}
                 </span>
               ) : null}
               <i style={{ height: `${point ? (point.value / max) * 100 : 0}%` }} />

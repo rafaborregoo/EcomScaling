@@ -7,6 +7,17 @@
  * nada visiblemente -- pinta un numero equivocado con aspecto de correcto.
  */
 
+export function monthlyChartScale(max: number, currency: string | null) {
+  const divisor = max >= 1000 ? 1000 : 1;
+  return {
+    divisor,
+    digits: max >= 100_000 || divisor === 1 ? 0 : 1,
+    label: currency
+      ? `Importes en ${divisor === 1000 ? "miles de " : ""}${currency}`
+      : `Escala en ${divisor === 1000 ? "miles" : "unidades"} · moneda sin confirmar`,
+  };
+}
+
 export type PanelFinancial = {
   net_revenue_ex_tax: number;
   net_profit: number;

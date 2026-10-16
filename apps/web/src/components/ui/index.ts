@@ -24,6 +24,7 @@ export { SettingRow } from "./setting-row";
 export { ColorField } from "./color-field";
 export { Input } from "./input";
 export { Select } from "./select";
+export { Switch } from "./switch";
 export { Textarea } from "./textarea";
 export { UploadButton } from "./upload-button";
 export { LoadingBlock } from "./loading-block";
@@ -164,7 +165,6 @@ export {
   SearchField,
   Separator,
   Skeleton,
-  Switch,
   Toast,
   toast,
   Toolbar,

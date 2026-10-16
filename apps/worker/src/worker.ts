@@ -30,6 +30,10 @@ import {
   AI_DIAGNOSTICS_TICK_TZ,
   INSTAGRAM_IMAGE_QUEUE_CRON,
   INSTAGRAM_IMAGE_QUEUE_TZ,
+  NOTIFICATION_EMAIL_CRON,
+  NOTIFICATION_EMAIL_TZ,
+  MOBILE_PUSH_CRON,
+  MOBILE_PUSH_TZ,
   isStaleShopifyReconcileRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
@@ -182,6 +186,43 @@ async function runInstagramImageQueue(
   return response.json();
 }
 
+async function runNotificationEmailTick(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/notifications/email-tick`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok)
+    throw new Error(`notification_email_tick_failed_${response.status}`);
+  return response.json();
+}
+
+async function runMobilePushTick(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/notifications/push-tick`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`mobile_push_tick_failed_${response.status}`);
+  return response.json();
+}
+
 const queue = new Queue("ecomscaling-default", { connection });
 const shopifyQueueControl = new Queue(SHOPIFY_SYNC_QUEUE_NAME, { connection });
 await shopifyQueueControl.setGlobalConcurrency(1);
@@ -286,6 +327,24 @@ if (env.INTERNAL_API_SECRET) {
   logger.info(
     `Scheduled instagram-image-queue every minute (${INSTAGRAM_IMAGE_QUEUE_TZ})`,
   );
+  await queue.add(
+    "notification-email",
+    {},
+    {
+      repeat: { pattern: NOTIFICATION_EMAIL_CRON, tz: NOTIFICATION_EMAIL_TZ },
+      jobId: "notification-email-repeat",
+    },
+  );
+  logger.info(`Scheduled notification-email every 10 minutes (${NOTIFICATION_EMAIL_TZ})`);
+  await queue.add(
+    "mobile-push",
+    {},
+    {
+      repeat: { pattern: MOBILE_PUSH_CRON, tz: MOBILE_PUSH_TZ },
+      jobId: "mobile-push-repeat",
+    },
+  );
+  logger.info(`Scheduled mobile-push every 2 minutes (${MOBILE_PUSH_TZ})`);
 } else {
   logger.info(
     "Not scheduling shopify-reconcile - INTERNAL_API_SECRET not configured",
@@ -329,6 +388,9 @@ const worker = new Worker(
     }
     if (job.name === "instagram-image-queue") {
       return runInstagramImageQueue(context);
+    }
+    if (job.name === "notification-email") {
+      return runNotificationEmailTick(context);
     }
 
     return {

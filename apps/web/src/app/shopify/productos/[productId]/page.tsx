@@ -150,6 +150,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [page, setPage] = useState(1);
   const [periodDays, setPeriodDays] = useState<Period>(90);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+  const [observedAt] = useState(() => Date.now());
   useEffect(() => setPage(1), [organizationId, connectionId, params.productId]);
 
   const queryParams = new URLSearchParams({ page: String(page), periodDays: String(periodDays) });
@@ -214,7 +215,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const variantsWithoutCost = pm?.variants_without_cost ?? variants.filter((v) => v.inventory?.current_unit_cost == null).length;
   const trackedCount = variants.filter((v) => v.inventory?.tracked).length;
   const lastReading = variants.flatMap((v) => v.inventory_levels.map((level) => level.updated_at)).sort().at(-1) ?? null;
-  const inventoryFresh = lastReading != null && Number.isFinite(Date.parse(lastReading)) && Date.now() - Date.parse(lastReading) <= 48 * 60 * 60 * 1000;
+  const inventoryFresh = lastReading != null && Number.isFinite(Date.parse(lastReading)) && observedAt - Date.parse(lastReading) <= 48 * 60 * 60 * 1000;
   const weekly = data.weekly ?? null;
   const weeklyMax = weekly ? Math.max(...weekly.map((w) => w.units_ordered + w.units_refunded), 1) : 1;
 

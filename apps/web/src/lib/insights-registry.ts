@@ -4,7 +4,7 @@ import {
   insightBadgeCount,
   type MetricInsight,
 } from "../components/ui/metric-insights-task";
-import { copilotInsightHref } from "@e-nora/contracts";
+import { copilotInsightHref, type MetricAnalysis } from "@e-nora/contracts";
 
 export type CopilotUiAction = {
   kind: "open_insight";
@@ -263,8 +263,9 @@ export function insightSpotsFromPlaybookAssessments(
 export function mergeInsightSpots(
   scope: InsightScope,
   assessments: PlaybookInsightAssessment[],
+  metricAnalyses: MetricAnalysis[] = [],
 ): InsightSpot[] {
-  const staticSpots = insightSpotsFor(scope);
+  const staticSpots = [...insightSpotsFor(scope), ...insightSpotsFromMetricAnalyses(scope, metricAnalyses)];
   const liveSpots = insightSpotsFromAiAssessments(scope, assessments);
   return [
     ...staticSpots,
@@ -282,57 +283,53 @@ export function insightAnchorId(spotId: string) {
   return `insight-${spotId}`;
 }
 
-// MAQUETA (sin IA todavia): asi se veria cuando el agente de Meta devuelva sus
-// hallazgos para ESTA tienda. Cuando se conecte, esta funcion se sustituye por
-// la lectura de las salidas de agente ya filtradas por organizacion y tienda
-// -- la forma de vuelta es la misma, por eso las pantallas no cambiaran.
-function demoSpots(scope: InsightScope): InsightSpot[] {
-  // Sin tienda concreta no hay de que hablar: el ROAS de "todas las tiendas"
-  // es una suma, no algo sobre lo que un agente pueda recomendar nada.
-  if (!scope.connectionId) return [];
-  return [
-    {
-      id: "roas",
-      label: "ROAS",
-      href: "/dashboard?tab=meta#insight-roas",
-      location: "Dashboard · Meta Ads",
-      audience: "consultant",
-      storeId: scope.connectionId,
-      insights: [
-        {
-          id: "roas-bajo-break-even",
-          title: "El ROAS lleva 9 días por debajo del break-even",
-          severity: "high",
-          evidence:
-            "1,84x de media en los últimos 9 días contra un break-even de 2,30x. Cada euro invertido está perdiendo 0,20 €.",
-          steps: [
-            "Pausar los 3 conjuntos con ROAS < 1,5x y más de 200 € gastados",
-            "Mover ese presupuesto al conjunto de retargeting (3,10x)",
-          ],
-          needsTask: true,
-        },
-        {
-          id: "roas-margen-desactualizado",
-          title: "El break-even se calcula con costes de hace 4 meses",
-          severity: "medium",
-          evidence:
-            "El coste de producto no se actualiza desde mayo. Si ha subido, el break-even real es mayor y el ROAS de arriba se está juzgando contra un listón equivocado.",
-          steps: ["Revisar coste por producto en Ajustes > Finanzas"],
-          needsTask: true,
-        },
-        {
-          id: "roas-ventana-atribucion",
-          title: "Meta atribuye con ventana de 7 días",
-          severity: "info",
-          evidence:
-            "Este ROAS es atribuido por Meta, no ventas reales de Shopify. La diferencia con el panel de Shopify es esperable.",
-          steps: [
-            "Contrastar con ingresos netos antes de decidir por esta cifra",
-          ],
-        },
-      ],
-    },
-  ];
+// Analista de métricas (ADR-0027): cada métrica que va mal o hay que vigilar es una
+// entrada del ✨. Sustituye a la maqueta de ROAS que había aquí. La card ancla en
+// `#insight-metric-<id>` (el `anchorId` de su Kpi), así que el menú lleva justo a la cifra.
+const METRIC_SPOT_HREF: Record<MetricAnalysis["metric"], string> = {
+  mer: "/dashboard?tab=todo",
+  cac_new: "/dashboard?tab=todo#insight-metric-cac_new",
+  conversion: "/dashboard?tab=todo#insight-metric-conversion",
+  meta_roas: "/dashboard?tab=meta#insight-metric-meta_roas",
+  email_open_rate: "/dashboard?tab=klaviyo#insight-metric-email_open_rate",
+};
+const METRIC_SPOT_LOCATION: Record<MetricAnalysis["metric"], string> = {
+  mer: "Dashboard",
+  cac_new: "Dashboard",
+  conversion: "Dashboard",
+  meta_roas: "Dashboard · Meta Ads",
+  email_open_rate: "Dashboard · Klaviyo",
+};
+
+export function insightSpotsFromMetricAnalyses(scope: InsightScope, analyses: MetricAnalysis[]): InsightSpot[] {
+  if (!scope.organizationId) return [];
+  return analyses
+    .filter((a) => a.verdict === "bad" || a.verdict === "watch")
+    .map((a) => {
+      const driver = a.drivers.find((d) => d.id === a.main_driver);
+      const steps = [
+        ...(driver && driver.change_pct != null ? [`Empezar por ${driver.label.toLowerCase()} (${driver.change_pct >= 0 ? "+" : "−"}${Math.abs(driver.change_pct).toFixed(0)} %).`] : []),
+        ...(a.suggested_target ? [a.suggested_target.text] : []),
+      ];
+      return {
+        id: `metric-${a.metric}`,
+        label: a.label,
+        href: METRIC_SPOT_HREF[a.metric],
+        location: METRIC_SPOT_LOCATION[a.metric],
+        audience: "both" as const,
+        storeId: scope.connectionId || null,
+        insights: [
+          {
+            id: `metric-${a.metric}-${a.verdict}`,
+            title: `${a.label}: ${a.verdict === "bad" ? "va mal" : "vigilar"}`,
+            severity: a.verdict === "bad" ? ("high" as const) : ("medium" as const),
+            evidence: a.reasons.filter((r) => r.verdict === a.verdict).map((r) => r.text).join(" "),
+            steps: steps.length ? steps : [`Revisar ${a.label}.`],
+            needsTask: a.verdict === "bad",
+          },
+        ],
+      };
+    });
 }
 
 /** Lo que la IA tiene que decir sobre lo que el usuario esta mirando. */
@@ -341,7 +338,10 @@ export function insightSpotsFor(scope: InsightScope): InsightSpot[] {
   // hablar, y el badge del nav no debe sumar hallazgos de toda la cartera.
   if (!scope.organizationId) return [];
 
-  return demoSpots(scope).filter((spot) => {
+  // Entradas fijas: hoy ninguna (la maqueta de ROAS se sustituyó por el analista de
+  // métricas, que llega por mergeInsightSpots). El filtro queda para las que vengan.
+  const staticSpots: InsightSpot[] = [];
+  return staticSpots.filter((spot) => {
     if (spot.audience !== "both") {
       const forConsultant = spot.audience === "consultant";
       if (forConsultant !== scope.isConsultant) return false;

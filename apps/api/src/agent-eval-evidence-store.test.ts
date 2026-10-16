@@ -21,6 +21,7 @@ const payload = {
 
 test("persiste mediante la RPC y devuelve el id", async () => {
   const client = {
+    schema: () => client,
     rpc: async () => ({
       data: "00000000-0000-0000-0000-000000000002",
       error: null,
@@ -34,6 +35,7 @@ test("persiste mediante la RPC y devuelve el id", async () => {
 
 test("no oculta errores de persistencia", async () => {
   const client = {
+    schema: () => client,
     rpc: async () => ({ data: null, error: { message: "permission denied" } }),
   } as unknown as SupabaseClient;
 

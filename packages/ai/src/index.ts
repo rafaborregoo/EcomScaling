@@ -28,6 +28,7 @@ import type { AgentSecurityEventSink } from "./security-events.js";
 
 export * from "./provider-capabilities.js";
 export * from "./security-events.js";
+export { serializeUntrustedContextBlocks } from "./untrusted-context.js";
 
 export type AgentImageAttachment =
   | { url: string; role?: string; label?: string }
@@ -633,7 +634,6 @@ export const monitorOutputJsonSchema = {
     },
     sections: {
       type: "array",
-      maxItems: 8,
       items: {
         type: "object",
         additionalProperties: false,
@@ -1967,6 +1967,29 @@ export const chatOutputSchema = z.object({
     .nullable()
     .optional()
     .transform((value) => value ?? undefined),
+  // Las cifras que sostienen la respuesta, para pintarlas como tarjetas en vez
+  // de enterradas en la prosa. Mismo vocabulario de fuente que la evidencia de
+  // las propuestas.
+  key_figures: z
+    .array(
+      z.object({
+        label: z.string(),
+        value: z.string(),
+        change: z.string().nullable(),
+        direction: z.enum(["up", "down", "flat"]).nullable(),
+        // Hacia donde es bueno que se mueva: un coste que baja es buena
+        // noticia. Sin esto la interfaz no puede colorear sin mentir.
+        good_direction: z.enum(["up", "down"]).nullable().optional().transform((value) => value ?? null),
+        // Serie diaria tal cual la devolvio la tool, para la minigrafica.
+        series: z.array(z.number()).nullable().optional().transform((value) => value ?? null),
+        period: z.string().nullable(),
+        source: z.enum(["shopify", "klaviyo", "meta", "instagram", "interno"]),
+      }),
+    )
+    .max(3)
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined),
   ui_actions: z
     .array(
       z.object({
@@ -2001,6 +2024,11 @@ export const chatOutputSchema = z.object({
 
 export type ChatOutput = z.infer<typeof chatOutputSchema>;
 
+// Empty collections represent absence on the wire. Nullable arrays combined
+// with nested nullable fields exceed Anthropic's compiled-grammar size limit,
+// especially alongside tools. Optional text uses empty strings; keep null
+// only where it carries domain meaning (impact, direction, unknown cost).
+// Zod still accepts historic null values when reading persisted chat outputs.
 export const chatJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -2013,12 +2041,53 @@ export const chatJsonSchema = {
     "findings",
     "recommendation",
     "next_action",
+    "key_figures",
     "ui_actions",
     "proposed_writes",
   ],
   properties: {
+    answer: {
+      type: "string",
+      description: "Respuesta directa a la pregunta del usuario, en espanol.",
+    },
+    key_figures: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "value", "change", "direction", "good_direction", "series", "period", "source"],
+        properties: {
+          label: { type: "string", description: "Nombre corto de la métrica, p. ej. 'Carrito → compra'." },
+          value: { type: "string", description: "Valor tal cual lo devolvió una tool, con su unidad." },
+          change: {
+            type: "string",
+            description: "Variación frente al periodo de comparación devuelto por la tool, p. ej. '−10,7 pp'. Cadena vacia si la tool no la da.",
+          },
+          direction: { type: ["string", "null"], enum: ["up", "down", "flat", null] },
+          good_direction: {
+            type: ["string", "null"],
+            enum: ["up", "down", null],
+            description: "Hacia dónde es bueno que se mueva la métrica: 'up' para ventas o conversión, 'down' para costes, CAC o devoluciones. null si depende.",
+          },
+          series: {
+            type: "array",
+            maxItems: 31,
+            items: { type: "number" },
+            description: "Valores por día o semana, en orden, copiados de la serie que devolvió una tool. [] si la tool no devolvió serie; nunca la reconstruyas.",
+          },
+          period: { type: "string", description: "Cadena vacia si no hay un periodo verificado." },
+          source: {
+            type: "string",
+            enum: ["shopify", "klaviyo", "meta", "instagram", "interno"],
+          },
+        },
+      },
+      description:
+        "Hasta tres cifras clave que sostienen la respuesta, copiadas de resultados de tools de este turno. Nunca calcules ni inventes una cifra para rellenar; [] si no hay.",
+    },
     ui_actions: {
-      type: ["array", "null"],
+      type: "array",
       maxItems: 3,
       items: {
         type: "object",
@@ -2042,10 +2111,6 @@ export const chatJsonSchema = {
       },
       description: "Acciones de navegacion visual, sin ejecutar cambios ni inventar rutas.",
     },
-    answer: {
-      type: "string",
-      description: "Respuesta directa a la pregunta del usuario, en espanol.",
-    },
     sources: {
       type: "array",
       items: {
@@ -2058,7 +2123,7 @@ export const chatJsonSchema = {
             enum: ["metric", "table", "tool", "document"],
           },
           reference: { type: "string" },
-          period: { type: ["string", "null"] },
+          period: { type: "string", description: "Cadena vacia si no hay un periodo verificado." },
         },
       },
       description:
@@ -2072,12 +2137,12 @@ export const chatJsonSchema = {
         "Avisos: p. ej. datos incompletos o pregunta fuera del alcance de las tools disponibles.",
     },
     summary: {
-      type: ["string", "null"],
+      type: "string",
       description:
-        "Resumen ejecutivo de una frase, sin introducir datos nuevos.",
+        "Resumen ejecutivo de una frase, sin introducir datos nuevos. Cadena vacia si no procede.",
     },
     findings: {
-      type: ["array", "null"],
+      type: "array",
       items: {
         type: "object",
         additionalProperties: false,
@@ -2094,15 +2159,15 @@ export const chatJsonSchema = {
       description: "Hasta tres hallazgos respaldados por sources.",
     },
     recommendation: {
-      type: ["string", "null"],
-      description: "Recomendación concreta, sin ejecutar ninguna escritura.",
+      type: "string",
+      description: "Recomendación concreta, sin ejecutar ninguna escritura. Cadena vacia si no procede.",
     },
     next_action: {
-      type: ["string", "null"],
-      description: "Siguiente acción y módulo donde la ejecuta el humano.",
+      type: "string",
+      description: "Siguiente acción y módulo donde la ejecuta el humano. Cadena vacia si no procede.",
     },
     proposed_writes: {
-      type: ["array", "null"],
+      type: "array",
       items: {
         type: "object",
         additionalProperties: false,
@@ -2148,7 +2213,7 @@ export const chatJsonSchema = {
               properties: {
                 label: { type: "string" },
                 value: { type: "string" },
-                period: { type: ["string", "null"] },
+                period: { type: "string", description: "Cadena vacia si no hay un periodo verificado." },
                 source: {
                   type: "string",
                   enum: ["shopify", "klaviyo", "meta", "instagram", "interno"],
@@ -2192,7 +2257,7 @@ export const klaviyoEmailOutputSchema = z.object({
   purpose: z.string().min(1).max(500),
   audience: z.string().min(1).max(500),
   locale: z.string().min(2).max(20),
-  tone: z.string().min(1).max(120),
+  tone: z.string().min(1).max(300),
   plain_text: z.string().min(1).max(100000),
   html: z.string().min(1).max(200000),
   blocks: z.array(klaviyoEmailBlockSchema).max(100),
@@ -2202,6 +2267,17 @@ export const klaviyoEmailOutputSchema = z.object({
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
   approval_required: z.literal(true),
+});
+
+/**
+ * Intermediate provider contract: href values are strings here so the runtime
+ * can remove malformed model links and emit a warning before strict storage
+ * validation. Persisted output still uses klaviyoEmailOutputSchema.
+ */
+export const klaviyoEmailGenerationOutputSchema = klaviyoEmailOutputSchema.extend({
+  blocks: z.array(
+    klaviyoEmailBlockSchema.extend({ href: z.string().nullable() }),
+  ).max(100),
 });
 
 /**
@@ -2244,6 +2320,50 @@ export type MetaAdsDraftPatch = z.infer<typeof metaAdsDraftPatchSchema>;
 
 export type KlaviyoEmailOutput = z.infer<typeof klaviyoEmailOutputSchema>;
 
+/** Remove invalid model generated links without inventing a destination. */
+export function normalizeGeneratedEmailLinks<T extends Record<string, unknown>>(
+  output: T,
+): T {
+  const isSafeHref = (href: string) => {
+    if (!z.string().url().safeParse(href).success) return false;
+    try {
+      const protocol = new URL(href).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch {
+      return false;
+    }
+  };
+  let removed = 0;
+  const blocks = Array.isArray(output.blocks) ? output.blocks.map((block) => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return block;
+    const href = (block as Record<string, unknown>).href;
+    if (typeof href !== "string") return block;
+    if (isSafeHref(href)) return block;
+    removed += 1;
+    return { ...block, href: null };
+  }) : output.blocks;
+  const html = typeof output.html === "string"
+    ? output.html.replace(/\s+href\s*=\s*(["'])(.*?)\1/gi, (attribute, _quote: string, href: string) => {
+        if (isSafeHref(href)) return attribute;
+        removed += 1;
+        return "";
+      })
+    : output.html;
+  if (!removed) return output;
+  const warnings = Array.isArray(output.warnings)
+    ? output.warnings.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    ...output,
+    blocks,
+    ...(typeof html === "string" ? { html } : {}),
+    warnings: [
+      ...warnings,
+      `${removed} enlace(s) no válido(s) se han eliminado; añade y verifica el destino antes de aprobar el borrador.`,
+    ],
+  } as T;
+}
+
 export const klaviyoEmailJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -2278,7 +2398,7 @@ export const klaviyoEmailJsonSchema = {
     purpose: { type: "string" },
     audience: { type: "string" },
     locale: { type: "string" },
-    tone: { type: "string" },
+    tone: { type: "string", maxLength: 300 },
     plain_text: { type: "string" },
     html: { type: "string" },
     blocks: {
@@ -2621,7 +2741,6 @@ export const instagramOverlayDraftSchema = z.object({
         emphasis: z.enum(["normal", "strong"]),
       }),
     )
-    .min(1)
     .max(5),
   palette: z.object({
     text_hex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
@@ -3108,8 +3227,9 @@ function addReported(
 function serializeContextWithSecurityEvents(
   blocks: Array<{ label: string; data: unknown }>,
   onSecurityEvent: AgentSecurityEventSink | undefined,
+  limits?: { maxBlockChars?: number; maxContextChars?: number },
 ): { text: string; truncated: boolean } {
-  const serialized = serializeUntrustedContextBlocks(blocks);
+  const serialized = serializeUntrustedContextBlocks(blocks, limits);
 
   if (serialized.blockedPatterns > 0) {
     onSecurityEvent?.({
@@ -3132,6 +3252,7 @@ function serializeContextWithSecurityEvents(
       detail: {
         reason: "contexto_truncado_por_limite_de_tamano",
         block_count: blocks.length,
+        truncated_blocks: serialized.truncatedBlocks,
       },
     });
   }
@@ -3249,6 +3370,30 @@ export function buildLeanOutputContract(
       findings: value.findings ?? [],
       recommendations: value.recommendations ?? [],
     }));
+
+  return {
+    jsonSchema: jsonSchema as unknown as Record<string, unknown>,
+    schema: schema as unknown as z.ZodType<AgentOutput>,
+  };
+}
+
+/**
+ * Contrato de un agente de solo lectura (A29): sin `proposed_writes` en el
+ * esquema, que es la parte grande -- con ella Anthropic rechaza el esquema
+ * estricto ("compiled grammar is too large") -- y que este agente nunca debe
+ * rellenar. El parseo la repone vacía y fija `approval_required: false`.
+ */
+export function buildReadOnlyOutputContract(): OutputContract<AgentOutput> {
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+  delete jsonSchema.properties.proposed_writes;
+  jsonSchema.required = jsonSchema.required.filter((key) => key !== "proposed_writes");
+
+  const schema = agentOutputSchema
+    .partial({ proposed_writes: true })
+    .transform((value) => ({ ...value, proposed_writes: [], approval_required: false }));
 
   return {
     jsonSchema: jsonSchema as unknown as Record<string, unknown>,
@@ -3983,6 +4128,41 @@ async function executeModelToolCall(
 }
 
 /**
+ * Lo que ve la interfaz de cada herramienta: nombre, si sigue en curso y
+ * cuanto tardo. Nunca la entrada ni el resultado -- pueden llevar datos de
+ * clientes y la traza es para explicar el trabajo, no para auditarlo.
+ */
+export type AgentToolActivity = {
+  id: string;
+  name: string;
+  status: "running" | "done" | "error";
+  latency_ms?: number;
+};
+
+async function trackToolActivity(
+  sink: ((activity: AgentToolActivity) => void) | undefined,
+  tools: AgentToolDefinition[],
+  id: string,
+  toolName: string,
+  run: () => Promise<{ content: string; isError: boolean }>,
+): Promise<{ content: string; isError: boolean }> {
+  // Un nombre inventado por el modelo no llega a la interfaz tal cual.
+  const name = tools.some((tool) => tool.name === toolName) ? toolName : "unknown_tool";
+  const notify = (activity: AgentToolActivity) => {
+    try {
+      sink?.(activity);
+    } catch {
+      // La traza es decorativa: no puede tumbar la ejecucion de la tool.
+    }
+  };
+  notify({ id, name, status: "running" });
+  const startedAt = Date.now();
+  const result = await run();
+  notify({ id, name, status: result.isError ? "error" : "done", latency_ms: Date.now() - startedAt });
+  return result;
+}
+
+/**
  * Cuantas herramientas de una misma ronda se ejecutan a la vez.
  *
  * El proveedor devuelve varias `tool_use` en una ronda precisamente porque el
@@ -4080,6 +4260,95 @@ function parseTurnOutput<TOutput>(
 }
 
 /**
+ * Anthropic Structured Outputs accepts only a subset of JSON Schema. Keep the
+ * provider schema compatible while retaining the full Zod contract in
+ * `parseTurnOutput`, which remains the authoritative validator after decode.
+ */
+export function toAnthropicCompatibleOutputSchema(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const unsupportedConstraints = new Set([
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "maxItems",
+    "uniqueItems",
+  ]);
+
+  const visit = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!isPlainObject(value)) return value;
+
+    const result: Record<string, unknown> = {};
+    const hints: string[] = [];
+    for (const [key, child] of Object.entries(value)) {
+      if (unsupportedConstraints.has(key)) {
+        const label = key === "minLength" ? "at least" : key === "maxLength" ? "at most" : null;
+        if (key === "maxItems") hints.push(`Return no more than ${String(child)} array items.`);
+        else if (key === "uniqueItems" && child === true) hints.push("Array items should be unique.");
+        else if (label && typeof child === "number") hints.push(`String length ${label} ${child} characters.`);
+        else if (typeof child === "number") hints.push(`${key} ${child}.`);
+        continue;
+      }
+      if (key === "minItems" && typeof child === "number" && child > 1) {
+        hints.push(`Return at least ${child} array items.`);
+        continue;
+      }
+      result[key] = visit(child);
+    }
+
+    const declaredTypes = result.type;
+    const enumValues = result.enum;
+    if (
+      Array.isArray(declaredTypes) &&
+      declaredTypes.includes("null") &&
+      Array.isArray(enumValues) &&
+      enumValues.includes(null)
+    ) {
+      const shared = { ...result };
+      delete shared.type;
+      delete shared.enum;
+      delete shared.anyOf;
+      delete shared.description;
+
+      const matchesType = (type: unknown, item: unknown) => {
+        if (type === "null") return item === null;
+        if (type === "string") return typeof item === "string";
+        if (type === "boolean") return typeof item === "boolean";
+        if (type === "integer") return typeof item === "number" && Number.isInteger(item);
+        if (type === "number") return typeof item === "number";
+        if (type === "array") return Array.isArray(item);
+        if (type === "object") return isPlainObject(item);
+        return false;
+      };
+
+      const branches: Record<string, unknown>[] = [];
+      for (const type of declaredTypes) {
+        const values = enumValues.filter((item) => matchesType(type, item));
+        if (values.length > 0) {
+          branches.push(type === "null" ? { ...shared, type } : { ...shared, type, enum: values });
+        }
+      }
+      delete result.type;
+      delete result.enum;
+      result.anyOf = branches;
+    }
+
+    if (hints.length > 0) {
+      const existing = typeof result.description === "string" ? result.description.trim() : "";
+      result.description = [existing, ...hints].filter(Boolean).join(" ");
+    }
+    return result;
+  };
+
+  return visit(schema) as Record<string, unknown>;
+}
+
+/**
  * Los tres campos de coste van juntos siempre: la cifra, por que vale eso, y
  * con que tarifa se calculo. Un coste sin su base no es auditable.
  */
@@ -4128,6 +4397,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   outputContract?: OutputContract<TOutput>;
   budget?: AgentBudget;
   resilience?: Partial<AgentResiliencePolicy>;
+  signal?: AbortSignal;
   /**
    * AI-30: sumidero sincrono de eventos de seguridad. Sincrono a proposito:
    * corre en el camino caliente del turno y no puede ser una escritura a base
@@ -4140,6 +4410,8 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   onTextDelta?: (delta: string) => void;
   onTextReset?: () => void;
   onToolCall?: () => void;
+  /** Inicio y fin de cada herramienta, para la traza en directo del copiloto. */
+  onToolActivity?: (activity: AgentToolActivity) => void;
   /**
    * Imágenes adjuntas al mensaje de usuario (visión). `url` debe ser pública y
    * de confianza -- el backend valida el origen antes de llamar aquí.
@@ -4154,6 +4426,8 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
    */
   reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   maxCompletionTokens?: number;
+  /** Límites acotados por llamada para consumidores con evidencia grande. */
+  contextLimits?: { maxBlockChars?: number; maxContextChars?: number };
 }): Promise<AgentTurnResult<TOutput>> {
   if (!params.client && !params.apiKey) {
     throw new Error("agent_provider_credentials_required");
@@ -4172,6 +4446,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   const context = serializeContextWithSecurityEvents(
     params.contextBlocks,
     params.onSecurityEvent,
+    params.contextLimits,
   );
   const contextText = context.text;
   const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
@@ -4219,7 +4494,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     output_config: {
       format: {
         type: "json_schema" as const,
-        schema: outputContract.jsonSchema,
+        schema: toAnthropicCompatibleOutputSchema(outputContract.jsonSchema),
       },
     },
     ...(tools.length > 0 || params.webSearch
@@ -4266,6 +4541,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
         );
       },
       resiliencePolicy,
+      { ...(params.signal ? { signal: params.signal } : {}) },
     );
   };
 
@@ -4317,11 +4593,13 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       toolUses,
       MAX_PARALLEL_TOOL_CALLS,
       (toolUse) =>
-        executeModelToolCall(
-          tools,
-          toolUse.name,
-          () => (toolUse.input ?? {}) as Record<string, unknown>,
-          params.onSecurityEvent,
+        trackToolActivity(params.onToolActivity, tools, toolUse.id, toolUse.name, () =>
+          executeModelToolCall(
+            tools,
+            toolUse.name,
+            () => (toolUse.input ?? {}) as Record<string, unknown>,
+            params.onSecurityEvent,
+          ),
         ),
     );
 
@@ -4500,6 +4778,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   outputContract?: OutputContract<TOutput>;
   budget?: AgentBudget;
   resilience?: Partial<AgentResiliencePolicy>;
+  signal?: AbortSignal;
   /**
    * AI-30: sumidero sincrono de eventos de seguridad. Sincrono a proposito:
    * corre en el camino caliente del turno y no puede ser una escritura a base
@@ -4512,6 +4791,8 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   onTextDelta?: (delta: string) => void;
   onTextReset?: () => void;
   onToolCall?: () => void;
+  /** Inicio y fin de cada herramienta, para la traza en directo del copiloto. */
+  onToolActivity?: (activity: AgentToolActivity) => void;
   /** Bounded image inputs (e.g. private local render captures) for vision-capable models. */
   images?: AgentImageAttachment[];
   /**
@@ -4521,6 +4802,8 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
    */
   reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   maxCompletionTokens?: number;
+  /** Límites acotados por llamada para consumidores con evidencia grande. */
+  contextLimits?: { maxBlockChars?: number; maxContextChars?: number };
 }): Promise<AgentTurnResult<TOutput>> {
   const input = "scope" in params.input
     ? platformAgentInputSchema.parse(params.input)
@@ -4537,6 +4820,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   const context = serializeContextWithSecurityEvents(
     params.contextBlocks,
     params.onSecurityEvent,
+    params.contextLimits,
   );
   const contextText = context.text;
   const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
@@ -4623,6 +4907,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
         return collectChatCompletionStream(stream, params.model, params.onTextDelta);
       },
       resiliencePolicy,
+      { ...(params.signal ? { signal: params.signal } : {}) },
     );
   };
 
@@ -4669,17 +4954,19 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
       functionCalls,
       MAX_PARALLEL_TOOL_CALLS,
       (toolCall) =>
-        executeModelToolCall(
-          tools,
-          toolCall.function.name,
-          () =>
-            toolCall.function.arguments
-              ? (JSON.parse(toolCall.function.arguments) as Record<
-                  string,
-                  unknown
-                >)
-              : {},
-          params.onSecurityEvent,
+        trackToolActivity(params.onToolActivity, tools, toolCall.id, toolCall.function.name, () =>
+          executeModelToolCall(
+            tools,
+            toolCall.function.name,
+            () =>
+              toolCall.function.arguments
+                ? (JSON.parse(toolCall.function.arguments) as Record<
+                    string,
+                    unknown
+                  >)
+                : {},
+            params.onSecurityEvent,
+          ),
         ),
     );
 

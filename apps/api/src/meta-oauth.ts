@@ -97,6 +97,10 @@ export function buildMetaAuthUrl(appEnv: MetaOAuthEnv, state: string) {
   const configId = appEnv.META_LOGIN_CONFIG_ID?.trim();
   if (configId) {
     url.searchParams.set("config_id", configId);
+    // Un token de usuario del sistema solo sale por el flujo `code`; el SDK de
+    // Meta manda este mismo par (response_type=code + override) para que no
+    // prevalezca el tipo de respuesta por defecto de la configuración.
+    url.searchParams.set("override_default_response_type", "true");
   } else {
     url.searchParams.set("scope", appEnv.META_SCOPES);
   }
@@ -161,8 +165,11 @@ export async function debugMetaAccessToken(
     scopes: parseMetaScopes(data.scopes.join(",")),
     userId: data.user_id ?? null,
     appId: data.app_id ?? null,
+    // Meta devuelve `expires_at: 0` para un token que no caduca (usuario de
+    // sistema de Facebook Login for Business). Tomarlo como fecha era 1970: la
+    // conexión nacía caducada.
     expiresAt:
-      typeof data.expires_at === "number"
+      typeof data.expires_at === "number" && data.expires_at > 0
         ? new Date(data.expires_at * 1000).toISOString()
         : null,
   };
@@ -171,7 +178,8 @@ export async function debugMetaAccessToken(
 /**
  * Intercambia el code por un token corto y lo alarga inmediatamente
  * (fb_exchange_token, ~60 dias). Meta no da refresh_token para usuarios: cuando
- * el token largo caduque, la conexion pasa a error y hay que reautorizar.
+ * el token largo caduque, la conexion pasa a error y hay que reautorizar (se
+ * avisa una semana antes). Con un usuario de sistema no caduca nunca.
  */
 export async function exchangeMetaCodeForLongLivedToken(
   appEnv: MetaOAuthEnv,
@@ -189,6 +197,13 @@ export async function exchangeMetaCodeForLongLivedToken(
 
   if (!shortResponse.access_token) {
     throw new Error("meta_oauth_missing_access_token");
+  }
+
+  // Con Facebook Login for Business configurado para «token de usuario de
+  // sistema» (META_LOGIN_CONFIG_ID), el code ya devuelve un token sin
+  // caducidad: no hay nada que alargar y fb_exchange_token no aplica.
+  if (!shortResponse.expires_in) {
+    return { accessToken: shortResponse.access_token, expiresAt: null };
   }
 
   const longResponse = await metaGraphGet<{

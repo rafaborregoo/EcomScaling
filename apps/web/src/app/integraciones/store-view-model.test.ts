@@ -416,4 +416,7 @@ test("seis estados: cada salud cae en uno solo", () => {
   assert.equal(stateFromStatus("needs_reauth"), "reconectar");
   assert.equal(stateFromStatus("pending"), "desconectado");
   assert.equal(stateFromStatus("connected"), "conectado");
+  // Un fallo de sync no manda a reconectar; el permiso caído sí.
+  assert.equal(stateFromStatus("error", false), "atrasado");
+  assert.equal(stateFromStatus("error", true), "reconectar");
 });

@@ -4,6 +4,7 @@ const BRAND_LOGOS = {
   letras: "/logos/letras-completo.svg",
   completo: "/logos/e-nora-completo.svg",
   simple: "/logos/e-nora-simple.svg",
+  full: "/logos/e-nora-completo-full.svg",
 } as const;
 
 export function BrandLogo({

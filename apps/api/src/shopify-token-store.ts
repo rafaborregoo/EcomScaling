@@ -135,6 +135,12 @@ async function markConnectionNeedsReauth(supabase: SupabaseClient, connectionId:
     .eq("id", connectionId);
 }
 
+/** Shopify dijo que no (400/401/403), no que no pudo contestar. */
+export function isShopifyRefreshRejection(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && [400, 401, 403].includes(status);
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -245,10 +251,26 @@ export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: stri
         error: error instanceof Error ? error.message : "unknown_error",
       });
 
+      // Solo un rechazo de Shopify (4xx: refresh token inválido, app
+      // desinstalada) obliga a reconectar. Un 5xx, un 429 o un corte de red
+      // se reintenta en la siguiente pasada: antes cualquiera de ellos dejaba
+      // la tienda pidiendo reconexión para siempre.
+      if (!isShopifyRefreshRejection(error)) {
+        await supabase
+          .schema("private")
+          .from("integration_credentials")
+          .update({ refresh_locked_at: null })
+          .eq("connection_id", connectionId)
+          .eq("credential_kind", CREDENTIAL_KIND);
+        throw new Error(
+          `shopify_token_refresh_transient: ${error instanceof Error ? error.message : "unknown_error"}`,
+        );
+      }
+
       await markConnectionNeedsReauth(
         supabase,
         connectionId,
-        "No se pudo renovar el token de Shopify con el refresh token guardado. Reconecta la tienda.",
+        "Shopify rechazó el permiso guardado. Reconecta la tienda.",
       );
       throw new Error("shopify_reauthorization_required");
     }

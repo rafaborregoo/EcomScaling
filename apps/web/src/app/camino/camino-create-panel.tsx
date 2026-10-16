@@ -670,7 +670,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
         <>
           <div className={s.proposalHead}>
             <div>
-              <span className={s.aiTag}>IA</span>
+              <span className={s.aiTag}>A19</span>
               <h3 className={s.proposalName}>{content.plan_name}</h3>
             </div>
             <span className={`${s.pill} ${content.confidence === "high" ? s.pillGood : content.confidence === "low" ? s.pillWarn : ""}`}>

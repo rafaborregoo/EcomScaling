@@ -108,8 +108,8 @@ function writeLs(key: string, value: string) {
 }
 
 const chipClass = (active: boolean) =>
-  `text-xs transition-colors ${
-    active ? "text-foreground" : "text-muted hover:text-foreground"
+  `inline-flex min-h-11 items-center justify-center rounded-lg border px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-10 ${
+    active ? "border-accent/30 bg-accent/10 text-accent" : "border-separator bg-surface text-muted hover:bg-surface-2 hover:text-foreground"
   }`;
 
 const toneClass: Record<Entry["tone"], string> = {
@@ -228,18 +228,18 @@ function EntryRow({
     <Link
       href={entry.href}
       onClick={() => onSelectClient?.(entry.orgId)}
-      className={`block rounded-md px-2 py-1.5 text-left text-xs hover:opacity-80 ${toneClass[entry.tone]}`}
+      className={`block min-h-11 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${toneClass[entry.tone]}`}
     >
       <span className="flex items-baseline gap-1">
         {entry.time ? (
-          <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+          <span className="shrink-0 text-xs tabular-nums text-muted">
             {entry.time}
           </span>
         ) : null}
-        <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+        <span className="min-w-0 flex-1 break-words">{entry.title}</span>
       </span>
       {showOrg ? (
-        <span className="mt-0.5 block truncate text-[0.65rem] text-muted">
+        <span className="mt-0.5 block truncate text-xs text-muted">
           {entry.orgName}
         </span>
       ) : null}
@@ -400,6 +400,7 @@ export function ConsultantAgenda({
               key={option}
               type="button"
               className={chipClass(view === option)}
+              aria-pressed={view === option}
               onClick={() => setView(option)}
             >
               {VIEW_LABEL[option]}

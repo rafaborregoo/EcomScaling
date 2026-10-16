@@ -69,6 +69,7 @@ function access(context: AuthContext, organizationId: string): Failure | null {
     ["owner", "manager"].includes(membership.membership.role);
   return allowed ? null : { ok: false, statusCode: 403, error: "marketing_access_required" };
 }
+export const studioAccess = access;
 
 /**
  * Lo que se guarda en la fila. Pura para poder probarla: valida el reply-to,

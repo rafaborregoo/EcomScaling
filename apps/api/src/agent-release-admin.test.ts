@@ -1,5 +1,6 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test from "node:test";
+import { JUDGE_RUBRIC_VERSION } from "@e-nora/ai";
 import { listAgentReleaseCandidatesFromClient } from "./agent-release-admin.js";
 
 function queryResult(data: unknown, error: unknown = null) {
@@ -24,7 +25,7 @@ test("lists active-catalog versions and requires judge calibration alongside off
       model: "gpt-6-luna",
       is_active: false,
       created_at: "2026-10-10T10:00:00Z",
-      agent_definitions: { code: "a05_estrategia_campanas", name: "Estrategia de campañas" },
+      agent_definitions: { code: "a05_estrategia_campanas", name: "Estrategia de campaÃ±as" },
     },
     {
       id: "retired",
@@ -58,14 +59,14 @@ test("lists active-catalog versions and requires judge calibration alongside off
 });
 
 test("surfaces only calibration whose approved report matches frozen holdout", async () => {
-  const versions = [{ id: "candidate-a05", version: "v6", model: "gpt-6-luna", is_active: false, created_at: "2026-10-10T10:00:00Z", agent_definitions: { code: "a05_estrategia_campanas", name: "Campañas" } }];
+  const versions = [{ id: "candidate-a05", version: "v6", model: "gpt-6-luna", is_active: false, created_at: "2026-10-10T10:00:00Z", agent_definitions: { code: "a05_estrategia_campanas", name: "CampaÃ±as" } }];
   let queryNumber = 0;
   const client = { from: () => {
     const index = queryNumber++;
     if (index === 0) return queryResult(versions);
     if (index === 1) return queryResult([]);
-    if (index === 3) return queryResult([{ dataset_version: "judge-gold-v1", rubric_version: "judge-rubrics-v1", evaluation_split: "holdout", status: "passed", report: { allowed: true, holdout_only: true, holdout_manifest_sha256: "a".repeat(64) }, created_at: "2026-10-10T12:00:00Z" }]);
-    if (index === 4) return queryResult([{ dataset_version: "judge-gold-v1", manifest_sha256: "a".repeat(64) }]);
+    if (index === 3) return queryResult([{ dataset_version: "judge-gold-v7", rubric_version: JUDGE_RUBRIC_VERSION, evaluation_split: "holdout", status: "passed", report: { allowed: true, holdout_only: true, holdout_manifest_sha256: "a".repeat(64) }, created_at: "2026-10-10T12:00:00Z" }]);
+    if (index === 4) return queryResult([{ dataset_version: "judge-gold-v7", manifest_sha256: "a".repeat(64) }]);
     return queryResult([]);
   } } as any;
   const candidates = await listAgentReleaseCandidatesFromClient(client);
@@ -74,14 +75,14 @@ test("surfaces only calibration whose approved report matches frozen holdout", a
 });
 
 test("iterative calibration reports never satisfy the release judge gate", async () => {
-  const versions = [{ id: "candidate-a05", version: "v6", model: "gpt-6-luna", is_active: false, created_at: "2026-10-10T10:00:00Z", agent_definitions: { code: "a05_estrategia_campanas", name: "Campañas" } }];
+  const versions = [{ id: "candidate-a05", version: "v6", model: "gpt-6-luna", is_active: false, created_at: "2026-10-10T10:00:00Z", agent_definitions: { code: "a05_estrategia_campanas", name: "CampaÃ±as" } }];
   let queryNumber = 0;
   const client = { from: () => {
     const index = queryNumber++;
     if (index === 0) return queryResult(versions);
     if (index === 1) return queryResult([]);
-    if (index === 3) return queryResult([{ dataset_version: "judge-gold-v1", rubric_version: "judge-rubrics-v1", evaluation_split: "calibration", status: "passed", report: { allowed: true, holdout_manifest_sha256: "a".repeat(64) }, created_at: "2026-10-10T12:00:00Z" }]);
-    if (index === 4) return queryResult([{ dataset_version: "judge-gold-v1", manifest_sha256: "a".repeat(64) }]);
+    if (index === 3) return queryResult([{ dataset_version: "judge-gold-v7", rubric_version: JUDGE_RUBRIC_VERSION, evaluation_split: "calibration", status: "passed", report: { allowed: true, holdout_manifest_sha256: "a".repeat(64) }, created_at: "2026-10-10T12:00:00Z" }]);
+    if (index === 4) return queryResult([{ dataset_version: "judge-gold-v7", manifest_sha256: "a".repeat(64) }]);
     return queryResult([]);
   } } as any;
   const candidates = await listAgentReleaseCandidatesFromClient(client);

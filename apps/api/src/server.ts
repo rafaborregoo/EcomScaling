@@ -1,4 +1,6 @@
 import { internalSecretMatches } from "./internal-auth.js";
+import { registerOrgAccessGuard, registerOrganizationSettingsRoutes } from "./organization-settings.js";
+import { registerConsultoraSettingsRoutes } from "./consultora-settings.js";
 import { disconnectIntegration } from "./integration-disconnect.js";
 import { createSingleFlight } from "./single-flight.js";
 import { submitAgentJudgeFeedback } from "./agent-judge-feedback.js";
@@ -40,6 +42,7 @@ import {
   healthResponseSchema,
   readinessResponseSchema,
   type CopilotEvidenceReference,
+  METRIC_SPECS,
 } from "@e-nora/contracts";
 import {
   createLogger,
@@ -230,6 +233,9 @@ import {
   startMailingCampaign,
 } from "./mailing-campaign.js";
 import { applyCampaignEditProposal, proposeCampaignEdit } from "./campaign-ai-edit.js";
+import { chatStudioEdit } from "./studio-ai-chat.js";
+import { getAdminAiUsage } from "./ai-usage-admin.js";
+import { getAdminAiCostModel, setAdminAiAgentSettings } from "./ai-cost-model.js";
 import {
   createQuickAction,
   deleteQuickAction,
@@ -285,6 +291,19 @@ import {
   listShopifyCatalogProducts,
 } from "./shopify-catalog.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
+import { getMetricAnalysis } from "./metric-analysis.js";
+
+// A29: periodo de la explicacion (mismo rango que /metric-analysis) y cada cuanto se puede
+// volver a pedir. Rafa (2026-10-16): una hora; antes, abrir la metrica devuelve la guardada.
+const METRIC_EXPLANATION_FRESH_MS = 60 * 60 * 1000;
+const withRenewal = <T extends { generated_at: string }>(data: T) => ({
+  ...data,
+  renews_at: new Date(new Date(data.generated_at).getTime() + METRIC_EXPLANATION_FRESH_MS).toISOString(),
+});
+const metricExplanationDays = (input: string | undefined) => {
+  const n = Math.floor(Number(input));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 365) : 30;
+};
 import { getShopifyInsights } from "./shopify-insights.js";
 import { getMetaInsights } from "./meta-insights.js";
 import { getMetaCampaignDetail, listMetaCampaigns } from "./meta-campaigns.js";
@@ -458,6 +477,8 @@ import {
   type ProposedWriteEdit,
   getConsultantChatMessages,
   getEmailAnalystDiagnostic,
+  getMetricAnalystExplanation,
+  runMetricAnalystAgent,
   getKlaviyoFlowArchitectDiagnostic,
   getMonitorDiagnostic,
   isMonitorDashboardScope,
@@ -1004,6 +1025,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       });
     }
   });
+
+  // Solo lectura, permisos del consultor y 2FA obligatoria, en un solo sitio.
+  registerOrgAccessGuard(app, env);
+  registerOrganizationSettingsRoutes(app, env, { sendAuthFailure, sendServiceFailure });
+  registerConsultoraSettingsRoutes(app, env, { sendAuthFailure, sendServiceFailure });
 
   // El "request completed" automatico de Fastify usa el logger capturado al
   // crear la request, antes de que corra el onRequest de arriba -- nunca
@@ -1851,7 +1877,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.send(result.data);
   });
 
-  app.post<{ Body: unknown }>("/v1/admin/agent-release-eval-fixtures", async (request, reply) => {
+  app.post<{ Body: unknown }>("/v1/admin/agent-release-eval-fixtures", { bodyLimit: 8 * 1024 * 1024 }, async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
     const result = await createAgentReleaseEvalFixture(env, auth.context, request.body);
@@ -1892,7 +1918,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
-  app.post<{ Body: unknown }>("/v1/admin/agent-judge-dataset/cases", async (request, reply) => {
+  app.post<{ Body: unknown }>("/v1/admin/agent-judge-dataset/cases", { bodyLimit: 8 * 1024 * 1024 }, async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
     const result = await createAgentJudgeEvalCase(env, auth.context, request.body);
@@ -2155,6 +2181,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       role?: string;
       access_scope?: "organization" | "store";
       store_id?: string | null;
+      store_ids?: string[];
     };
   }>(
     "/v1/consultant/organizations/:organizationId/client-access/invite",
@@ -2180,6 +2207,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       isActive?: boolean;
       access_scope?: "organization" | "store";
       store_id?: string | null;
+      store_ids?: string[];
     };
   }>(
     "/v1/consultant/organizations/:organizationId/client-access/:userId",
@@ -5197,6 +5225,36 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // Consumo de IA por agente (veces que corre y tokens), sin el copiloto.
+  app.get<{ Querystring: { range?: string } }>("/v1/admin/ai-usage", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getAdminAiUsage(env, auth.context, request.query.range);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Simulador de coste de IA: tokens por ejecucion, ejecuciones/dia y precios.
+  app.get("/v1/admin/ai-cost-model", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getAdminAiCostModel(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Aplica la cadencia y el modelo de cada agente (lo leen orquestador y runtime).
+  app.put<{ Body: unknown }>("/v1/admin/ai-agent-settings", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await setAdminAiAgentSettings(env, auth.context, request.body ?? {});
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
   app.get("/v1/admin/ai-agent-refresh-limits", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
@@ -6396,6 +6454,86 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Analista de metricas (ADR-0027): veredicto bien/vigilar/mal de cada
+  // metrica de la ficha, determinista y sin IA. Lo leen la web y el movil.
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/metric-analysis",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const result = await getMetricAnalysis(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
+        request.query.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // A29: explicacion de UNA metrica. GET solo lee la guardada; POST la genera
+  // al pulsar si la guardada tiene mas de una hora: abrir la metrica otra vez
+  // antes no vuelve a llamar al agente.
+  app.get<{
+    Params: { organizationId: string; metric: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/metric-analysis/:metric/explanation",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (!(request.params.metric in METRIC_SPECS)) return reply.code(404).send({ error: "metric_not_found" });
+      const result = await getMetricAnalystExplanation(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.metric,
+        metricExplanationDays(request.query.days),
+        request.query.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return withRenewal(result.data);
+    },
+  );
+  app.post<{
+    Params: { organizationId: string; metric: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/metric-analysis/:metric/explanation",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const metric = request.params.metric;
+      if (!(metric in METRIC_SPECS)) return reply.code(404).send({ error: "metric_not_found" });
+      const days = metricExplanationDays(request.query.days);
+      const { organizationId } = request.params;
+
+      const cached = await getMetricAnalystExplanation(env, auth.context, organizationId, metric, days, request.query.connectionId);
+      if (!isServiceFailure(cached) && Date.now() - new Date(cached.data.generated_at).getTime() < METRIC_EXPLANATION_FRESH_MS) {
+        return withRenewal(cached.data);
+      }
+
+      const analysis = await getMetricAnalysis(env, authorization, auth.context, organizationId, String(days), request.query.connectionId, { includeMethodology: true });
+      if (isServiceFailure(analysis)) return sendServiceFailure(reply, analysis);
+      const target = analysis.data.analyses.find((item) => item.metric === metric);
+      if (!target) return reply.code(404).send({ error: "metric_not_found" });
+      const result = await runMetricAnalystAgent(env, auth.context, organizationId, target, days, request.query.connectionId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(withRenewal(result.data));
+    },
+  );
+
   // Recurrencia, cohortes, atribucion, devoluciones, entregas, carritos y
   // promociones. Van juntas en una llamada porque la pagina las pinta a la
   // vez y cada RPC ya falla por su cuenta dentro.
@@ -7238,6 +7376,19 @@ export async function buildApp(): Promise<FastifyInstance> {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
       const result = await listStudioProducts(env, request.headers.authorization ?? "", auth.context, request.params.organizationId, request.query);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Chat con la IA del estudio: contesta y devuelve cambios para el email abierto.
+  app.post<{ Params: { organizationId: string }; Body: unknown }>(
+    "/v1/organizations/:organizationId/marketing/studio/ai-chat",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await chatStudioEdit(env, request.headers.authorization ?? "", auth.context, request.params.organizationId, request.body ?? {});
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
@@ -10911,6 +11062,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       view_context?: ConsultantChatViewContext;
       model?: string;
       evidence_reference?: CopilotEvidenceReference;
+      client_turn_id?: string;
     };
   }>(
     "/v1/organizations/:organizationId/consultant-chat",
@@ -10932,6 +11084,8 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body?.model,
         request.body?.evidence_reference,
         request.headers.authorization,
+        undefined,
+        request.body?.client_turn_id,
       );
 
       if (isServiceFailure(result)) {
@@ -10951,6 +11105,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       view_context?: ConsultantChatViewContext;
       model?: string;
       evidence_reference?: CopilotEvidenceReference;
+      client_turn_id?: string;
     };
   }>(
     "/v1/organizations/:organizationId/consultant-chat/stream",
@@ -10965,6 +11120,13 @@ export async function buildApp(): Promise<FastifyInstance> {
       for (const [name, value] of Object.entries(reply.getHeaders())) {
         if (value !== undefined) reply.raw.setHeader(name, value);
       }
+      const turnController = new AbortController();
+      const abortOnClientDisconnect = () => {
+        if (!reply.raw.writableEnded) {
+          turnController.abort(new DOMException("Client disconnected", "AbortError"));
+        }
+      };
+      reply.raw.on("close", abortOnClientDisconnect);
       reply.hijack();
       reply.raw.writeHead(200);
       reply.raw.flushHeaders();
@@ -10987,13 +11149,16 @@ export async function buildApp(): Promise<FastifyInstance> {
           request.body?.evidence_reference,
           request.headers.authorization,
           emit,
+          request.body?.client_turn_id,
+          turnController.signal,
         );
         emit(result.ok ? { type: "done", data: result.data } : { type: "error", error: result });
       } catch {
         emit({ type: "error", error: { error: "chat_turn_failed", statusCode: 500 } });
       } finally {
         clearInterval(heartbeat);
-        reply.raw.end();
+        reply.raw.off("close", abortOnClientDisconnect);
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end();
       }
     },
   );
@@ -11025,7 +11190,12 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get<{
     Params: { organizationId: string };
-    Querystring: { connection_id?: string };
+    Querystring: {
+      connection_id?: string;
+      search?: string;
+      before_created_at?: string;
+      before_id?: string;
+    };
   }>(
     "/v1/organizations/:organizationId/consultant-chat/conversations",
     async (request, reply) => {
@@ -11035,11 +11205,19 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
+      if (Boolean(request.query.before_created_at) !== Boolean(request.query.before_id)) {
+        return reply.code(400).send({ error: "conversation_cursor_invalid" });
+      }
+
       const result = await listConsultantChatConversations(
         env,
         auth.context,
         request.params.organizationId,
         request.query.connection_id,
+        request.query.search,
+        request.query.before_created_at && request.query.before_id
+          ? { created_at: request.query.before_created_at, id: request.query.before_id }
+          : undefined,
       );
 
       if (isServiceFailure(result)) {
@@ -11052,7 +11230,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get<{
     Params: { organizationId: string; conversationId: string };
-    Querystring: { connection_id?: string };
+    Querystring: {
+      connection_id?: string;
+      before_created_at?: string;
+      before_id?: string;
+    };
   }>(
     "/v1/organizations/:organizationId/consultant-chat/conversations/:conversationId",
     async (request, reply) => {
@@ -11062,12 +11244,19 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
+      if (Boolean(request.query.before_created_at) !== Boolean(request.query.before_id)) {
+        return reply.code(400).send({ error: "message_cursor_invalid" });
+      }
+
       const result = await getConsultantChatMessages(
         env,
         auth.context,
         request.params.organizationId,
         request.params.conversationId,
         request.query.connection_id,
+        request.query.before_created_at && request.query.before_id
+          ? { created_at: request.query.before_created_at, id: request.query.before_id }
+          : undefined,
       );
 
       if (isServiceFailure(result)) {

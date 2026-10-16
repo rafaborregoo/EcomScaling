@@ -149,16 +149,22 @@ export function buildLiveAgentEvalEvidencePayload({
 }): AgentEvalEvidencePayload {
   if (results.length === 0) throw new Error("live_eval_results_required");
   const passed = results.filter((result) => result.passed).length;
+  // El registro guarda un resultado por agente: una suite de release trae 13+
+  // casos del MISMO agente, y mapearlos uno a uno tropezaba con
+  // agent_eval_duplicate, así que ninguna evaluación live podía persistirse.
+  const byAgent = new Map<LiveAgentEvalResult["agentCode"], { passed: boolean; checks: number; failed: string[] }>();
+  for (const result of results) {
+    const entry = byAgent.get(result.agentCode) ?? { passed: true, checks: 0, failed: [] };
+    entry.passed &&= result.passed;
+    entry.checks += 1;
+    entry.failed.push(...result.failures.map((failure) => results.length > 1 ? `${result.caseId}:${failure}` : failure));
+    byAgent.set(result.agentCode, entry);
+  }
   return buildAgentEvalEvidencePayload({
     agentVersionId,
     datasetVersion,
     evaluationMode: mode,
-    results: results.map((result) => ({
-      agentCode: result.agentCode,
-      passed: result.passed,
-      checks: 1,
-      failed: result.failures,
-    })),
+    results: [...byAgent].map(([agentCode, entry]) => ({ agentCode, ...entry })),
     overallScore: passed / results.length,
     evidence: {
       mode,

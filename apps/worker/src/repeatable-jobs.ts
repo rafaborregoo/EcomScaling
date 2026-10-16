@@ -25,6 +25,15 @@ export const AI_DIAGNOSTICS_TICK_TZ = "Europe/Madrid";
 export const INSTAGRAM_IMAGE_QUEUE_CRON = "* * * * *";
 export const INSTAGRAM_IMAGE_QUEUE_TZ = "Europe/Madrid";
 
+// Avisos por email (Configuración › Notificaciones): cada 10 minutos el API
+// manda los «al momento» y los resúmenes que tocan a esa hora.
+export const NOTIFICATION_EMAIL_CRON = "*/10 * * * *";
+export const NOTIFICATION_EMAIL_TZ = "Europe/Madrid";
+
+// Push a la app móvil: cada 2 minutos el API manda los avisos nuevos de la campana.
+export const MOBILE_PUSH_CRON = "*/2 * * * *";
+export const MOBILE_PUSH_TZ = "Europe/Madrid";
+
 // BullMQ indexa los jobs repetibles por su configuracion de repeat, no solo por
 // jobId: cambiar de `every` (6h) a `pattern` (cron diario) deja el job viejo
 // huerfano en Redis si no se borra explicitamente, duplicando el reconcile.

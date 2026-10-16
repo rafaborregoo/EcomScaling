@@ -3,6 +3,7 @@
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { ConsultantAgenda } from "@/components/consultant-agenda";
+import { WorkPageHeader } from "@/components/trabajo-ui";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { ButtonLink, Card } from "@/components/ui";
 
@@ -24,7 +25,8 @@ function AgendaContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page">
+    <div className="portal-page grid gap-5">
+      <WorkPageHeader title="Agenda">Revisa tus próximos compromisos, tareas e hitos por cliente.</WorkPageHeader>
       <ConsultantAgenda onSelectClient={setOrganizationId} />
     </div>
   );

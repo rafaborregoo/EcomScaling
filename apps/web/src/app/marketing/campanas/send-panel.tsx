@@ -38,7 +38,6 @@ export function SendPanel({
   draft,
   workspace,
   clientName,
-  reviewPending,
   onDone,
 }: {
   organizationId: string;
@@ -48,7 +47,6 @@ export function SendPanel({
   workspace: KWorkspace | undefined;
   clientName: string;
   /** Un cliente con consultor no programa mientras su campaña está en revisión. */
-  reviewPending: boolean;
   onDone: () => void;
 }) {
   const scheduled = (row.state === "scheduled" || row.state === "sending") && row.campaign;
@@ -68,7 +66,6 @@ export function SendPanel({
           draft={draft}
           workspace={workspace}
           clientName={clientName}
-          reviewPending={reviewPending}
           onDone={onDone}
         />
       )}
@@ -138,7 +135,6 @@ function ScheduleForm({
   draft,
   workspace,
   clientName,
-  reviewPending,
   onDone,
 }: {
   organizationId: string;
@@ -147,7 +143,6 @@ function ScheduleForm({
   draft: MarketingDraft | null;
   workspace: KWorkspace | undefined;
   clientName: string;
-  reviewPending: boolean;
   onDone: () => void;
 }) {
   const lists = workspace?.audiences?.lists ?? [];
@@ -182,7 +177,6 @@ function ScheduleForm({
 
   const steps: Step[] = [
     { ok: approved, title: "Pieza aprobada", sub: approved ? "Se puede subir a Klaviyo" : "Aprueba la pieza para poder programarla" },
-    ...(reviewPending ? [{ ok: false, title: "Revisión de tu consultor", sub: "Programa cuando la haya dado por revisada" }] : []),
     { ok: connected && canSchedule, title: "Klaviyo conectado con permiso de campañas", sub: !connected ? "Conecta Klaviyo en Integraciones" : !canSchedule ? "Vuelve a conectar aceptando «Campaigns»" : `Cuenta del cliente · ${clientName}` },
     { ok: Boolean(subject.trim() && fromEmail.trim()), title: "Asunto y remitente", sub: !subject.trim() ? "Falta el asunto" : fromEmail || "Falta el email del remitente" },
     { ok: links.length > 0, title: "El email lleva a algún sitio", sub: links[0] ?? "No hay ningún enlace de destino en el email" },

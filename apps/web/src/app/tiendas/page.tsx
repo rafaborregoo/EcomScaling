@@ -447,7 +447,7 @@ function ConnectionChips({
             </Badge>
           );
         }
-        const state = CONNECTION_STATES[stateFromStatus(connection.status)];
+        const state = CONNECTION_STATES[stateFromStatus(connection.status, connection.needs_reconnect)];
         return (
           <Badge key={provider.id} tone={state.tone}>
             {provider.label}: {state.label.toLowerCase()}

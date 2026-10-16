@@ -333,7 +333,7 @@ export function ClientLevel({
               value: client.cac === null ? "—" : money(client.cac, 1),
               foot:
                 client.cac === null ? (
-                  <span>sin publicidad</span>
+                  <span>Sin CAC calculado</span>
                 ) : client.cac_target !== null ? (
                   <>
                     <Chip tone={client.cac <= client.cac_target ? "good" : "warn"}>objetivo {money(client.cac_target, 1)}</Chip>
@@ -349,7 +349,7 @@ export function ClientLevel({
         <Section
           id="tiendas"
           title="Sus tiendas"
-          lead="Cada tarjeta lleva a la tienda. El borde marca su tramo: de un vistazo, cuáles cumplen, cuáles se quedan cortas y cuáles pierden."
+          lead="Abre una tienda para revisar sus cifras. La etiqueta indica si cumple el objetivo, pierde dinero o necesita completar sus datos."
         >
           <div className={s.three}>
             {stores.map((store) => {
@@ -565,11 +565,11 @@ export function ClientLevel({
 
         <Section id="evolucion" title="Cómo evoluciona" lead="Doce meses del cliente y, debajo, de qué tienda sale el beneficio.">
           <div className={s.two}>
-            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio · miles de euros">
+            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio">
               {data.monthly.length === 0 ? (
                 <p className={s.empty}>Sin serie mensual.</p>
               ) : (
-                <MonthlyChart months={data.monthly} label={`Ingresos y beneficio mensual de ${name}, doce meses`} />
+                <MonthlyChart months={data.monthly} currency={currency} label={`Ingresos y beneficio mensual de ${name}, doce meses`} />
               )}
             </Panel>
             <Panel

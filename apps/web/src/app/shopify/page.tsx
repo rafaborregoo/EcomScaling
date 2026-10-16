@@ -11,6 +11,7 @@ import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { useModuleSummary } from "@/components/module-summary";
 import { ClientShopify } from "../dashboard/client-shopify";
+import { ChannelBand } from "../dashboard/channel-band";
 import { ShopifyTrustStrip } from "./trust-strip";
 import { PortfolioAttention } from "@/components/portfolio-attention";
 import { useProfitability } from "../panel/panel-data";
@@ -359,18 +360,16 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
-      <Card
+      <ChannelBand
+        eyebrow={
+          isAggregate
+            ? `${overview.connections.length} tiendas · las cifras de abajo son la suma de todas`
+            : `Tu tienda · ${overview.store?.primary_domain ?? overview.store?.myshopify_domain ?? "sin dominio"}`
+        }
         title={
           isAggregate
             ? "Todas tus tiendas"
             : (overview.store?.shop_name ?? "Sin tienda conectada")
-        }
-        description={
-          isAggregate
-            ? `${overview.connections.length} tiendas · las cifras de abajo son la suma de todas`
-            : (overview.store?.primary_domain ??
-              overview.store?.myshopify_domain ??
-              "sin dominio")
         }
         actions={
           <div className="flex flex-wrap gap-3">
@@ -411,7 +410,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         ) : null}
         {isAggregate ? (
-          <p className="mt-3 text-sm text-muted">
+          <p className="mt-3 text-sm">
             El estado de la conexión y el sincronizado manual son de cada
             tienda, no del conjunto. Elige una arriba para verlos.
           </p>
@@ -425,7 +424,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Banner>
           </div>
         ) : null}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
             Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}
           </span>
@@ -438,7 +437,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Link>
           ) : null}
         </div>
-      </Card>
+      </ChannelBand>
 
       <ClientShopify
         key={costsVersion}

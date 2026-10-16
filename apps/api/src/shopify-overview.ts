@@ -569,17 +569,15 @@ export async function getShopifyConnections(
       membership.accessSource === "membership" &&
       membership.access_scope === "store"
     ) {
-      const { data: store, error: storeError } = await supabase
+      const { data: stores, error: storeError } = await supabase
         .from("shopify_stores")
         .select("connection_id")
         .eq("organization_id", organizationId)
-        .eq("id", membership.store_id ?? "")
-        .eq("is_active", true)
-        .maybeSingle();
+        .in("id", membership.store_ids ?? [])
+        .eq("is_active", true);
       if (storeError) throw new Error(`shopify_store_scope_load_failed: ${storeError.message}`);
-      connections = store?.connection_id
-        ? connections.filter((connection) => connection.id === store.connection_id)
-        : [];
+      const allowed = new Set((stores ?? []).map((store) => store.connection_id as string | null));
+      connections = connections.filter((connection) => allowed.has(connection.id));
     }
     const selected = connections.find((item) => item.status !== "pending") ?? connections[0] ?? null;
 

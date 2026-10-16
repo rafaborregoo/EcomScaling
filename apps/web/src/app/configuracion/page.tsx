@@ -4,18 +4,22 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { AlertRulesSection } from "./alert-rules-section";
 import { ClientAccessSection } from "./client-access-section";
-import { ConsultantPartnersSection } from "./consultant-partners-section";
 import { WorkSplitSection } from "./work-split-section";
-import { ConsultantStatusSection } from "./consultant-status-section";
+import { ConsultantSection } from "./consultant-section";
+import { ActivityCard, TeamSecurityCard } from "./team-security-section";
+import { ROLE_LABEL, ROLE_MATRIX, MEMBER_ROLES } from "./role-permissions";
 import { BillingSection } from "./billing-section";
 import { NotificationsSection } from "./notifications-section";
 import { ObjectivesProgress } from "./objectives-progress";
+import { useMetricAnalysis } from "@/components/metric-verdict";
 import { PrivacySection } from "./privacy-section";
 import { SecuritySection } from "./security-section";
 import { SummarySection } from "./summary-section";
 import { OrganizationIdentity } from "./organization-identity";
 import { ProfileSection } from "./profile-section";
 import { ConsultoraSection, PortfolioSettingsMatrix } from "./consultant-settings";
+import { ConsultoraBrandSection, ConsultoraRolesCard, ConsultoraTeamSection, InviteCodesSection } from "./consultora-section";
+import { CopilotAiSection } from "./copilot-ai-section";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -185,6 +189,9 @@ function FinancialConfigSection({
   const membership = bootstrap.memberships.find(
     (item) => item.organization_id === organizationId,
   );
+  // Objetivo sugerido por el analista de métricas (ADR-0027): sale de los costes de la
+  // tienda y del margen neto objetivo. Solo en Objetivos, donde se usa.
+  const analysisOf = useMetricAnalysis(organizationId, part === "targets" ? 30 : "all");
   // Mismo criterio que `assertCanManage` en el backend: el consultor asesora
   // sobre el margen, así que también lo configura.
   const isConsultantRole = ["platform_admin", "consultant"].includes(
@@ -764,6 +771,27 @@ function FinancialConfigSection({
             </Button>
           </form>
         ) : null}
+        {canManage
+          ? (() => {
+              const suggestion =
+                targetMetricKey === "roas"
+                  ? analysisOf("meta_roas")?.suggested_target ?? analysisOf("mer")?.suggested_target
+                  : targetMetricKey === "cac_blended"
+                    ? analysisOf("cac_new")?.suggested_target
+                    : null;
+              if (!suggestion) return null;
+              return (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator p-3">
+                  <p className="max-w-prose text-sm leading-snug text-foreground">{suggestion.text}</p>
+                  {suggestion.value ? (
+                    <Button variant="secondary" size="sm" type="button" onClick={() => setTargetValue(String(suggestion.value))}>
+                      Usar {suggestion.value.toLocaleString("es-ES")}
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })()
+          : null}
       </Card>
       ) : null}
 
@@ -1093,12 +1121,15 @@ function InfoRow({
 }
 
 type SettingsTab =
+  | "cartera"
+  | "consultor"
   | "resumen"
   | "tienda"
   | "rentabilidad"
   | "objetivos"
   | "alertas"
   | "notificaciones"
+  | "copiloto"
   | "equipo"
   | "plan"
   | "accesos"
@@ -1107,12 +1138,15 @@ type SettingsTab =
   | "seguridad"
   | "privacidad";
 const SETTINGS_SECTIONS = [
+  "cartera",
+  "consultor",
   "resumen",
   "tienda",
   "rentabilidad",
   "objetivos",
   "alertas",
   "notificaciones",
+  "copiloto",
   "equipo",
   "plan",
   "accesos",
@@ -1122,46 +1156,46 @@ const SETTINGS_SECTIONS = [
   "privacidad",
 ] as const satisfies readonly SettingsTab[];
 
-// Qué puede hacer cada rol. Refleja los chequeos reales del backend: editar
-// configuración e invitar es de owner/manager; plan y baja, del propietario.
-const ROLE_PERMISSIONS: Array<{ action: string; roles: [boolean, boolean, boolean, boolean] }> = [
-  { action: "Ver cifras y tareas", roles: [true, true, true, true] },
-  { action: "Editar costes, objetivos y alertas", roles: [true, true, false, false] },
-  { action: "Invitar y quitar personas", roles: [true, true, false, false] },
-  { action: "Plan, facturas y eliminar la cuenta", roles: [true, false, false, false] },
-];
-
+// Qué puede hacer cada rol: la matriz vive en role-permissions.ts, junto a la
+// guarda de la API que la hace cumplir.
 function RolesCard() {
   return (
     <Card title="Qué puede hacer cada rol">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[32rem] text-sm">
+        <table className="w-full min-w-[36rem] text-sm">
           <thead>
             <tr className="text-left text-xs text-muted">
               <th className="pb-2 font-medium">&nbsp;</th>
-              {["Propietario", "Gestor", "Miembro", "Solo lectura"].map((role) => (
+              {MEMBER_ROLES.map((role) => (
                 <th key={role} className="pb-2 text-center font-medium">
-                  {role}
+                  {ROLE_LABEL[role]}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-separator">
-            {ROLE_PERMISSIONS.map((row) => (
-              <tr key={row.action}>
-                <td className="py-2.5 pr-4">{row.action}</td>
-                {row.roles.map((allowed, index) => (
-                  <td
-                    key={index}
-                    className={`py-2.5 text-center ${allowed ? "" : "text-muted"}`}
-                    aria-label={allowed ? "Puede" : "No puede"}
-                  >
-                    {allowed ? "✓" : "—"}
-                  </td>
-                ))}
+          {ROLE_MATRIX.map((group) => (
+            <tbody key={group.group} className="divide-y divide-separator">
+              <tr>
+                <th colSpan={5} className="pb-1 pt-4 text-left text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted">
+                  {group.group}
+                </th>
               </tr>
-            ))}
-          </tbody>
+              {group.rows.map((row) => (
+                <tr key={row.action}>
+                  <td className="py-2 pr-4">{row.action}</td>
+                  {MEMBER_ROLES.map((role) => (
+                    <td
+                      key={role}
+                      className={`py-2 text-center ${row.roles[role] ? "font-semibold text-success" : "text-muted"}`}
+                      aria-label={row.roles[role] ? "Puede" : "No puede"}
+                    >
+                      {row.roles[role] ? "✓" : "—"}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          ))}
         </table>
       </div>
     </Card>
@@ -1201,16 +1235,19 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         (membership) => membership.organization_id === organization?.id,
       )?.role ?? "",
     );
+  // El consultor sin cliente activo empieza por su cartera.
   const [tab, setTab] = useUrlSection(
     "section",
     SETTINGS_SECTIONS,
-    "resumen",
+    isConsultant && !organization ? "cartera" : "resumen",
   );
   const isOwner = activeMembership?.role === "owner";
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
-      {tab === "resumen" ? (
+      {tab === "cartera" && isConsultant ? (
+        <PortfolioSettingsMatrix />
+      ) : tab === "resumen" || tab === "cartera" ? (
         organization ? (
           <SummarySection
             organizationId={organization.id}
@@ -1251,10 +1288,6 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </p>
             </Card>
           )}
-          {/* Solo al cliente: el consultor no necesita el estado de su propio consultor. */}
-          {organization && !isConsultant ? (
-            <ConsultantStatusSection organizationId={organization.id} />
-          ) : null}
 
         </div>
       ) : tab === "rentabilidad" || tab === "objetivos" ? (
@@ -1267,6 +1300,8 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null
       ) : tab === "notificaciones" ? (
         <NotificationsSection bootstrap={bootstrap} />
+      ) : tab === "copiloto" ? (
+        organization ? <CopilotAiSection organizationId={organization.id} /> : null
       ) : tab === "plan" ? (
         organization && isOwner ? (
           <BillingSection organizationId={organization.id} />
@@ -1277,17 +1312,31 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </p>
           </Card>
         )
+      ) : tab === "consultor" ? (
+        organization && !isConsultant ? (
+          <ConsultantSection organizationId={organization.id} canSeeActivity={canManageTeam} />
+        ) : null
       ) : tab === "seguridad" ? (
-        <SecuritySection bootstrap={bootstrap} />
+        <div className="space-y-6">
+          <SecuritySection bootstrap={bootstrap} />
+          {organization && canManageTeam ? (
+            <>
+              <TeamSecurityCard organizationId={organization.id} />
+              <ActivityCard organizationId={organization.id} />
+            </>
+          ) : null}
+        </div>
       ) : tab === "privacidad" ? (
         organization ? (
           <PrivacySection bootstrap={bootstrap} organization={organization} />
         ) : null
       ) : tab === "accesos" ? (
-        <div className="space-y-4">
-          <ConsultantPartnersSection />
+        <div className="space-y-6">
+          <ConsultoraTeamSection currentUserId={bootstrap.user.id} />
+          <ConsultoraRolesCard />
           {/* Reparto de responsabilidades entre consultores. */}
           <WorkSplitSection />
+          <InviteCodesSection />
         </div>
       ) : tab === "alertas" ? (
         organization ? (
@@ -1297,7 +1346,10 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         ) : null
       ) : tab === "consultora" ? (
-        <ConsultoraSection />
+        <div className="space-y-6">
+          <ConsultoraSection />
+          <ConsultoraBrandSection currentUserId={bootstrap.user.id} />
+        </div>
       ) : tab === "perfil" ? (
         <ProfileSection bootstrap={bootstrap} />
       ) : tab === "equipo" ? (
@@ -1306,6 +1358,8 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <ClientAccessSection
               organizationId={organization.id}
               canManage={canManageTeam || isConsultant}
+              isOwner={isOwner || bootstrap.profile.platform_role === "platform_admin"}
+              currentUserId={bootstrap.user.id}
             />
             <RolesCard />
           </div>

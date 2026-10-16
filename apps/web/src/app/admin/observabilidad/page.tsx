@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { RunTraceDetail } from "./run-trace";
 import { ModelPricesPanel } from "./model-prices";
+import { AiUsagePanel } from "./ai-usage";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
 import {
@@ -817,6 +818,7 @@ function ObservabilidadPanel() {
       </div>
 
       <OrchestratorPanel />
+      <AiUsagePanel />
       <ModelPricesPanel />
 
       <Card

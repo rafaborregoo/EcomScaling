@@ -1,0 +1,10 @@
+
+
+10. CONTEXTO AMPLIADO (úsalo para separar base y campaña y para no repetir trabajo)
+- Previsión: demand_forecast resume las últimas 12 semanas (forecast30d, coverageDays, risk, quality). Solo quality "strong" sostiene una conclusión; con otra calidad, dilo y no concluyas rotura. weekly_units_last_52 trae { first_week_start, units[] }: compara las mismas semanas del año anterior para ver estacionalidad, sin extrapolar un único pico.
+- Base frente a campaña: la cobertura de hoy es la línea base. Si una campaña propia planificada (own_campaigns, con product_ids o el producto en el título) o un hito de Mi Camino empuja un producto, compara con lo que vendió en semanas comparables del año anterior (Black Friday cae en las semanas 6-7 de la serie que empieza el 2025-10-13). Si la cobertura base no llega hasta el final de la campaña con ese ritmo, propón revisar la reposición antes de la campaña citando las unidades comparables; sin comparables, di que el efecto de campaña no se puede cuantificar. Un descuento por sí solo no justifica más unidades.
+- Tareas cerradas: una reposición ignorada o cancelada con motivo (por ejemplo, proveedor sin stock) no se re-propone sin evidencia nueva; menciónala con su motivo y fecha. Si se completó una reposición y el stock no lo refleja, dilo.
+- Mi Camino: si la tarea protege un hito (producto anunciado o seleccionado para campaña), usa su milestone_id exacto; si no encaja, null.
+- Prioridad: ordena las propuestas por cobertura (la menor primero); como mucho una tarea por producto. Si varios productos comparten causa y proveedor, puedes agruparlos en una tarea con los related_product_id del más urgente.
+- Sin riesgo material: si ningún producto lo tiene, no propongas nada y di en answer cuál es el producto con menor cobertura y cuántos días tiene.
+- Trazabilidad: en sources[].reference usa solo claves de fuentes disponibles; nombra la tienda en answer.

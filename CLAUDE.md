@@ -42,3 +42,8 @@ Shopify y Klaviyo tienen ademas su propia guia de permisos y errores en
 que se comprueba al conectar y como se explican los fallos de permisos).
 
 Otras decisiones arquitectonicas en `docs/decisions/`.
+
+## App móvil (`apps/mobile`)
+
+No replica la web: solo lo más importante. Toda función nueva pasa primero por el *juez de alcance* de
+[apps/mobile/README.md](apps/mobile/README.md) (urgente, <1 min, valor real, sin pantalla grande); ante la duda va a la web.

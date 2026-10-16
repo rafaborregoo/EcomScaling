@@ -115,6 +115,7 @@ export function BillingSection({ organizationId }: { organizationId: string }) {
 
   const balance = balanceQuery.data;
   const canUsePortal = billing.stripe_connected;
+  const saldoBajo = Boolean(balance && (balance.exhausted || (balance.granted > 0 && balance.remaining / balance.granted < 0.2)));
 
   return (
     <div className="space-y-4">
@@ -186,8 +187,11 @@ export function BillingSection({ organizationId }: { organizationId: string }) {
             <Button onClick={() => void openPortal()} disabled={!canUsePortal || opening}>
               {opening ? "Abriendo..." : "Gestionar facturación"}
             </Button>
-            <Link href="/planes" className="inline-flex items-center text-sm">
-              Cambiar de plan
+            <Link
+              href="/planes"
+              className={saldoBajo ? "inline-flex min-h-9 items-center rounded bg-accent px-3 text-sm font-medium text-white" : "inline-flex items-center text-sm"}
+            >
+              {saldoBajo ? "Mejorar plan" : "Cambiar de plan"}
             </Link>
           </div>
           {!canUsePortal ? (

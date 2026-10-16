@@ -197,7 +197,11 @@ export async function getStrategicPlan(
 
   // Ultimo plan no archivado con toda su estructura; las notas internas van
   // aparte porque su RLS ya limita a consultores/admins.
-  let planQuery = supabase
+  // RLS esconde los borradores a quien no es consultor asignado ni admin, pero
+  // quien puede gestionar el plan (owner/manager) lo crea y debe verlo para
+  // revisarlo y activarlo: el permiso ya se comprobó arriba con membership.
+  const planReader = assertCanManagePlan(context, organizationId).ok ? service : supabase;
+  let planQuery = planReader
     .from("strategic_plans")
     .select(
       "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, rationale, evidence, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, success_criteria, rationale, position, status, target_date, completed_at, completion_evidence, created_by, milestone_task_links(task_id, position, owner_role, kind, track, cadence, effort_hours, definition_of_done, rationale, evidence, created_at, tasks(id, title, description, status, priority, due_at, categories, source, created_by, assigned_to))))",

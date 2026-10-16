@@ -4,9 +4,10 @@ import { useMemo, useState, type ReactNode } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
-import { toast } from "@/components/ui";
+import { Skeleton, toast } from "@/components/ui";
 import { DIMENSION_LABEL, ENTITY_LABEL, RANKING_PRESENTATION, ROAS_SHIFT_PCT } from "../meta/insights-sections";
 import { groupRankingRowsByDimensionCurrency } from "../meta/creative-currency";
 import { fmtEur, fmtNum } from "./client-pulse-model";
@@ -25,6 +26,8 @@ import {
   type Pin,
 } from "./client-pulse";
 import s from "./client-pulse.module.css";
+import { DashboardSections } from "./dashboard-sections";
+import { metaAttributionLabel } from "./dashboard-labels";
 
 /**
  * Pestaña Meta Ads del panel del cliente.
@@ -224,6 +227,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
+  const verdictOf = useMetricAnalysis(organizationId, days, connectionId);
 
   const insights = useCachedQuery<MetaInsights>(`${base}/meta/insights?days=${days}${scope}`);
   const metrics = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=${days}`);
@@ -301,9 +305,10 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   if (insights.isLoading && !data) {
     return (
       <div className={s.root}>
-        <div className={s.hero}>
+        <div className={s.hero} role="status" aria-busy="true">
           <p className={s.heroMeta}>{organizationName} · Meta Ads</p>
           <p className={s.headline}>Cargando tus anuncios…</p>
+          <Skeleton className="h-32 w-full" aria-hidden="true" />
         </div>
       </div>
     );
@@ -315,7 +320,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
       <div className={s.root}>
         <div className={s.hero}>
           <p className={s.heroMeta}>{organizationName} · Meta Ads</p>
-          <p className={s.headline}>{insights.error && !data ? "No hemos podido cargar Meta Ads." : "Meta Ads todavía no tiene datos."}</p>
+          <h1 className={s.headline}>{insights.error && !data ? "No hemos podido cargar Meta Ads" : "Meta Ads todavía no tiene datos"}</h1>
           <p className={s.headlineDetail}>
             {asConsultant
               ? "Las integraciones de este cliente solo se consultan desde su propia organización."
@@ -324,10 +329,11 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           {!asConsultant ? (
             <div className={s.heroActions}>
               <a className={cx(s.btn, s.acc)} href="/integraciones/meta">
-                Conectar Meta Ads
+                {insights.error ? "Revisar conexión de Meta Ads" : "Conectar Meta Ads"}
               </a>
             </div>
           ) : null}
+          {insights.error ? <div className={s.heroActions}><button type="button" className={cx(s.btn, s.ghost)} onClick={insights.reload}>Reintentar la carga</button></div> : null}
         </div>
       </div>
     );
@@ -342,7 +348,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const headline =
     metaAi?.title ??
     `Has invertido ${fmtEur(summary.spend)} en Meta y Meta se atribuye ${fmtEur(summary.purchase_value)} en ventas (ROAS ${roasText(summary.roas)}).`;
-  const attributionWindow = data.creatives.find((c) => c.purchase_attribution_window)?.purchase_attribution_window ?? null;
+  const attributionWindow = metaAttributionLabel(data.creatives.map((creative) => creative.purchase_attribution_window));
   const ctr = summary.impressions > 0 ? summary.clicks / summary.impressions : null;
   const avgSpend = points.length ? summary.spend / points.length : null;
   // Sin ROAS de equilibrio (faltan costes), la referencia es recuperar lo
@@ -365,6 +371,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
 
   return (
     <div className={s.root}>
+      <DashboardSections items={[{"id":"meta-headline","label":"Resumen"},{"id":"meta-pendiente","label":"Qué hacer"},{"id":"meta-ads","label":"Anuncios"},{"id":"meta-learn","label":"Aprendizaje"},{"id":"meta-measure","label":"Medición"},{"id":"meta-changes","label":"Cambios"}]} />
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.hero} aria-labelledby="meta-headline">
         <div className={s.heroTop}>
@@ -380,11 +387,11 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               </div>
             </div>
             <h1 id="meta-headline" className={s.headline}>
-              {metaAi ? <span className={s.ia}>IA</span> : null}
-              {headline}
+              Meta Ads: inversión y retorno
             </h1>
+            <p className={s.headlineDetail}>{metaAi ? <span className={s.ia}>A02</span> : null}{headline}</p>
             <p className={s.headlineDetail}>
-              {fmtNum(summary.purchases)} compras atribuidas por Meta{attributionWindow ? ` (ventana ${attributionWindow})` : ""}. Son las que Meta se adjudica, no las ventas de tu tienda.
+              {fmtNum(summary.purchases)} compras atribuidas por Meta{attributionWindow ? ` (${attributionWindow})` : ""}. Son las que Meta se adjudica, no las ventas de tu tienda.
             </p>
             <div className={s.heroActions}>
               <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("En el periodo analizado, ¿qué resultado de Meta Ads merece atención primero y qué cambio probarías? Cita campaña, métrica y gasto; señala las limitaciones de atribución.", "Meta Ads")}>
@@ -394,7 +401,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
                 Preguntar qué haría
               </button>
               <button type="button" className={cx(s.btn, s.ghost)} disabled={monitorRunning} onClick={() => void runMonitorMeta()}>
-                {monitorRunning ? "Analizando Meta…" : "Actualizar análisis Meta"}
+                {monitorRunning ? "Analizando Meta…" : "Actualizar análisis"}
               </button>
               {hideFullLink ? null : (
                 <a className={cx(s.btn, s.ghost)} href="/meta">
@@ -419,7 +426,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               <div>
                 <span>Días con datos</span>
                 <span className={s.num}>
-                  {days === "all" ? fmtNum(summary.days_with_data) : `${summary.days_with_data} de ${days}`}
+                  {fmtNum(summary.days_with_data)}
                 </span>
               </div>
             </div>
@@ -435,6 +442,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         {points.length > 1 ? (
           <>
             <SalesChart
+              label="Inversión diaria en Meta Ads"
               daily={points}
               previousAverage={avgSpend}
               averageLabel="Gasto medio diario"
@@ -479,7 +487,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
 
       <section className={s.sec} aria-label="Lectura ejecutiva de Meta Ads">
         <div className={s.panel}>
-          <p className={s.lbl}>A02 · Meta Ads</p>
+          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> Lectura de Meta Ads</h2>
           <p className={s.headlineDetail}>
             {monitor.data?.output.headline ?? "El análisis específico de Meta Ads aparecerá aquí cuando termine su primera ejecución."}
           </p>
@@ -493,6 +501,8 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         <Kpi label="Inversión" value={fmtEur(summary.spend)} slot={<p className={s.trackTxt}>{avgSpend !== null ? `${fmtEur(avgSpend)} al día de media` : " "}</p>} />
         <Kpi label="Ingresos atribuidos" value={fmtEur(summary.purchase_value)} slot={<p className={s.trackTxt}>Lo que Meta se atribuye{attributionWindow ? ` · ${attributionWindow}` : ""}</p>} />
         <Kpi
+          verdict={<MetricVerdict analysis={verdictOf("meta_roas")} />}
+          anchorId="insight-metric-meta_roas"
           label="ROAS atribuido"
           value={roasText(summary.roas)}
           slot={
@@ -574,9 +584,9 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               {(
                 [
                   ["all", "Todos"],
-                  ["good", "Rentan"],
-                  ["bad", "Gastan sin retorno"],
-                  ["low", "Sin volumen"],
+                  ["good", breakeven != null ? "Sobre equilibrio" : "ROAS ≥ 1"],
+                  ["bad", breakeven != null ? "Bajo equilibrio" : "ROAS < 1"],
+                  ["low", "Volumen insuficiente"],
                 ] as Array<[AdFilter, string]>
               ).map(([key, label]) => (
                 <button key={key} type="button" aria-pressed={adFilter === key} onClick={() => setAdFilter(key)}>
@@ -590,18 +600,18 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           ) : creatives.length === 0 ? (
             <Empty>{allCreatives.length ? "Ningún anuncio en este grupo." : "No hay anuncios con gasto en este periodo."}</Empty>
           ) : (
-            <div className={s.tblWrap} style={{ marginTop: 0 }}>
-              <table className={s.tbl}>
+            <div className={s.tblWrap} role="region" aria-label="Anuncios; desliza para comparar sus métricas" tabIndex={0} style={{ marginTop: 0 }}>
+              <table className={s.tbl} aria-label="Rendimiento de anuncios según Meta">
                 <thead>
                   <tr>
-                    <th>Anuncio</th>
-                    <th>Gasto</th>
-                    <th>ROAS</th>
-                    <th>CPA</th>
-                    <th>CTR</th>
-                    <th>Gancho / retención</th>
-                    <th>Calidad</th>
-                    <th>Conversión</th>
+                    <th scope="col">Anuncio</th>
+                    <th scope="col">Gasto</th>
+                    <th scope="col">ROAS</th>
+                    <th scope="col">CPA</th>
+                    <th scope="col">CTR</th>
+                    <th scope="col">Gancho / retención</th>
+                    <th scope="col">Calidad</th>
+                    <th scope="col">Conversión</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -643,14 +653,14 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               </div>
             </div>
             {campaigns.length ? (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Campañas publicitarias; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Inversión y retorno atribuido por campaña de Meta">
                   <thead>
                     <tr>
-                      <th>Campaña</th>
-                      <th>Gasto</th>
-                      <th>ROAS</th>
-                      <th>Compras</th>
+                      <th scope="col">Campaña</th>
+                      <th scope="col">Gasto</th>
+                      <th scope="col">ROAS</th>
+                      <th scope="col">Compras</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -794,14 +804,14 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
             ) : data.pixels.length === 0 ? (
               <Empty>No hay píxel conectado a esta cuenta.</Empty>
             ) : (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Eventos del píxel; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Actividad de eventos del píxel">
                   <thead>
                     <tr>
-                      <th>Píxel / evento</th>
-                      <th>Eventos</th>
-                      <th>Días sin datos</th>
-                      <th>Último disparo</th>
+                      <th scope="col">Píxel / evento</th>
+                      <th scope="col">Eventos</th>
+                      <th scope="col">Días sin datos</th>
+                      <th scope="col">Último disparo</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -842,13 +852,13 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
             ) : data.audiences.length === 0 ? (
               <Empty>No hay públicos personalizados en la cuenta.</Empty>
             ) : (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Públicos de Meta; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Audiencias de Meta Ads">
                   <thead>
                     <tr>
-                      <th>Público</th>
-                      <th>Tamaño</th>
-                      <th>En uso</th>
+                      <th scope="col">Público</th>
+                      <th scope="col">Tamaño</th>
+                      <th scope="col">En uso</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -46,6 +46,7 @@ import { buildCrossChannelMeasurementSet } from "@e-nora/contracts";
 import {
   authorizationPurgeCutoff,
   classifyAuthorizationAttempt,
+  connectionNeedsReconnect,
   isPurgeableAuthorizationAttempt,
   observeMaturity,
   type MaturityDeclaration, DEFAULT_SEVERITY_THRESHOLDS, type SeverityThresholds,
@@ -2826,6 +2827,7 @@ export async function listConsultantIntegrations(
     status: string;
     last_sync_at: string | null;
     last_error_message: string | null;
+    needs_reconnect: boolean;
   };
   const byOrg = new Map<string, Record<string, Cell>>();
   const providerSet = new Set<string>();
@@ -2856,6 +2858,10 @@ export async function listConsultantIntegrations(
         status: nextStatus,
         last_sync_at: (row.last_sync_at as string | null) ?? null,
         last_error_message: (row.last_error_message as string | null) ?? null,
+        needs_reconnect: connectionNeedsReconnect({
+          status: nextStatus,
+          last_error_message: row.last_error_message as string | null,
+        }),
       };
     }
     byOrg.set(orgId, cells);
@@ -2878,6 +2884,10 @@ export async function listConsultantIntegrations(
                   account_name: (row.provider_account_name as string | null) ?? null,
                   status: row.status as string,
                   last_sync_at: (row.last_sync_at as string | null) ?? null,
+                  needs_reconnect: connectionNeedsReconnect({
+                    status: row.status as string,
+                    last_error_message: row.last_error_message as string | null,
+                  }),
                 })),
             }
           : {}),
@@ -7368,6 +7378,32 @@ export async function listConsultantWork(
 
 const CLIENT_MEMBER_ROLES = ["owner", "manager", "member", "readonly"] as const;
 
+/** Tiendas pedidas: `store_ids` (desde 20261219100000) o `store_id` (clientes viejos). */
+export function parseStoreIds(body: { store_ids?: unknown; store_id?: unknown }): string[] | null {
+  if (Array.isArray(body.store_ids)) {
+    return [
+      ...new Set(
+        body.store_ids.filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    ];
+  }
+  if (typeof body.store_id === "string" && body.store_id) return [body.store_id];
+  return null;
+}
+
+async function storesBelongToOrganization(
+  supabase: ReturnType<typeof createServiceClient>,
+  organizationId: string,
+  storeIds: string[],
+) {
+  const { data, error } = await supabase
+    .from("shopify_stores")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("id", storeIds);
+  return !error && (data ?? []).length === storeIds.length;
+}
+
 /**
  * ¿Este cambio deja al cliente sin ningun propietario activo?
  *
@@ -7405,7 +7441,7 @@ export async function getClientAccess(
   const [membersResult, assignmentsResult, subscriptionResult, storeCountResult, storesResult] = await Promise.all([
     supabase
       .from("organization_members")
-      .select("id, user_id, role, is_active, invited_at, joined_at, access_scope, store_id")
+      .select("id, user_id, role, is_active, invited_at, joined_at, access_scope, store_id, store_ids")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
     supabase
@@ -7483,7 +7519,7 @@ export async function getClientAccess(
 
   const { data: invites, error: invitesError } = await supabase
     .from("client_invites")
-    .select("id, email, status, expires_at, created_at, access_scope, store_id")
+    .select("id, email, status, expires_at, created_at, access_scope, store_id, store_ids")
     .eq("organization_id", organizationId)
     .eq("status", "pending")
     .gt("expires_at", new Date().toISOString())
@@ -7549,6 +7585,7 @@ export async function inviteClientMember(
     role?: string;
     access_scope?: "organization" | "store";
     store_id?: string | null;
+    store_ids?: string[];
   },
 ) {
   const access = requireStoreManager(context, organizationId);
@@ -7558,7 +7595,7 @@ export async function inviteClientMember(
   const fullName = body.full_name?.trim() || null;
   const role = body.role?.trim() || "member";
   const accessScope = body.access_scope === "store" ? "store" : "organization";
-  const storeId = typeof body.store_id === "string" ? body.store_id : null;
+  const storeIds = parseStoreIds(body) ?? [];
 
   if (!isEmail(email)) {
     return { ok: false as const, statusCode: 400, error: "invalid_email" };
@@ -7566,10 +7603,10 @@ export async function inviteClientMember(
   if (!(CLIENT_MEMBER_ROLES as readonly string[]).includes(role)) {
     return { ok: false as const, statusCode: 400, error: "invalid_role" };
   }
-  if (accessScope === "store" && !storeId) {
+  if (accessScope === "store" && storeIds.length === 0) {
     return { ok: false as const, statusCode: 400, error: "store_required" };
   }
-  if (accessScope === "organization" && storeId) {
+  if (accessScope === "organization" && storeIds.length > 0) {
     return { ok: false as const, statusCode: 400, error: "unexpected_store" };
   }
 
@@ -7577,21 +7614,14 @@ export async function inviteClientMember(
   if (inviteSecret.ok === false) return inviteSecret;
 
   const supabase = createServiceClient(env);
-  if (storeId) {
-    const { data: store, error: storeError } = await supabase
-      .from("shopify_stores")
-      .select("id")
-      .eq("id", storeId)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (storeError || !store) {
-      return {
-        ok: false as const,
-        statusCode: 400,
-        error: "store_not_in_organization",
-      };
-    }
+  if (storeIds.length > 0 && !(await storesBelongToOrganization(supabase, organizationId, storeIds))) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "store_not_in_organization",
+    };
   }
+  const scopedStoreIds = accessScope === "store" ? storeIds : null;
   const [subscriptionResult, activeMembersResult, pendingInvitesResult] =
     await Promise.all([
       supabase
@@ -7694,7 +7724,7 @@ export async function inviteClientMember(
       user_id: link.user.id,
       role,
       access_scope: accessScope,
-      store_id: storeId,
+      store_ids: scopedStoreIds,
       is_active: false,
       invited_by: context.user.id,
       invited_at: new Date().toISOString(),
@@ -7720,7 +7750,7 @@ export async function inviteClientMember(
     consultant_user_id: context.user.id,
     email,
     access_scope: accessScope,
-    store_id: storeId,
+    store_ids: scopedStoreIds,
     // Huella, no el codigo en claro (20261023090000): este sitio se quedo
     // guardando `code` sin migrar cuando el resto del fichero paso a
     // `code_hash`.
@@ -7743,7 +7773,7 @@ export async function inviteClientMember(
     action: "consultant.invite_client_member",
     entityType: "organization_member",
     entityId: link.user.id,
-    newData: { email, role, access_scope: accessScope, store_id: storeId },
+    newData: { email, role, access_scope: accessScope, store_ids: scopedStoreIds },
   });
 
   const memberAccessUrl = accessPath(env, code);
@@ -7767,7 +7797,7 @@ export async function inviteClientMember(
       email,
       role,
       access_scope: accessScope,
-      store_id: storeId,
+      store_ids: scopedStoreIds,
       invite: {
         code,
         expires_at: expiresAt,
@@ -7795,6 +7825,7 @@ export async function setClientMemberRole(
     isActive?: unknown;
     access_scope?: "organization" | "store";
     store_id?: string | null;
+    store_ids?: string[];
   },
 ) {
   const access = requireStoreManager(context, organizationId);
@@ -7815,28 +7846,23 @@ export async function setClientMemberRole(
     if (!(body.access_scope === "organization" || body.access_scope === "store")) {
       return { ok: false as const, statusCode: 400, error: "invalid_access_scope" };
     }
-    const storeId = typeof body.store_id === "string" ? body.store_id : null;
-    if (body.access_scope === "store" && !storeId) {
+    const storeIds = parseStoreIds(body) ?? [];
+    if (body.access_scope === "store" && storeIds.length === 0) {
       return { ok: false as const, statusCode: 400, error: "store_required" };
     }
-    if (body.access_scope === "organization" && storeId) {
+    if (body.access_scope === "organization" && storeIds.length > 0) {
       return { ok: false as const, statusCode: 400, error: "unexpected_store" };
     }
-    if (storeId) {
-      const supabase = createServiceClient(env);
-      const { data: store } = await supabase
-        .from("shopify_stores")
-        .select("id")
-        .eq("id", storeId)
-        .eq("organization_id", organizationId)
-        .maybeSingle();
-      if (!store) {
-        return { ok: false as const, statusCode: 400, error: "store_not_in_organization" };
-      }
+    if (
+      storeIds.length > 0 &&
+      !(await storesBelongToOrganization(createServiceClient(env), organizationId, storeIds))
+    ) {
+      return { ok: false as const, statusCode: 400, error: "store_not_in_organization" };
     }
     patch.access_scope = body.access_scope;
-    patch.store_id = storeId;
-  } else if (body.store_id !== undefined) {
+    patch.store_id = null;
+    patch.store_ids = body.access_scope === "store" ? storeIds : null;
+  } else if (body.store_id !== undefined || body.store_ids !== undefined) {
     return { ok: false as const, statusCode: 400, error: "access_scope_required" };
   }
   if (Object.keys(patch).length === 0) {
@@ -7856,6 +7882,25 @@ export async function setClientMemberRole(
     .eq("is_active", true);
 
   const activeOwners = (owners ?? []).map((row) => row.user_id as string);
+
+  // Dar o quitar la propiedad es del propietario (o del equipo de la
+  // plataforma). Antes un gestor podía nombrarse propietario a sí mismo.
+  const touchesOwnership = patch.role === "owner" || activeOwners.includes(userId);
+  const actorIsOwner = context.memberships.some(
+    (membership) =>
+      membership.organization_id === organizationId &&
+      membership.accessSource === "membership" &&
+      membership.role === "owner",
+  );
+  const actorIsStaff = ["platform_admin", "consultant"].includes(context.profile.platform_role);
+  if (touchesOwnership && !actorIsOwner && !actorIsStaff) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "owner_role_requires_owner",
+      message: "Solo el propietario puede dar o quitar la propiedad de la cuenta.",
+    };
+  }
 
   if (leavesClientWithoutOwner(activeOwners, userId, patch)) {
     return {

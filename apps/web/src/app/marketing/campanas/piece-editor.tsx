@@ -277,7 +277,7 @@ export function PieceEditor({
                   void propose(instruction);
                   setInstruction("");
                 }}>
-                <IaTag />
+                <IaTag code="A11" />
                 Proponer cambios
               </Btn>
             </div>

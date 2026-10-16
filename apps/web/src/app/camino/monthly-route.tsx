@@ -38,7 +38,10 @@ export function MonthlyRoute({
   endDate,
   milestones,
   goalTarget,
+  headingLevel = 3,
 }: {
+  /** Nivel del título según dónde se pinte: 2 en la página, 3 dentro de otra sección. */
+  headingLevel?: 2 | 3;
   targets: MonthlyTarget[];
   baseline: number | null;
   baselineLabel?: string;
@@ -50,10 +53,11 @@ export function MonthlyRoute({
 }) {
   const max = Math.max(1, ...targets.map((target) => target.target_value ?? 0), baseline ?? 0);
   const startDay = Date.parse(`${startDate}T00:00:00Z`);
+  const Heading = `h${headingLevel}` as const;
   return (
-    <section className="space-y-3" aria-label="Ruta económica mes a mes">
+    <section className="space-y-3" aria-labelledby="camino-ruta-title">
       <div>
-        <h3 className="text-sm font-semibold">Ruta económica mes a mes</h3>
+        <Heading id="camino-ruta-title" className="text-sm font-semibold">Ruta económica mes a mes</Heading>
       </div>
       {baseline !== null ? (
         <p className="text-xs text-muted">

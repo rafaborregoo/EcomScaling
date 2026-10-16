@@ -25,6 +25,7 @@ import {
   aggregateClients,
   aggregateTotals,
   buildStoreRow,
+  connectionNeedsReconnect,
   sortStores,
   targetsByKey,
   type ProfitStoreRow,
@@ -108,7 +109,14 @@ export type ConsultantProfitability = {
    * Estado y ultimo sync de cada conexion (Shopify, Meta, Klaviyo) por cliente.
    * Solo lo que ya ve la mesa del consultor: ni cuentas ni mensajes de error.
    */
-  connections: Array<{ organization_id: string; provider: string; status: string; last_sync_at: string | null }>;
+  connections: Array<{
+    organization_id: string;
+    provider: string;
+    status: string;
+    last_sync_at: string | null;
+    /** Sin el mensaje de error (es privado del cliente): solo si hay que reconectar. */
+    needs_reconnect: boolean;
+  }>;
 };
 
 export async function getConsultantProfitability(
@@ -167,7 +175,7 @@ export async function getConsultantProfitability(
       .order("valid_from", { ascending: false }),
     supabase
       .from("integration_connections")
-      .select("organization_id, provider, status, last_sync_at")
+      .select("organization_id, provider, status, last_sync_at, last_error_message")
       .in("organization_id", orgIds),
   ]);
   // Sin conexiones la pagina sigue siendo util: solo pierde la columna de datos.
@@ -312,9 +320,20 @@ export async function getConsultantProfitability(
     monthly: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
     failed_stores: failed,
     truncated,
-    connections: ((connectionsResult.data ?? []) as ConsultantProfitability["connections"]).filter(
-      (connection) => connection.status !== "pending_deletion",
-    ),
+    connections: (
+      (connectionsResult.data ?? []) as Array<{
+        organization_id: string;
+        provider: string;
+        status: string;
+        last_sync_at: string | null;
+        last_error_message: string | null;
+      }>
+    )
+      .filter((connection) => connection.status !== "pending_deletion")
+      .map(({ last_error_message, ...connection }) => ({
+        ...connection,
+        needs_reconnect: connectionNeedsReconnect({ status: connection.status, last_error_message }),
+      })),
   };
 
   await setCached(env.REDIS_URL, cacheKey, data, CACHE_TTL_SECONDS);

@@ -5,23 +5,23 @@
 .root {
   --surface: #ffffff;
   --surface-2: #f4f7f7;
-  --sunken: #e2e9ea;
-  --ink: #0b2a33;
-  --ink-2: #46626a;
-  --ink-3: #5c757b;
-  --line: #d3dee0;
-  --line-2: #e5eced;
-  --accent: #f2b705;
-  --accent-soft: #fcf0c4;
-  --accent-ink: #6e5000;
-  --on-accent: #1d1500;
-  --good: #11806a;
-  --good-soft: #daf0e9;
-  --bad: #bf2f49;
-  --bad-soft: #f8dde2;
-  --bar: #0f7482;
-  --hero: #0b2a33;
-  --hero-muted: #95b0b5;
+  --sunken: #e5ecec;
+  --ink: #3d3b3a;
+  --ink-2: #495858;
+  --ink-3: #5c6b6b;
+  --line: #d5dfdf;
+  --line-2: #e6eded;
+  --accent: #176b64;
+  --accent-soft: #e3f1ee;
+  --accent-ink: #176b64;
+  --on-accent: #ffffff;
+  --good: #2f7d5b;
+  --good-soft: #dcefe5;
+  --bad: #b8364a;
+  --bad-soft: #f7dde1;
+  --bar: #4f8a6e;
+  --hero: #3d3b3a;
+  --hero-muted: #e6eded;
   --node-locked: #2a5561;
 
   display: grid;
@@ -30,25 +30,7 @@
   font-family: var(--font-plex-sans), system-ui, sans-serif;
 }
 .consultant {
-  --surface-2: #f7f7f5;
-  --sunken: #e7e7e3;
-  --ink: #16181b;
-  --ink-2: #474b51;
-  --ink-3: #686c72;
-  --line: #dadad5;
-  --line-2: #ebebe7;
-  --accent: #ff8a5b;
-  --accent-soft: #ffe7dc;
-  --accent-ink: #8a3310;
-  --on-accent: #2b0e02;
-  --good: #12805f;
-  --good-soft: #dcf1e8;
-  --bad: #c22e4b;
-  --bad-soft: #f9dee4;
-  --bar: #2f8f83;
-  --hero: #17191c;
-  --hero-muted: #a3a7ad;
-  --node-locked: #3a3e44;
+  color: var(--ink);
 }
 
 .head {

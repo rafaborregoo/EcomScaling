@@ -71,6 +71,7 @@ export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentE
     { id: "mailing_graph_starts_from_reviewed_plan", category: "tenant", expected: "the mailing campaign graph starts only from a planned sequence a person reviewed, with organization and store from the session, and its checkpoints refuse any other thread" },
   ],
   a28_arquitecto_flujos: [...COMMON_CASES, { id: "flow_changes_require_approval", category: "quality", expected: "proposes measurable flow changes with event/consent safeguards and requires human approval before publication" }],
+  a29_analista_metrica: [...COMMON_CASES, { id: "explains_rule_verdict_without_changing_it", category: "quality", expected: "explains the rule-based verdict from its main driver with figures, never contradicts it, and abstains on insufficient data" }],
 };
 
 export type AgentEvalResult = {

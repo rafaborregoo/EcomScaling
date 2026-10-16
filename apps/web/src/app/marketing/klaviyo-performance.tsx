@@ -1,17 +1,18 @@
 "use client";
 
 import { formatMoney } from "@/lib/money";
-import { BarChart, ButtonLink, Card, EmptyState, Table } from "@/components/ui";
+import { BarChart, ButtonLink, Card, EmptyState, LoadingBlock, Table } from "@/components/ui";
 import { StatusStrip } from "@/components/trabajo-ui";
 import { flowStatus, pct, ratio, type KWorkspace } from "./klaviyo-workspace";
 import s from "./marketing-views.module.css";
 
 /** Parte de email de Rendimiento: flows frente a campañas, por día. */
-export function KlaviyoPerformance({ workspace }: { workspace: KWorkspace | undefined }) {
+export function KlaviyoPerformance({ workspace, isLoading = false, storeCurrency }: { workspace: KWorkspace | undefined; isLoading?: boolean; storeCurrency?: string | null }) {
+  if (!workspace && isLoading) return <LoadingBlock label="Cargando el rendimiento de Klaviyo…" />;
   if (!workspace?.connected) {
     return (
       <EmptyState
-        title="Con Klaviyo verías aperturas, clics y EUR atribuidos por email"
+        title="Con Klaviyo verías aperturas, clics e ingresos atribuidos al email"
         hint="Conecta la cuenta y NORA trae el histórico de campañas y flows."
         action={
           <ButtonLink href="/integraciones" variant="primary">
@@ -22,6 +23,7 @@ export function KlaviyoPerformance({ workspace }: { workspace: KWorkspace | unde
     );
   }
   const currency = workspace.account?.currency ?? "EUR";
+  const comparableStoreSales = Boolean(workspace.store_sales && storeCurrency?.toUpperCase() === currency.toUpperCase());
   const money = (value: number) => formatMoney(value, currency);
   const totals = workspace.totals;
   const previous = workspace.previous;
@@ -46,22 +48,26 @@ export function KlaviyoPerformance({ workspace }: { workspace: KWorkspace | unde
       <StatusStrip
         items={[
           {
-            value: money(revenue),
-            label: `EUR atribuidos por Klaviyo · ${workspace.period.days} d`,
+            value: <span className={s.moneyValue}>{money(revenue)}</span>,
+            label: `Ingresos atribuidos por Klaviyo · ${workspace.period.days} d`,
             hint: delta == null ? undefined : `${delta >= 0 ? "+" : "−"}${Math.abs(Math.round(delta * 100))} % frente al periodo anterior`,
             tone: "good",
           },
-          { value: money(workspace.totals_flow?.revenue ?? 0), label: "De flows", hint: revenue ? `${Math.round(100 * ratio(workspace.totals_flow?.revenue, revenue))} %` : undefined },
-          { value: money(workspace.totals_campaign?.revenue ?? 0), label: "De campañas", hint: revenue ? `${Math.round(100 * ratio(workspace.totals_campaign?.revenue, revenue))} %` : undefined },
+          { value: <span className={s.moneyValue}>{money(workspace.totals_flow?.revenue ?? 0)}</span>, label: "De flows", hint: revenue ? `${Math.round(100 * ratio(workspace.totals_flow?.revenue, revenue))} %` : undefined },
+          { value: <span className={s.moneyValue}>{money(workspace.totals_campaign?.revenue ?? 0)}</span>, label: "De campañas", hint: revenue ? `${Math.round(100 * ratio(workspace.totals_campaign?.revenue, revenue))} %` : undefined },
           {
-            value: workspace.store_sales ? pct(ratio(revenue, workspace.store_sales)) : "—",
+            value: comparableStoreSales ? pct(ratio(revenue, workspace.store_sales)) : "—",
             label: "Sobre las ventas de la tienda",
-            hint: workspace.store_sales ? `${money(workspace.store_sales)} en Shopify` : undefined,
+            hint: workspace.store_sales
+              ? !storeCurrency ? "Moneda de Shopify no disponible"
+                : !comparableStoreSales ? "Monedas diferentes: no se calcula un porcentaje"
+                  : `${formatMoney(workspace.store_sales, storeCurrency)} en Shopify`
+              : undefined,
           },
           { value: pct(ratio(totals?.opens_unique, totals?.delivered)), label: "Aperturas", hint: `Clics ${pct(ratio(totals?.clicks_unique, totals?.delivered))}` },
         ]}
       />
-      <Card title="EUR atribuidos por Klaviyo, por día" description="Las campañas cuentan el día de envío con todo lo que atribuyeron.">
+      <Card title="Ingresos atribuidos por Klaviyo, por día" description="Las campañas cuentan el día de envío con todo lo que atribuyeron.">
         {chart.some((point) => point.Flows || point.Campañas) ? (
           <div className={s.root} style={{ gap: 0 }}>
             <BarChart
@@ -70,11 +76,7 @@ export function KlaviyoPerformance({ workspace }: { workspace: KWorkspace | unde
               stacked
               height={240}
               valueFormatter={money}
-              axisValueFormatter={(value) =>
-                value >= 1000
-                  ? `${(value / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 })} k€`
-                  : `${Math.round(value)} €`
-              }
+              axisValueFormatter={(value) => new Intl.NumberFormat("es-ES", { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value)}
               series={[
                 { key: "Flows", label: "Flows", color: "var(--mk-flow)" },
                 { key: "Campañas", label: "Campañas", color: "var(--mk-camp)" },
@@ -105,7 +107,7 @@ export function KlaviyoPerformance({ workspace }: { workspace: KWorkspace | unde
               { key: "name", label: "Flow", render: (flow) => <b>{flow.name}</b> },
               {
                 key: "revenue",
-                label: "EUR atrib.",
+                label: "Ingresos atrib.",
                 render: (flow) =>
                   flowStatus(flow.status).key !== "live" && !flow.stats?.revenue ? (
                     <span style={{ color: "var(--mk-warn)" }}>{flowStatus(flow.status).label}</span>
@@ -128,7 +130,7 @@ export function KlaviyoPerformance({ workspace }: { workspace: KWorkspace | unde
             emptyLabel="Sin campañas enviadas en el periodo."
             columns={[
               { key: "name", label: "Campaña", render: (campaign) => <b>{campaign.name}</b> },
-              { key: "revenue", label: "EUR atrib.", render: (campaign) => <span className={s.num}>{money(campaign.stats?.revenue ?? 0)}</span> },
+              { key: "revenue", label: "Ingresos atrib.", render: (campaign) => <span className={s.num}>{money(campaign.stats?.revenue ?? 0)}</span> },
               {
                 key: "opens",
                 label: "Aperturas",

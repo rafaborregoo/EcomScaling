@@ -577,7 +577,7 @@ function OverlayEditor() {
   const slideImage = slide?.image_id ? imagesById.get(slide.image_id) : null;
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page marketing-workspace space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/marketing/imagenes" className="text-sm">

@@ -48,6 +48,7 @@ const navigation = [
       { href: "/admin/observabilidad", label: "Observabilidad", icon: Activity },
       { href: "/admin/infraestructura", label: "Salud y seguridad", icon: Activity },
       { href: "/admin/agentes", label: "Agentes de IA", icon: Bot },
+      { href: "/admin/costes-ia", label: "Costes de IA", icon: CircleDollarSign },
       { href: "/admin/tools", label: "Herramientas", icon: Wrench },
       { href: "/admin/informes", label: "Plantillas PDF", icon: ScrollText },
       { href: "/admin/laboratorio-mailing", label: "Laboratorio de mailing", icon: FlaskConical },

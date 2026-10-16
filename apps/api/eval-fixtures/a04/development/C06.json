@@ -1,0 +1,281 @@
+{
+  "schema_version": "agent-release-replay-v1",
+  "agent_code": "a04_generador_tareas",
+  "dataset_version": "2026-09-29.v2",
+  "rubric_version": "judge-rubrics-v7",
+  "split": "development",
+  "provenance": "synthetic",
+  "privacy_reviewed": false,
+  "scenario": "C06 El código BIENVENIDA15 se usa 412 veces en 7 días con solo 3 primeros pedidos: el código se ha filtrado y lo usan clientes recurrentes.",
+  "input": {
+    "objective": "Proponer las tareas que tiene sentido hacer HOY en la tienda \"E-NORA Demo\", a partir de los datos de los ultimos 30 dias. Cita en sources[].reference exactamente la clave (key) de cada fuente congelada que uses.",
+    "parameters": {
+      "horizon": "day",
+      "lookback_days": 30,
+      "reference_date": "2025-11-27"
+    }
+  },
+  "scope": {
+    "organization_ref": "org-demo-anon",
+    "store_ref": "store-demo-anon",
+    "timezone": "Europe/Madrid",
+    "period_start": "2025-10-28",
+    "period_end": "2025-11-27"
+  },
+  "sources": [
+    {
+      "key": "tareas_abiertas",
+      "status": "available",
+      "content": {
+        "near_term_window_days": 14,
+        "near_term": [],
+        "later_count": 0,
+        "later": [],
+        "note": "Una tarea de later NO cubre una urgencia de hoy."
+      },
+      "content_sha256": "386c7262e9d184b5aea35535fbdae82d9120e30aa40d9961abf0d46be880302e",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "historial_resultados_tareas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "alertas_activas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "ventas_shopify_30d",
+      "status": "available",
+      "content": {
+        "periodo": [
+          "2025-10-28",
+          "2025-11-27"
+        ],
+        "moneda": "EUR",
+        "orders": 1217,
+        "gross_sales": 68255,
+        "discounts": 8328.92,
+        "refunds": 0,
+        "net_sales": 59926.08,
+        "aov": 49.24,
+        "units_sold": 1319
+      },
+      "content_sha256": "fae2c2d5cfb55bad84b622fc4f9ae66bfd1bceead165bb1b517fd69cc95927ae",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "productos_mas_vendidos_30d",
+      "status": "available",
+      "content": {
+        "ventana": [
+          "2025-10-28",
+          "2025-11-27"
+        ],
+        "productos": [
+          {
+            "titulo": "Pantalón Cargo Oliva",
+            "unidades": 193,
+            "ingresos_netos_eur": 10810
+          },
+          {
+            "titulo": "Gorra Costa Cruda",
+            "unidades": 185,
+            "ingresos_netos_eur": 3975
+          },
+          {
+            "titulo": "Bolso Mini Bruma",
+            "unidades": 175,
+            "ingresos_netos_eur": 5969
+          },
+          {
+            "titulo": "Sudadera Capucha Arcilla",
+            "unidades": 172,
+            "ingresos_netos_eur": 10299
+          },
+          {
+            "titulo": "Sudadera Oversize Arena",
+            "unidades": 161,
+            "ingresos_netos_eur": 8179
+          },
+          {
+            "titulo": "Chaqueta Boreal Negra",
+            "unidades": 149,
+            "ingresos_netos_eur": 15541
+          },
+          {
+            "titulo": "Camiseta Básica Niebla",
+            "unidades": 145,
+            "ingresos_netos_eur": 3677
+          },
+          {
+            "titulo": "Calcetín Rib Menta",
+            "unidades": 139,
+            "ingresos_netos_eur": 1476
+          }
+        ]
+      },
+      "content_sha256": "ed9ce50d6dcf12bbf4166e5d7853c742bf14c2e50bbf6db631b6d5d1abac9444",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "propuestas_otros_horizontes",
+      "status": "available",
+      "content": [
+        {
+          "horizon": "semanal",
+          "proposals": []
+        },
+        {
+          "horizon": "mensual",
+          "proposals": []
+        }
+      ],
+      "content_sha256": "c954fc3e37027cba0db4fae273ddd3b24824a3012f81e00ca1a77fcf6a128513",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "mi_camino",
+      "status": "available",
+      "content": {
+        "status": "sin_camino_activo"
+      },
+      "content_sha256": "f0998820071fc31a42b03ccfddf5a0474abf47d63ed206cd080b61b1bc23767a",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_a02",
+      "status": "available",
+      "content": {
+        "generated_at": "2025-11-27T05:00:00Z",
+        "headline": "Black Friday con ventas altas y descuentos del 12 % de las ventas brutas.",
+        "findings": [
+          {
+            "area": "descuentos",
+            "title": "BIENVENIDA15 usado por clientes que ya habían comprado",
+            "severity": "high"
+          }
+        ]
+      },
+      "content_sha256": "85eed6ef8c038e7698d28b21a4063a157c421329f1813d3bd738f903ff949cb4",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "fechas_comerciales_45d",
+      "status": "available",
+      "content": {
+        "eventos": [
+          {
+            "evento": "Black Friday",
+            "fecha": "2025-11-28",
+            "empieza_a_preparar": "2025-10-10",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Cyber Monday",
+            "fecha": "2025-12-01",
+            "empieza_a_preparar": "2025-10-13",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Navidad",
+            "fecha": "2025-12-25",
+            "empieza_a_preparar": "2025-11-06",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Reyes",
+            "fecha": "2026-01-06",
+            "empieza_a_preparar": "2025-12-02",
+            "vas_tarde": false
+          },
+          {
+            "evento": "Rebajas de enero",
+            "fecha": "2026-01-07",
+            "empieza_a_preparar": "2025-12-17",
+            "vas_tarde": false
+          }
+        ],
+        "campanas_planificadas": [],
+        "propuestas_aprobadas": []
+      },
+      "content_sha256": "89507de9002b086753bd766c0ae76c559ea9b7122ded3137dbb8b7dcc2e3b7f6",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "especialistas_aprobados",
+      "status": "available",
+      "content": {
+        "status": "no_recent_approved_outputs",
+        "outputs": []
+      },
+      "content_sha256": "90bcffbd14bf0ab4c5c4c3ae326cfd0b683f953b12e0bebb1d4a2c7b7ad08ea1",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_ejecutivo_d14",
+      "status": "available",
+      "content": {
+        "status": "no_canonical_diagnosis",
+        "diagnosticos": []
+      },
+      "content_sha256": "87b1f2d5be11855c34ae8f51d4886881e339025b78a439cfc8ff140d6fff037a",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "asignacion_consultor",
+      "status": "available",
+      "content": {
+        "has_consultant": true,
+        "decision_rule": "Las propuestas quedan pendientes de revision del consultor humano asignado."
+      },
+      "content_sha256": "1477ddadc3015f9a206f9c292767379625d485a0d810acd67af1288aebac6db0",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "conocimiento_rag",
+      "status": "available",
+      "content": [
+        {
+          "documento": "Cuestionario de la marca (reglas provisionales)",
+          "extracto": "No aplicar descuentos sin comprobar antes el margen real; no acumular promociones; no usar falsa escasez; no prometer disponibilidad ni plazos de entrega sin respaldo; no asumir autorización para activar anuncios ni comprometer gasto."
+        }
+      ],
+      "content_sha256": "9853e83f4f0a1e907fd9de377d19ec520839c991439ccefe98a4e5c2d188a623",
+      "as_of": "2025-11-27T07:00:00Z"
+    },
+    {
+      "key": "uso_codigos_descuento_7d",
+      "status": "available",
+      "content": [
+        {
+          "codigo": "BIENVENIDA15",
+          "usos": 412,
+          "usos_semana_anterior": 31,
+          "primeros_pedidos": 3,
+          "descuento_total_eur": 3060,
+          "condicion_prevista": "solo primera compra"
+        }
+      ],
+      "content_sha256": "f9defd483cac7addfa1da3cd98953ac4b68a1f8fa67fb33a014b7e1bb9859180",
+      "as_of": "2025-11-27T07:00:00Z"
+    }
+  ],
+  "tool_replay": [],
+  "visual_artifacts": [],
+  "constraints": {
+    "expected_abstention": false,
+    "required_output_paths": [
+      "$.proposed_writes[0]"
+    ],
+    "forbidden_output_paths": [
+      "$.proposed_writes[5]"
+    ]
+  }
+}

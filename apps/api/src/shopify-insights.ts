@@ -6,7 +6,7 @@ import {
   type Payback,
 } from "@e-nora/contracts";
 import { createLogger } from "@e-nora/observability";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { type AuthContext, createUserScopedClient, membershipCoversStore } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { recordProtectedDataAccess } from "./protected-data-access.js";
 import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
@@ -342,11 +342,7 @@ export async function getShopifyInsights(
     const membership = [...context.memberships, ...(context.storeMemberships ?? [])].find(
       (item) => item.organization_id === organizationId,
     );
-    if (
-      membership?.accessSource === "membership" &&
-      membership.access_scope === "store" &&
-      membership.store_id !== storeId
-    ) {
+    if (membership && !membershipCoversStore(membership, storeId)) {
       return {
         ok: false as const,
         statusCode: 403,

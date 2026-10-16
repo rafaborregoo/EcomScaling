@@ -8,7 +8,7 @@ import { useUrlSection } from "@/lib/use-url-section";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
-import { toast } from "@/components/ui";
+import { Skeleton, toast } from "@/components/ui";
 import type { DailyWorkbench, PortfolioHealthRow, UpcomingItem, WorkbenchAction } from "../consultor/workbench";
 import {
   ConsultantThread,
@@ -36,6 +36,7 @@ import { ClientShopify } from "./client-shopify";
 import { ClientMeta } from "./client-meta";
 import { ClientKlaviyo } from "./client-klaviyo";
 import p from "./client-pulse.module.css";
+import { DashboardSections } from "./dashboard-sections";
 import s from "./consultant-desk.module.css";
 
 /**
@@ -370,7 +371,9 @@ function Inbox({ actions, filter, onFilter, onClient }: {
         </div>
       </div>
       {visible.length === 0 ? (
-        <Empty>Nada por aquí. Lo demás está vigilado.</Empty>
+        <Empty action={filter !== "todo" ? <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => onFilter("todo")}>Ver toda la bandeja</button> : undefined}>
+          {filter === "todo" ? "No hay asuntos pendientes en las fuentes disponibles." : "No hay asuntos que coincidan con este filtro."}
+        </Empty>
       ) : (
         <ul>
           {shown.map((action) => (
@@ -545,9 +548,10 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
   if (workbench.isLoading && !wb) {
     return (
       <div className={p.root}>
-        <div className={p.hero}>
+        <div className={p.hero} role="status" aria-busy="true">
           <p className={p.heroMeta}>Tu cartera</p>
           <p className={p.headline}>Preparando tu mesa…</p>
+          <Skeleton className="h-32 w-full" aria-hidden="true" />
         </div>
       </div>
     );
@@ -558,7 +562,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
       <div className={p.root}>
         <div className={p.hero}>
           <p className={p.heroMeta}>Tu cartera</p>
-          <p className={p.headline}>No se pudo cargar la mesa.</p>
+          <h1 className={p.headline}>No se pudo cargar la mesa</h1>
           <p className={p.headlineDetail}>{workbench.error ?? "Reintenta en unos segundos."}</p>
           <div className={p.heroActions}>
             <button type="button" className={cx(p.btn, p.acc)} onClick={() => workbench.reload()}>
@@ -605,7 +609,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
   }
 
   const th = (key: MatrixKey, label: string) => (
-    <th aria-sort={sort?.key === key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}>
+    <th scope="col" aria-sort={sort?.key === key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}>
       <button type="button" onClick={() => sortBy(key)}>
         {label}
         {sort?.key === key ? (sort.dir === 1 ? " ↑" : " ↓") : ""}
@@ -615,6 +619,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
 
   return (
     <div className={p.root}>
+      <DashboardSections items={[{ id: "mesa-headline", label: "Cartera" }, { id: "mesa-hoy", label: "Bandeja" }, { id: "mesa-canales", label: "Canales por cliente" }, { id: "mesa-tiendas", label: "Tiendas" }]} />
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={p.hero} aria-labelledby="mesa-headline">
         <div className={p.heroTop}>
@@ -708,7 +713,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                   const storeCount = storesBy.get(row.organization_id);
                   const otherAlerts = row.open_alerts - row.critical_alerts;
                   return (
-                    <button key={row.organization_id} type="button" className={s.card} onClick={() => onSelectClient(row.organization_id)}>
+                    <button key={row.organization_id} type="button" className={s.card} aria-label={`Abrir ${row.organization_name}, estado ${tier.label}`} onClick={() => onSelectClient(row.organization_id)}>
                       <span className={s.cardT}>
                         {row.organization_name}
                         {storeCount ? <small>{plural(storeCount, "tienda", "tiendas")}</small> : null}
@@ -880,8 +885,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
           {matrix.length === 0 ? (
             <Empty>No tienes clientes asignados todavía.</Empty>
           ) : (
-            <div className={s.matrix}>
-              <table>
+            <div className={s.matrix} role="region" aria-label="Canales por cliente; desliza para ver todas las columnas" tabIndex={0}>
+              <table aria-label="Resultados y alertas por cliente">
                 <thead>
                   <tr>
                     {th("name", "Cliente")}
@@ -913,6 +918,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                           >
                             <i aria-hidden="true" />
                             {row.name}
+                            <span className={p.chip}>{tierOf(row.tier)?.label ?? "Sin estado"}</span>
                           </button>
                         </td>
                         <td className={s.n}>{sourceMoney(row.sales, row.salesCurrencyCode)}</td>
@@ -1183,6 +1189,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
 
   return (
     <div className={p.root}>
+      <DashboardSections items={[{ id: "desk-headline", label: "Resumen del cliente" }, { id: "desk-hoy", label: "Qué hacer" }, { id: "desk-ia", label: "Análisis IA" }, { id: "desk-canales", label: "Canales" }]} />
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={cx(p.hero, tier?.cls)} aria-labelledby="desk-headline">
         <div className={p.heroTop}>
@@ -1201,7 +1208,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
             </h1>
             {aiHeadline ? (
               <p className={p.headlineDetail}>
-                <span className={p.ia}>IA</span>
+                <span className={p.ia}>A02</span>
                 {aiHeadline}
               </p>
             ) : null}

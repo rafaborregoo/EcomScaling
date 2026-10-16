@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAppSecretProof,
+  buildMetaAuthUrl,
   debugMetaAccessToken,
+  exchangeMetaCodeForLongLivedToken,
   missingMetaScopes,
   parseMetaScopes,
 } from "./meta-oauth.js";
@@ -55,6 +57,55 @@ test("debugMetaAccessToken usa debug_token y devuelve scopes concedidos", async 
     assert.equal(result.userId, "user-id");
     assert.match(requestUrl, /debug_token/);
     assert.match(requestUrl, /input_token=user-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("con config_id el diálogo va por code + override y sin scope; sin él, por scope", () => {
+  const base = {
+    META_APP_ID: "app-id",
+    META_APP_SECRET: "app-secret",
+    META_REDIRECT_URI: "https://example.com/meta/callback",
+    META_SCOPES: "ads_read",
+  };
+  const withConfig = new URL(buildMetaAuthUrl({ ...base, META_LOGIN_CONFIG_ID: "123" }, "s")).searchParams;
+  assert.equal(withConfig.get("config_id"), "123");
+  assert.equal(withConfig.get("response_type"), "code");
+  assert.equal(withConfig.get("override_default_response_type"), "true");
+  assert.equal(withConfig.get("scope"), null);
+  const classic = new URL(buildMetaAuthUrl(base, "s")).searchParams;
+  assert.equal(classic.get("scope"), "ads_read");
+  assert.equal(classic.get("config_id"), null);
+});
+
+test("token de usuario de sistema: sin caducidad y sin fb_exchange_token", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    requestUrls.push(url);
+    const body = url.includes("debug_token")
+      ? { data: { is_valid: true, app_id: "app-id", scopes: ["ads_read"], expires_at: 0 } }
+      : { access_token: "system-user-token" };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const appEnv = {
+    META_APP_ID: "app-id",
+    META_APP_SECRET: "app-secret",
+    META_REDIRECT_URI: "https://example.com/meta/callback",
+    META_SCOPES: "ads_read",
+  };
+
+  try {
+    const token = await exchangeMetaCodeForLongLivedToken(appEnv, "code");
+    assert.deepEqual(token, { accessToken: "system-user-token", expiresAt: null });
+    assert.ok(!requestUrls.some((url) => url.includes("fb_exchange_token")));
+    // expires_at: 0 es «no caduca», no 1970.
+    assert.equal((await debugMetaAccessToken(appEnv, "system-user-token")).expiresAt, null);
   } finally {
     globalThis.fetch = originalFetch;
   }

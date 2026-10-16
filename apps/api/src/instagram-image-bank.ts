@@ -1023,6 +1023,7 @@ export async function processInstagramImageQueue(env: ApiEnv) {
       filename: row.original_filename as string,
       contentType: row.content_type as string,
       sourceChannels,
+      sourceAssetId: row.id as string,
     });
 
     const nextAttempts = (row.attempts as number) + 1;

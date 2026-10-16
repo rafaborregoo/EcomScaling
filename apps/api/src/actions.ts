@@ -1,4 +1,4 @@
-import type { AccountAction } from "@e-nora/contracts";
+import { type AccountAction, connectionNeedsReconnect } from "@e-nora/contracts";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import {
   freshnessMessage,
@@ -37,6 +37,7 @@ type IntegrationConnection = {
   provider_account_name: string | null;
   status: string;
   scopes: string[] | null;
+  last_error_message: string | null;
 };
 
 const reauthorizableConnectionStatuses = new Set(["connected", "syncing", "error"]);
@@ -75,7 +76,7 @@ export async function listAccountActions(
 
   const { data, error } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider, provider_account_id, provider_account_name, status, scopes")
+    .select("id, organization_id, provider, provider_account_id, provider_account_name, status, scopes, last_error_message")
     .in("organization_id", organizationIds)
     .order("updated_at", { ascending: false });
 
@@ -95,7 +96,7 @@ export async function listAccountActions(
   // cuando la pantalla enseña las ventas de hoy, porque los pedidos siguen
   // entrando por webhook aunque el token este caducado.
   const brokenConnectionIds = connections
-    .filter((connection) => connection.status === "error")
+    .filter(connectionNeedsReconnect)
     .map((connection) => connection.id);
 
   // Una consulta por conexion y bloque, cada una con `limit(1)`. Pedir varias
@@ -154,9 +155,11 @@ export async function listAccountActions(
     const membershipActions: AccountAction[] = [];
 
     for (const connection of orgConnections) {
-      // Cualquier integracion en error requiere accion de empresa (FE-02):
-      // reconectar/reautorizar desde Integraciones.
-      if (connection.status === "error") {
+      // Solo pide accion lo que solo el cliente puede arreglar: el permiso
+      // caducado o retirado. Un fallo de sincronizacion lo reintenta E-NORA
+      // sola y se cuenta en Integraciones, no en el punto rojo: mandar a
+      // reconectar por el no arreglaba nada.
+      if (connectionNeedsReconnect(connection)) {
         membershipActions.push({
           id: `integration_error:${membership.organization_id}:${connection.provider}:${connection.provider_account_id ?? "primary"}`,
           type: "integration_error",
@@ -164,7 +167,7 @@ export async function listAccountActions(
           organization_id: membership.organization_id,
           organization_name: organizationName ?? connection.provider_account_name,
           provider: connection.provider,
-          title: `${connection.provider === "shopify" ? "Shopify" : connection.provider === "meta_ads" ? "Meta Ads" : connection.provider} ha dejado de sincronizar`,
+          title: `Hay que volver a conectar ${connection.provider === "shopify" ? "Shopify" : connection.provider === "meta_ads" ? "Meta Ads" : connection.provider === "klaviyo" ? "Klaviyo" : connection.provider}`,
           message: `${
             freshnessMessage(
               summarizeFreshness(
@@ -172,7 +175,7 @@ export async function listAccountActions(
                 now,
               ),
               now,
-            ) ?? "La conexion esta en error y los datos pueden estar desactualizados."
+            ) ?? "El permiso de E-NORA caducó o se retiró y los datos han dejado de actualizarse."
           } Reconectala desde Integraciones.`,
           cta_label: "Reconectar",
           cta_href: `/integraciones?organizationId=${membership.organization_id}`,

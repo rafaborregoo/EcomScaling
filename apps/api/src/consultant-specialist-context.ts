@@ -187,10 +187,19 @@ function summarizeSpecialistOutput(code: string, value: unknown) {
  * exact store scope. The model receives a bounded summary and provenance, not
  * the full stored output or any run from another store/organization.
  */
+/**
+ * `includePendingAnalysis`: los planificadores leen también el ANÁLISIS de
+ * salidas aún pendientes de aprobación. La aprobación protege lo que la IA
+ * escribiría (sus tareas propuestas, que este resumen no incluye), no lo que
+ * observa; sin esto nadie aprueba los especialistas y el plan no los ve nunca.
+ */
 export function summarizeRecentSpecialistOutputs(
   rows: readonly SpecialistRunCandidate[],
-  options: { organizationId: string; storeId: string | null; now?: Date },
+  options: { organizationId: string; storeId: string | null; now?: Date; includePendingAnalysis?: boolean },
 ) {
+  const allowedStatuses = options.includePendingAnalysis
+    ? ["approved", "published", "pending_approval"]
+    : ["approved", "published"];
   const now = options.now ?? new Date();
   const candidates = rows.flatMap((row) => {
     if (row.organization_id !== options.organizationId || row.status !== "succeeded") return [];
@@ -203,7 +212,7 @@ export function summarizeRecentSpecialistOutputs(
     const freshnessDays = SPECIALIST_FRESHNESS_DAYS[code];
     if (!freshnessDays || now.getTime() - finishedAtMs > freshnessDays * 24 * 60 * 60 * 1000) return [];
     const outputRow = record(related(row.agent_outputs));
-    if (!outputRow || !["approved", "published"].includes(String(outputRow.status))) return [];
+    if (!outputRow || !allowedStatuses.includes(String(outputRow.status))) return [];
     const summary = summarizeSpecialistOutput(code, outputRow.output);
     if (!summary) return [];
     return [{
@@ -217,6 +226,9 @@ export function summarizeRecentSpecialistOutputs(
         agent_version: shortText(version?.version, 32),
         run_status: "succeeded",
         output_status: outputRow.status,
+        approval_note: outputRow.status === "pending_approval"
+          ? "Análisis sin revisar por el consultor: úsalo como indicio, no como conclusión validada."
+          : null,
         store_id: row.store_id,
         as_of: new Date(finishedAtMs).toISOString(),
         valid_until: new Date(finishedAtMs + freshnessDays * 24 * 60 * 60 * 1000).toISOString(),

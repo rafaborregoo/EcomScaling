@@ -24,10 +24,9 @@ function TemplateLibraryPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ["owner", "manager"].includes(membership?.role ?? "");
 
   return (
-    <main className="portal-page marketing-workspace space-y-7">
+    <div className="portal-page marketing-workspace space-y-7">
       <header className="mkt-page-header">
         <div className="min-w-0">
-          <p className="mkt-eyebrow">MARKETING / RECURSOS</p>
           <Heading size="lg" className="mkt-page-title">
             Biblioteca de plantillas
           </Heading>
@@ -88,7 +87,7 @@ function TemplateLibraryPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
         </>
       )}
-    </main>
+    </div>
   );
 }
 

@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase";
-import type { BootstrapResponse } from "@/lib/bootstrap";
-import { useCachedQuery } from "@/lib/use-cached-query";
+import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
+import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import {
   Badge,
   Button,
+  ButtonLink,
   Card,
   ErrorBlock,
-  List,
   LoadingBlock,
   Select,
   SettingRow,
@@ -18,38 +19,10 @@ import {
 } from "@/components/ui";
 
 /**
- * Qué avisos llegan a la campana. La regla la aplica un trigger de BD al
- * insertar la notificación (`notification_preferences`), así que vale para
- * cualquier generador. Solo existe el canal de la app: no hay emisor de email
- * para notificaciones.
+ * Qué avisos llegan, por dónde (campana y email) y cuándo. La campana la filtra
+ * un trigger de BD; el email, el tick del worker (notification-email.ts). Las
+ * preferencias se guardan por la API desde 20261219110000.
  */
-
-const CATEGORIES = [
-  {
-    key: "alert",
-    label: "Alertas de tu tienda",
-    hint: "Stock bajo, caída de ventas, integración sin sincronizar.",
-  },
-  {
-    key: "task_assigned",
-    label: "Tareas nuevas de tu consultor",
-    hint: "Cuando te asignan trabajo.",
-  },
-  {
-    key: "other",
-    label: "Otros avisos",
-    hint: "Todo lo que no entra en las categorías de arriba.",
-  },
-] as const;
-
-type CategoryKey = (typeof CATEGORIES)[number]["key"];
-
-// El consultor recibe los mismos tipos, pero de toda su cartera.
-const CONSULTANT_LABELS: Record<CategoryKey, { label: string; hint: string }> = {
-  alert: { label: "Alertas de tus clientes", hint: "Stock bajo, caída de ventas, integraciones paradas." },
-  task_assigned: { label: "Tareas que te asignan", hint: "Las del reparto y las que nacen de alertas o de la IA." },
-  other: { label: "Otros avisos", hint: "Mensajes, resúmenes y todo lo demás." },
-};
 
 /**
  * Silenciar un cliente: no llega nada suyo a la campana (lo aplica el mismo
@@ -156,94 +129,228 @@ function MutedClientsCard({ userId }: { userId: string }) {
   );
 }
 
+type EmailMode = "instant" | "digest" | "off";
+type Preference = { category: string; in_app: boolean; email: EmailMode };
+type DigestSettings = {
+  digest_frequency: "daily" | "weekly" | "never";
+  digest_weekday: number;
+  digest_hour: number;
+  timezone: string;
+  quiet_enabled: boolean;
+  quiet_from: number;
+  quiet_to: number;
+};
+type NotificationSettingsResponse = {
+  preferences: Preference[];
+  settings: DigestSettings;
+  email: string | null;
+};
+
+const CLIENT_LABELS: Record<string, { label: string; hint: string }> = {
+  alert_critical: { label: "Alertas críticas de tu tienda", hint: "Ventas que se hunden, stock agotado de lo que más vendes." },
+  alert: { label: "Otras alertas", hint: "Cambios de tendencia y avisos de menor importancia." },
+  task_assigned: { label: "Tareas que te asignan", hint: "De tu consultor, de tu equipo o propuestas por la IA." },
+  message: { label: "Mensajes de tu consultor", hint: "Uno por conversación hasta que lo leas." },
+  campaign_review: { label: "Campañas para revisar", hint: "Borradores que esperan tu visto bueno." },
+  integration: { label: "Integraciones que dejan de sincronizar", hint: "Shopify, Meta Ads, Klaviyo o Instagram." },
+  other: { label: "Otros avisos", hint: "Todo lo que no entra arriba." },
+};
+
+const CONSULTANT_LABELS: Record<string, { label: string; hint: string }> = {
+  alert_critical: { label: "Alertas críticas de tus clientes", hint: "Ventas que se hunden, stock agotado de lo que más venden." },
+  alert: { label: "Otras alertas de tus clientes", hint: "Cambios de tendencia y avisos de menor importancia." },
+  task_assigned: { label: "Tareas que te asignan", hint: "Del reparto, de alertas o propuestas por la IA." },
+  message: { label: "Mensajes de tus clientes", hint: "Uno por cliente hasta que lo leas." },
+  campaign_review: { label: "Campañas y piezas para revisar", hint: "Lo que tus clientes o la IA te piden revisar." },
+  integration: { label: "Integraciones caídas en tu cartera", hint: "Incluye tus tiendas propias." },
+  client: { label: "Altas y cambios de tus clientes", hint: "Alguien usa tu código o cambia lo que puedes hacer en su cuenta." },
+  other: { label: "Otros avisos", hint: "Todo lo que no entra arriba." },
+};
+
+const EMAIL_OPTIONS = [
+  { value: "instant", label: "Al momento" },
+  { value: "digest", label: "En el resumen" },
+  { value: "off", label: "No" },
+];
+const WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+const HOURS = Array.from({ length: 24 }, (_, hour) => ({ value: String(hour), label: `${hour}:00` }));
+const TIMEZONES = [
+  "Europe/Madrid",
+  "Atlantic/Canary",
+  "Europe/Lisbon",
+  "America/Mexico_City",
+  "America/Bogota",
+  "America/Lima",
+  "America/Santiago",
+  "America/Argentina/Buenos_Aires",
+];
+
 export function NotificationsSection({ bootstrap }: { bootstrap: BootstrapResponse }) {
-  const supabase = useMemo(() => getSupabaseClient(), []);
-  const userId = bootstrap.user.id;
   const isConsultant = ["consultant", "platform_admin"].includes(bootstrap.profile.platform_role);
-  const [enabled, setEnabled] = useState<Record<CategoryKey, boolean> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const labels = isConsultant ? CONSULTANT_LABELS : CLIENT_LABELS;
+  const path = "/v1/me/notification-settings";
+  const query = useCachedQuery<NotificationSettingsResponse>(path);
+  const [local, setLocal] = useState<NotificationSettingsResponse | null>(null);
+  const data = local ?? query.data ?? null;
+  const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    const { data, error: loadError } = await supabase
-      .from("notification_preferences")
-      .select("category, in_app");
-    if (loadError) {
-      setError("No se pudieron cargar tus preferencias. Revisa la conexión.");
-      return;
-    }
-    // Sin fila = encendido: es lo que hace el trigger.
-    const next: Record<CategoryKey, boolean> = {
-      alert: true,
-      task_assigned: true,
-      other: true,
-    };
-    for (const row of data ?? []) {
-      if (row.category in next) next[row.category as CategoryKey] = row.in_app;
-    }
-    setEnabled(next);
-    setError(null);
-  }, [supabase]);
-
-  useEffect(() => {
-    // Carga inicial desde BD; no deriva de otro estado local.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
-
-  async function toggle(category: CategoryKey, value: boolean) {
-    setEnabled((current) => (current ? { ...current, [category]: value } : current));
-    const { error: saveError } = await supabase
-      .from("notification_preferences")
-      .upsert({
-        user_id: userId,
-        category,
-        in_app: value,
-        updated_at: new Date().toISOString(),
+  async function save(body: { preferences?: Array<Partial<Preference> & { category: string }>; settings?: Partial<DigestSettings> }) {
+    if (!data) return;
+    // Optimista: se ve el cambio al momento y se deshace si la API lo rechaza.
+    setLocal({
+      ...data,
+      preferences: data.preferences.map((pref) => ({
+        ...pref,
+        ...(body.preferences?.find((change) => change.category === pref.category) ?? {}),
+      })),
+      settings: { ...data.settings, ...(body.settings ?? {}) },
+    });
+    setSaving(true);
+    try {
+      const response = await apiFetch(path, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-    if (saveError) {
-      toast.danger("No se pudo guardar el cambio.");
-      void load();
+      if (!response.ok) {
+        setLocal(null);
+        toast.danger(await readApiError(response));
+        return;
+      }
+      setLocal((await response.json()) as NotificationSettingsResponse);
+      invalidateCachedQueries(path);
+    } catch {
+      setLocal(null);
+      toast.danger("No se pudo guardar por un error de red.");
+    } finally {
+      setSaving(false);
     }
   }
 
+  if (query.error && !data) return <ErrorBlock>No se pudieron cargar tus preferencias.</ErrorBlock>;
+  if (!data) return <LoadingBlock label="Cargando preferencias..." />;
+
+  const settings = data.settings;
   return (
-    <div className="space-y-4">
-    <Card
-      title="Qué te avisamos en la app"
-      description="Lo que apagues deja de llegar a la campana. Las alertas siguen visibles en tu panel."
-    >
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-      {!enabled && !error ? <LoadingBlock label="Cargando preferencias..." /> : null}
-      {enabled ? (
-        <List>
-          {CATEGORIES.map((category) => (
-            <List.Item
-              key={category.key}
-              className="flex items-center justify-between gap-4 py-3"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium">
-                  {isConsultant ? CONSULTANT_LABELS[category.key].label : category.label}
-                </p>
-                <p className="text-xs text-muted">
-                  {isConsultant ? CONSULTANT_LABELS[category.key].hint : category.hint}
-                </p>
-              </div>
-              <Switch
-                aria-label={category.label}
-                isSelected={enabled[category.key]}
-                onChange={(value: boolean) => void toggle(category.key, value)}
-              >
-                <Switch.Control>
-                  <Switch.Thumb />
-                </Switch.Control>
-              </Switch>
-            </List.Item>
-          ))}
-        </List>
-      ) : null}
-    </Card>
-    {isConsultant ? <MutedClientsCard userId={userId} /> : null}
+    <div className="space-y-6">
+      <Card
+        title="Qué te avisamos"
+        description="En la app es la campana. Por email, al momento o junto en el resumen. Son tuyas: no cambian las de tu equipo."
+      >
+        <div className="grid gap-0">
+          {data.preferences.map((pref) => {
+            const label = labels[pref.category] ?? { label: pref.category, hint: "" };
+            return (
+              <SettingRow key={pref.category} label={label.label} hint={label.hint}>
+                <Switch
+                  aria-label={`${label.label} en la app`}
+                  isSelected={pref.in_app}
+                  isDisabled={saving}
+                  onChange={(value: boolean) => void save({ preferences: [{ category: pref.category, in_app: value }] })}
+                >
+                  <Switch.Control>
+                    <Switch.Thumb />
+                  </Switch.Control>
+                </Switch>
+                <span className="text-xs text-muted">App</span>
+                <Select
+                  className="w-40"
+                  aria-label={`${label.label} por email`}
+                  value={pref.email}
+                  onChange={(value) => void save({ preferences: [{ category: pref.category, email: value as EmailMode }] })}
+                  options={EMAIL_OPTIONS}
+                  disabled={saving}
+                />
+              </SettingRow>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card title="Resumen por email" description={data.email ? `A ${data.email}.` : undefined}>
+        <SettingRow label="Frecuencia">
+          <Select
+            className="w-40"
+            aria-label="Frecuencia del resumen"
+            value={settings.digest_frequency}
+            onChange={(value) => void save({ settings: { digest_frequency: value as DigestSettings["digest_frequency"] } })}
+            options={[
+              { value: "daily", label: "Diario" },
+              { value: "weekly", label: "Semanal" },
+              { value: "never", label: "Nunca" },
+            ]}
+          />
+        </SettingRow>
+        {settings.digest_frequency !== "never" ? (
+          <SettingRow label="Cuándo llega">
+            {settings.digest_frequency === "weekly" ? (
+              <Select
+                className="w-36"
+                aria-label="Día del resumen"
+                value={String(settings.digest_weekday)}
+                onChange={(value) => void save({ settings: { digest_weekday: Number(value) } })}
+                options={WEEKDAYS.map((day, index) => ({ value: String(index + 1), label: day }))}
+              />
+            ) : null}
+            <Select
+              className="w-28"
+              aria-label="Hora del resumen"
+              value={String(settings.digest_hour)}
+              onChange={(value) => void save({ settings: { digest_hour: Number(value) } })}
+              options={HOURS}
+            />
+          </SettingRow>
+        ) : null}
+        <SettingRow label="Tu zona horaria">
+          <Select
+            className="w-64"
+            aria-label="Zona horaria de los avisos"
+            value={settings.timezone}
+            onChange={(value) => void save({ settings: { timezone: value } })}
+            options={[...new Set([settings.timezone, ...TIMEZONES])].map((zone) => ({ value: zone, label: zone.replaceAll("_", " ") }))}
+          />
+        </SettingRow>
+      </Card>
+
+      <Card title="Horario sin emails" description="Fuera de este horario solo llegan las alertas críticas; el resto espera a que acabe.">
+        <SettingRow label="Activar">
+          <Switch
+            aria-label="Activar horario sin emails"
+            isSelected={settings.quiet_enabled}
+            onChange={(value: boolean) => void save({ settings: { quiet_enabled: value } })}
+          >
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch>
+        </SettingRow>
+        {settings.quiet_enabled ? (
+          <SettingRow label="Silencio">
+            <span className="text-sm text-muted">de</span>
+            <Select
+              className="w-28"
+              aria-label="Desde"
+              value={String(settings.quiet_from)}
+              onChange={(value) => void save({ settings: { quiet_from: Number(value) } })}
+              options={HOURS}
+            />
+            <span className="text-sm text-muted">a</span>
+            <Select
+              className="w-28"
+              aria-label="Hasta"
+              value={String(settings.quiet_to)}
+              onChange={(value) => void save({ settings: { quiet_to: Number(value) } })}
+              options={HOURS}
+            />
+          </SettingRow>
+        ) : null}
+      </Card>
+
+      {isConsultant ? <MutedClientsCard userId={bootstrap.user.id} /> : null}
+
+      <Card title="Informe mensual en PDF" actions={<ButtonLink href="/informes" size="sm" variant="ghost">Abrir Informes</ButtonLink>}>
+        <p className="text-sm text-muted">El envío mensual y sus destinatarios se gestionan en Informes.</p>
+      </Card>
     </div>
   );
 }

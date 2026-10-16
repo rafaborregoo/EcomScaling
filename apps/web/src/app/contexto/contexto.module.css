@@ -3,8 +3,8 @@
    semánticos (aviso) que el tema no define. */
 
 .page {
-  --warn: #c0600e;
-  --warn-soft: #fbe8d5;
+  --warn: #8b4c0d;
+  --warn-soft: #fcf0df;
 }
 
 /* Progreso dentro del hero */
@@ -16,7 +16,7 @@
 .bar {
   height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  background: #e5ecec;
   overflow: hidden;
 }
 .bar > i {
@@ -24,11 +24,10 @@
   height: 100%;
   border-radius: inherit;
   background: var(--tw-accent);
-  transition: width 0.4s ease;
 }
 .progressTxt {
   font-size: 12px;
-  opacity: 0.8;
+  color: var(--tw-ink-3);
   font-variant-numeric: tabular-nums;
 }
 
@@ -36,7 +35,7 @@
 .traits {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
 }
 .trait {
   display: grid;
@@ -46,14 +45,6 @@
   background: #fff;
   border: 1px solid var(--tw-line);
   border-radius: 14px;
-  border-top-width: 3px;
-  border-top-color: var(--tw-line);
-}
-.trait[data-state="ok"] {
-  border-top-color: var(--tw-good);
-}
-.trait[data-state="off"] {
-  border-top-color: var(--warn);
 }
 .trait[data-state="empty"] {
   border-style: dashed;
@@ -67,7 +58,7 @@
   gap: 8px;
 }
 .traitName {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--tw-ink);
 }
@@ -127,6 +118,7 @@
   gap: 6px;
 }
 .chip {
+  min-height: 40px;
   border: 1px solid var(--tw-line);
   background: #fff;
   color: var(--tw-ink);
@@ -136,6 +128,7 @@
   font-size: 12px;
   cursor: pointer;
 }
+@media (max-width: 600px) { .chip { min-height: 44px; } }
 .chip:hover,
 .chip[aria-pressed="true"] {
   background: var(--tw-accent-soft);

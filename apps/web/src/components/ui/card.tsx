@@ -20,6 +20,7 @@ export function Card({
   children,
   className,
   id,
+  headingLevel = 3,
 }: {
   title?: ReactNode;
   kicker?: ReactNode;
@@ -30,7 +31,9 @@ export function Card({
   // Ancla de la seccion. Los hallazgos de los agentes enlazan al bloque de
   // datos que los prueba, y ese bloque casi siempre es una Card.
   id?: string;
+  headingLevel?: 2 | 3;
 }) {
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   // `cn` es un join simple, no tailwind-merge: si el caller ya pinta su propio
   // color de borde (border-accent, border-warn...) no añadimos el por defecto,
   // porque las dos utilidades competirian por orden de hoja de estilos.
@@ -47,7 +50,7 @@ export function Card({
           <div>
             {kicker ? <p className={EYEBROW}>{kicker}</p> : null}
             {title ? (
-              <HeroCard.Title>
+              <HeroCard.Title render={(props) => <Heading {...props} />}>
                 <span className="inline-flex items-center gap-2">
                   {title}
                   {insight ? (

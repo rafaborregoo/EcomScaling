@@ -6,6 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { z } from "zod";
 import {
   checkOutputSanity,
   buildAgentSystemPrompt,
@@ -20,6 +21,7 @@ import {
   evaluateAgentBudget,
   klaviyoEmailDraftPatchSchema,
   klaviyoEmailOutputSchema,
+  klaviyoEmailGenerationOutputSchema,
   metaAdsDraftPatchSchema,
   metaAdsOutputSchema,
   instagramPostOutputSchema,
@@ -27,6 +29,7 @@ import {
   instagramImageAnalysisToMarkdown,
   instagramOverlayDraftSchema,
   sanitizeGeneratedEmailHtml,
+  normalizeGeneratedEmailLinks,
   createReplayToolExecutor,
   createToolReplayFixture,
   TOOL_REGISTRY,
@@ -60,7 +63,160 @@ import {
   validateAgentImageAttachments,
   agentInputSchema,
   platformAgentInputSchema,
+  toAnthropicCompatibleOutputSchema,
+  runAgentTurn,
 } from "./index.js";
+
+test("runAgentTurn sends Anthropic a compatible schema and parses with the original Zod contract", async () => {
+  const requestCapture: { body?: Record<string, unknown> } = {};
+  const response = {
+    content: [{ type: "text", text: JSON.stringify({ answer: "ok", items: ["one"], impact: "low" }) }],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 2, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+  };
+  const client = {
+    messages: {
+      create: async (body: Record<string, unknown>) => {
+        requestCapture.body = body;
+        return response;
+      },
+    },
+  } as never;
+
+  const contract = {
+    jsonSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["answer", "items"],
+      properties: {
+        answer: { type: "string", maxLength: 20 },
+        items: { type: "array", maxItems: 2, items: { type: "string" } },
+        impact: { type: ["string", "null"], enum: ["low", "medium", "high", null] },
+      },
+    },
+    schema: z.object({
+      answer: z.string().max(20),
+      items: z.array(z.string()).max(2),
+      impact: z.enum(["low", "medium", "high"]).nullable(),
+    }),
+  };
+
+  const result = await runAgentTurn({
+    client,
+    model: "claude-sonnet-4-5",
+    systemPrompt: "Return the requested JSON.",
+    input: {
+      run_id: "00000000-0000-4000-8000-000000000001",
+      agent_code: "test",
+      agent_version: "1",
+      organization_id: "00000000-0000-4000-8000-000000000002",
+      actor_user_id: "00000000-0000-4000-8000-000000000003",
+      trigger_type: "manual",
+      objective: "schema compatibility",
+      allowed_tools: [],
+      approval_mode: "none",
+    },
+    contextBlocks: [],
+    outputContract: contract,
+  });
+
+  assert.deepEqual(result.output, { answer: "ok", items: ["one"], impact: "low" });
+  assert.ok(requestCapture.body);
+  const outputConfig = requestCapture.body.output_config as { format: { schema: Record<string, unknown> } };
+  const sentSchema = outputConfig.format.schema;
+  const properties = sentSchema.properties as Record<string, { maxLength?: number; maxItems?: number; description?: string; type?: unknown; enum?: unknown[]; anyOf?: Array<Record<string, unknown>> }>;
+  const answerProperty = properties.answer;
+  const itemsProperty = properties.items;
+  const impactProperty = properties.impact;
+  assert.ok(answerProperty);
+  assert.ok(itemsProperty);
+  assert.ok(impactProperty);
+  assert.equal(answerProperty.maxLength, undefined);
+  assert.match(answerProperty.description ?? "", /at most 20 characters/);
+  assert.equal(itemsProperty.maxItems, undefined);
+  assert.match(itemsProperty.description ?? "", /no more than 2/);
+  assert.equal(impactProperty.type, undefined);
+  assert.equal(impactProperty.enum, undefined);
+  assert.deepEqual(impactProperty.anyOf, [
+    { type: "string", enum: ["low", "medium", "high"] },
+    { type: "null" },
+  ]);
+  assert.equal(contract.jsonSchema.properties.answer.maxLength, 20);
+  assert.equal(contract.jsonSchema.properties.items.maxItems, 2);
+});
+
+test("the real copilot schema keeps absent collections empty to fit Anthropic grammar compilation", () => {
+  const schema = toAnthropicCompatibleOutputSchema(chatJsonSchema);
+  assert.equal(Object.keys(chatJsonSchema.properties)[0], "answer", "the streaming extractor requires answer before other fields");
+  const nullableCollections: string[] = [];
+  const unionParameters: string[] = [];
+  const visit = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (Array.isArray(record.type) || Array.isArray(record.anyOf)) unionParameters.push(path);
+    if (Array.isArray(record.type) && record.type.includes("array") && record.type.includes("null")) {
+      nullableCollections.push(path);
+    }
+    for (const [key, value] of Object.entries(record)) visit(value, `${path}.${key}`);
+  };
+  visit(schema, "chat");
+  assert.deepEqual(nullableCollections, [], "nullable collections multiply the provider's compiled grammar");
+  assert.ok(unionParameters.length <= 5, `the chat plus tools must compile with at most five unions, found ${unionParameters.length}`);
+  const parsed = chatOutputSchema.parse({
+    answer: "Prueba correcta", sources: [], confidence: "low", warnings: [],
+    summary: null, findings: [], recommendation: null, next_action: null,
+    key_figures: [], ui_actions: [], proposed_writes: [],
+  });
+  assert.deepEqual(parsed.findings, []);
+  assert.deepEqual(parsed.key_figures, []);
+  assert.deepEqual(parsed.proposed_writes, []);
+});
+
+test("Anthropic output schema removes unsupported limits and keeps them as hints", () => {
+  const original = {
+    type: "object",
+    properties: {
+      findings: {
+        type: "array",
+        minItems: 2,
+        maxItems: 5,
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", maxLength: 80 },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+          },
+        },
+      },
+      recommendations: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
+    },
+  };
+
+  const compatible = toAnthropicCompatibleOutputSchema(original) as {
+    properties: {
+      findings: {
+        minItems?: number;
+        maxItems?: number;
+        description?: string;
+        items: { properties: { title: { maxLength?: number; description?: string }; confidence: { minimum?: number; maximum?: number; description?: string } } };
+      };
+      recommendations: { minItems?: number; maxItems?: number };
+    };
+  };
+
+  assert.equal(compatible.properties.findings.maxItems, undefined);
+  assert.equal(compatible.properties.findings.minItems, undefined);
+  assert.match(compatible.properties.findings.description ?? "", /no more than 5/);
+  assert.match(compatible.properties.findings.description ?? "", /at least 2/);
+  assert.equal(compatible.properties.findings.items.properties.title.maxLength, undefined);
+  assert.match(compatible.properties.findings.items.properties.title.description ?? "", /at most 80 characters/);
+  assert.equal(compatible.properties.findings.items.properties.confidence.minimum, undefined);
+  assert.equal(compatible.properties.findings.items.properties.confidence.maximum, undefined);
+  assert.equal(compatible.properties.recommendations.maxItems, undefined);
+  assert.equal(compatible.properties.recommendations.minItems, 1);
+  assert.equal(original.properties.findings.maxItems, 5);
+});
 
 test("A23 output requires a structured evidence-backed decision and blocks pause on an unknown measurement gate", () => {
   const contract = buildA23CreativeOutputContract();
@@ -414,6 +570,7 @@ test("A02 emite titular y secciones, y normaliza compatibilidad sin pedir listas
   assert.equal("answer" in monitorOutputJsonSchema.properties, false);
   assert.equal("findings" in monitorOutputJsonSchema.properties, false);
   assert.equal("recommendations" in monitorOutputJsonSchema.properties, false);
+  assert.equal("maxItems" in monitorOutputJsonSchema.properties.sections, false);
 });
 
 test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
@@ -1009,6 +1166,44 @@ test("sanitizeGeneratedEmailHtml elimina vectores activos del HTML generado", ()
   assert.match(safe, /ok/);
 });
 
+test("normaliza enlaces inválidos de email sin inventar destinos y deja aviso", () => {
+  const raw = {
+    summary: "Email de temporada",
+    template_name: "seasonal",
+    subject: "Novedades",
+    preheader: "Selección editorial",
+    from_name: "E-NORA",
+    reply_to: null,
+    purpose: "presentar novedades",
+    audience: "suscriptores con consentimiento",
+    locale: "es-ES",
+    tone: "Una descripción extensa del tono editorial que antes podía superar el límite aunque siguiera siendo útil y válida para la persona que revisa el borrador.",
+    plain_text: "Novedades de temporada",
+    html: '<p><a href="no-es-url">Novedades</a><a href="https://example.com">Tienda</a></p>',
+    blocks: [
+      { type: "button", content: "Ver novedades", href: "no-es-url", alt: null },
+      { type: "button", content: "Ver tienda", href: "https://example.com", alt: null },
+    ],
+    personalization_tokens: [],
+    compliance_notes: [],
+    sources: [],
+    confidence: "medium",
+    warnings: [],
+    approval_required: true,
+  };
+  assert.equal(klaviyoEmailGenerationOutputSchema.safeParse(raw).success, true);
+  const result = normalizeGeneratedEmailLinks(raw);
+  assert.equal((result.blocks as Array<{ href: string | null }>)[0]?.href, null);
+  assert.equal(
+    (result.blocks as Array<{ href: string | null }>)[1]?.href,
+    "https://example.com",
+  );
+  assert.match((result.warnings as string[])[0] ?? "", /enlace.*no válido/i);
+  assert.doesNotMatch(result.html as string, /href="no-es-url"/);
+  assert.match(result.html as string, /href="https:\/\/example\.com"/);
+  assert.equal(klaviyoEmailOutputSchema.safeParse(result).success, true);
+});
+
 test("el contrato Meta Ads no reutiliza campos de email y exige aprobacion", () => {
   const result = metaAdsOutputSchema.safeParse({
     summary: "Campana de lanzamiento",
@@ -1124,7 +1319,7 @@ test("el borrador de texto sobre imagen exige bloques, paleta con hex y colocaci
   assert.equal(instagramOverlayDraftSchema.safeParse(ok).success, true);
   assert.equal(
     instagramOverlayDraftSchema.safeParse({ ...ok, blocks: [] }).success,
-    false,
+    true,
   );
   assert.equal(
     instagramOverlayDraftSchema.safeParse({

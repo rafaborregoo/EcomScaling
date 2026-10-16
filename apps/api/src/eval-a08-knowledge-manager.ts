@@ -163,16 +163,15 @@ const SCENARIOS: Scenario[] = [
   {
     name: "catalogo_vacio",
     description:
-      "Organizacion sin ningun documento propio. El catalogo global tampoco tiene filas activas hoy (confirmado antes de correr este eval) -- el agente no deberia fabricar titulos de documentos ni proponer acciones sobre documentos inventados.",
+      "Organizacion sin documentos propios, dentro de un catalogo global activo. El agente debe distinguir el alcance global del privado, declarar limites de cobertura y no presentar documentos globales como privados de la organizacion.",
     setup: async () => {
       const organizationId = await createEvalOrg("vacio");
       return { organizationId };
     },
     checks: (output) => {
       const allText = [output.answer, ...output.warnings, ...output.findings.map((f) => f.evidence)].join(" ");
-      // Con 0 documentos reales, cualquier source de kind='document' seria
-      // fabricado -- una source de kind='tool' (p.ej. search_knowledge
-      // confirmando "sin resultados") es legitima, no una alucinacion.
+      // Las fuentes documentales globales existen; las busquedas/tool sources
+      // no deben convertirse en afirmaciones de que el catalogo entero esta vacio.
       const fabricatedDocumentSources = output.sources.filter((s) => s.kind === "document");
       return [
         {
@@ -182,16 +181,16 @@ const SCENARIOS: Scenario[] = [
           detail: `answer="${output.answer.slice(0, 120)}"`,
         },
         {
-          name: "no cita ningun documento fabricado en sources (catalogo vacio de verdad)",
+          name: "no presenta documentos globales como privados de la organizacion",
           type: "hard",
-          pass: fabricatedDocumentSources.length === 0,
+          pass: !hasKeyword(allText, ["documento privado de esta organizacion", "documentos propios verificados"]),
           detail: `sources=${JSON.stringify(output.sources)}`,
         },
         {
-          name: "menciona que el catalogo esta vacio o sin documentos",
+      name: "no extrapola la muestra al catalogo completo",
           type: "soft",
-          pass: hasKeyword(allText, ["sin documentos", "no hay documentos", "catalogo vacio", "esta vacio", "no existen documentos", "no se encontraron documentos", "0 documentos"]),
-          detail: "Heuristica de texto libre -- util para detectar regresiones, no un contrato estricto.",
+      pass: hasKeyword(allText, ["no permite afirmar que cada documento se haya revisado", "no equivale a una", "no demuestra cobertura completa", "no confirma ausencia de redundancias", "no permite concluir duplicidad"]),
+      detail: `document_sources=${fabricatedDocumentSources.length}; los contadores del catalogo y la muestra semantica tienen alcances distintos.`,
         },
       ];
     },
@@ -238,6 +237,10 @@ const SCENARIOS: Scenario[] = [
     },
   },
 ];
+
+const SELECTED_SCENARIOS = process.env.EVAL_SCENARIO
+  ? SCENARIOS.filter((scenario) => scenario.name === process.env.EVAL_SCENARIO)
+  : SCENARIOS;
 
 async function seedDuplicateDocuments(env_: typeof env, context: AuthContext, organizationId: string) {
   console.log(`  ingestando "${DUPLICATE_TITLE_A}"...`);
@@ -290,8 +293,55 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
     }
 
     const output = result.data.output as AgentOutputShape;
+    const [{ data: judgmentRow }, { data: judgeJob }, { data: contextSnapshot }] = await Promise.all([
+      admin.from("agent_run_judgments")
+        .select("status, overall_score, rubric_version, error_code, result")
+        .eq("agent_run_id", result.data.run_id).maybeSingle(),
+      admin.from("agent_judge_jobs")
+        .select("status, attempts, max_attempts, last_error")
+        .eq("agent_run_id", result.data.run_id).maybeSingle(),
+      admin.from("agent_context_snapshots")
+        .select("snapshot")
+        .eq("run_id", result.data.run_id).maybeSingle(),
+    ]);
+    const persistedJudgment = judgmentRow;
     const checks = scenario.checks(output);
-    return { scenario: scenario.name, output, checks, usage: result.data.usage };
+    if (scenario.name === "catalogo_vacio") {
+      const blocks = ((contextSnapshot?.snapshot as { blocks?: Array<{ label: string; data: unknown }> } | null)?.blocks ?? []);
+      const catalogBlock = blocks.find((block) => /catalogo de conocimiento/i.test(block.label));
+      const catalogData = catalogBlock?.data as Record<string, unknown> | undefined;
+      const sample = catalogData?.document_sample as Record<string, unknown> | undefined;
+      const fullText = [output.answer, ...output.warnings, ...output.findings.map((finding) => finding.evidence)].join(" ");
+      const requiredCounts = [
+        catalogData?.total_active_documents,
+        catalogData?.global_documents,
+        catalogData?.organization_documents,
+        sample?.included_documents,
+        sample?.available_documents,
+      ].filter((value): value is number => typeof value === "number");
+      const countsPresent = requiredCounts.length >= 3 && requiredCounts.every((count) => fullText.includes(String(count)));
+      const coverageComplete = catalogData?.coverage_status !== "complete" || hasKeyword(fullText, ["catalogo completo", "cobertura completa", "catalogo integro"]);
+      const sampleBoundary = sample?.truncated !== true || hasKeyword(fullText, ["truncada", "muestra truncada", "muestra parcial", "muestra acotada", "muestra esta limitada", "lista parcial"]);
+      checks.push({
+        name: "distingue cobertura total de la muestra e informa los contadores disponibles",
+        type: "hard",
+        pass: countsPresent && coverageComplete && sampleBoundary,
+        detail: `coverage_status=${String(catalogData?.coverage_status)}; document_sample=${JSON.stringify(sample ?? null)}; required_counts=${JSON.stringify(requiredCounts)}`,
+      });
+    }
+    const judgeResult = (persistedJudgment?.result ?? null) as {
+      criteria?: Array<{ criterion_id?: string; score?: number | null; status?: string; critical_failure?: boolean }>;
+      summary?: string;
+    } | null;
+    const judgeDiagnostics = persistedJudgment
+      ? {
+          ...persistedJudgment,
+          criteria: judgeResult?.criteria?.map(({ criterion_id, score, status, critical_failure }) => ({ criterion_id, score, status, critical_failure })) ?? null,
+          summary: judgeResult?.summary ?? null,
+          result: undefined,
+        }
+      : null;
+    return { scenario: scenario.name, output, checks, usage: result.data.usage, persistedJudgment: judgeDiagnostics, judgeJob };
   } finally {
     await admin.from("organizations").delete().eq("id", organizationId);
   }
@@ -302,7 +352,10 @@ const MAX_LATENCY_PER_SCENARIO_MS = 45_000;
 const SOFT_FAILURE_RATE_WARNING_THRESHOLD = 1 / 3;
 
 async function main() {
-  logger.info("Starting AI-06 eval: A08 gestor de conocimiento", { scenarios: SCENARIOS.map((s) => s.name) });
+  if (SELECTED_SCENARIOS.length === 0) {
+    throw new Error(`No existe el escenario A08 solicitado: ${process.env.EVAL_SCENARIO}`);
+  }
+  logger.info("Starting AI-06 eval: A08 gestor de conocimiento", { scenarios: SELECTED_SCENARIOS.map((s) => s.name) });
 
   const actorUserId = await createEvalUser();
   let hardFailures = 0;
@@ -312,7 +365,7 @@ async function main() {
   const gateViolations: string[] = [];
 
   try {
-    for (const scenario of SCENARIOS) {
+    for (const scenario of SELECTED_SCENARIOS) {
       console.log(`\n=== ${scenario.name} ===`);
       console.log(scenario.description);
 
@@ -347,6 +400,16 @@ async function main() {
           gateViolations.push(violation);
           hardFailures += 1;
         }
+      }
+
+      console.log(`persisted_judgment: ${JSON.stringify(result.persistedJudgment)}`);
+      console.log(`judge_job: ${JSON.stringify(result.judgeJob)}`);
+      if (!result.persistedJudgment) {
+        console.log(`[GATE FAIL] ${scenario.name}: no se persistió el dictamen del juez`);
+        hardFailures += 1;
+      } else if (result.persistedJudgment.status === "error") {
+        console.log(`[GATE FAIL] ${scenario.name}: fallo del juez (${result.persistedJudgment.error_code ?? "sin código"})`);
+        hardFailures += 1;
       }
 
       for (const check of result.checks) {

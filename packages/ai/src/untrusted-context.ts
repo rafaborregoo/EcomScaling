@@ -24,27 +24,47 @@ function neutralize(text: string): { text: string; blocked: number } {
 }
 
 export type UntrustedContextBlock = { label: string; data: unknown };
-export type UntrustedContextResult = { text: string; blockedPatterns: number; truncated: boolean };
+export type UntrustedContextResult = {
+  text: string;
+  blockedPatterns: number;
+  truncated: boolean;
+  /** Que bloques se cortaron y de cuantos caracteres venian: sin esto el corte es invisible. */
+  truncatedBlocks: Array<{ label: string; chars: number }>;
+};
 
-export function serializeUntrustedContextBlocks(blocks: UntrustedContextBlock[]): UntrustedContextResult {
-  let remaining = MAX_CONTEXT_CHARS;
+export type UntrustedContextLimits = { maxBlockChars?: number; maxContextChars?: number };
+
+export function serializeUntrustedContextBlocks(
+  blocks: UntrustedContextBlock[],
+  limits: UntrustedContextLimits = {},
+): UntrustedContextResult {
+  const maxBlockChars = limits.maxBlockChars ?? MAX_BLOCK_CHARS;
+  let remaining = limits.maxContextChars ?? MAX_CONTEXT_CHARS;
   let blockedPatterns = 0;
   let truncated = false;
   const sections: string[] = [];
+  const truncatedBlocks: Array<{ label: string; chars: number }> = [];
   for (const block of blocks) {
-    if (remaining <= 0) { truncated = true; break; }
+    if (remaining <= 0) {
+      truncated = true;
+      truncatedBlocks.push({ label: String(block.label ?? "contexto").slice(0, 80), chars: 0 });
+      continue;
+    }
     const safeLabel = neutralize(String(block.label ?? "contexto"));
     let serialized: string;
     try { serialized = JSON.stringify(block.data, null, 2) ?? "null"; } catch { serialized = "[dato_no_serializable]"; }
     const safeData = neutralize(serialized);
     blockedPatterns += safeLabel.blocked + safeData.blocked;
     const section = `FUENTE_NO_CONFIABLE: ${safeLabel.text}\n<datos_recuperados>\n${safeData.text}\n</datos_recuperados>`;
-    const bounded = section.slice(0, Math.min(MAX_BLOCK_CHARS, remaining));
-    if (bounded.length < section.length) truncated = true;
+    const bounded = section.slice(0, Math.min(maxBlockChars, remaining));
+    if (bounded.length < section.length) {
+      truncated = true;
+      truncatedBlocks.push({ label: safeLabel.text.slice(0, 80), chars: section.length });
+    }
     sections.push(bounded);
     remaining -= bounded.length;
   }
-  return { text: sections.join("\n\n"), blockedPatterns, truncated };
+  return { text: sections.join("\n\n"), blockedPatterns, truncated, truncatedBlocks };
 }
 
 export type UntrustedToolResult = { text: string; blockedPatterns: number };

@@ -8,7 +8,7 @@ import {
   type ProfitFlag,
   type ProfitTier,
 } from "@e-nora/contracts";
-import { monthLabel } from "./panel-view-model";
+import { monthLabel, monthlyChartScale } from "./panel-view-model";
 import s from "./panel.module.css";
 
 /**
@@ -51,6 +51,7 @@ export const TIER_LABEL: Record<ProfitTier, string> = {
 export function ScopeBar({ days, onDays }: { days: number; onDays: (days: number) => void }) {
   return (
     <header className={s.top}>
+      <span className={s.scopeTitle}>Rentabilidad · comparar periodos</span>
       <div className={s.ctl}>
         <div className={s.seg} role="group" aria-label="Periodo">
           {PERIODS.map((period) => (
@@ -94,10 +95,10 @@ export function Hero({
     <section className={cx(s.hero, tier && TIER_CLASS[tier])} aria-labelledby={id}>
       <div className={s.heroTop}>
         <div>
-          <p className={s.meta}>{meta}</p>
           <h1 id={id} className={s.headline}>
             {title}
           </h1>
+          <p className={s.meta}>{meta}</p>
           {lines.map((line, index) => (
             <p key={index} className={s.detail}>
               {line}
@@ -123,7 +124,7 @@ export function AiLine({
 }) {
   return (
     <>
-      <span className={s.ia}>IA</span>
+      <span className={s.ia}>A02</span>
       {text}
       {generatedAt ? (
         <span className={s.mut}>
@@ -137,7 +138,7 @@ export function AiLine({
 }
 
 export function IaTag() {
-  return <span className={s.ia}>IA</span>;
+  return <span className={s.ia}>A02</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,28 +292,25 @@ export function Seg<T extends string>({
 
 const CHART_HEIGHT = 190;
 
-/** Escala de miles para las etiquetas: "301" o "10,2" según el tamaño de la serie. */
-function compact(max: number) {
-  if (max >= 100_000) return (value: number) => panelNumber(value / 1000);
-  if (max >= 1_000) return (value: number) => panelNumber(value / 1000, 1);
-  return (value: number) => panelNumber(value);
-}
-
 export function MonthlyChart({
   months,
   label,
+  currency,
 }: {
   months: Array<{ month: string; revenue: number; profit: number }>;
   label: string;
+  currency: string | null;
 }) {
   const max = Math.max(1, ...months.map((month) => month.revenue));
   const ceiling = max * 1.1;
-  const fmt = compact(max);
+  const scale = monthlyChartScale(max, currency);
+  const fmt = (value: number) => panelNumber(value / scale.divisor, scale.digits);
   return (
     <>
-      <div className={s.mb} role="img" aria-label={label}>
+      <p className={s.chartUnit}>{scale.label}</p>
+      <div className={s.mb} role="group" aria-label={`${label}. ${scale.label}`}>
         {months.map((month, index) => (
-          <div key={month.month} className={s.mbCol}>
+          <div key={month.month} className={s.mbCol} role="img" aria-label={`${monthLabel(month.month)}: ingresos ${panelMoney(month.revenue, currency)}, beneficio ${panelMoney(month.profit, currency)}`}>
             <span className={s.mbM}>{fmt(month.revenue)}</span>
             <div
               className={cx(s.mbBar, index === months.length - 1 && s.last)}

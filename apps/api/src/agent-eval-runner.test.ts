@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AGENT_JUDGE_RUBRICS, finalizeAgentJudgeResult, hashLiveAgentEvalOutput, runLiveAgentEvalCase } from "@e-nora/ai";
+import { AGENT_JUDGE_RUBRICS, JUDGE_RUBRIC_VERSION, finalizeAgentJudgeResult, hashLiveAgentEvalOutput, runLiveAgentEvalCase } from "@e-nora/ai";
 import {
   buildOfflineAgentEvalPayload,
   runAndPersistLiveAgentEvals,
@@ -51,7 +51,8 @@ test("conserva el fallo del agente en la evidencia offline", () => {
 test("evalúa una versión candidata inactiva seleccionada por ID", async () => {
   let selectedIds: string[] = [];
   let persistedVersionIds: string[] = [];
-  const client = {
+  const client: any = {
+    schema: () => client,
     from: () => ({
       select: () => ({
         in: async (_column: string, ids: string[]) => {
@@ -81,7 +82,8 @@ test("evalúa una versión candidata inactiva seleccionada por ID", async () => 
 
 test("no persiste evaluación offline si falta una candidata solicitada", async () => {
   let rpcCalls = 0;
-  const client = {
+  const client: any = {
+    schema: () => client,
     from: () => ({
       select: () => ({ in: async () => ({ data: [], error: null }) }),
     }),
@@ -97,7 +99,8 @@ test("no persiste evaluación offline si falta una candidata solicitada", async 
 
 test("rechaza candidatas que no pertenecen al catálogo activo", async () => {
   let rpcCalls = 0;
-  const client = {
+  const client: any = {
+    schema: () => client,
     from: () => ({
       select: () => ({
         in: async () => ({
@@ -118,7 +121,8 @@ test("rechaza candidatas que no pertenecen al catálogo activo", async () => {
 
 test("conecta live con el writer AI-26 y fija huella exacta del candidato", async () => {
   let captured: unknown = null;
-  const client = {
+  const client: any = {
+    schema: () => client,
     rpc: async (name: string, args: { p_payload?: unknown }) => {
       if (name === "capture_agent_version_release_manifest") {
         return { data: { manifest_sha256: "c".repeat(64) }, error: null };
@@ -180,7 +184,7 @@ test("conecta live con el writer AI-26 y fija huella exacta del candidato", asyn
   assert.equal(result.payload.evaluation.evidence.candidate_pin_verified, true);
   assert.equal(result.payload.evaluation.evidence.candidate_pinned_cases, 1);
   assert.equal((result.payload.evaluation.evidence.cases as Array<Record<string, unknown>>)[0]?.candidate_judge_status, "passed");
-  assert.equal((result.payload.evaluation.evidence.cases as Array<Record<string, unknown>>)[0]?.candidate_judge_rubric_version, "judge-rubrics-v1");
+  assert.equal((result.payload.evaluation.evidence.cases as Array<Record<string, unknown>>)[0]?.candidate_judge_rubric_version, JUDGE_RUBRIC_VERSION);
   assert.equal((result.payload.evaluation.evidence.cases as Array<Record<string, unknown>>)[0]?.candidate_judged_output_sha256, hashLiveAgentEvalOutput({
     answer: "No hay datos suficientes.", sources: [], confidence: "low", warnings: ["meta_not_connected"],
   }));
@@ -189,7 +193,8 @@ test("conecta live con el writer AI-26 y fija huella exacta del candidato", asyn
 
 test("live no certifica si el provider no demuestra la huella realmente ejecutada", async () => {
   let payload: any;
-  const client = {
+  const client: any = {
+    schema: () => client,
     rpc: async (name: string, args: { p_payload?: unknown }) => {
       if (name === "capture_agent_version_release_manifest") {
         return { data: { manifest_sha256: "d".repeat(64) }, error: null };
@@ -294,7 +299,8 @@ test("live eval exige campos estructurales del fixture y prohíbe artefactos de 
 test("marca fallida una evaluación si cambia el manifest mientras se ejecuta la suite", async () => {
   let captures = 0;
   let payload: any;
-  const client = {
+  const client: any = {
+    schema: () => client,
     rpc: async (name: string, args: { p_payload?: unknown }) => {
       if (name === "capture_agent_version_release_manifest") {
         captures += 1;

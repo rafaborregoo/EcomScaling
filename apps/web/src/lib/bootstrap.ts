@@ -28,6 +28,8 @@ export type BootstrapResponse = {
     accessSource: "membership" | "consultant_assignment" | "platform_admin";
     access_scope?: "organization" | "store";
     store_id?: string | null;
+    /** Tiendas de una membership limitada a tiendas (20261219100000). */
+    store_ids?: string[];
     organization: {
       id: string;
       display_name: string;
@@ -35,6 +37,8 @@ export type BootstrapResponse = {
       status: string;
       timezone: string;
       currency_code: string;
+      /** El propietario exige 2FA al equipo. */
+      require_mfa?: boolean;
     } | null;
   }>;
   subscriptions: Array<{

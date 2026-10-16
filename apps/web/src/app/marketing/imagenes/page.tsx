@@ -180,6 +180,9 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const base = organizationId
     ? `/v1/organizations/${organizationId}/instagram/image-bank`
     : null;
+  const overlayBase = organizationId
+    ? `/v1/organizations/${organizationId}/instagram/overlays`
+    : null;
 
   const load = useCallback(async () => {
     if (!base || !canView) {
@@ -321,12 +324,12 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   // Piezas (texto sobre imagen) de la imagen abierta.
   useEffect(() => {
-    if (!base || !expandedId) {
+    if (!overlayBase || !expandedId) {
       setOverlays([]);
       return;
     }
     let cancelled = false;
-    void apiFetch(`${base}/overlays?imageId=${encodeURIComponent(expandedId)}`)
+    void apiFetch(`${overlayBase}?imageId=${encodeURIComponent(expandedId)}`)
       .then(async (response) => {
         if (cancelled || !response.ok) return;
         const payload = (await response.json()) as {
@@ -340,7 +343,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     return () => {
       cancelled = true;
     };
-  }, [base, expandedId]);
+  }, [overlayBase, expandedId]);
 
   function openDetail(image: BankImage) {
     setExpandedId(image.id);
@@ -351,10 +354,10 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     imageId: string,
     format: "single" | "carousel" | "story",
   ) {
-    if (!base) return;
+    if (!overlayBase) return;
     setCreatingPiece(true);
     try {
-      const response = await apiFetch(`${base}/overlays`, {
+      const response = await apiFetch(overlayBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -551,8 +554,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className={styles.page}>
       <header className={styles.top}>
         <div className="min-w-0">
-          <p className={styles.crumb}>Marketing / Contenido</p>
-          <p className={styles.title}>Banco de imágenes</p>
+          <h1 className={styles.title}>Banco de imágenes</h1>
         </div>
         {images.length > 0 ? (
           <p className={styles.count}>

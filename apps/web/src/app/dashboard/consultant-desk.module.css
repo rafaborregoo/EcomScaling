@@ -95,7 +95,6 @@
   width: 100%;
   padding: 9px 10px;
   border: 1px solid transparent;
-  border-left: 3px solid var(--t);
   border-radius: 10px;
   background: var(--hero-3);
   color: var(--hero-ink);
@@ -104,8 +103,24 @@
 }
 .card:hover {
   border-color: var(--hero-muted);
-  border-left-color: var(--t);
 }
+
+.card:focus-visible, .counter:focus-visible, .st:focus-visible,
+.more:focus-visible, .thr:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.cardT { overflow-wrap: anywhere; }
+.cardT::before { content: ""; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--t); }
+.col, .counter, .since div, .rel { border-radius: 10px; }
+.colH { font-size: 12px; letter-spacing: 0; text-transform: none; }
+.cardR { font-size: 12px; line-height: 1.5; }
+.matrix th { padding: 12px; background: var(--surface-2); font-size: 12px; letter-spacing: 0; text-transform: none; }
+.matrix td { padding: 12px; }
+.matrix th:first-child, .matrix td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+.matrix th:first-child { background: var(--surface-2); }
+.matrix:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.review input { height: 40px; }
 .cardT {
   display: flex;
   align-items: baseline;

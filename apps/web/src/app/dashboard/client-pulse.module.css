@@ -1,38 +1,40 @@
-/* Panel del cliente ("Pulso"). Lenguaje visual propio de esta vista: petróleo
-   + azafrán, serif cursiva para todo lo que escribe la IA y mono para cifras.
+/* Panel del cliente ("Pulso"). Lenguaje visual propio de esta vista: el grafito
+   del logo (#3d3b3a) + ámbar para la IA, serif cursiva para todo lo que escribe la IA y mono para cifras.
    Los tokens viven en .root para no filtrarse al resto del portal. */
 
 .root {
-  --paper: #edf1f1;
+  --paper: #f4f2f0;
   --surface: #ffffff;
-  --surface-2: #f4f7f7;
-  --sunken: #e2e9ea;
-  --ink: #0b2a33;
-  --ink-2: #46626a;
-  --ink-3: #789096;
-  --line: #d3dee0;
-  --line-2: #e5eced;
-  --accent: #f2b705;
-  --accent-soft: #fcf0c4;
-  --accent-ink: #6e5000;
-  --good: #11806a;
-  --good-soft: #daf0e9;
-  --warn: #c0600e;
-  --warn-soft: #fbe8d5;
-  --bad: #bf2f49;
-  --bad-soft: #f8dde2;
-  --store: #0f7482;
-  --meta: #0064e0;
-  --klaviyo: #b8437a;
-  --hero: #0b2a33;
-  --hero-2: #12363f;
-  --hero-ink: #eaf3f2;
-  --hero-muted: #95b0b5;
-  --hero-line: #24505b;
-  --hero-series: #7ad3da;
-  --hero-prev: #6a939b;
-  --hero-3: #1a4550;
-  --on-accent: #1d1500;
+  --surface-2: #f8f7f5;
+  --sunken: #ebe8e5;
+  --ink: #3d3b3a;
+  --ink-2: #5f5b58;
+  --ink-3: #857f7a;
+  --line: #e2dfdc;
+  --line-2: #eeebe8;
+  --accent: #e0a526;
+  --accent-soft: #fbefd2;
+  --accent-ink: #7a5300;
+  --good: #2f7d5b;
+  --good-soft: #dcefe5;
+  --warn: #b85f17;
+  --warn-soft: #f9e6d3;
+  --bad: #b8364a;
+  --bad-soft: #f7dde1;
+  --store: #4f8a6e;
+  --meta: #3b6fd8;
+  --klaviyo: #a8487c;
+  /* Cabecera en blanco: la serie va en el grafito del logo y el resto son
+     matices suyos. El ámbar queda solo para la IA. */
+  --hero: #ffffff;
+  --hero-2: #f8f7f5;
+  --hero-ink: #2b2928;
+  --hero-muted: #857f7a;
+  --hero-line: #e2dfdc;
+  --hero-series: #3d3b3a;
+  --hero-prev: #b3ada8;
+  --hero-3: #efedeb;
+  --on-accent: #2b1d00;
   /* Una sola fuente en todo el SaaS (IBM Plex Sans, self-hosted en layout.tsx).
      Los cuatro roles se mantienen para no tocar cada regla; las cifras se
      alinean con tabular-nums, no con una monoespaciada. */
@@ -47,11 +49,442 @@
   gap: 44px;
   width: min(100%, 96rem);
   margin-inline: auto;
-  padding: 18px;
-  border-radius: 28px;
-  background: var(--paper);
+  background: transparent;
   color: var(--ink);
   font: 400 14px/1.55 var(--f-body);
+}
+
+/* Analítica: cada canal se pinta con su propia marca (Shopify verde, Meta azul, Klaviyo
+   negro sobre blanco) para saber en qué zona estás. portal-shell pone data-channel. */
+:global(#portal-content[data-channel="shopify"]) .root {
+  --good: #008060;
+  --good-soft: #e0f2ea;
+  --paper: #e9f3ee;
+  --surface: #ffffff;
+  --surface-2: #f6f9f7;
+  --sunken: #dbe8e1;
+  --ink: #202a26;
+  --ink-2: #4a5a53;
+  --ink-3: #66756e;
+  --line: #d6e2db;
+  --line-2: #e5eee9;
+  --accent: #008060;
+  --accent-soft: #e0f2ea;
+  --accent-ink: #004c3f;
+  --on-accent: #ffffff;
+  --store: #008060;
+  --meta: #008060;
+  --klaviyo: #008060;
+  --hero: #ffffff;
+  --hero-2: #f6f9f7;
+  --hero-3: #e9f0ec;
+  --hero-ink: #202a26;
+  --hero-muted: #66756e;
+  --hero-line: #d6e2db;
+  --hero-series: #008060;
+  --hero-prev: #a9bdb3;
+}
+:global(#portal-content[data-channel="meta"]) .root {
+  --good: #0866ff;
+  --good-soft: #e5eefe;
+  --paper: #e6effc;
+  --surface: #ffffff;
+  --surface-2: #f5f8fd;
+  --sunken: #d9e5f6;
+  --ink: #1c2b33;
+  --ink-2: #44525c;
+  --ink-3: #5f6e79;
+  --line: #d5dfec;
+  --line-2: #e4ebf5;
+  --accent: #0866ff;
+  --accent-soft: #e5eefe;
+  --accent-ink: #0a4fc4;
+  --on-accent: #ffffff;
+  --store: #0866ff;
+  --meta: #0866ff;
+  --klaviyo: #0866ff;
+  --hero: #ffffff;
+  --hero-2: #f5f8fd;
+  --hero-3: #e8eef8;
+  --hero-ink: #1c2b33;
+  --hero-muted: #5f6e79;
+  --hero-line: #d5dfec;
+  --hero-series: #0866ff;
+  --hero-prev: #a6b8d3;
+}
+:global(#portal-content[data-channel="klaviyo"]) .root {
+  --good: #232426;
+  --good-soft: #ececed;
+  --paper: #efefef;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --sunken: #e2e2e2;
+  --ink: #232426;
+  --ink-2: #4b4c4f;
+  --ink-3: #6b6c70;
+  --line: #dcdcde;
+  --line-2: #eaeaec;
+  --accent: #232426;
+  --accent-soft: #ececed;
+  --accent-ink: #232426;
+  --on-accent: #ffffff;
+  --store: #232426;
+  --meta: #232426;
+  --klaviyo: #232426;
+  --hero: #ffffff;
+  --hero-2: #fafafa;
+  --hero-3: #efefef;
+  --hero-ink: #232426;
+  --hero-muted: #6b6c70;
+  --hero-line: #dcdcde;
+  --hero-series: #232426;
+  --hero-prev: #b0b0b4;
+}
+
+/* Forma de cada mundo: cabecera con el logo real, radios, sombras y botones.
+   Sobrio a proposito: la marca entra por el logo, el filete superior y el
+   acento; el resto sigue siendo NORA. */
+:global(#portal-content[data-channel="shopify"]) .root {
+  --brand-logo: url("/shopify-svgrepo-com.svg");
+  --card-radius: 12px;
+  --card-border: transparent;
+  --card-shadow: 0 1px 0 rgba(26, 31, 28, 0.07), inset 0 -1px 0 #cfdcd5;
+  --btn-radius: 10px;
+  --seg-radius: 10px;
+  --seg-btn-radius: 7px;
+}
+:global(#portal-content[data-channel="meta"]) .root {
+  --brand-logo: url("/meta-logo-facebook-svgrepo-com.svg");
+  --card-radius: 8px;
+  --card-border: transparent;
+  --card-shadow: 0 1px 2px rgba(28, 43, 51, 0.12);
+  --btn-radius: 8px;
+  --seg-radius: 999px;
+  --seg-btn-radius: 999px;
+}
+:global(#portal-content[data-channel="klaviyo"]) .root {
+  --brand-logo: url("/logos/klaviyo.svg");
+  --card-radius: 4px;
+  --card-border: #dcdcde;
+  --card-shadow: none;
+  --btn-radius: 4px;
+  --seg-radius: 4px;
+  --seg-btn-radius: 2px;
+}
+/* La primera <header> de cada pantalla (ChannelBand o la cabecera de los
+   listados) es la cabecera del mundo. */
+:global(#portal-content[data-channel]) .root > header:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--card-radius);
+  background: var(--surface);
+  box-shadow: none;
+}
+:global(#portal-content[data-channel]) .root > header:first-child::before {
+  content: "";
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  mask: var(--brand-logo) center / contain no-repeat;
+}
+:global(#portal-content[data-channel]) .root > header:first-child h1 {
+  margin: 2px 0 0;
+  font: 600 22px/1.2 var(--f-display);
+  letter-spacing: -0.01em;
+}
+/* En Inicio, .workspace .root pone marco y padding a cada bloque; la cabecera va sin él. */
+.workspace .root.bandRoot {
+  padding: 0;
+  background: transparent;
+}
+.bandEyebrow {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+.bandActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bandFoot {
+  grid-column: 1 / -1;
+  color: var(--ink-3);
+}
+@container pulse (max-width: 640px) {
+  :global(#portal-content[data-channel]) .root > header:first-child {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  :global(#portal-content[data-channel]) .root > header:first-child > :last-child:not(:nth-child(1)) {
+    grid-column: 1 / -1;
+  }
+}
+:global(#portal-content[data-channel]) .root :is(.hero, .panel, .kpis) {
+  border-color: var(--card-border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+}
+:global(#portal-content[data-channel]) .root .btn {
+  border-radius: var(--btn-radius);
+}
+:global(#portal-content[data-channel]) .root .btn:not(.ghost) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+:global(#portal-content[data-channel]) .root .seg {
+  border-radius: var(--seg-radius);
+}
+:global(#portal-content[data-channel]) .root .seg button {
+  border-radius: var(--seg-btn-radius);
+}
+
+/* El escritorio de Inicio tiene un tema propio; Analítica y otros módulos
+   que reutilizan estos componentes mantienen su presentación. */
+/* Dentro de un mundo (Dashboard con ?tab=shopify|meta|klaviyo) mandan los tokens del canal. */
+:global(#portal-content[data-role]:not([data-channel])) .workspace .root.root {
+  --paper: #f3f6f6;
+  --surface: #ffffff;
+  --surface-2: #f4f7f7;
+  --sunken: #e5ecec;
+  --ink: #3d3b3a;
+  --ink-2: #495858;
+  --ink-3: #5c6b6b;
+  --line: #d5dfdf;
+  --line-2: #e6eded;
+  --accent: #176b64;
+  --accent-soft: #e3f1ee;
+  --accent-ink: #135c55;
+  --on-accent: #ffffff;
+  --good: #216947;
+  --good-soft: #e1f1e8;
+  --warn: #8b4c0d;
+  --warn-soft: #fcf0df;
+  --bad: #a72d43;
+  --bad-soft: #fbe7ec;
+  --hero: #ffffff;
+  --hero-2: #f4f7f7;
+  --hero-3: #eaf0f0;
+  --hero-ink: #3d3b3a;
+  --hero-muted: #5c6b6b;
+  --hero-line: #d5dfdf;
+  --hero-series: #3d3b3a;
+  --hero-prev: #899c9c;
+}
+.workspace .root {
+  gap: 32px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--paper);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+/* Identidad compartida; las fuentes se reconocen por su logo y sus datos. */
+:global(#portal-content:is(.analytics-theme, .communication-theme)) .root.root {
+  --paper: #f3f6f6;
+  --surface: #ffffff;
+  --surface-2: #f4f7f7;
+  --sunken: #e5ecec;
+  --ink: #3d3b3a;
+  --ink-2: #495858;
+  --ink-3: #5c6b6b;
+  --line: #d5dfdf;
+  --line-2: #e6eded;
+  --accent: #176b64;
+  --accent-soft: #e3f1ee;
+  --accent-ink: #135c55;
+  --on-accent: #ffffff;
+  --good: #216947;
+  --good-soft: #e1f1e8;
+  --warn: #8b4c0d;
+  --bad: #a72d43;
+  --hero: #ffffff;
+  --hero-2: #f4f7f7;
+  --hero-3: #eaf0f0;
+  --hero-ink: #3d3b3a;
+  --hero-muted: #5c6b6b;
+  --hero-line: #d5dfdf;
+  --hero-series: #3d3b3a;
+  --hero-prev: #899c9c;
+  --card-radius: 16px;
+  --card-border: #d5dfdf;
+  --card-shadow: none;
+  --btn-radius: 8px;
+  --seg-radius: 10px;
+  --seg-btn-radius: 7px;
+  min-width: 0;
+  gap: 24px;
+}
+:global(#portal-content.analytics-theme[data-channel]) .root.root {
+  --paper: var(--ch-paper);
+  --accent: var(--ch-accent);
+  --accent-soft: var(--ch-soft);
+  --accent-ink: var(--ch-ink);
+  --hero-series: var(--ch-accent);
+  --hero-2: var(--ch-soft);
+}
+:global(#portal-content.analytics-theme) .root > header:first-child {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 16px;
+}
+:global(#portal-content.analytics-theme) .root > header:first-child > div { min-width: 0; }
+:global(#portal-content.analytics-theme) .root > header:first-child h1 {
+  font-size: 28px;
+  line-height: 1.25;
+}
+:global(#portal-content:is(.analytics-theme, .communication-theme)) .root :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+:global(#portal-content:is(.analytics-theme, .communication-theme)) .root :is(.btn, .seg button, .sectionNav a) {
+  min-height: 40px;
+}
+:global(#portal-content:is(.analytics-theme, .communication-theme)) .root .seg button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  box-shadow: none;
+}
+:global(#portal-content:is(.analytics-theme, .communication-theme)) .root .lbl {
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+@media (max-width: 640px) {
+  :global(#portal-content.analytics-theme) .root > header:first-child { grid-template-columns: 32px minmax(0, 1fr); padding: 18px; }
+  :global(#portal-content.analytics-theme) .root > header:first-child > :nth-child(n+2) { grid-column: 1 / -1; }
+  :global(#portal-content.analytics-theme) .root .heroTop { grid-template-columns: minmax(0, 1fr); }
+  :global(#portal-content.analytics-theme) .root .heroTop > * { min-width: 0; }
+  :global(#portal-content.analytics-theme) .root .heroSeg { flex-wrap: wrap; max-width: 100%; }
+  :global(#portal-content:is(.analytics-theme, .communication-theme)) .root :is(.btn, .seg button, .sectionNav a) { min-height: 44px; }
+  :global(#portal-content.analytics-theme) .root > header:first-child h1 { font-size: 26px; }
+}
+.workspace { min-width: 0; }
+.workspace *, .workspace *::before, .workspace *::after { box-sizing: border-box; }
+.workspace ::selection { background: #c9e7df; color: #173f39; }
+.workspace .root :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.workspace .root section, .workspace .root h2 { scroll-margin-top: 120px; }
+.workspace .hero { gap: 20px; padding: 24px; border-radius: 12px; }
+.workspace .heroTop { grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 24px; }
+.workspace .heroMeta {
+  margin-bottom: 12px !important;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.workspace .headline { max-width: 42ch; font-size: 28px; font-weight: 600; line-height: 1.25; }
+.workspace .headlineDetail { font-size: 14px; line-height: 1.6; }
+.workspace .heroActions { gap: 8px; margin-top: 16px; }
+.workspace .heroSide { border: 0; border-radius: 10px; background: var(--hero-2); }
+.workspace .heroSide .btn { width: 100%; }
+.workspace .btn { min-height: 40px; height: auto; padding-block: 9px; border-radius: 8px; transition: background-color 160ms ease, border-color 160ms ease; }
+.workspace .btn:hover { transform: none; background: var(--ink-2); }
+.workspace .btn.ghost:hover { background: var(--surface-2); }
+.workspace .btn.acc:hover { background: var(--accent-ink); }
+.workspace .btn:disabled { opacity: .6; cursor: not-allowed; }
+.workspace .btn.sm { min-height: 36px; }
+.workspace .kpis { margin-top: 0; border-radius: 12px; }
+.workspace .kpi { min-width: 0; padding: 18px 16px; gap: 9px; }
+.workspace .kpiL { flex-wrap: wrap; min-height: 22px; font-size: 13px; }
+.workspace .kpiV { font-size: 26px; font-weight: 600; overflow-wrap: anywhere; }
+.workspace .kpiD { min-height: 24px; font-size: 12px; }
+.workspace .trackTxt { white-space: normal; overflow: visible; }
+.workspace .panel { padding: 22px; border-radius: 12px; }
+.workspace .panelH { flex-wrap: wrap; }
+.workspace .panelH h3 { font-size: 16px; line-height: 1.4; }
+.workspace .readingTitle { font-size: 16px; font-weight: 600; line-height: 1.4; }
+.chartDisclosure { padding-top: 16px; border-top: 1px solid var(--line); }
+.chartDisclosure summary { padding: 8px 0; color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+.chartDisclosure summary span { margin-left: 12px; color: var(--ink-3); font-size: 12px; font-weight: 400; }
+.chartDisclosure[open] summary { margin-bottom: 16px; }
+.chartControl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-top: 12px; color: var(--hero-muted); font-size: 12px; }
+.chartControl input { flex: 1; min-width: 100px; max-width: 240px; accent-color: var(--accent); cursor: pointer; }
+.chartControl output { color: var(--hero-ink); font-variant-numeric: tabular-nums; }
+.analysisDisclosure summary { cursor: pointer; color: var(--hero-ink); font-size: 13px; }
+.analysisDisclosure p { margin-top: 10px; font-size: 13px; }
+.workspace .sec { gap: 16px; }
+.workspace .secHead { grid-template-columns: minmax(160px, auto) minmax(0, 1fr) auto; align-items: center; gap: 12px 24px; }
+.workspace .secHead h2 { font-size: 22px; font-weight: 600; line-height: 1.3; }
+.workspace .aiLine, .workspace .aiNote, .workspace .findingE { font-style: normal; font-size: 14px; line-height: 1.6; }
+.workspace .aiNote { color: var(--accent-ink); border-radius: 8px; }
+.workspace .sub, .workspace .lbl { font-size: 12px; }
+.workspace .lbl { letter-spacing: 0; text-transform: none; }
+.workspace .empty { padding: 20px 0; font-size: 14px; }
+.workspace .error { border-radius: 8px; }
+.workspace .seg { padding: 4px; border-radius: 8px; }
+.workspace .seg button { min-height: 36px; border-radius: 6px; }
+.workspace .seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); box-shadow: none; }
+.workspace .seg button[aria-pressed="true"] b { color: inherit; }
+.workspace .qf textarea, .workspace .qf input { caret-color: var(--accent); font-size: 14px; }
+.workspace .restockReason { position: static; width: min(320px, 100%); margin-top: 8px; box-shadow: none; }
+.workspace .restockItem { align-items: start; flex-wrap: wrap; }
+.workspace .tlD { display: block; }
+.workspace .root svg text { font-size: 12px; }
+.workspace .root *, .workspace .root *::before, .workspace .root *::after { animation: none; }
+
+.sectionNav {
+  position: sticky;
+  top: 56px;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.sectionNav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.sectionNav a:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.sectionNav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.workspace .tbl th { font-size: 12px; letter-spacing: 0; text-transform: none; background: var(--surface-2); }
+.workspace .tbl th, .workspace .tbl td { padding: 12px; }
+.workspace .tbl tbody tr:hover { background: var(--surface-2); }
+.workspace .tbl caption { color: var(--ink-2); font-size: 12px; padding: 0 0 10px; text-align: left; }
+.workspace [tabindex="0"]:has(> table) { border-radius: 8px; }
+
+@container pulse (max-width: 960px) {
+  .workspace .heroTop, .workspace .two { grid-template-columns: 1fr; }
+  .workspace .secHead { grid-template-columns: minmax(0, 1fr) auto; }
+  .workspace .secHead .aiLine { grid-column: 1 / -1; grid-row: 2; }
+}
+@container pulse (max-width: 680px) {
+  .workspace .hero, .workspace .panel { padding: 18px; }
+  .workspace .heroTop { gap: 16px; }
+  .workspace .heroSide { padding: 12px; }
+  .chartDisclosure summary span { display: block; margin: 4px 0 0 16px; }
+  .workspace .headline { font-size: 24px; }
+  .workspace .secHead h2 { font-size: 20px; }
+  .workspace .kpis { margin-top: 0; }
+  .workspace .kpi { padding: 14px 12px; }
+  .workspace .kpiV { font-size: 23px; }
+  .workspace .heroActions .btn { flex: 1 1 auto; white-space: normal; }
+  .workspace .heroActions .btn.acc { flex-basis: 100%; }
+  .workspace .heroActions .btn.ghost { flex: 1 1 0; padding-inline: 8px; }
+  .workspace .btn, .workspace .seg button { min-height: 44px; }
+  .workspace .tlR { grid-template-columns: 16px minmax(0, 1fr); }
+  .workspace .tlD { grid-column: 2; grid-row: auto; text-align: left; }
+  .workspace .tlDot { grid-column: 1; grid-row: 1 / span 3; }
+}
+@media (max-width: 640px) {
+  .workspace .root { padding: 10px; gap: 24px; border-radius: 12px; }
+  .sectionNav { top: 56px; }
 }
 .root h1,
 .root h2,
@@ -421,7 +854,7 @@
   font-size: 12px;
   line-height: 1.45;
   white-space: nowrap;
-  box-shadow: 0 12px 32px -16px rgba(11, 42, 51, 0.4);
+  box-shadow: 0 12px 32px -16px rgba(61, 59, 58, 0.4);
   transform: translate(-50%, -100%);
   pointer-events: none;
 }
@@ -1227,7 +1660,7 @@
   position: absolute;
   right: 0;
   left: 0;
-  border-top: 2px dashed var(--good);
+  border-top: 2px solid var(--accent);
   pointer-events: none;
 }
 .tline span {
@@ -1236,7 +1669,7 @@
   right: 0;
   padding-left: 6px;
   background: var(--surface);
-  color: var(--good);
+  color: var(--accent-ink);
   font: 500 10.5px var(--f-num);
   font-stretch: 85%;
 }
@@ -1649,39 +2082,39 @@
 .root.consultant,
 /* Cualquier página del portal del consultor que reutiliza esta gramática
    (Analítica, Conocimiento, Llamadas...) va en su paleta. Antes solo Analítica:
-   Conocimiento salía con petróleo y azafrán, los colores del cliente. El panel
+   Conocimiento salía con los colores del cliente. El panel
    de administración tiene su propio tema y queda fuera. */
 :global(#portal-content[data-role="consultant"]:not(.admin-portal-content)) .root {
-  --paper: #faf9f7;
+  --paper: #f7f6f4;
   --surface: #ffffff;
-  --surface-2: #f7f7f5;
-  --sunken: #e7e7e3;
-  --ink: #16181b;
-  --ink-2: #474b51;
-  --ink-3: #7c8087;
-  --line: #dadad5;
-  --line-2: #ebebe7;
-  --accent: #ff8a5b;
-  --accent-soft: #ffe7dc;
-  --accent-ink: #8a3310;
+  --surface-2: #f5f4f2;
+  --sunken: #e9e6e3;
+  --ink: #262423;
+  --ink-2: #57534f;
+  --ink-3: #85807b;
+  --line: #dedad6;
+  --line-2: #ebe8e4;
+  --accent: #f08a5d;
+  --accent-soft: #fbe5da;
+  --accent-ink: #8a3a17;
   --on-accent: #2b0e02;
-  --good: #12805f;
-  --good-soft: #dcf1e8;
-  --warn: #b8620b;
-  --warn-soft: #fbead6;
-  --bad: #c22e4b;
-  --bad-soft: #f9dee4;
-  --store: #2f8f83;
-  --meta: #0064e0;
-  --klaviyo: #cf4a80;
-  --hero: #17191c;
-  --hero-2: #212428;
-  --hero-3: #2a2e33;
-  --hero-ink: #f2f2ef;
-  --hero-muted: #a3a7ad;
-  --hero-line: #33373d;
-  --hero-series: #ffb08f;
-  --hero-prev: #6e7278;
+  --good: #2f7d5b;
+  --good-soft: #dcefe5;
+  --warn: #b85f17;
+  --warn-soft: #f9e6d3;
+  --bad: #b8364a;
+  --bad-soft: #f7dde1;
+  --store: #4f8a6e;
+  --meta: #3b6fd8;
+  --klaviyo: #a8487c;
+  --hero: #ffffff;
+  --hero-2: #f5f4f2;
+  --hero-3: #ebe8e4;
+  --hero-ink: #262423;
+  --hero-muted: #85807b;
+  --hero-line: #dedad6;
+  --hero-series: #e2733f;
+  --hero-prev: #b0aaa5;
 }
 
 /* ---------- Meta: ranking de ROAS por anuncio ---------- */
@@ -1972,4 +2405,123 @@
 }
 .restockFootnote {
   margin-top: 10px !important;
+}
+
+/* ---------- Movimiento de los gráficos ----------
+   Cada gráfico entra una vez, al montarse: las líneas se dibujan, las áreas
+   aparecen detrás y las barras crecen desde su base, escalonadas para que se
+   lea el orden. Nada se mueve después ni en bucle. El bloque
+   prefers-reduced-motion de .root ya las desactiva todas. */
+@keyframes pulse-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pulse-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes pulse-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes pulse-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+@keyframes pulse-draw-unit {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.hcArea {
+  animation: pulse-fade 0.9s ease 0.35s both;
+}
+.hcPrev {
+  animation: pulse-fade 0.6s ease 0.9s both;
+}
+.pinCircle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulse-pop 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.1s both;
+}
+.sparkLine {
+  stroke-dasharray: 1;
+  animation: pulse-draw-unit 1s cubic-bezier(0.2, 0.7, 0.2, 1) 0.2s both;
+}
+.sparkArea {
+  animation: pulse-fade 0.8s ease 0.6s both;
+}
+.spark i {
+  animation: pulse-pop 0.35s ease 1.1s both;
+}
+.fill,
+.ueBar i,
+.split i,
+.roasBar i {
+  transform-origin: left center;
+  animation: pulse-grow-x 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+.ueBar i:nth-child(2) { animation-delay: 0.22s; }
+.ueBar i:nth-child(3) { animation-delay: 0.29s; }
+.ueBar i:nth-child(4) { animation-delay: 0.36s; }
+.ueBar i:nth-child(5) { animation-delay: 0.43s; }
+.ueBar i:nth-child(6) { animation-delay: 0.5s; }
+.roasBar b {
+  animation: pulse-fade 0.4s ease 0.9s both;
+}
+.tcol i,
+.gcol i {
+  transform-origin: center bottom;
+  animation: pulse-grow-y 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.gcolV,
+.tline {
+  animation: pulse-fade 0.5s ease 1s both;
+}
+.gcol:nth-child(2) i, .tcol:nth-child(2) i { animation-delay: 0.04s; }
+.gcol:nth-child(3) i, .tcol:nth-child(3) i { animation-delay: 0.08s; }
+.gcol:nth-child(4) i, .tcol:nth-child(4) i { animation-delay: 0.12s; }
+.gcol:nth-child(5) i, .tcol:nth-child(5) i { animation-delay: 0.16s; }
+.gcol:nth-child(6) i, .tcol:nth-child(6) i { animation-delay: 0.2s; }
+.gcol:nth-child(7) i, .tcol:nth-child(7) i { animation-delay: 0.24s; }
+.gcol:nth-child(8) i, .tcol:nth-child(8) i { animation-delay: 0.28s; }
+.gcol:nth-child(9) i, .tcol:nth-child(9) i { animation-delay: 0.32s; }
+.gcol:nth-child(10) i, .tcol:nth-child(10) i { animation-delay: 0.36s; }
+.gcol:nth-child(11) i, .tcol:nth-child(11) i { animation-delay: 0.4s; }
+.gcol:nth-child(12) i, .tcol:nth-child(12) i { animation-delay: 0.44s; }
+
+/* Detalle plegable de una tarea: pasos numerados en vez de un párrafo corrido. */
+.qiD {
+  margin-top: 6px;
+}
+.qiD summary {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.qiD ol {
+  max-width: 62ch;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.qiD p {
+  max-width: 62ch;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.5;
 }

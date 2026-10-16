@@ -50,13 +50,13 @@ test("ADR-0025: migracion, API, runtime y pantalla estan conectados", async () =
   assert.doesNotMatch(runtime + graph, /scheduleMarketingKlaviyoCampaign|pushDraftToKlaviyoTemplate|campaign-send-jobs|runContenidoEmailAgent/);
   assert.doesNotMatch(runtime + graph, /@anthropic-ai|from "openai"|@langchain\/(openai|anthropic)|ChatModel/);
   assert.match(runtime, /step_type: "graph_retry"/);
-  // Endurecimiento: migracion idempotente, lease, y el envio a Klaviyo respeta la revision del consultor.
+  // Endurecimiento: migracion idempotente, lease, y el envio a Klaviyo ya no espera al consultor (la revision es opinion, no veto).
   assert.match(hardening, /add column if not exists graph_lease_until/);
   assert.match(hardening, /add column if not exists failure_decision/);
   assert.match(hardening, /attempt between 0 and 4/);
   assert.doesNotMatch(hardening, /create table(?! if not exists)/);
   const pushFn = klaviyo.slice(klaviyo.indexOf("export async function pushDraftToKlaviyoTemplate"));
-  assert.match(pushFn.slice(0, 6_000), /marketing_mailing_campaign_emails[\s\S]*awaiting_consultant_review[\s\S]*marketing_draft_awaiting_consultant_review/);
+  assert.doesNotMatch(pushFn.slice(0, 6_000), /marketing_draft_awaiting_consultant_review/);
   // Los textos literales llegan a A11 y a la revision automatica.
   assert.match(runtime, /verbatim_texts: verbatimTexts/);
   assert.match(runtime, /readMailingVerbatimTexts\(clientState\)/);

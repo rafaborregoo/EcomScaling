@@ -420,9 +420,21 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
       return { scenario: scenario.name, error: result, checks: [] as Check[] };
     }
 
+    const { data: persistedJudgment } = await admin
+      .from("agent_run_judgments")
+      .select("status, overall_score, rubric_version, error_code")
+      .eq("agent_run_id", result.data.run_id)
+      .maybeSingle();
     const output = result.data.output as AgentOutputShape;
     const checks = scenario.checks(output);
-    return { scenario: scenario.name, output, checks, usage: result.data.usage };
+    return {
+      scenario: scenario.name,
+      output,
+      checks,
+      usage: result.data.usage,
+      ...(result.data.judgment ? { judgment: result.data.judgment } : {}),
+      persistedJudgment,
+    };
   } finally {
     await admin.from("organizations").delete().eq("id", organizationId);
   }
@@ -478,6 +490,18 @@ async function main() {
           gateViolations.push(violation);
           hardFailures += 1;
         }
+      }
+
+      if ("judgment" in result) {
+        console.log(`judge: ${JSON.stringify(result.judgment)}`);
+      }
+      console.log(`persisted_judgment: ${JSON.stringify(result.persistedJudgment)}`);
+      if (!result.persistedJudgment) {
+        console.log(`[GATE FAIL] ${scenario.name}: no se persistió el dictamen del juez`);
+        hardFailures += 1;
+      } else if (result.persistedJudgment.status === "error") {
+        console.log(`[GATE FAIL] ${scenario.name}: fallo del juez (${result.persistedJudgment.error_code ?? "sin código"})`);
+        hardFailures += 1;
       }
 
       for (const check of result.checks) {

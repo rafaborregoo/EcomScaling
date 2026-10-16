@@ -51,12 +51,18 @@ const firstRow = (value: unknown): Row => {
 };
 const rows = (value: unknown) => Array.isArray(value) ? value.filter((row): row is Row => Boolean(row && typeof row === "object")) : [];
 
+/** Marca de la consultora que lleva a un cliente: nombre comercial (o el de la organización) y correo de respuesta. */
+export async function consultoraBrandFor(supabase: SupabaseClient, organizationId: string): Promise<{ name: string | null; replyTo: string | null }> {
+  const { data: assignment } = await supabase.from("consultant_assignments").select("consulting_organization_id").eq("organization_id", organizationId).eq("is_active", true).not("consulting_organization_id", "is", null).order("is_primary", { ascending: false }).limit(1).maybeSingle();
+  if (!assignment?.consulting_organization_id) return { name: null, replyTo: null };
+  const { data: consultora } = await supabase.from("organizations").select("display_name, brand_name, brand_reply_to").eq("id", assignment.consulting_organization_id).maybeSingle();
+  const pick = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+  return { name: pick(consultora?.brand_name) ?? pick(consultora?.display_name), replyTo: pick(consultora?.brand_reply_to) };
+}
+
 /** Consultora que firma los informes de un cliente; null si no tiene o no se puede leer. */
 export async function consultoraNameFor(supabase: SupabaseClient, organizationId: string): Promise<string | null> {
-  const { data: assignment } = await supabase.from("consultant_assignments").select("consulting_organization_id").eq("organization_id", organizationId).eq("is_active", true).not("consulting_organization_id", "is", null).order("is_primary", { ascending: false }).limit(1).maybeSingle();
-  if (!assignment?.consulting_organization_id) return null;
-  const { data: consultora } = await supabase.from("organizations").select("display_name").eq("id", assignment.consulting_organization_id).maybeSingle();
-  return typeof consultora?.display_name === "string" && consultora.display_name.trim() ? consultora.display_name.trim() : null;
+  return (await consultoraBrandFor(supabase, organizationId)).name;
 }
 
 export async function buildOrganizationReport(

@@ -149,7 +149,7 @@ function Loaded({
           { label: "Apertura media", value: rate(totals.last_week.open_rate), foot: "ponderada por envíos" },
           { label: "Clic medio", value: rate(totals.last_week.click_rate), foot: "ponderado por envíos" },
           {
-            label: "EUR atribuidos por Klaviyo",
+            label: "Ingresos atribuidos por Klaviyo",
             value: totals.last_week.revenue === null ? "—" : formatMoney(totals.last_week.revenue, currency),
             foot: "de esos envíos, sin sumar Meta",
           },
@@ -277,7 +277,7 @@ function Loaded({
                   <span>Cliente · campaña</span>
                   <span>Apertura</span>
                   <span>Clics</span>
-                  <span>EUR atrib. Klaviyo</span>
+                  <span>Ingresos atrib. Klaviyo</span>
                   <span>Enlace más clicado</span>
                 </div>
                 {sends.map((send) => (
@@ -299,7 +299,7 @@ function Loaded({
             </div>
           )}
           <p className={s.foot} style={{ marginTop: 14 }}>
-            Cifras en EUR atribuidos por Klaviyo, de toda la vida de cada campaña. No se suman a Meta ni a las ventas de Shopify.
+            Ingresos atribuidos por Klaviyo durante toda la vida de cada campaña, en la moneda indicada. No se suman a Meta ni a las ventas de Shopify.
             {data.truncated ? " La cartera es muy grande: se muestran los primeros clientes." : ""}
           </p>
         </Panel>

@@ -60,7 +60,7 @@
   font-size: clamp(42px, 6vw, 64px);
   font-weight: 700;
   line-height: 0.95;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
 .fBig small {

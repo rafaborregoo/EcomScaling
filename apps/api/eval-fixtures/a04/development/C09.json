@@ -1,0 +1,340 @@
+{
+  "schema_version": "agent-release-replay-v1",
+  "agent_code": "a04_generador_tareas",
+  "dataset_version": "2026-09-29.v2",
+  "rubric_version": "judge-rubrics-v7",
+  "split": "development",
+  "provenance": "synthetic",
+  "privacy_reviewed": false,
+  "scenario": "C09 La sincronización de Shopify falla desde hace 4 días: ventas sin datos frescos y diagnóstico A02 caducado. Debe declarar confianza baja y el hueco de datos.",
+  "input": {
+    "objective": "Proponer las tareas que tiene sentido hacer HOY en la tienda \"E-NORA Demo\", a partir de los datos de los ultimos 30 dias. Cita en sources[].reference exactamente la clave (key) de cada fuente congelada que uses.",
+    "parameters": {
+      "horizon": "day",
+      "lookback_days": 30,
+      "reference_date": "2026-10-15"
+    }
+  },
+  "scope": {
+    "organization_ref": "org-demo-anon",
+    "store_ref": "store-demo-anon",
+    "timezone": "Europe/Madrid",
+    "period_start": "2026-09-15",
+    "period_end": "2026-10-15"
+  },
+  "sources": [
+    {
+      "key": "tareas_abiertas",
+      "status": "available",
+      "content": {
+        "near_term_window_days": 14,
+        "near_term": [
+          {
+            "title": "Preparar el registro de interés en Black Friday ya planificado",
+            "due_at": "2026-10-16T00:00:00Z",
+            "priority": "urgent",
+            "status": "pending",
+            "source": "strategic_plan",
+            "categories": [
+              "klaviyo"
+            ]
+          },
+          {
+            "title": "Verificar las condiciones que limitan la campaña",
+            "due_at": "2026-10-16T00:00:00Z",
+            "priority": "urgent",
+            "status": "pending",
+            "source": "strategic_plan",
+            "categories": [
+              "general"
+            ]
+          },
+          {
+            "title": "Verificar existencias, costes y medición antes de definir la campaña",
+            "due_at": "2026-10-17T00:00:00Z",
+            "priority": "urgent",
+            "status": "pending",
+            "source": "strategic_plan",
+            "categories": [
+              "general"
+            ]
+          }
+        ],
+        "later_count": 6,
+        "later": [
+          {
+            "title": "Preparar catálogo y servicio de invierno",
+            "due_at": "2026-10-31T00:00:00Z",
+            "priority": "high"
+          },
+          {
+            "title": "Dimensionar expedición y soporte para Black Friday",
+            "due_at": "2026-11-01T00:00:00Z",
+            "priority": "high"
+          },
+          {
+            "title": "Preparar colección, anuncios y secuencia de Black Friday",
+            "due_at": "2026-11-07T00:00:00Z",
+            "priority": "high"
+          },
+          {
+            "title": "Verificar existencias, costes y plazos para decidir los regalos",
+            "due_at": "2026-11-09T00:00:00Z",
+            "priority": "urgent"
+          },
+          {
+            "title": "Decidir inversión según ROAS y MER",
+            "due_at": "2026-11-14T00:00:00Z",
+            "priority": "high"
+          },
+          {
+            "title": "Convertir los plazos del transportista en una promesa de entrega comprobable",
+            "due_at": "2026-11-17T00:00:00Z",
+            "priority": "urgent"
+          }
+        ],
+        "note": "Una tarea de later NO cubre una urgencia de hoy."
+      },
+      "content_sha256": "d6f16ad254f5aa330f671ad2af038a607d68af0b78e30810360c3950a788bf8c",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "historial_resultados_tareas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "alertas_activas",
+      "status": "available",
+      "content": [
+        {
+          "title": "Sincronización de Shopify fallando",
+          "severity": "high",
+          "status": "open",
+          "first_detected_at": "2026-10-11T06:00:00Z"
+        }
+      ],
+      "content_sha256": "62d0177c7a9e096dd4a9370a80ba22d391ec542c810fb7b204d2834e7a35bd2d",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "ventas_shopify_30d",
+      "status": "stale",
+      "content_sha256": null,
+      "as_of": "2026-10-11T06:00:00Z"
+    },
+    {
+      "key": "productos_mas_vendidos_30d",
+      "status": "available",
+      "content": {
+        "ventana": [
+          "2026-09-15",
+          "2026-10-15"
+        ],
+        "productos": [
+          {
+            "titulo": "Camiseta Básica Niebla",
+            "unidades": 150,
+            "ingresos_netos_eur": 4309
+          },
+          {
+            "titulo": "Sudadera Oversize Arena",
+            "unidades": 144,
+            "ingresos_netos_eur": 8253
+          },
+          {
+            "titulo": "Bolso Mini Bruma",
+            "unidades": 143,
+            "ingresos_netos_eur": 5546
+          },
+          {
+            "titulo": "Sudadera Capucha Arcilla",
+            "unidades": 133,
+            "ingresos_netos_eur": 9037
+          },
+          {
+            "titulo": "Calcetín Rib Menta",
+            "unidades": 127,
+            "ingresos_netos_eur": 1517
+          },
+          {
+            "titulo": "Chaqueta Boreal Negra",
+            "unidades": 125,
+            "ingresos_netos_eur": 14827
+          },
+          {
+            "titulo": "Gorra Costa Cruda",
+            "unidades": 118,
+            "ingresos_netos_eur": 2822
+          },
+          {
+            "titulo": "Pantalón Cargo Oliva",
+            "unidades": 102,
+            "ingresos_netos_eur": 6496
+          }
+        ]
+      },
+      "content_sha256": "31bc8944c10e4ae2826c1cd642bf964ddfc9668dc653116c7f2e62553424ce32",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "propuestas_otros_horizontes",
+      "status": "available",
+      "content": [
+        {
+          "horizon": "semanal",
+          "proposals": []
+        },
+        {
+          "horizon": "mensual",
+          "proposals": []
+        }
+      ],
+      "content_sha256": "c954fc3e37027cba0db4fae273ddd3b24824a3012f81e00ca1a77fcf6a128513",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "mi_camino",
+      "status": "available",
+      "content": {
+        "plan": "E-NORA Demo: vender la campaña de invierno sin perder margen",
+        "phases": [
+          {
+            "name": "Capturar el pico de noviembre",
+            "status": "pending"
+          },
+          {
+            "name": "Convertir invierno en ventas y segunda compra",
+            "status": "pending"
+          },
+          {
+            "name": "Sostener ventas tras el pico",
+            "status": "pending"
+          }
+        ],
+        "milestones": [
+          {
+            "id": "3e6cecb1-0d26-4b34-9b22-664579461420",
+            "name": "Productos líderes, captación y control de inversión listos el 26 de octubre",
+            "status": "pending",
+            "target_date": "2026-10-29",
+            "linked_tasks": [
+              "Preparar el registro de interés en Black Friday ya planificado",
+              "Seleccionar variantes líderes que puedan anunciarse",
+              "Comprobar costes y fijar límites económicos antes de proponer ofertas"
+            ]
+          }
+        ]
+      },
+      "content_sha256": "9578cad99db78f23aa19febc0524898b9af3b0ce6445e16e53c08d693ffac6d0",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_a02",
+      "status": "available",
+      "content": {
+        "generated_at": "2026-10-10T17:00:00Z",
+        "stale": true,
+        "headline": "Lectura de hace 5 días; no refleja el estado actual.",
+        "findings": []
+      },
+      "content_sha256": "c9524bca19e593eb4e8e74cc3387da8436122b223732fcdf027c23d91a24e4e0",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "fechas_comerciales_45d",
+      "status": "available",
+      "content": {
+        "eventos": [
+          {
+            "evento": "Halloween",
+            "fecha": "2026-10-31",
+            "empieza_a_preparar": "2026-10-10",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Singles Day (11.11)",
+            "fecha": "2026-11-11",
+            "empieza_a_preparar": "2026-10-21",
+            "vas_tarde": false
+          },
+          {
+            "evento": "Black Friday",
+            "fecha": "2026-11-27",
+            "empieza_a_preparar": "2026-10-09",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Cyber Monday",
+            "fecha": "2026-11-30",
+            "empieza_a_preparar": "2026-10-12",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Navidad",
+            "fecha": "2026-12-25",
+            "empieza_a_preparar": "2026-11-06",
+            "vas_tarde": false
+          }
+        ],
+        "campanas_planificadas": [],
+        "propuestas_aprobadas": []
+      },
+      "content_sha256": "85dace9dc6aba00c4bbe8852a47d3441a4b185dc5b2100e1cd94de15b558e61d",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "especialistas_aprobados",
+      "status": "available",
+      "content": {
+        "status": "no_recent_approved_outputs",
+        "outputs": []
+      },
+      "content_sha256": "90bcffbd14bf0ab4c5c4c3ae326cfd0b683f953b12e0bebb1d4a2c7b7ad08ea1",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_ejecutivo_d14",
+      "status": "available",
+      "content": {
+        "status": "no_canonical_diagnosis",
+        "diagnosticos": []
+      },
+      "content_sha256": "87b1f2d5be11855c34ae8f51d4886881e339025b78a439cfc8ff140d6fff037a",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "asignacion_consultor",
+      "status": "available",
+      "content": {
+        "has_consultant": true,
+        "decision_rule": "Las propuestas quedan pendientes de revision del consultor humano asignado."
+      },
+      "content_sha256": "1477ddadc3015f9a206f9c292767379625d485a0d810acd67af1288aebac6db0",
+      "as_of": "2026-10-15T07:00:00Z"
+    },
+    {
+      "key": "conocimiento_rag",
+      "status": "available",
+      "content": [
+        {
+          "documento": "Cuestionario de la marca (reglas provisionales)",
+          "extracto": "No aplicar descuentos sin comprobar antes el margen real; no acumular promociones; no usar falsa escasez; no prometer disponibilidad ni plazos de entrega sin respaldo; no asumir autorización para activar anuncios ni comprometer gasto."
+        }
+      ],
+      "content_sha256": "9853e83f4f0a1e907fd9de377d19ec520839c991439ccefe98a4e5c2d188a623",
+      "as_of": "2026-10-15T07:00:00Z"
+    }
+  ],
+  "tool_replay": [],
+  "visual_artifacts": [],
+  "constraints": {
+    "expected_abstention": true,
+    "required_output_paths": [],
+    "forbidden_output_paths": [
+      "$.proposed_writes[5]"
+    ]
+  }
+}

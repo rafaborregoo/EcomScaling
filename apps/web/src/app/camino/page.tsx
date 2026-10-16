@@ -28,6 +28,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PortalShell } from "@/components/portal-shell";
+import { WorkPageHeader } from "@/components/trabajo-ui";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -40,7 +41,6 @@ import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { clientNextStep } from "./next-step";
 import { CaminoMap, type DiscussTopic } from "./camino-map";
 import { DiscussModal } from "@/components/discuss-modal";
-import { PhaseTasks } from "./phase-tasks";
 import { DraftNotice } from "./draft-notice";
 import { draftReadiness } from "./draft-readiness";
 import { formatEffort, metaOwnerLabel, taskWantsEmailDraft, type PlanTaskMeta } from "./plan-task-meta";
@@ -2588,6 +2588,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className={`portal-page space-y-5 sm:space-y-6 ${desk ? d.desk : d.client}`}>
+      {!desk || !plan ? <WorkPageHeader title="Mi camino">Tu objetivo, los hitos para alcanzarlo y el trabajo que toca ahora.</WorkPageHeader> : null}
       <Dialog
         isOpen={Boolean(completionMilestone)}
         onOpenChange={(open) => { if (!open) setCompletionMilestone(null); }}
@@ -2729,19 +2730,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <p className="text-sm text-muted-foreground" role="status">
           No se pudo comprobar ahora el estado de los borradores de Marketing vinculados a las tareas.
         </p>
-      ) : null}
-
-      {showMap && activePhase ? (
-        <PhaseTasks
-          phaseName={activePhase.name}
-          phaseIndex={phases.indexOf(activePhase)}
-          milestones={activePhase.strategic_plan_milestones}
-          canResolveTasks={canResolveTasks}
-          onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
-          onDiscuss={setDiscuss}
-          viewerUserId={bootstrap.profile.id}
-          viewerIsClient={!isConsultantView}
-        />
       ) : null}
 
       {desk ? (
@@ -3570,6 +3558,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           catalog={objectivesQuery.data?.catalog ?? []}
           onCreated={() => {
             void loadPlan();
+            // El botón de crear está al final de una página larga: se vuelve arriba para ver el camino nacido.
+            window.scrollTo({ top: 0 });
             objectivesQuery.reload();
             refreshRouteViews();
           }}

@@ -295,3 +295,49 @@ test("los tres horizontes reciben objetivo e hitos del Camino sin tareas de otra
   assert.deepEqual(summary.milestones[0]?.linked_tasks.map((task) => task.title), ["Tarea tienda A", "Tarea compartida"]);
   assert.deepEqual(summarizeActiveCaminoForPlan(null, "store-a"), { status: "unavailable", reason: "no_active_path" });
 });
+
+test("summarizeOpenTasksForPlan separa lo cercano del backlog lejano", async () => {
+  const { summarizeOpenTasksForPlan } = await import("./plan-horizon-context.js");
+  const now = Date.parse("2026-10-15T10:00:00Z");
+  const day = 86_400_000;
+  const task = (title: string, dueDays: number | null, status = "pending") => ({
+    title, status, priority: "high", source: "strategic_plan", store_id: null,
+    description: "x".repeat(500), due_at: dueDays === null ? null : new Date(now + dueDays * day).toISOString(),
+  });
+  const out = summarizeOpenTasksForPlan(
+    [task("vence hoy", 0), task("lejana", 60), task("sin fecha", null), task("vencida", -2), task("cerrada", 1, "completed")],
+    null,
+    { now },
+  );
+  assert.equal(out.total_open, 4);
+  assert.deepEqual(out.near_term.map((t) => t.title), ["vencida", "vence hoy", "sin fecha"]);
+  assert.equal(out.later_count, 1);
+  assert.equal(out.later[0]?.title, "lejana");
+  assert.equal((out.near_term[0]?.description as string).length, 240);
+});
+
+test("stock risk for the daily plan puts the soonest stock-out first and keeps unknown cover after", async () => {
+  const { summarizeStockRiskForPlan } = await import("./plan-horizon-context.js");
+  const result = summarizeStockRiskForPlan([
+    { title: "Lento", available_quantity: 90, quantity_sold_in_period: 10, days_of_cover: 30 },
+    { title: "Sin cobertura", available_quantity: null, quantity_sold_in_period: 200, days_of_cover: null },
+    { title: "Urgente", available_quantity: 6, quantity_sold_in_period: 132, days_of_cover: 1.4 },
+  ]);
+  assert.deepEqual(result.items.map((item) => item.title), ["Urgente", "Lento", "Sin cobertura"]);
+  assert.equal(summarizeStockRiskForPlan([]).status, "no_sales_in_period");
+});
+
+test("specialist outputs for the daily plan keep conclusion, findings and recommendations with provenance", async () => {
+  const { compactSpecialistOutputsForPlan } = await import("./plan-horizon-context.js");
+  const result = compactSpecialistOutputsForPlan({
+    status: "available",
+    outputs: [{ agent_code: "a24_medicion_meta", output_id: "o1", as_of: "2026-10-14", valid_until: "2026-11-13",
+      summary: { answer: "x".repeat(900), findings: [{ title: "Evento de compra duplicado", severity: "high", evidence: "e" }],
+        recommendations: [{ action: "Desduplicar píxel y CAPI", priority: "high" }], sources: [{ reference: "r" }] } }],
+  });
+  const [output] = result.outputs;
+  assert.equal(output?.output_id, "o1");
+  assert.equal(output?.conclusion?.length, 320);
+  assert.equal(output?.recommendations[0]?.action, "Desduplicar píxel y CAPI");
+  assert.equal(compactSpecialistOutputsForPlan(null).outputs.length, 0);
+});

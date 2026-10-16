@@ -11,7 +11,8 @@
  * razon (guardrail 28).
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -378,42 +379,20 @@ function NewEventModal({
 
 function ContextContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
-  const [data, setData] = useState<{
+  const { data, error, reload } = useCachedQuery<{
     facts: Fact[];
     events: ChangeEvent[];
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  }>(organizationId ? `/v1/organizations/${organizationId}/context` : null);
   const [adding, setAdding] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!organizationId) return;
-    let alive = true;
-    setError(null);
-    void apiFetch(`/v1/organizations/${organizationId}/context`)
-      .then(async (response) => {
-        if (!alive) return;
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        setData(await response.json());
-      })
-      .catch(() => alive && setError("No se pudo cargar el contexto."));
-    return () => {
-      alive = false;
-    };
-  }, [organizationId, reloadKey]);
 
   if (!organizationId) return null;
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!data)
     return <AsyncState status="loading" loadingLabel="Cargando contexto..." />;
 
-  const reload = () => setReloadKey((key) => key + 1);
   const isStaff = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );

@@ -193,6 +193,7 @@ El formato de cada ficha serÃ¡: **identidad y alcance â†’ recorrido y fue
 | A26 Â· Contenido email | Â¿Audita contenido y render observado sin afirmar lo que no pudo ver? |
 | A27 Â· Mailing semanal | Â¿La cadencia, audiencia, arco y papel de cada correo son viables y evitan fatiga o solapamiento con flujos? |
 | A28 Â· Flujos | Â¿Prioriza flujos ausentes o deficientes segÃºn elegibilidad, volumen y contexto de la tienda? |
+| A29 · Analista de métricas | ¿Explica el veredicto calculado por reglas desde su driver principal, con cifra y periodo, sin cambiarlo ni sumar atribuciones? |
 
 **Caso de aceptaciÃ³n A24 ya identificado:** consulta de incidencias exitosa con cero filas y sin metadatos independientes de sincronizaciÃ³n debe producir `unknown`, nunca `usable_with_attribution_limits`. El juez debe seÃ±alar la evidencia de cobertura ausente y bloquear que un A14/A23/A25 heredero lo interprete como salud confirmada. La prueba debe cubrir sync inexistente, vencido, fresco y error RPC; un array vacÃ­o por sÃ­ solo no satisface cobertura.
 
@@ -635,3 +636,32 @@ Una reclamaciÃ³n consume el caso aunque el proveedor falle o la ejecuciÃ³n s
 
 La migracion se aplico correctamente en TEST (kopcblejsxpkxoykldyh) y produccion (cthjwpeygpzwdmjkxeqa). En ambos se verificaron RLS, trigger append-only, permisos y RPC. La ruta release ya puede reclamar fixtures; release sigue sujeto a los umbrales y datos gold/holdout suficientes. MCP registro versiones remotas propias por entorno (20261010105024 en TEST, 20261010105122 en produccion), aunque el archivo local es 20261218090001_agent_release_eval_holdout_claims.sql; el schema esta aplicado y no se altero el historial remoto.
 Estado de migracion local/remote: el apply MCP instaló el DDL en TEST y PROD, pero registró timestamps 20261010105024 y 20261010105122, respectivamente. La salida de `npx supabase migration list --linked` lista 20261218090001 como pendiente en el checkout enlazado a PROD. `npx supabase db push --linked --dry-run` (solo lectura) se detuvo por 24 migraciones remotas sin archivos en el checkout y también mostró pendiente nuestro archivo local. No se ejecutó repair ni se alteró el historial. El schema está instalado en ambos entornos; mantenerlo así y no volver a aplicar con db push hasta sincronizar el drift global por el flujo revisado del repositorio.
+## Revalidación de alcance y plan de cierre (13-oct-2026)
+
+### Cobertura del diseño
+
+El catálogo activo contiene 26 perfiles, incluida la revisión de Camino separada del arquitecto. `AGENT_JUDGE_RUBRICS` deriva una rúbrica para cada entrada y el bloque de dominios contiene 81 criterios de ID único. La rúbrica es una especificación de evaluación; por sí sola no prueba que el runtime del juez pueda construir evidencia suficiente para el contrato de cada agente.
+
+### Evidencia de TEST
+
+La lectura de `agent_run_judgments` en TEST devuelve 63 dictámenes persistidos para 20/26 perfiles. No existe dictamen para A01, A02, A08, A11, A19 Revisión y A27. La tabla `agent_judge_eval_cases` está vacía: aún no hay gold/holdout adjudicado. Los dictámenes `passed` de producción real son evidencia de una salida puntual, nunca etiquetas de referencia ni autorización de despliegue. El gate v5 aplicado en TEST/producción continúa impidiendo promoción sin evidencia certificada.
+
+### Cierre verificable, perfil por perfil
+
+1. Para cada perfil, registrar contrato de entrada/salida, efecto permitido, fuentes/RAG, denominadores, privacidad, fallos parciales y herramientas; confirmar el recorrido desde la ruta real hasta el juicio persistido.
+2. Preparar escenarios representativos y casos límite del contrato real. Guardar artefacto y evidencia con hashes, versión del prompt/modelo y provenance; separar `calibration`, `gold` y `holdout` desde su creación.
+3. Dos revisores humanos adjudican cada criterio de los casos de referencia; registrar desacuerdos, resolución y racional enlazado a evidencia. Excluir PII irrelevante o no aprobada y evitar que candidato/juez vean etiquetas o respuestas esperadas.
+4. Ejecutar candidato con versión y manifiesto fijados sobre fixtures reproducibles. Incluir éxito, error de herramienta, falta de evidencia, límites de atribución, inyección, cross-tenant y, cuando aplique, imagen/render con bytes congelados. El resultado `no_evaluable` se contabiliza como cobertura incompleta y jamás como pase.
+5. Calibrar umbrales y confianza en calibration; medir acuerdo por criterio y por perfil en gold; abrir holdout una sola vez para release. Versionar rúbrica/dataset juntos y repetir cuando cambie cualquiera de ambos.
+6. El panel de administración debe mostrar perfil, build, rúbrica y dataset, número de casos por split y adjudicación, cobertura evaluable, acuerdo/errores por criterio, falsos aprobados, coste/latencia, estado del gate y acciones pendientes. Conservar la trazabilidad append-only y el motivo de cada bloqueo.
+7. Promover solo con hash de build coincidente, muestra mínima por split, umbrales comunes y especializados aprobados, cero fallo crítico, acuerdo humano suficiente y gasto dentro del presupuesto; desplegar con shadow, canary, kill switch y rollback comprobado. Si una migración o build no coincide entre TEST/producción, detener rollout y resolver drift mediante el flujo de migraciones del repo.
+
+El criterio de cierre sigue siendo **26/26 perfiles auditados y conectados, 26/26 con corpus de referencia humano adjudicado y holdout independiente, recorridos candidate-pinned reproducibles, gate y rollback verificados, observabilidad/coste operables, y UX que identifica claramente bloqueo y siguiente acción**. Cobertura de dictámenes live, cobertura HTTP, calidad semántica y aprobación de release se reportan como medidas distintas.
+
+## Revalidación A27 y rúbrica v6 (13-oct-2026)
+
+La prueba autenticada de A27 produjo una estrategia `pending_approval` para tres fechas, detectó una campaña solapada y no produjo borradores. Su dictamen v5 `review` 2,90/4 expuso dos incoherencias entre rubric y schema. La v6 evalúa el calendario con `sequence_number` vinculado a `scheduled_dates[]`, permite el brief estructurado destinado a A11 y prohíbe el copy final o acción posterior sin aprobación. La prueba confirma que el juez puede detectar solapamiento e instrumentación insuficiente y que el sistema mantiene el límite de aprobación.
+
+El botón de A27 se añadió de forma permanente a Campañas: el acceso anterior dependía del estado vacío de Hoy y desaparecía al haber trabajo pendiente. `20261220140000_agent_judge_rubric_v6_release_gate.sql` aplicada y verificada en TEST/producción; release gate exige v6, sin migraciones pendientes. El estado de evidencia se actualiza a 21/26 perfiles con dictamen, 64 dictámenes y 0 casos gold/holdout adjudicados. Quedan cinco agentes sin ejecuciones juzgadas: A01, A02, A08, A11 y A19 Revisión.
+
+**Bloqueo RAG observado para A27:** en el snapshot de la ejecución real `internalMailingPlaybook.status=available` pero `entries=[]`. La evaluación del modelo debe separar este fallo de retrieval de la calidad de la estrategia. Antes de certificar A27, auditar corpus global, consulta/filtros, ranking, freshness y cobertura; mostrar `available` solo por la conexión no prueba que hubiera contenido relevante recuperado.

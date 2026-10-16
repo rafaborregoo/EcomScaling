@@ -124,6 +124,63 @@ export function summarizeRecentPlanTaskOutcomes(
 }
 
 /**
+ * Backlog abierto en un tamaño que cabe en el contexto. Un Camino aprobado
+ * vuelca decenas de tareas con descripciones largas: enviadas enteras truncan
+ * el contexto y el planificador concluía "ya está cubierto". Aquí lo cercano
+ * (vencido, en curso, sin fecha o dentro de la ventana) va con detalle y lo
+ * lejano solo como recuento y titulares con fecha.
+ */
+export function summarizeOpenTasksForPlan(
+  rawTasks: unknown[],
+  selectedStoreId: string | null,
+  options: { now?: number; nearDays?: number; nearLimit?: number; laterLimit?: number } = {},
+) {
+  const now = options.now ?? Date.now();
+  const nearDays = options.nearDays ?? 14;
+  const nearMs = nearDays * 24 * 60 * 60 * 1000;
+  const near: Array<Row & { due_ms: number }> = [];
+  const later: Array<{ title: string | null; priority: string | null; due_at: string; due_ms: number }> = [];
+  let total = 0;
+  for (const rawTask of rawTasks) {
+    const task = asRow(rawTask);
+    if (!task || !taskBelongsToPlanStore(task.store_id, selectedStoreId)) continue;
+    const status = text(task.status, 40);
+    if (status !== "pending" && status !== "in_progress") continue;
+    total += 1;
+    const dueAt = text(task.due_at, 64);
+    const dueMs = dueAt ? Date.parse(dueAt) : Number.NaN;
+    if (dueAt && Number.isFinite(dueMs) && dueMs - now > nearMs && status === "pending") {
+      later.push({ title: text(task.title, 140), priority: text(task.priority, 20), due_at: dueAt, due_ms: dueMs });
+      continue;
+    }
+    near.push({
+      title: text(task.title, 140),
+      priority: text(task.priority, 20),
+      status,
+      due_at: dueAt,
+      overdue: Number.isFinite(dueMs) && dueMs < now,
+      source: text(task.source, 40),
+      description: text(task.description, 240),
+      due_ms: Number.isFinite(dueMs) ? dueMs : Number.POSITIVE_INFINITY,
+    });
+  }
+  near.sort((a, b) => a.due_ms - b.due_ms);
+  later.sort((a, b) => a.due_ms - b.due_ms);
+  const nearLimit = options.nearLimit ?? 25;
+  const laterLimit = options.laterLimit ?? 15;
+  return {
+    scope: selectedStoreId ? ("store_plus_unscoped" as const) : ("organization" as const),
+    total_open: total,
+    near_term_window_days: nearDays,
+    near_term: near.slice(0, nearLimit).map(({ due_ms: _drop, ...row }) => row),
+    near_term_omitted: Math.max(0, near.length - nearLimit),
+    later_count: later.length,
+    later: later.slice(0, laterLimit).map(({ due_ms: _drop, ...row }) => row),
+    note: "near_term trae detalle; later son tareas con fecha lejana y solo se listan para no duplicarlas. Una tarea lejana NO cubre una urgencia de hoy.",
+  };
+}
+
+/**
  * Quantify the open commitments visible to A18 without pretending that task
  * counts are available work hours. The database has no effort estimate or
  * per-role monthly capacity field, so numeric free capacity stays unknown.
@@ -258,6 +315,81 @@ export function summarizeActiveCaminoForPlan(rawPlan: unknown, selectedStoreId: 
         : [];
     }).slice(0, 8),
     milestones,
+  };
+}
+
+/**
+ * Riesgo de stock por producto en tamaño de plan diario: primero lo que se
+ * agota antes (cobertura fiable más baja), después los más vendidos sin
+ * cobertura calculable. Recibe filas ya enriquecidas por enrichStockRiskEvidence.
+ */
+export function summarizeStockRiskForPlan(enrichedRows: unknown[], limit = 12) {
+  const rows = enrichedRows.flatMap((raw) => {
+    const row = asRow(raw);
+    const title = text(row?.title, 120);
+    if (!row || !title) return [];
+    const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+    return [{
+      title,
+      available: num(row.available_quantity),
+      sold_in_period: num(row.quantity_sold_in_period),
+      average_daily_sales: num(row.average_daily_sales),
+      days_of_cover: num(row.days_of_cover),
+      inventory_sync_is_stale: row.inventory_sync_is_stale === true,
+      sample_sufficient: row.stock_coverage_sample_sufficient === true,
+    }];
+  });
+  const withCover = rows.filter((row) => row.days_of_cover !== null)
+    .sort((a, b) => (a.days_of_cover ?? 0) - (b.days_of_cover ?? 0));
+  const withoutCover = rows.filter((row) => row.days_of_cover === null)
+    .sort((a, b) => (b.sold_in_period ?? 0) - (a.sold_in_period ?? 0));
+  const items = [...withCover, ...withoutCover].slice(0, limit);
+  return {
+    status: rows.length ? "available" as const : "no_sales_in_period" as const,
+    products_with_sales: rows.length,
+    items,
+    note: "days_of_cover solo existe con inventario sincronizado reciente y muestra suficiente; null no significa stock sano. Un producto con cobertura menor que el plazo de cualquier tarea abierta que lo trate es una urgencia de hoy.",
+  };
+}
+
+/**
+ * Conclusiones aprobadas de los especialistas (stock, email, Meta, retención,
+ * postventa...) en tamaño de plan diario. El resumen general pesa ~2,5k por
+ * agente y con una docena se cortaba a mitad del bloque; aquí cada uno deja su
+ * conclusión, sus hallazgos y lo que recomienda, con fecha y procedencia.
+ */
+export function compactSpecialistOutputsForPlan(blockData: unknown, limit = 10) {
+  const data = asRow(blockData);
+  const outputs = Array.isArray(data?.outputs) ? data.outputs : [];
+  return {
+    status: text(data?.status, 40) ?? "unavailable",
+    outputs: outputs.slice(0, limit).flatMap((raw) => {
+      const run = asRow(raw);
+      const summary = asRow(run?.summary);
+      const code = text(run?.agent_code, 80);
+      if (!run || !summary || !code) return [];
+      const findings = Array.isArray(summary.findings) ? summary.findings : [];
+      const recommendations = Array.isArray(summary.recommendations) ? summary.recommendations : [];
+      return [{
+        agent_code: code,
+        output_id: text(run.output_id, 64),
+        as_of: text(run.as_of, 40),
+        valid_until: text(run.valid_until, 40),
+        reviewed_by_consultant: run.output_status !== "pending_approval",
+        conclusion: text(summary.answer ?? summary.diagnosis, 320),
+        findings: findings.slice(0, 3).flatMap((rawFinding) => {
+          const finding = asRow(rawFinding);
+          const title = text(finding?.title, 160);
+          return title ? [{ title, severity: text(finding?.severity, 24), evidence: text(finding?.evidence, 180) }] : [];
+        }),
+        recommendations: recommendations.slice(0, 2).flatMap((rawRecommendation) => {
+          const recommendation = asRow(rawRecommendation);
+          const action = text(recommendation?.action, 200);
+          return action ? [{ action, priority: text(recommendation?.priority, 24) }] : [];
+        }),
+      }];
+    }),
+    interpretation: "Análisis recientes de otros agentes sobre esta tienda. Úsalos para decidir qué toca HOY (el primer paso concreto de lo que recomiendan), citando su output_id; no los copies como tarea ni los presentes como cifras actuales. Pasado valid_until son solo pistas. reviewed_by_consultant=false: análisis aún sin revisar, úsalo como indicio y dilo si apoyas una tarea en él.",
   };
 }
 

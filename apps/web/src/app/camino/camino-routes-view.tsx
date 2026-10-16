@@ -275,7 +275,7 @@ function RouteCardView({ card, openLabel, onOpen }: { card: RouteCard; openLabel
 
       {plan.review ? (
         <p className={s.review}>
-          <span className={s.ia}>IA</span>
+          <span className={s.ia}>A19</span>
           {plan.review.summary}
         </p>
       ) : null}

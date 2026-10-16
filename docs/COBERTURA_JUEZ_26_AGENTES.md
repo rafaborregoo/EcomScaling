@@ -42,6 +42,7 @@
 | A26 `a26_contenido_email` | Runner común, `runContenidoEmailAgent` | HTML/salida más capturas desktop/mobile adjuntas por el runner | Integrado; el render solo se evalúa si hay capturas adjuntas y hash verificable; pendiente run real |
 | A27 `a27_planificador_mailing` | Runner común, `runWeeklyMailingPlanner` | Calendario, frecuencia, estacionalidad, RAG metodológico y resultados | Integrado; pendiente juicio real y calibración |
 | A28 `a28_arquitecto_flujos` | Runner común, `runKlaviyoFlowArchitectAgent` | Inventario, eventos, consent, elegibilidad y medición del flujo | Integrado; pendiente juicio real y calibración |
+| A29 `a29_analista_metrica` | Runner común, explicación de `/metric-analysis` (ADR-0027) | Veredicto calculado por reglas, drivers con cifra y periodo, atribución por plataforma | Rúbrica de dominio definida; pendiente juicio real y calibración |
 
 ## Límites que siguen abiertos
 

@@ -11,7 +11,8 @@ import { getViewAs } from "@/lib/view-as";
 import { channelStyle } from "@/components/marketing-channel";
 import { DiscussModal } from "@/components/discuss-modal";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
-import { StatusStrip } from "@/components/trabajo-ui";
+import { StatusStrip, WorkPageHeader } from "@/components/trabajo-ui";
+import s from "./calendario.module.css";
 import {
   Badge,
   Banner,
@@ -22,7 +23,6 @@ import {
   EmptyState,
   ErrorBlock,
   Field,
-  Heading,
   Input,
   List,
   LoadingBlock,
@@ -616,12 +616,12 @@ function ItemChip({
       type="button"
       onClick={onSelect}
       title={`${item.title} · ${signal.label}`}
-      className={`flex w-full items-center gap-1 px-2 py-1 text-left text-xs transition-colors hover:opacity-80 ${style.soft} ${
-        done ? "line-through opacity-60" : ""
+      className={`${s.event} ${style.soft} ${
+        done ? "line-through" : ""
       }`}
     >
       <span aria-hidden className={`h-3 w-1 shrink-0 ${style.fill}`} />
-      <span className="min-w-0 flex-1 truncate">{item.title}</span>
+      <span className={s.eventTitle}>{item.title}</span>
       {isPendingSuggestion(item) ? (
         <span className="shrink-0 text-[10px] font-semibold">Propuesta</span>
       ) : null}
@@ -838,12 +838,9 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Heading>Agenda</Heading>
-          <p className="mt-1 text-sm text-muted">Todas las acciones fechadas de la tienda, incluidas las campañas de marketing.</p>
-        </div>
+    <div className={`portal-page space-y-6 ${s.page}`}>
+      <div className={s.header}>
+        <WorkPageHeader title="Agenda">Todas las acciones fechadas de la tienda, incluidas las campañas de marketing.</WorkPageHeader>
         <ButtonLink
           variant="secondary"
           href={`/marketing?section=campanas${connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : ""}`}
@@ -914,8 +911,8 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
               y aplanarla a una columna deja un mes de 42 filas. Scroll
               horizontal con ancho minimo: la forma de calendario se conserva. */}
           {GRID_VIEWS.includes(view) ? (
-            <div className="mt-4 overflow-x-auto">
-              <div className="grid min-w-[44rem] grid-cols-7 gap-px overflow-hidden border border-separator bg-separator sm:min-w-0">
+            <div className={s.scroll} role="region" aria-label="Calendario de acciones; desplázate para ver todos los días" tabIndex={0}>
+              <div className={s.grid}>
                 {gridDays.map((date) => {
                   const key = localDayKey(date);
                   const dayItems = itemsByDay.get(key) ?? [];
@@ -924,9 +921,10 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
                   return (
                     <div
                       key={key}
-                      className={`min-h-24 bg-white p-2 ${outsideMonth ? "opacity-45" : ""} ${
-                        key === todayKey ? "ring-1 ring-inset ring-accent" : ""
+                      className={`${s.day} ${outsideMonth ? s.outside : ""} ${
+                        key === todayKey ? s.today : ""
                       }`}
+                      aria-current={key === todayKey ? "date" : undefined}
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-medium">
@@ -941,7 +939,7 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
                         <button
                           type="button"
                           aria-label={`Añadir acción el ${key}`}
-                          className="px-1 text-muted hover:text-accent"
+                          className={s.add}
                           onClick={() => openNew(key)}
                         >
                           +

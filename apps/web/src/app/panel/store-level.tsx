@@ -354,7 +354,7 @@ export function StoreLevel({
             foot: (
               <>
                 <Delta value={row.profit_change_pct} suffix="vs anterior" />
-                <Delta value={yoy ? deltaPct(row.net_profit, yoy.net_profit) : null} suffix="YoY" />
+                <Delta value={yoy ? deltaPct(row.net_profit, yoy.net_profit) : null} suffix="vs año anterior" />
               </>
             ),
           },
@@ -364,7 +364,7 @@ export function StoreLevel({
             foot: (
               <>
                 <Delta value={row.revenue_change_pct} suffix="vs anterior" />
-                <Delta value={yoy ? deltaPct(row.revenue, yoy.net_revenue_ex_tax) : null} suffix="YoY" />
+                <Delta value={yoy ? deltaPct(row.revenue, yoy.net_revenue_ex_tax) : null} suffix="vs año anterior" />
               </>
             ),
           },
@@ -386,7 +386,7 @@ export function StoreLevel({
             foot: (
               <>
                 <Delta value={ordersChange} suffix="vs anterior" />
-                <Delta value={yoy ? deltaPct(row.orders, yoy.orders_count) : null} suffix="YoY" />
+                <Delta value={yoy ? deltaPct(row.orders, yoy.orders_count) : null} suffix="vs año anterior" />
               </>
             ),
           },
@@ -707,11 +707,12 @@ export function StoreLevel({
         lead="Doce meses de la tienda y, a su lado, a dónde va cada euro facturado."
       >
         <div className={s.two}>
-          <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio · miles de euros">
+          <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio">
             {data.financial_monthly.length === 0 ? (
               <p className={s.empty}>Sin serie mensual.</p>
             ) : (
               <MonthlyChart
+                currency={cur}
                 months={data.financial_monthly.map((month) => ({
                   month: month.month,
                   revenue: Number(month.net_revenue_ex_tax) || 0,

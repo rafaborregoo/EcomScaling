@@ -12,6 +12,7 @@
 
 import {
   classifyAuthorizationAttempt,
+  connectionNeedsReconnect,
   type AuthorizationAttemptState,
 } from "@e-nora/contracts";
 import type {
@@ -115,12 +116,17 @@ export function connectionState(
   return "atrasado";
 }
 
-/** Para la vista de cartera, que solo recibe el `status` crudo de cada conexión. */
-export function stateFromStatus(status: string): ConnectionState {
+/**
+ * Para la vista de cartera, que recibe el `status` crudo y, desde la API,
+ * `needs_reconnect` (connectionNeedsReconnect). Un `error` que no es de permiso
+ * lo reintenta E-NORA: datos atrasados, no algo que el cliente tenga que tocar.
+ */
+export function stateFromStatus(status: string, needsReconnect?: boolean): ConnectionState {
+  if (needsReconnect) return "reconectar";
   if (["connected", "healthy"].includes(status)) return "conectado";
   if (status === "syncing") return "importando";
   if (["reauthorization_required", "needs_reauth", "revoked"].includes(status)) return "reconectar";
-  if (status === "error") return "error";
+  if (status === "error") return needsReconnect === false ? "atrasado" : "error";
   // pending = OAuth sin terminar: con solo el status no se sabe si es de ahora.
   if (["disconnected", "pending_deletion", "pending"].includes(status)) return "desconectado";
   return "atrasado";
@@ -161,7 +167,7 @@ const BY_REASON: Record<string, Explanation> = {
   connection_error: {
     label: "Conexión con error",
     detail:
-      "La última solicitud no terminó bien. Revisa el detalle técnico y reintenta; solo hace falta reconectar si el error menciona permisos o autorización.",
+      "La última solicitud no terminó bien. Vuelve a lanzar la sincronización; el permiso sigue valiendo, no hace falta reconectar.",
     fix: "retry",
   },
   sync_stuck: {
@@ -234,12 +240,17 @@ export function explainHealth(
   if (connection) {
     const attempt = classifyAuthorizationAttempt(connection);
     if (attempt) return ATTEMPT_EXPLANATION[attempt];
+    if (connectionNeedsReconnect(connection)) {
+      return {
+        label: "Hay que reconectar",
+        detail:
+          "El permiso de E-NORA caducó o se retiró. Reconecta la cuenta y la sincronización sigue sola.",
+        fix: "reconnect",
+      };
+    }
     if (
       health.reason === "connection_error" &&
-      ["meta_ads", "klaviyo"].includes(providerId ?? "") &&
-      !/reauth|reconnect|invalid[_ :.-]*grant|token.{0,24}(expired|invalid|revoked)|invalid.{0,16}(api.?key|credential)|unauthorized|permission(s)?[_ :-]*(missing|denied)|scope(s)?[_ :.-]*(missing|insufficient)|oauth[_ :.-]*(denied|error)/i.test(
-        connection.last_error_message ?? "",
-      )
+      ["meta_ads", "klaviyo"].includes(providerId ?? "")
     ) {
       const cadence = providerId === "klaviyo" ? "6 horas" : "día";
       return {
@@ -247,20 +258,6 @@ export function explainHealth(
         detail: `La última solicitud no terminó bien. E-NORA la volverá a intentar cada ${cadence}; no hace falta pulsar sincronizar.`,
         fix: "retry",
         automaticRetry: true,
-      };
-    }
-    if (
-      health.reason === "connection_error" &&
-      ["meta_ads", "klaviyo"].includes(providerId ?? "") &&
-      /reauth|reconnect|invalid[_ :.-]*grant|token.{0,24}(expired|invalid|revoked)|invalid.{0,16}(api.?key|credential)|unauthorized|permission(s)?[_ :.-]*(missing|denied)|scope(s)?[_ :.-]*(missing|insufficient)|oauth[_ :.-]*(denied|error)/i.test(
-        connection.last_error_message ?? "",
-      )
-    ) {
-      return {
-        label: "Hay que reconectar",
-        detail:
-          "La plataforma rechazó la autorización o falta un permiso. Reconecta la cuenta para que E-NORA pueda reanudar la sincronización.",
-        fix: "reconnect",
       };
     }
   }

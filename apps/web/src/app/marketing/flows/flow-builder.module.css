@@ -5,27 +5,27 @@
 /* Tokens: también en los diálogos, que HeroUI pinta fuera del constructor. */
 .builder,
 .dialog {
-  --fb-ink: var(--tw-ink, #0b2a33);
-  --fb-ink-2: color-mix(in srgb, var(--tw-ink, #0b2a33) 78%, #ffffff);
-  --fb-ink-3: var(--tw-ink-3, #5c757b);
-  --fb-line: var(--tw-line, #d3dee0);
-  --fb-line-strong: color-mix(in srgb, var(--tw-line, #d3dee0) 70%, var(--tw-ink, #0b2a33) 12%);
+  --fb-ink: var(--tw-ink, #3d3b3a);
+  --fb-ink-2: color-mix(in srgb, var(--tw-ink, #3d3b3a) 78%, #ffffff);
+  --fb-ink-3: var(--tw-ink-3, #5c6b6b);
+  --fb-line: var(--tw-line, #d5dfdf);
+  --fb-line-strong: color-mix(in srgb, var(--tw-line, #e2dfdc) 70%, var(--tw-ink, #3d3b3a) 12%);
   --fb-surface: #ffffff;
   --fb-surface-2: var(--tw-surface-2, #f4f7f7);
-  --fb-accent: var(--tw-accent, #f2b705);
-  --fb-accent-hover: var(--tw-accent-hover, #dba503);
-  --fb-on-accent: var(--tw-on-accent, #1d1500);
-  --fb-accent-soft: var(--tw-accent-soft, #fcf0c4);
-  --fb-accent-ink: var(--tw-accent-ink, #6e5000);
-  --fb-good: var(--tw-good, #11806a);
+  --fb-accent: var(--tw-accent, #176b64);
+  --fb-accent-hover: var(--tw-accent-hover, #135c55);
+  --fb-on-accent: var(--tw-on-accent, #ffffff);
+  --fb-accent-soft: var(--tw-accent-soft, #e3f1ee);
+  --fb-accent-ink: var(--tw-accent-ink, #176b64);
+  --fb-good: var(--tw-good, #2f7d5b);
   --fb-good-soft: #dcf1ec;
   --fb-warn: #9a5b00;
   --fb-warn-soft: #fbead0;
   --fb-bad: #b3361f;
   --fb-bad-soft: #f8e0da;
-  --fb-canvas: color-mix(in srgb, var(--tw-paper, #edf1f1) 88%, var(--tw-ink, #0b2a33) 5%);
-  --fb-dot: color-mix(in srgb, var(--fb-canvas) 80%, var(--tw-ink, #0b2a33) 12%);
-  --fb-wire: color-mix(in srgb, var(--tw-ink, #0b2a33) 32%, #ffffff);
+  --fb-canvas: #f3f6f6;
+  --fb-dot: color-mix(in srgb, var(--fb-canvas) 80%, var(--tw-ink, #3d3b3a) 12%);
+  --fb-wire: color-mix(in srgb, var(--tw-ink, #3d3b3a) 32%, #ffffff);
   --fb-email: #1f6f8b;
   --fb-email-soft: #dcecf2;
   --fb-wait: #6b5b95;
@@ -104,8 +104,9 @@
   align-items: center;
   gap: 10px 16px;
   padding: 10px 16px;
-  background: var(--fb-ink);
-  color: #ffffff;
+  background: var(--fb-surface);
+  color: var(--fb-ink);
+  border-bottom: 1px solid var(--fb-line);
 }
 .piece {
   display: flex;
@@ -114,8 +115,9 @@
   gap: 2px;
 }
 .crumb {
-  font-size: 12px;
-  opacity: 0.7;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -140,8 +142,7 @@
 }
 .flowName:hover,
 .flowName:focus {
-  border-bottom-color: rgb(255 255 255 / 0.45);
-  outline: none;
+  border-bottom-color: var(--fb-accent);
 }
 .pills {
   display: flex;
@@ -156,7 +157,7 @@
   font-size: 11.5px;
   padding: 2px 8px;
   border-radius: 99px;
-  background: rgb(255 255 255 / 0.12);
+  background: var(--fb-surface-2);
   white-space: nowrap;
 }
 .pill i {
@@ -177,17 +178,18 @@
 }
 .saved {
   font-size: 12px;
-  opacity: 0.75;
+  color: var(--fb-ink-3);
 }
 .saved[data-state="error"] {
   opacity: 1;
-  color: #ffb4a6;
+  color: var(--fb-bad);
 }
 .tbtn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgb(255 255 255 / 0.24);
+  border: 1px solid var(--fb-line);
+  min-height: 40px;
   background: transparent;
   color: inherit;
   border-radius: 8px;
@@ -195,7 +197,7 @@
   font-size: 13px;
 }
 .tbtn:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.1);
+  background: var(--fb-surface-2);
 }
 .tbtn[data-icon] {
   padding: 7px 8px;
@@ -1339,6 +1341,7 @@
     background: var(--fb-surface);
     border-top: 1px solid var(--fb-line);
   }
+  .tbtn, .mswitch button { min-height: 44px; }
   .hideSm {
     display: none;
   }

@@ -3,7 +3,8 @@
 /* eslint-disable @next/next/no-img-element -- miniaturas de imágenes del
    email (CDN de Shopify o subidas), igual que el lienzo. */
 
-import { useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, startDrag } from "./studio-canvas";
 import {
   BLOCK_LABEL,
@@ -900,7 +901,9 @@ export function AiPanel({
   onApply,
   onClear,
   aiReady,
+  chat,
 }: {
+  chat?: ReactNode;
   channel: StudioChannel;
   block: StudioBlock | null;
   suggestions: { kind: AiKind; items: string[] } | null;
@@ -922,6 +925,7 @@ export function AiPanel({
             : "Sin bloque seleccionado: las acciones se aplican al email entero."}
       </div>
       {!aiReady ? <div className={s.metric} data-tone="warn">Falta configurar un proveedor de IA en el servidor.</div> : null}
+      {chat}
       <div className={s.aiActions}>
         {AI_ACTIONS.filter((action) => channel === "email" || action.kind === "subjects" || action.kind === "tone").map((action) => {
           const disabled = !aiReady || Boolean(action.needs && !(block && action.needs.includes(block.type)));
@@ -933,6 +937,7 @@ export function AiPanel({
           );
         })}
       </div>
+      {chat ? null : (
       <div className={s.f}>
         <label className={s.lbl} htmlFor="st-ai-prompt">
           O pídelo con tus palabras
@@ -949,6 +954,7 @@ export function AiPanel({
           Preguntar al Consultor IA
         </button>
       </div>
+      )}
       {suggestions ? (
         <div className={s.fields} aria-live="polite">
           <div className={s.row} style={{ justifyContent: "space-between" }}>
@@ -976,5 +982,109 @@ export function AiPanel({
         Responde el Consultor IA con el contexto de tu tienda y tu Guía de marca. Cuando tengas la respuesta, pulsa «Llevar al editor» en su panel y aparecerá aquí para aplicarla.
       </p>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Chat con la IA: conversa y cambia el email
+// ---------------------------------------------------------------------------
+
+/** upgrade: el saldo se ha agotado; «yes» = quien lo lee puede subir el plan, «ask» = debe avisar al propietario. */
+export type ChatMsg = { role: "user" | "assistant"; text: string; labels?: string[]; error?: boolean; upgrade?: "yes" | "ask" };
+
+const CHAT_IDEAS = ["Haz el título más corto", "Pon una imagen del banco en la portada", "Añade los productos más vendidos", "¿Qué mejorarías de este email?"];
+
+export function StudioChat({
+  messages,
+  busy,
+  aiReady,
+  canUndo,
+  onSend,
+  onUndo,
+}: {
+  messages: ChatMsg[];
+  busy: boolean;
+  aiReady: boolean;
+  canUndo: boolean;
+  onSend: (text: string) => void;
+  onUndo: () => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    end.current?.scrollIntoView?.({ block: "nearest" });
+  }, [messages, busy]);
+  const lastChange = messages.map((message) => Boolean(message.labels?.length)).lastIndexOf(true);
+  const send = (text: string) => {
+    const value = text.trim();
+    if (!value || busy || !aiReady) return;
+    setDraft("");
+    onSend(value);
+  };
+  return (
+    <div className={s.chat}>
+      <div className={s.chatLog} aria-live="polite">
+        {messages.length === 0 ? (
+          <>
+            <p className={s.note}>Habla con la IA como con un compañero: pregúntale o pídele cambios y los verás aplicados en el email. Tiene tu marca, tu banco de imágenes y tus productos.</p>
+            <div className={s.chatIdeas}>
+              {CHAT_IDEAS.map((idea) => (
+                <button key={idea} type="button" disabled={!aiReady || busy} onClick={() => send(idea)}>
+                  {idea}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+        {messages.map((message, index) => (
+          <div key={index} className={s.bubble} data-role={message.role} data-error={message.error ? "1" : undefined}>
+            <p>{message.text}</p>
+            {message.labels?.length ? (
+              <ul>
+                {message.labels.map((label, i) => (
+                  <li key={i}>{label}</li>
+                ))}
+              </ul>
+            ) : null}
+            {message.upgrade === "yes" ? (
+              <Link href="/planes" className={`${s.btn} ${s.sm} ${s.primary}`}>
+                Mejorar plan
+              </Link>
+            ) : message.upgrade === "ask" ? (
+              <p className={s.note}>Avisa al propietario del plan o a tu consultor para ampliar el saldo.</p>
+            ) : null}
+            {index === lastChange && canUndo ? (
+              <button type="button" className={`${s.btn} ${s.sm}`} onClick={onUndo}>
+                <Icon name="undo" />
+                Deshacer
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {busy ? <div className={s.bubble} data-role="assistant"><p>Pensando…</p></div> : null}
+        <div ref={end} />
+      </div>
+      <div className={s.chatBox}>
+        <textarea
+          className={s.inp}
+          value={draft}
+          disabled={!aiReady}
+          rows={2}
+          aria-label="Mensaje para la IA"
+          placeholder="Ej.: pon el botón en verde y añade un cupón de bienvenida…"
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              send(draft);
+            }
+          }}
+        />
+        <button type="button" className={`${s.btn} ${s.primary}`} disabled={!aiReady || busy || !draft.trim()} onClick={() => send(draft)}>
+          <Icon name="send" />
+          Enviar
+        </button>
+      </div>
+    </div>
   );
 }

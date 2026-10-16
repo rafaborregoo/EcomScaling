@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -145,41 +146,10 @@ function syncLabel(iso: string | null) {
  */
 function ConsultantAccountsView() {
   const { setOrganizationId } = useActiveOrganization();
-  const [ranking, setRanking] = useState<TriagedKlaviyoAccount[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const query = useCachedQuery<{ ranking: TriagedKlaviyoAccount[] }>("/v1/consultant/klaviyo-accounts");
+  const ranking = query.data ? (query.data.ranking ?? []) : null;
+  const error = query.error;
   const [onlyNeedsReview, setOnlyNeedsReview] = useState(false);
-
-  useEffect(() => {
-    let current = true;
-
-    void (async () => {
-      try {
-        const response = await apiFetch("/v1/consultant/klaviyo-accounts");
-        if (!current) return;
-
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: string;
-          } | null;
-          setError(body?.error ?? `HTTP ${response.status}`);
-          return;
-        }
-
-        const payload = (await response.json()) as {
-          ranking: TriagedKlaviyoAccount[];
-        };
-        setRanking(payload.ranking ?? []);
-        setError(null);
-      } catch {
-        if (!current) return;
-        setError("No se pudo cargar la cartera de email.");
-      }
-    })();
-
-    return () => {
-      current = false;
-    };
-  }, []);
 
   if (error) {
     return (

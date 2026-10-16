@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PortalShell } from "@/components/portal-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { MessageThread } from "@/components/consultant-messages";
+import { WorkPageHeader } from "@/components/trabajo-ui";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import {
@@ -148,6 +149,7 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
   if (moduleDisabled) {
     return (
       <div className="portal-page">
+        <WorkPageHeader title="Chats">Tu conversación con el consultor y el seguimiento de tu tienda.</WorkPageHeader>
         <EmptyState
           title="Chats está desactivado"
           hint="Este módulo es tu conversación con tu consultor, y todavía no tienes uno asignado. Se activa solo en cuanto te asignen uno. Mientras tanto, el Consultor IA responde sobre tu tienda desde el botón de abajo a la derecha."
@@ -162,6 +164,7 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
 
   return (
     <div className={`portal-page ${s.root}`}>
+      <WorkPageHeader title="Chats">{isClient ? "Habla con tu consultor y retoma lo que está pendiente." : "Prioriza las conversaciones y da seguimiento a cada cliente."}</WorkPageHeader>
       {/* Cifras de cartera que filtran la lista. Al cliente, que tiene una
           conversación, no le dicen nada: «te esperan» leído desde su asiento
           contaría sus propios mensajes al revés. */}
@@ -358,7 +361,7 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                   viewerIsClient={isClient}
                   unreadCount={active.unread_count}
                   quickReplies={isClient ? QUICK_CLIENT : QUICK_CONSULTANT}
-                  placeholder={`Escribe a ${(isClient ? "tu consultor" : (active.counterpart_name ?? active.organization_name)).split(" ")[0]}…`}
+                  placeholder={isClient ? "Escribe a tu consultor…" : `Escribe a ${(active.counterpart_name ?? active.organization_name).split(" ")[0]}…`}
                   onActivity={() => void load()}
                   onLoaded={({ counterpartReadAt: readAt }) => setCounterpartReadAt(readAt)}
                 />

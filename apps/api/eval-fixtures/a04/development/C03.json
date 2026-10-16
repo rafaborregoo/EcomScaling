@@ -1,0 +1,311 @@
+{
+  "schema_version": "agent-release-replay-v1",
+  "agent_code": "a04_generador_tareas",
+  "dataset_version": "2026-09-29.v2",
+  "rubric_version": "judge-rubrics-v7",
+  "split": "development",
+  "provenance": "synthetic",
+  "privacy_reviewed": false,
+  "scenario": "C03 El producto con más ingresos está agotado, se sigue anunciando en Meta y no hay ninguna tarea abierta sobre ello.",
+  "input": {
+    "objective": "Proponer las tareas que tiene sentido hacer HOY en la tienda \"E-NORA Demo\", a partir de los datos de los ultimos 30 dias. Cita en sources[].reference exactamente la clave (key) de cada fuente congelada que uses.",
+    "parameters": {
+      "horizon": "day",
+      "lookback_days": 30,
+      "reference_date": "2026-05-31"
+    }
+  },
+  "scope": {
+    "organization_ref": "org-demo-anon",
+    "store_ref": "store-demo-anon",
+    "timezone": "Europe/Madrid",
+    "period_start": "2026-05-01",
+    "period_end": "2026-05-31"
+  },
+  "sources": [
+    {
+      "key": "tareas_abiertas",
+      "status": "available",
+      "content": {
+        "near_term_window_days": 14,
+        "near_term": [
+          {
+            "title": "Preparar la colección de verano",
+            "due_at": "2026-06-10T00:00:00Z",
+            "priority": "medium",
+            "status": "pending",
+            "source": "manual",
+            "categories": [
+              "shopify"
+            ]
+          }
+        ],
+        "later_count": 0,
+        "later": [],
+        "note": "Una tarea de later NO cubre una urgencia de hoy."
+      },
+      "content_sha256": "543191df12cac18cdec61720f4b9427052f0099da1da9b480219b978eaba2e91",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "historial_resultados_tareas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "alertas_activas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "ventas_shopify_30d",
+      "status": "available",
+      "content": {
+        "periodo": [
+          "2026-05-01",
+          "2026-05-31"
+        ],
+        "moneda": "EUR",
+        "orders": 1052,
+        "gross_sales": 58198,
+        "discounts": 329.4,
+        "refunds": 0,
+        "net_sales": 57868.6,
+        "aov": 55.01,
+        "units_sold": 1134
+      },
+      "content_sha256": "654b81fb48d47a0d7f6d7fd20852754d398191220878ebb56441e54c00fde422",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "productos_mas_vendidos_30d",
+      "status": "available",
+      "content": {
+        "ventana": [
+          "2026-05-01",
+          "2026-05-31"
+        ],
+        "productos": [
+          {
+            "titulo": "Calcetín Rib Menta",
+            "unidades": 163,
+            "ingresos_netos_eur": 1943
+          },
+          {
+            "titulo": "Chaqueta Boreal Negra",
+            "unidades": 153,
+            "ingresos_netos_eur": 18100
+          },
+          {
+            "titulo": "Gorra Costa Cruda",
+            "unidades": 152,
+            "ingresos_netos_eur": 3619
+          },
+          {
+            "titulo": "Pantalón Cargo Oliva",
+            "unidades": 137,
+            "ingresos_netos_eur": 8717
+          },
+          {
+            "titulo": "Sudadera Capucha Arcilla",
+            "unidades": 136,
+            "ingresos_netos_eur": 9187
+          },
+          {
+            "titulo": "Camiseta Básica Niebla",
+            "unidades": 135,
+            "ingresos_netos_eur": 3898
+          },
+          {
+            "titulo": "Bolso Mini Bruma",
+            "unidades": 132,
+            "ingresos_netos_eur": 5121
+          },
+          {
+            "titulo": "Sudadera Oversize Arena",
+            "unidades": 126,
+            "ingresos_netos_eur": 7285
+          }
+        ]
+      },
+      "content_sha256": "9060ae0d8944e630d8b5d02a6b449ecedb3f90e4ae616a0d69795754ca951680",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "propuestas_otros_horizontes",
+      "status": "available",
+      "content": [
+        {
+          "horizon": "semanal",
+          "proposals": []
+        },
+        {
+          "horizon": "mensual",
+          "proposals": []
+        }
+      ],
+      "content_sha256": "c954fc3e37027cba0db4fae273ddd3b24824a3012f81e00ca1a77fcf6a128513",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "mi_camino",
+      "status": "available",
+      "content": {
+        "status": "sin_camino_activo"
+      },
+      "content_sha256": "f0998820071fc31a42b03ccfddf5a0474abf47d63ed206cd080b61b1bc23767a",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_a02",
+      "status": "available",
+      "content": {
+        "generated_at": "2026-05-31T05:00:00Z",
+        "headline": "Ventas fuertes, pero el producto que más factura está agotado y sigue recibiendo inversión.",
+        "findings": [
+          {
+            "area": "stock",
+            "title": "Chaqueta Boreal Negra agotada con demanda de 5 uds/día",
+            "severity": "critical"
+          }
+        ]
+      },
+      "content_sha256": "8c8d33f82d43854e1b5d86af55d3bb0f0bf80aed0162b88f5b12291037eb5df8",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "fechas_comerciales_45d",
+      "status": "available",
+      "content": {
+        "eventos": [
+          {
+            "evento": "Rebajas de verano",
+            "fecha": "2026-07-01",
+            "empieza_a_preparar": "2026-06-10",
+            "vas_tarde": false
+          },
+          {
+            "evento": "Prime Day (referencia de mercado, julio)",
+            "fecha": "2026-07-14",
+            "empieza_a_preparar": "2026-06-23",
+            "vas_tarde": false
+          }
+        ],
+        "campanas_planificadas": [],
+        "propuestas_aprobadas": []
+      },
+      "content_sha256": "d2169226ccf62769c7a626eba1ff3b2b81cc1ae571fbd630f938c36381197e30",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "especialistas_aprobados",
+      "status": "available",
+      "content": {
+        "status": "available",
+        "outputs": [
+          {
+            "agent_code": "a06_planificador_stock",
+            "output_id": "out-a06-0530",
+            "as_of": "2026-05-30T06:00:00Z",
+            "valid_until": "2026-06-13T06:00:00Z",
+            "conclusion": "La Chaqueta Boreal Negra se agota en 1-2 días al ritmo actual; el resto del catálogo tiene más de 20 días de cobertura.",
+            "findings": [
+              {
+                "title": "Chaqueta Boreal Negra sin cobertura",
+                "severity": "critical",
+                "evidence": "4 uds disponibles el 30-may, 5 uds/día"
+              }
+            ],
+            "recommendations": [
+              {
+                "action": "Pedir reposición de la Chaqueta Boreal Negra y reducir su exposición mientras tanto",
+                "priority": "high"
+              }
+            ]
+          }
+        ]
+      },
+      "content_sha256": "0780f6f5d775548e3341c4264212ba6b541d9570b55197aba52b351dac745006",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_ejecutivo_d14",
+      "status": "available",
+      "content": {
+        "status": "no_canonical_diagnosis",
+        "diagnosticos": []
+      },
+      "content_sha256": "87b1f2d5be11855c34ae8f51d4886881e339025b78a439cfc8ff140d6fff037a",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "asignacion_consultor",
+      "status": "available",
+      "content": {
+        "has_consultant": true,
+        "decision_rule": "Las propuestas quedan pendientes de revision del consultor humano asignado."
+      },
+      "content_sha256": "1477ddadc3015f9a206f9c292767379625d485a0d810acd67af1288aebac6db0",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "conocimiento_rag",
+      "status": "available",
+      "content": [
+        {
+          "documento": "FASE 5.07 — Inventario, stockout, overstock y replenishment",
+          "extracto": "Stockout: existe cuando demanda supera inventario disponible. Consecuencias: revenue perdido, CAC desperdiciado, pérdida de ranking, clientes hacia competidores. No debe escalarse agresivamente tráfico hacia un producto sin capacidad de entrega; puede ser necesario reducir campañas, cambiar merchandising o dirigir demanda a sustitutos. Cuando hay stockout, las ventas observadas subestiman la demanda real."
+        },
+        {
+          "documento": "Cuestionario de la marca (reglas provisionales)",
+          "extracto": "No aplicar descuentos sin comprobar antes el margen real; no acumular promociones; no usar falsa escasez; no prometer disponibilidad ni plazos de entrega sin respaldo; no asumir autorización para activar anuncios ni comprometer gasto."
+        }
+      ],
+      "content_sha256": "d74c03561f569cce2969edcf68008017f2423df9e4c2280b35602d401b79c354",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "inventario_productos_clave",
+      "status": "available",
+      "content": [
+        {
+          "producto": "Chaqueta Boreal Negra",
+          "disponible": 0,
+          "vendidas_30d": 153,
+          "dias_agotada": 2
+        }
+      ],
+      "content_sha256": "5cf80d3ecd9159622f77a639b5072af6c2a030c0a91cf7775a56673eb9319c70",
+      "as_of": "2026-05-31T07:00:00Z"
+    },
+    {
+      "key": "meta_anuncios_activos",
+      "status": "available",
+      "content": [
+        {
+          "anuncio": "Boreal - prospecting",
+          "producto": "Chaqueta Boreal Negra",
+          "gasto_ultimos_2_dias_eur": 186,
+          "estado": "activo"
+        }
+      ],
+      "content_sha256": "968ab91a5f9fcff5783b4e7004dc04af69c94993fcb9a840a8d298ad0e4357ab",
+      "as_of": "2026-05-31T07:00:00Z"
+    }
+  ],
+  "tool_replay": [],
+  "visual_artifacts": [],
+  "constraints": {
+    "expected_abstention": false,
+    "required_output_paths": [
+      "$.proposed_writes[0]"
+    ],
+    "forbidden_output_paths": [
+      "$.proposed_writes[5]"
+    ]
+  }
+}

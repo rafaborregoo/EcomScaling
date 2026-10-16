@@ -106,14 +106,22 @@ export async function getMarketingKlaviyoWorkspace(
 
   let accountQuery = supabase
     .from("klaviyo_accounts")
-    .select("id, name, currency_code, timezone, raw_data, connection_id, last_synced_at")
-    .eq("organization_id", organizationId);
+    .select("id, name, currency_code, timezone, raw_data, connection_id, last_synced_at, store_id")
+    .eq("organization_id", organizationId)
+    .order("last_synced_at", { ascending: false });
   if (storeId) accountQuery = accountQuery.eq("store_id", storeId);
-  const { data: accounts, error: accountError } = await accountQuery.limit(1);
+  const { data: accounts, error: accountError } = await accountQuery.limit(storeId ? 1 : 20);
   if (accountError) {
     return { ok: false, statusCode: 500, error: "klaviyo_account_load_failed", detail: accountError.message };
   }
-  const account = accounts?.[0] ?? null;
+  let account = accounts?.[0] ?? null;
+  // Sin tienda indicada (el móvil no tiene selector) y con varias cuentas Klaviyo no vale
+  // la primera que salga: se prefiere la de la tienda activa.
+  if (!storeId && accounts && accounts.length > 1) {
+    const { data: active } = await supabase.from("shopify_stores").select("id").eq("organization_id", organizationId).eq("is_active", true);
+    const activeIds = new Set((active ?? []).map((store) => store.id as string));
+    account = accounts.find((row) => activeIds.has(row.store_id as string)) ?? account;
+  }
   const end = new Date();
   const start = new Date(end.getTime() - days * DAY_MS);
   const previousStart = new Date(start.getTime() - days * DAY_MS);
@@ -607,28 +615,9 @@ export async function scheduleMarketingKlaviyoCampaign(
     sendAt = new Date(parsed).toISOString();
   }
 
-  // Una campaña que creo el cliente y sigue en revision no se programa: el
-  // consultor la revisa antes. El consultor puede programarla (queda revisada).
+  // Sin puerta de revisión: el cliente programa y envía por su cuenta. El consultor revisa lo programado y deja
+  // apuntes (campaign_item_notes), pero no bloquea ni aprueba nada.
   const isStaff = ["platform_admin", "consultant"].includes(context.profile.platform_role);
-  const gate = serviceClient(env);
-  let reviewing = false;
-  if (input.calendarItemId) {
-    const { data: gated } = await gate
-      .from("campaign_calendar_items")
-      .select("review_status")
-      .eq("id", input.calendarItemId)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    reviewing = ["pending", "changes_requested"].includes(String(gated?.review_status ?? ""));
-    if (reviewing && !isStaff) {
-      return {
-        ok: false,
-        statusCode: 409,
-        error: "campaign_review_required",
-        message: "Tu consultor tiene que revisar la campaña antes de programarla.",
-      };
-    }
-  }
 
   const pushed = await pushDraftToKlaviyoTemplate(env, context, organizationId, input.draftId, { campaignOperator: true });
   if (!pushed.ok) return pushed;
@@ -757,13 +746,6 @@ export async function scheduleMarketingKlaviyoCampaign(
     const when = sendAt
       ? new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(sendAt))
       : null;
-    if (isStaff && reviewing) {
-      await supabase
-        .from("campaign_calendar_items")
-        .update({ review_status: "reviewed", reviewed_by: context.user.id, reviewed_at: new Date().toISOString() })
-        .eq("id", input.calendarItemId)
-        .eq("organization_id", organizationId);
-    }
     await supabase.from("campaign_item_notes").insert({
       organization_id: organizationId,
       item_id: input.calendarItemId,

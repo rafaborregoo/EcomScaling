@@ -1655,27 +1655,8 @@ export async function pushDraftToKlaviyoTemplate(
       message: "Aprueba la pieza antes de enviarla a Klaviyo.",
     };
   }
-  // ADR-0025: el cliente la aprobo pero, en una campaña con consultor, falta su
-  // revision. `approved` no basta: hasta que la de por revisada no sale a Klaviyo.
-  const { data: pendingReview, error: pendingReviewError } = await supabase
-    .from("marketing_mailing_campaign_emails")
-    .select("sequence_number")
-    .eq("organization_id", organizationId)
-    .eq("draft_id", draftId)
-    .eq("status", "awaiting_consultant_review")
-    .limit(1)
-    .maybeSingle();
-  if (pendingReviewError) {
-    return { ok: false, statusCode: 500, error: "marketing_draft_review_check_failed" };
-  }
-  if (pendingReview) {
-    return {
-      ok: false,
-      statusCode: 409,
-      error: "marketing_draft_awaiting_consultant_review",
-      message: "El consultor tiene que revisar esta pieza antes de enviarla a Klaviyo.",
-    };
-  }
+  // Sin puerta del consultor: el cliente aprueba y envia por su cuenta. La revision del consultor es opinion
+  // (apuntes), no veto (decision de Rafa, 2026-10-16; sustituye la parada de ADR-0025 en este punto).
 
   const html = sanitizeGeneratedEmailHtml(
     typeof draft.html === "string" ? draft.html : "",

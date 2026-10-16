@@ -2566,6 +2566,15 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
   }
 
   const supabase = createServiceClient(env);
+  // El token de usuario de Meta caduca a los ~60 días sin renovación posible:
+  // se avisa una semana antes (20261221110000). Si falla, el reconcile sigue.
+  const { error: expiringError } = await supabase
+    .schema("private")
+    .rpc("notify_expiring_integrations");
+  if (expiringError) {
+    logger.error("meta_expiring_notice_failed", { message: expiringError.message });
+  }
+
   const { data: connections, error } = await supabase
     .from("integration_connections")
     .select("id, status, last_error_message")

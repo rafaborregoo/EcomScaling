@@ -26,10 +26,18 @@ test("A22 rejects invalid comparison windows", () => {
 });
 
 test("A22 runtime compares both windows through the same store-scoped RPC", () => {
-  const runtime = readFileSync(new URL("./ai-runtime.ts", import.meta.url), "utf8");
+  const runtime = readFileSync(new URL("./ai-runtime.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const toolStart = runtime.indexOf(
+    'registerScopedReadTool(\n    "shopify_delivery_diagnostics",',
+  );
+  const toolEnd = runtime.indexOf(
+    'registerScopedReadTool(\n    "shopify_open_delivery_exceptions",',
+  );
+  assert.notEqual(toolStart, -1, "delivery diagnostics tool registration must exist");
+  assert.ok(toolEnd > toolStart, "delivery diagnostics block must end before exceptions tool");
   const tool = runtime.slice(
-    runtime.indexOf('"shopify_delivery_diagnostics",\n    TOOL_DESCRIPTIONS.shopify_delivery_diagnostics'),
-    runtime.indexOf('"shopify_open_delivery_exceptions",\n    TOOL_DESCRIPTIONS.shopify_open_delivery_exceptions'),
+    toolStart,
+    toolEnd,
   );
   assert.match(tool, /diagnostico_actual:\s*client\.rpc\(\s*"shopify_delivery_diagnostics"/);
   assert.match(tool, /diagnostico_periodo_anterior:\s*client\.rpc\(\s*"shopify_delivery_diagnostics"/);

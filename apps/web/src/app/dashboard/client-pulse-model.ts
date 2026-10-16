@@ -157,3 +157,76 @@ export function monthlyWithProjection(
   }
   return points;
 }
+
+// ---------------------------------------------------------------------------
+// Lo que la IA dice en el panel del cliente
+// ---------------------------------------------------------------------------
+
+export type PulseFinding = { title: string; severity: string; evidence: string; area?: string };
+
+/**
+ * El hallazgo que acompaña a una sección.
+ *
+ * Primero uno cuyo propio texto hable del tema; solo si no hay, el primero de
+ * una sección del diagnóstico con ese nombre. Con `taken`, un hallazgo ya
+ * usado por otra sección no se repite: antes Canales y Meta enseñaban la misma
+ * frase sobre ventas de la tienda porque las dos encajaban con "adquisición".
+ */
+export function pickFinding<F extends PulseFinding>(
+  diagnostic: { output: { sections?: Array<{ key: string; label: string; findings: F[] }>; findings: F[] } } | null | undefined,
+  pattern: RegExp,
+  taken?: Set<F>,
+): F | null {
+  if (!diagnostic) return null;
+  const free = (finding: F) => !taken?.has(finding);
+  const inSections = (diagnostic.output.sections ?? []).flatMap((section) =>
+    section.findings.map((finding) => ({ finding, where: `${section.key} ${section.label}` })),
+  );
+  const all = [...inSections, ...diagnostic.output.findings.map((finding) => ({ finding, where: "" }))];
+  const hit =
+    all.find(({ finding }) => free(finding) && pattern.test(`${finding.area ?? ""} ${finding.title}`)) ??
+    all.find(({ finding, where }) => free(finding) && where !== "" && pattern.test(where));
+  if (hit) taken?.add(hit.finding);
+  return hit?.finding ?? null;
+}
+
+
+// Señales de texto escrito para una máquina: nombres de campo en snake_case,
+// asignaciones, marcas de tiempo UTC y etiquetas de calidad en inglés.
+const TECHNICAL = /\b[a-z]+(?:_[a-z0-9]+)+\b|\b\w+=\w+|\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?(?:\s?UTC)?|\b(?:null|true|false|strong|weak|tracked_current)\b|[a-z]+[A-Z][a-zA-Z]+\b/;
+
+export function isClientReadable(text: string) {
+  return !TECHNICAL.test(text);
+}
+
+/**
+ * Texto de la IA apto para el cliente: se quitan las frases con jerga de
+ * sistema y se conserva el resto. Si no queda nada legible, null (mejor no
+ * enseñar nada que enseñar `inventory_sync_is_stale=true`).
+ */
+export function clientReadable(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const sentences = text.split(/(?<=[.;])\s+/).filter((sentence) => isClientReadable(sentence));
+  const kept = sentences.join(" ").trim();
+  return kept.length >= 12 ? kept : null;
+}
+
+/** "▲ 319 %" no se lee; por encima del doble se dice "×4,2". */
+export function changeText(changePct: number) {
+  const magnitude = Math.abs(changePct);
+  if (changePct >= 100) return `×${fmtNum(1 + changePct / 100, 1)}`;
+  return `${magnitude < 10 ? fmtNum(magnitude, 1) : fmtNum(magnitude)} %`;
+}
+
+/** Cifras de eje en español: "23 mil €" y no "23,1k". */
+export function shortMoney(value: number, currencySymbol = "€") {
+  if (Math.abs(value) >= 1_000_000) return `${fmtNum(value / 1_000_000, 1).replace(",0", "")} M ${currencySymbol}`;
+  if (Math.abs(value) >= 1_000) return `${fmtNum(value / 1_000)} mil ${currencySymbol}`;
+  return `${fmtNum(value)} ${currencySymbol}`;
+}
+
+/**
+ * Por debajo de este número de clientes nuevos el CAC no es una media, es una
+ * anécdota: con un solo cliente nuevo el CAC es toda la inversión publicitaria.
+ */
+export const MIN_NEW_CUSTOMERS_FOR_CAC = 10;

@@ -13,7 +13,7 @@
   background: var(--sunken);
 }
 .cover.off {
-  opacity: 0.7;
+  background: var(--surface-2);
 }
 .st {
   position: absolute;

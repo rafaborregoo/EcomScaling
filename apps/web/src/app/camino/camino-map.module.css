@@ -1,32 +1,36 @@
 /* Mi Camino como mapa (vista del cliente). Paleta del panel del cliente:
    petróleo + azafrán. Una sola fuente: la del portal (IBM Plex Sans). */
 
-.root {
+.root,
+.objectivesPanel,
+.objectivesConsultant,
+.consultant {
   --surface: #ffffff;
   --surface-2: #f4f7f7;
-  --sunken: #e2e9ea;
-  --ink: #0b2a33;
-  --ink-2: #46626a;
-  --ink-3: #5c757b;
-  --line: #d3dee0;
-  --line-2: #e5eced;
-  --accent: #f2b705;
-  --accent-soft: #fcf0c4;
-  --accent-ink: #6e5000;
-  --on-accent: #1d1500;
-  --good: #11806a;
-  --good-soft: #daf0e9;
-  --warn: #c0600e;
-  --warn-soft: #fbe8d5;
-  --bad: #bf2f49;
-  --bad-soft: #f8dde2;
-  --store: #0f7482;
-  --hero: #0b2a33;
-  --hero-2: #12363f;
-  --hero-ink: #eaf3f2;
-  --hero-muted: #95b0b5;
-  --hero-line: #24505b;
-
+  --sunken: #e5ecec;
+  --ink: #3d3b3a;
+  --ink-2: #495858;
+  --ink-3: #5c6b6b;
+  --line: #d5dfdf;
+  --line-2: #e6eded;
+  --accent: #176b64;
+  --accent-soft: #e3f1ee;
+  --accent-ink: #176b64;
+  --on-accent: #ffffff;
+  --good: #2f7d5b;
+  --good-soft: #dcefe5;
+  --warn: #b85f17;
+  --warn-soft: #f9e6d3;
+  --bad: #b8364a;
+  --bad-soft: #f7dde1;
+  --store: #4f8a6e;
+  --hero: #ffffff;
+  --hero-2: #f4f7f7;
+  --hero-ink: #3d3b3a;
+  --hero-muted: #5c6b6b;
+  --hero-line: #d5dfdf;
+}
+.root {
   display: grid;
   gap: 20px;
   color: var(--ink);
@@ -66,7 +70,7 @@
 .hero {
   background: var(--hero);
   color: var(--hero-ink);
-  border-radius: 20px;
+  border-radius: 16px;
   border: 1px solid var(--hero-line);
   overflow: hidden;
 }
@@ -86,7 +90,7 @@
   min-width: 0;
 }
 .k {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -183,7 +187,7 @@
 }
 .mapHint {
   color: var(--hero-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .phaseBtn {
   display: flex;
@@ -252,19 +256,6 @@
   min-width: 0;
 }
 .objectivesPanel {
-  --surface: #ffffff;
-  --surface-2: #f4f7f7;
-  --ink: #0b2a33;
-  --ink-2: #46626a;
-  --ink-3: #5c757b;
-  --line: #d3dee0;
-  --line-2: #e5eced;
-  --accent: #f2b705;
-  --accent-soft: #fcf0c4;
-  --accent-ink: #6e5000;
-  --good: #11806a;
-  --good-soft: #daf0e9;
-  --store: #0f7482;
   display: grid;
   gap: 0;
   min-width: 0;
@@ -276,19 +267,7 @@
   font-family: var(--font-plex-sans), system-ui, sans-serif;
 }
 .objectivesConsultant {
-  --surface: #ffffff;
-  --surface-2: #f7f7f5;
-  --ink: #16181b;
-  --ink-2: #474b51;
-  --ink-3: #686c72;
-  --line: #dadad5;
-  --line-2: #ebebe7;
-  --accent: #ff8a5b;
-  --accent-soft: #ffe7dc;
-  --accent-ink: #8a3310;
-  --good: #12805f;
-  --good-soft: #dcf1e8;
-  --store: #2f8f83;
+  color: var(--ink);
 }
 .objectivesHeader {
   display: flex;
@@ -656,7 +635,7 @@
   color: var(--ink-3);
 }
 .lbl {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -752,7 +731,7 @@
 .taskM {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 2px 0;
   margin-top: 4px;
   font-size: 12px;
   color: var(--ink-3);
@@ -1104,7 +1083,7 @@
   animation: drawDash 1.2s linear infinite;
 }
 .drawingNode {
-  fill: #eaf3f2;
+  fill: #f7f6f5;
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
@@ -1203,25 +1182,16 @@
 
 /* ---------- consultor: grafito + mandarina (misma paleta que su mesa) ---------- */
 .consultant {
-  --surface-2: #f7f7f5;
-  --sunken: #e7e7e3;
-  --ink: #16181b;
-  --ink-2: #474b51;
-  --ink-3: #686c72;
-  --line: #dadad5;
-  --line-2: #ebebe7;
-  --accent: #ff8a5b;
-  --accent-soft: #ffe7dc;
-  --accent-ink: #8a3310;
-  --on-accent: #2b0e02;
-  --good: #12805f;
-  --good-soft: #dcf1e8;
-  --bad: #c22e4b;
-  --bad-soft: #f9dee4;
-  --store: #2f8f83;
-  --hero: #17191c;
-  --hero-2: #212428;
-  --hero-ink: #eeeeea;
-  --hero-muted: #a3a7ad;
-  --hero-line: #33373c;
+  color: var(--ink);
+}
+
+/* Metadatos de una tarea: el punto medio separa, no se escribe en cada trozo. */
+.taskM > span + span::before {
+  content: "·";
+  margin: 0 6px;
+}
+
+/* Carriles y ruta mensual son un solo panel a todo el ancho, no media rejilla vacía. */
+.levelFull {
+  grid-template-columns: minmax(0, 1fr);
 }

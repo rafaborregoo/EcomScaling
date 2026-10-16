@@ -25,6 +25,8 @@ import {
 } from "./studio-canvas";
 import {
   AiPanel,
+  StudioChat,
+  type ChatMsg,
   BlockInspector,
   Fields,
   LeftPanel,
@@ -56,6 +58,7 @@ import {
   type StudioDesign,
   type StudioProduct,
 } from "./studio-design";
+import { applyStudioOps, studioChatBody, type StudioChatOp } from "./studio-ai-ops";
 import s from "./studio.module.css";
 
 type Header = { name: string; subject: string; preheader: string; fromName: string; replyTo: string };
@@ -190,6 +193,8 @@ export function ContentStudio({
   const [uploads, setUploads] = useState<ImageOption[]>([]);
   const [suggestions, setSuggestions] = useState<{ kind: AiKind; items: string[] } | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
   const [launcher, setLauncher] = useState(false);
   const [startMode, setStartMode] = useState<"brief" | "plantilla" | "repetir" | "klaviyo" | "blanco">("plantilla");
   const [generating, setGenerating] = useState(false);
@@ -719,6 +724,47 @@ export function ContentStudio({
     });
   }
 
+  async function sendChat(text: string) {
+    const history = chat.filter((message) => !message.error).map(({ role, text: body }) => ({ role, text: body }));
+    setChat((current) => [...current, { role: "user", text }]);
+    setChatBusy(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/studio/ai-chat`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(studioChatBody({ message: text, history, design: pieceRef.current.design, header: pieceRef.current.header, selectedId, connectionId })),
+        },
+        120_000,
+      );
+      if (response.status === 402) {
+        const body = (await response.json().catch(() => null)) as { message?: string; can_upgrade?: boolean } | null;
+        setChat((current) => [...current, { role: "assistant", text: body?.message ?? "Se ha agotado el saldo de IA de este mes.", error: true, upgrade: body?.can_upgrade ? "yes" : "ask" }]);
+        return;
+      }
+      if (!response.ok) throw new Error(await readApiError(response));
+      const data = (await response.json()) as { answer: string; ops: StudioChatOp[] };
+      let labels: string[] = [];
+      let touched: string[] = [];
+      if (data.ops.length) {
+        lastPush.current = 0; // cada respuesta es un solo paso de deshacer
+        change((current) => {
+          const out = applyStudioOps(current.design, current.header, data.ops);
+          labels = out.labels;
+          touched = out.touched;
+          return { ...current, design: out.design, header: { ...current.header, subject: out.header.subject, preheader: out.header.preheader } };
+        });
+        if (touched[0]) setSelectedId(touched[0]);
+      }
+      setChat((current) => [...current, { role: "assistant", text: data.answer, labels }]);
+    } catch (error) {
+      setChat((current) => [...current, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo hablar con la IA.", error: true }]);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   function applySuggestion(text: string) {
     const kind = suggestions?.kind;
     if (kind === "subjects") {
@@ -1068,6 +1114,11 @@ export function ContentStudio({
         onApply={applySuggestion}
         onClear={() => setSuggestions(null)}
         aiReady={aiReady}
+        chat={
+          channel === "email" ? (
+            <StudioChat messages={chat} busy={chatBusy} aiReady={aiReady} canUndo={history.canUndo} onSend={(value) => void sendChat(value)} onUndo={undo} />
+          ) : undefined
+        }
       />
     );
   }
@@ -1079,7 +1130,7 @@ export function ContentStudio({
     <div className={s.studio}>
       <header className={s.top}>
         <div className={s.piece}>
-          <span className={s.crumb}>Marketing / Crear contenido</span>
+          <h1 className={s.crumb}>Crear contenido</h1>
           <input className={s.pieceName} aria-label="Nombre interno de la pieza" placeholder="Nombre de la pieza" value={header.name} onChange={(event) => changeHeader("name", event.target.value)} />
           <div className={s.pills}>
             <span className={s.pill} data-state={status}>
@@ -1392,7 +1443,7 @@ export function ContentStudio({
                     ) : startMode === "repetir" ? (
                       winners.length ? (
                         <div className={s.optList}>
-                          <p className={s.note}>Tus emails con más EUR atribuidos por Klaviyo. Se copian los bloques, no los resultados.</p>
+                          <p className={s.note}>Tus emails con más ingresos atribuidos por Klaviyo. Se copian los bloques, no los resultados.</p>
                           {winners.map((draft) => (
                             <button
                               key={draft.id}

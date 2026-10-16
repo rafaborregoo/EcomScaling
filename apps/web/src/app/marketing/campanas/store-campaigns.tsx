@@ -174,7 +174,7 @@ export function StoreCampaigns({
             )}
             <button type="button" className={cx(s.btn, s.ghost)} onClick={onPropose}>
               <IaTag />
-              Planificar con A05
+              Planificar con IA
             </button>
             <button type="button" className={cx(s.btn, s.ghost)} onClick={onCreate}>
               Nueva campaña
@@ -202,7 +202,7 @@ export function StoreCampaigns({
           { label: "Enviadas · 30 días", value: sent30.length, foot: "email, por Klaviyo" },
           { label: "Apertura media", value: openRate === null ? "—" : pct(openRate), foot: "sobre entregados" },
           { label: "Clic medio", value: clickRate === null ? "—" : pct(clickRate), foot: "sobre entregados" },
-          { label: "EUR atribuidos por Klaviyo", value: sent30.length ? formatMoney(revenue, currency) : "—", foot: "de toda la vida de cada campaña" },
+          { label: "Ingresos atribuidos por Klaviyo", value: sent30.length ? formatMoney(revenue, currency) : "—", foot: "de toda la vida de cada campaña" },
         ]}
       />
 
@@ -331,7 +331,7 @@ export function StoreCampaigns({
                 ))
               )}
             </Panel>
-            <Panel title="Lo último que salió" sub="EUR atribuidos por Klaviyo, no son ventas de Shopify">
+            <Panel title="Lo último que salió" sub="Ingresos atribuidos por Klaviyo, no son ventas de Shopify">
               {recent.length === 0 ? (
                 <p className={s.empty}>Todavía no ha salido ningún email de esta tienda.</p>
               ) : (
@@ -384,7 +384,7 @@ export function StoreCampaigns({
                   <span>Fecha prevista</span>
                   <span>Apertura</span>
                   <span>Clics</span>
-                  <span>EUR atrib. Klaviyo</span>
+                  <span>Ingresos atrib. Klaviyo</span>
                   <span />
                 </div>
                 {shown.map((row) => {
@@ -430,7 +430,7 @@ export function StoreCampaigns({
             </div>
           )}
           <p className={s.foot} style={{ marginTop: 14 }}>
-            Cifras en EUR atribuidos por Klaviyo, de toda la vida de cada campaña. No se suman a Meta ni a las ventas de Shopify.
+            Ingresos atribuidos por Klaviyo durante toda la vida de cada campaña, en la moneda indicada. No se suman a Meta ni a las ventas de Shopify.
           </p>
         </Panel>
       </Section>

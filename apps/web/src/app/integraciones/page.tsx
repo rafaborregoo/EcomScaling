@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { timeAgo } from "@/lib/elapsed";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { useUrlSection } from "@/lib/use-url-section";
 import { Badge, Button, Card, EmptyState, ErrorBlock, Input, LoadingBlock, ProviderIcon, Table } from "@/components/ui";
 import { DataQualityPanel } from "./data-quality-panel";
 import { IntegrationsHub } from "./hub";
@@ -20,6 +20,7 @@ type IntegrationCell = {
   status: string;
   last_sync_at: string | null;
   last_error_message: string | null;
+  needs_reconnect?: boolean;
 };
 type ConsultantIntegrationsData = {
   providers: string[];
@@ -32,13 +33,14 @@ type ConsultantIntegrationsData = {
       account_name: string | null;
       status: string;
       last_sync_at: string | null;
+      needs_reconnect?: boolean;
     }>;
   }>;
 };
 
-function CellStatus({ status, lastSync }: { status: string; lastSync?: string | null }) {
+function CellStatus({ status, needsReconnect, lastSync }: { status: string; needsReconnect?: boolean; lastSync?: string | null }) {
   const when = timeAgo(lastSync);
-  const state = CONNECTION_STATES[stateFromStatus(status)];
+  const state = CONNECTION_STATES[stateFromStatus(status, needsReconnect)];
   return (
     <span title={when ? `Último dato ${when}` : undefined}>
       <Badge tone={state.tone}>{state.label}</Badge>
@@ -98,7 +100,7 @@ function AdminClientIntegrationsView({ organizationId }: { organizationId?: stri
     <div className="portal-page space-y-6">
       <p className="text-sm text-muted">
         {organizationId
-          ? "Solo lectura. Las cuentas se conectan o reautorizan desde la sesión del cliente."
+          ? "Solo lectura: las cuentas las conecta o reautoriza el cliente desde su Configuración › Integraciones."
           : `${data.portfolio.length} clientes · ${issueCount} con alguna integración por arreglar`}
       </p>
 
@@ -137,7 +139,7 @@ function AdminClientIntegrationsView({ organizationId }: { organizationId?: stri
                 label: displayValue(provider),
                 render: (row: Row) => {
                   const cell = row.providers[provider];
-                  return cell ? <CellStatus status={cell.status} lastSync={cell.last_sync_at} /> : <span className="text-muted">—</span>;
+                  return cell ? <CellStatus status={cell.status} needsReconnect={cell.needs_reconnect} lastSync={cell.last_sync_at} /> : <span className="text-muted">—</span>;
                 },
               })),
             ]}
@@ -148,7 +150,7 @@ function AdminClientIntegrationsView({ organizationId }: { organizationId?: stri
       {organizationId ? (
         <Card title="Cuentas conectadas">
           {connections.length === 0 ? (
-            <EmptyState title="No hay conexiones activas registradas" hint="Entra con el usuario del cliente para conectar sus aplicaciones." />
+            <EmptyState title="No hay conexiones activas registradas" hint="Las conecta el cliente desde Configuración › Integraciones." />
           ) : (
             <Table<ConnectionRow>
               ariaLabel="Cuentas conectadas del cliente"
@@ -156,7 +158,7 @@ function AdminClientIntegrationsView({ organizationId }: { organizationId?: stri
               columns={[
                 { key: "provider", label: "Aplicación", render: (row) => <ProviderName provider={row.provider} size={16} /> },
                 { key: "account_name", label: "Cuenta", render: (row) => row.account_name ?? "Cuenta" },
-                { key: "status", label: "Estado", render: (row) => <CellStatus status={row.status} /> },
+                { key: "status", label: "Estado", render: (row) => <CellStatus status={row.status} needsReconnect={row.needs_reconnect} /> },
                 { key: "last_sync_at", label: "Último dato", render: (row) => timeAgo(row.last_sync_at) ?? "Sin sincronización" },
               ]}
             />
@@ -174,22 +176,22 @@ function PlatformAdminIntegrationsRouter() {
   return <AdminClientIntegrationsView organizationId={organizationId ?? undefined} />;
 }
 
-// Consultor sin tienda propia: el modulo no esta en su menu (las conexiones
-// de sus clientes las conecta cada cliente). Si llega por un enlace viejo, en
-// vez de un error se le lleva a Tiendas, donde puede crear la suya.
-function NoOwnStore() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace("/tiendas");
-  }, [router]);
-  return (
-    <div className="portal-page">
-      <EmptyState
-        title="Integraciones es para tus tiendas propias"
-        hint="Las conexiones de tus clientes las gestiona cada cliente; su estado lo ves en Clientes. Te llevamos a Tiendas para crear la tuya."
-      />
-    </div>
+const CONSULTANT_VIEWS = ["tienda", "cartera"] as const;
+
+// Integraciones vive dentro de Configuración. El consultor la ve de tres
+// formas: la cartera entera (?vista=cartera o sin cliente activo), un cliente
+// en solo lectura (sus cuentas las conecta el cliente) o su tienda propia, que
+// sí conecta él y usa el mismo hub que un cliente.
+function ConsultantIntegrationsRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId } = useActiveOrganization();
+  const [view] = useUrlSection("vista", CONSULTANT_VIEWS, "tienda");
+  const activeIsOwnStore = bootstrap.memberships.some(
+    (membership) =>
+      membership.accessSource === "membership" && membership.organization_id === organizationId,
   );
+  if (view === "cartera" || !organizationId) return <AdminClientIntegrationsView />;
+  if (activeIsOwnStore) return <IntegrationsHub bootstrap={bootstrap} />;
+  return <AdminClientIntegrationsView organizationId={organizationId} />;
 }
 
 function IntegrationsRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
@@ -198,9 +200,8 @@ function IntegrationsRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (bootstrap.profile.platform_role === "platform_admin") {
     return <PlatformAdminIntegrationsRouter />;
   }
-  const hasOwnStore = bootstrap.memberships.some((membership) => membership.accessSource !== "consultant_assignment");
-  if (bootstrap.profile.platform_role === "consultant" && !hasOwnStore) {
-    return <NoOwnStore />;
+  if (bootstrap.profile.platform_role === "consultant") {
+    return <ConsultantIntegrationsRouter bootstrap={bootstrap} />;
   }
   return <IntegrationsHub bootstrap={bootstrap} />;
 }

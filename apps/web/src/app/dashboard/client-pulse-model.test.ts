@@ -81,3 +81,36 @@ test("las monedas agrupan también con cuatro cifras y usan el menos tipográfic
   assert.equal(fmtCurrency(7463, "EUR").replace(/ /g, " "), "7.463 €");
   assert.equal(fmtCurrency(-7463, "EUR").replace(/ /g, " "), "−7.463 €");
 });
+
+import { changeText, clientReadable, pickFinding, shortMoney } from "./client-pulse-model";
+
+test("cada sección recibe su propio hallazgo y no repite el de otra", () => {
+  const sales = { title: "Ventas netas de 48.596,60 € en 881 pedidos", severity: "info", evidence: "" };
+  const meta = { title: "El ROAS de Meta cae en prospección", severity: "high", evidence: "", area: "meta" };
+  const diagnostic = {
+    output: {
+      sections: [{ key: "adquisicion", label: "Adquisición", findings: [sales, meta] }],
+      findings: [],
+    },
+  };
+  const taken = new Set<typeof sales>();
+  assert.equal(pickFinding(diagnostic, /meta|adquis/i, taken), meta, "prefiere el que habla de Meta");
+  assert.equal(pickFinding(diagnostic, /adquis|canal/i, taken), sales);
+  assert.equal(pickFinding(diagnostic, /adquis|canal/i, taken), null, "no repite");
+});
+
+test("el texto de la IA pierde las frases con jerga de sistema", () => {
+  const evidence =
+    "Lecturas disponibles: Sudadera 25, Camiseta 40, Bolso 12. Estado tracked_current para los tres productos. inventory_sync_is_stale=true. La sincronización tenía 99,9 horas.";
+  assert.equal(clientReadable(evidence), "Lecturas disponibles: Sudadera 25, Camiseta 40, Bolso 12. La sincronización tenía 99,9 horas.");
+  assert.equal(clientReadable("days_of_cover y coverageDays son null."), null);
+  assert.equal(clientReadable("Última sincronización 2026-10-09 06:09:50 UTC."), null);
+});
+
+test("las variaciones grandes y los ejes se leen en español", () => {
+  assert.equal(changeText(319), "×4,2");
+  assert.equal(changeText(42.4), "42 %");
+  assert.equal(changeText(-0.1), "0,1 %");
+  assert.equal(shortMoney(23100), "23 mil €");
+  assert.equal(shortMoney(54200), "54 mil €");
+});

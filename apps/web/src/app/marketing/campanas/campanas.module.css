@@ -2,21 +2,21 @@
    como único acento, IBM Plex Sans para todo, cifras tabulares. */
 
 .stage {
-  --paper: #faf9f7; --surface: #ffffff; --surface-2: #f7f7f5; --sunken: #e7e7e3;
-  --ink: #16181b; --ink-2: #474b51; --ink-3: #62666d;
-  --line: #dadad5; --line-2: #ebebe7;
-  --accent: #ff8a5b; --accent-soft: #ffe7dc; --accent-ink: #8a3310; --on-accent: #2b0e02;
-  --good: #0f7455; --good-soft: #dcf1e8; --good-bar: #2aa17f;
-  --warn: #8f4c07; --warn-soft: #fbead6; --warn-bar: #e0a030;
-  --bad: #b62a45; --bad-soft: #f9dee4; --bad-bar: #d9475f;
-  --meta: #0064e0; --meta-soft: #dce9fb; --today: #fffaf6;
-  --hero: #17191c; --hero-2: #212428; --hero-3: #2a2e33; --hero-ink: #f2f2ef;
-  --hero-muted: #a9adb3; --hero-line: #33373d; --hero-series: #ffb08f;
+  --paper: #f3f6f6; --surface: #ffffff; --surface-2: #f4f7f7; --sunken: #e5ecec;
+  --ink: #3d3b3a; --ink-2: #495858; --ink-3: #5c6b6b;
+  --line: #d5dfdf; --line-2: #e6eded;
+  --accent: #176b64; --accent-soft: #e3f1ee; --accent-ink: #176b64; --on-accent: #ffffff;
+  --good: #0f7455; --good-soft: #dcefe5; --good-bar: #2aa17f;
+  --warn: #8f4c07; --warn-soft: #f9e6d3; --warn-bar: #e0a030;
+  --bad: #b62a45; --bad-soft: #f7dde1; --bad-bar: #d9475f;
+  --meta: #3b6fd8; --meta-soft: #dce9fb; --today: #e3f1ee;
+  --hero: #ffffff; --hero-2: #f4f7f7; --hero-3: #e5ecec; --hero-ink: #3d3b3a;
+  --hero-muted: #5c6b6b; --hero-line: #d5dfdf; --hero-series: #176b64;
   box-sizing: border-box;
   width: min(100%, 96rem);
   margin-inline: auto;
-  padding: 18px;
-  border-radius: 28px;
+  padding: 0;
+  border-radius: 16px;
   background: var(--paper);
   color: var(--ink);
   font: 400 14px/1.55 var(--font-plex-sans), "IBM Plex Sans", system-ui, sans-serif;
@@ -72,10 +72,10 @@
 .neg { color: var(--bad); }
 
 /* ---------- hero ---------- */
-.hero { display: grid; gap: 22px; padding: 28px 32px 26px; border: 1px solid var(--hero-line); border-radius: 24px; background: var(--hero); color: var(--hero-ink); }
+.hero { display: grid; gap: 22px; padding: 24px; border: 1px solid var(--hero-line); border-radius: 16px; background: var(--hero); color: var(--hero-ink); }
 .heroTop { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; align-items: start; }
-.meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 14px !important; color: var(--hero-muted); font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; line-height: 1.4; text-transform: uppercase; }
-.headline { max-width: 34ch; font-size: clamp(26px, 3vw, 40px); font-weight: 400; letter-spacing: -0.018em; line-height: 1.16; text-wrap: balance; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px !important; color: var(--hero-muted); font-size: 13px; font-weight: 400; line-height: 1.5; }
+.headline { max-width: 38ch; font-size: clamp(26px, 2.3vw, 32px); font-weight: 600; letter-spacing: -0.025em; line-height: 1.25; text-wrap: balance; }
 .detail { max-width: 64ch; margin-top: 12px !important; color: var(--hero-muted); font-size: 14.5px; }
 .detail .ia { margin-right: 6px; vertical-align: 2px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
@@ -218,15 +218,7 @@
 
 /* ---------- tema del cliente: petróleo + azafrán (mismo que Mi Camino y el panel Pulso) ---------- */
 .stage.client {
-  --paper: #edf1f1; --surface-2: #f4f7f7; --sunken: #e2e9ea;
-  --ink: #0b2a33; --ink-2: #46626a; --ink-3: #5c757b;
-  --line: #d3dee0; --line-2: #e5eced;
-  --accent: #f2b705; --accent-soft: #fcf0c4; --accent-ink: #6e5000; --on-accent: #1d1500;
-  --good: #11806a; --good-soft: #daf0e9;
-  --warn: #c0600e; --warn-soft: #fbe8d5;
-  --bad: #bf2f49; --bad-soft: #f8dde2;
-  --hero: #0b2a33; --hero-2: #12363f; --hero-ink: #eaf3f2; --hero-muted: #95b0b5; --hero-line: #24505b;
-  --today: #fdf8e4;
+  color: var(--ink);
 }
 
 /* ---------- navegación de mes: compacta, dentro del calendario (la navegación del módulo vive en el menú) ---------- */
@@ -301,7 +293,7 @@
 .emlB .cta { justify-self: start; display: inline-flex; align-items: center; min-height: 40px; padding: 0 20px; border-radius: 10px; background: var(--ink); color: #fff; font-size: 14px; font-weight: 600; }
 .fld.inline input, .fld.inline textarea { background: var(--surface); }
 .crt { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
-.crtImg { display: grid; place-items: center; aspect-ratio: 4 / 5; border-radius: 14px; background: linear-gradient(135deg, var(--sunken), var(--line)); color: var(--ink-3); font-size: 12px; text-align: center; padding: 12px; }
+.crtImg { display: grid; place-items: center; aspect-ratio: 4 / 5; border-radius: 14px; background: var(--surface-2); color: var(--ink-3); font-size: 12px; text-align: center; padding: 12px; }
 .flow { display: grid; gap: 0; }
 .fs { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 0; border-top: 1px solid var(--line-2); }
 .fs:first-child { border-top: 0; padding-top: 0; }
@@ -392,4 +384,7 @@
 }
 @media (max-width: 640px) {
   .qa { grid-template-columns: minmax(0, 1fr); }
+  .btn, .btn.sm, .btn.icon, .mnav .btn.icon, .seg button { min-height: 44px; }
+  .btn.icon, .mnav .btn.icon { width: 44px; }
+  .btn { white-space: normal; line-height: 1.4; padding-block: 8px; }
 }

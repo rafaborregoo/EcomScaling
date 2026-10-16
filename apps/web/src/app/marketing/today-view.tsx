@@ -6,7 +6,7 @@ import { formatMoney } from "@/lib/money";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { CampaignItem } from "@/hooks/use-campaign-items";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
-import { HeroBlock, StatusStrip, heroPrimary } from "@/components/trabajo-ui";
+import { HeroBlock, StatusStrip, heroPrimary, WorkPageHeader } from "@/components/trabajo-ui";
 import { Button, ButtonLink, Card } from "@/components/ui";
 import { audienceSize, STATE_LABEL, UPCOMING, type CampaignPlanSummary, type CampaignRow } from "./campaign-rows";
 import { flowKind, flowStatus, int, KEY_FLOWS, pct, ratio, type KWorkspace } from "./klaviyo-workspace";
@@ -245,6 +245,7 @@ export function TodayView({
 
   return (
     <div className={s.root}>
+      <WorkPageHeader title="Hoy en Marketing">Revisa lo que necesita una decisión y prepara los próximos envíos de tu tienda.</WorkPageHeader>
       <HeroBlock label={hero.label} title={hero.title} actions={hero.action}>
         {hero.meta}
       </HeroBlock>
@@ -266,7 +267,7 @@ export function TodayView({
             ? [
                 {
                   value: formatMoney(last7, currency),
-                  label: "EUR atribuidos por Klaviyo · 7 d",
+                  label: "Ingresos atribuidos por Klaviyo · 7 d",
                   hint: prev7 ? `${last7 >= prev7 ? "+" : "−"}${Math.abs(Math.round((last7 / prev7 - 1) * 100))} % frente a la semana anterior` : undefined,
                   tone: last7 > 0 ? ("good" as const) : undefined,
                 },
@@ -287,7 +288,7 @@ export function TodayView({
         actions={<span className={s.muted}>{`${week[0]!.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} – ${week[6]!.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`}</span>}
       >
         <div className="grid gap-3">
-          <div className={s.weekBox}>
+          <div className={s.weekBox} role="region" aria-label="Calendario de esta semana; desplázate para ver todos los días" tabIndex={0}>
             <div className={s.week}>
               {week.map((day) => {
                 const isToday = day.getTime() === today.getTime();
@@ -391,7 +392,7 @@ export function TodayView({
                 <p className={s.muted}>
                   {campaignPlan
                     ? "El último plan no tiene acciones futuras. Revisa sus avisos o pide una propuesta nueva."
-                    : "A05 consulta ventas, margen, stock, email, Meta y conocimiento para proponer qué planificar y cuándo."}
+                    : "El plan cruza ventas, margen, stock y resultados de marketing para proponer qué preparar y cuándo."}
                 </p>
                 <Button size="sm" onClick={onPropose}>
                   {campaignPlan ? "Ver en Campañas" : "Ir a Campañas"}
@@ -421,7 +422,7 @@ export function TodayView({
             )}
           </Card>
           {connected ? (
-            <Card title="Últimos envíos" actions={<span className={s.muted}>EUR atribuidos por Klaviyo</span>}>
+            <Card title="Últimos envíos" actions={<span className={s.muted}>Ingresos atribuidos por Klaviyo</span>}>
               {sent.length ? (
                 <div className="grid">
                   {sent.map((row) => (

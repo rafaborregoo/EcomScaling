@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { agentTagForPath } from "@/lib/agent-tag";
 import { useActiveConnection } from "@/components/active-connection";
 import { useInsights } from "@/components/insights-context";
 import { insightSpotsFromFindingAreas } from "@/lib/insights-registry";
@@ -827,11 +828,18 @@ export function AiDiagnosticSection({
     }
   }
 
+  const generatedAt = diagnostic?.generated_at
+    ? new Date(diagnostic.generated_at)
+    : null;
+  const generatedAtLabel =
+    generatedAt && Number.isFinite(generatedAt.getTime())
+      ? generatedAt.toLocaleString()
+      : null;
   const meta = diagnostic && showMeta ? (
     <span className="text-xs text-muted">
       {days ? `últimos ${days} días · ` : ""}
-      {diagnostic.from_cache ? "generado" : "recién generado"} el{" "}
-      {new Date(diagnostic.generated_at).toLocaleString()}
+      {diagnostic.from_cache ? "generado" : "recién generado"}
+      {generatedAtLabel ? ` el ${generatedAtLabel}` : " · fecha no disponible"}
       {diagnostic.envelope && diagnostic.envelope.freshness.status !== "fresh"
         ? ` · datos ${
             freshnessLabelsEs[diagnostic.envelope.freshness.status] ??
@@ -1194,6 +1202,7 @@ export function AiDiagnosticSection({
 
           {diagnostic.output.headline ? (
             <p className="text-sm font-semibold text-foreground">
+              <span className="mr-1.5 text-muted">{agentTagForPath(getPath)} ·</span>
               {diagnostic.output.headline}
             </p>
           ) : null}
@@ -1322,6 +1331,7 @@ export function AiDiagnosticSection({
                   variant === "full" ? " mt-1" : ""
                 }${answerExpanded ? "" : " line-clamp-3"}`}
               >
+                <span className="mr-1.5 text-muted">{agentTagForPath(getPath)} ·</span>
                 {humanizeAgentText(diagnostic.output.answer ?? "")}
               </p>
               {(diagnostic.output.answer?.length ?? 0) > 220 ? (
@@ -1482,7 +1492,7 @@ export function AiDiagnosticSection({
     <Card
       title={
         <span className="flex items-center gap-2 text-base font-semibold text-foreground">
-          <Badge tone="brand">IA</Badge>
+          <Badge tone="brand">{agentTagForPath(getPath)}</Badge>
           {title}
         </span>
       }

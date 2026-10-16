@@ -6,7 +6,7 @@ export async function persistAgentEvalEvidence(
   supabase: SupabaseClient,
   payload: AgentEvalEvidencePayload,
 ): Promise<{ evaluationId: string }> {
-  const { data, error } = await supabase.rpc(
+  const { data, error } = await supabase.schema("private").rpc(
     "record_agent_version_evaluation",
     { p_payload: payload },
   );

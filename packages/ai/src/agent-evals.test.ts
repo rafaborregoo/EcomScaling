@@ -25,7 +25,7 @@ const EXPECTED_ACTIVE_AGENT_CODES = [
   "a19_arquitecto_camino", "a19_revision_camino", "a20_retencion_clientes",
   "a21_adquisicion_shopify", "a22_postventa_shopify", "a23_creatividad_meta",
   "a24_medicion_meta", "a25_cambios_meta", "a26_contenido_email",
-  "a27_planificador_mailing", "a28_arquitecto_flujos",
+  "a27_planificador_mailing", "a28_arquitecto_flujos", "a29_analista_metrica",
 ];
 
 test("la matriz cubre todos los agentes activos", () => {

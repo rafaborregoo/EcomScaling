@@ -16,7 +16,7 @@ try {
        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'private' and p.proname = 'agent_version_has_release_evidence'
        order by p.oid desc limit 1) as gate,
-      exists (select 1 from supabase_migrations.schema_migrations where version = '20261216100000') as migration_applied
+      exists (select 1 from supabase_migrations.schema_migrations where version = '20261221130000') as migration_applied
   `);
   const state = rows[0];
   const gate = typeof state?.gate === "string" ? state.gate : "";
@@ -25,7 +25,7 @@ try {
     "candidate_judge_rubric_version",
     "candidate_judge_score",
     "candidate_judged_output_sha256",
-    "judge-rubrics-v1",
+    "judge-rubrics-v7",
   ];
   const missing = required.filter((field) => !gate.includes(field));
   if (state?.migration_applied !== true || missing.length) {

@@ -14,7 +14,7 @@ export type StripItem = {
 /** Franja de estado de arriba de cada página de Trabajo: 3-5 cifras. */
 export function StatusStrip({ items }: { items: StripItem[] }) {
   return (
-    <section className={s.strip}>
+    <section className={s.strip} aria-label="Estado del trabajo">
       {items.map((item) => (
         <div key={item.label} className={item.tone ? s[item.tone] : undefined}>
           <b className={item.text ? s.text : undefined}>{item.value}</b>
@@ -41,8 +41,8 @@ export function HeroBlock({
 }) {
   return (
     <section className={s.hero}>
-      <span className={s.heroLabel}>{label}</span>
       <h2>{title}</h2>
+      <p className={s.heroLabel}>{label}</p>
       {children ? <div className={s.heroBody}>{children}</div> : null}
       {actions ? <div className={s.heroActs}>{actions}</div> : null}
     </section>
@@ -51,3 +51,7 @@ export function HeroBlock({
 
 /** Clase para el botón principal dentro de HeroBlock. */
 export const heroPrimary = s.primary;
+
+export function WorkPageHeader({ title, children }: { title: string; children?: ReactNode }) {
+  return <header className={s.pageHeader}><h1>{title}</h1>{children ? <p>{children}</p> : null}</header>;
+}

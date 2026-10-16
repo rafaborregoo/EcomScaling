@@ -154,6 +154,14 @@ function daysUntil(date: string, today: Date) {
   return Math.round((Date.parse(`${date.slice(0, 10)}T00:00:00`) - start) / DAY_MS);
 }
 
+function count(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function stopsOf(points: Layout["points"], phase: MapPhase) {
+  return points.flatMap((point) => (point.kind === "stop" && point.stop.phase.id === phase.id ? [point.stop] : []));
+}
+
 function esc(text: string) {
   return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
@@ -165,17 +173,15 @@ function esc(text: string) {
 // Cliente: petróleo + azafrán. Consultor: grafito + mandarina, como su mesa.
 export type MapVariant = "client" | "consultant";
 export type DiscussTopic = { code: string; name: string; targetDate: string | null; doneTasks: number; totalTasks: number; late: boolean };
-const PALETTES = {
-  client: { goodPill: "#0d5c4c", acc: "#f2b705", dk: "#071a20", onAcc: "#1d1500", ink: "#eaf3f2", good: "#11806a", p1: "#1a4550", p2: "#12363f", l1: "#3f7280", l2: "#24505b", mu: "#95b0b5", lock: "#2a5561", lockIcon: "#c7d8da" },
-  consultant: { goodPill: "#0f6b4f", acc: "#ff8a5b", dk: "#0e0f11", onAcc: "#2b0e02", ink: "#eeeeea", good: "#12805f", p1: "#2a2e33", p2: "#212428", l1: "#4a4f56", l2: "#33373c", mu: "#a3a7ad", lock: "#3a3e44", lockIcon: "#c9ccd1" },
-};
+const WORK_MAP_PALETTE = { goodPill: "#e3f1ee", acc: "#176b64", dk: "#3d3b3a", onAcc: "#ffffff", ink: "#3d3b3a", good: "#2f7d5b", p1: "#e3f1ee", p2: "#f4f7f7", l1: "#176b64", l2: "#d5dfdf", mu: "#5c6b6b", lock: "#e5ecec", lockIcon: "#5c6b6b" };
+const PALETTES = { client: WORK_MAP_PALETTE, consultant: WORK_MAP_PALETTE };
 // ponytail: paleta de módulo que fija renderSvg antes de dibujar (render síncrono).
 let P = PALETTES.client;
 
 function pill(x: number, y: number, text: string, tone: "dark" | "good" | "accent" = "dark", strong = false) {
   const w = Math.round(text.length * (strong ? 6.9 : 6.4) + 20);
   const bg = tone === "good" ? P.goodPill : tone === "accent" ? P.acc : P.dk;
-  const fg = tone === "accent" ? P.onAcc : P.ink;
+  const fg = tone === "good" ? P.ink : P.onAcc;
   return `<g aria-hidden="true"><rect x="${x - w / 2}" y="${y - 11}" width="${w}" height="22" rx="11" fill="${bg}" fill-opacity="${tone === "dark" ? 0.88 : 1}"/><text x="${x}" y="${y + 4}" text-anchor="middle" style="font:${strong ? 600 : 500} 11.5px var(--font-plex-sans),system-ui,sans-serif;fill:${fg}">${esc(text)}</text></g>`;
 }
 
@@ -221,7 +227,8 @@ function buildLayout(phases: MapPhase[], stops: Stop[]): Layout {
   const out: Layout = { width: 0, phases: [], points: [] };
   phases.forEach((phase, index) => {
     const own = stops.filter((stop) => stop.phase.id === phase.id);
-    const width = Math.max(380, 190 + own.length * 120);
+    // El ancho también sigue al nombre de la fase para no cortarlo con «…».
+    const width = Math.max(380, 190 + own.length * 120, Math.ceil(phase.name.length * 8.8) + 70);
     const span = width - 190;
     own.forEach((stop, i) => {
       out.points.push({ kind: "stop", stop, x: x0 + 80 + (own.length > 1 ? (i * span) / (own.length - 1) : span / 2), y: YS[i % YS.length] });
@@ -248,18 +255,11 @@ function renderSvg(layout: Layout, selectedId: string | null, adventure: boolean
     svg += adventure
       ? scene(x0, pw, index, phaseLocked(phase))
       : `<rect x="${x0 + 10}" y="62" width="${pw - 20}" height="${H - 80}" rx="28" fill="${active ? P.p1 : P.p2}" stroke="${active ? P.l1 : P.l2}" opacity="${phaseLocked(phase) ? 0.6 : 1}"/>`;
-    svg += `<text x="${x0 + 30}" y="32" style="font:600 10px var(--font-plex-sans),system-ui,sans-serif;letter-spacing:.12em;fill:${P.mu}">FASE ${index + 1}</text><text x="${x0 + 30}" y="51" style="font:600 15px var(--font-plex-sans),system-ui,sans-serif;fill:${P.ink}"><title>${esc(phase.name)}</title>${esc(phase.name.length > 42 ? `${phase.name.slice(0, 40)}…` : phase.name)}</text>`;
-  });
-
-  phases.forEach(({ phase, x0 }) => {
-    const phaseStops = points.flatMap((point) =>
-      point.kind === "stop" && point.stop.phase.id === phase.id ? [point.stop] : [],
-    );
-    const phaseTaskCount = phaseStops.reduce(
-      (sum, stop) => sum + stop.milestone.milestone_task_links.filter((link) => link.tasks).length,
-      0,
-    );
-    svg += `<text x="${x0 + 30}" y="72" style="font:500 11px var(--font-plex-sans),system-ui,sans-serif;fill:${P.mu}">${phaseStops.length} hitos · ${phaseTaskCount} tareas</text>`;
+    // Fase, hitos y tareas en la línea de arriba: fuera de la tarjeta, sin pisar su borde.
+    const phaseStops = stopsOf(points, phase);
+    const phaseTaskCount = phaseStops.reduce((sum, stop) => sum + stop.milestone.milestone_task_links.filter((link) => link.tasks).length, 0);
+    const phaseMetadata = `Fase ${index + 1} · ${count(phaseStops.length, "hito", "hitos")} · ${count(phaseTaskCount, "tarea", "tareas")}`;
+    svg += `<text x="${x0 + 30}" y="32" style="font:600 11px var(--font-plex-sans),system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;fill:${P.mu}">${phaseMetadata}</text><text x="${x0 + 30}" y="53" style="font:600 15px var(--font-plex-sans),system-ui,sans-serif;fill:${P.ink}"><title>${esc(phase.name)}</title>${esc(phase.name)}</text>`;
   });
 
   for (let i = 0; i < points.length - 1; i += 1) {
@@ -503,7 +503,9 @@ export function CaminoMap({
         <div
           ref={mapRef}
           className={s.map}
-          aria-label={`Mapa del camino: ${phases.length} fases y ${stops.length} hitos. Desliza para verlo entero.`}
+          role="region"
+          tabIndex={0}
+          aria-label={`Mapa del camino: ${phases.length} fases y ${stops.length} hitos. Desplázalo con las flechas para verlo entero.`}
           onClick={(event) => pickFromEvent(event.target)}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -532,7 +534,7 @@ export function CaminoMap({
                 }}
               >
                 <i style={{ background: state[0] }} />
-                Fase {index + 1} · {phase.name} <small>{state[1]}</small>
+                Fase {index + 1} · {phase.name} {planStatus === "draft" ? null : <small>{state[1]}</small>}
               </button>
             );
           })}
@@ -571,16 +573,17 @@ export function CaminoMap({
         <WeeklyReview review={review} formatGoal={formatGoal} renderChangeDecision={renderChangeDecision} onApproveLearning={onApproveLearning} baseline={baseline} target={target} />
       ) : null}
       {planTasks.some((task) => task.plan_meta?.track) ? (
-        <section className={s.level} aria-label="Carriles de trabajo">
+        <div className={`${s.level} ${s.levelFull}`}>
           <div className={s.panel}>
             <GrowthCycle tasks={planTasks} />
           </div>
-        </section>
+        </div>
       ) : null}
       {goal?.monthly_targets?.length ? (
-        <section className={s.level} aria-label="Ruta económica mes a mes">
+        <div className={`${s.level} ${s.levelFull}`}>
           <div className={s.panel}>
             <MonthlyRoute
+              headingLevel={2}
               targets={goal.monthly_targets}
               baseline={goal.baseline}
               format={formatGoal}
@@ -589,7 +592,7 @@ export function CaminoMap({
               goalTarget={goal.target}
             />
           </div>
-        </section>
+        </div>
       ) : null}
     </div>
   );
@@ -635,14 +638,18 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
   const canTick = canResolveTasks && !draft && (state === "current" || state === "pending");
 
   return (
-    <section className={`${s.panel} ${s.sheet}`} aria-live="polite" aria-label={`Hito ${code}`}>
+    <section className={`${s.panel} ${s.sheet}`} aria-labelledby={`camino-hito-title-${milestone.id}`}>
+      {/* Anuncia solo el cambio de hito; con aria-live en toda la ficha el lector leía cientos de palabras. */}
+      <p className="sr-only" role="status">
+        Hito {code} seleccionado: {milestone.name}
+      </p>
       <div className={s.lvTop}>
         <span className={s.lvCode}>
           Hito {code} · Fase {code.split(".")[0]} «{phase.name}»
         </span>
         <span className={`${s.chip} ${chip[0]}`}>{chip[1]}</span>
       </div>
-      <h2 className={s.lvTitle}>{milestone.name}</h2>
+      <h2 id={`camino-hito-title-${milestone.id}`} className={s.lvTitle}>{milestone.name}</h2>
       {text ? <p className={s.lvDesc}>{text}</p> : null}
       <div className={s.sheetGrid}>
         <div className={s.col}>
@@ -684,20 +691,6 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
               })}
             </div>
           ) : null}
-          <div className={s.discussion}>
-            <strong>{variant === "consultant" ? "Hablar de este hito con el cliente" : "¿Lo revisas con tu consultor?"}</strong>
-            {onDiscuss ? (
-              <button
-                type="button"
-                className={s.btn}
-                onClick={() => onDiscuss({ code, name: milestone.name, targetDate: milestone.target_date, doneTasks: done, totalTasks: tasks.length, late: days !== null && days < 0 && state !== "done" })}
-              >
-                Escribir sobre este hito
-              </button>
-            ) : (
-              <a className={s.btn} href="/mensajes">Abrir Comunicación</a>
-            )}
-          </div>
         </div>
         <div className={s.col}>
           <div className={s.sech}>
@@ -729,12 +722,16 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                     <label htmlFor={`camino-task-${task.id}`}>
                       <span className={s.taskT}>{task.title}</span>
                       <span className={s.taskM}>
-                        <span>{sourceLabels[task.source] ?? displayValue(task.source)}</span>
-                        {task.created_by_origin ? <span>· {task.created_by_origin === "consultant" ? "Consultor" : variant === "consultant" ? "Cliente" : "Tú"}</span> : null}
-                        {metaOwnerLabel(task.plan_meta, variant === "client") ? <span>· {metaOwnerLabel(task.plan_meta, variant === "client")}</span> : null}
-                        {trackLabel(task.plan_meta?.track) ? <span>· {[trackLabel(task.plan_meta?.track), cadenceLabel(task.plan_meta?.cadence)].filter(Boolean).join(" · ")}</span> : null}
-                        {formatEffort(task.plan_meta?.effort_hours) ? <span>· {formatEffort(task.plan_meta?.effort_hours)}</span> : null}
-                        {task.priority === "urgent" || task.priority === "high" ? <span className={task.priority === "urgent" ? s.late : s.prio}>· {task.priority === "urgent" ? "Urgente" : "Prioridad alta"}</span> : null}
+                        {/* En el Camino todas las tareas son «Mi Camino»; el origen solo se dice si es otro. */}
+                        {task.source !== "strategic_plan" ? <span>{sourceLabels[task.source] ?? displayValue(task.source)}</span> : null}
+                        {metaOwnerLabel(task.plan_meta, variant === "client") ? (
+                          <span>{metaOwnerLabel(task.plan_meta, variant === "client")}</span>
+                        ) : task.created_by_origin ? (
+                          <span>{task.created_by_origin === "consultant" ? "Consultor" : variant === "consultant" ? "Cliente" : "Tú"}</span>
+                        ) : null}
+                        {trackLabel(task.plan_meta?.track) ? <span>{[trackLabel(task.plan_meta?.track), cadenceLabel(task.plan_meta?.cadence)].filter(Boolean).join(" · ")}</span> : null}
+                        {formatEffort(task.plan_meta?.effort_hours) ? <span>{formatEffort(task.plan_meta?.effort_hours)}</span> : null}
+                        {task.priority === "urgent" || task.priority === "high" ? <span className={task.priority === "urgent" ? s.late : s.prio}>{task.priority === "urgent" ? "Urgente" : "Prioridad alta"}</span> : null}
                       </span>
                     </label>
                     <span className={`${s.due} ${late ? s.late : ""}`}>{task.due_at ? shortDate(task.due_at) : ""}</span>
@@ -780,6 +777,20 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
           )}
         </div>
       </div>
+      <div className={s.discussion}>
+        <strong>{variant === "consultant" ? "Hablar de este hito con el cliente" : "¿Lo revisas con tu consultor?"}</strong>
+        {onDiscuss ? (
+          <button
+            type="button"
+            className={s.btn}
+            onClick={() => onDiscuss({ code, name: milestone.name, targetDate: milestone.target_date, doneTasks: done, totalTasks: tasks.length, late: days !== null && days < 0 && state !== "done" })}
+          >
+            Escribir sobre este hito
+          </button>
+        ) : (
+          <a className={s.btn} href="/mensajes">Abrir Comunicación</a>
+        )}
+      </div>
       {extra}
     </section>
   );
@@ -805,7 +816,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, onApproveLearn
         </span>
         <h2 className={s.lvTitle}>Esta semana en tu camino</h2>
         <p className={s.summary}>
-          <span className={s.ia}>IA</span>
+          <span className={s.ia}>A19</span>
           {output.executive_summary}
         </p>
         {observed !== null && target !== null ? (

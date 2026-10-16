@@ -2,16 +2,17 @@
    azafrán en consultor, coral en cliente) con respaldo del tema petróleo. */
 
 .root {
-  --ms-line: var(--tw-line, #d3dee0);
+  --ms-line: var(--tw-line, #d5dfdf);
   --ms-surface: var(--tw-surface-2, #f4f7f7);
-  --ms-ink: var(--tw-ink, #0b2a33);
-  --ms-ink-3: var(--tw-ink-3, #5c757b);
-  --ms-accent: var(--tw-accent, #f2b705);
-  --ms-accent-soft: var(--tw-accent-soft, #fcf0c4);
-  --ms-accent-ink: var(--tw-accent-ink, #6e5000);
+  --ms-ink: var(--tw-ink, #3d3b3a);
+  --ms-ink-3: var(--tw-ink-3, #5c6b6b);
+  --ms-accent: var(--tw-accent, #176b64);
+  --ms-accent-soft: var(--tw-accent-soft, #e3f1ee);
+  --ms-accent-ink: var(--tw-accent-ink, #176b64);
   --ms-bad: #b3361f;
   --ms-bad-soft: #f8e0da;
   display: grid;
+  min-width: 0;
   gap: 16px;
 }
 
@@ -21,7 +22,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   background: #fff;
   border: 1px solid var(--ms-line);
-  border-radius: 10px;
+  border-radius: 16px;
 }
 .pulse button {
   all: unset;
@@ -66,13 +67,13 @@
   grid-template-columns: 320px minmax(0, 1fr) 300px;
   background: #fff;
   border: 1px solid var(--ms-line);
-  border-radius: 10px;
+  border-radius: 16px;
   overflow: hidden;
   height: calc(100svh / var(--ui-zoom, 1) - 17rem);
   min-height: 34rem;
 }
 .inbox[data-client] {
-  height: calc(100svh / var(--ui-zoom, 1) - 11rem);
+  height: calc(100svh / var(--ui-zoom, 1) - 16rem);
 }
 .inbox[data-nolist] {
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -93,6 +94,7 @@
   border-bottom: 1px solid var(--ms-line);
 }
 .search {
+  min-height: 40px;
   width: 100%;
   border: 1px solid var(--ms-line);
   border-radius: 999px;
@@ -111,6 +113,9 @@
   gap: 6px;
 }
 .chip {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--ms-line);
   background: #fff;
   color: var(--ms-ink);
@@ -166,7 +171,7 @@
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 3px;
+  width: 1px;
   background: var(--ms-accent);
 }
 .avatar {
@@ -300,11 +305,9 @@
 }
 .block h3 {
   margin: 0;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--ms-ink-3);
+  color: var(--ms-ink);
 }
 .item {
   display: grid;
@@ -372,6 +375,11 @@
   }
 }
 @media (max-width: 760px) {
+  .chip, .search { min-height: 44px; }
+  .inbox, .inbox[data-client] {
+    height: calc(100dvh / var(--ui-zoom, 1) - 21rem);
+    min-height: 28rem;
+  }
   .pulse {
     grid-template-columns: 1fr 1fr;
   }

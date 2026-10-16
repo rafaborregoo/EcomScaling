@@ -1,0 +1,34 @@
+{
+  "S01": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "nada: inventario, ventas, backlog y Camino reales del 15-oct-2026."
+  },
+  "S02": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "la tarea en curso de reposición de la Sudadera Capucha Arcilla."
+  },
+  "S03": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "el fallo de sincronización de inventario (5 días sin sincronizar)."
+  },
+  "S04": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "el stock de todos los productos (45 días de cobertura)."
+  },
+  "S05": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "la tarea ignorada y la cobertura sana del resto."
+  },
+  "S06": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "el producto nuevo y la cobertura sana del resto."
+  },
+  "S07": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "la campaña de Black Friday con 30 % sobre la Chaqueta Boreal Negra y su cobertura de 20 días."
+  },
+  "S08": {
+    "real": "Inventario, ventas, serie semanal, backlog y Camino de E-NORA Demo a 15-oct-2026",
+    "inventado": "la sincronización parcial de la Chaqueta Boreal Negra."
+  }
+}

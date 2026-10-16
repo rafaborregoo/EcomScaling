@@ -50,7 +50,6 @@ export function StockForecastCard({
     <section className={s.card} aria-labelledby="stock-forecast-title">
       <div className={s.header}>
         <div>
-          <p className={s.eyebrow}>Agente de inventario</p>
           <h2 id="stock-forecast-title">Demanda prevista y cobertura</h2>
         </div>
         <span className={`${s.badge} ${tone}`}>{riskLabel[result.risk]}</span>

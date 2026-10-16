@@ -733,10 +733,16 @@ function renderBlockHtml(block: StudioBlock, brand: StudioBrand, campaign: strin
  * El HTML que se guarda con el borrador y se sube a Klaviyo. Lleva las
  * etiquetas de baja de Klaviyo en el pie: sin ellas Klaviyo no deja enviar.
  */
-export function renderEmailHtml(design: StudioDesign, meta: { preheader?: string; campaign?: string } = {}): string {
+export function renderEmailHtml(design: StudioDesign, meta: { preheader?: string; campaign?: string; blockIds?: boolean } = {}): string {
   const { brand } = design;
   const campaign = meta.campaign ?? "nora";
-  const body = design.blocks.map((block) => renderBlockHtml(block, brand, campaign)).join("\n");
+  // `blockIds`: marca cada fila con su bloque (data-block) para que el editor móvil sepa cuál se toca. No se guarda ni se envía.
+  const body = design.blocks
+    .map((block) => {
+      const html = renderBlockHtml(block, brand, campaign);
+      return meta.blockIds ? html.replace(/^<tr/, `<tr data-block="${block.id}"`) : html;
+    })
+    .join("\n");
   const preheader = meta.preheader?.trim()
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(meta.preheader)}</div>`
     : "";

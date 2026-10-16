@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { JUDGE_RUBRIC_VERSION } from "@e-nora/ai";
 import { agentReleaseEvalFixtureSchema, buildAgentReleaseFixtureLiveEvalCases, validateAgentReleaseEvalFixture } from "./agent-release-eval-fixture.js";
 import { runAgentReleaseFixtureEvaluation } from "./agent-release-eval-fixtures.js";
 
@@ -24,7 +25,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
     schema_version: "agent-release-replay-v1",
     agent_code: "a05_estrategia_campanas",
     dataset_version: "release-replay-v1",
-    rubric_version: "judge-rubrics-v1",
+    rubric_version: JUDGE_RUBRIC_VERSION,
     split: "development",
     provenance: "synthetic",
     privacy_reviewed: false,
@@ -117,6 +118,8 @@ test("servicio ejecuta solo IDs elegidos y mantiene la suite incompleta sin el u
           rubric_version: raw.rubric_version, fixture: raw }], error: null };
       } }) };
     },
+    // El guardado de evidencias vive en el esquema private.
+    schema: () => supabase,
     rpc: async (name: string, args: { p_payload?: any }) => {
       if (name === "capture_agent_version_release_manifest") return { data: { manifest_sha256: "a".repeat(64) }, error: null };
       persisted = args.p_payload;
@@ -150,6 +153,7 @@ test("el holdout release se reclama antes de ejecutar y no se puede reutilizar",
           rubric_version: raw.rubric_version, fixture: raw }], error: null,
       }) }) };
     },
+    schema: () => supabase,
     rpc: async (name: string) => {
       if (name === "claim_agent_release_eval_holdout") {
         if (claimed) return { data: null, error: { code: "23505", message: "duplicate key" } };

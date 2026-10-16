@@ -11,6 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { createLogger } from "@e-nora/observability";
 import { sniffImageMime, MARKETING_ASSET_EXT } from "./ai-runtime.js";
 
 type ApiEnv = {
@@ -61,7 +62,9 @@ function resolveThreadAuthorKind(
   if (!membership) return null;
   if (context.profile.platform_role === "platform_admin") return "platform";
   if (context.profile.platform_role === "consultant") return "consultant";
-  if (["owner", "manager"].includes(membership.role)) return "client";
+  // Todo el equipo del cliente lee el hilo; escribir lo frena la guarda de
+  // org-access-guard.ts para Solo lectura.
+  if (["owner", "manager", "member", "readonly"].includes(membership.role)) return "client";
   return null;
 }
 
@@ -561,6 +564,77 @@ export async function uploadThreadAttachment(
 // Enviar un mensaje (texto y/o adjuntos ya subidos)
 // --------------------------------------------------------------------------
 
+/**
+ * Aviso de mensaje nuevo al otro lado del hilo. Uno sin leer por persona y
+ * cliente basta: una conversación de diez mensajes no son diez avisos.
+ * Best-effort: enviar el mensaje no depende de avisar.
+ */
+const logger = createLogger("consultant-messages");
+
+async function notifyNewMessage(
+  supabase: ReturnType<typeof createServiceClient>,
+  context: AuthContext,
+  organizationId: string,
+  authorKind: ThreadAuthorKind,
+  body: string,
+) {
+  try {
+    const recipients =
+      authorKind === "client"
+        ? (
+            await supabase
+              .from("consultant_assignments")
+              .select("consultant_user_id")
+              .eq("organization_id", organizationId)
+              .eq("is_active", true)
+          ).data?.map((row) => row.consultant_user_id as string) ?? []
+        : (
+            await supabase
+              .from("organization_members")
+              .select("user_id")
+              .eq("organization_id", organizationId)
+              .eq("is_active", true)
+          ).data?.map((row) => row.user_id as string) ?? [];
+    const targets = [...new Set(recipients)].filter((userId) => userId !== context.user.id);
+    if (targets.length === 0) return;
+
+    const { data: pending } = await supabase
+      .from("notifications")
+      .select("user_id")
+      .eq("organization_id", organizationId)
+      .eq("type", "message")
+      .eq("status", "unread")
+      .in("user_id", targets);
+    const alreadyNotified = new Set((pending ?? []).map((row) => row.user_id as string));
+    const fresh = targets.filter((userId) => !alreadyNotified.has(userId));
+    if (fresh.length === 0) return;
+
+    const organizationName =
+      context.memberships.find((item) => item.organization_id === organizationId)?.organization
+        ?.display_name ?? "tu cliente";
+    const title =
+      authorKind === "client"
+        ? `Mensaje nuevo de ${organizationName}`
+        : `Mensaje nuevo de ${context.profile.full_name ?? "tu consultor"}`;
+    await supabase.from("notifications").insert(
+      fresh.map((userId) => ({
+        organization_id: organizationId,
+        user_id: userId,
+        type: "message",
+        title: title.slice(0, 255),
+        message: body ? body.slice(0, 280) : "Te ha enviado un archivo.",
+        action_url: "/mensajes",
+        entity_type: "consultant_client_message",
+      })),
+    );
+  } catch (error) {
+    logger.error("message_notification_failed", {
+      organization_id: organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function postThreadMessage(
   env: ApiEnv,
   context: AuthContext,
@@ -645,6 +719,8 @@ export async function postThreadMessage(
       },
       { onConflict: "organization_id,user_id" },
     );
+
+  await notifyNewMessage(supabase, context, organizationId, authorKind, body);
 
   return {
     ok: true as const,

@@ -346,7 +346,9 @@ async function notifyAlertCreated(
       [...recipients].map((userId) => ({
         organization_id: organizationId,
         user_id: userId,
-        type: "alert",
+        // Las críticas van aparte: son las que llegan al momento y saltan el
+        // horario de silencio (notification-email.ts).
+        type: ["critical", "high"].includes(template.default_severity) ? "alert_critical" : "alert",
         title,
         message: interpolate(
           template.alert_message_template,

@@ -86,7 +86,7 @@ export async function listAgentReleaseCandidatesFromClient(
   ));
 
   const [{ data: calibrationRuns, error: calibrationError }, { data: freezes, error: freezesError }] = await Promise.all([
-    supabase.from("agent_judge_calibration_runs").select("dataset_version, rubric_version, evaluation_split, status, report, created_at").eq("rubric_version", "judge-rubrics-v1").eq("evaluation_split", "holdout").order("created_at", { ascending: false }).limit(100),
+    supabase.from("agent_judge_calibration_runs").select("dataset_version, rubric_version, evaluation_split, status, report, created_at").eq("rubric_version", JUDGE_RUBRIC_VERSION).eq("evaluation_split", "holdout").order("created_at", { ascending: false }).limit(100),
     supabase.from("agent_judge_eval_dataset_freezes").select("dataset_version, manifest_sha256"),
   ]);
   if (calibrationError || freezesError) throw new Error("agent_release_judge_calibration_load_failed");

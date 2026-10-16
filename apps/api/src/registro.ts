@@ -6,6 +6,8 @@ import type { AuthContext } from "./auth-context.js";
 import { assignPartnersToOrganization } from "./consultant-partners.js";
 import { resolveInvite } from "./consultant.js";
 import { attachReferral } from "./referidos.js";
+import { insertNotifications } from "./notification-settings.js";
+import { applyClientDefaults } from "./consultora-settings.js";
 
 const logger = createLogger("registro");
 
@@ -219,6 +221,30 @@ export async function ensureOwnOrganization(
           resolved.invite.consultant_user_id,
           organization.id,
         );
+        if (resolved.invite.consulting_organization_id) {
+          await applyClientDefaults(
+            supabase,
+            resolved.invite.consulting_organization_id,
+            organization.id,
+          ).catch((error: unknown) =>
+            logger.error("registro_client_defaults_failed", {
+              organization_id: organization.id,
+              detail: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        }
+        await insertNotifications(supabase, [
+          {
+            organization_id: organization.id,
+            user_id: resolved.invite.consultant_user_id,
+            type: "client_linked",
+            title: `${organization.display_name} se ha dado de alta con tu código`,
+            message: "Ya está en tu cartera. Empieza por su configuración.",
+            action_url: "/consultor",
+            entity_type: "organization",
+            entity_id: organization.id,
+          },
+        ]).catch(() => undefined);
         await recordAuditLog(supabase, {
           organizationId: organization.id,
           actorUserId: context.user.id,

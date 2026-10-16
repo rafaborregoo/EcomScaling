@@ -1,0 +1,54 @@
+{
+  "C01": {
+    "real": "Ventas y productos de E-NORA Demo 2026-09-15..2026-10-15; backlog y Camino del 15-oct-2026; extractos RAG de la base de conocimiento",
+    "inventado": "solo la cobertura en días (las 8 uds son reales)."
+  },
+  "C02": {
+    "real": "Ventas y productos de E-NORA Demo 2026-08-01..2026-08-31; extractos RAG de la base de conocimiento",
+    "inventado": "el backlog (dos tareas plausibles) y el inventario."
+  },
+  "C03": {
+    "real": "Ventas y productos de E-NORA Demo 2026-05-01..2026-05-31; extractos RAG de la base de conocimiento",
+    "inventado": "el agotado (0 uds), el gasto de Meta en el anuncio y el backlog."
+  },
+  "C04": {
+    "real": "Ventas y productos de E-NORA Demo 2026-06-01..2026-07-01; extractos RAG de la base de conocimiento",
+    "inventado": "la caída de eventos y el gasto de Meta."
+  },
+  "C05": {
+    "real": "Ventas y productos de E-NORA Demo 2026-08-01..2026-08-31; extractos RAG de la base de conocimiento",
+    "inventado": "el estado del flow y los carritos abandonados."
+  },
+  "C06": {
+    "real": "Ventas y productos de E-NORA Demo 2025-10-28..2025-11-27; extractos RAG de la base de conocimiento",
+    "inventado": "el uso del código (los descuentos reales del periodo, 8.329 €, sí son del histórico)."
+  },
+  "C07": {
+    "real": "Ventas y productos de E-NORA Demo 2026-09-15..2026-10-15; backlog y Camino del 15-oct-2026; extractos RAG de la base de conocimiento",
+    "inventado": "la tarea en curso de reposición."
+  },
+  "C08": {
+    "real": "Ventas y productos de E-NORA Demo 2026-01-05..2026-02-04; extractos RAG de la base de conocimiento",
+    "inventado": "la tarea ignorada y la cobertura de costes."
+  },
+  "C09": {
+    "real": "Ventas y productos de E-NORA Demo 2026-09-15..2026-10-15; backlog y Camino del 15-oct-2026; extractos RAG de la base de conocimiento",
+    "inventado": "el fallo de sincronización."
+  },
+  "C10": {
+    "real": "Ventas y productos de E-NORA Demo 2026-08-01..2026-08-31; extractos RAG de la base de conocimiento",
+    "inventado": "la alerta de plataforma."
+  },
+  "R01": {
+    "real": "Ventas y productos de E-NORA Demo 2025-10-28..2025-11-27; extractos RAG de la base de conocimiento",
+    "inventado": "el atasco de preparación."
+  },
+  "R02": {
+    "real": "Ventas y productos de E-NORA Demo 2026-05-01..2026-05-31; extractos RAG de la base de conocimiento",
+    "inventado": "las devoluciones (el histórico real tiene 0 devoluciones)."
+  },
+  "R03": {
+    "real": "Ventas y productos de E-NORA Demo 2026-06-01..2026-07-01; extractos RAG de la base de conocimiento",
+    "inventado": "la caída de checkout y el cambio de tema."
+  }
+}

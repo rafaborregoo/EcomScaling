@@ -6,25 +6,32 @@
 .root {
   --mk-flow: #0086a0;
   --mk-camp: #b57f00;
-  --mk-email: #b8437a;
+  --mk-email: #a8487c;
   --mk-email-soft: #f9e6ef;
-  --mk-meta: #0064e0;
+  --mk-meta: #3b6fd8;
   --mk-meta-soft: #ece7fb;
-  --mk-warn: #c0600e;
-  --mk-warn-soft: #fbe8d5;
-  --mk-bad: #bf2f49;
-  --mk-bad-soft: #f8dde2;
-  --mk-good: var(--tw-good, #11806a);
-  --mk-good-soft: #daf0e9;
-  --mk-line: var(--tw-line, #d3dee0);
+  --mk-warn: #8b4c0d;
+  --mk-warn-soft: #f9e6d3;
+  --mk-bad: #b8364a;
+  --mk-bad-soft: #f7dde1;
+  --mk-good: var(--tw-good, #2f7d5b);
+  --mk-good-soft: #dcefe5;
+  --mk-line: var(--tw-line, #d5dfdf);
   --mk-surface-2: var(--tw-surface-2, #f4f7f7);
-  --mk-ink: var(--tw-ink, #0b2a33);
-  --mk-ink-3: var(--tw-ink-3, #5c757b);
-  --mk-accent: var(--tw-accent, #f2b705);
-  --mk-accent-soft: var(--tw-accent-soft, #fcf0c4);
-  --mk-accent-ink: var(--tw-accent-ink, #6e5000);
+  --mk-ink: var(--tw-ink, #3d3b3a);
+  --mk-ink-3: var(--tw-ink-3, #5c6b6b);
+  --mk-accent: var(--tw-accent, #176b64);
+  --mk-accent-soft: var(--tw-accent-soft, #e3f1ee);
+  --mk-accent-ink: var(--tw-accent-ink, #176b64);
+  min-width: 0;
   display: grid;
   gap: 18px;
+}
+
+.root span.moneyValue {
+  font-size: 26px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .head {
@@ -36,13 +43,15 @@
 }
 .head h1 {
   margin: 0;
-  font-size: 24px;
-  font-weight: 650;
+  font-size: 28px;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 .head p {
-  margin: 2px 0 0;
-  font-size: 13.5px;
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 70ch;
   color: var(--mk-ink-3);
 }
 .acts {
@@ -105,7 +114,8 @@
   border-radius: 10px;
   background: var(--mk-line);
 }
-.monthCalendarViewport { overflow-x: auto; }
+.monthCalendarViewport { overflow-x: auto; scrollbar-color: #b5c7c5 #f4f7f7; }
+.monthCalendarViewport:focus-visible, .weekBox:focus-visible { outline: 2px solid var(--mk-accent); outline-offset: 3px; }
 .weekday {
   padding: 8px;
   background: var(--mk-surface-2);
@@ -155,14 +165,15 @@
   color: var(--mk-ink);
   text-align: left;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 12px;
+  min-height: 40px;
   cursor: pointer;
 }
 .monthEvent[data-kind="meta"] { background: var(--mk-meta-soft); }
 .monthEvent:hover { text-decoration: underline; }
 .monthEvent:focus-visible { outline: 2px solid var(--mk-accent); outline-offset: 1px; }
 .monthEvent span,
-.monthEvent small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monthEvent small { display: block; overflow-wrap: anywhere; }
 .monthEvent span { font-weight: 600; }
 .monthEvent small { color: var(--mk-ink-3); font-size: 9.5px; }
 .moreEvents { color: var(--mk-ink-3); font-size: 10px; }
@@ -176,6 +187,7 @@
   color: var(--mk-ink);
   border-radius: 999px;
   padding: 4px 12px;
+  min-height: 40px;
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
@@ -248,7 +260,7 @@
   line-height: 1.3;
   color: var(--mk-ink);
   border: 0;
-  border-left: 3px solid var(--mk-line);
+  border: 1px solid var(--mk-line);
   border-radius: 6px;
   padding: 4px 6px;
   background: #fff;
@@ -257,6 +269,7 @@
 }
 button.ev {
   cursor: pointer;
+  min-height: 44px;
 }
 .ev small {
   display: block;
@@ -279,7 +292,7 @@ button.ev {
 .ev[data-kind="klaviyo"] {
   background: transparent;
   border: 1px dashed var(--mk-email);
-  border-left: 3px solid var(--mk-email);
+  border-left: 1px dashed var(--mk-email);
 }
 .ev[data-kind="other"] {
   border-left-color: var(--mk-ink-3);
@@ -526,7 +539,7 @@ button.ev {
 }
 .designGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 8px;
 }
 .flows {
@@ -617,10 +630,10 @@ button.ev {
 .node[data-kind="email"],
 .node[data-kind="sms"],
 .node[data-kind="push"] {
-  border-left: 4px solid var(--mk-email);
+  border-left: 1px solid var(--mk-email);
 }
 .node[data-off] {
-  opacity: 0.6;
+  background: var(--mk-surface-2);
   border-left-color: var(--mk-ink-3);
 }
 .nodeType {
@@ -745,7 +758,7 @@ button.ev {
   margin: 0;
   font-size: 12px;
   color: var(--mk-ink-3);
-  border-left: 3px solid var(--mk-line);
+  border-left: 1px solid var(--mk-line);
   padding-left: 10px;
 }
 
@@ -757,12 +770,15 @@ button.ev {
   }
 }
 @media (max-width: 640px) {
+  .root span.moneyValue { font-size: 20px; }
   .monthCalendar { min-width: 700px; }
   .monthDay { min-height: 90px; padding: 4px; }
   .monthEvents { gap: 2px; }
-  .monthEvent { padding: 2px; }
-  .monthEvent small { display: none; }
-  .monthEvent span { font-size: 9px; }
+  .monthEvent { padding: 6px; min-height: 44px; }
+  .monthEvent small { font-size: 11px; }
+  .monthEvent span { font-size: 12px; }
+  .chip { min-height: 44px; }
+  .head h1 { font-size: 26px; }
   .monthControls { justify-content: center; width: 100%; }
   .monthControls strong { order: -1; flex-basis: 100%; }
   .branches::before {

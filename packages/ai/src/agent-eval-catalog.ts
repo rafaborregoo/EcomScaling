@@ -26,6 +26,7 @@ export const AGENT_EVAL_AGENT_CODES = [
   "a26_contenido_email",
   "a27_planificador_mailing",
   "a28_arquitecto_flujos",
+  "a29_analista_metrica",
 ] as const;
 
 export type EvalAgentCode = (typeof AGENT_EVAL_AGENT_CODES)[number];

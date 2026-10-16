@@ -884,6 +884,32 @@ export function summarizeExecutiveDiagnosisForAgent(result: ExecutiveDiagnosisRe
   };
 }
 
+/**
+ * Versión corta para el plan diario (A04): el bloque F11 completo desbordaba su
+ * contexto. Solo los diagnósticos canónicos priorizados, con su narrativa
+ * recortada; suficiente para ordenar lo de hoy sin re-diagnosticar.
+ */
+export function summarizeExecutiveDiagnosisForPlan(result: ExecutiveDiagnosisResult, limit = 4) {
+  const views = result.views
+    .filter((v) => v.validation_state.canonical)
+    .sort((a, b) => (a.priority.rank ?? Number.MAX_SAFE_INTEGER) - (b.priority.rank ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, limit);
+  return {
+    status: views.length ? "available" : "no_canonical_diagnosis",
+    diagnosticos: views.map((v) => ({
+      diagnostic_output_id: v.identity.diagnostic_output_id,
+      severity: v.diagnosis.severity,
+      confidence: v.diagnosis.confidence,
+      priority_rank: v.priority.rank,
+      decision_type: v.priority.decision_type,
+      has_contradicting_evidence: v.has_contradicting_evidence,
+      data_gaps: v.data_gaps.length,
+      narrative: String(v.executive_narrative.text ?? "").slice(0, 420),
+    })),
+    reglas: "Raíz D14: no reinterpretes severidad, prioridad ni causa. Ordena lo de hoy según esta prioridad; una cifra atribuida no demuestra causa.",
+  };
+}
+
 export async function loadExecutiveDiagnosisContextBlocks(
   supabase: SupabaseClient,
   organizationId: string,

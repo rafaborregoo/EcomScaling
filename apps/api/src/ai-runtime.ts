@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { loadDisabledAgents } from "./ai-agent-groups.js";
+import { rejectToolInputWithReceipt } from "./agent-tool-input-receipt.js";
 import { createCopilotAnswerStream } from "./copilot-answer-stream.js";
 import { copilotEvidenceReferenceSchema, parseLifetimeRows, type CopilotEvidenceReference } from "@e-nora/contracts";
 import { resolveCopilotEvidenceReference } from "./copilot-evidence.js";
@@ -59,6 +61,9 @@ import {
   summarizeActiveCaminoForPlan,
   summarizeActiveMonthlyInitiatives,
   summarizeMonthlyPlanCapacity,
+  summarizeOpenTasksForPlan,
+  summarizeStockRiskForPlan,
+  compactSpecialistOutputsForPlan,
   summarizeRecentPlanAgentRuns,
   summarizeRecentPlanTaskOutcomes,
   summarizeSiblingPlanRuns,
@@ -142,6 +147,7 @@ import {
   monitorOutputSchema,
   klaviyoEmailDraftPatchSchema,
   klaviyoEmailJsonSchema,
+  klaviyoEmailGenerationOutputSchema,
   klaviyoEmailOutputSchema,
   instagramPostJsonSchema,
   instagramPostOutputSchema,
@@ -153,6 +159,7 @@ import {
   metaAdsDraftPatchSchema,
   metaAdsJsonSchema,
   metaAdsOutputSchema,
+  normalizeGeneratedEmailLinks,
   sanitizeGeneratedEmailHtml,
   caminoPlanJsonSchema,
   caminoPlanSchemaForHorizon,
@@ -177,6 +184,7 @@ import {
   chatJsonSchema,
   chatOutputSchema,
   buildLeanOutputContract,
+  buildReadOnlyOutputContract,
   type OmittableOutputField,
   runAgentTurn,
   runAgentTurnOpenAI,
@@ -195,6 +203,7 @@ import {
   type AgentImageAttachment,
   type AgentTurnResult,
   type AgentTurnUsage,
+  type AgentToolActivity,
   type CallSummaryOutput,
   type ChatOutput,
   type KlaviyoEmailOutput,
@@ -211,6 +220,7 @@ import {
 } from "@e-nora/ai";
 import type { LoadedApiEnv } from "@e-nora/config";
 import {
+  candidateImagesFromFrozenJudgeEvidence,
   judgePersistedAgentOutput,
   loadPersistedJudgeVisualEvidence,
 } from "./agent-judge-runtime.js";
@@ -218,6 +228,7 @@ import type {
   AgentOutputEnvelope,
   AgentProposal,
   AgentSourceReference,
+  MetricAnalysis,
 } from "@e-nora/contracts";
 import { INTEGRATION_CATALOG } from "@e-nora/integrations";
 import { resolveCampaignPlanWindow } from "./campaign-plan-window.js";
@@ -312,13 +323,13 @@ import {
   createUserScopedClient,
   requireOperationalOrganization,
 } from "./auth-context.js";
-import { loadCopilotBalance } from "./copilot-saldo.js";
+import { canUpgradePlan, loadCopilotBalance } from "./copilot-saldo.js";
 import { describeBalance, resolveCopilotModel } from "./copilot-tokens.js";
 import { executeGatewayQuery, SQL_GATEWAY_SCHEMA_DOC } from "./sql-gateway.js";
 import { recordAuditLog } from "./audit-log.js";
 import { recordProtectedDataAccess } from "./protected-data-access.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
-import { applyExecutiveDiagnosisToCaminoProposal, getExecutiveDiagnosis } from "./executive-diagnosis.js";
+import { applyExecutiveDiagnosisToCaminoProposal, getExecutiveDiagnosis, summarizeExecutiveDiagnosisForPlan } from "./executive-diagnosis.js";
 import {
   assertCanManagePlan,
   findCurrentMilestoneId,
@@ -332,6 +343,13 @@ import {
 import { getOrgMetaBackfillStatus } from "./meta-sync.js";
 import { metaCostRates } from "./meta-insights.js";
 import { isErr } from "./result-guard.js";
+import {
+  COPILOT_AGENT_CODE,
+  DESIGN_RUNS_PER_DAY,
+  loadPlatformAgentSettings,
+  resolveAgentModel,
+  scaledMinRunAgeMs,
+} from "./agent-schedule.js";
 import {
   loadAssignmentCandidates,
   pickAssigneeForBatch,
@@ -891,6 +909,62 @@ export async function checkOrganizationDailyBudget(
   return { ok: true };
 }
 
+async function reserveOrganizationDailyBudget(
+  supabase: SupabaseClient,
+  organizationId: string,
+  runId: string,
+  reservationUsd: number,
+  dailyBudgetUsd: number,
+) {
+  const { data, error } = await supabase.rpc("reserve_agent_daily_budget", {
+    target_organization_id: organizationId,
+    reservation_run_id: runId,
+    reservation_usd: reservationUsd,
+    daily_budget_usd: dailyBudgetUsd,
+  });
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 503,
+      error: "organization_daily_budget_reservation_unavailable",
+      message: "No se pudo reservar presupuesto para este turno; no se iniciará la consulta.",
+    };
+  }
+  const result = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  if (result.ok !== true) {
+    return {
+      ok: false as const,
+      statusCode: result.error === "daily_budget_exceeded" ? 429 : 503,
+      error: result.error === "daily_budget_exceeded"
+        ? "organization_daily_budget_exceeded"
+        : "organization_daily_budget_reservation_unavailable",
+      message: result.error === "daily_budget_exceeded"
+        ? "El presupuesto diario disponible no cubre el coste máximo de este turno."
+        : "No se pudo reservar presupuesto para este turno; no se iniciará la consulta.",
+    };
+  }
+  return { ok: true as const };
+}
+
+async function settleOrganizationDailyBudgetReservation(
+  supabase: SupabaseClient,
+  organizationId: string,
+  runId: string,
+) {
+  const { error } = await supabase.rpc("settle_agent_daily_budget", {
+    target_organization_id: organizationId,
+    reservation_run_id: runId,
+  });
+  if (error) {
+    logger.error("organization_daily_budget_settlement_failed", {
+      organization_id: organizationId,
+      run_id: runId,
+      code: error.code ?? null,
+      message: error.message.slice(0, 240),
+    });
+  }
+}
+
 export async function getOrganizationDailyBudgetStatus(
   supabase: SupabaseClient,
   organizationId: string,
@@ -1240,11 +1314,15 @@ async function runAgentTurnWithFallbackCore<TOutput>(
   };
   if (organizationId) {
     const supabase = createServiceClient(env);
-    const { data: clientConfig, error } = await supabase
-      .from("organization_ai_agent_runtime_config")
-      .select("active_agent_codes, model_id")
-      .eq("organization_id", organizationId)
-      .maybeSingle();
+    const [{ data: clientConfig, error }, platformSettings] = await Promise.all([
+      supabase
+        .from("organization_ai_agent_runtime_config")
+        .select("active_agent_codes, model_id")
+        .eq("organization_id", organizationId)
+        .maybeSingle(),
+      // Costes de IA (platform admin): modelo por defecto de este agente.
+      agentCode === COPILOT_AGENT_CODE ? Promise.resolve(new Map()) : loadPlatformAgentSettings(supabase, agentCode),
+    ]);
     if (error) {
       throw new Error(
         "No se pudo verificar la activación de agentes para este cliente.",
@@ -1261,21 +1339,20 @@ async function runAgentTurnWithFallbackCore<TOutput>(
     if (!activeAgentCodes.includes(agentCode)) {
       throw new Error("Este agente no está activado para este cliente.");
     }
-    selectedModelOverride =
-      // A02 sigue el modelo fijado en su agent_version: todos los dashboards
-      // y entornos comparan el mismo modelo y sus costes. La preferencia
-      // global de la organizacion sigue aplicando al resto de agentes.
-      (agentCode === "a02_monitor_negocio"
-        ? params.model
-        : clientConfig?.model_id) ??
-      // El Camino es el entregable de consultoria mas importante y se genera
-      // pocas veces: sin un modelo elegido para el cliente usa el avanzado de
-      // OpenAI, no el economico del resto de agentes.
-      (agentCode === "a19_arquitecto_camino"
-        ? "gpt-6-sol"
-        : agentCode === "a02_monitor_negocio"
-          ? "claude-sonnet-5"
-          : "gpt-6-luna");
+    selectedModelOverride = agentCode === "a09_copiloto_consultor"
+      // A09 calcula el modo efectivo a partir del plan y del saldo antes de
+      // iniciar el turno. La preferencia global no puede volver a subir ese
+      // modelo ni hacer que el recibo anuncie uno distinto.
+      ? (params.modelOverride ?? clientConfig?.model_id ?? params.model)
+      // Resto: eleccion del cliente > la de plataforma (Costes de IA) > el
+      // defecto. A02 y A29 corren con el modelo de su version salvo que
+      // plataforma fije otro (ver agent-schedule.ts).
+      : resolveAgentModel({
+          agentCode,
+          versionModel: params.model,
+          clientModel: clientConfig?.model_id,
+          platformModel: platformSettings.get(agentCode)?.model,
+        });
   }
   if (selectedModelOverride) {
     if (selectedModelOverride.startsWith("claude-")) {
@@ -1756,7 +1833,7 @@ export async function combineMetricRpcs(
   return { data, error: anyUseful ? null : error };
 }
 
-function buildAgentTools(
+export function buildAgentTools(
   env: ApiEnv,
   supabase: SupabaseClient,
   runId: string,
@@ -1793,6 +1870,7 @@ function buildAgentTools(
    */
   securityEvents: AgentSecurityEvent[];
 } {
+  const preparedReportPreviews = new Set<string>();
   const requestedToolNames = Array.isArray(rawAllowedTools)
     ? (rawAllowedTools as unknown[]).filter(
         (name): name is string => typeof name === "string",
@@ -1860,14 +1938,42 @@ function buildAgentTools(
     .filter((denial) => denial.reason.error === "connector_not_connected")
     .map((denial) => denial.name);
 
+  // The candidate model can cite figures returned by read-only analytics
+  // tools. Keep bounded evidence for the judge for these aggregate tools only;
+  // knowledge search, customer records, notes, tasks and free-text tools stay
+  // out of the persisted evidence package.
+  const judgeEvidenceToolAllowlist = new Set([
+    "klaviyo_deliverability_health",
+    "klaviyo_entity_performance",
+    "klaviyo_measurement_health",
+    "klaviyo_performance_summary",
+    "meta_creative_health",
+    "meta_delivery_health",
+    "meta_spend_detail",
+    "shopify_customer_health",
+    "shopify_demand_sources",
+    "shopify_delivery_diagnostics",
+    "shopify_funnel_health",
+    "shopify_fulfillment_health",
+    "shopify_margin_health",
+    "shopify_open_delivery_exceptions",
+    "shopify_product_repurchase_health",
+    "shopify_return_delay_comparison",
+    // Product catalog contains business catalog attributes only (no customer
+    // records); keep the tool's bounded result for claim and scope verification.
+    "get_shopify_product_catalog",
+  ]);
+
+  let receiptPersistenceFailureIndex = 0;
   const recordToolCall = async (
     toolName: string,
     toolInput: unknown,
     toolOutput: unknown,
     isError: boolean,
     durationMs: number,
+    judgeEvidence?: unknown,
   ) => {
-    await supabase.from("agent_tool_calls").insert({
+    const { error: receiptError } = await supabase.from("agent_tool_calls").insert({
       run_id: runId,
       organization_id: organizationId,
       tool_name: toolName,
@@ -1877,10 +1983,51 @@ function buildAgentTools(
       // `sanitizeForTelemetry` redacta claves con forma de credencial y recorta
       // cadenas y arrays largos -- para depurar basta la forma del resultado.
       input: sanitizeForTelemetry(toolInput),
-      output: sanitizeForTelemetry(toolOutput),
+      output: sanitizeForTelemetry(
+        judgeEvidence === undefined
+          ? toolOutput
+          : {
+              ...(toolOutput && typeof toolOutput === "object" && !Array.isArray(toolOutput)
+                ? toolOutput as Record<string, unknown>
+                : { telemetry_output: toolOutput }),
+              judge_evidence: {
+                runtime_scope: {
+                  organization_id: organizationId,
+                  store_id: storeId,
+                },
+                result: judgeEvidence,
+              },
+            },
+      ),
       is_error: isError,
       duration_ms: durationMs,
     });
+    if (receiptError) {
+      logger.error("agent_tool_call_receipt_persist_failed", {
+        organization_id: organizationId,
+        run_id: runId,
+        tool_name: toolName,
+        code: receiptError.code ?? null,
+        message: receiptError.message.slice(0, 240),
+      });
+      // The process log is not queryable from an individual run. Keep a small,
+      // content-free breadcrumb on the run itself so receipt gaps can be
+      // diagnosed without weakening the judge's fail-closed count check.
+      await recordStep(
+        supabase,
+        runId,
+        organizationId,
+        9_000 + receiptPersistenceFailureIndex++,
+        "tool_receipt_persist_failed",
+        "No se pudo persistir un recibo de herramienta",
+        {
+          tool_name: toolName,
+          error_code: receiptError.code ?? null,
+          error_message: receiptError.message.slice(0, 240),
+        },
+        durationMs,
+      ).catch(() => undefined);
+    }
   };
 
   const tools: AgentToolDefinition[] = [];
@@ -1899,19 +2046,11 @@ function buildAgentTools(
     systemPrompt = `${systemPrompt}\n\n[CAPACIDADES PENDIENTES DE CONEXION]\nLas siguientes tools tienen executor preparado, pero requieren conectar y autorizar estos proveedores: ${pendingConnectors.join(", ")}: ${missingConnectorToolNames.join(", ")}. No intentes invocarlas ni inventes sus datos. Explica que la integracion esta pendiente y utiliza request_missing_data o escalate_to_human si necesitas desbloquear la respuesta.`;
   }
 
-  const parseToolInput = (toolName: string, input: Record<string, unknown>) => {
+  const parseToolInput = async (toolName: string, input: Record<string, unknown>) => {
     const contract = getToolContract(toolName);
     const parsed = contract?.inputSchema.safeParse(input);
     if (!parsed?.success) {
-      return {
-        ok: false as const,
-        error: {
-          error: "invalid_tool_input",
-          why: `Los argumentos de ${toolName} no cumplen su contrato versionado`,
-          how_to_fix: "Enviar los campos requeridos y respetar sus tipos",
-          retry_after: null,
-        },
-      };
+      return rejectToolInputWithReceipt(toolName, input, recordToolCall);
     }
     return { ok: true as const, data: parsed.data as Record<string, unknown> };
   };
@@ -2057,7 +2196,7 @@ function buildAgentTools(
                         additionalProperties: false,
                       },
       execute: async (toolInput) => {
-        const parsedInput = parseToolInput(toolName, toolInput);
+        const parsedInput = await parseToolInput(toolName, toolInput);
         if (isErr(parsedInput)) return parsedInput;
 
         const started = Date.now();
@@ -2110,10 +2249,11 @@ function buildAgentTools(
 
         await recordToolCall(
           toolName,
-          {},
+          input,
           result.error ? { error: result.error.message } : { ok: true },
           Boolean(result.error),
           Date.now() - started,
+          !result.error && judgeEvidenceToolAllowlist.has(toolName) ? output : undefined,
         );
 
         const validatedOutput = validateToolOutput(toolName, output);
@@ -2163,7 +2303,7 @@ function buildAgentTools(
         additionalProperties: false,
       },
       execute: async (toolInput) => {
-        const parsedInput = parseToolInput(toolName, toolInput);
+        const parsedInput = await parseToolInput(toolName, toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const started = Date.now();
         const input = parsedInput.data;
@@ -2239,7 +2379,7 @@ function buildAgentTools(
       },
       execute: async (toolInput) => {
         const started = Date.now();
-        const parsedInput = parseToolInput("generate_report", toolInput);
+        const parsedInput = await parseToolInput("generate_report", toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const templateId = resolveReportTemplateId(parsedInput.data.template_id) ?? "shopify_comercial";
         const inputStart = parsedInput.data.period_start;
@@ -2247,10 +2387,20 @@ function buildAgentTools(
         const period = typeof inputStart === "string" && typeof inputEnd === "string"
           ? { start: new Date(`${inputStart}T00:00:00.000Z`), end: new Date(`${inputEnd}T23:59:59.999Z`) }
           : lastFullMonth();
+        const previewKey = `${organizationId}:${storeId ?? "org"}:${templateId}:${period.start.toISOString()}:${period.end.toISOString()}`;
         const fail = async (output: { error: string; why: string; how_to_fix: string }) => {
           await recordToolCall("generate_report", parsedInput.data, { error: output.error }, true, Date.now() - started);
           return { error: output.error, why: output.why, how_to_fix: output.how_to_fix, retry_after: null };
         };
+        if (parsedInput.data.preview && parsedInput.data.analysis) {
+          return fail({ error: "report_preview_cannot_include_analysis", why: "El preview solo prepara cifras; la lectura se añade después de revisar las métricas.", how_to_fix: "Llama primero con preview=true y sin analysis." });
+        }
+        if (!parsedInput.data.preview && !preparedReportPreviews.has(previewKey)) {
+          return fail({ error: "report_preview_required", why: "No existe una vista previa de esta plantilla, tienda y periodo en el turno actual.", how_to_fix: "Genera y revisa preview=true con las mismas fechas antes de crear el PDF." });
+        }
+        if (!parsedInput.data.preview && !parsedInput.data.analysis) {
+          return fail({ error: "report_analysis_required", why: "El informe final debe incluir una lectura basada en las cifras revisadas.", how_to_fix: "Incluye highlights y, si procede, recommendations del preview." });
+        }
         const built = await buildOrganizationReport(supabase, {
           organizationId,
           storeId,
@@ -2263,6 +2413,7 @@ function buildAgentTools(
         const { report } = built;
         const keyMetrics = reportDigest(report);
         if (parsedInput.data.preview) {
+          preparedReportPreviews.add(previewKey);
           const output = {
             preview: true as const,
             template_id: templateId,
@@ -2286,6 +2437,7 @@ function buildAgentTools(
           requestedBy: authorization?.actorUserId ?? null,
         });
         if (!saved.ok) return fail(saved);
+        preparedReportPreviews.delete(previewKey);
         const output = {
           report_id: saved.reportId,
           template_id: templateId,
@@ -2780,14 +2932,16 @@ function buildAgentTools(
   // meta_read_campaign_insights) siguen dando la estructura cruda; estas
   // devuelven el juicio ya calculado por las funciones SQL, que es lo que
   // hace falta para responder "que anuncio retiro" sin recorrer seis tablas.
-  const metaWindow = () => {
+  const metaWindow = (period?: { period_start?: string; period_end?: string }) => {
     const end = new Date();
     return {
       target_organization_id: organizationId,
-      period_start: new Date(
-        end.getTime() - META_INSIGHT_TOOL_DAYS * 24 * 60 * 60 * 1000,
-      ).toISOString(),
-      period_end: end.toISOString(),
+      period_start: period?.period_start
+        ? new Date(`${period.period_start}T00:00:00.000Z`).toISOString()
+        : new Date(end.getTime() - META_INSIGHT_TOOL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      period_end: period?.period_end
+        ? new Date(`${period.period_end}T23:59:59.999Z`).toISOString()
+        : end.toISOString(),
       target_store_id: storeId,
     };
   };
@@ -2861,8 +3015,8 @@ function buildAgentTools(
   registerScopedReadTool(
     "meta_spend_detail",
     TOOL_DESCRIPTIONS.meta_spend_detail,
-    async (client) => {
-      const window = metaWindow();
+    async (client, input) => {
+      const window = metaWindow(input as { period_start?: string; period_end?: string });
       return combineMetricRpcs({
         por_campana: client.rpc("meta_spend_by_campaign", window),
         gasto_diario: client.rpc("meta_spend_daily", window),
@@ -4001,6 +4155,7 @@ function buildAgentTools(
   );
 
   if (
+    !storeId &&
     allowedToolNames.includes("sql_select") &&
     getToolDefinition("sql_select")?.status === "implemented_partial"
   ) {
@@ -4024,7 +4179,7 @@ function buildAgentTools(
         required: ["query"],
       },
       execute: async (toolInput) => {
-        const parsedInput = parseToolInput("sql_select", toolInput);
+        const parsedInput = await parseToolInput("sql_select", toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const query = parsedInput.data.query as string;
         const result = await executeGatewayQuery(
@@ -4093,7 +4248,7 @@ function buildAgentTools(
       },
       execute: async (toolInput) => {
         const started = Date.now();
-        const parsedInput = parseToolInput("describe_schema", toolInput);
+        const parsedInput = await parseToolInput("describe_schema", toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const requestedTables =
           (parsedInput.data.tables as string[] | undefined) ?? [];
@@ -4161,7 +4316,7 @@ function buildAgentTools(
         required: ["query"],
       },
       execute: async (toolInput) => {
-        const parsedInput = parseToolInput("search_knowledge", toolInput);
+        const parsedInput = await parseToolInput("search_knowledge", toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const started = Date.now();
         const query = parsedInput.data.query as string;
@@ -4198,7 +4353,7 @@ function buildAgentTools(
             };
             isError = true;
           } else {
-            const rows = allowedRows;
+          const rows = allowedRows;
             output = {
               matches: rows,
               rows,
@@ -4236,6 +4391,14 @@ function buildAgentTools(
                 )
                   ? (output as { matches: unknown[] }).matches.length
                   : null,
+                evidence_manifest: await buildKnowledgeEvidenceManifest(
+                  supabase,
+                  organizationId,
+                  storeId,
+                  Array.isArray((output as { matches?: unknown } | null)?.matches)
+                    ? (output as { matches: Array<Record<string, unknown>> }).matches
+                    : [],
+                ),
               },
           isError,
           Date.now() - started,
@@ -4352,6 +4515,14 @@ function buildAgentTools(
           { providers: rows.length },
           false,
           Date.now() - started,
+          rows.map((row) => ({
+            provider: row.provider,
+            connection_status: row.connection_status,
+            data_available: row.data_available,
+            last_sync_at: row.last_sync_at,
+            freshness_seconds: row.freshness_seconds,
+            has_error: row.has_error,
+          })),
         );
         const validatedOutput = validateToolOutput("data_coverage", output);
         return validatedOutput.ok ? validatedOutput.data : validatedOutput;
@@ -4447,7 +4618,7 @@ function buildAgentTools(
       },
       execute: async (toolInput) => {
         const started = Date.now();
-        const parsedInput = parseToolInput("dry_run_write", toolInput);
+        const parsedInput = await parseToolInput("dry_run_write", toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const operation = parsedInput.data.operation as string;
         const target = parsedInput.data.target as string;
@@ -4498,7 +4669,7 @@ function buildAgentTools(
       inputSchema,
       execute: async (toolInput) => {
         const started = Date.now();
-        const parsedInput = parseToolInput(toolName, toolInput);
+        const parsedInput = await parseToolInput(toolName, toolInput);
         if (isErr(parsedInput)) return parsedInput;
         const output = {
           ...buildOutput(parsedInput.data),
@@ -4674,6 +4845,52 @@ function buildAgentTools(
  * el contexto -- nunca dependen de aparecer en el top-k de search_knowledge.
  * Solo status=active y priority=critical, dentro de su rango de vigencia.
  */
+/** Recibo privado y reproducible del material recuperado por RAG. */
+async function buildKnowledgeEvidenceManifest(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string | null,
+  rows: Array<Record<string, unknown>>,
+) {
+  const safeRows = rows.slice(0, 8);
+  const documentIds = [...new Set(safeRows
+    .map((row) => row.document_id)
+    .filter((id): id is string => typeof id === "string"))];
+  const { data, error } = documentIds.length
+    ? await supabase
+        .from("knowledge_documents")
+        .select("id, version, checksum")
+        .in("id", documentIds)
+        .eq("status", "active")
+        .or(`organization_id.is.null,organization_id.eq.${organizationId}`)
+    : { data: [], error: null };
+  const documentsById = new Map(
+    (data ?? []).map((document) => [document.id, document] as const),
+  );
+
+  return {
+    manifest_version: 1,
+    scope: { organization_id: organizationId, store_id: storeId },
+    metadata_status: error ? "document_metadata_unavailable" : "complete",
+    items: safeRows.map((row) => {
+      const documentId = typeof row.document_id === "string" ? row.document_id : null;
+      const document = documentId ? documentsById.get(documentId) : undefined;
+      const content = typeof row.content === "string" ? row.content : "";
+      return {
+        chunk_id: typeof row.chunk_id === "string" ? row.chunk_id : null,
+        document_id: documentId,
+        document_title: typeof row.document_title === "string" ? row.document_title : null,
+        document_version: document?.version ?? null,
+        document_checksum: document?.checksum ?? null,
+        audience: typeof row.audience === "string" ? row.audience : null,
+        chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
+        similarity: typeof row.similarity === "number" ? row.similarity : null,
+        chunk_sha256: crypto.createHash("sha256").update(content).digest("hex"),
+      };
+    }),
+  };
+}
+
 async function loadCriticalClientConstraints(
   supabase: SupabaseClient,
   organizationId: string,
@@ -4681,7 +4898,7 @@ async function loadCriticalClientConstraints(
 ): Promise<Array<{ label: string; data: unknown }>> {
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("client_constraints")
     .select("category, statement, store_id, valid_from, valid_until")
     .eq("organization_id", organizationId)
@@ -4689,6 +4906,11 @@ async function loadCriticalClientConstraints(
     .eq("priority", "critical")
     .lte("valid_from", today)
     .or(`valid_until.is.null,valid_until.gte.${today}`);
+
+  if (error) {
+    // Una restricción crítica no disponible nunca equivale a que no exista.
+    throw new Error(`critical_client_constraints_load_failed: ${error.message}`);
+  }
 
   // Filtrado de scope de tienda en JS (no en SQL): encadenar un segundo
   // .or() de PostgREST sobre el mismo query no se combina de forma fiable
@@ -5245,6 +5467,7 @@ function leanOutputContractFor(agentCode: string, contextBlocks: unknown) {
       metaMeasurementStatusFromContext(contextBlocks),
     );
   }
+  if (agentCode === "a29_analista_metrica") return buildReadOnlyOutputContract();
   const omit = LEAN_OUTPUT_BY_AGENT[agentCode];
   return omit ? buildLeanOutputContract(omit) : null;
 }
@@ -5272,6 +5495,8 @@ async function runGenericDiagnosticAgent(
   // Instrucciones de alcance que se anaden al prompt en ejecucion (como las
   // de A02 por pantalla): sin version nueva de prompt, el resto no cambia.
   extraSystemGuidance?: string,
+  // Modelo pedido por quien llama (selector del chat del estudio); gana sobre el del cliente.
+  modelOverrideArg?: string,
 ) {
   const { trigger, enforceManualRefreshCap, contextProfile } = {
     ...DEFAULT_DIAGNOSTIC_RUN_OPTIONS,
@@ -5390,7 +5615,9 @@ async function runGenericDiagnosticAgent(
     const viewTag =
       agentCode === "a02_monitor_negocio"
         ? objective.match(/\[dashboard_scope=\w+\]/)?.[0]
-        : undefined;
+        : agentCode === "a29_analista_metrica"
+          ? objective.match(/\[metric=\w+\]/)?.[0]
+          : undefined;
     const quotaCheck = await assertManualRefreshQuota(
       supabase,
       organizationId,
@@ -5466,6 +5693,17 @@ async function runGenericDiagnosticAgent(
     parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
     planPolicy,
   );
+  const runBudget = agentCode === "a19_arquitecto_camino"
+    ? { ...agentBudget, maxCostUsd: Math.max(agentBudget.maxCostUsd, 10) }
+    : agentBudget;
+  const budgetReservation = await reserveOrganizationDailyBudget(
+    supabase,
+    organizationId,
+    runId,
+    runBudget.maxCostUsd,
+    planPolicy.dailyBudgetUsd ?? DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
+  );
+  if (budgetReservation.ok === false) return budgetReservation;
 
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
@@ -5478,10 +5716,11 @@ async function runGenericDiagnosticAgent(
     store_id: storeId,
     lookback_days: lookbackDays,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
-    ...agentRunTraceFields(env, runId, agentBudget),
+    ...agentRunTraceFields(env, runId, runBudget),
   });
 
   if (runInsertError) {
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
     return {
       ok: false as const,
       statusCode: 500,
@@ -5556,7 +5795,17 @@ async function runGenericDiagnosticAgent(
       ...constraintBlocks,
       ...(isExecutiveMonitor
         ? []
-        : await loadDecisionPlaybookContextBlocks(supabase, organizationId)),
+        : (await loadDecisionPlaybookContextBlocks(supabase, organizationId)).filter(
+            (block) =>
+              // A04 decide lo de hoy y A06 el stock: el aprendizaje continuo (F9,
+              // ~31-37k caracteres) y el diagnostico ejecutivo (F11) desbordan el
+              // limite de contexto y dejan fuera lo que si necesitan; son contexto
+              // de A17/A18.
+              !(
+                (agentCode === "a04_generador_tareas" || agentCode === "a06_planificador_stock") &&
+                /^F(9|11) /.test(String(block.label))
+              ),
+          )),
     ];
     const contextDuration = Date.now() - contextStart;
 
@@ -5608,7 +5857,7 @@ async function runGenericDiagnosticAgent(
       env,
       {
         model: agentVersion.model,
-        modelOverride: clientRuntimeConfig?.model_id ?? undefined,
+        modelOverride: modelOverrideArg ?? clientRuntimeConfig?.model_id ?? undefined,
         systemPrompt: `${systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}${imageReviewGuidance}${currencyCoverageGuidance}${klaviyoCurrencyGuidance}${monitorScopeGuidance}${stockForecastGuidance}${extraSystemGuidance ?? ""}`,
         input,
         contextBlocks,
@@ -5626,8 +5875,10 @@ async function runGenericDiagnosticAgent(
         ...(leanContract ? { outputContract: leanContract } : {}),
         // Un calendario de campanas con varias campanas detalladas tampoco cabe en 45 s.
         ...(agentCode === "a05_estrategia_campanas" ? { resilience: { timeoutMs: CAMINO_MODEL_TIMEOUT_MS, maxRetries: 1 } } : {}),
+        // La lectura ejecutiva de A02 (miles de tokens de salida) tampoco cabe en 45 s.
+        ...(agentCode === "a02_monitor_negocio" ? { resilience: { timeoutMs: 3 * 60_000, maxRetries: 1 } } : {}),
         // Con razonamiento alto el Camino cuesta mas que el tope general de un agente.
-        budget: agentCode === "a19_arquitecto_camino" ? { ...agentBudget, maxCostUsd: Math.max(agentBudget.maxCostUsd, 10) } : agentBudget,
+        budget: runBudget,
       },
       toolAuthEvents,
     );
@@ -5665,7 +5916,7 @@ async function runGenericDiagnosticAgent(
         approval_required: approvalRequired,
         status: approvalRequired ? "pending_approval" : "approved",
       })
-      .select("id, status")
+      .select("id, status, created_at")
       .single();
 
     if (outputError || !outputRow) {
@@ -5739,6 +5990,7 @@ async function runGenericDiagnosticAgent(
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(agentCode, "succeeded", turn.estimatedCostUsd);
 
@@ -5748,6 +6000,7 @@ async function runGenericDiagnosticAgent(
         run_id: runId,
         output_id: outputRow.id,
         output_status: outputRow.status,
+        generated_at: outputRow.created_at,
         approval_required: approvalRequired,
         output: turn.output,
         ...(env.AI_JUDGE_MODE === "visible" && judgeOutcome && "result" in judgeOutcome && judgeOutcome.result
@@ -5774,6 +6027,7 @@ async function runGenericDiagnosticAgent(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(agentCode, status);
 
@@ -6158,6 +6412,9 @@ async function getCachedDiagnostic(
   storeId: string | null,
   lookbackDays: number,
   monitorScope: MonitorDashboardScope = "overview",
+  // Agentes con una salida por objetivo (A29: una por métrica). Mismo truco que
+  // `[dashboard_scope=]` de A02: la etiqueta va en `objective`.
+  objectiveTag?: string,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -6187,7 +6444,7 @@ async function getCachedDiagnostic(
 
   const { data: recentRuns, error: latestRunError } = await query
     .order("started_at", { ascending: false })
-    .limit(agentCode === "a02_monitor_negocio" ? 25 : 1);
+    .limit(agentCode === "a02_monitor_negocio" || objectiveTag ? 25 : 1);
 
   if (latestRunError) {
     return {
@@ -6207,7 +6464,9 @@ async function getCachedDiagnostic(
             (monitorScope === "overview" && !objective.includes("[dashboard_scope="))
           );
         }) ?? null
-      : recentRuns?.[0] ?? null;
+      : objectiveTag
+        ? (recentRuns ?? []).find((run) => String(run.objective ?? "").includes(objectiveTag)) ?? null
+        : recentRuns?.[0] ?? null;
 
   // Digest de actividad de la org: si coincide con el que se guardo en el
   // ultimo run, no se ha movido nada desde entonces. Si la RPC falla,
@@ -7003,9 +7262,22 @@ export function summarizeMonitorForPlan(
           title: typeof row.title === "string" ? row.title.slice(0, 200) : null,
           severity: typeof row.severity === "string" ? row.severity : null,
           area: typeof row.area === "string" ? row.area : null,
+          // Sin la evidencia, el planificador solo veía titulares y no podía
+          // distinguir un hallazgo urgente de uno informativo.
+          evidence: typeof row.evidence === "string" ? row.evidence.slice(0, 220) : null,
         },
       ];
     }),
+    recommendations: (Array.isArray(content.recommendations) ? content.recommendations : [])
+      .slice(0, 4)
+      .flatMap((recommendation) => {
+        if (!recommendation || typeof recommendation !== "object") return [];
+        const row = recommendation as Record<string, unknown>;
+        const action = typeof row.action === "string" ? row.action.slice(0, 220) : null;
+        return action
+          ? [{ action, priority: typeof row.priority === "string" ? row.priority : null, owner: typeof row.owner === "string" ? row.owner : null }]
+          : [];
+      }),
   };
 }
 
@@ -7119,6 +7391,9 @@ export async function runPlanAgent(
         monitorRun,
         activePath,
         weeklySpecialistContext,
+        stockRisk,
+        calendarPack,
+        executiveDiagnosis,
       ] = await Promise.all([
         (() => {
           let query = supabase
@@ -7162,8 +7437,9 @@ export async function runPlanAgent(
           period_end: now.toISOString(),
           target_store_id: storeId,
         }),
-        // El plan mensual juzga tendencia, no foto: necesita con que comparar.
-        horizon === "month"
+        // Todos los horizontes comparan con el periodo anterior: sin eso una
+        // caída de ventas no se distingue de una tienda que siempre vende poco.
+        horizon !== "week"
           ? supabase.rpc("shopify_sales_summary", {
               target_organization_id: organizationId,
               period_start: new Date(
@@ -7182,13 +7458,30 @@ export async function runPlanAgent(
           .order("version", { ascending: false })
           .limit(1)
           .maybeSingle(),
-        horizon === "week"
+        horizon !== "month"
           ? loadRecentSpecialistOutputBlock(
               supabase,
               organizationId,
               storeId,
               WEEKLY_PLAN_SPECIALIST_AGENT_CODES,
+              { includePendingAnalysis: true },
             )
+          : Promise.resolve(null),
+        // Plan diario: lo urgente de hoy suele ser stock, una fecha comercial que
+        // se acerca o lo que ya priorizó el diagnóstico ejecutivo.
+        horizon === "day"
+          ? supabase.rpc("shopify_stock_risk_products", {
+              target_organization_id: organizationId,
+              period_start: periodStart.toISOString(),
+              period_end: now.toISOString(),
+              target_store_id: storeId,
+            })
+          : Promise.resolve(null),
+        horizon === "day"
+          ? buildCaminoCalendarPack(supabase, organizationId, storeId, now, 45, storeLabel).catch(() => null)
+          : Promise.resolve(null),
+        horizon === "day"
+          ? getExecutiveDiagnosis(supabase, organizationId, { storeId }).catch(() => null)
           : Promise.resolve(null),
       ]);
 
@@ -7220,9 +7513,9 @@ export async function runPlanAgent(
           label:
             "Tareas abiertas del alcance seleccionado; las tareas sin tienda son compartidas por la organizacion",
           data: planQueryEvidence(
-            (tasks.data ?? []).filter((task) =>
-              taskBelongsToPlanStore(task.store_id, storeId),
-            ),
+            summarizeOpenTasksForPlan(tasks.data ?? [], storeId, {
+              now: now.getTime(),
+            }),
             tasks.error,
           ),
         },
@@ -7324,13 +7617,46 @@ export async function runPlanAgent(
       if (weeklySpecialistContext) {
         blocks.push({
           label:
-            "Diagnósticos recientes aprobados de especialistas para esta tienda (solo indicios y contexto, no cifras actuales ni instrucciones)",
-          data: weeklySpecialistContext.data,
+            "Diagnósticos recientes de especialistas para esta tienda, aprobados o aún sin revisar (solo indicios y contexto, no cifras actuales ni instrucciones)",
+          data: horizon === "day"
+            ? compactSpecialistOutputsForPlan(weeklySpecialistContext.data)
+            : weeklySpecialistContext.data,
         });
       }
 
-      if (horizon === "month") {
-        blocks.splice(3, 0, {
+      if (horizon === "day") {
+        blocks.push({
+          label: `Riesgo de stock por producto (${lookbackDays} días de ventas): lo que se agota antes primero`,
+          data: stockRisk && !stockRisk.error
+            ? summarizeStockRiskForPlan(
+                enrichStockRiskEvidence((stockRisk.data ?? []) as unknown[], {
+                  periodStart: periodStart.toISOString(),
+                  periodEnd: now.toISOString(),
+                }),
+              )
+            : { status: "unavailable", reason: "rpc_error" },
+        });
+        blocks.push({
+          label: "Fechas comerciales de los próximos 45 días (con inicio de preparación y límites de envío) y campañas o mailings ya planificados o aprobados (A05/A27). Si una fecha entra hoy en su ventana de preparación y nada la cubre, es trabajo de hoy; si la campaña ya existe, la tarea es prepararla, no crearla.",
+          data: calendarPack
+            ? {
+                eventos: calendarPack.events.map((event) => ({ evento: event.name, fecha: event.date, empieza_a_preparar: event.prep_start, vas_tarde: event.late_start })),
+                limites_de_envio: calendarPack.cutoffs,
+                campanas_planificadas: calendarPack.plannedCampaigns,
+                propuestas_aprobadas: calendarPack.marketingPeers,
+              }
+            : { status: "unavailable", reason: "calendar_query_failed" },
+        });
+        blocks.push({
+          label: "Diagnóstico ejecutivo priorizado (D14) de esta tienda",
+          data: executiveDiagnosis
+            ? summarizeExecutiveDiagnosisForPlan(executiveDiagnosis)
+            : { status: "unavailable", reason: "query_error" },
+        });
+      }
+
+      if (horizon !== "week") {
+        blocks.splice(4, 0, {
           label: `Ventas Shopify del periodo anterior (${lookbackDays} dias previos, para comparar tendencia)`,
           data: planQueryEvidence(
             previousSales.data?.[0] ?? "sin_datos",
@@ -10456,6 +10782,7 @@ export async function runCampaignEditorAgent(
     contextBlocks: Array<{ label: string; data: unknown }>;
     guidance: string;
     contract: OutputContract<unknown>;
+    modelOverride?: string;
   },
 ) {
   const result = await runGenericDiagnosticAgent(
@@ -10471,6 +10798,7 @@ export async function runCampaignEditorAgent(
     { trigger: "manual", enforceManualRefreshCap: false },
     args.contract,
     args.guidance,
+    args.modelOverride,
   );
   if (result.ok && result.data.output_id) {
     await createServiceClient(env)
@@ -10585,7 +10913,7 @@ export async function runCampaignStrategist(
       startDate + " al " + endDate + " (" + horizonDays + " dias; " +
       CAMPAIGN_PLAN_HORIZON_LABEL[horizon] + "), usando datos historicos de los ultimos " +
       lookbackDays + " dias. Devuelve initiatives[] como campañas paraguas con objetivo, audiencia, oferta verificada/propuesta/ninguna y periodo; cada iniciativa debe incluir al menos una ejecución concreta de Klaviyo o Meta. Si la evidencia no permite proponer ejecuciones, devuelve initiatives[] y campaigns[] vacíos, explica la limitación en diagnosis y warnings y no inventes acciones. " +
-      "Agrupa dentro de cada iniciativa: campañas programadas de Klaviyo con rutas de audiencia y mensajes fechados individualmente; flows reactivos con trigger, fecha de preparación y pasos ordenados con esperas, nunca como envíos con fecha fija; campañas Meta con periodo y presupuesto orientativo, conjuntos con audiencia/ubicaciones y anuncios con formato, fecha y brief de creativo. " +
+      "Agrupa dentro de cada iniciativa: campañas programadas de Klaviyo con rutas de audiencia y mensajes fechados individualmente; flows reactivos con trigger, fecha de preparación y pasos ordenados con esperas, nunca como envíos con fecha fija. En cada flow, el primer paso ocurre al dispararse y debe llevar wait_days=0; las esperas posteriores se cuentan desde el paso anterior; campañas Meta con periodo y presupuesto orientativo, conjuntos con audiencia/ubicaciones y anuncios con formato, fecha y brief de creativo. " +
       "Cada mensaje puntual y cada anuncio será una acción distinta en calendario, con scheduled_date y scheduled_time HH:mm en la zona horaria de la tienda. Si propones una acción para hoy, su hora debe ser posterior a la hora actual local indicada en el contexto; de lo contrario empieza mañana. La preparación de un flow usa las 09:00 locales y debe empezar mañana o después. No confundas flow con campaña programada ni campaña Meta con anuncio. Confirma una oferta solo con evidencia de promoción/precio; una recomendación sin prueba debe marcarse propuesta pendiente, no hecho. " +
       "PRIMER PASO ESTRATÉGICO: empieza por el RAG que recupera tanto la metodología global de E-NORA (principios y métodos de marketing/ecommerce) como el conocimiento visible de esta organización y tienda. Las consultas cubren estrategia ecommerce, la fecha/temporada, Klaviyo, Meta y coordinación omnicanal, ajustadas al objetivo, mercado y ventana. Extrae las reglas y enfoques aplicables antes de proponer; no te limites a buscar datos particulares de la tienda. Después contrasta esa metodología con estacionalidad, histórico de resultados, frecuencia, audiencia, ventas, margen, stock y acciones ya planificadas. El conocimiento orienta qué evaluar, pero no demuestra demanda ni prevalece sobre datos actuales o restricciones de la tienda. Si la búsqueda falla o no devuelve material, dilo; no simules haber consultado guías. " +
       "La ventana solicitada es la cobertura completa del calendario: incluye todas las acciones justificadas y distribúyelas por semanas y meses de TODO el periodo, con preparación antes de cada hito, ejecución y acciones posteriores para retención y segunda compra. Usa la fecha exacta del calendario comercial, nunca una fecha mencionada en el brief sin verificarla. Sin hito comercial, organiza la secuencia según necesidades de la tienda. No conviertas automáticamente la iniciativa en un único email teaser ni añadas envíos solo para llenar el calendario. No uses una cantidad fija predeterminada: si la persona no pide un número, decide cuántos mailings, anuncios y creativos convienen tras sintetizar conocimiento, estacionalidad, historial, audiencia y stock; explica la cadencia elegida. Si el brief fija cantidades, trátalas como objetivos de planificación y advierte si la evidencia no las respalda. Si Meta consume presupuesto y no muestra resultados atribuibles, propone revisar medición, audiencias y creativos antes de ampliar la inversión; indica umbral y próxima fecha de revisión sin inventar causalidad. Cada email puntual y cada creativo Meta debe tener una ficha accionable propia: tema/ángulo, propósito, estructura del contenido por bloques, tono y lenguaje, CTA solo si está confirmado, audiencia, fecha y hora, formato/ubicación cuando aplique, y una nota explícita para el agente de producción con los aprendizajes históricos y las guías de conocimiento aplicables. Repetir un ángulo solo si el historial o la secuencia lo justifican; indica qué cambia entre variantes. Un evento futuro no justifica por sí solo enviar un mensaje preparatorio: el CTA y cualquier registro o acceso anticipado deben existir o estar confirmados en el contexto. " +
@@ -11245,7 +11573,7 @@ export async function runStockPlannerAgent(
     context,
     organizationId,
     "a06_planificador_stock",
-    `Prever la demanda de los productos y priorizar riesgos de rotura en ${storeLabel}. Separa la linea base reciente del escenario de campaña. Contrasta Black Friday y las campañas propias planificadas con ventas comparables del producto; un descuento previsto no justifica por si solo aumentar unidades. Si faltan comparables, deja claro que el efecto de campaña no se puede cuantificar. Explica la cobertura y calidad de la señal, evita cantidades de compra porque no hay plazos de proveedor ni stock de seguridad configurados, y propone solo tareas de reposicion justificadas por la evidencia.`,
+    `Prever la demanda de los productos y priorizar riesgos de rotura en ${storeLabel}. Separa la linea base reciente del escenario de campaña. Contrasta Black Friday y las campañas propias planificadas con ventas comparables del producto; un descuento previsto no justifica por si solo aumentar unidades. Si faltan comparables, deja claro que el efecto de campaña no se puede cuantificar. Explica la cobertura y calidad de la señal, evita cantidades de compra porque no hay plazos de proveedor ni stock de seguridad configurados, y propone solo tareas de reposicion justificadas por la evidencia. Lo lee el dueño de la tienda en su panel: titulos y evidencias en español llano, sin nombres de campos ni de estados internos (nada de snake_case como inventory_sync_is_stale, days_of_cover o tracked_current), sin valores como null/true/false, sin etiquetas en ingles (strong, weak) y sin marcas de tiempo UTC; di "el stock se actualizó hace 4 días" o "no sabemos cuántos días de stock quedan".`,
     { start: periodStart.toISOString(), end: now.toISOString() },
     storeId,
     lookbackDays,
@@ -11262,7 +11590,20 @@ export async function runStockPlannerAgent(
         .order("starts_at", { ascending: true })
         .limit(100);
       if (storeId) campaignQuery = campaignQuery.or(`store_id.is.null,store_id.eq.${storeId}`);
-      const [stock, riskProducts, openTasks, campaigns] = await Promise.all([
+      let activePathQuery = supabase
+        .from("strategic_plans")
+        .select(
+          "name, goal, version, strategic_plan_phases(name, status, position, strategic_plan_milestones(id, name, description, status, target_date, position, milestone_task_links(tasks(title, status, store_id))))",
+        )
+        .eq("organization_id", organizationId)
+        .eq("status", "active");
+      activePathQuery = storeId ? activePathQuery.eq("store_id", storeId) : activePathQuery.is("store_id", null);
+      const scopedTasks = (statuses: string[], fields: string) => {
+        let query = supabase.from("tasks").select(fields).eq("organization_id", organizationId).in("status", statuses);
+        if (storeId) query = query.or(`store_id.is.null,store_id.eq.${storeId}`);
+        return query;
+      };
+      const [stock, riskProducts, openTasks, campaigns, recentTaskOutcomes, activePath] = await Promise.all([
         supabase.rpc("shopify_stock_summary", {
           target_organization_id: organizationId,
           low_stock_threshold: 5,
@@ -11274,8 +11615,16 @@ export async function runStockPlannerAgent(
           period_end: now.toISOString(),
           target_store_id: storeId,
         }),
-        loadOpenTasksBlock(supabase, organizationId, storeId),
+        // El backlog entero (15k+ con un Camino aprobado) se cortaba a mitad:
+        // mismo resumen que el plan diario, cercano con detalle y lejano en titulares.
+        scopedTasks(["pending", "in_progress"], "title, description, priority, status, source, due_at, store_id")
+          .order("priority", { ascending: false }).limit(200),
         campaignQuery,
+        // Si una reposición anterior se hizo, se ignoró o se canceló cambia lo que toca ahora.
+        scopedTasks(["completed", "ignored", "cancelled"], "title, status, source, completed_at, updated_at, ignored_reason, store_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at")
+          .gte("updated_at", new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString())
+          .order("updated_at", { ascending: false }).limit(60),
+        activePathQuery.order("version", { ascending: false }).limit(1).maybeSingle(),
       ]);
 
       const riskRows = (riskProducts.data ?? []) as Array<{ product_id?: unknown }>;
@@ -11342,20 +11691,51 @@ export async function runStockPlannerAgent(
                     weeklyUnitsByProduct,
                   },
                 ).map((item) => ({
-                  ...item,
-                  weekly_units_last_52: typeof item.product_id === "string"
-                    ? (weeklyUnitsByProduct.get(item.product_id) ?? []).map((units, index) => ({
-                        week_start: weeklyStarts[index] ?? null,
-                        units,
-                      }))
-                    : [],
+                  // Campos explícitos: la fila cruda repetía ventas en tres
+                  // nombres y la serie semanal como 52 objetos con fecha
+                  // (~2,8k por producto, el bloque se cortaba a los 12k).
+                  title: (item as Record<string, unknown>).title,
+                  product_id: item.product_id,
+                  available_quantity: (item as Record<string, unknown>).available_quantity,
+                  quantity_sold_in_period: item.quantity_sold_in_period,
+                  order_count: (item as Record<string, unknown>).order_count,
+                  selling_days: item.selling_days,
+                  average_daily_sales: item.average_daily_sales,
+                  days_of_cover: item.days_of_cover,
+                  stock_coverage_sample_sufficient: item.stock_coverage_sample_sufficient,
+                  inventory_status: item.inventory_status,
+                  inventory_sync_age_hours: item.inventory_sync_age_hours,
+                  inventory_sync_is_stale: item.inventory_sync_is_stale,
+                  demand_forecast: item.demand_forecast,
+                  weekly_units_last_52: typeof item.product_id === "string" && weeklyStarts.length
+                    ? { first_week_start: weeklyStarts[0], units: weeklyUnitsByProduct.get(item.product_id) ?? [] }
+                    : null,
                 })),
               },
         },
         {
           label:
-            "Tareas abiertas de reposicion en la tienda seleccionada (no proponer de nuevo el mismo producto mientras siga abierta; una tarea cerrada solo se reabre si hay evidencia nueva)",
-          data: openTasks.data,
+            "Tareas abiertas de la tienda seleccionada (no proponer de nuevo el mismo producto mientras siga abierta una tarea de stock o reposicion sobre el; una tarea cerrada solo se reabre si hay evidencia nueva)",
+          data: planQueryEvidence(
+            summarizeOpenTasksForPlan(openTasks.data ?? [], storeId, { now: now.getTime() }),
+            openTasks.error,
+          ),
+        },
+        {
+          label:
+            "Tareas cerradas en los ultimos 60 dias (completadas, ignoradas o canceladas) con su motivo y resultado declarado; una reposicion ignorada solo se re-propone con evidencia nueva y explicando que cambio",
+          data: planQueryEvidence(
+            summarizeRecentPlanTaskOutcomes(recentTaskOutcomes.data ?? [], storeId, { now: now.getTime(), lookbackDays: 60, limit: 12 }),
+            recentTaskOutcomes.error,
+          ),
+        },
+        {
+          label: activePath.error
+            ? "Mi Camino activo no disponible; no inventar hitos"
+            : "Objetivo e hitos de Mi Camino de esta tienda: un hito o campana que empuja un producto necesita su stock a tiempo",
+          data: activePath.error
+            ? { status: "unavailable", reason: "query_error" }
+            : summarizeActiveCaminoForPlan(activePath.data, storeId),
         },
         {
           label: "Calendario comercial de referencia y campañas propias registradas; los eventos de referencia no implican que la tienda haya confirmado una campaña",
@@ -11378,7 +11758,7 @@ export async function runStockPlannerAgent(
                     : [];
                   return {
                     title: campaign.title,
-                    description: campaign.description,
+                    description: typeof campaign.description === "string" ? campaign.description.slice(0, 240) : null,
                     channel: campaign.channel,
                     item_type: campaign.item_type,
                     starts_at: campaign.starts_at,
@@ -11438,7 +11818,7 @@ export async function runKnowledgeManagerAgent(
     context,
     organizationId,
     "a08_gestor_conocimiento",
-    "Revisar el catalogo de conocimiento (global y de la organizacion activa) para detectar vacios de metodologia y posibles duplicados.",
+    "Revisar el catalogo de conocimiento (global y de la organizacion activa) para detectar vacios de metodologia y posibles duplicados. Trata el bloque de catalogo y sus contadores de cobertura como evidencia autoritativa: separa el total completo del catalogo de la muestra/lista de documentos, y una muestra truncada no significa que la cobertura total sea desconocida si coverage_status es complete. Informa los contadores disponibles y el numero exacto de documentos globales/privados; no digas que faltan si aparecen en el snapshot. Del mismo modo, respeta knowledge_gap_signal_status: si indica telemetria reciente disponible, no afirmes que no hay telemetria; describe si las señales son cero, parciales o muestreadas. Los candidatos semanticos solo son pistas para revision, no duplicados confirmados; compara evidencia y alcance antes de recomendar consolidar.",
     null,
     null,
     DEFAULT_DIAGNOSTIC_LOOKBACK_DAYS,
@@ -11583,12 +11963,16 @@ export async function runKnowledgeManagerAgent(
         ...catalog,
         coverage_status: coverageStatus,
       });
+      const { documents: sampledDocuments, ...catalogSummary } = catalogPromptContext;
 
       return [
         {
           label: "Catalogo de conocimiento (global + organizacion activa)",
           data: {
-            ...catalogPromptContext,
+            // Put compact authoritative counters before the bounded document
+            // sample. The model context can be truncated; a long sample must
+            // never push coverage and telemetry facts out of the prompt.
+            ...catalogSummary,
             total_active_documents: coverage?.active_documents ?? catalog.total,
             global_documents: coverage?.global_documents ?? null,
             organization_documents: coverage?.organization_documents ?? null,
@@ -11636,6 +12020,7 @@ export async function runKnowledgeManagerAgent(
               : countMismatch
                 ? "catalog_count_mismatch"
                 : catalog.failure_code,
+            documents: sampledDocuments,
           },
         },
       ];
@@ -11975,6 +12360,86 @@ export async function getEmailAnalystDiagnostic(
     storeScope.storeId,
     EMAIL_ANALYST_LOOKBACK_DAYS,
   );
+}
+
+/**
+ * A29 (ADR-0027): explica UNA métrica sobre el veredicto que ya decidieron las
+ * reglas de `/metric-analysis`. El análisis llega calculado (con su metodología
+ * del RAG) desde la ruta; aquí se añaden los últimos hallazgos de los agentes de
+ * área de la ficha. Solo lectura: el prompt deja `proposed_writes` vacío.
+ */
+export async function runMetricAnalystAgent(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  analysis: MetricAnalysis,
+  lookbackDays: number,
+  connectionId?: string | null,
+) {
+  const { storeId, storeLabel } = await resolveStoreScope(createServiceClient(env), organizationId, connectionId);
+  const now = new Date();
+  const periodStart = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  const { methodology, ...verdict } = analysis;
+
+  return runGenericDiagnosticAgent(
+    env,
+    context,
+    organizationId,
+    "a29_analista_metrica",
+    `Explicar la metrica ${analysis.label} de los ultimos ${lookbackDays} dias (${storeLabel}) [metric=${analysis.metric}]: por que esta como esta y que hacer, sin cambiar el veredicto calculado por reglas.`,
+    { start: periodStart.toISOString(), end: now.toISOString() },
+    storeId,
+    lookbackDays,
+    async (supabase) => [
+      { label: "Veredicto de la métrica (calculado por reglas; no lo cambies)", data: verdict },
+      { label: "Metodología de E-NORA sobre esta métrica (método, no hechos de la tienda; no la cites)", data: methodology?.length ? methodology : "no_disponible" },
+      { label: "Hallazgos de los agentes de área que cubren esta métrica", data: await loadOwnerAgentFindings(supabase, organizationId, storeId, analysis.owner_agents) },
+    ],
+  );
+}
+
+/** Lo último que dijo cada agente de área sobre la tienda, recortado: respuesta y hasta 5 hallazgos. */
+async function loadOwnerAgentFindings(supabase: SupabaseClient, organizationId: string, storeId: string | null, agentCodes: string[]) {
+  if (agentCodes.length === 0) return "sin_agentes_de_area";
+  let query = supabase
+    .from("agent_outputs")
+    .select("created_at, output, agent_runs!inner(store_id, status, agent_versions!inner(agent_definitions!inner(code)))")
+    .eq("organization_id", organizationId)
+    .eq("agent_runs.status", "succeeded")
+    .in("agent_runs.agent_versions.agent_definitions.code", agentCodes)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  query = storeId ? query.eq("agent_runs.store_id", storeId) : query.is("agent_runs.store_id", null);
+  const { data, error } = await query;
+  if (error) return `no_disponible: ${error.message}`;
+  const seen = new Set<string>();
+  const rows: Array<{ agente: string; fecha: string; resumen: string; hallazgos: unknown[] }> = [];
+  for (const row of (data ?? []) as Array<{ created_at: string; output: Record<string, unknown> | null; agent_runs: unknown }>) {
+    const code = (row.agent_runs as { agent_versions?: { agent_definitions?: { code?: string } } })?.agent_versions?.agent_definitions?.code ?? "";
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    const out = row.output ?? {};
+    rows.push({
+      agente: code,
+      fecha: row.created_at,
+      resumen: String(out.answer ?? "").slice(0, 600),
+      hallazgos: (Array.isArray(out.findings) ? out.findings : []).slice(0, 5),
+    });
+  }
+  return rows.length ? rows : "sin_hallazgos_recientes";
+}
+
+/** Explicación A29 guardada para una métrica (GET de solo lectura, una por métrica y periodo). */
+export async function getMetricAnalystExplanation(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  metric: string,
+  lookbackDays: number,
+  connectionId?: string | null,
+) {
+  const { storeId } = await resolveStoreScope(createServiceClient(env), organizationId, connectionId);
+  return getCachedDiagnostic(env, context, organizationId, "a29_analista_metrica", storeId, lookbackDays, "overview", `[metric=${metric}]`);
 }
 
 /** A28: diseño manual y de solo lectura; nunca modifica el workspace Klaviyo. */
@@ -13498,7 +13963,7 @@ export async function runCreatividadMetaAgent(
           },
           {
             label:
-              "Reparto del GASTO por veredicto de subasta de Meta. UNKNOWN y SIN_VEREDICTO no son suspensos: son 'Meta no tiene volumen para juzgarlo'",
+              "Reparto del GASTO por ranking de subasta de Meta. UNKNOWN y SIN_VEREDICTO no son suspensos; significan que no hay un ranking utilizable y no explican por que falta.",
             data: ranking.data ?? [],
           },
           {
@@ -14418,6 +14883,11 @@ const DEFAULT_DIAGNOSTICS_MAX_RUNS_PER_TICK = 15;
 // aunque haya habido actividad: evita regenerar cada pocas horas una tienda
 // muy activa. La carga de pagina no regenera.
 const ORCHESTRATOR_MIN_RUN_AGE_MS = 20 * 60 * 60 * 1000;
+// Una salida pendiente de revisar frena nuevas ejecuciones solo durante este
+// plazo. Sin él, un análisis que nadie aprueba congelaba al agente para siempre
+// (en producción A02/A04/A06/A12 llevaban semanas en pending_unreviewed) y los
+// planes leían stock y diagnósticos cada vez más viejos.
+export const ORCHESTRATOR_PENDING_REVIEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
 const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES = [
   "a02_monitor_negocio",
@@ -14960,6 +15430,10 @@ async function runDiagnosticOrchestratorTickInner(
     lookbackDays?: number;
   }> = [];
   const organizationsWithQueuedStoreMonitor = new Set<string>();
+  // Configuración › Copiloto IA: cada organización puede apagar grupos.
+  const disabledAgentsByOrganization = await loadDisabledAgents(supabase, orgIds);
+  // Costes de IA (platform admin): ejecuciones/dia por agente. 0 = no se programa.
+  const platformAgentSettings = await loadPlatformAgentSettings(supabase);
 
   for (const organizationId of orgIds) {
     const { data: digestValue } = await supabase.rpc(
@@ -14986,13 +15460,17 @@ async function runDiagnosticOrchestratorTickInner(
       planActive: true,
     });
     for (const agentCode of ORCHESTRATED_DIAGNOSTIC_AGENT_CODES) {
+      if (disabledAgentsByOrganization.get(organizationId)?.has(agentCode)) continue;
+      const platformRunsPerDay = platformAgentSettings.get(agentCode)?.runs_per_day;
+      if (platformRunsPerDay === 0) continue;
+      const designRuns = DESIGN_RUNS_PER_DAY[agentCode]?.runs;
       const scopes = orchestratorScopesForAgent(
         agentCode,
         storesByOrganization.get(organizationId) ?? [],
       );
 
       for (const scope of scopes) {
-        const cadenceProfiles =
+        const cadenceProfiles = (
           agentCode === "a02_monitor_negocio"
             ? scope.storeId
               ? MONITOR_CADENCES.filter((cadence) => cadence.lookbackDays === 30)
@@ -15002,7 +15480,11 @@ async function runDiagnosticOrchestratorTickInner(
                   lookbackDays: null,
                   minRunAgeMs: orchestratorMinRunAgeFor(agentCode),
                 },
-              ];
+              ]
+        ).map((cadence) => ({
+          ...cadence,
+          minRunAgeMs: scaledMinRunAgeMs(cadence.minRunAgeMs, designRuns, platformRunsPerDay),
+        }));
         for (const cadence of cadenceProfiles) {
           if (agentCode === "a19_revision_camino") {
             let activePlanQuery = supabase
@@ -15138,7 +15620,11 @@ async function runDiagnosticOrchestratorTickInner(
                   null),
             currentDigest:
               agentCode === "a02_monitor_negocio" ? null : currentDigest,
-            hasUnreviewedPending: lastOutput?.status === "pending_approval",
+            hasUnreviewedPending:
+              lastOutput?.status === "pending_approval" &&
+              lastRunAt !== null &&
+              Date.now() - new Date(lastRunAt).getTime() <
+                ORCHESTRATOR_PENDING_REVIEW_WINDOW_MS,
             minRunAgeMs: cadence.minRunAgeMs,
           });
 
@@ -16025,6 +16511,14 @@ export async function runCallAnalyst(
     parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
     planPolicy,
   );
+  const budgetReservation = await reserveOrganizationDailyBudget(
+    supabase,
+    organizationId,
+    runId,
+    agentBudget.maxCostUsd,
+    planPolicy.dailyBudgetUsd ?? DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
+  );
+  if (budgetReservation.ok === false) return budgetReservation;
 
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
@@ -16038,6 +16532,7 @@ export async function runCallAnalyst(
   });
 
   if (runInsertError) {
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
     return {
       ok: false as const,
       statusCode: 500,
@@ -16094,7 +16589,6 @@ export async function runCallAnalyst(
         blocks: contextBlocks,
       },
     });
-
     await recordStep(
       supabase,
       runId,
@@ -16181,6 +16675,7 @@ export async function runCallAnalyst(
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(
       "a01_analista_llamadas",
@@ -16240,6 +16735,7 @@ export async function runCallAnalyst(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics("a01_analista_llamadas", status);
 
@@ -16268,7 +16764,9 @@ const CHAT_HISTORY_MESSAGES = 10;
 export type ConsultantChatViewContext = {
   route?: unknown;
   title?: unknown;
+  /** Legacy browser field; its value is a Shopify connection ID, not store.id. */
   store_id?: unknown;
+  connection_id?: unknown;
   store_label?: unknown;
   period?: unknown;
   metrics?: unknown;
@@ -16287,7 +16785,7 @@ export type ChatStoreSelection =
 export function resolveChatStoreSelection(
   raw: ConsultantChatViewContext | undefined,
 ): ChatStoreSelection {
-  const rawId = raw?.store_id;
+  const rawId = raw?.connection_id ?? raw?.store_id;
   if (rawId === undefined || rawId === null || rawId === "") {
     return { kind: "none" };
   }
@@ -16356,7 +16854,11 @@ export function sanitizeChatViewContext(
   const view = {
     route: boundedText(raw.route, 120),
     title: boundedText(raw.title, 120),
-    store_id: boundedText(raw.store_id, 64),
+    // The browser's historical `store_id` is actually shopify_stores.connection_id.
+    // Keep that distinction explicit; the canonical store.id is filled only
+    // after the server resolves and verifies the selected connection.
+    connection_id: boundedText(raw.connection_id ?? raw.store_id, 64),
+    store_id: null as string | null,
     store_label: boundedText(raw.store_label, 120),
     period: boundedText(raw.period, 120),
     metrics,
@@ -16366,6 +16868,7 @@ export function sanitizeChatViewContext(
   const hasContent =
     view.route ||
     view.title ||
+    view.connection_id ||
     view.store_id ||
     view.store_label ||
     view.period ||
@@ -17508,6 +18011,15 @@ export async function runMarketingContentDraft(
     planPolicy,
   );
 
+  const budgetReservation = await reserveOrganizationDailyBudget(
+    supabase,
+    organizationId,
+    runId,
+    agentBudget.maxCostUsd,
+    planPolicy.dailyBudgetUsd ?? DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
+  );
+  if (budgetReservation.ok === false) return budgetReservation;
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: organizationId,
@@ -17521,6 +18033,7 @@ export async function runMarketingContentDraft(
   });
 
   if (runInsertError) {
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
     return {
       ok: false as const,
       statusCode: 500,
@@ -17559,6 +18072,17 @@ export async function runMarketingContentDraft(
       context_level: "C1",
       snapshot: {
         request,
+        ...(marketingStoreId
+          ? {
+              runtime_store_scope: {
+                // The brief stores integration_connections.id, while scoped
+                // catalog tools use shopify_stores.id. Preserve the server-side
+                // crosswalk so the judge can verify both refer to this store.
+                connection_id: marketingConnectionId,
+                shopify_store_id: marketingStoreId,
+              },
+            }
+          : {}),
         approved_email_specialist_context: approvedEmailSpecialistContext,
         blocks: marketingContextBlocks,
       },
@@ -17608,7 +18132,7 @@ export async function runMarketingContentDraft(
                   string,
                   unknown
                 >,
-                schema: klaviyoEmailOutputSchema,
+                schema: klaviyoEmailGenerationOutputSchema,
               },
         budget: agentBudget,
       },
@@ -17630,7 +18154,9 @@ export async function runMarketingContentDraft(
     const emailOutput =
       !isMetaAds && !isInstagram
         ? klaviyoEmailOutputSchema.parse({
-            ...turn.output,
+            ...normalizeGeneratedEmailLinks(
+              turn.output as Record<string, unknown>,
+            ),
             html: sanitizeGeneratedEmailHtml(
               (turn.output as KlaviyoEmailOutput).html,
             ),
@@ -17862,6 +18388,7 @@ export async function runMarketingContentDraft(
               finished_at: new Date().toISOString(),
             })
             .eq("id", runId);
+          await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
           recordAiRunMetrics(
             "a11_generador_marketing",
             "failed",
@@ -17904,6 +18431,7 @@ export async function runMarketingContentDraft(
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(
       "a11_generador_marketing",
@@ -17963,6 +18491,7 @@ export async function runMarketingContentDraft(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics("a11_generador_marketing", status);
 
@@ -18464,6 +18993,7 @@ export async function analyzeInstagramImage(
     filename: string;
     contentType?: string;
     sourceChannels?: string[];
+    sourceAssetId?: string;
   },
 ): Promise<
   | {
@@ -18553,6 +19083,22 @@ export async function analyzeInstagramImage(
     parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
   );
 
+  const budgetReservation = await reserveOrganizationDailyBudget(
+    supabase,
+    params.organizationId,
+    runId,
+    agentBudget.maxCostUsd,
+    DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
+  );
+  if (budgetReservation.ok === false) {
+    return {
+      ok: false,
+      error: budgetReservation.error,
+      detail: budgetReservation.message,
+      retriable: true,
+    };
+  }
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: params.organizationId,
@@ -18565,6 +19111,7 @@ export async function analyzeInstagramImage(
   });
 
   if (runInsertError) {
+    await settleOrganizationDailyBudgetReservation(supabase, params.organizationId, runId);
     return {
       ok: false,
       error: "agent_run_create_failed",
@@ -18586,18 +19133,29 @@ export async function analyzeInstagramImage(
         },
       },
     ];
+    const judgeEnabled = Boolean(env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off");
+    const visualEvidence = judgeEnabled
+      ? await loadPersistedJudgeVisualEvidence(env, params.organizationId, [
+          { url: params.imageUrl, role: "imagen original evaluada", label: "Activo visual original" },
+        ])
+      : null;
+    const candidateImages: AgentImageAttachment[] = candidateImagesFromFrozenJudgeEvidence(visualEvidence)
+      ?? [{ url: params.imageUrl, role: "contenido" }];
     await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: params.organizationId,
       context_level: "C1",
-      snapshot: { blocks: contextBlocks },
+      snapshot: {
+        blocks: contextBlocks,
+        ...(visualEvidence ? { visual_evidence: { sha256: visualEvidence.sha256, image_sha256: visualEvidence.imageSha256 } } : {}),
+      },
     });
     const turn = await runAgentTurnWithFallback<InstagramImageAnalysis>(env, {
       model: agentVersion.model,
       systemPrompt: prompt.content,
       input,
       contextBlocks,
-      images: [{ url: params.imageUrl, role: "contenido" }],
+      images: candidateImages,
       outputContract: {
         jsonSchema: instagramImageAnalysisJsonSchema as unknown as Record<
           string,
@@ -18628,6 +19186,7 @@ export async function analyzeInstagramImage(
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, params.organizationId, runId);
 
     recordAiRunMetrics(
       "a15_analista_imagenes",
@@ -18637,9 +19196,6 @@ export async function analyzeInstagramImage(
 
     let judgment: Awaited<ReturnType<typeof judgePersistedAgentOutput>> | null = null;
     if (env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off") {
-      const visualEvidence = await loadPersistedJudgeVisualEvidence(env, params.organizationId, [
-        { url: params.imageUrl, role: "imagen original evaluada", label: "Activo visual original" },
-      ]);
       judgment = await judgePersistedAgentOutput(env, supabase, {
         organizationId: params.organizationId,
         actorUserId: params.actorUserId,
@@ -18652,6 +19208,9 @@ export async function analyzeInstagramImage(
         triggerType: input.trigger_type,
         expectedToolCallCount: 0,
         visualEvidence,
+        candidateModel: turn.model,
+        candidateProvider: turn.provider,
+        ...(params.sourceAssetId ? { sourceAssetId: params.sourceAssetId } : {}),
       }).catch(() => ({ judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" }));
       await recordStep(supabase, runId, params.organizationId, 2, "quality_judgment", `Juez A15: ${judgment.status}`, {
         judgment_id: judgment.judgment_id,
@@ -18672,6 +19231,7 @@ export async function analyzeInstagramImage(
     };
   } catch (error) {
     const { status, message } = describeAgentTurnFailure(error);
+    await settleOrganizationDailyBudgetReservation(supabase, params.organizationId, runId);
     await supabase
       .from("agent_runs")
       .update({
@@ -18809,6 +19369,7 @@ export async function draftInstagramOverlay(
     ...agentRunTraceFields(env, runId, agentBudget),
   });
   if (runInsertError) {
+    await settleOrganizationDailyBudgetReservation(supabase, params.organizationId, runId);
     return {
       ok: false,
       statusCode: 500,
@@ -18832,18 +19393,29 @@ export async function draftInstagramOverlay(
       { label: "Ficha de la imagen (dato no fiable)", data: { markdown: params.fichaMarkdown ?? "sin ficha todavía" } },
       { label: "Objetivo de la pieza (dato no fiable)", data: { objective: params.objective || "no especificado" } },
     ];
+    const judgeEnabled = Boolean(env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off");
+    const visualEvidence = judgeEnabled
+      ? await loadPersistedJudgeVisualEvidence(env, params.organizationId, [
+          { url: params.imageUrl, role: "imagen original evaluada", label: "Activo visual original; no es un render del diseño final" },
+        ])
+      : null;
+    const candidateImages: AgentImageAttachment[] = candidateImagesFromFrozenJudgeEvidence(visualEvidence)
+      ?? [{ url: params.imageUrl, role: "contenido" }];
     await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: params.organizationId,
       context_level: "C1",
-      snapshot: { blocks: contextBlocks },
+      snapshot: {
+        blocks: contextBlocks,
+        ...(visualEvidence ? { visual_evidence: { sha256: visualEvidence.sha256, image_sha256: visualEvidence.imageSha256 } } : {}),
+      },
     });
     const turn = await runAgentTurnWithFallback<InstagramOverlayDraft>(env, {
       model: agentVersion.model,
       systemPrompt: prompt.content,
       input,
       contextBlocks,
-      images: [{ url: params.imageUrl, role: "contenido" }],
+      images: candidateImages,
       outputContract: {
         jsonSchema: instagramOverlayDraftJsonSchema as unknown as Record<
           string,
@@ -18872,6 +19444,7 @@ export async function draftInstagramOverlay(
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, params.organizationId, runId);
     recordAiRunMetrics(
       "a16_texto_sobre_imagen",
       "succeeded",
@@ -18880,9 +19453,6 @@ export async function draftInstagramOverlay(
 
     let judgment: Awaited<ReturnType<typeof judgePersistedAgentOutput>> | null = null;
     if (env.AI_JUDGE_MODE && env.AI_JUDGE_MODE !== "off") {
-      const visualEvidence = await loadPersistedJudgeVisualEvidence(env, params.organizationId, [
-        { url: params.imageUrl, role: "imagen original evaluada", label: "Activo visual original; no es un render del diseño final" },
-      ]);
       judgment = await judgePersistedAgentOutput(env, supabase, {
         organizationId: params.organizationId,
         actorUserId: params.actorUserId,
@@ -18895,6 +19465,8 @@ export async function draftInstagramOverlay(
         triggerType: input.trigger_type,
         expectedToolCallCount: 0,
         visualEvidence,
+        candidateModel: turn.model,
+        candidateProvider: turn.provider,
       }).catch(() => ({ judgment_id: null, status: "error" as const, error_code: "judge_runtime_failed" }));
       await recordStep(supabase, runId, params.organizationId, 2, "quality_judgment", `Juez A16: ${judgment.status}`, {
         judgment_id: judgment.judgment_id,
@@ -18914,6 +19486,7 @@ export async function draftInstagramOverlay(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, params.organizationId, runId);
     recordAiRunMetrics("a16_texto_sobre_imagen", status);
     return {
       ok: false,
@@ -19647,6 +20220,7 @@ async function loadRecentSpecialistOutputBlock(
   organizationId: string,
   storeId: string | null,
   agentCodes: readonly string[] = RECENT_SPECIALIST_AGENT_CODES,
+  options: { includePendingAnalysis?: boolean } = {},
 ) {
   const now = new Date();
   const lookbackStart = new Date(
@@ -19661,7 +20235,9 @@ async function loadRecentSpecialistOutputBlock(
     .eq("agent_outputs.organization_id", organizationId)
     .eq("status", "succeeded")
     .in("agent_versions.agent_definitions.code", [...agentCodes])
-    .in("agent_outputs.status", ["approved", "published"])
+    .in("agent_outputs.status", options.includePendingAnalysis
+      ? ["approved", "published", "pending_approval"]
+      : ["approved", "published"])
     .gte("finished_at", lookbackStart);
   query =
     storeId === null
@@ -19673,11 +20249,13 @@ async function loadRecentSpecialistOutputBlock(
     .limit(120);
   const runs = summarizeRecentSpecialistOutputs(
     (data ?? []) as unknown as SpecialistRunCandidate[],
-    { organizationId, storeId, now },
+    { organizationId, storeId, now, includePendingAnalysis: options.includePendingAnalysis === true },
   );
   return {
     label:
-      "Salidas recientes y verificadas de especialistas (contexto, no fuente de cifras actuales)",
+      options.includePendingAnalysis
+        ? "Salidas recientes de especialistas, aprobadas o pendientes de revisión (contexto, no fuente de cifras actuales)"
+        : "Salidas recientes y verificadas de especialistas (contexto, no fuente de cifras actuales)",
     data: {
       status: error
         ? "unavailable"
@@ -19704,7 +20282,8 @@ async function loadRecentSpecialistOutputBlock(
 export type CopilotStreamEvent =
   | { type: "stage"; stage: "context" | "model" | "tools" | "validation" }
   | { type: "answer_delta"; delta: string }
-  | { type: "answer_reset" };
+  | { type: "answer_reset" }
+  | ({ type: "tool" } & AgentToolActivity);
 
 export async function runConsultantChatTurn(
   env: ApiEnv,
@@ -19717,6 +20296,8 @@ export async function runConsultantChatTurn(
   evidenceReference?: CopilotEvidenceReference,
   authorization?: string,
   onStreamEvent?: (event: CopilotStreamEvent) => void,
+  clientTurnId?: string,
+  signal?: AbortSignal,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -19734,6 +20315,9 @@ export async function runConsultantChatTurn(
 
   if (!trimmedMessage) {
     return { ok: false as const, statusCode: 400, error: "message_requerido" };
+  }
+  if (clientTurnId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientTurnId)) {
+    return { ok: false as const, statusCode: 400, error: "client_turn_id_invalid" };
   }
 
   if (!hasConfiguredAiProvider(env)) {
@@ -19851,9 +20435,44 @@ export async function runConsultantChatTurn(
     };
   }
 
+  // Un mismo ID de cliente nunca vuelve a generar una respuesta ni a consumir
+  // saldo. También encuentra un primer turno cuyo conversation_id se perdió
+  // con la respuesta de red.
+  let existingTurnMessage: { id: string; conversation_id: string; created_at: string } | null = null;
+  if (clientTurnId) {
+    const { data: existing, error: existingError } = await supabase
+      .from("ai_messages")
+      .select("id, conversation_id, created_at")
+      .eq("organization_id", organizationId)
+      .eq("role", "user")
+      .contains("metadata", { client_turn_id: clientTurnId })
+      .maybeSingle();
+    if (existingError) {
+      return { ok: false as const, statusCode: 500, error: "chat_turn_lookup_failed", detail: existingError.message };
+    }
+    if (existing) {
+      existingTurnMessage = existing;
+      const { data: ownerConversation, error: ownerError } = await supabase
+        .from("ai_conversations")
+        .select("user_id")
+        .eq("id", existing.conversation_id)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (ownerError) {
+        return { ok: false as const, statusCode: 500, error: "chat_turn_owner_lookup_failed" };
+      }
+      if (ownerConversation?.user_id !== context.user.id) {
+        return { ok: false as const, statusCode: 404, error: "chat_turn_not_found" };
+      }
+      if (conversationId && conversationId !== existing.conversation_id) {
+        return { ok: false as const, statusCode: 409, error: "client_turn_conversation_mismatch" };
+      }
+    }
+  }
+
   // Resolver o crear la conversacion. Si llega un id, verificamos que sea del
   // usuario actual (service role bypassa RLS, asi que el chequeo es manual).
-  let activeConversationId = conversationId;
+  let activeConversationId = existingTurnMessage?.conversation_id ?? conversationId;
 
   if (activeConversationId) {
     const { data: conversation, error: conversationLookupError } =
@@ -19928,6 +20547,82 @@ export async function runConsultantChatTurn(
     activeConversationId = conversation.id;
   }
 
+  if (existingTurnMessage) {
+    const { data: priorAssistant, error: priorAssistantError } = await supabase
+      .from("ai_messages")
+      .select("id, role, run_id, metadata")
+      .eq("conversation_id", activeConversationId)
+      .eq("organization_id", organizationId)
+      .gt("created_at", existingTurnMessage.created_at)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (priorAssistantError) {
+      return { ok: false as const, statusCode: 500, error: "chat_turn_recovery_failed", detail: priorAssistantError.message };
+    }
+    const priorMetadata = priorAssistant?.metadata && typeof priorAssistant.metadata === "object"
+      ? priorAssistant.metadata as Record<string, unknown>
+      : {};
+    const priorOutput = priorMetadata.copilot_output && typeof priorMetadata.copilot_output === "object"
+      ? priorMetadata.copilot_output as ChatOutput
+      : null;
+    if (priorAssistant?.role !== "assistant" || !priorOutput || !priorAssistant.run_id) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "chat_turn_incomplete",
+        conversation_id: activeConversationId,
+        client_turn_id: clientTurnId,
+        detail: "El turno existe y no se repetirá para evitar duplicar gasto. Recarga la conversación para recuperar su estado.",
+      };
+    }
+    const [{ data: priorRun }, { data: priorAgentOutput }] = await Promise.all([
+      supabase.from("agent_runs").select("input_tokens, output_tokens, model_calls, tool_call_count, estimated_cost_usd, latency_ms, model").eq("id", priorAssistant.run_id).maybeSingle(),
+      supabase.from("agent_outputs").select("id, approval_required, status").eq("run_id", priorAssistant.run_id).eq("organization_id", organizationId).maybeSingle(),
+    ]);
+    const storedArtifacts = Array.isArray(priorMetadata.report_artifacts)
+      ? priorMetadata.report_artifacts as GeneratedReportArtifact[]
+      : [];
+    const recoveredBalance = await loadCopilotBalance(supabase, context, organizationId).catch(() => undefined);
+    return {
+      ok: true as const,
+      data: {
+        conversation_id: activeConversationId,
+        run_id: priorAssistant.run_id,
+        message_id: priorAssistant.id,
+        output_id: priorAgentOutput?.id ?? null,
+        approval_required: priorAgentOutput?.approval_required ?? false,
+        output: priorOutput,
+        saldo: recoveredBalance ? {
+          granted: recoveredBalance.granted,
+          used: recoveredBalance.used,
+          remaining: recoveredBalance.remaining,
+          approx_messages_left: recoveredBalance.approx_messages_left,
+          renews_at: recoveredBalance.renews_at,
+          days_to_renewal: recoveredBalance.days_to_renewal,
+          exhausted: recoveredBalance.exhausted,
+          tier: recoveredBalance.tier,
+        } : undefined,
+        report_artifacts: storedArtifacts,
+        proposal_guidance: parseConsultantProposalGuidance(priorMetadata.proposal_guidance),
+        usage: priorRun ? {
+          input_tokens: priorRun.input_tokens,
+          output_tokens: priorRun.output_tokens,
+          model_calls: priorRun.model_calls,
+          tool_calls: priorRun.tool_call_count,
+          estimated_cost_usd: priorRun.estimated_cost_usd,
+          latency_ms: priorRun.latency_ms,
+        } : undefined,
+        model: {
+          id: typeof priorMetadata.model_id === "string" ? priorMetadata.model_id : "unknown",
+          label: typeof priorMetadata.model_label === "string" ? priorMetadata.model_label : "Modelo anterior",
+          effective_model: typeof priorMetadata.effective_model === "string" ? priorMetadata.effective_model : priorRun?.model ?? "unknown",
+          degraded: priorMetadata.model_degraded === true,
+        },
+      },
+    };
+  }
+
   const { data: priorMessages, error: historyError } = await supabase
     .from("ai_messages")
     .select("role, content")
@@ -19946,20 +20641,23 @@ export async function runConsultantChatTurn(
 
   const history = (priorMessages ?? []).reverse();
 
-  const { error: userMessageError } = await supabase
+  const { data: savedUserMessage, error: userMessageError } = await supabase
     .from("ai_messages")
     .insert({
       conversation_id: activeConversationId,
       organization_id: organizationId,
       role: "user",
       content: trimmedMessage,
-    });
+      ...(clientTurnId ? { metadata: { client_turn_id: clientTurnId } } : {}),
+    })
+    .select("id")
+    .single();
 
   if (userMessageError) {
     return {
       ok: false as const,
-      statusCode: 500,
-      error: "message_save_failed",
+      statusCode: userMessageError.code === "23505" ? 409 : 500,
+      error: userMessageError.code === "23505" ? "chat_turn_in_progress" : "message_save_failed",
       detail: userMessageError.message,
     };
   }
@@ -19970,7 +20668,20 @@ export async function runConsultantChatTurn(
     organizationId,
   );
 
-  const view = sanitizeChatViewContext(viewContext);
+  const sanitizedView = sanitizeChatViewContext(viewContext);
+  const view = sanitizedView
+    ? {
+        ...sanitizedView,
+        connection_id:
+          chatStoreSelection.kind === "selected"
+            ? chatStoreSelection.connectionId
+            : null,
+        store_id: knowledgeStoreId,
+        scope_resolution: knowledgeStoreId
+          ? "verified_active_shopify_store"
+          : "organization_scope",
+      }
+    : null;
 
   const knowledgeAudience = resolveChatKnowledgeAudience(
     context.profile.platform_role,
@@ -20014,6 +20725,7 @@ export async function runConsultantChatTurn(
     requested: requestedModel,
     tier: saldoAntes.tier,
     remainingTokens: saldoAntes.remaining,
+    openai: Boolean(env.OPENAI_API_KEY),
   });
 
   const input: AgentInput = {
@@ -20038,6 +20750,28 @@ export async function runConsultantChatTurn(
     planPolicy,
   );
 
+  const budgetReservation = await reserveOrganizationDailyBudget(
+    supabase,
+    organizationId,
+    runId,
+    agentBudget.maxCostUsd,
+    planPolicy.dailyBudgetUsd ?? DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
+  );
+  if (budgetReservation.ok === false) {
+    if (savedUserMessage?.id) {
+      await supabase
+        .from("ai_messages")
+        .delete()
+        .eq("id", savedUserMessage.id)
+        .eq("organization_id", organizationId);
+    }
+    return {
+      ...budgetReservation,
+      conversation_id: activeConversationId,
+      ...(clientTurnId ? { client_turn_id: clientTurnId } : {}),
+    };
+  }
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: organizationId,
@@ -20051,6 +20785,7 @@ export async function runConsultantChatTurn(
   });
 
   if (runInsertError) {
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
     return {
       ok: false as const,
       statusCode: 500,
@@ -20079,7 +20814,7 @@ export async function runConsultantChatTurn(
       assignmentBlock,
       currencyContext,
     ] = await Promise.all([
-      loadCriticalClientConstraints(supabase, organizationId, null),
+      loadCriticalClientConstraints(supabase, organizationId, knowledgeStoreId),
       loadDecisionPlaybookContextBlocks(supabase, organizationId),
       loadRecentSpecialistOutputBlock(
         supabase,
@@ -20103,7 +20838,7 @@ export async function runConsultantChatTurn(
       ...(currencyContext ? [{ label: CURRENCY_BLOCK_LABEL, data: currencyContext }] : []),
     ];
 
-    await supabase.from("agent_context_snapshots").insert({
+    const { error: contextSnapshotError } = await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: organizationId,
       context_level: "C2",
@@ -20115,6 +20850,9 @@ export async function runConsultantChatTurn(
         blocks: contextBlocks,
       },
     });
+    if (contextSnapshotError) {
+      throw new Error(`chat_context_snapshot_save_failed: ${contextSnapshotError.message}`);
+    }
 
     const answerStream = onStreamEvent
       ? createCopilotAnswerStream((delta) => onStreamEvent({ type: "answer_delta", delta }))
@@ -20135,6 +20873,7 @@ export async function runConsultantChatTurn(
           schema: chatOutputSchema,
         },
         budget: agentBudget,
+        ...(signal ? { signal } : {}),
         ...(answerStream
           ? {
               onTextDelta: (delta: string) => answerStream.push(delta),
@@ -20143,6 +20882,8 @@ export async function runConsultantChatTurn(
                 onStreamEvent?.({ type: "answer_reset" });
               },
               onToolCall: () => onStreamEvent?.({ type: "stage", stage: "tools" }),
+              onToolActivity: (activity: AgentToolActivity) =>
+                onStreamEvent?.({ type: "tool", ...activity }),
             }
           : {}),
       },
@@ -20187,6 +20928,12 @@ export async function runConsultantChatTurn(
           content: chatOutput.answer,
           run_id: runId,
           metadata: {
+            copilot_output_version: 1,
+            copilot_output: chatOutput,
+            model_id: modeloElegido.model.id,
+            model_label: modeloElegido.model.label,
+            effective_model: turn.model,
+            model_degraded: modeloElegido.degraded || turn.model !== modeloElegido.model.anthropicModel,
             ui_actions: chatOutput.ui_actions,
             ...(reportArtifacts.length > 0
               ? { report_artifacts: reportArtifacts }
@@ -20235,10 +20982,14 @@ export async function runConsultantChatTurn(
       outputId = outputRow.id;
     }
 
-    await supabase
+    const { error: runCompletionError } = await supabase
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    if (runCompletionError) {
+      throw new Error(`chat_run_completion_save_failed: ${runCompletionError.message}`);
+    }
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(
       "a09_copiloto_consultor",
@@ -20309,10 +21060,12 @@ export async function runConsultantChatTurn(
           used: saldoAntes.used + turn.inputTokens + turn.outputTokens,
           tier: saldoAntes.tier,
         }),
+        can_upgrade: canUpgradePlan(context, organizationId),
         model: {
           id: modeloElegido.model.id,
           label: modeloElegido.model.label,
-          degraded: modeloElegido.degraded,
+          effective_model: turn.model,
+          degraded: modeloElegido.degraded || turn.model !== modeloElegido.model.anthropicModel,
         },
       },
     };
@@ -20327,6 +21080,7 @@ export async function runConsultantChatTurn(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics("a09_copiloto_consultor", status);
 
@@ -20339,6 +21093,8 @@ export async function runConsultantChatTurn(
       error: "chat_turn_failed",
       status,
       detail: message,
+      conversation_id: activeConversationId,
+      ...(clientTurnId ? { client_turn_id: clientTurnId } : {}),
     };
   }
 }
@@ -20352,6 +21108,8 @@ export async function listConsultantChatConversations(
   context: AuthContext,
   organizationId: string,
   connectionId?: string | null,
+  search?: string,
+  cursor?: { created_at: string; id: string },
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -20374,9 +21132,23 @@ export async function listConsultantChatConversations(
   query = scope.storeId
     ? query.eq("scope_kind", "store").eq("scope_store_id", scope.storeId)
     : query.eq("scope_kind", "organization").is("scope_store_id", null);
+  const titleSearch = search?.trim().slice(0, 100).replace(/[\\%_]/g, "\\$&");
+  if (titleSearch) query = query.ilike("title", `%${titleSearch}%`);
+  if (cursor) {
+    const timestamp = new Date(cursor.created_at);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursor.id) || !Number.isFinite(timestamp.getTime())) {
+      return { ok: false as const, statusCode: 400, error: "conversation_cursor_invalid" };
+    }
+    const normalized = timestamp.toISOString();
+    query = query.or(
+      `updated_at.lt."${normalized}",and(updated_at.eq."${normalized}",id.lt.${cursor.id})`,
+    );
+  }
+  const pageSize = titleSearch ? 50 : 20;
   const { data, error } = await query
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .order("id", { ascending: false })
+    .limit(pageSize + 1);
 
   if (error) {
     return {
@@ -20387,7 +21159,19 @@ export async function listConsultantChatConversations(
     };
   }
 
-  return { ok: true as const, data: { conversations: data ?? [] } };
+  const hasMore = (data?.length ?? 0) > pageSize;
+  const conversations = (data ?? []).slice(0, pageSize);
+  const oldest = conversations.at(-1);
+  return {
+    ok: true as const,
+    data: {
+      conversations,
+      has_more: hasMore,
+      next_cursor: hasMore && oldest
+        ? { created_at: oldest.updated_at, id: oldest.id }
+        : null,
+    },
+  };
 }
 
 /** Mensajes de una conversacion del copiloto (para recargar el historial). */
@@ -20397,6 +21181,7 @@ export async function getConsultantChatMessages(
   organizationId: string,
   conversationId: string,
   connectionId?: string | null,
+  cursor?: { created_at: string; id: string },
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -20450,11 +21235,26 @@ export async function getConsultantChatMessages(
     };
   }
 
-  const { data, error } = await supabase
+  let messagesQuery = supabase
     .from("ai_messages")
     .select("id, role, content, run_id, created_at, metadata")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
+    .eq("conversation_id", conversationId);
+
+  if (cursor) {
+    const timestamp = new Date(cursor.created_at);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursor.id) || !Number.isFinite(timestamp.getTime())) {
+      return { ok: false as const, statusCode: 400, error: "message_cursor_invalid" };
+    }
+    const normalized = timestamp.toISOString();
+    messagesQuery = messagesQuery.or(
+      `created_at.lt."${normalized}",and(created_at.eq."${normalized}",id.lt.${cursor.id})`,
+    );
+  }
+  const pageSize = 50;
+  const { data, error } = await messagesQuery
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(pageSize + 1);
 
   if (error) {
     return {
@@ -20465,7 +21265,12 @@ export async function getConsultantChatMessages(
     };
   }
 
-  const messages = data ?? [];
+  const hasMore = (data?.length ?? 0) > pageSize;
+  const messages = (data ?? []).slice(0, pageSize).reverse();
+  const oldest = messages[0];
+  const nextCursor = hasMore && oldest
+    ? { created_at: oldest.created_at, id: oldest.id }
+    : null;
   const messageIds = messages.map((message) => message.id);
   const runIds = messages
     .map((message) => message.run_id)
@@ -20474,7 +21279,7 @@ export async function getConsultantChatMessages(
   if (runIds.length === 0) {
     return {
       ok: true as const,
-      data: { conversation_id: conversationId, messages },
+      data: { conversation_id: conversationId, messages, has_more: hasMore, next_cursor: nextCursor },
     };
   }
 
@@ -20537,11 +21342,14 @@ export async function getConsultantChatMessages(
                 ui_actions?: unknown;
                 proposal_guidance?: unknown;
                 report_artifacts?: unknown;
+                copilot_output?: unknown;
               })
             : null;
         const structuredOutput =
           output?.output && typeof output.output === "object"
-            ? (output.output as { proposed_writes?: unknown })
+            ? (output.output as Record<string, unknown>)
+            : metadata?.copilot_output && typeof metadata.copilot_output === "object"
+              ? (metadata.copilot_output as Record<string, unknown>)
             : null;
         const approval = output
           ? approvalsByOutputId.get(output.id)
@@ -20550,6 +21358,22 @@ export async function getConsultantChatMessages(
 
         return {
           ...message,
+          ...(structuredOutput
+            ? {
+                copilot_output_version: 1,
+                copilot_output: structuredOutput,
+              }
+            : {}),
+          ...(structuredOutput
+            ? {
+                ui_actions: sanitizeChatUiActions(
+                  metadata?.ui_actions ?? structuredOutput.ui_actions,
+                ),
+                proposal_guidance: parseConsultantProposalGuidance(
+                  metadata?.proposal_guidance,
+                ),
+              }
+            : {}),
           report_artifacts: Array.isArray(metadata?.report_artifacts)
             ? metadata.report_artifacts.filter((artifact): artifact is GeneratedReportArtifact => {
                 if (!artifact || typeof artifact !== "object") return false;
@@ -20572,10 +21396,10 @@ export async function getConsultantChatMessages(
                 )
                   ? structuredOutput.proposed_writes
                   : undefined,
-                ui_actions: sanitizeChatUiActions(metadata?.ui_actions),
-                proposal_guidance: parseConsultantProposalGuidance(
-                  metadata?.proposal_guidance,
+                ui_actions: sanitizeChatUiActions(
+                  metadata?.ui_actions ?? structuredOutput?.ui_actions,
                 ),
+                proposal_guidance: parseConsultantProposalGuidance(metadata?.proposal_guidance),
                 tasks_created: approval?.tasks_created ?? 0,
               }
             : {}),
@@ -20599,6 +21423,8 @@ export async function getConsultantChatMessages(
             : {}),
         };
       }),
+      has_more: hasMore,
+      next_cursor: nextCursor,
     },
   };
 }
@@ -20840,19 +21666,13 @@ export async function decideAgentOutput(
     };
   }
 
-  const { data: output, error } = await supabase
+  const outputQuery = supabase
     .from("agent_outputs")
-    .update({
-      status: decisionInput,
-      ...(decisionInput === "approved"
-        ? { published_at: new Date().toISOString() }
-        : {}),
-    })
+    .select("id, output, run_id")
     .eq("id", outputId)
     .eq("organization_id", organizationId)
-    .eq("status", "pending_approval")
-    .select("id, output, run_id")
-    .maybeSingle();
+    .eq("status", "pending_approval");
+  const { data: output, error } = await outputQuery.maybeSingle();
 
   if (error) {
     return {
@@ -20871,20 +21691,8 @@ export async function decideAgentOutput(
     };
   }
 
-  const { data: approval } = await supabase
-    .from("agent_approvals")
-    .insert({
-      output_id: outputId,
-      organization_id: organizationId,
-      decision: decisionInput,
-      decided_by: context.user.id,
-      reason: reason ?? null,
-      reason_category: reasonCategory ?? null,
-    })
-    .select("id")
-    .single();
-
   let tasksCreated = 0;
+  const taskCreationFailures: string[] = [];
   const initiativeChangeFailures: Array<{
     previous_task_id: string | null;
     error: string;
@@ -20972,6 +21780,14 @@ export async function decideAgentOutput(
         `store_id.is.null,store_id.eq.${taskStoreId}`,
       );
     const { data: openTasks, error: openTasksError } = await openTasksQuery;
+    if (openTasksError) {
+      return {
+        ok: false as const,
+        statusCode: 503,
+        error: "approval_task_dedupe_unavailable",
+        detail: "No se pudo comprobar si las tareas ya existían; la propuesta sigue pendiente.",
+      };
+    }
 
     const existingTitles = new Set(
       (openTasks ?? [])
@@ -21342,6 +22158,8 @@ export async function decideAgentOutput(
             }
           }
         }
+      } else if (taskError) {
+        taskCreationFailures.push(taskError.message.slice(0, 240));
       }
     }
   }
@@ -21396,12 +22214,66 @@ export async function decideAgentOutput(
     }
   }
 
-  if (approval?.id) {
-    await supabase
-      .from("agent_approvals")
-      .update({ tasks_created: tasksCreated })
-      .eq("id", approval.id);
+  // Una propuesta sigue pendiente si cualquiera de sus escrituras falla.
+  // Las tareas ya creadas se deduplican por título al reintentar, así se puede
+  // completar el lote sin volver a marcar como aprobada una ejecución parcial.
+  if (taskCreationFailures.length || initiativeChangeFailures.length) {
+    return {
+      ok: false as const,
+      statusCode: 503,
+      error: "approval_tasks_partial",
+      detail: `${taskCreationFailures.length} tareas fallaron y ${initiativeChangeFailures.length} cambios de iniciativa requieren revisión.`,
+    };
   }
+
+  const { data: approval, error: approvalError } = await supabase
+    .from("agent_approvals")
+    .upsert(
+      {
+        output_id: outputId,
+        organization_id: organizationId,
+        decision: decisionInput,
+        decided_by: context.user.id,
+        reason: reason ?? null,
+        reason_category: reasonCategory ?? null,
+        tasks_created: tasksCreated,
+      },
+      { onConflict: "output_id" },
+    )
+    .select("id")
+    .single();
+
+  if (approvalError || !approval) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "approval_receipt_save_failed",
+      detail: approvalError?.message,
+    };
+  }
+
+  {
+    const { data: finalizedOutput, error: finalizeError } = await supabase
+      .from("agent_outputs")
+      .update({
+        status: decisionInput,
+        ...(decisionInput === "approved" ? { published_at: new Date().toISOString() } : {}),
+      })
+      .eq("id", outputId)
+      .eq("organization_id", organizationId)
+      .eq("status", "pending_approval")
+      .select("id")
+      .maybeSingle();
+    if (finalizeError || !finalizedOutput) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "output_approval_finalize_failed",
+        detail: finalizeError?.message,
+      };
+    }
+  }
+
 
   // agent_approvals ya guarda decision/decided_by/reason por output_id -- se
   // duplica aqui en audit_logs para tener un unico rastro de auditoria por

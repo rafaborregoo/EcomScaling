@@ -2,23 +2,24 @@
    Sin esto el mapa salía en azafrán y todo lo de debajo (fase en curso, árbol,
    revisión) en el verde de globals.css. Mismos tokens que .desk, otra paleta. */
 
-.client {
-  --accent: #f2b705;
-  --accent-hover: #d9a304;
-  --accent-foreground: #1d1500;
-  --accent-soft: #fcf0c4;
-  --accent-soft-foreground: #6e5000;
-  --focus: #f2b705;
-  --color-accent: #f2b705;
-  --color-accent-hover: #d9a304;
-  --color-accent-foreground: #1d1500;
-  --color-accent-soft: #fcf0c4;
-  --color-accent-soft-foreground: #6e5000;
-  --color-focus: #f2b705;
-  --color-brand: #6e5000;
-  --color-brand-bright: #f2b705;
-  --color-brand-deep: #6e5000;
-  --color-brand-tint: #fcf0c4;
+.client,
+.desk {
+  --accent: var(--tw-accent);
+  --accent-hover: var(--tw-accent-hover);
+  --accent-foreground: var(--tw-on-accent);
+  --accent-soft: var(--tw-accent-soft);
+  --accent-soft-foreground: var(--tw-accent-ink);
+  --focus: var(--tw-accent);
+  --color-accent: var(--tw-accent);
+  --color-accent-hover: var(--tw-accent-hover);
+  --color-accent-foreground: var(--tw-on-accent);
+  --color-accent-soft: var(--tw-accent-soft);
+  --color-accent-soft-foreground: var(--tw-accent-ink);
+  --color-focus: var(--tw-accent);
+  --color-brand: var(--tw-accent-ink);
+  --color-brand-bright: var(--tw-accent);
+  --color-brand-deep: var(--tw-accent-ink);
+  --color-brand-tint: var(--tw-accent-soft);
 }
 
 /* Mesa del consultor en Mi Camino: grafito + mandarina, igual que su panel.
@@ -27,32 +28,15 @@
    árbol, los botones y las tarjetas de debajo del mapa hereden la paleta. */
 
 .desk {
-  --accent: #ff8a5b;
-  --accent-hover: #f5733f;
-  --accent-foreground: #2b0e02;
-  --accent-soft: #ffe7dc;
-  --accent-soft-foreground: #8a3310;
-  --focus: #ff8a5b;
-  --color-accent: #ff8a5b;
-  --color-accent-hover: #f5733f;
-  --color-accent-foreground: #2b0e02;
-  --color-accent-soft: #ffe7dc;
-  --color-accent-soft-foreground: #8a3310;
-  --color-focus: #ff8a5b;
-  --color-brand: #8a3310;
-  --color-brand-bright: #ff8a5b;
-  --color-brand-deep: #8a3310;
-  --color-brand-tint: #ffe7dc;
-
-  --ink: #16181b;
-  --ink-2: #474b51;
-  --ink-3: #686c72;
-  --line: #dadad5;
-  --line-2: #ebebe7;
+  --ink: #3d3b3a;
+  --ink-2: #495858;
+  --ink-3: #5c6b6b;
+  --line: #d5dfdf;
+  --line-2: #e6eded;
   --surface: #ffffff;
-  --surface-2: #f7f7f5;
-  --sunken: #e7e7e3;
-  --bad: #c22e4b;
+  --surface-2: #f4f7f7;
+  --sunken: #e5ecec;
+  --bad: #b8364a;
 
   display: grid;
   gap: 20px;
@@ -92,8 +76,8 @@
   color: var(--ink-2);
 }
 .chipGood {
-  background: #dcf1e8;
-  color: #12805f;
+  background: #dcefe5;
+  color: #2f7d5b;
 }
 .chipAcc {
   background: var(--accent-soft);

@@ -7,7 +7,6 @@ import {
   HomeIcon,
   MegaphoneIcon,
   MessageSquareIcon,
-  PlugIcon,
   GearIcon,
   UsersIcon,
   WalletIcon,
@@ -72,76 +71,91 @@ const knowledgeItems: PortalNavItem[] = [
   { href: "/conocimiento?section=ia", label: "Gestor IA" },
 ];
 
-// Una sola pantalla de integraciones: el resumen por tienda con su ficha de
-// cada conexion. La configuracion fina de cada proveedor (/integraciones/meta,
-// /klaviyo, /shopify, /instagram) se abre desde esa ficha, no desde el menu,
-// para no contar el mismo estado de dos formas.
-const integrationItems: PortalNavItem[] = [
-  { href: "/integraciones", label: "Resumen", matchPrefixes: ["/integraciones/shopify", "/integraciones/meta", "/integraciones/klaviyo", "/integraciones/instagram", "/integraciones/tienda"] },
-  { href: "/integraciones/cuentas", label: "Cuentas" },
+// Integraciones vive dentro de Configuración (2026-10-12): no ocupa un hueco
+// del menú general. Las fichas de cada conector cuelgan de esta entrada.
+const INTEGRATION_SUBPATHS = [
+  "/integraciones/shopify",
+  "/integraciones/meta",
+  "/integraciones/klaviyo",
+  "/integraciones/instagram",
+  "/integraciones/tienda",
+  "/integraciones/cuentas",
 ];
 
-function settingsItems(
-  role: PortalRole,
-  hasActiveOrganization: boolean,
-  canManageClientAccess: boolean,
-): PortalNavItem[] {
-  const org = hasActiveOrganization;
+export type SettingsNavContext = {
+  hasActiveOrganization: boolean;
+  canManageClientAccess: boolean;
+  /** La organización activa es una tienda propia, no un cliente de la cartera. */
+  activeIsOwnStore: boolean;
+};
+
+function settingsItems(role: PortalRole, context: SettingsNavContext): PortalNavItem[] {
+  const org = context.hasActiveOrganization;
   const section = (value: string) => `/configuracion?section=${value}`;
-  // El consultor configura dos cosas distintas: el cliente que tiene activo y
-  // su propia consultoría. Antes todo colgaba de "Tu tienda" aunque la tienda
-  // fuera de otro.
+  // El consultor configura tres cosas distintas: su consultoría, el cliente (o
+  // la tienda propia) que tiene activo, y su propia cuenta.
   if (role !== "client") {
-    const client = "Este cliente";
+    const store = context.activeIsOwnStore ? "Tu tienda" : "Este cliente";
     const own = "Mi consultoría";
     return [
-      { href: section("resumen"), label: org ? "Resumen" : "Configuración de la cartera", defaultForPath: true },
+      { href: section("cartera"), label: "Resumen de cartera", group: own, defaultForPath: !org },
+      { href: "/integraciones?vista=cartera", label: "Integraciones de la cartera", group: own },
+      { href: section("accesos"), label: "Equipo y reparto", group: own },
+      { href: section("consultora"), label: "Plan, plazas y marca", group: own },
       ...(org
         ? [
-            { href: section("tienda"), label: "Tienda", group: client },
-            { href: section("rentabilidad"), label: "Costes y márgenes", group: client },
-            { href: section("objetivos"), label: "Objetivos", group: client },
-            { href: section("alertas"), label: "Alertas", group: client },
-            ...(canManageClientAccess
-              ? [{ href: section("equipo"), label: "Equipo y permisos", group: client }]
+            { href: section("resumen"), label: "Resumen", group: store, defaultForPath: true },
+            { href: section("tienda"), label: "Datos de la tienda", group: store },
+            {
+              href: "/integraciones?vista=tienda",
+              label: "Integraciones",
+              group: store,
+              defaultForPath: true,
+              matchPrefixes: INTEGRATION_SUBPATHS,
+            },
+            { href: section("rentabilidad"), label: "Costes y márgenes", group: store },
+            { href: section("objetivos"), label: "Objetivos", group: store },
+            { href: section("alertas"), label: "Alertas", group: store },
+            { href: section("copiloto"), label: "Copiloto IA", group: store },
+            ...(context.canManageClientAccess
+              ? [{ href: section("equipo"), label: "Personas y roles", group: store }]
               : []),
           ]
         : []),
-      { href: section("consultora"), label: "Plan y plazas", group: own },
-      { href: section("accesos"), label: "Socios y reparto", group: own },
-      { href: section("notificaciones"), label: "Notificaciones", group: own },
-      { href: section("perfil"), label: "Perfil", group: own },
-      { href: section("seguridad"), label: "Seguridad", group: own },
+      { href: section("notificaciones"), label: "Notificaciones", group: "Tú" },
+      { href: section("perfil"), label: "Perfil", group: "Tú" },
+      { href: section("seguridad"), label: "Seguridad y actividad", group: "Tú" },
     ];
   }
   return [
     { href: section("resumen"), label: "Resumen", defaultForPath: true },
     ...(org
       ? [
-          { href: section("tienda"), label: "Tienda y consultor", group: "Tu tienda" },
+          { href: section("tienda"), label: "Datos de la tienda", group: "Tu tienda" },
+          { href: "/integraciones", label: "Integraciones", group: "Tu tienda", matchPrefixes: INTEGRATION_SUBPATHS },
           { href: section("rentabilidad"), label: "Costes y márgenes", group: "Tu tienda" },
           { href: section("objetivos"), label: "Objetivos", group: "Tu tienda" },
           { href: section("alertas"), label: "Alertas", group: "Tu tienda" },
-          { href: section("notificaciones"), label: "Notificaciones", group: "Tu tienda" },
+          ...(context.canManageClientAccess
+            ? [{ href: section("equipo"), label: "Personas y roles", group: "Equipo" }]
+            : []),
+          { href: section("consultor"), label: "Tu consultor", group: "Equipo" },
         ]
       : []),
-    ...(org && canManageClientAccess
-      ? [
-          { href: section("equipo"), label: "Equipo y permisos", group: "Organización" },
-          { href: section("plan"), label: "Plan y facturación", group: "Organización" },
-        ]
+    { href: section("notificaciones"), label: "Notificaciones", group: "Avisos e IA" },
+    ...(org ? [{ href: section("copiloto"), label: "Copiloto IA", group: "Avisos e IA" }] : []),
+    ...(org && context.canManageClientAccess
+      ? [{ href: section("plan"), label: "Plan y facturación", group: "Cuenta" }]
       : []),
     { href: section("perfil"), label: "Perfil", group: "Cuenta" },
-    { href: section("seguridad"), label: "Seguridad", group: "Cuenta" },
+    { href: section("seguridad"), label: "Seguridad y actividad", group: "Cuenta" },
     ...(org ? [{ href: section("privacidad"), label: "Privacidad y datos", group: "Cuenta" }] : []),
   ];
 }
 
 function sharedModules(
   role: "client" | "consultant",
-  hasActiveOrganization: boolean,
-  canManageClientAccess: boolean,
-  hasOwnStore: boolean,
+  context: SettingsNavContext,
 ): PortalNavModule[] {
   const consultant = role === "consultant";
 
@@ -246,21 +260,6 @@ function sharedModules(
           } satisfies PortalNavModule,
         ]
       : []),
-    // Un consultor solo conecta sus tiendas propias: las de sus clientes las
-    // conecta cada cliente. Sin tienda propia el modulo no tiene nada que
-    // ofrecerle y no aparece.
-    ...(!consultant || hasOwnStore
-      ? [
-          {
-            id: "integraciones",
-            label: "Integraciones",
-            description: "Conexiones y estado de los datos",
-            icon: PlugIcon,
-            matchPrefixes: ["/integraciones"],
-            items: integrationItems,
-          } satisfies PortalNavModule,
-        ]
-      : []),
     {
       id: "conocimiento",
       label: "Conocimiento",
@@ -272,25 +271,23 @@ function sharedModules(
     {
       id: "configuracion",
       label: "Configuración",
-      description: "Tu tienda, tu cuenta y tus datos",
+      description: "Tu tienda, integraciones, equipo y cuenta",
       icon: GearIcon,
-      matchPrefixes: ["/configuracion", "/perfil"],
-      items: settingsItems(role, hasActiveOrganization, canManageClientAccess),
+      matchPrefixes: ["/configuracion", "/perfil", "/integraciones"],
+      items: settingsItems(role, context),
       utility: true,
     },
   ];
 }
 
-function platformSettingsModule(
-  hasActiveOrganization: boolean,
-): PortalNavModule {
+function platformSettingsModule(context: SettingsNavContext): PortalNavModule {
   return {
     id: "configuracion",
     label: "Configuración",
     description: "Cuenta, alertas y permisos",
     icon: GearIcon,
-    matchPrefixes: ["/configuracion", "/perfil"],
-    items: settingsItems("platform_admin", hasActiveOrganization, true),
+    matchPrefixes: ["/configuracion", "/perfil", "/integraciones"],
+    items: settingsItems("platform_admin", { ...context, canManageClientAccess: true }),
     utility: true,
   };
 }
@@ -356,11 +353,12 @@ export function getPortalNavigation(
   role: PortalRole,
   hasActiveOrganization = true,
   canManageClientAccess = role !== "client",
-  hasOwnStore = true,
+  activeIsOwnStore = false,
 ): PortalNavModule[] {
+  const context = { hasActiveOrganization, canManageClientAccess, activeIsOwnStore };
   return role === "platform_admin"
-    ? [...platformModules, platformSettingsModule(hasActiveOrganization)]
-    : sharedModules(role, hasActiveOrganization, canManageClientAccess, hasOwnStore);
+    ? [...platformModules, platformSettingsModule(context)]
+    : sharedModules(role, context);
 }
 
 function pathMatches(pathname: string, prefix: string) {

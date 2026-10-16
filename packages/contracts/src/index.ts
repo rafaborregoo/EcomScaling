@@ -84,6 +84,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { code: "a09_copiloto_consultor", displayName: "Copiloto", description: "Responde con alcance tenant-bound y lectura controlada.", status: "implemented" },
   { code: "a11_generador_marketing", displayName: "Borradores de marketing", description: "Contenido portable para revisión; no publica ni envía.", status: "implemented" },
   { code: "a28_arquitecto_flujos", displayName: "Arquitectura de flujos", description: "Propone automatizaciones Klaviyo basadas en inventario y cobertura; no modifica ni activa flujos.", status: "implemented" },
+  { code: "a29_analista_metrica", displayName: "Analista de métricas", description: "Explica por qué una métrica va bien o mal y qué hacer, sobre el veredicto calculado por reglas; solo lectura.", status: "implemented" },
 ];
 
 export function getAgentCatalogEntry(agentCode: string) {
@@ -264,6 +265,7 @@ export * from "./temporal.js";
 // Un intento de autorizacion OAuth a medias no es una tienda: la comparten el
 // cron que los purga y la interfaz que los distingue de una conexion rota.
 export * from "./authorization-attempt.js";
+export * from "./connection-reconnect.js";
 
 // FASE 3 / D14: la salida diagnostica, su validacion y el lenguaje calibrado.
 export * from "./output.js";
@@ -383,3 +385,4 @@ export * from "./cross-channel-attribution.js";
 export * from "./panel-profitability.js";
 export * from "./campaigns-overview.js";
 export * from "./mailing-campaign-graph.js";
+export * from "./metric-analyst.js";

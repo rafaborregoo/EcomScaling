@@ -1,0 +1,121 @@
+/* Movimiento del Consultor IA. El layout y el color van en clases de Tailwind
+   sobre los tokens del tema; aqui solo lo que Tailwind no expresa bien. */
+
+.rise {
+  animation: copilot-rise 0.32s ease both;
+}
+
+.spin {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: copilot-spin 0.7s linear infinite;
+}
+
+.caret::after {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.95rem;
+  margin-left: 0.15rem;
+  vertical-align: -0.15rem;
+  background: var(--accent);
+  animation: copilot-blink 1s steps(2) infinite;
+}
+
+/* Borde que orbita alrededor del compositor mientras la IA trabaja. */
+@property --copilot-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.busy::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--copilot-angle),
+    transparent 0 70%,
+    var(--accent) 85%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: copilot-orbit 2.2s linear infinite;
+}
+
+.drawer {
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0.3s;
+}
+
+.drawerOpen {
+  transform: none;
+  visibility: visible;
+}
+
+.ring {
+  transform: rotate(-90deg);
+}
+
+.ring circle:last-child {
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes copilot-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes copilot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes copilot-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes copilot-orbit {
+  to {
+    --copilot-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .spin,
+  .caret::after,
+  .busy::after,
+  .drawer {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* El foco lo marca el contenedor del compositor; el contorno global de los
+   campos dibujaría una segunda caja dentro. */
+.composerInput:focus-visible,
+.composerInput[data-focused="true"] {
+  outline: none !important;
+}

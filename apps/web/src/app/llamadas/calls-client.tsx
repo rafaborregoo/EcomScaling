@@ -1040,8 +1040,8 @@ export function CallDetail({
     <div className="grid gap-7">
       <div className={s.head}>
         <div>
-          <p className={p.lbl}>{callTypeLabels[call.call_type] ?? call.call_type}</p>
           <h1 className={s.title}>{call.title}</h1>
+            <p className={s.meta}>{callTypeLabels[call.call_type] ?? call.call_type}</p>
           <p className={s.meta}>
             {formatDate(call.held_at ?? call.scheduled_at)}
             {call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}
@@ -1360,7 +1360,7 @@ export function CallDetail({
               <div className={p.panelH}>
                 <div>
                   <h3>
-                    <span className={p.ia}>IA</span>
+                    <span className={p.ia}>A01</span>
                     {pendingSummaries.length || publishedSummary
                       ? "Nuevo resumen"
                       : "Resumen"}
@@ -2169,8 +2169,8 @@ function ConsultantCallsView() {
     <div className="grid gap-7">
       <section className={s.head}>
         <div>
-          <p className={p.lbl}>Toda la cartera</p>
           <h1 className={s.title}>Llamadas</h1>
+            <p className={s.meta}>Revisa las conversaciones y acuerdos de toda tu cartera.</p>
         </div>
         {/* Registrar una llamada exige un cliente activo (la API es por
             organizacion). Con un cliente filtrado, esto abre su vista, que es

@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { ClientMeta } from "../dashboard/client-meta";
+import { ChannelBand } from "../dashboard/channel-band";
 import { MetaTrustStrip } from "./trust-strip";
 import { PortfolioAttention } from "@/components/portfolio-attention";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
@@ -14,6 +16,7 @@ import {
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
@@ -65,41 +68,10 @@ function syncLabel(iso: string | null) {
  */
 function ConsultantAccountsView() {
   const { setOrganizationId } = useActiveOrganization();
-  const [ranking, setRanking] = useState<TriagedMetaAccount[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const query = useCachedQuery<{ ranking: TriagedMetaAccount[] }>("/v1/consultant/meta-accounts");
+  const ranking = query.data ? (query.data.ranking ?? []) : null;
+  const error = query.error;
   const [onlyNeedsReview, setOnlyNeedsReview] = useState(false);
-
-  useEffect(() => {
-    let current = true;
-
-    void (async () => {
-      try {
-        const response = await apiFetch("/v1/consultant/meta-accounts");
-        if (!current) return;
-
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: string;
-          } | null;
-          setError(body?.error ?? `HTTP ${response.status}`);
-          return;
-        }
-
-        const payload = (await response.json()) as {
-          ranking: TriagedMetaAccount[];
-        };
-        setRanking(payload.ranking ?? []);
-        setError(null);
-      } catch {
-        if (!current) return;
-        setError("No se pudo cargar la cartera de Meta.");
-      }
-    })();
-
-    return () => {
-      current = false;
-    };
-  }, []);
 
   if (error) {
     return (
@@ -284,6 +256,11 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page grid gap-5 sm:gap-6">
+      <ChannelBand
+        eyebrow="Tu publicidad · Meta Ads"
+        title={organization?.display_name ?? "Meta Ads"}
+        actions={<ButtonLink href="/meta/campanas" variant="secondary">Ver campañas</ButtonLink>}
+      />
       {connected === false ? (
         <Banner tone="warn" className="text-sm">
           Este cliente no tiene Meta conectado. Se conecta desde{" "}

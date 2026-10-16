@@ -4,15 +4,15 @@
    shell: px-4 / sm:px-6 / lg:px-10, pt-4 / lg:pt-6, pb-28 / lg:pb-14. */
 
 .page {
-  --ib-ink: var(--tw-ink, #0b2a33);
-  --ib-ink-3: var(--tw-ink-3, #5c757b);
-  --ib-line: var(--tw-line, #d3dee0);
-  --ib-line-soft: color-mix(in srgb, var(--tw-line, #d3dee0) 55%, #ffffff);
+  --ib-ink: var(--tw-ink, #3d3b3a);
+  --ib-ink-3: var(--tw-ink-3, #5c6b6b);
+  --ib-line: var(--tw-line, #d5dfdf);
+  --ib-line-soft: color-mix(in srgb, var(--tw-line, #e2dfdc) 55%, #ffffff);
   --ib-surface: #ffffff;
-  --ib-canvas: color-mix(in srgb, var(--tw-paper, #edf1f1) 88%, var(--tw-ink, #0b2a33) 5%);
-  --ib-ground: color-mix(in srgb, var(--tw-paper, #edf1f1) 70%, var(--tw-ink, #0b2a33) 8%);
-  --ib-accent: var(--tw-accent, #f2b705);
-  --ib-on-accent: var(--tw-on-accent, #1d1500);
+  --ib-canvas: #f3f6f6;
+  --ib-ground: #e5ecec;
+  --ib-accent: var(--tw-accent, #176b64);
+  --ib-on-accent: var(--tw-on-accent, #ffffff);
   --ib-on-petrol: #e8f1f2;
   display: flex;
   flex-direction: column;
@@ -48,21 +48,23 @@
   align-items: center;
   gap: 8px 16px;
   padding: 12px 24px;
-  background: var(--ib-ink);
-  color: var(--ib-on-petrol);
+  background: var(--ib-surface);
+  color: var(--ib-ink);
+  border-bottom: 1px solid var(--ib-line);
 }
 .crumb {
   font-size: 12px;
   opacity: 0.7;
 }
 .title {
-  font-size: 16px;
+  margin: 0;
+  font-size: 24px;
   font-weight: 600;
   line-height: 1.3;
 }
 .count {
   font-size: 12px;
-  opacity: 0.75;
+  color: var(--ib-ink-3);
   white-space: nowrap;
 }
 
@@ -102,11 +104,12 @@
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--ib-line);
-  border-radius: 6px;
+  border-radius: 12px;
   overflow-x: auto;
   max-width: 100%;
 }
 .segBtn {
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -124,7 +127,7 @@
   color: var(--ib-ink);
 }
 .segBtn[aria-pressed="true"] {
-  background: var(--ib-ink);
+  background: var(--ib-accent);
   color: #ffffff;
   font-weight: 500;
 }
@@ -189,6 +192,7 @@
   padding: 16px 24px 32px;
   background: var(--ib-canvas);
 }
+.work:not(:has(.detail)) { grid-template-columns: minmax(0, 1fr); }
 .resultLine {
   display: flex;
   align-items: center;

@@ -171,3 +171,17 @@ test("A19 recibe el diseno A28 aprobado de su tienda con evidencia acotada", () 
   assert.equal(summary.flow_architecture.candidates[0]?.name, "Bienvenida");
   assert.doesNotMatch(JSON.stringify(result), /private_detail|private_architecture_note/);
 });
+
+test("los planificadores leen el análisis pendiente de aprobar, marcado como no revisado; un rechazado nunca", () => {
+  const now = new Date("2026-10-01T12:00:00Z");
+  const base = candidate({
+    agent_versions: { version: "v10", agent_definitions: { code: "a06_planificador_stock" } },
+    agent_outputs: { id: "out-1", status: "pending_approval", output: { answer: "Boreal se agota en 2 días", findings: [], recommendations: [], sources: [], warnings: [], confidence: "medium" } },
+  });
+  assert.equal(summarizeRecentSpecialistOutputs([base], { organizationId: "org-1", storeId: "store-1", now }).length, 0);
+  const [pending] = summarizeRecentSpecialistOutputs([base], { organizationId: "org-1", storeId: "store-1", now, includePendingAnalysis: true });
+  assert.equal(pending?.output_status, "pending_approval");
+  assert.ok(pending?.approval_note);
+  const rejected = candidate({ ...base, agent_outputs: { ...(base.agent_outputs as object), status: "rejected" } });
+  assert.equal(summarizeRecentSpecialistOutputs([rejected], { organizationId: "org-1", storeId: "store-1", now, includePendingAnalysis: true }).length, 0);
+});

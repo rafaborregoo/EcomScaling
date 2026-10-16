@@ -56,14 +56,14 @@ export function Hero({
     <section className={s.hero} aria-labelledby={id}>
       <div className={s.heroTop}>
         <div>
+          <h1 id={id} className={s.headline}>
+            {title}
+          </h1>
           <p className={s.meta}>
             {meta.map((item, index) => (
               <span key={index}>{item}</span>
             ))}
           </p>
-          <h1 id={id} className={s.headline}>
-            {title}
-          </h1>
           {lines.map((line, index) => (
             <p key={index} className={s.detail}>
               {line}
@@ -77,8 +77,8 @@ export function Hero({
   );
 }
 
-export function IaTag() {
-  return <span className={s.ia}>IA</span>;
+export function IaTag({ code = "A05" }: { code?: string }) {
+  return <span className={s.ia}>{code}</span>;
 }
 
 export type CounterItem = { n: number; label: string; hot?: boolean; onPick?: () => void };

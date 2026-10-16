@@ -5,6 +5,7 @@ import {
   type AuthContext,
   requireOperationalOrganization,
 } from "./auth-context.js";
+import { consultoraBrandFor } from "./report-generate.js";
 
 type ReportSharingEnv = Pick<
   LoadedApiEnv,
@@ -127,7 +128,8 @@ export async function emailCopilotReport(
   const filename = safeCopilotReportFileName(requestedFileName, reportId);
   const service = createServiceClient(env);
   const { data: row } = await service.from("copilot_reports").select("title, period_start, period_end, prepared_by, highlights, emailed_to").eq("id", reportId).eq("organization_id", organizationId).maybeSingle();
-  const sent = await sendReportEmail(env, { to: [recipient], pdf, filename, summary: row ?? null });
+  const { replyTo } = await consultoraBrandFor(service, organizationId);
+  const sent = await sendReportEmail(env, { to: [recipient], pdf, filename, summary: row ?? null, replyTo });
   if (!sent.ok) return { ok: false as const, statusCode: 502, error: "report_email_send_failed" };
   if (row) {
     await service.from("copilot_reports").update({ emailed_to: [...new Set([...(row.emailed_to ?? []), recipient])] }).eq("id", reportId);
@@ -175,7 +177,7 @@ ${points.length ? `<p style="margin:0 0 6px;font-weight:600">Lo más importante<
 /** Envía un PDF de informe por SMTP (Brevo). Lo usan el botón de compartir y el envío mensual. */
 export async function sendReportEmail(
   env: ReportSharingEnv,
-  input: { to: string[]; pdf: Buffer; filename: string; summary: ReportEmailSummary | null },
+  input: { to: string[]; pdf: Buffer; filename: string; summary: ReportEmailSummary | null; replyTo?: string | null },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!env.SMTP_USER || !env.SMTP_BREVO) return { ok: false, error: "email_not_configured" };
   const host = env.SMTP_HOST ?? "smtp-relay.brevo.com";
@@ -196,6 +198,7 @@ export async function sendReportEmail(
     await transporter.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to: input.to,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       subject,
       text,
       html,

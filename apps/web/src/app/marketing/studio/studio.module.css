@@ -3,25 +3,25 @@
    colores del email son los de la marca de la tienda, no los de la interfaz. */
 
 .studio {
-  --st-ink: var(--tw-ink, #0b2a33);
-  --st-ink-2: color-mix(in srgb, var(--tw-ink, #0b2a33) 78%, #ffffff);
-  --st-ink-3: var(--tw-ink-3, #5c757b);
-  --st-line: var(--tw-line, #d3dee0);
-  --st-line-strong: color-mix(in srgb, var(--tw-line, #d3dee0) 70%, var(--tw-ink, #0b2a33) 12%);
+  --st-ink: var(--tw-ink, #3d3b3a);
+  --st-ink-2: color-mix(in srgb, var(--tw-ink, #3d3b3a) 78%, #ffffff);
+  --st-ink-3: var(--tw-ink-3, #5c6b6b);
+  --st-line: var(--tw-line, #d5dfdf);
+  --st-line-strong: color-mix(in srgb, var(--tw-line, #e2dfdc) 70%, var(--tw-ink, #3d3b3a) 12%);
   --st-surface: #ffffff;
   --st-surface-2: var(--tw-surface-2, #f4f7f7);
-  --st-accent: var(--tw-accent, #f2b705);
-  --st-accent-hover: var(--tw-accent-hover, #dba503);
-  --st-on-accent: var(--tw-on-accent, #1d1500);
-  --st-accent-soft: var(--tw-accent-soft, #fcf0c4);
-  --st-accent-ink: var(--tw-accent-ink, #6e5000);
-  --st-good: var(--tw-good, #11806a);
+  --st-accent: var(--tw-accent, #176b64);
+  --st-accent-hover: var(--tw-accent-hover, #135c55);
+  --st-on-accent: var(--tw-on-accent, #ffffff);
+  --st-accent-soft: var(--tw-accent-soft, #e3f1ee);
+  --st-accent-ink: var(--tw-accent-ink, #176b64);
+  --st-good: var(--tw-good, #2f7d5b);
   --st-good-soft: #dcf1ec;
   --st-warn: #9a5b00;
   --st-warn-soft: #fbead0;
   --st-bad: #b3361f;
   --st-bad-soft: #f8e0da;
-  --st-canvas: color-mix(in srgb, var(--tw-paper, #edf1f1) 88%, var(--tw-ink, #0b2a33) 5%);
+  --st-canvas: #f3f6f6;
   --st-shadow: 0 1px 2px rgb(11 42 51 / 0.06), 0 8px 28px -12px rgb(11 42 51 / 0.22);
   --st-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
   display: flex;
@@ -82,8 +82,9 @@
   align-items: center;
   gap: 10px 16px;
   padding: 10px 16px;
-  background: var(--st-ink);
-  color: #ffffff;
+  background: var(--st-surface);
+  color: var(--st-ink);
+  border-bottom: 1px solid var(--st-line);
 }
 .piece {
   display: flex;
@@ -91,8 +92,9 @@
   min-width: 0;
 }
 .crumb {
-  font-size: 12px;
-  opacity: 0.7;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
 }
 .pieceName {
   background: transparent;
@@ -105,11 +107,10 @@
 }
 .pieceName:hover,
 .pieceName:focus {
-  border-bottom-color: rgb(255 255 255 / 0.4);
-  outline: none;
+  border-bottom-color: var(--st-accent);
 }
 .pieceName::placeholder {
-  color: rgb(255 255 255 / 0.55);
+  color: var(--st-ink-3);
 }
 .pills {
   display: flex;
@@ -124,7 +125,7 @@
   font-size: 11.5px;
   padding: 2px 8px;
   border-radius: 99px;
-  background: rgb(255 255 255 / 0.1);
+  background: var(--st-surface-2);
   white-space: nowrap;
   border: 0;
 }
@@ -146,7 +147,7 @@
 }
 .channels {
   display: flex;
-  background: rgb(255 255 255 / 0.08);
+  background: var(--st-surface-2);
   border-radius: 8px;
   padding: 3px;
   gap: 2px;
@@ -161,7 +162,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  opacity: 0.8;
+  color: var(--st-ink-2);
+  min-height: 40px;
   white-space: nowrap;
 }
 .channels button[aria-pressed="true"] {
@@ -185,15 +187,16 @@
 }
 .saved {
   font-size: 12px;
-  opacity: 0.75;
+  color: var(--st-ink-3);
   margin-right: 4px;
 }
 .saved[data-error="true"] {
-  color: #fecaca;
+  color: var(--st-bad);
   opacity: 1;
 }
 .tbtn {
-  border: 1px solid rgb(255 255 255 / 0.22);
+  border: 1px solid var(--st-line);
+  min-height: 40px;
   background: transparent;
   border-radius: 7px;
   padding: 6px 10px;
@@ -203,7 +206,7 @@
   gap: 6px;
 }
 .tbtn:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--st-surface-2);
 }
 .tbtn:disabled {
   opacity: 0.35;
@@ -646,7 +649,6 @@
   width: 600px;
   max-width: 100%;
   box-shadow: var(--st-shadow);
-  transition: width 0.25s ease;
   min-height: 240px;
 }
 .email[data-mobile="true"] {
@@ -1579,6 +1581,7 @@ textarea.inp {
     gap: 6px;
   }
   .mswitch button {
+    min-height: 44px;
     flex: 1;
     border: 1px solid var(--st-line);
     background: var(--st-surface);
@@ -1587,9 +1590,9 @@ textarea.inp {
     font-size: 13px;
   }
   .mswitch button[aria-pressed="true"] {
-    background: var(--st-ink);
-    color: #ffffff;
-    border-color: var(--st-ink);
+    background: var(--st-accent-soft);
+    color: var(--st-accent-ink);
+    border-color: var(--st-accent);
   }
   .work {
     grid-template-columns: minmax(0, 1fr);
@@ -1611,4 +1614,68 @@ textarea.inp {
   .briefGrid {
     grid-template-columns: 1fr;
   }
+}
+
+/* chat con la IA */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chatLog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.chatIdeas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chatIdeas button {
+  border: 1px solid var(--st-line);
+  background: var(--st-surface);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.chatIdeas button:hover:not(:disabled) {
+  border-color: var(--st-accent);
+}
+.bubble {
+  max-width: 92%;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--st-surface-2);
+}
+.bubble[data-role="user"] {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--st-accent) 14%, transparent);
+}
+.bubble[data-error] {
+  color: var(--st-bad, #b42318);
+}
+.bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.bubble ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--st-ink-2);
+}
+.chatBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chatBox textarea {
+  min-height: 52px;
 }

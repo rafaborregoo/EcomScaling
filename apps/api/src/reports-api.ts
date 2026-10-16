@@ -15,7 +15,7 @@ import { consultingOrganizationIdOf } from "./capacidad-cartera.js";
 import { getConsultantProfitability, normalizeProfitabilityDays } from "./consultant-profitability.js";
 import { normalizeReportRecipient, sendReportEmail } from "./copilot-report-sharing.js";
 import { buildPortfolioReportDocument } from "./report-data.js";
-import { buildOrganizationReport, isoDate, lastFullMonth, previousPeriod, REPORT_BUCKET, saveReport } from "./report-generate.js";
+import { buildOrganizationReport, consultoraBrandFor, isoDate, lastFullMonth, previousPeriod, REPORT_BUCKET, saveReport } from "./report-generate.js";
 import { listReportTemplates, resolveReportTemplateId } from "./report-templates.js";
 
 type ApiEnv = LoadedApiEnv;
@@ -213,8 +213,10 @@ export async function runScheduledReports(env: ApiEnv, now = new Date()) {
       }
       const changes = built.report.sections.find((section) => section.kind === "summary");
       const recipients = (schedule.recipients ?? []) as string[];
+      const { replyTo } = await consultoraBrandFor(supabase, schedule.organization_id);
       const sent = await sendReportEmail(env, {
         to: recipients,
+        replyTo,
         pdf: saved.pdf,
         filename: saved.fileName,
         summary: {

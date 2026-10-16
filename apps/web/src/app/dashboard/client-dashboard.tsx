@@ -10,6 +10,7 @@ import { ClientPulse } from "./client-pulse";
 import { ClientShopify } from "./client-shopify";
 import { ClientMeta } from "./client-meta";
 import { ClientKlaviyo } from "./client-klaviyo";
+import { ChannelBand } from "./channel-band";
 
 const CLIENT_DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
 
@@ -72,36 +73,45 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
   // la analítica exhaustiva, que vive en el módulo Analítica.
   if (activeTab === "shopify") {
     return (
-      <ClientShopify
-        organizationId={organizationId}
-        organizationName={organization.display_name}
-        connectionId={connectionId || null}
-        userId={bootstrap.user.id}
-        consultant={consultant}
-      />
+      <div className="grid gap-5 sm:gap-6">
+        <ChannelBand eyebrow="Tu tienda · Shopify" title={organization.display_name} />
+        <ClientShopify
+          organizationId={organizationId}
+          organizationName={organization.display_name}
+          connectionId={connectionId || null}
+          userId={bootstrap.user.id}
+          consultant={consultant}
+        />
+      </div>
     );
   }
 
   if (activeTab === "meta") {
     return (
-      <ClientMeta
-        organizationId={organizationId}
-        organizationName={organization.display_name}
-        connectionId={connectionId || null}
-        userId={bootstrap.user.id}
-        consultant={consultant}
-      />
+      <div className="grid gap-5 sm:gap-6">
+        <ChannelBand eyebrow="Tu publicidad · Meta Ads" title={organization.display_name} />
+        <ClientMeta
+          organizationId={organizationId}
+          organizationName={organization.display_name}
+          connectionId={connectionId || null}
+          userId={bootstrap.user.id}
+          consultant={consultant}
+        />
+      </div>
     );
   }
 
   if (activeTab === "klaviyo") {
     return (
-      <ClientKlaviyo
-        organizationId={organizationId}
-        organizationName={organization.display_name}
-        connectionId={connectionId || null}
-        hasConsultant={Boolean(consultant)}
-      />
+      <div className="grid gap-5 sm:gap-6">
+        <ChannelBand eyebrow="Tu email · Klaviyo" title={organization.display_name} />
+        <ClientKlaviyo
+          organizationId={organizationId}
+          organizationName={organization.display_name}
+          connectionId={connectionId || null}
+          hasConsultant={Boolean(consultant)}
+        />
+      </div>
     );
   }
 

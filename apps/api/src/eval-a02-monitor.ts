@@ -568,13 +568,51 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
     const result = await runMonitorAgent(env, context, organizationId, connectionId ?? null, 30);
 
     if (!result.ok) {
+      const { data: run } = await admin
+        .from("agent_runs")
+        .select("id, status, estimated_cost_usd, latency_ms, tool_call_count, budget_max_cost_usd, budget_max_tool_calls, stop_reason, context_truncated")
+        .eq("organization_id", organizationId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const runId = typeof run?.id === "string" ? run.id : null;
+      const [{ data: persistedJudgment }, { data: judgeJob }] = runId
+        ? await Promise.all([
+            admin.from("agent_run_judgments")
+              .select("status, overall_score, rubric_version, error_code")
+              .eq("agent_run_id", runId).maybeSingle(),
+            admin.from("agent_judge_jobs")
+              .select("status, attempts, max_attempts, last_error")
+              .eq("agent_run_id", runId).maybeSingle(),
+          ])
+        : [{ data: null }, { data: null }];
       return {
         scenario: scenario.name,
         error: result,
+        run_diagnostics: run ? { ...run, persisted_judgment: persistedJudgment, judge_job: judgeJob } : null,
         checks: [] as Check[],
       };
     }
 
+    const [{ data: judgmentRow }, { data: judgeJob }, { data: contextSnapshot }] = await Promise.all([
+      admin.from("agent_run_judgments")
+        .select("status, overall_score, rubric_version, error_code, result")
+        .eq("agent_run_id", result.data.run_id).maybeSingle(),
+      admin.from("agent_judge_jobs")
+        .select("status, attempts, max_attempts, last_error")
+        .eq("agent_run_id", result.data.run_id).maybeSingle(),
+      admin.from("agent_context_snapshots")
+        .select("snapshot")
+        .eq("run_id", result.data.run_id).maybeSingle(),
+    ]);
+    const judgmentPayload = (judgmentRow?.result ?? null) as { criteria?: unknown[]; summary?: string } | null;
+    const persistedJudgment = judgmentRow
+      ? { ...judgmentRow, criteria: judgmentPayload?.criteria ?? null, summary: judgmentPayload?.summary ?? null, result: undefined }
+      : null;
+    const contextBlocks = ((contextSnapshot?.snapshot as { blocks?: Array<{ label: string; data: unknown }> } | null)?.blocks ?? []);
+    const stockEvidence = contextBlocks
+      .filter((block) => /stock|inventario|producto|demanda/i.test(block.label))
+      .map((block) => ({ label: block.label, data: block.data }));
     const output = result.data.output as AgentOutputShape;
     const checks = scenario.checks(output);
     checks.push({
@@ -585,14 +623,8 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
       detail: `findings=${output.findings.length}; evidencias=${output.findings.filter((finding) => finding.evidence.trim()).length}; sources=${output.sources.length}`,
     });
     if (expectUnknownCurrency) {
-      const { data: contextSnapshot } = await admin
-        .from("agent_context_snapshots")
-        .select("snapshot")
-        .eq("run_id", result.data.run_id)
-        .maybeSingle();
-      const blocks = ((contextSnapshot?.snapshot as { blocks?: Array<{ label: string; data: unknown }> } | null)?.blocks ?? []);
-      const currency = blocks.find((block) => block.label === "Cobertura de moneda de los cálculos Shopify")?.data as { status?: string } | undefined;
-      const sales = blocks.find((block) => block.label.startsWith("Ventas Shopify"))?.data as { availability?: string } | undefined;
+      const currency = contextBlocks.find((block) => block.label === "Cobertura de moneda de los cálculos Shopify")?.data as { status?: string } | undefined;
+      const sales = contextBlocks.find((block) => block.label.startsWith("Ventas Shopify"))?.data as { availability?: string } | undefined;
       checks.push({
         name: "moneda sin confirmar no elimina las ventas Shopify del contexto",
         type: "hard",
@@ -613,7 +645,7 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
         detail: `esperado=${expectedStoreId}, recibido=${run?.store_id ?? "null"}`,
       });
     }
-    return { scenario: scenario.name, output, checks, usage: result.data.usage };
+    return { scenario: scenario.name, output, checks, usage: result.data.usage, persistedJudgment, judgeJob, stockEvidence };
   } finally {
     await admin.from("organizations").delete().eq("id", organizationId);
   }
@@ -634,9 +666,15 @@ const MAX_LATENCY_PER_SCENARIO_MS = 45_000;
 // real de regresion de calidad que merece revision antes de promover la
 // version de prompt -- se reporta como advertencia explicita, no en silencio.
 const SOFT_FAILURE_RATE_WARNING_THRESHOLD = 1 / 3;
+const SELECTED_SCENARIOS = process.env.EVAL_SCENARIO
+  ? SCENARIOS.filter((scenario) => scenario.name === process.env.EVAL_SCENARIO)
+  : SCENARIOS;
 
 async function main() {
-  logger.info("Starting AI-06 eval: A02 monitor de negocio", { scenarios: SCENARIOS.map((s) => s.name) });
+  if (SELECTED_SCENARIOS.length === 0) {
+    throw new Error(`No existe el escenario A02 solicitado: ${process.env.EVAL_SCENARIO}`);
+  }
+  logger.info("Starting AI-06 eval: A02 monitor de negocio", { scenarios: SELECTED_SCENARIOS.map((s) => s.name) });
 
   const actorUserId = await createEvalUser();
   let hardFailures = 0;
@@ -646,14 +684,24 @@ async function main() {
   const gateViolations: string[] = [];
 
   try {
-    for (const scenario of SCENARIOS) {
+    for (const scenario of SELECTED_SCENARIOS) {
       console.log(`\n=== ${scenario.name} ===`);
       console.log(scenario.description);
 
       const result = await runScenario(scenario, actorUserId);
 
       if ("error" in result) {
-        console.log(`RUN FAILED: ${JSON.stringify(result.error)}`);
+        console.log(`RUN FAILED: ${JSON.stringify(result)}`);
+        const failedRunCost = result.run_diagnostics?.estimated_cost_usd;
+        if (typeof failedRunCost === "number") {
+          const costGate = evaluateCostGate(scenario.name, failedRunCost, MAX_COST_PER_SCENARIO_USD);
+          totalCostUsd += costGate.addToTotalUsd;
+          for (const violation of costGate.violations) {
+            console.log(violation);
+            gateViolations.push(violation);
+            hardFailures += 1;
+          }
+        }
         hardFailures += 1;
         continue;
       }
@@ -680,6 +728,17 @@ async function main() {
           hardFailures += 1;
         }
       }
+
+      console.log(`persisted_judgment: ${JSON.stringify(result.persistedJudgment)}`);
+      console.log(`judge_job: ${JSON.stringify(result.judgeJob)}`);
+    if (!result.persistedJudgment) {
+      console.log(`[GATE FAIL] ${scenario.name}: no se persistió el dictamen del juez`);
+      hardFailures += 1;
+    } else if (result.persistedJudgment.status === "error") {
+      console.log(`[GATE FAIL] ${scenario.name}: fallo del juez (${result.persistedJudgment.error_code ?? "sin código"})`);
+      hardFailures += 1;
+    }
+      console.log(`stock_evidence: ${JSON.stringify(result.stockEvidence).slice(0, 5000)}`);
 
       for (const check of result.checks) {
         const marker = check.pass ? "PASS" : "FAIL";

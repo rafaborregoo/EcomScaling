@@ -167,7 +167,8 @@ test("A09 conserva una tienda seleccionada y no confunde IDs inválidos con toda
   });
 
   const view = sanitizeChatViewContext({ store_id: connectionId });
-  assert.equal(view?.store_id, connectionId, "la tienda por sí sola cuenta como contexto útil");
+  assert.equal(view?.connection_id, connectionId, "el campo histórico se conserva como connection_id");
+  assert.equal(view?.store_id, null, "el store.id canónico lo fija el servidor tras resolver la conexión");
 });
 
 // --- AI-07: quien pregunta decide que conocimiento se recupera -------------

@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 
 const packagePath = new URL("../apps/api/package.json", import.meta.url);
-const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
+const packageJsonText = (await readFile(packagePath, "utf8")).replace(
+  /^\uFEFF/,
+  "",
+);
+const packageJson = JSON.parse(packageJsonText);
 const scripts = packageJson.scripts ?? {};
 
 if (scripts.test !== "npm run test:unit") {

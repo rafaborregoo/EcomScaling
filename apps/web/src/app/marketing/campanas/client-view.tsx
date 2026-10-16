@@ -145,7 +145,7 @@ export function ClientView({
               Crear una campaña
             </button>
             <button type="button" className={cx(s.btn, s.ghost)} onClick={onPropose}>
-              Planificar campañas con A05
+              Planificar campañas con IA
             </button>
             {hasConsultant ? (
               <Link className={cx(s.btn, s.ghost)} href="/mensajes">
@@ -186,7 +186,7 @@ export function ClientView({
           { label: "Salen esta semana", value: week.length, foot: "emails, en los próximos 7 días" },
           { label: "Esperan tu visto bueno", value: pending.length, foot: pending.length ? "revísalos antes de que salgan" : "todo al día" },
           { label: "Enviadas · 30 días", value: sent30.length, foot: delivered ? `apertura media ${pct(ratio(opens, delivered))}` : "todavía sin envíos" },
-          { label: "EUR atribuidos por Klaviyo", value: sent30.length ? formatMoney(revenue, currency) : "—", foot: sent30.length ? `de ${sent30.length === 1 ? "esa campaña" : `esas ${sent30.length} campañas`}` : "—" },
+          { label: "Ingresos atribuidos por Klaviyo", value: sent30.length ? formatMoney(revenue, currency) : "—", foot: sent30.length ? `de ${sent30.length === 1 ? "esa campaña" : `esas ${sent30.length} campañas`}` : "—" },
         ]}
       />
 
@@ -376,14 +376,14 @@ export function ClientView({
                 <em>media de {sent30.length === 1 ? "la última" : `las ${sent30.length} últimas`}</em>
               </div>
               <div>
-                <small>EUR atribuidos por Klaviyo</small>
+                <small>Ingresos atribuidos por Klaviyo</small>
                 <b>{formatMoney(revenue, currency)}</b>
                 <em>suma de {sent30.length === 1 ? "esa" : `esas ${sent30.length}`}, no es el total de la tienda · {int(delivered)} entregados</em>
               </div>
             </div>
           )}
           <p className={s.foot} style={{ marginTop: 14 }}>
-            Cifras en EUR atribuidos por Klaviyo, de toda la vida de cada campaña. No se suman a Meta ni a las ventas de Shopify.
+            Ingresos atribuidos por Klaviyo durante toda la vida de cada campaña, en la moneda indicada. No se suman a Meta ni a las ventas de Shopify.
           </p>
         </Panel>
       </Section>

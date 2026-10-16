@@ -43,8 +43,22 @@ type Membership = {
   role: string;
   accessSource: AccessSource;
   access_scope?: "organization" | "store";
+  /** Histórico: desde 20261219100000 manda `store_ids`. */
   store_id?: string | null;
+  /** Tiendas a las que se limita una membership con `access_scope = 'store'`. */
+  store_ids?: string[];
 };
+
+/** ¿Esta membership puede ver esta tienda? Las de organización, todas. */
+export function membershipCoversStore(
+  membership: { accessSource: string; access_scope?: string; store_ids?: string[] },
+  storeId: string | null | undefined,
+): boolean {
+  if (membership.accessSource !== "membership" || membership.access_scope !== "store") {
+    return true;
+  }
+  return Boolean(storeId) && (membership.store_ids ?? []).includes(storeId as string);
+}
 
 export type OperationalMembership = Membership & {
   organization: Organization | null;
@@ -64,6 +78,8 @@ type Organization = {
   /** 'client' = tienda de un cliente (o propia). 'consulting' = la consultora,
    *  que no tiene tiendas: tiene el plan y la gente. Ver 20261018090000. */
   kind: string;
+  /** El propietario exige 2FA al equipo (20261219100000). */
+  require_mfa?: boolean;
 };
 
 type Subscription = {
@@ -317,7 +333,7 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
 async function loadMemberships(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase
     .from("organization_members")
-    .select("organization_id, role, access_scope, store_id")
+    .select("organization_id, role, access_scope, store_id, store_ids")
     .eq("user_id", userId)
     .eq("is_active", true);
 
@@ -338,6 +354,9 @@ async function loadMemberships(supabase: SupabaseClient, userId: string) {
     accessSource: "membership" as const,
     access_scope: (row.access_scope as "organization" | "store") ?? "organization",
     store_id: (row.store_id as string | null) ?? null,
+    store_ids:
+      (row.store_ids as string[] | null) ??
+      (row.store_id ? [row.store_id as string] : []),
   }));
 
   return { ok: true as const, data: memberships };
@@ -497,7 +516,7 @@ async function resolveAuthContextUncached(
   ] = await Promise.all([
     supabase
       .from("organizations")
-      .select("id, display_name, slug, status, timezone, currency_code, kind")
+      .select("id, display_name, slug, status, timezone, currency_code, kind, require_mfa")
       .in("id", organizationIds),
     supabase
       .from("service_subscriptions")

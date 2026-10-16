@@ -7,6 +7,7 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -62,6 +63,7 @@ import { InsightsMenu } from "@/components/insights-menu";
 import { PortalFeedback } from "@/components/portal-feedback";
 import { InsightsProvider } from "@/components/insights-context";
 import { SettingsNavStatus } from "@/app/configuracion/settings-status";
+import { MfaRequiredBanner } from "@/components/mfa-required-banner";
 import {
   getActivePortalModule,
   getPortalNavigation,
@@ -341,6 +343,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     return isConsultantRole ? "" : (validIds[0] ?? "");
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const sectionTabsRef = useRef<HTMLElement>(null);
   // Por defecto "hover": pasar el raton por el rail lo expande. "collapsed"
   // (solo iconos, sin expandirse nunca) dejaba el rail mudo hasta que alguien
   // entrara al Control de navegacion y lo cambiara a mano -- eso es lo que
@@ -398,7 +401,23 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   // segundo nivel comparten pathname y cambian solo el query string.
   useEffect(() => {
     setIsMobileNavOpen(false);
-  }, [pathname, searchParamsKey]);
+    // La pestaña activa a la vista, sin mover la página en vertical.
+    const tabs = sectionTabsRef.current;
+    const current = tabs?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (tabs && current) {
+      tabs.scrollLeft =
+        current.offsetLeft - (tabs.clientWidth - current.offsetWidth) / 2;
+    }
+  }, [pathname, searchParamsKey, bootstrap]);
+
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isMobileNavOpen]);
 
   // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
   // <title>"E-NORA IA" del layout raiz (los componentes de pagina son
@@ -843,16 +862,19 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         membership.accessSource === "membership" &&
         ["owner", "manager"].includes(membership.role),
     );
-  // Tienda propia = membership que no viene de una asignacion de consultor
-  // (mismo criterio que requireOwnOrganizationAccess en la API).
-  const hasOwnStore = bootstrap.memberships.some(
-    (membership) => membership.accessSource !== "consultant_assignment",
+  // Un consultor puede tener tiendas propias (membership real) ademas de las de
+  // su cartera (consultant_assignment).
+  const ownMemberships = bootstrap.memberships.filter(
+    (membership) => membership.accessSource === "membership",
+  );
+  const activeIsOwnStore = ownMemberships.some(
+    (membership) => membership.organization_id === activeOrganizationId,
   );
   const navigationModules = getPortalNavigation(
     navigationRole,
     Boolean(activeOrganizationId),
     canManageClientAccess,
-    hasOwnStore,
+    activeIsOwnStore,
   );
   const showAddStoreAction =
     navigationRole === "client" && Boolean(activeOrganizationId);
@@ -908,15 +930,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   // Chats sirve para hablar con el consultor. Sin consultor asignado no hay
   // nadie al otro lado; al consultor no se le desactiva nunca.
   const chatsDisabled = !isConsultant && hasConsultantThread === false;
-
-  // Un consultor puede tener tiendas propias (membership real) ademas de las de
-  // su cartera (consultant_assignment).
-  const ownMemberships = bootstrap.memberships.filter(
-    (membership) => membership.accessSource === "membership",
-  );
-  const activeIsOwnStore = ownMemberships.some(
-    (membership) => membership.organization_id === activeOrganizationId,
-  );
 
   const navItemPath = (item: PortalNavItem) => item.href.split("?")[0];
 
@@ -1008,20 +1021,42 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     </nav>
   );
 
-  // Integraciones no lleva segundo nivel: el hub ya lleva a cada conector
-  // (casilla → ficha → Configurar) y cada página vuelve al hub.
-  const hideContextNav = activeModule.id === "integraciones";
 
   const contextPanel = (
-    <aside className="sticky top-0 hidden h-dvh min-h-0 flex-col overflow-hidden border-r border-separator bg-white text-foreground lg:flex admin-context-nav">
+    <aside className="sticky top-14 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] min-h-0 flex-col overflow-hidden border-r border-separator bg-white text-foreground lg:flex admin-context-nav">
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
         {contextNavigation}
       </div>
     </aside>
   );
 
+  // Barra inferior móvil: cuatro módulos, no cuatro páginas sueltas. Así la
+  // jerarquía es la misma que en escritorio y "Más" abre el mapa completo.
+  const bottomNavItems = navigationModules
+    .filter((module) => !module.utility)
+    .slice(0, 4);
+  // En «Más» primero lo que no cabe abajo; luego el resto del mapa.
+  const moreSheetModules = [
+    ...navigationModules.filter((module) => !bottomNavItems.includes(module)),
+    ...bottomNavItems,
+  ];
+
   const mobileNavigation = (
-    <nav className="grid gap-6" aria-label="Navegación principal">
+    <nav className="grid gap-6" aria-label="Navegación completa">
+      {moreSheetModules.map((module) => (
+        <section key={module.id} aria-labelledby={`mobile-module-${module.id}`}>
+          <div className="mb-2 flex items-center gap-2 px-2">
+            <module.icon className="size-4 text-muted" aria-hidden />
+            <h2
+              id={`mobile-module-${module.id}`}
+              className="text-sm font-semibold text-foreground"
+            >
+              {module.label}
+            </h2>
+          </div>
+          {renderModuleItems(module, true)}
+        </section>
+      ))}
       {showAddStoreAction ? (
         <section aria-labelledby="mobile-add-store">
           <div className="mb-2 flex items-center gap-2 px-2">
@@ -1047,20 +1082,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           </Link>
         </section>
       ) : null}
-      {navigationModules.map((module) => (
-        <section key={module.id} aria-labelledby={`mobile-module-${module.id}`}>
-          <div className="mb-2 flex items-center gap-2 px-2">
-            <module.icon className="size-4 text-muted" aria-hidden />
-            <h2
-              id={`mobile-module-${module.id}`}
-              className="text-sm font-semibold text-foreground"
-            >
-              {module.label}
-            </h2>
-          </div>
-          {renderModuleItems(module, true)}
-        </section>
-      ))}
     </nav>
   );
   const profileMenu = (
@@ -1119,12 +1140,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       </Popover.Content>
     </Popover>
   );
-
-  // Barra inferior móvil: cuatro módulos, no cuatro páginas sueltas. Así la
-  // jerarquía es la misma que en escritorio y "Más" abre el mapa completo.
-  const bottomNavItems = navigationModules
-    .filter((module) => !module.utility)
-    .slice(0, 4);
 
   // Selector de cliente / tienda: se muestra en la barra superior en desktop y
   // en una fila propia en movil. Mismo contenido en ambos sitios.
@@ -1277,11 +1292,19 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             isConsultant,
           }}
         >
-        <main className={`min-h-dvh bg-white text-foreground lg:pt-2${isPlatformAdmin ? " admin-portal" : ""}`}>
+        <main className={`min-h-dvh bg-white text-foreground${isPlatformAdmin ? " admin-portal" : ""}`}>
           <OverlayRole role={navigationRole === "platform_admin" ? "admin" : navigationRole} />
           <a className="skip-link" href="#portal-content">
             Saltar al contenido principal
           </a>
+          <MfaRequiredBanner
+            required={bootstrap.memberships.some(
+              (membership) =>
+                membership.organization_id === activeOrganizationId &&
+                membership.accessSource === "membership" &&
+                Boolean(membership.organization?.require_mfa),
+            )}
+          />
           {viewAs ? (
             <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-foreground px-4 py-2 text-center text-xs text-white">
               <span>
@@ -1296,28 +1319,22 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </button>
             </div>
           ) : null}
-          {/* En móvil, menú a la izquierda y acciones de cuenta a la derecha.
-          La navegación completa vive en la barra inferior y en «Más». */}
-          <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden admin-mobile-legacy">
-            <div className="flex items-center gap-2 px-3 py-2.5 text-foreground">
-              <button
-                type="button"
-                aria-label="Abrir navegación"
-                aria-controls="mobile-nav"
-                aria-expanded={isMobileNavOpen}
-                onClick={() => setIsMobileNavOpen(true)}
-                className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface pointer-coarse:size-11"
+          {/* En móvil: marca y título a la izquierda, acciones de cuenta a la
+          derecha. La navegación vive en la barra inferior («Más» abre el mapa
+          completo) y las secciones del módulo activo en la fila de pestañas. */}
+          <div className="sticky top-0 z-30 border-b border-separator bg-white pt-[env(safe-area-inset-top)] lg:hidden admin-mobile-legacy">
+            <div className="flex items-center gap-2 px-3 py-2 text-foreground">
+              <Link
+                href="/dashboard"
+                aria-label="E-NORA, ir al inicio"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md no-underline hover:bg-surface hover:no-underline"
               >
-                <MenuIcon aria-hidden className="size-5" />
-              </button>
-              <div className="min-w-0 flex-1 text-center">
-                <BrandLogo className="mx-auto h-3 w-auto" />
-                <p className="truncate text-[0.95rem] font-semibold leading-tight">
-                  {title}
-                </p>
-              </div>
+                <BrandLogo variant="simple" alt="" className="size-7" />
+              </Link>
+              <p className="min-w-0 flex-1 truncate text-[0.95rem] font-semibold leading-tight">
+                {title}
+              </p>
               <div className="flex shrink-0 items-center">
-                {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
                 {bootstrap.memberships.length > 0 ? copilotToggle(true) : null}
                 <InsightsMenu />
                 <NotificationsBell token={token} />
@@ -1325,7 +1342,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </div>
             </div>
             {clientSelectNode || storeSelectNode || ownStoreSelectNode ? (
-              <div className="flex items-center justify-center gap-2 overflow-x-auto px-4 pb-2">
+              <div className="flex items-center gap-2 overflow-x-auto px-3 pb-2 [&>*]:shrink-0">
                 {clientSelectNode}
                 {storeSelectNode}
                 {/* En movil no hay barra superior donde separarlo a la derecha,
@@ -1333,11 +1350,44 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 {ownStoreSelectNode}
               </div>
             ) : null}
+            {/* Secciones del módulo activo: en escritorio son la columna
+              lateral; aquí, pestañas desplazables. Sin ellas solo se llegaba
+              a una sección abriendo «Más». */}
+            {activeModule.items.length > 1 ? (
+              <nav
+                aria-label={`${activeModule.label}: secciones`}
+                ref={sectionTabsRef}
+                className="flex gap-1 overflow-x-auto px-3 pb-2 [scrollbar-width:none]"
+              >
+                {activeModule.items
+                  .filter((item) => !(navItemPath(item) === "/mensajes" && chatsDisabled))
+                  .map((item) => {
+                  const active = isPortalNavItemActive(item, pathname, searchParams);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? "page" : undefined}
+                      className={[
+                        "shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm no-underline transition-colors hover:no-underline",
+                        active
+                          ? "bg-surface font-medium text-foreground"
+                          : "text-muted hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+            ) : null}
           </div>
 
           {/* Hoja inferior «Más»: el resto de módulos. */}
           {isMobileNavOpen ? (
-            <div className="fixed inset-0 z-50 lg:hidden">
+            // Por debajo de la barra inferior (z-50): «Más» sigue a la vista y
+            // vuelve a pulsarse para cerrar, como en una app nativa.
+            <div className="fixed inset-0 z-40 lg:hidden">
               <button
                 type="button"
                 aria-label="Cerrar menú"
@@ -1346,7 +1396,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               />
               <div
                 id="mobile-nav"
-                className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
+                className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto overscroll-contain rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
               >
                 <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
                 {mobileNavigation}
@@ -1354,18 +1404,65 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             </div>
           ) : null}
 
+          {/* Barra superior de escritorio a todo el ancho, por encima de los
+          dos navs: logo en el hueco de las columnas de navegación, y a partir
+          de ahí la ubicación y los selectores de ámbito (alineados con el
+          contenido); notificaciones y cuenta a la derecha. El consultor
+          siempre tiene el selector de cliente, con "Vista general" (sin
+          cliente) como estado por defecto. Un cliente normal solo lo ve si
+          pertenece a mas de una organizacion. */}
+          <header className="sticky top-0 z-40 hidden h-14 items-center border-b border-separator bg-white lg:flex admin-desktop-header">
+            {/* pl-7 = (4.75rem del rail - 1.25rem del icono) / 2: el logo
+              arranca en la misma vertical que los iconos del rail, y el
+              borde derecho continúa el de la columna de secciones. */}
+            <div
+              className={`flex h-full shrink-0 items-center border-r border-separator pl-7 pr-5 ${
+                primaryNavMode === "expanded" ? "w-[28.5rem]" : "w-[20.25rem]"
+              }`}
+            >
+              <Link
+                href="/dashboard"
+                aria-label="E-NORA, ir al inicio"
+                className="flex items-center no-underline hover:no-underline"
+              >
+                <BrandLogo variant="full" alt="" className="h-5 w-auto" />
+              </Link>
+            </div>
+            <div className="flex h-full min-w-0 flex-1 items-center gap-3 px-6 lg:px-10">
+              <p className="shrink-0 text-[0.8125rem] font-medium text-foreground">
+                {title}
+              </p>
+              {clientSelectNode ? (
+                <span aria-hidden className="text-line">
+                  /
+                </span>
+              ) : null}
+              {clientSelectNode}
+              {/* El selector de tienda solo aporta con >=2 tiendas. Con una
+              sola, "Todas" y esa tienda son lo mismo. */}
+              {storeSelectNode ? (
+                <>
+                  <span aria-hidden className="text-line">
+                    /
+                  </span>
+                  {storeSelectNode}
+                </>
+              ) : null}
+              <div className="ml-auto flex items-center gap-3">
+                {ownStoreSelectNode}
+                {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
+                {bootstrap.memberships.length > 0 ? copilotToggle(false) : null}
+                <InsightsMenu />
+                <NotificationsBell token={token} />
+                {profileMenu}
+              </div>
+            </div>
+          </header>
+
           <div
             className={[
-              "relative grid min-h-dvh admin-shell-grid",
-              hideContextNav
-                ? isCopilotOpen
-                  ? primaryNavMode === "expanded"
-                    ? "lg:grid-cols-[13rem_minmax(0,1fr)_26rem]"
-                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)_26rem]"
-                  : primaryNavMode === "expanded"
-                    ? "lg:grid-cols-[13rem_minmax(0,1fr)]"
-                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)]"
-                : isCopilotOpen
+              "relative grid min-h-dvh lg:min-h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] admin-shell-grid",
+              isCopilotOpen
                   ? primaryNavMode === "expanded"
                     ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
                     : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)_26rem]"
@@ -1382,24 +1479,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 if (primaryNavMode === "hover") setIsPrimaryNavHovered(false);
               }}
               className={[
-                "sticky top-0 z-40 hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-2 text-foreground transition-[width] duration-200 ease-out lg:flex admin-primary-nav",
+                "sticky top-14 z-40 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-3 text-foreground transition-[width] duration-200 ease-out lg:flex admin-primary-nav",
                 isPrimaryNavExpanded ? "w-[13rem] items-stretch" : "w-[4.75rem] items-center",
               ].join(" ")}
             >
-              <Link
-                href="/dashboard"
-                aria-label="E-NORA"
-                className={[
-                  "mb-3 flex h-11 shrink-0 items-center rounded-md no-underline hover:bg-surface hover:no-underline",
-                  isPrimaryNavExpanded ? "mx-3 gap-3 px-2" : "size-12 justify-center",
-                ].join(" ")}
-              >
-                <BrandLogo
-                  variant={isPrimaryNavExpanded ? "letras" : "simple"}
-                  className={isPrimaryNavExpanded ? "h-5 w-auto" : "size-10"}
-                />
-              </Link>
-
               <nav
                 aria-label="Módulos"
                 className={[
@@ -1412,12 +1495,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   .map((module) => {
                     const Icon = module.icon;
                     const active = module.id === activeModule.id;
-                    const badge = module.id === "integraciones"
-                      ? (navBadges["/integraciones"] ?? 0)
-                      : module.items.reduce(
-                          (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
-                          0,
-                        );
+                    const badge = module.items.reduce(
+                      (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
+                      0,
+                    );
                     const link = (
                       <Link
                         key={module.id}
@@ -1438,10 +1519,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         <Icon className="size-5" aria-hidden />
                         {badge > 0 ? (
                           <span
-                            aria-label={module.id === "integraciones"
-                              ? `${badge} incidencias de integración`
-                              : `${badge} sin leer`}
-                            className={`absolute right-0.5 top-0.5 size-2 rounded-full ring-2 ring-white ${module.id === "integraciones" ? (integrationSeverity("/integraciones") === "error" ? "bg-danger" : "bg-warning") : "bg-accent"}`}
+                            aria-label={`${badge} sin leer`}
+                            className="absolute right-0.5 top-0.5 size-2 rounded-full bg-accent ring-2 ring-white"
                           />
                         ) : null}
                         <span
@@ -1455,7 +1534,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                           {module.label}
                         </span>
                         {badge > 0 && isPrimaryNavExpanded ? (
-                          <span className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${module.id === "integraciones" ? navBadgeClass("/integraciones") : "bg-accent text-white"}`}>
+                          <span className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 bg-accent text-white`}>
                             {badge > 99 ? "99+" : badge}
                           </span>
                         ) : null}
@@ -1544,7 +1623,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         aria-current={active ? "page" : undefined}
                         onClick={() => handleModuleNavigation(module.items[0].href)}
                         className={[
-                          "flex h-11 items-center rounded-lg no-underline transition-colors hover:bg-surface hover:no-underline",
+                          "relative flex h-11 items-center rounded-lg no-underline transition-colors hover:bg-surface hover:no-underline",
                           isPrimaryNavExpanded
                             ? "w-full gap-3 px-3"
                             : "size-11 justify-center",
@@ -1554,6 +1633,14 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         ].join(" ")}
                       >
                         <Icon className="size-5" aria-hidden />
+                        {/* Integraciones vive dentro de Configuración: sus
+                            incidencias se señalan en este icono. */}
+                        {module.id === "configuracion" && integrationIssueCount > 0 ? (
+                          <span
+                            aria-label={`${integrationIssueCount} incidencias de integración`}
+                            className={`absolute right-0.5 top-0.5 size-2 rounded-full ring-2 ring-white ${integrationSeverity("/integraciones") === "error" ? "bg-danger" : "bg-warning"}`}
+                          />
+                        ) : null}
                         <span
                           className={[
                             "truncate text-sm font-medium transition-opacity duration-150",
@@ -1564,6 +1651,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         >
                           {module.label}
                         </span>
+                        {module.id === "configuracion" && integrationIssueCount > 0 && isPrimaryNavExpanded ? (
+                          <span className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${navBadgeClass("/integraciones")}`}>
+                            {integrationIssueCount > 99 ? "99+" : integrationIssueCount}
+                          </span>
+                        ) : null}
                       </Link>
                     );
                     if (isPrimaryNavExpanded) return link;
@@ -1652,60 +1744,27 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </div>
             </aside>
 
-            {hideContextNav ? null : contextPanel}
+            {contextPanel}
 
             <section
               id="portal-content"
               tabIndex={-1}
               data-module={activeModule?.id}
+              data-channel={["shopify", "meta", "klaviyo"].find((c) =>
+                pathname === `/${c}` || pathname.startsWith(`/${c}/`) ||
+                (pathname === "/dashboard" && searchParams.get("tab") === c),
+              )}
               data-role={navigationRole === "client" ? "client" : "consultant"}
               className={`min-w-0${isPlatformAdmin ? " admin-portal-content" : ""}${
                 // Marketing, Integraciones y Cartera comparten los colores de Trabajo e Inicio (petróleo +
                 // azafrán en cliente, grafito + mandarina en consultor).
                 // Comunicación y Conocimiento, solo en el consultor: el cliente las sigue viendo con la paleta base.
-                activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "integraciones" || activeModule?.id === "configuracion" || activeModule?.id === "cartera" ||
+                  activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "comunicacion" || activeModule?.id === "configuracion" || activeModule?.id === "cartera" ||
                 (navigationRole === "consultant" && (activeModule?.id === "comunicacion" || activeModule?.id === "conocimiento"))
                   ? ` trabajo-theme trabajo-theme--${navigationRole === "client" ? "client" : "consultant"}`
                   : ""
-              }`}
+                }${activeModule?.id === "analitica" ? " analytics-theme" : ""}${activeModule?.id === "comunicacion" ? " communication-theme" : ""}`}
             >
-              {/* Barra superior fija: una sola fila, estilo Supabase --
-              ubicación de la pantalla y selectores de ámbito a la izquierda;
-              notificaciones y cuenta a la derecha. El
-              consultor siempre tiene el selector de cliente, con "Vista
-              general" (sin cliente) como estado por defecto. Un cliente
-              normal solo lo ve si pertenece a mas de una organizacion. Al
-              elegir un cliente/tienda todo se scopea a el. */}
-              <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10 admin-desktop-header">
-                <p className="shrink-0 text-[0.8125rem] font-medium text-foreground">
-                  {title}
-                </p>
-                {clientSelectNode ? (
-                  <span aria-hidden className="text-line">
-                    /
-                  </span>
-                ) : null}
-                {clientSelectNode}
-                {/* El selector de tienda solo aporta con >=2 tiendas. Con una
-                sola, "Todas" y esa tienda son lo mismo. */}
-                {storeSelectNode ? (
-                  <>
-                    <span aria-hidden className="text-line">
-                      /
-                    </span>
-                    {storeSelectNode}
-                  </>
-                ) : null}
-                <div className="ml-auto flex items-center gap-3">
-                  {ownStoreSelectNode}
-                  {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
-                  {bootstrap.memberships.length > 0 ? copilotToggle(false) : null}
-                  <InsightsMenu />
-                  <NotificationsBell token={token} />
-                  {profileMenu}
-                </div>
-              </div>
-
               {activeOrganization ? (
                 <AccountStateBanner
                   organizationStatus={activeOrganization.status}
@@ -1834,12 +1893,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
           <nav
             aria-label="Navegación principal"
-            className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden admin-mobile-bottom"
+            className="fixed inset-x-0 bottom-0 z-50 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden admin-mobile-bottom"
           >
               {bottomNavItems.map((module) => {
                 const Icon = module.icon;
                 const active = module.id === activeModule.id;
-                const hasIntegrationIssues = module.id === "integraciones" && integrationIssueCount > 0;
                 return (
                 <Link
                   key={module.id}
@@ -1851,12 +1909,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   ].join(" ")}
                 >
                   <Icon className="size-5 shrink-0" aria-hidden />
-                  {hasIntegrationIssues ? (
-                    <span
-                      aria-label={`${integrationIssueCount} incidencias de integración`}
-                      className={`absolute top-1.5 size-1.5 rounded-full ${integrationSeverity("/integraciones") === "error" ? "bg-danger" : "bg-warning"}`}
-                    />
-                  ) : null}
                   <span className="max-w-full truncate">{module.label}</span>
                 </Link>
               );
@@ -1867,10 +1919,17 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               aria-controls="mobile-nav"
               onClick={() => setIsMobileNavOpen((open) => !open)}
               className={[
-                "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.65rem] transition-colors",
+                "relative flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.65rem] transition-colors",
                 isMobileNavOpen ? "text-accent" : "text-muted",
               ].join(" ")}
             >
+              {/* Configuración (con Integraciones dentro) está en «Más». */}
+              {integrationIssueCount > 0 ? (
+                <span
+                  aria-label={`${integrationIssueCount} incidencias de integración`}
+                  className={`absolute top-1.5 size-1.5 rounded-full ${integrationSeverity("/integraciones") === "error" ? "bg-danger" : "bg-warning"}`}
+                />
+              ) : null}
               {isMobileNavOpen ? (
                 <CloseIcon aria-hidden className="text-[1.15rem]" />
               ) : (

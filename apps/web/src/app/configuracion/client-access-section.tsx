@@ -4,47 +4,38 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { planLabel } from "@/lib/plan-labels";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   Banner,
   Badge,
   Button,
   Card,
+  Checkbox,
+  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
-  List,
   LoadingBlock,
   Select,
+  Table,
   toast,
 } from "@/components/ui";
+import { ROLE_LABEL, ROLE_OPTIONS, type MemberRole } from "./role-permissions";
 
 /**
- * Quién entra en este cliente, y cómo se le da acceso a alguien más.
+ * Quién entra en este cliente, con qué rol y en qué tiendas.
  *
- * Hasta ahora el consultor no podía ver ni tocar esto: `getOrganizationAccess`
- * y `upsertOrganizationMember` son platform_admin only, y la única invitación
- * era la que se creaba en el alta del cliente -- `regenerateClientInvite` solo
- * sabe renovar esa. Dar de alta a una segunda persona pasaba por Rafa.
+ * Desde 20261219100000 una persona limitada a tiendas puede tener varias
+ * (`store_ids`), y solo el propietario da o quita la propiedad.
  */
-
-const ROLE_OPTIONS = [
-  { value: "owner", label: "Propietario" },
-  { value: "manager", label: "Gestor" },
-  { value: "member", label: "Miembro" },
-  { value: "readonly", label: "Solo lectura" },
-];
-
-const ROLE_LABEL = Object.fromEntries(
-  ROLE_OPTIONS.map((role) => [role.value, role.label]),
-);
 
 type Member = {
   id: string;
   user_id: string;
-  role: string;
+  role: MemberRole;
   access_scope: "organization" | "store";
-  store_id: string | null;
+  store_ids: string[] | null;
   is_active: boolean;
   joined_at: string | null;
   profile: { full_name: string | null; platform_role: string } | null;
@@ -62,7 +53,7 @@ type PendingInvite = {
   email: string;
   expires_at: string;
   access_scope: "organization" | "store";
-  store_id: string | null;
+  store_ids: string[] | null;
 };
 
 type ClientStore = { id: string; shop_name: string | null; myshopify_domain: string | null };
@@ -86,31 +77,89 @@ type ClientAccess = {
   stores: ClientStore[];
 };
 
+type Security = { members: Array<{ user_id: string; has_mfa: boolean }> };
+
+/** Elegir tiendas: todas, o una lista. Sin tiendas no hay elección posible. */
+function StorePicker({
+  stores,
+  value,
+  onChange,
+  disabled,
+  label,
+}: {
+  stores: ClientStore[];
+  value: string[] | null;
+  onChange: (next: string[] | null) => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  const limited = value !== null;
+  const name = (store: ClientStore) => store.shop_name || store.myshopify_domain || "Tienda";
+  return (
+    <div className="grid gap-2" aria-label={label} role="group">
+      <Select
+        className="w-48"
+        aria-label={`${label}: alcance`}
+        value={limited ? "store" : "organization"}
+        onChange={(next) => onChange(next === "store" ? stores.slice(0, 1).map((store) => store.id) : null)}
+        options={[
+          { value: "organization", label: "Todas las tiendas" },
+          { value: "store", label: "Solo algunas tiendas" },
+        ]}
+        disabled={disabled || stores.length === 0}
+      />
+      {limited ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {stores.map((store) => {
+            const checked = value.includes(store.id);
+            return (
+              <Checkbox
+                key={store.id}
+                checked={checked}
+                disabled={disabled || (checked && value.length === 1)}
+                onChange={(next) =>
+                  onChange(next ? [...value, store.id] : value.filter((id) => id !== store.id))
+                }
+              >
+                <span className="text-sm">{name(store)}</span>
+              </Checkbox>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ClientAccessSection({
   organizationId,
   canManage,
+  isOwner,
+  currentUserId,
 }: {
   organizationId: string;
   canManage: boolean;
+  /** Solo el propietario da o quita la propiedad (la API lo comprueba igual). */
+  isOwner: boolean;
+  currentUserId: string;
 }) {
   const [access, setAccess] = useState<ClientAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState("member");
-  const [accessScope, setAccessScope] = useState<"organization" | "store">("organization");
-  const [storeId, setStoreId] = useState("");
+  const [role, setRole] = useState<string>("member");
+  const [inviteStores, setInviteStores] = useState<string[] | null>(null);
   const [inviting, setInviting] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [lastInviteCode, setLastInviteCode] = useState<string | null>(null);
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
   const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
+  const [newOwner, setNewOwner] = useState("");
+  const security = useCachedQuery<Security>(`/v1/organizations/${organizationId}/security`);
+  const mfaByUser = new Map((security.data?.members ?? []).map((row) => [row.user_id, row.has_mfa]));
 
   const load = useCallback(async () => {
     try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organizationId}/client-access`,
-      );
+      const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/client-access`);
       if (!response.ok) {
         setError(await readApiError(response));
         return;
@@ -133,38 +182,33 @@ export function ClientAccessSection({
     if (!email.trim()) return;
     setInviting(true);
     try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organizationId}/client-access/invite`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim(),
-            full_name: fullName.trim() || undefined,
-            role,
-            access_scope: accessScope,
-            store_id: accessScope === "store" ? storeId : null,
-          }),
-        },
-      );
+      const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/client-access/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          full_name: fullName.trim() || undefined,
+          role,
+          access_scope: inviteStores ? "store" : "organization",
+          store_ids: inviteStores ?? undefined,
+        }),
+      });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
       }
       const payload = (await response.json()) as {
-        invite: { code: string; access_url: string; delivery: "email" | "manual_link" };
+        invite: { access_url: string; delivery: "email" | "manual_link" };
       };
-      setLastInviteCode(payload.invite.code);
-      setLastInviteUrl(payload.invite.access_url);
+      setLastInviteUrl(payload.invite.delivery === "email" ? null : payload.invite.access_url);
       setEmail("");
       setFullName("");
-      setAccessScope("organization");
-      setStoreId("");
-      toast.success("Invitación creada", {
+      setInviteStores(null);
+      toast.success("Invitación enviada", {
         description:
           payload.invite.delivery === "email"
-            ? "Hemos enviado el enlace de acceso por correo."
-            : "No se pudo enviar el correo. Copia el enlace y compártelo.",
+            ? "Le llega por correo."
+            : "No se pudo enviar el correo: copia el enlace y compártelo.",
       });
       await load();
     } catch {
@@ -176,18 +220,15 @@ export function ClientAccessSection({
 
   async function patchMember(
     userId: string,
-    body: { role?: string; isActive?: boolean; access_scope?: "organization" | "store"; store_id?: string | null },
+    body: { role?: string; isActive?: boolean; access_scope?: "organization" | "store"; store_ids?: string[] },
   ) {
     setBusyUserId(userId);
     try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organizationId}/client-access/${userId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
+      const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/client-access/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
@@ -211,323 +252,289 @@ export function ClientAccessSection({
         toast.danger(await readApiError(response));
         return;
       }
-      toast.success("Código revocado");
+      toast.success("Invitación anulada");
       await load();
     } catch {
-      toast.danger("No se pudo revocar el código por un error de red.");
+      toast.danger("No se pudo anular la invitación por un error de red.");
     } finally {
       setBusyInviteId(null);
     }
   }
 
+  async function transfer() {
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/transfer-ownership`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to_user_id: newOwner }),
+      });
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      toast.success("Propiedad traspasada. Ahora eres gestor.");
+      // El rol cambia en el bootstrap: recargar es lo más fiable.
+      window.location.reload();
+    } catch {
+      toast.danger("No se pudo traspasar por un error de red.");
+    }
+  }
+
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
-  if (!access) return <LoadingBlock label="Cargando accesos…" />;
+  if (!access) return <LoadingBlock label="Cargando personas…" />;
 
   const activeMembers = access.members.filter((member) => member.is_active);
-  // La API rechaza dejar la organización sin propietario (last_owner): no se
-  // ofrece ni bajarle el rol ni quitarle el acceso al único que queda.
   const activeOwners = activeMembers.filter((member) => member.role === "owner").length;
-  const isLastOwner = (member: Member) =>
-    member.is_active && member.role === "owner" && activeOwners <= 1;
+  const isLastOwner = (member: Member) => member.is_active && member.role === "owner" && activeOwners <= 1;
   const memberLimit = access.plan?.member_limit ?? null;
-  const atMemberLimit =
-    !access.plan ||
-    (memberLimit !== null && access.usage.member_count >= memberLimit);
-  const storeOptions = access.stores.map((store) => ({
-    value: store.id,
-    label: store.shop_name || store.myshopify_domain || "Tienda",
-  }));
-  const storeName = (id: string | null) =>
-    id ? (storeOptions.find((store) => store.value === id)?.label ?? "Tienda") : "Toda la organización";
+  const atMemberLimit = !access.plan || (memberLimit !== null && access.usage.member_count >= memberLimit);
+  const storeName = (id: string) => {
+    const store = access.stores.find((item) => item.id === id);
+    return store?.shop_name || store?.myshopify_domain || "Tienda";
+  };
+  const storesLabel = (ids: string[] | null) => (ids && ids.length ? ids.map(storeName).join(", ") : "Todas");
+  // Un gestor no ofrece «Propietario» ni toca a un propietario.
+  const roleOptions = isOwner ? ROLE_OPTIONS : ROLE_OPTIONS.filter((option) => option.value !== "owner");
+  const transferCandidates = activeMembers.filter(
+    (member) => member.user_id !== currentUserId && member.role !== "owner",
+  );
+
+  type Row = Member & { id: string };
+  const rows: Row[] = access.members;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Card
-        title="Lo que incluye tu plan"
-        description="Las invitaciones pendientes también ocupan una plaza hasta que se acepten o caduquen."
+        title="Personas"
+        description={`${access.usage.member_count} de ${memberLimit ?? "∞"} usuarios del plan ${
+          access.plan ? planLabel(access.plan.plan_code, access.plan.status) : ""
+        }. Las invitaciones pendientes también ocupan plaza.`}
+        actions={<Badge tone="success">{activeMembers.length} con acceso</Badge>}
       >
-        <dl className="grid gap-4 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-muted">Plan activo</dt>
-            <dd className="mt-1 font-medium text-foreground">
-              {access.plan ? planLabel(access.plan.plan_code, access.plan.status) : "Sin plan activo"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted">Tiendas incluidas</dt>
-            <dd className="mt-1 font-medium text-foreground">
-              {access.plan
-                ? `${access.usage.store_count} / ${access.plan.store_limit ?? "sin límite"}`
-                : "No disponible"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted">Usuarios incluidos</dt>
-            <dd className="mt-1 font-medium text-foreground">
-              {access.plan
-                ? `${access.usage.member_count} / ${memberLimit ?? "sin límite"}`
-                : "No disponible"}
-            </dd>
-          </div>
-        </dl>
-        {access.usage.pending_invite_count > 0 ? (
-          <p className="mt-3 text-xs text-muted">
-            {access.usage.pending_invite_count} {access.usage.pending_invite_count === 1 ? "invitación pendiente" : "invitaciones pendientes"} reservan plaza.
-          </p>
-        ) : null}
-        {!access.plan ? (
-          <Banner className="mt-3" tone="warn">
-            No hay una suscripción activa para esta organización. Hace falta un plan activo para invitar usuarios.
-          </Banner>
-        ) : null}
-      </Card>
-
-      <Card
-        title="Quién entra en este cliente"
-        description="Las personas del cliente y los consultores asignados."
-        actions={
-          <Badge tone="success">{activeMembers.length} con acceso</Badge>
-        }
-      >
-        {access.members.length === 0 ? (
-          <EmptyState
-            title="Sin personas todavía"
-            hint="Invita abajo a quien tenga que entrar al portal de este cliente."
-          />
+        {rows.length === 0 ? (
+          <EmptyState title="Sin personas todavía" hint="Invita abajo a quien tenga que entrar." />
         ) : (
-          <List as="ul">
-            {access.members.map((member) => (
-              <List.Item
-                as="li"
-                key={member.id}
-                className="flex flex-wrap items-center gap-3 py-3"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {member.profile?.full_name ?? "Sin nombre"}
-                  </span>
-                  <span className="block text-xs text-muted">
-                    {member.joined_at
-                      ? `entró el ${new Date(member.joined_at).toLocaleDateString("es-ES")}`
-                      : "todavía no ha entrado"}
-                  </span>
-                </span>
-                {member.is_active ? null : <Badge>sin acceso</Badge>}
-                {canManage ? (
-                  <Select
-                    className="w-40"
-                    aria-label={`Rol de ${member.profile?.full_name ?? "el miembro"}`}
-                    value={member.role}
-                    onChange={(next) =>
-                      void patchMember(member.user_id, { role: next })
-                    }
-                    options={ROLE_OPTIONS}
-                    disabled={busyUserId === member.user_id || isLastOwner(member)}
-                  />
-                ) : (
-                  <Badge>{ROLE_LABEL[member.role] ?? member.role}</Badge>
-                )}
-                {canManage ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      className="w-48"
-                      aria-label={`Alcance de ${member.profile?.full_name ?? "el miembro"}`}
-                      value={member.access_scope ?? "organization"}
-                      onChange={(next) =>
-                        void patchMember(member.user_id, {
-                          access_scope: next as "organization" | "store",
-                          store_id: next === "store" ? (member.store_id ?? storeOptions[0]?.value ?? null) : null,
-                        })
-                      }
-                      options={[
-                        { value: "organization", label: "Toda la organización" },
-                        { value: "store", label: "Una tienda" },
-                      ]}
-                      disabled={busyUserId === member.user_id || storeOptions.length === 0}
-                    />
-                    {member.access_scope === "store" ? (
-                      <Select
-                        className="w-48"
-                        aria-label={`Tienda permitida para ${member.profile?.full_name ?? "el miembro"}`}
-                        value={member.store_id ?? ""}
-                        onChange={(next) => void patchMember(member.user_id, { access_scope: "store", store_id: next })}
-                        options={storeOptions}
-                        disabled={busyUserId === member.user_id || storeOptions.length === 0}
-                      />
-                    ) : null}
+          <Table<Row>
+            ariaLabel="Personas con acceso"
+            rows={rows}
+            columns={[
+              {
+                key: "person",
+                label: "Persona",
+                render: (member) => (
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {member.profile?.full_name ?? "Sin nombre"}
+                      {member.user_id === currentUserId ? <span className="text-muted"> (tú)</span> : null}
+                    </p>
+                    <p className="text-xs text-muted">
+                      {!member.is_active
+                        ? "sin acceso"
+                        : member.joined_at
+                          ? `entró el ${new Date(member.joined_at).toLocaleDateString("es-ES")}`
+                          : "todavía no ha entrado"}
+                    </p>
                   </div>
-                ) : (
-                  <Badge>{storeName(member.store_id)}</Badge>
-                )}
-                {canManage && isLastOwner(member) ? (
-                  <span className="text-xs text-muted">Único propietario</span>
-                ) : canManage ? (
+                ),
+              },
+              {
+                key: "role",
+                label: "Rol",
+                render: (member) =>
+                  canManage && (isOwner || member.role !== "owner") && member.user_id !== currentUserId ? (
+                    <Select
+                      className="w-40"
+                      aria-label={`Rol de ${member.profile?.full_name ?? "la persona"}`}
+                      value={member.role}
+                      onChange={(next) => void patchMember(member.user_id, { role: next })}
+                      options={roleOptions}
+                      disabled={busyUserId === member.user_id || isLastOwner(member)}
+                    />
+                  ) : (
+                    <Badge tone={member.role === "owner" ? "brand" : "neutral"}>{ROLE_LABEL[member.role] ?? member.role}</Badge>
+                  ),
+              },
+              {
+                key: "stores",
+                label: "Tiendas",
+                render: (member) =>
+                  canManage && member.role !== "owner" && access.stores.length > 1 ? (
+                    <StorePicker
+                      label={`Tiendas de ${member.profile?.full_name ?? "la persona"}`}
+                      stores={access.stores}
+                      value={member.access_scope === "store" ? (member.store_ids ?? []) : null}
+                      disabled={busyUserId === member.user_id}
+                      onChange={(next) =>
+                        void patchMember(
+                          member.user_id,
+                          next ? { access_scope: "store", store_ids: next } : { access_scope: "organization" },
+                        )
+                      }
+                    />
+                  ) : (
+                    <span className="text-sm">{member.access_scope === "store" ? storesLabel(member.store_ids) : "Todas"}</span>
+                  ),
+              },
+              {
+                key: "mfa",
+                label: "2FA",
+                render: (member) => {
+                  const hasMfa = mfaByUser.get(member.user_id);
+                  return hasMfa === undefined ? (
+                    <span className="text-muted">—</span>
+                  ) : (
+                    <Badge tone={hasMfa ? "success" : "warn"}>{hasMfa ? "Activa" : "Sin activar"}</Badge>
+                  );
+                },
+              },
+              {
+                key: "actions",
+                label: "",
+                render: (member) =>
+                  !canManage || member.user_id === currentUserId ? null : isLastOwner(member) ? (
+                    <span className="text-xs text-muted">Único propietario</span>
+                  ) : member.role === "owner" && !isOwner ? null : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busyUserId === member.user_id}
+                      onClick={() => void patchMember(member.user_id, { isActive: !member.is_active })}
+                    >
+                      {member.is_active ? "Quitar acceso" : "Devolver acceso"}
+                    </Button>
+                  ),
+              },
+            ]}
+          />
+        )}
+
+        {access.pending_invites.length > 0 ? (
+          <div className="mt-6 grid gap-3 border-t border-separator pt-4">
+            <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted">Invitaciones pendientes</p>
+            {access.pending_invites.map((pending) => (
+              <div key={pending.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{pending.email}</p>
+                  <p className="text-xs text-muted">
+                    {pending.access_scope === "store" ? storesLabel(pending.store_ids) : "Todas las tiendas"} · caduca el{" "}
+                    {new Date(pending.expires_at).toLocaleDateString("es-ES")}
+                  </p>
+                </div>
+                {canManage ? (
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={busyUserId === member.user_id}
-                    onClick={() =>
-                      void patchMember(member.user_id, {
-                        isActive: !member.is_active,
-                      })
-                    }
+                    disabled={busyInviteId === pending.id}
+                    onClick={() => void revokeInvite(pending.id)}
                   >
-                    {member.is_active ? "Quitar acceso" : "Devolver acceso"}
+                    Anular
                   </Button>
                 ) : null}
-              </List.Item>
+              </div>
             ))}
-          </List>
-        )}
+          </div>
+        ) : null}
 
         {access.consultants.length > 0 ? (
-          <div className="mt-4 border-t border-separator pt-3">
-            <p className="text-xs text-muted">
-              Consultores:{" "}
-              {access.consultants
-                .map(
-                  (consultant) =>
-                    `${consultant.profile?.full_name ?? "sin nombre"}${consultant.is_primary ? " (principal)" : ""}`,
-                )
-                .join(" · ")}
-            </p>
-          </div>
+          <p className="mt-6 border-t border-separator pt-4 text-xs text-muted">
+            Consultores (no ocupan usuario):{" "}
+            {access.consultants
+              .map((consultant) => `${consultant.profile?.full_name ?? "sin nombre"}${consultant.is_primary ? " (principal)" : ""}`)
+              .join(" · ")}
+          </p>
         ) : null}
       </Card>
 
       {canManage ? (
-        <Card
-          title="Invitar a una persona"
-          description="Elige si podrá entrar a toda la organización o solo a una tienda. La invitación reserva una plaza; si no recibe el correo, copia el enlace."
-        >
+        <Card title="Invitar a una persona" description="La invitación reserva una plaza hasta que se acepte o caduque.">
           {atMemberLimit ? (
-            <Banner className="mb-3" tone="warn">
+            <Banner className="mb-4" tone="warn">
               {!access.plan
-                ? "No puedes invitar hasta que la organización tenga un plan activo."
-                : `Se han ocupado las ${memberLimit} plazas incluidas. Amplía el plan o libera una plaza para invitar a otra persona.`}
+                ? "No puedes invitar hasta que la cuenta tenga un plan activo."
+                : `Las ${memberLimit} plazas del plan están ocupadas. Amplía el plan o libera una para invitar a otra persona.`}
             </Banner>
           ) : null}
-          <form className="flex flex-wrap items-end gap-3" onSubmit={invite}>
+          <form className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_minmax(0,1fr)]" onSubmit={invite}>
             <Field label="Correo">
-              <Input
-                className="mt-1 w-64"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="persona@sutienda.com"
-              />
+              <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nombre@empresa.com" />
             </Field>
             <Field label="Nombre (opcional)">
-              <Input
-                className="mt-1 w-48"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                placeholder="Nombre Apellido"
-              />
+              <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Nombre Apellido" />
             </Field>
             <Field label="Rol">
-              <Select
-                className="mt-1 w-40"
-                aria-label="Rol de la persona invitada"
-                value={role}
-                onChange={setRole}
-                options={ROLE_OPTIONS}
-              />
+              <Select aria-label="Rol de la persona invitada" value={role} onChange={setRole} options={roleOptions} />
             </Field>
-            <Field label="Alcance del acceso">
-              <Select
-                className="mt-1 w-52"
-                aria-label="Alcance del acceso"
-                value={accessScope}
-                onChange={(next) => setAccessScope(next as "organization" | "store")}
-                options={[
-                  { value: "organization", label: "Toda la organización" },
-                  { value: "store", label: "Una tienda concreta" },
-                ]}
-              />
-            </Field>
-            {accessScope === "store" ? (
-              <Field label="Tienda permitida">
-                <Select
-                  className="mt-1 w-56"
-                  aria-label="Tienda permitida"
-                  value={storeId}
-                  onChange={setStoreId}
-                  options={storeOptions}
-                  disabled={storeOptions.length === 0}
-                />
-              </Field>
+            {access.stores.length > 1 ? (
+              <div className="md:col-span-3">
+                <StorePicker label="Tiendas de la invitación" stores={access.stores} value={inviteStores} onChange={setInviteStores} />
+              </div>
             ) : null}
-            <Button type="submit" disabled={inviting || !email.trim() || atMemberLimit || (accessScope === "store" && !storeId)}>
-              {inviting ? "Invitando…" : "Invitar"}
-            </Button>
-          </form>
-
-          {lastInviteUrl ? (
-            <div className="mt-4 border-t border-separator pt-3">
-              <p className="text-xs text-muted">Código de un solo uso</p>
-              <p className="mt-1 font-mono text-sm">{lastInviteCode}</p>
-              <Button
-                className="mt-2"
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  if (!lastInviteCode) return;
-                  void navigator.clipboard
-                    .writeText(lastInviteCode)
-                    .then(() => toast.success("Código copiado"))
-                    .catch(() => toast.danger("No se pudo copiar."));
-                }}
-              >
-                Copiar código
+            <div className="md:col-span-3">
+              <Button type="submit" disabled={inviting || !email.trim() || atMemberLimit}>
+                {inviting ? "Invitando…" : "Invitar"}
               </Button>
-              <p className="mt-3 text-xs text-muted">Enlace de acceso</p>
-              <p className="mt-1 break-all font-mono text-sm">
-                {lastInviteUrl}
-              </p>
+            </div>
+          </form>
+          {lastInviteUrl ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-separator pt-4">
+              <p className="min-w-0 flex-1 break-all text-sm">{lastInviteUrl}</p>
               <Button
-                className="mt-2"
                 size="sm"
-                variant="secondary"
-                onClick={() => {
+                variant="ghost"
+                onClick={() =>
                   void navigator.clipboard
                     .writeText(lastInviteUrl)
                     .then(() => toast.success("Enlace copiado"))
-                    .catch(() => toast.danger("No se pudo copiar."));
-                }}
+                    .catch(() => toast.danger("No se pudo copiar."))
+                }
               >
                 Copiar enlace
               </Button>
             </div>
           ) : null}
+        </Card>
+      ) : null}
 
-          {access.pending_invites.length > 0 ? (
-            <div className="mt-4 border-t border-separator pt-3">
-              <p className="text-xs text-muted">
-                Códigos pendientes
-              </p>
-              <List as="ul" className="mt-2">
-                {access.pending_invites.map((invite) => (
-                  <List.Item key={invite.id} as="li" className="flex flex-wrap items-center gap-3 py-2">
-                    <span className="min-w-0 flex-1 text-sm">
-                      {invite.email} · {storeName(invite.store_id)}
-                      <span className="block text-xs text-muted">
-                        Caduca el {new Date(invite.expires_at).toLocaleDateString("es-ES")}
-                      </span>
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busyInviteId === invite.id}
-                      onClick={() => void revokeInvite(invite.id)}
-                    >
-                      Revocar código
-                    </Button>
-                  </List.Item>
-                ))}
-              </List>
+      {isOwner ? (
+        <Card
+          title="Traspasar la propiedad"
+          description="La cuenta siempre tiene un propietario. Al traspasarla pasas a ser gestor."
+        >
+          {transferCandidates.length === 0 ? (
+            <p className="text-sm text-muted">Invita antes a la persona que vaya a ser propietaria.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <Select
+                className="w-64"
+                aria-label="Nuevo propietario"
+                value={newOwner}
+                onChange={setNewOwner}
+                options={[
+                  { value: "", label: "Elige a quién" },
+                  ...transferCandidates.map((member) => ({
+                    value: member.user_id,
+                    label: member.profile?.full_name ?? "Sin nombre",
+                  })),
+                ]}
+              />
+              <ConfirmDialog
+                trigger={
+                  <Button variant="danger" disabled={!newOwner}>
+                    Traspasar
+                  </Button>
+                }
+                title="¿Traspasar la propiedad?"
+                description="Solo el nuevo propietario podrá devolvértela."
+                consequences={[
+                  "Dejas de gestionar el plan y la facturación.",
+                  "Dejas de decidir qué puede hacer tu consultor.",
+                  "Pasas a ser gestor de la cuenta.",
+                ]}
+                confirmLabel="Traspasar"
+                onConfirm={transfer}
+              />
             </div>
-          ) : null}
+          )}
         </Card>
       ) : null}
     </div>

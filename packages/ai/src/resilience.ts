@@ -154,23 +154,39 @@ function sleep(ms: number): Promise<void> {
 export async function withAgentResilience<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   policy: AgentResiliencePolicy = DEFAULT_AGENT_RESILIENCE_POLICY,
-  options: { random?: () => number } = {},
+  options: { random?: () => number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const attempts = policy.maxRetries + 1;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let onCallerAbort: (() => void) | undefined;
     try {
       const operationPromise = operation(controller.signal);
+      const callerAbortPromise = options.signal
+        ? new Promise<never>((_, reject) => {
+            onCallerAbort = () => {
+              controller.abort(options.signal?.reason);
+              reject(options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+            };
+            options.signal!.addEventListener("abort", onCallerAbort, { once: true });
+            if (options.signal!.aborted) onCallerAbort();
+          })
+        : null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           controller.abort();
           reject(new AgentRequestTimeoutError(policy.timeoutMs));
         }, policy.timeoutMs);
       });
-      return await Promise.race([operationPromise, timeoutPromise]);
+      const pending: Promise<T>[] = [operationPromise, timeoutPromise];
+      if (callerAbortPromise) pending.push(callerAbortPromise);
+      return await Promise.race(pending);
     } catch (error) {
       lastError = error;
       // Aborta el fetch en curso antes de reintentar o salir por error. NO se
@@ -179,10 +195,12 @@ export async function withAgentResilience<T>(
       // retorne) y un abort incondicional cancelaba esa lectura de un 200 OK,
       // que subia como `AbortError: The operation was aborted.` -> 500.
       controller.abort();
+      if (options.signal?.aborted) throw error;
       if (!isTransientAgentError(error) || attempt === attempts) throw error;
       await sleep(computeExponentialBackoffMs(attempt, policy, options.random));
     } finally {
       if (timer) clearTimeout(timer);
+      if (onCallerAbort) options.signal?.removeEventListener("abort", onCallerAbort);
     }
   }
 

@@ -118,9 +118,10 @@ function MatrixLine({ row }: { row: MatrixRow }) {
         : "ok";
 
   return (
-    <div className={cx(s.gtR, TIER_CLASS[row.tier])} role="row">
-      <div className={s.nmCell} role="cell">
-        <span className={s.dot} />
+    <tr className={cx(s.gtR, TIER_CLASS[row.tier])}>
+      <th scope="row">
+      <div className={s.nmCell}>
+        <span className={s.dot} aria-hidden="true" />
         <span>
           <button type="button" className={cx(s.nm, s.rowBtn)} onClick={row.open}>
             {row.name}
@@ -128,15 +129,16 @@ function MatrixLine({ row }: { row: MatrixRow }) {
           <span className={s.nmSub}>{row.sub}</span>
         </span>
       </div>
-      <div className={s.num} role="cell">
+      </th>
+      <td className={s.num}>
         {row.revenue === null ? "—" : panelMoney(row.revenue, row.currency)}
         {row.change !== null ? (
           <span className={cx(s.nmSub, row.change >= 0 ? s.pos : s.neg)}>
             {row.change >= 0 ? "▲" : "▼"} {panelPct(Math.abs(row.change))}
           </span>
         ) : null}
-      </div>
-      <div className={s.num} role="cell">
+      </td>
+      <td className={s.num}>
         {row.profit === null ? (
           "—"
         ) : (
@@ -146,8 +148,8 @@ function MatrixLine({ row }: { row: MatrixRow }) {
           </span>
         )}
         {estimated && row.profit !== null ? <span className={cx(s.nmSub, s.est)}>estimado</span> : null}
-      </div>
-      <div role="cell">
+      </td>
+      <td>
         {row.margin === null ? (
           "—"
         ) : (
@@ -159,13 +161,13 @@ function MatrixLine({ row }: { row: MatrixRow }) {
             goalText={row.marginTarget !== null ? `/ obj. ${panelNumber(row.marginTarget, goalDigits(row.marginTarget))} %` : "/ sin objetivo"}
           />
         )}
-      </div>
-      <div className={cx(s.num, row.contribution === null ? s.mut : row.contribution < 0 ? s.neg : undefined)} role="cell">
+      </td>
+      <td className={cx(s.num, row.contribution === null ? s.mut : row.contribution < 0 ? s.neg : undefined)}>
         {row.contribution === null ? "—" : panelMoney(row.contribution, row.currency, 2)}
-      </div>
-      <div role="cell">
+      </td>
+      <td>
         {row.cac === null ? (
-          <span className={s.mut}>sin publicidad</span>
+          <span className={s.mut}>Sin CAC calculado</span>
         ) : (
           <GoalBar
             value={row.cac}
@@ -175,14 +177,14 @@ function MatrixLine({ row }: { row: MatrixRow }) {
             goalText={row.cacTarget !== null ? `/ obj. ${panelMoney(row.cacTarget, row.currency, 1)}` : "/ sin objetivo"}
           />
         )}
-      </div>
-      <div className={s.flags} role="cell">
+      </td>
+      <td><div className={s.flags}>
         <FlagChips flags={row.flags} />
-      </div>
-      <div className={s.num} role="cell">
+      </div></td>
+      <td className={s.num}>
         <b>{row.lever > 0 ? `+${panelMoney(row.lever, row.currency)}/mes` : "—"}</b>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -484,23 +486,25 @@ export function PortfolioLevel({
                 No se pudo leer {data.failed_stores.map((store) => store.shop_name).join(", ")}. No aparece con datos a medias; reintenta en unos segundos.
               </p>
             ) : null}
-            <div className={s.tblWrap}>
-              <div className={s.gt} role="table" aria-label={`Rentabilidad por ${view}`}>
-                <div className={s.gtH} role="row">
-                  <div role="columnheader">{view === "cliente" ? "Cliente" : "Tienda · cliente"}</div>
-                  <div role="columnheader">Ingresos {days === 365 ? "1 año" : `${days} d`}</div>
-                  <div role="columnheader">Beneficio neto</div>
-                  <div role="columnheader">Margen vs objetivo</div>
-                  <div role="columnheader">Deja / pedido</div>
-                  <div role="columnheader">CAC vs objetivo</div>
-                  <div role="columnheader">Fiabilidad</div>
-                  <div role="columnheader">Palanca</div>
-                </div>
-                {shown.length === 0 ? <p className={s.empty}>Ninguna coincide con este filtro.</p> : null}
+            <div className={s.tblWrap} role="region" aria-label="Rentabilidad de la cartera; desliza para ver todas las columnas" tabIndex={0}>
+              <table className={s.gt} aria-label={`Rentabilidad por ${view}`}>
+                <thead><tr className={s.gtH}>
+                  <th scope="col">{view === "cliente" ? "Cliente" : "Tienda · cliente"}</th>
+                  <th scope="col">Ingresos {days === 365 ? "1 año" : `${days} d`}</th>
+                  <th scope="col">Beneficio neto</th>
+                  <th scope="col">Margen vs objetivo</th>
+                  <th scope="col">Deja / pedido</th>
+                  <th scope="col">CAC vs objetivo</th>
+                  <th scope="col">Fiabilidad</th>
+                  <th scope="col">Palanca</th>
+                </tr></thead>
+                <tbody>
+                {shown.length === 0 ? <tr><td colSpan={8}><p className={s.empty}>Ninguna coincide con este filtro.</p></td></tr> : null}
                 {shown.map((row) => (
                   <MatrixLine key={row.id} row={row} />
                 ))}
-              </div>
+                </tbody>
+              </table>
             </div>
             <p className={s.foot} style={{ marginTop: 14 }}>
               Los totales suman solo tiendas en {currency ?? "la moneda mayoritaria"}
@@ -588,11 +592,11 @@ export function PortfolioLevel({
 
         <Section id="evolucion" title="Cómo evoluciona" lead={evolutionLead(totals)}>
           <div className={s.two}>
-            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio · miles de euros">
+            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio">
               {data.monthly.length === 0 ? (
                 <p className={s.empty}>Sin serie mensual.</p>
               ) : (
-                <MonthlyChart months={data.monthly} label="Ingresos y beneficio mensual de la cartera, doce meses" />
+                <MonthlyChart months={data.monthly} currency={currency} label="Ingresos y beneficio mensual de la cartera, doce meses" />
               )}
             </Panel>
             <Panel title="A dónde va cada euro facturado" sub={`Reparto de ${money(totals.revenue)} de ingresos sin IVA`}>

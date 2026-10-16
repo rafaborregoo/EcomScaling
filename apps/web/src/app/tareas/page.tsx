@@ -22,7 +22,7 @@ import s from "./tareas.module.css";
 import { daysSince, isWithinLastDays, oldest } from "@/lib/elapsed";
 import { displayValue } from "@/lib/display-labels";
 import { DiscussModal } from "@/components/discuss-modal";
-import { HeroBlock, heroPrimary } from "@/components/trabajo-ui";
+import { HeroBlock, heroPrimary, WorkPageHeader } from "@/components/trabajo-ui";
 import {
   LoadingBlock,
   Checkbox,
@@ -1442,6 +1442,7 @@ function ConsultantOperationsView({
 
   return (
     <div className="portal-page space-y-5">
+      <WorkPageHeader title="Tareas">Revisa lo pendiente, decide qué hacer primero y sigue el avance de tu tienda.</WorkPageHeader>
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       <p className="text-sm text-muted">
@@ -2126,6 +2127,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
+      <WorkPageHeader title="Tareas">Revisa lo pendiente, decide qué hacer primero y sigue el avance de tu tienda.</WorkPageHeader>
       {nextTask ? (
         <HeroBlock
           label={isTaskOverdue(nextTask) ? "Lo siguiente · va tarde" : "Lo siguiente"}

@@ -5,7 +5,7 @@ import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { toast } from "@/components/ui";
+import { Skeleton, toast } from "@/components/ui";
 import { BarRows } from "@/components/data-bars";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { DELIVERY_AREAS, DELIVERY_EXCEPTION_LABELS, DELIVERY_NEXT_ACTIONS } from "../shopify/insights-sections";
@@ -29,6 +29,7 @@ import {
   type Operations,
 } from "./client-pulse";
 import s from "./client-pulse.module.css";
+import { DashboardSections } from "./dashboard-sections";
 
 /**
  * Pestaña Shopify del panel del cliente.
@@ -232,9 +233,10 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   if (metrics.isLoading && !data) {
     return (
       <div className={s.root}>
-        <div className={s.hero}>
+        <div className={s.hero} role="status" aria-busy="true">
           <p className={s.heroMeta}>{organizationName} · Shopify</p>
           <p className={s.headline}>Cargando tu tienda…</p>
+          <Skeleton className="h-32 w-full" aria-hidden="true" />
         </div>
       </div>
     );
@@ -271,7 +273,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
       <div className={s.root}>
         <div className={s.hero}>
           <p className={s.heroMeta}>{organizationName} · Shopify</p>
-          <p className={s.headline}>No hemos podido cargar los datos de tu tienda.</p>
+          <h1 className={s.headline}>No hemos podido cargar los datos de tu tienda</h1>
           <p className={s.headlineDetail}>
             {asConsultant
               ? "Las integraciones de este cliente no están disponibles desde el portal consultor."
@@ -284,6 +286,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
               </a>
             </div>
           ) : null}
+          <div className={s.heroActions}><button type="button" className={cx(s.btn, s.ghost)} onClick={() => { metrics.reload(); insights.reload(); }}>Reintentar la carga</button></div>
         </div>
       </div>
     );
@@ -320,6 +323,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
 
   return (
     <div className={s.root}>
+      <DashboardSections items={[{"id":"shop-headline","label":"Resumen"},{"id":"shop-pendiente","label":"Qué hacer"},{"id":"shop-conv","label":"Conversión"},{"id":"shop-prod","label":"Productos"},{"id":"shop-cli","label":"Clientes"},{"id":"shop-orig","label":"Origen"},{"id":"shop-env","label":"Envíos"}]} />
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.hero} aria-labelledby="shop-headline">
         <div className={s.heroTop}>
@@ -335,9 +339,9 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
               </div>
             </div>
             <h1 id="shop-headline" className={s.headline}>
-              {salesAi ? <span className={s.ia}>IA</span> : null}
-              {headline}
+              Shopify: ventas y operación
             </h1>
+            <p className={s.headlineDetail}>{salesAi ? <span className={s.ia}>A02</span> : null}{headline}</p>
             <p className={s.headlineDetail}>
               {fmtNum(sales.orders_count)} pedidos · {fmtNum(sales.units_sold)} unidades · ticket medio {fmtEur(sales.aov, 2)} en {periodPhrase(days)}.
             </p>
@@ -417,7 +421,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
 
       <section className={s.sec} aria-label="Lectura ejecutiva de Shopify">
         <div className={s.panel}>
-          <p className={s.lbl}>A02 · Shopify</p>
+          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> Lectura de Shopify</h2>
           <p className={s.headlineDetail}>
             {monitor.data?.output.headline ?? "El análisis específico de Shopify aparecerá aquí cuando termine su primera ejecución."}
           </p>
@@ -659,14 +663,14 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
               </div>
             </div>
             {top.length ? (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Productos más vendidos; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Ventas netas por producto">
                   <thead>
                     <tr>
-                      <th>Producto</th>
-                      <th>Uds.</th>
-                      <th title="Ventas de pedidos con el codigo; pueden repetirse entre filas cuando hay varios codigos">Ventas</th>
-                      <th>Peso</th>
+                      <th scope="col">Producto</th>
+                      <th scope="col">Uds.</th>
+                      <th scope="col" title="Ventas netas de este producto en el periodo seleccionado">Ventas netas</th>
+                      <th scope="col">Peso</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -678,7 +682,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                             href={`/shopify/productos/${encodeURIComponent(product.product_id)}?${new URLSearchParams({ organizationId, ...(connectionId ? { connectionId } : {}) }).toString()}`}
                             aria-label={`Abrir ficha de ${product.title}`}
                           >
-                          {product.title}
+                    {product.title}
                         </a>
                         {product.lines_without_metrics > 0 ? (
                           <small className={s.muted}>
@@ -820,14 +824,14 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
             ) : ins.returns.length === 0 ? (
               <Empty>No hay devoluciones en este periodo.</Empty>
             ) : (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Devoluciones; desliza para comparar productos" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Devoluciones por producto">
                   <thead>
                     <tr>
-                      <th>Producto</th>
-                      <th>Devueltas</th>
-                      <th>Tasa</th>
-                      <th>Motivo principal</th>
+                      <th scope="col">Producto</th>
+                      <th scope="col">Devueltas</th>
+                      <th scope="col">Tasa</th>
+                      <th scope="col">Motivo principal</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -870,15 +874,15 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
             ) : ins.discounts.length === 0 ? (
               <Empty>No se han usado códigos de descuento en este periodo.</Empty>
             ) : (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Descuentos; desliza para comparar códigos" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Ventas y coste de códigos de descuento">
                   <thead>
                     <tr>
-                      <th>Código</th>
-                      <th>Pedidos</th>
-                      <th>Ventas</th>
-                      <th title="Importe atribuido al código solo con asignaciones completas de Shopify">Descontado</th>
-                      <th>Nuevos</th>
+                      <th scope="col">Código</th>
+                      <th scope="col">Pedidos</th>
+                      <th scope="col">Ventas</th>
+                      <th scope="col" title="Importe atribuido al código solo con asignaciones completas de Shopify">Descontado</th>
+                      <th scope="col">Nuevos</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1207,14 +1211,14 @@ function CohortPanel({ cohorts }: { cohorts: Insights["cohorts"] }) {
           <p className={s.sub}>Porcentaje de clientes de cada mes que vuelven a comprar N meses después</p>
         </div>
       </div>
-      <div className={s.tblWrap} style={{ marginTop: 0 }}>
-        <table className={s.heat}>
+      <div className={s.tblWrap} role="region" aria-label="Recompra por cohorte; desliza para consultar los meses" tabIndex={0} style={{ marginTop: 0 }}>
+        <table className={s.heat} aria-label="Porcentaje de recompra según el mes del primer pedido">
           <thead>
             <tr>
-              <th>Primer pedido</th>
-              <th>Clientes</th>
+              <th scope="col">Primer pedido</th>
+              <th scope="col">Clientes</th>
               {Array.from({ length: MAX_OFFSET }, (_, i) => (
-                <th key={i}>+{i + 1} m</th>
+                <th scope="col" key={i}>+{i + 1} m</th>
               ))}
             </tr>
           </thead>
@@ -1223,18 +1227,18 @@ function CohortPanel({ cohorts }: { cohorts: Insights["cohorts"] }) {
               const size = cell.get(`${month}|0`)?.cohort_customers ?? cohorts.find((c) => c.cohort_month === month)?.cohort_customers ?? 0;
               return (
                 <tr key={month}>
-                  <th>
+                  <th scope="row">
                     {MONTHS[Number(month.slice(5, 7)) - 1]} {month.slice(2, 4)}
                   </th>
                   <td>{fmtNum(size)}</td>
                   {Array.from({ length: MAX_OFFSET }, (_, i) => {
                     const c = cell.get(`${month}|${i + 1}`);
-                    if (!c || !size) return <td key={i} />;
+                    if (!c || !size) return <td key={i} title="Sin datos para este mes">—</td>;
                     const rate = c.customers / size;
                     return (
                       <td
                         key={i}
-                        style={{ background: `color-mix(in srgb, var(--store) ${Math.min(rate * 250, 100)}%, var(--surface-2))`, color: rate > 0.2 ? "#fff" : "var(--ink)" }}
+                        style={{ background: `color-mix(in srgb, var(--store) ${Math.min(rate * 100, 40)}%, var(--surface-2))`, color: "var(--ink)" }}
                         title={`${c.customers} de ${size} clientes`}
                       >
                         {pct(rate, 0)}
@@ -1255,16 +1259,16 @@ function AttributionTable({ rows, currencyCode }: { rows: Insights["attribution"
   const sorted = rows.slice().sort((a, b) => b.revenue - a.revenue).slice(0, 10);
   const total = rows.reduce((acc, r) => acc + r.revenue, 0) || 1;
   return (
-    <div className={s.tblWrap} style={{ marginTop: 0 }}>
-      <table className={s.tbl}>
+    <div className={s.tblWrap} role="region" aria-label="Origen de las ventas; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+      <table className={s.tbl} aria-label="Ventas por canal según Shopify">
         <thead>
           <tr>
-            <th>Canal</th>
-            <th>Campaña</th>
-            <th>Pedidos</th>
-            <th>Ventas</th>
-            <th>Clientes nuevos</th>
-            <th>Días hasta comprar</th>
+            <th scope="col">Canal</th>
+            <th scope="col">Campaña</th>
+            <th scope="col">Pedidos</th>
+            <th scope="col">Ventas</th>
+            <th scope="col">Clientes nuevos</th>
+            <th scope="col">Días hasta comprar</th>
           </tr>
         </thead>
         <tbody>

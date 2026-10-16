@@ -163,7 +163,7 @@ function Loaded({
           { label: "Apertura media", value: rate(client.last_week.open_rate), foot: `de ${client.last_week.sent} ${plural(client.last_week.sent, "envío", "envíos")}` },
           { label: "Clic medio", value: rate(client.last_week.click_rate), foot: `de ${client.last_week.sent} ${plural(client.last_week.sent, "envío", "envíos")}` },
           {
-            label: "EUR atribuidos por Klaviyo",
+            label: "Ingresos atribuidos por Klaviyo",
             value: client.last_week.revenue === null ? "—" : formatMoney(client.last_week.revenue, currency),
             foot: stores.length > 1 ? `una cuenta de Klaviyo para las ${stores.length} tiendas` : "de esos envíos",
           },
@@ -298,7 +298,7 @@ function Loaded({
                 ))
               )}
             </Panel>
-            <Panel title="Lo último que salió" sub="EUR atribuidos por Klaviyo, no son ventas de Shopify">
+            <Panel title="Lo último que salió" sub="Ingresos atribuidos por Klaviyo, no son ventas de Shopify">
               {sends.length === 0 ? (
                 <p className={s.empty}>La semana pasada no salió ningún email.</p>
               ) : (

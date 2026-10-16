@@ -241,8 +241,8 @@ body {
      pantalla como una herramienta operativa: encabezado claro, métricas sin
      relieve y superficies sobrias en vez de cajas anidadas decorativas. */
   .marketing-workspace {
-    --mkt-line: #e5e7eb;
-    --mkt-muted: #5f6368;
+    --mkt-line: #d5dfdf;
+    --mkt-muted: #5c6b6b;
   }
 
   .marketing-workspace .mkt-page-header {
@@ -264,10 +264,11 @@ body {
   }
 
   .marketing-workspace .mkt-page-title {
-    color: #171717;
-    font-size: clamp(1.5rem, 2vw, 1.85rem);
-    letter-spacing: -0.035em;
-    line-height: 1.15;
+    color: #3d3b3a;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
   }
 
   .marketing-workspace .mkt-page-description {
@@ -290,7 +291,7 @@ body {
 
   .marketing-workspace [data-slot="card"] {
     border-color: var(--mkt-line);
-    border-radius: 0.375rem;
+    border-radius: 16px;
     box-shadow: none;
   }
 
@@ -453,31 +454,31 @@ a[data-slot="button"],
 
 /* Tema por rol. Los overlays se montan en un portal fuera de #portal-content y
    no heredan .trabajo-theme: <OverlayRole> pone el rol en <body> y aqui se
-   re-declaran los mismos tokens que usa ese tema (cliente: petroleo + azafran,
-   consultor: grafito + mandarina, admin: grafito). */
+   re-declaran los mismos tokens que usa ese tema (cliente: grafito del logo + ámbar,
+   consultor: grafito profundo + mandarina cobre, admin: grafito). */
 body[data-role="client"] {
-  --ov-accent: #f2b705;
-  --ov-accent-hover: #dba503;
-  --ov-on-accent: #1d1500;
-  --ov-accent-soft: #fcf0c4;
-  --ov-accent-ink: #6e5000;
-  --ov-ink: #0b2a33;
-  --ov-muted: #5c757b;
-  --ov-line: #d3dee0;
-  --ov-edge: #bccbce;
-  --ov-surface: #f4f7f7;
+  --ov-accent: #e0a526;
+  --ov-accent-hover: #c99117;
+  --ov-on-accent: #2b1d00;
+  --ov-accent-soft: #fbefd2;
+  --ov-accent-ink: #7a5300;
+  --ov-ink: #3d3b3a;
+  --ov-muted: #6b6560;
+  --ov-line: #e2dfdc;
+  --ov-edge: #cbc7c3;
+  --ov-surface: #f8f7f5;
 }
 body[data-role="consultant"] {
-  --ov-accent: #ff8a5b;
-  --ov-accent-hover: #f5733f;
+  --ov-accent: #f08a5d;
+  --ov-accent-hover: #e2733f;
   --ov-on-accent: #2b0e02;
-  --ov-accent-soft: #ffe7dc;
-  --ov-accent-ink: #8a3310;
-  --ov-ink: #16181b;
-  --ov-muted: #686c72;
-  --ov-line: #dadad5;
-  --ov-edge: #c9c9c2;
-  --ov-surface: #f7f7f5;
+  --ov-accent-soft: #fbe5da;
+  --ov-accent-ink: #8a3a17;
+  --ov-ink: #262423;
+  --ov-muted: #6b6560;
+  --ov-line: #dedad6;
+  --ov-edge: #c9c4bf;
+  --ov-surface: #f5f4f2;
 }
 body[data-role="admin"] {
   --ov-accent: #3d3b3a;
@@ -1034,8 +1035,8 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   }
 }
 
-/* Módulo Trabajo: mismo lenguaje que Inicio y Mi Camino. Consultor en grafito
-   + mandarina, cliente en petróleo + azafrán. Lo pone portal-shell en
+/* Módulo Trabajo: mismo lenguaje que Inicio, grafito de marca y petróleo.
+   Lo pone portal-shell en
    #portal-content según el módulo activo y el rol. Se pisan --accent y
    --color-accent porque Tailwind resuelve el segundo en :root. */
 .trabajo-theme {
@@ -1069,40 +1070,117 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   background: var(--tw-paper);
   min-height: calc(100dvh / var(--ui-zoom, 1));
 }
-.trabajo-theme--consultant {
-  --tw-paper: #faf9f7;
-  --tw-surface-2: #f7f7f5;
-  --tw-ink: #16181b;
-  --tw-ink-3: #686c72;
-  --tw-line: #dadad5;
-  --tw-accent: #ff8a5b;
-  --tw-accent-hover: #f5733f;
-  --tw-on-accent: #2b0e02;
-  --tw-accent-soft: #ffe7dc;
-  --tw-accent-ink: #8a3310;
-  --tw-good: #12805f;
+.trabajo-theme--consultant,
+.trabajo-theme--client {
+  --tw-paper: #f3f6f6;
+  --tw-surface-2: #f4f7f7;
+  --tw-ink: #3d3b3a;
+  --tw-ink-3: #5c6b6b;
+  --tw-line: #d5dfdf;
+  --tw-accent: #176b64;
+  --tw-accent-hover: #135c55;
+  --tw-on-accent: #ffffff;
+  --tw-accent-soft: #e3f1ee;
+  --tw-accent-ink: #176b64;
+  --tw-good: #2f7d5b;
 }
 /* Todo el portal del consultor va sobre el mismo papel, también Inicio y
    Analítica, que pintan su propia paleta (client-pulse) y no pueden llevar
-   .trabajo-theme (congela /klaviyo). Solo el fondo; sus tokens no se tocan. */
-#portal-content[data-role="consultant"]:not(.admin-portal-content) {
-  background: #faf9f7;
+   .trabajo-theme (congela /klaviyo). Solo el fondo; sus tokens no se tocan.
+   Los módulos con .trabajo-theme (Trabajo, Marketing, Configuración, Cartera...)
+   quedan fuera: pintan su propio papel y esta regla, más específica, se lo
+   pisaba con blanco, así que el consultor veía distinto que el cliente. */
+#portal-content[data-role="consultant"]:not(.admin-portal-content):not(.trabajo-theme) {
+  background: #ffffff;
 }
-.trabajo-theme--client {
-  --tw-paper: #edf1f1;
-  --tw-surface-2: #f4f7f7;
-  --tw-ink: #0b2a33;
-  --tw-ink-3: #5c757b;
-  --tw-line: #d3dee0;
-  --tw-accent: #f2b705;
-  --tw-accent-hover: #dba503;
-  --tw-on-accent: #1d1500;
-  --tw-accent-soft: #fcf0c4;
-  --tw-accent-ink: #6e5000;
-  --tw-good: #11806a;
+#portal-content.trabajo-theme {
+  background: var(--tw-paper);
+  --color-separator: #e6eded;
+  --separator: #e6eded;
+  --color-surface: #ffffff;
+  --surface: #ffffff;
+}
+.trabajo-theme .portal-page {
+  min-width: 0;
+}
+#portal-content.trabajo-theme [data-slot="card"] {
+  background: #ffffff;
+  border-color: var(--tw-line);
+  border-radius: 16px;
+  box-shadow: none;
+}
+.trabajo-theme ::selection {
+  background: var(--tw-accent-soft);
+  color: var(--tw-ink);
+}
+body:has(#portal-content.trabajo-theme) {
+  --ov-accent: #176b64;
+  --ov-accent-hover: #135c55;
+  --ov-on-accent: #ffffff;
+  --ov-accent-soft: #e3f1ee;
+  --ov-accent-ink: #176b64;
+  --ov-ink: #3d3b3a;
+  --ov-muted: #5c6b6b;
+  --ov-line: #d5dfdf;
+  --ov-edge: #d5dfdf;
+  --ov-surface: #ffffff;
 }
 /* El acento es de relleno (botones, marcas); como color de texto sobre blanco
    no llega a contraste, así que el texto "accent" usa su tinta oscura. */
 .trabajo-theme .text-accent {
   color: var(--tw-accent-ink);
 }
+
+/* Analítica por canal: mismo mecanismo que .trabajo-theme pero con la marca de cada
+   plataforma. Los colores del contenido (.root) viven en client-pulse.module.css. */
+#portal-content[data-channel] {
+  --accent-foreground: #ffffff;
+  --color-accent-foreground: #ffffff;
+  --accent: var(--ch-accent);
+  --accent-hover: var(--ch-hover);
+  --accent-soft: var(--ch-soft);
+  --accent-soft-foreground: var(--ch-ink);
+  --color-accent: var(--ch-accent);
+  --color-accent-hover: var(--ch-hover);
+  --color-accent-soft: var(--ch-soft);
+  --color-accent-soft-foreground: var(--ch-ink);
+  --focus: var(--ch-accent);
+  --color-focus: var(--ch-accent);
+  /* El verde de "bien" de la marca tambien se tiñe del canal: rojo y ambar siguen marcando lo malo. */
+  --success: var(--ch-accent);
+  --color-success: var(--ch-accent);
+}
+#portal-content[data-channel][data-role]:not(.trabajo-theme) { background: var(--ch-paper); }
+#portal-content[data-channel="shopify"] { --ch-paper: #e9f3ee; --ch-accent: #008060; --ch-hover: #006e52; --ch-soft: #e0f2ea; --ch-ink: #004c3f; }
+#portal-content[data-channel="meta"] { --ch-paper: #e6effc; --ch-accent: #0866ff; --ch-hover: #0050d0; --ch-soft: #e5eefe; --ch-ink: #0a4fc4; }
+#portal-content[data-channel="klaviyo"] { --ch-paper: #efefef; --ch-accent: #232426; --ch-hover: #000000; --ch-soft: #ececed; --ch-ink: #232426; }
+#portal-content[data-channel] .text-accent { color: var(--ch-ink); }
+
+/* Tarjetas HeroUI dentro de cada mundo, con la misma forma que las de client-pulse. */
+#portal-content[data-channel="shopify"] [data-slot="card"] { border-color: transparent; border-radius: 12px; box-shadow: 0 1px 0 rgba(26, 31, 28, 0.07), inset 0 -1px 0 #cfdcd5; }
+#portal-content[data-channel="meta"] [data-slot="card"] { border-color: transparent; border-radius: 8px; box-shadow: 0 1px 2px rgba(28, 43, 51, 0.12); }
+#portal-content[data-channel="klaviyo"] [data-slot="card"] { border-color: #dcdcde; border-radius: 4px; box-shadow: none; }
+#portal-content[data-channel="klaviyo"] [data-slot="button"] { border-radius: 4px; }
+
+/* Analítica mantiene su ámbito propio para no alterar los tokens heredados
+   por las visualizaciones. Misma identidad que Dashboard y Trabajo. */
+#portal-content.analytics-theme[data-channel][data-role] {
+  --foreground: #3d3b3a;
+  --color-foreground: #3d3b3a;
+  --color-muted: #5c6b6b;
+  --muted: #5c6b6b;
+  --separator: #e6eded;
+  --color-separator: #e6eded;
+  --success: #216947;
+  --color-success: #216947;
+  background: var(--ch-paper);
+  color: #3d3b3a;
+}
+#portal-content.analytics-theme[data-channel] [data-slot="card"] {
+  border: 1px solid #d5dfdf;
+  border-radius: 16px;
+  box-shadow: none;
+  background: #ffffff;
+}
+#portal-content.analytics-theme[data-channel] [data-slot="button"] { border-radius: 8px; }
+.analytics-theme ::selection { background: var(--ch-soft); color: var(--ch-ink); }

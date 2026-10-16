@@ -58,10 +58,55 @@ const toolReplaySchema = z.object({
 
 const visualArtifactSchema = z.object({
   artifact_id: z.string().uuid(),
+  entity_type: z.enum(["instagram_image_bank", "meta_creative_image", "a16_render_capture", "a26_email_render_capture"]),
+  organization_id: z.string().uuid(),
+  store_id: z.string().uuid().nullable(),
+  period_start: z.string().date().nullable(),
+  period_end: z.string().date().nullable(),
+  /** For Meta: the creative asset row proven to be assigned to ad_id during the frozen period. */
+  related_entity_id: z.string().uuid().nullable(),
+  ad_id: z.string().uuid().nullable(),
   media_type: z.enum(["image/png", "image/jpeg", "image/webp", "text/html"]),
   sha256: hashSchema,
+  /** Inline, privacy-reviewed bytes make the visual input reproducible and hash-verifiable. */
+  bytes_base64: z.string().max(1_870_000).optional(),
   role: z.enum(["input", "render", "reference", "neighbor"]),
-}).strict();
+  viewport: z.enum(["desktop", "mobile"]).optional(),
+}).strict().superRefine((artifact, ctx) => {
+  if (artifact.period_start && artifact.period_end && artifact.period_end < artifact.period_start) {
+    ctx.addIssue({ code: "custom", path: ["period_end"], message: "visual_artifact_period_invalid" });
+  }
+  if (artifact.entity_type === "meta_creative_image" && (!artifact.related_entity_id || !artifact.ad_id || !artifact.period_start || !artifact.period_end)) {
+    ctx.addIssue({ code: "custom", path: ["related_entity_id"], message: "meta_visual_binding_incomplete" });
+  }
+  if (artifact.entity_type !== "meta_creative_image" && (artifact.related_entity_id || artifact.ad_id)) {
+    ctx.addIssue({ code: "custom", path: ["related_entity_id"], message: "unexpected_visual_relation" });
+  }
+  if (artifact.media_type === "text/html" && artifact.bytes_base64 !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["bytes_base64"], message: "html_must_be_frozen_as_a_source_block" });
+  }
+  if (artifact.entity_type !== "a26_email_render_capture" && artifact.viewport !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["viewport"], message: "viewport_only_valid_for_a26_email_renders" });
+  }
+  if (artifact.media_type !== "text/html" && !artifact.bytes_base64) {
+    ctx.addIssue({ code: "custom", path: ["bytes_base64"], message: "visual_artifact_bytes_required" });
+  }
+  if (artifact.bytes_base64) {
+    const bytes = Buffer.from(artifact.bytes_base64, "base64");
+    if (!bytes.length || bytes.toString("base64") !== artifact.bytes_base64
+      || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) {
+      ctx.addIssue({ code: "custom", path: ["bytes_base64"], message: "visual_artifact_bytes_hash_mismatch" });
+    }
+    const valid = artifact.media_type === "image/png"
+      ? bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      : artifact.media_type === "image/jpeg"
+        ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        : artifact.media_type === "image/webp"
+          ? bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP"
+          : true;
+    if (!valid) ctx.addIssue({ code: "custom", path: ["media_type"], message: "visual_artifact_media_signature_mismatch" });
+  }
+});
 
 /** Inputs required to replay the read-only A19 weekly review without live DB queries. */
 export const a19ReviewFixtureContextSchema = z.object({
@@ -140,6 +185,43 @@ export const agentReleaseEvalFixtureSchema = z.object({
       }
     }
   }
+  for (const [index, artifact] of fixture.visual_artifacts.entries()) {
+    if (artifact.organization_id !== fixture.scope.organization_ref) {
+      ctx.addIssue({ code: "custom", path: ["visual_artifacts", index, "organization_id"], message: "visual_artifact_scope_mismatch" });
+    }
+    if (artifact.period_start !== fixture.scope.period_start || artifact.period_end !== fixture.scope.period_end) {
+      ctx.addIssue({ code: "custom", path: ["visual_artifacts", index, "period_start"], message: "visual_artifact_period_scope_mismatch" });
+    }
+    if (fixture.agent_code === "a15_analista_imagenes" && artifact.entity_type !== "instagram_image_bank") {
+      ctx.addIssue({ code: "custom", path: ["visual_artifacts", index, "entity_type"], message: "a15_requires_instagram_image_bank_asset" });
+    }
+    if (fixture.agent_code === "a23_creatividad_meta" && artifact.entity_type !== "meta_creative_image") {
+      ctx.addIssue({ code: "custom", path: ["visual_artifacts", index, "entity_type"], message: "a23_requires_meta_creative_image" });
+    }
+  }
+  if (["a15_analista_imagenes", "a16_texto_sobre_imagen", "a23_creatividad_meta", "a26_contenido_email"].includes(fixture.agent_code)) {
+    const roles = new Set(fixture.visual_artifacts.map((artifact) => artifact.role));
+    if (!roles.has("input") && fixture.agent_code !== "a26_contenido_email") {
+      ctx.addIssue({ code: "custom", path: ["visual_artifacts"], message: "visual_input_artifact_required" });
+    }
+    if (fixture.agent_code === "a16_texto_sobre_imagen" && (!roles.has("render") || !roles.has("neighbor"))) {
+      ctx.addIssue({ code: "custom", path: ["visual_artifacts"], message: "a16_input_render_and_neighbor_required" });
+    }
+    if (fixture.agent_code === "a26_contenido_email") {
+      const renderViewports = fixture.visual_artifacts.filter((item) => item.role === "render").map((item) => item.viewport);
+      if (!renderViewports.includes("desktop") || !renderViewports.includes("mobile")) {
+        ctx.addIssue({ code: "custom", path: ["visual_artifacts"], message: "a26_desktop_and_mobile_renders_required" });
+      }
+    }
+  }
+  const artifactIds = fixture.visual_artifacts.map((artifact) => artifact.artifact_id);
+  if (new Set(artifactIds).size !== artifactIds.length) {
+    ctx.addIssue({ code: "custom", path: ["visual_artifacts"], message: "duplicate_visual_artifact_id" });
+  }
+  const imageArtifacts = fixture.visual_artifacts.filter((artifact) => artifact.media_type !== "text/html");
+  if (imageArtifacts.length > 4 || imageArtifacts.reduce((sum, artifact) => sum + Buffer.from(artifact.bytes_base64 ?? "", "base64").byteLength, 0) > 5 * 1024 * 1024) {
+    ctx.addIssue({ code: "custom", path: ["visual_artifacts"], message: "visual_fixture_image_budget_exceeded" });
+  }
   const sourceKeys = fixture.sources.map((source) => source.key);
   if (new Set(sourceKeys).size !== sourceKeys.length) {
     ctx.addIssue({ code: "custom", path: ["sources"], message: "duplicate_fixture_source_key" });
@@ -156,7 +238,7 @@ export const agentReleaseEvalFixtureSchema = z.object({
     ctx.addIssue({ code: "custom", path: ["constraints"], message: "duplicate_or_conflicting_output_constraint" });
   }
   const serialized = JSON.stringify(fixture);
-  if (Buffer.byteLength(serialized, "utf8") > 200_000) {
+  if (Buffer.byteLength(serialized, "utf8") > 8 * 1024 * 1024) {
     ctx.addIssue({ code: "custom", path: ["sources"], message: "release_fixture_payload_too_large" });
   }
   const privacyScan = serialized

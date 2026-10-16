@@ -86,6 +86,36 @@ describe("AI resilience", () => {
     assert.equal(captured?.aborted, false);
   });
 
+  it("aborts the active provider request and does not retry after caller cancellation", async () => {
+    const caller = new AbortController();
+    let calls = 0;
+    let providerSignal: AbortSignal | undefined;
+    const pending = withAgentResilience(
+      async (signal) => {
+        calls += 1;
+        providerSignal = signal;
+        return await new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        });
+      },
+      {
+        timeoutMs: 1_000,
+        maxRetries: 2,
+        baseBackoffMs: 0,
+        maxBackoffMs: 10,
+        jitterRatio: 0,
+      },
+      { signal: caller.signal },
+    );
+
+    caller.abort(new DOMException("Client disconnected", "AbortError"));
+    await assert.rejects(pending, { name: "AbortError" });
+    assert.equal(providerSignal?.aborted, true);
+    assert.equal(calls, 1);
+  });
+
   it("caps exponential backoff", () => {
     assert.equal(
       computeExponentialBackoffMs(10, {

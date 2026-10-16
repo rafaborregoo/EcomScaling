@@ -218,7 +218,7 @@ export function FlowsView({
         items={[
           {
             value: formatMoney(flowRevenue, currency),
-            label: `EUR atribuidos por flows · ${workspace.period.days} d`,
+            label: `Ingresos atribuidos por flows · ${workspace.period.days} d`,
             hint: emailRevenue ? `${Math.round(100 * ratio(flowRevenue, emailRevenue))} % del email` : undefined,
             tone: "good",
           },
@@ -330,7 +330,7 @@ function FlowCard({ flow, currency, active, onSelect }: { flow: KFlow; currency:
       <span className={s.muted}>{flow.messages.length} emails</span>
       <span className={s.flowStats}>
         <span>
-          EUR atrib. <b>{stats?.revenue ? formatMoney(stats.revenue, currency) : "—"}</b>
+          Ingresos atrib. <b>{stats?.revenue ? formatMoney(stats.revenue, currency) : "—"}</b>
         </span>
         <span>
           Por destinatario{" "}

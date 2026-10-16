@@ -18,14 +18,16 @@
  */
 export const TOKENS_POR_MENSAJE = 5300;
 
-export type CopilotModelId = "sonnet" | "opus" | "haiku";
+export type CopilotModelId = "sonnet" | "opus" | "haiku" | "luna" | "sol";
 
 export type CopilotModel = {
   id: CopilotModelId;
   label: string;
   /** Para que sirve, en una linea. Si hace falta un parrafo, sobra el modelo. */
   description: string;
+  /** Id del modelo en su proveedor (el nombre del campo es historico: tambien guarda los de OpenAI). */
   anthropicModel: string;
+  provider?: "openai";
   /** Si el usuario puede elegirlo, o solo lo pone el sistema. */
   selectable: boolean;
 };
@@ -54,6 +56,22 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
     selectable: true,
   },
   {
+    id: "luna",
+    label: "GPT Luna",
+    description: "OpenAI económico. Respuestas rápidas.",
+    anthropicModel: "gpt-6-luna",
+    provider: "openai",
+    selectable: true,
+  },
+  {
+    id: "sol",
+    label: "GPT Sol",
+    description: "OpenAI avanzado, para razonar más.",
+    anthropicModel: "gpt-6-sol",
+    provider: "openai",
+    selectable: true,
+  },
+  {
     id: "haiku",
     label: "Haiku 4.5",
     description: "Modo reducido mientras no haya saldo.",
@@ -64,9 +82,16 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
 
 export type CopilotModelTier = "sonnet" | "opus";
 
-export function modelosDelPlan(tier: CopilotModelTier): CopilotModel[] {
+/** Los de OpenAI solo se ofrecen si hay OPENAI_API_KEY; Opus y Sol, solo en el plan avanzado. */
+export function modelosDelPlan(
+  tier: CopilotModelTier,
+  openai = false,
+): CopilotModel[] {
   return COPILOT_MODELS.filter(
-    (model) => model.selectable && (tier === "opus" || model.id !== "opus"),
+    (model) =>
+      model.selectable &&
+      (openai || model.provider !== "openai") &&
+      (tier === "opus" || (model.id !== "opus" && model.id !== "sol")),
   );
 }
 
@@ -76,6 +101,8 @@ export type ResolveModelInput = {
   tier: CopilotModelTier;
   /** Tokens que quedan en el banco. <= 0 significa agotado. */
   remainingTokens: number;
+  /** Hay OPENAI_API_KEY: solo entonces se atienden los modelos de OpenAI. */
+  openai?: boolean;
 };
 
 export type ResolvedCopilotModel = {
@@ -101,7 +128,7 @@ export function resolveCopilotModel(
     return { model: modeloPorId("haiku"), degraded: true };
   }
 
-  const permitidos = modelosDelPlan(input.tier);
+  const permitidos = modelosDelPlan(input.tier, input.openai);
   const pedido = permitidos.find((model) => model.id === input.requested);
 
   return { model: pedido ?? permitidos[0]!, degraded: false };

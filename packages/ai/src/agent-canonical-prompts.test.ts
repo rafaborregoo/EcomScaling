@@ -244,7 +244,11 @@ test("A08 v7 diferencia cobertura del catálogo y muestra acotada al modelo", ()
   assert.match(helper, /round_robin_by_visibility_audience_source_type_then_freshness/);
   assert.match(helper, /document_sample:/);
   assert.match(runtime, /buildKnowledgeCatalogPromptContext\(\{/);
-  assert.match(runtime, /\.\.\.catalogPromptContext/);
+  // El runtime separa los contadores autoritativos de la muestra documental
+  // acotada: ambas partes deben formar el contexto, sin expandir de nuevo la
+  // lista completa y desplazar las métricas de cobertura.
+  assert.match(runtime, /\.\.\.catalogSummary/);
+  assert.match(runtime, /documents: sampledDocuments/);
 });
 
 test("A09 v7 usa snapshots recientes aprobados con scope y procedencia", () => {

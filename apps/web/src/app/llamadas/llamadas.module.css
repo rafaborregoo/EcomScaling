@@ -4,8 +4,8 @@
    filas de llamadas, escalera de pasos y la revisión de tareas. */
 
 .title {
-  font: 700 32px/1.05 var(--f-display);
-  letter-spacing: -0.03em;
+  font: 600 28px/1.25 var(--f-display);
+  letter-spacing: -0.01em;
 }
 .head {
   display: flex;
@@ -71,7 +71,7 @@
   display: grid;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface);
 }
 .row {

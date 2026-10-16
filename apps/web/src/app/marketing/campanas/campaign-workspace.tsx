@@ -265,8 +265,7 @@ export function CampaignWorkspace({
     ];
   })();
 
-  const showSend = phase !== "sent" && (staff || !hasConsultant) && !meta && Boolean(draft || row.campaign);
-  const reviewPendingForClient = !staff && hasConsultant && own && review !== "reviewed" && review !== null;
+  const showSend = phase !== "sent" && !meta && Boolean(draft || row.campaign);
 
   return (
     <Stage client={!staff}>
@@ -409,7 +408,6 @@ export function CampaignWorkspace({
           draft={draft}
           workspace={workspace}
           clientName={organizationName}
-          reviewPending={reviewPendingForClient}
           onDone={refresh}
         />
       ) : null}
@@ -441,7 +439,7 @@ function Results({ organizationId, row, workspace }: { organizationId: string; r
   const stats = row.stats;
   const max = Math.max(1, ...(links ?? []).map((link) => link.clicks));
   return (
-    <Section id="resultados" title="Qué ha traído" lead="Lo que ha hecho este envío, contado por Klaviyo. EUR atribuidos por Klaviyo, no son ventas de Shopify.">
+    <Section id="resultados" title="Qué ha traído" lead="Lo que ha hecho este envío, contado por Klaviyo. Ingresos atribuidos por Klaviyo, no son ventas de Shopify.">
       <Panel>
         {stats ? (
           <div className={s.res}>
@@ -456,7 +454,7 @@ function Results({ organizationId, row, workspace }: { organizationId: string; r
               <em>{int(stats.unsubscribes)} bajas</em>
             </div>
             <div>
-              <small>EUR atribuidos por Klaviyo</small>
+              <small>Ingresos atribuidos por Klaviyo</small>
               <b>{formatMoney(stats.revenue, currency)}</b>
               <em>de toda la vida de esta campaña</em>
             </div>

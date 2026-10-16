@@ -44,6 +44,9 @@ export function redactSensitiveText(value: string): string {
 
 /** Redacts credential-shaped keys before metadata reaches stdout/stderr. */
 export function redactSensitive(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactSensitiveText(value);
+  }
   if (value === null || typeof value !== "object") {
     return value;
   }

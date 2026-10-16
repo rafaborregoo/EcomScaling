@@ -11,15 +11,27 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const scripts = Object.values(JSON.parse(readFileSync(path.join(root, "apps/api/package.json"), "utf8")).scripts).join(" ");
-const tests = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "apps/api/src"], { cwd: root, encoding: "utf8" })
+const packageJsonText = readFileSync(
+  path.join(root, "apps/api/package.json"),
+  "utf8",
+).replace(/^\uFEFF/, "");
+const scripts = Object.values(JSON.parse(packageJsonText).scripts).join(" ");
+const tests = execFileSync(
+  "git",
+  ["ls-files", "-co", "--exclude-standard", "apps/api/src"],
+  { cwd: root, encoding: "utf8" },
+)
   .split("\n")
   .filter((file) => file.endsWith(".test.ts"))
   .map((file) => file.replace("apps/api/", ""));
 const orphans = tests.filter((file) => !scripts.includes(file));
 
 if (orphans.length) {
-  console.error(`Tests de apps/api que ningun script ejecuta:\n- ${orphans.join("\n- ")}\nAnadelos a test:unit (o a test:remote si necesitan base de datos).`);
+  console.error(
+    `Tests de apps/api que ningun script ejecuta:\n- ${orphans.join("\n- ")}\nAnadelos a test:unit (o a test:remote si necesitan base de datos).`,
+  );
   process.exit(1);
 }
-console.log(`TESTS_IN_SUITE_OK: ${tests.length} ficheros de test de apps/api referenciados`);
+console.log(
+  `TESTS_IN_SUITE_OK: ${tests.length} ficheros de test de apps/api referenciados`,
+);

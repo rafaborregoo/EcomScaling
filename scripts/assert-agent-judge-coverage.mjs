@@ -30,7 +30,7 @@ const missingPlanAgents = uniqueCodes.filter((code) => {
   return !new RegExp(`\\bA${number}\\b`).test(plan);
 });
 
-if (uniqueCodes.length !== 26) throw new Error(`active_agent_count_expected_26_got_${uniqueCodes.length}`);
+if (uniqueCodes.length !== 27) throw new Error(`active_agent_count_expected_27_got_${uniqueCodes.length}`);
 if (missingRubrics.length || extraRubrics.length) {
   throw new Error(`rubric_catalog_mismatch:missing=${missingRubrics.join(",")};extra=${extraRubrics.join(",")}`);
 }

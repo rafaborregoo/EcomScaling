@@ -5,10 +5,12 @@ import {
   type AuthContext,
 } from "./auth-context.js";
 import {
+  COPILOT_MODELS,
   describeBalance,
   finDelPeriodo,
   inicioDelPeriodo,
   modelosDelPlan,
+  TOKENS_POR_MENSAJE,
   type CopilotBalance,
   type CopilotModelTier,
 } from "./copilot-tokens.js";
@@ -18,6 +20,7 @@ const SALDO_POR_DEFECTO = 1_000_000;
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY?: string | undefined;
+  OPENAI_API_KEY?: string | undefined;
 };
 
 function createServiceClient(env: ApiEnv) {
@@ -47,6 +50,16 @@ export function bankOrganizationId(
 }
 
 /**
+ * Si quien pregunta puede subir el plan que paga este saldo: solo el propietario
+ * de la organizacion que lo paga (la consultora, si pertenece a una). El resto
+ * ve «avisa al propietario» en vez de un boton que no puede usar.
+ */
+export function canUpgradePlan(context: AuthContext, organizationId: string): boolean {
+  const bankId = bankOrganizationId(context, organizationId);
+  return context.memberships.some((membership) => membership.organization_id === bankId && membership.role === "owner");
+}
+
+/**
  * El saldo del mes en curso para quien pregunta.
  *
  * No hay contador propio: el consumo se suma de `agent_runs`, que es donde ya
@@ -62,7 +75,7 @@ export async function loadCopilotBalance(
 ): Promise<CopilotBalance> {
   const bankId = bankOrganizationId(context, organizationId);
 
-  const [{ data: subscription }, { data: used }] = await Promise.all([
+  const [subscriptionResult, usageResult] = await Promise.all([
     supabase
       .from("service_subscriptions")
       .select("copilot_monthly_tokens, copilot_model_tier, status, ends_at")
@@ -78,6 +91,23 @@ export async function loadCopilotBalance(
     }),
   ]);
 
+  if (subscriptionResult.error) {
+    throw new Error(`copilot_subscription_load_failed: ${subscriptionResult.error.message}`);
+  }
+  if (usageResult.error) {
+    throw new Error(`copilot_usage_load_failed: ${usageResult.error.message}`);
+  }
+
+  const subscription = subscriptionResult.data;
+  const used = usageResult.data;
+  if (used === null || used === undefined) {
+    throw new Error("copilot_usage_missing");
+  }
+  const usedTokens = Number(used);
+  if (!Number.isFinite(usedTokens) || usedTokens < 0) {
+    throw new Error("copilot_usage_invalid");
+  }
+
   // Sin suscripcion el saldo no es infinito: es el de por defecto. La leccion
   // es de `assertStoreLimit`, donde "sin fila" significaba "sin limite" y dejo
   // conectar tiendas sin tope.
@@ -89,7 +119,7 @@ export async function loadCopilotBalance(
 
   return describeBalance({
     granted,
-    used: Number(used ?? 0),
+    used: usedTokens,
     tier,
     now,
   });
@@ -114,10 +144,25 @@ export async function getCopilotBalance(
     ok: true as const,
     data: {
       ...balance,
-      models: modelosDelPlan(balance.tier).map((model) => ({
+      can_upgrade: canUpgradePlan(context, organizationId),
+      // Todos los elegibles, con el motivo si este plan o servidor no puede atenderlos
+      // (el panel web sigue usando `models`, que solo trae los disponibles).
+      all_models: COPILOT_MODELS.filter((model) => model.selectable).map((model) => {
+        const available = modelosDelPlan(balance.tier, Boolean(env.OPENAI_API_KEY)).some((m) => m.id === model.id);
+        const reason = available
+          ? null
+          : model.provider === "openai" && !env.OPENAI_API_KEY
+            ? "No disponible por ahora"
+            : "Requiere el plan avanzado";
+        return { id: model.id, label: model.label, description: model.description, available, reason };
+      }),
+      models: modelosDelPlan(balance.tier, Boolean(env.OPENAI_API_KEY)).map((model) => ({
         id: model.id,
         label: model.label,
         description: model.description,
+        // Los tokens cuentan igual sea cual sea el modelo; lo que cambia es
+        // la calidad. Se enseña para que elegir modelo sea elegir con el saldo delante.
+        approx_tokens_per_message: TOKENS_POR_MENSAJE,
       })),
     },
   };

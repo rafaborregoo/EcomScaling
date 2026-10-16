@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { MetricAnalysis } from "@e-nora/contracts";
 import { apiFetch } from "@/lib/bootstrap";
 import {
   mergeInsightSpots,
@@ -32,6 +33,26 @@ export function InsightsProvider({
   const [assessments, setAssessments] = useState<PlaybookInsightAssessment[]>([]);
   const [loading, setLoading] = useState(false);
   const [localInsights, setLocalInsights] = useState<Record<string, InsightSpot[]>>({});
+  const [metricAnalyses, setMetricAnalyses] = useState<MetricAnalysis[]>([]);
+
+  // Analista de métricas (ADR-0027): lo que va mal o hay que vigilar entra en el ✨.
+  useEffect(() => {
+    if (!scope.organizationId) {
+      setMetricAnalyses([]);
+      return;
+    }
+    let cancelled = false;
+    const store = scope.connectionId ? `&connectionId=${encodeURIComponent(scope.connectionId)}` : "";
+    apiFetch(`/v1/organizations/${encodeURIComponent(scope.organizationId)}/metric-analysis?days=30${store}`)
+      .then(async (response) => (response.ok ? ((await response.json()) as { analyses: MetricAnalysis[] }).analyses : []))
+      .catch(() => [] as MetricAnalysis[])
+      .then((analyses) => {
+        if (!cancelled) setMetricAnalyses(analyses);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope.organizationId, scope.connectionId]);
 
   useEffect(() => {
     if (!scope.isConsultant || !scope.organizationId) {
@@ -76,13 +97,13 @@ export function InsightsProvider({
   }, []);
 
   const spots = useMemo(() => {
-    const baseSpots = mergeInsightSpots(scope, assessments);
+    const baseSpots = mergeInsightSpots(scope, assessments, metricAnalyses);
     const localSpots = Object.values(localInsights).flat();
     return [
       ...baseSpots,
       ...localSpots.filter((spot) => !baseSpots.some((item) => item.href === spot.href)),
     ];
-  }, [assessments, localInsights, scope.connectionId, scope.isConsultant, scope.organizationId]);
+  }, [assessments, localInsights, metricAnalyses, scope.connectionId, scope.isConsultant, scope.organizationId]);
 
   return (
     <InsightsContext.Provider value={{ spots, loading, registerLocalInsights }}>

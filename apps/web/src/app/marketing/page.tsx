@@ -12,7 +12,6 @@ import { formatMoney } from "@/lib/money";
 import { useUrlSection } from "@/lib/use-url-section";
 import { ModuleSummary } from "@/components/module-summary";
 import { CampaignPlanProposal } from "@/components/campaign-plan-proposal";
-import { isUpcoming, isWithinLastDays } from "@/lib/elapsed";
 import {
   useMarketingDrafts,
   type MarketingDraft,
@@ -1250,18 +1249,6 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ["draft", "pending_approval"].includes(draft.status),
   ).length;
 
-  // `isUpcoming` vive en @/lib/elapsed porque `Date.now()` no es puro y
-  // llamarlo en el cuerpo del render lo marca `react-hooks/purity`. Se calcula
-  // una vez y ordenado: la tira lo usaba dos veces, recorriendo y ordenando la
-  // lista entera dentro de un IIFE en medio del JSX.
-  const scheduledDrafts = drafts
-    .filter((draft) => isUpcoming(draft.scheduled_for))
-    .sort(
-      (a, b) =>
-        Date.parse(a.scheduled_for as string) -
-        Date.parse(b.scheduled_for as string),
-    );
-
   // Panel de la pieza abierta. Una sola acción principal abajo según el
   // estado; la conversación va junto a la vista previa, no al final.
   const openDraft = drafts.find((draft) => draft.id === expandedDraftId) ?? null;
@@ -1668,10 +1655,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {SELF_HEADED_SECTIONS.has(tab) ? null : (
       <div className="mkt-page-header">
         <div className="min-w-0">
-          <p className="mkt-eyebrow">MARKETING / CENTRO DE TRABAJO</p>
-          <Heading size="lg" className="mkt-page-title">Marketing</Heading>
+          <Heading size="lg" className="mkt-page-title">Revisión de piezas</Heading>
           <p className="mkt-page-description">
-            Planifica envíos, crea contenido y entiende qué funciona en cada canal.
+            Revisa el contenido pendiente, consulta sus comentarios y sigue el estado de cada pieza.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1688,64 +1674,11 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </div>
       )}
 
-      {/* Estado real del canal antes de generar nada más: qué espera decisión,
-          qué va a salir y qué ha rendido lo ya enviado. El ingreso se nombra
-          como atribuido por Klaviyo (ADR-0021): no es venta Shopify y no se
-          suma con la de otras plataformas. */}
-      {!SELF_HEADED_SECTIONS.has(tab) ? (
-        <div className="mkt-summary">
-        <ModuleSummary
-          metrics={[
-          {
-            label: "Pendientes de decisión",
-            value: drafts
-              .filter((draft) =>
-                ["draft", "pending_approval"].includes(draft.status),
-              )
-              .length.toLocaleString("es-ES"),
-            tone: drafts.some((draft) =>
-              ["draft", "pending_approval"].includes(draft.status),
-            )
-              ? "warn"
-              : "success",
-          },
-          {
-            label: "Programadas",
-            value: scheduledDrafts.length.toLocaleString("es-ES"),
-            hint: scheduledDrafts[0]?.scheduled_for
-              ? `Próxima: ${fmtDate(scheduledDrafts[0].scheduled_for as string)}`
-              : undefined,
-          },
-          {
-            label: "Publicadas · 30 días",
-            value: drafts
-              .filter(
-                (draft) =>
-                  draft.status === "published" &&
-                  isWithinLastDays(draft.updated_at, 30),
-              )
-              .length.toLocaleString("es-ES"),
-          },
-          {
-            label: "EUR atribuidos por Klaviyo",
-            value: attribution.klaviyo?.connected
-              ? formatMoney(attribution.klaviyo.totals.revenue, "EUR")
-              : "Sin datos",
-            hint: attribution.klaviyo?.connected
-              ? `${attribution.klaviyo.totals.conversions.toLocaleString("es-ES")} conversiones atribuidas · ${performanceDays} d`
-              : "Conecta Klaviyo para medir el email",
-          },
-          ]}
-        />
-        </div>
-      ) : null}
-
       {aiRuntimeStatus && !aiRuntimeStatus.configured ? (
         <Banner tone="warn" className="text-sm">
-          <strong>IA preparada.</strong> Falta configurar un proveedor IA
-          (Anthropic/Claude u OpenAI) en el servidor. Puedes preparar briefs y
-          planes Meta en dry-run; la generación se habilitará al añadir las
-          credenciales, sin cambiar esta interfaz.
+          <strong>La generación de contenido no está disponible ahora.</strong>{" "}
+          Puedes seguir preparando briefs y revisando tus piezas. La generación
+          se habilitará cuando la conexión de IA esté configurada.
         </Banner>
       ) : null}
 
@@ -1796,41 +1729,55 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           ),
           campanas: (
-            <CampaignsView
-              rows={campaignListRows}
-              workspace={klaviyoWorkspace.data}
-              organizationId={organizationId}
-              organizationName={activeMembership?.organization?.display_name ?? "Cliente"}
-              connectionId={activeConnectionId}
-              viewer={isConsultantRole ? "consultant" : "client"}
-              viewerUserId={bootstrap.profile.id}
-              hasConsultant={isConsultantRole ? true : (campaignAgenda?.has_consultant ?? null)}
-              campaignId={searchParams.get("campaign")}
-              quickActions={searchParams.get("acciones") === "1"}
-              itemsLoading={campaignItemsLoading}
-              nav={campaignsNav}
-              onChanged={reloadMarketing}
-              onOpenStudio={(draft) => editInBuilder(draft)}
-              onWritePiece={writePieceFor}
-              onWriteWithAi={(itemId) =>
-                router.push(`/marketing?section=crear&campaignId=${encodeURIComponent(itemId)}`)
-              }
-              onOpenRow={setOpenRow}
-              onOpenDraft={focusDraft}
-              onReviewPlan={() => setIsCampaignProposalOpen(true)}
-              onOpenMetaCampaign={(campaignId) => {
-                const params = new URLSearchParams({ organizationId });
-                if (activeConnectionId) params.set("connectionId", activeConnectionId);
-                router.push(`/meta/campanas/${encodeURIComponent(campaignId)}?${params.toString()}`);
-              }}
-              onPropose={() => setIsCampaignProposalOpen(true)}
-              onCreate={() => setTab("crear")}
-              onOpenAgenda={() => {
-                const params = new URLSearchParams();
-                if (activeConnectionId) params.set("connectionId", activeConnectionId);
-                router.push(`/planificacion/calendario${params.size ? `?${params.toString()}` : ""}`);
-              }}
-            />
+            <>
+              {!searchParams.get("campaign") && searchParams.get("acciones") !== "1" && (
+                <div className={s.acts}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setIsMailingPlannerOpen(true)}
+                  >
+                    Planificar secuencia de emails
+                  </Button>
+                </div>
+              )}
+              <CampaignsView
+                rows={campaignListRows}
+                workspace={klaviyoWorkspace.data}
+                organizationId={organizationId}
+                organizationName={activeMembership?.organization?.display_name ?? "Cliente"}
+                connectionId={activeConnectionId}
+                viewer={isConsultantRole ? "consultant" : "client"}
+                viewerUserId={bootstrap.profile.id}
+                hasConsultant={isConsultantRole ? true : (campaignAgenda?.has_consultant ?? null)}
+                campaignId={searchParams.get("campaign")}
+                quickActions={searchParams.get("acciones") === "1"}
+                itemsLoading={campaignItemsLoading}
+                nav={campaignsNav}
+                onChanged={reloadMarketing}
+                onOpenStudio={(draft) => editInBuilder(draft)}
+                onWritePiece={writePieceFor}
+                onWriteWithAi={(itemId) =>
+                  router.push(`/marketing?section=crear&campaignId=${encodeURIComponent(itemId)}`)
+                }
+                onOpenRow={setOpenRow}
+                onOpenDraft={focusDraft}
+                onReviewPlan={() => setIsCampaignProposalOpen(true)}
+                onOpenMetaCampaign={(campaignId) => {
+                  const params = new URLSearchParams({ organizationId });
+                  if (activeConnectionId) params.set("connectionId", activeConnectionId);
+                  router.push(`/meta/campanas/${encodeURIComponent(campaignId)}?${params.toString()}`);
+                }}
+                onPropose={() => setIsCampaignProposalOpen(true)}
+                onCreate={() => setTab("crear")}
+                onOpenAgenda={() => {
+                  const params = new URLSearchParams();
+                  if (activeConnectionId) params.set("connectionId", activeConnectionId);
+                  router.push(`/planificacion/calendario${params.size ? `?${params.toString()}` : ""}`);
+                }}
+              />
+            </>
           ),
           flows: (
             <FlowsView
@@ -1935,13 +1882,14 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   ))}
                 </div>
               </div>
-              <KlaviyoPerformance workspace={klaviyoWorkspace.data} />
+              <KlaviyoPerformance workspace={klaviyoWorkspace.data} isLoading={klaviyoWorkspace.isLoading} storeCurrency={attribution.shopify?.currency_code} />
               <CollapsibleSection title="Comparar con Meta y Shopify">
             <div className="mkt-performance-tab">
               <PerformanceTab
                 days={performanceDays}
                 onDaysChange={setPerformanceDays}
                 klaviyo={attribution.klaviyo}
+                klaviyoCurrency={klaviyoWorkspace.data?.account?.currency}
                 meta={attribution.meta}
                 shopify={attribution.shopify}
                 isLoading={attribution.isLoading}

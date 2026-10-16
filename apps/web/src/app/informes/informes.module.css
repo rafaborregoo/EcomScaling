@@ -1,0 +1,16 @@
+.page { max-width: 96rem; margin-inline: auto; padding: 24px; border-radius: 16px; background: #f3f6f6; color: #3d3b3a; }
+.header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.header h1 { margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25; }
+.header p { max-width: 65ch; margin: 8px 0 0; color: #495858; font-size: 14px; line-height: 1.6; }
+.stats { display: flex; flex-wrap: wrap; gap: 24px; margin: 0; }
+.stats div { display: grid; gap: 4px; }
+.stats dt { color: #5c6b6b; font-size: 12px; }
+.stats dd { margin: 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.search { width: min(100%, 360px); }
+.count { color: #5c6b6b; font-size: 13px; }
+.page :focus-visible { outline: 3px solid #176b64; outline-offset: 3px; }
+.page ::selection { background: #c9e7df; color: #173f39; }
+.page table { font-size: 13px; }
+.page button { min-height: 36px; }
+@media (max-width: 640px) { .page { padding: 12px; } .header h1 { font-size: 24px; } .stats { gap: 16px; } }

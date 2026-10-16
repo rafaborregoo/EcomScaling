@@ -350,3 +350,16 @@ test("a live candidate requires a passing judge result bound to the exact output
   assert.equal(inconsistent.passed, false);
   assert.ok(inconsistent.failures.includes("candidate_judgment_not_passed"));
 });
+
+test("agrega varios casos del mismo agente en un solo resultado", () => {
+  const base = {
+    agentCode: "a04_generador_tareas" as const, datasetSplit: "gold" as const, mode: "live" as const, latencyMs: 1, costUsd: 0,
+    traceId: null, executedAgentCode: null, executedAgentVersionId: null, executedCandidateFingerprint: null,
+    candidateJudgeStatus: null, candidateJudgeScore: null, candidateJudgeRubricVersion: null, candidateJudgedOutputSha256: null,
+  };
+  const payload = buildLiveAgentEvalEvidencePayload({
+    agentVersionId: "version-1", datasetVersion: "2026-09-29.v2", mode: "live",
+    results: [{ ...base, caseId: "c1", passed: true, failures: [] }, { ...base, caseId: "c2", passed: false, failures: ["x"] }],
+  });
+  assert.deepEqual(payload.results, [{ agent_code: "a04_generador_tareas", passed: false, checks: 2, failed: ["c2:x"], metrics: {} }]);
+});

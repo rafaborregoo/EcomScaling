@@ -1,0 +1,309 @@
+{
+  "schema_version": "agent-release-replay-v1",
+  "agent_code": "a04_generador_tareas",
+  "dataset_version": "2026-09-29.v2",
+  "rubric_version": "judge-rubrics-v7",
+  "split": "development",
+  "provenance": "synthetic",
+  "privacy_reviewed": false,
+  "scenario": "C02 Mes tranquilo sin alertas, stock sano y backlog cercano que ya cubre lo pendiente. Lo correcto es no proponer nada y decir qué tareas lo cubren.",
+  "input": {
+    "objective": "Proponer las tareas que tiene sentido hacer HOY en la tienda \"E-NORA Demo\", a partir de los datos de los ultimos 30 dias. Cita en sources[].reference exactamente la clave (key) de cada fuente congelada que uses.",
+    "parameters": {
+      "horizon": "day",
+      "lookback_days": 30,
+      "reference_date": "2026-08-31"
+    }
+  },
+  "scope": {
+    "organization_ref": "org-demo-anon",
+    "store_ref": "store-demo-anon",
+    "timezone": "Europe/Madrid",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31"
+  },
+  "sources": [
+    {
+      "key": "tareas_abiertas",
+      "status": "available",
+      "content": {
+        "near_term_window_days": 14,
+        "near_term": [
+          {
+            "title": "Revisar la ficha de la Sudadera Capucha Arcilla",
+            "due_at": "2026-09-01T00:00:00Z",
+            "priority": "medium",
+            "status": "in_progress",
+            "source": "manual",
+            "categories": [
+              "shopify"
+            ]
+          },
+          {
+            "title": "Preparar el envío de vuelta al cole",
+            "due_at": "2026-09-02T00:00:00Z",
+            "priority": "medium",
+            "status": "pending",
+            "source": "consulting_call",
+            "categories": [
+              "klaviyo"
+            ]
+          }
+        ],
+        "later_count": 0,
+        "later": [],
+        "note": "Una tarea de later NO cubre una urgencia de hoy."
+      },
+      "content_sha256": "3d102917ee8d0fbbaf1844c0e74a7ee847aa85e711e617e8c61fc242102f0399",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "historial_resultados_tareas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "alertas_activas",
+      "status": "available",
+      "content": [],
+      "content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "ventas_shopify_30d",
+      "status": "available",
+      "content": {
+        "periodo": [
+          "2026-08-01",
+          "2026-08-31"
+        ],
+        "moneda": "EUR",
+        "orders": 691,
+        "gross_sales": 37932,
+        "discounts": 124,
+        "refunds": 0,
+        "net_sales": 37808,
+        "aov": 54.71,
+        "units_sold": 746
+      },
+      "content_sha256": "89a1378519c6826836e11dd57a10b1a268f910eb29cd9aee8b7c4fcf284c5eca",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "productos_mas_vendidos_30d",
+      "status": "available",
+      "content": {
+        "ventana": [
+          "2026-08-01",
+          "2026-08-31"
+        ],
+        "productos": [
+          {
+            "titulo": "Pantalón Cargo Oliva",
+            "unidades": 106,
+            "ingresos_netos_eur": 6746
+          },
+          {
+            "titulo": "Bolso Mini Bruma",
+            "unidades": 105,
+            "ingresos_netos_eur": 4087
+          },
+          {
+            "titulo": "Camiseta Básica Niebla",
+            "unidades": 100,
+            "ingresos_netos_eur": 2886
+          },
+          {
+            "titulo": "Calcetín Rib Menta",
+            "unidades": 93,
+            "ingresos_netos_eur": 1110
+          },
+          {
+            "titulo": "Sudadera Oversize Arena",
+            "unidades": 91,
+            "ingresos_netos_eur": 5261
+          },
+          {
+            "titulo": "Gorra Costa Cruda",
+            "unidades": 89,
+            "ingresos_netos_eur": 2122
+          },
+          {
+            "titulo": "Chaqueta Boreal Negra",
+            "unidades": 89,
+            "ingresos_netos_eur": 10579
+          },
+          {
+            "titulo": "Sudadera Capucha Arcilla",
+            "unidades": 74,
+            "ingresos_netos_eur": 5018
+          }
+        ]
+      },
+      "content_sha256": "5e5912cc512d7622d00b2f2843a4321c96fb3149b0010f457b45952344989912",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "propuestas_otros_horizontes",
+      "status": "available",
+      "content": [
+        {
+          "horizon": "semanal",
+          "proposals": []
+        },
+        {
+          "horizon": "mensual",
+          "proposals": []
+        }
+      ],
+      "content_sha256": "c954fc3e37027cba0db4fae273ddd3b24824a3012f81e00ca1a77fcf6a128513",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "mi_camino",
+      "status": "available",
+      "content": {
+        "status": "sin_camino_activo"
+      },
+      "content_sha256": "f0998820071fc31a42b03ccfddf5a0474abf47d63ed206cd080b61b1bc23767a",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_a02",
+      "status": "available",
+      "content": {
+        "generated_at": "2026-08-31T05:00:00Z",
+        "headline": "Negocio estable: ventas en línea con el periodo anterior y sin incidencias operativas.",
+        "findings": [
+          {
+            "area": "ventas",
+            "title": "Ventas estables frente al periodo anterior",
+            "severity": "info"
+          },
+          {
+            "area": "finanzas",
+            "title": "Margen por encima del punto de equilibrio",
+            "severity": "info"
+          }
+        ]
+      },
+      "content_sha256": "8c6f817d0397fec1d38669a77a65c97732756530b7af9e177d13724253f8644e",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "fechas_comerciales_45d",
+      "status": "available",
+      "content": {
+        "eventos": [
+          {
+            "evento": "Vuelta al cole / septiembre",
+            "fecha": "2026-09-01",
+            "empieza_a_preparar": "2026-08-04",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Cambio de temporada otoño-invierno (moda)",
+            "fecha": "2026-09-15",
+            "empieza_a_preparar": "2026-08-04",
+            "vas_tarde": true
+          },
+          {
+            "evento": "Halloween",
+            "fecha": "2026-10-31",
+            "empieza_a_preparar": "2026-10-10",
+            "vas_tarde": false
+          },
+          {
+            "evento": "Black Friday",
+            "fecha": "2026-11-27",
+            "empieza_a_preparar": "2026-10-09",
+            "vas_tarde": false
+          },
+          {
+            "evento": "Cyber Monday",
+            "fecha": "2026-11-30",
+            "empieza_a_preparar": "2026-10-12",
+            "vas_tarde": false
+          }
+        ],
+        "campanas_planificadas": [],
+        "propuestas_aprobadas": []
+      },
+      "content_sha256": "a039dbf38b8062f7982d7971259840c989a8ff0e6ea879944e4f89a00df5e725",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "especialistas_aprobados",
+      "status": "available",
+      "content": {
+        "status": "no_recent_approved_outputs",
+        "outputs": []
+      },
+      "content_sha256": "90bcffbd14bf0ab4c5c4c3ae326cfd0b683f953b12e0bebb1d4a2c7b7ad08ea1",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "diagnostico_ejecutivo_d14",
+      "status": "available",
+      "content": {
+        "status": "no_canonical_diagnosis",
+        "diagnosticos": []
+      },
+      "content_sha256": "87b1f2d5be11855c34ae8f51d4886881e339025b78a439cfc8ff140d6fff037a",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "asignacion_consultor",
+      "status": "available",
+      "content": {
+        "has_consultant": true,
+        "decision_rule": "Las propuestas quedan pendientes de revision del consultor humano asignado."
+      },
+      "content_sha256": "1477ddadc3015f9a206f9c292767379625d485a0d810acd67af1288aebac6db0",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "conocimiento_rag",
+      "status": "available",
+      "content": [
+        {
+          "documento": "Cuestionario de la marca (reglas provisionales)",
+          "extracto": "No aplicar descuentos sin comprobar antes el margen real; no acumular promociones; no usar falsa escasez; no prometer disponibilidad ni plazos de entrega sin respaldo; no asumir autorización para activar anuncios ni comprometer gasto."
+        }
+      ],
+      "content_sha256": "9853e83f4f0a1e907fd9de377d19ec520839c991439ccefe98a4e5c2d188a623",
+      "as_of": "2026-08-31T07:00:00Z"
+    },
+    {
+      "key": "inventario_productos_clave",
+      "status": "available",
+      "content": [
+        {
+          "producto": "Pantalón Cargo Oliva",
+          "disponible": 240,
+          "vendidas_30d": 106,
+          "cobertura_dias": 68
+        },
+        {
+          "producto": "Bolso Mini Bruma",
+          "disponible": 190,
+          "vendidas_30d": 105,
+          "cobertura_dias": 54
+        }
+      ],
+      "content_sha256": "6bc479f3c3afe2dde6f8cff8447dcfa741490763648781627ce553b9a4bd59a6",
+      "as_of": "2026-08-31T07:00:00Z"
+    }
+  ],
+  "tool_replay": [],
+  "visual_artifacts": [],
+  "constraints": {
+    "expected_abstention": false,
+    "required_output_paths": [],
+    "forbidden_output_paths": [
+      "$.proposed_writes[0]"
+    ]
+  }
+}

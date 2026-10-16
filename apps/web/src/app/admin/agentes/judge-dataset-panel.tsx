@@ -12,21 +12,44 @@ type Queue = { cases: EvalCase[]; page: number; page_size: number; total: number
 type LabelDraft = { score: string; status: "evaluable" | "no_evaluable"; critical_failure: boolean; rationale: string; evidence_refs: string };
 type CalibrationRun = { id: string; status: "passed" | "blocked" | "incomplete"; estimated_cost_usd: number; report: { allowed?: boolean; agents?: Record<string, { cases: number; status_agreement: number | null; within_one_score_rate: number | null; critical_recall: number | null; false_critical_rate: number | null; reasons: string[]; allowed: boolean }> } };
 type HoldoutState = { runtime: { mode: "off" | "shadow" | "visible"; model: string; provider_ready: boolean; configuration_error: string | null }; consumed: boolean; frozen: boolean; holdout_cases: number; calibration_cases: number; coverage: { agent_code: string; case_count: number; approved_case_count: number; critical_positive_cases: number; critical_negative_cases: number }[]; claim: { model: string; claimed_at: string } | null; latest_run: CalibrationRun | null };
+type VisualUploadDraft = { id: string; file: File; previewUrl: string; role: "input" | "render" | "reference" | "neighbor"; viewport?: "desktop" | "mobile" };
+
+async function fileBase64(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
+
+function isVisualAgent(agent: string) {
+  return ["a15_analista_imagenes", "a16_texto_sobre_imagen", "a23_creatividad_meta", "a26_contenido_email"].includes(agent);
+}
 
 export function JudgeDatasetPanel() {
   const [split, setSplit] = useState("development");
-  const [datasetVersion, setDatasetVersion] = useState("judge-gold-v1");
+  const [datasetVersion, setDatasetVersion] = useState("judge-gold-v7");
   const [page, setPage] = useState(0);
   const { data, error, isLoading, reload } = useCachedQuery<Queue>(`/v1/admin/agent-judge-dataset/cases?split=${split}&datasetVersion=${encodeURIComponent(datasetVersion)}&page=${page}`);
   const { data: holdoutState, reload: reloadHoldoutState } = useCachedQuery<HoldoutState>(`/v1/admin/agent-judge-dataset/holdout-state?datasetVersion=${encodeURIComponent(datasetVersion)}`);
   const [selectedId, setSelectedId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [rubricVersion, setRubricVersion] = useState("judge-rubrics-v1");
+  const [rubricVersion, setRubricVersion] = useState("judge-rubrics-v7");
   const [scenario, setScenario] = useState("");
   const [agentCode, setAgentCode] = useState("a05_estrategia_campanas");
   const [provenance, setProvenance] = useState("synthetic");
   const [evidenceText, setEvidenceText] = useState("{}");
   const [artifactText, setArtifactText] = useState("{}");
+  const [captureMode, setCaptureMode] = useState<"guided" | "json">("guided");
+  const [sourceRunId, setSourceRunId] = useState("");
+  const [evidenceSummary, setEvidenceSummary] = useState("");
+  const [expectedBehavior, setExpectedBehavior] = useState("");
+  const [observedOutput, setObservedOutput] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
+  const [visualUploads, setVisualUploads] = useState<VisualUploadDraft[]>([]);
+  const [metaCreativeId, setMetaCreativeId] = useState("");
+  const [metaAdId, setMetaAdId] = useState("");
+  const [metaPeriodStart, setMetaPeriodStart] = useState("");
+  const [metaPeriodEnd, setMetaPeriodEnd] = useState("");
   const cases = data?.cases ?? [];
   const selected = cases.find((item) => item.id === selectedId) ?? cases[0];
   const [drafts, setDrafts] = useState<Record<string, LabelDraft>>({});
@@ -47,12 +70,42 @@ export function JudgeDatasetPanel() {
 
   async function createCase() {
     try {
-      const evidence = JSON.parse(evidenceText);
-      const artifact = JSON.parse(artifactText);
-      const response = await apiFetch("/v1/admin/agent-judge-dataset/cases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_code: agentCode, dataset_version: datasetVersion, rubric_version: rubricVersion, split, provenance, privacy_reviewed: provenance === "anonymized_production", scenario, evidence, artifact }) });
+      const evidence = captureMode === "guided"
+        ? { ...(sourceRunId.trim() ? { source_run_id: sourceRunId.trim() } : {}), context_summary: evidenceSummary.trim(), expected_behavior: expectedBehavior.trim() }
+        : JSON.parse(evidenceText);
+      const artifact = captureMode === "guided"
+        ? { ...(sourceRunId.trim() ? { source_run_id: sourceRunId.trim() } : {}), observed_output: observedOutput.trim() }
+        : JSON.parse(artifactText);
+      if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error("La evidencia debe ser un objeto JSON.");
+      if (captureMode === "guided" && (!scenario.trim() || !evidenceSummary.trim() || !expectedBehavior.trim() || !observedOutput.trim())) throw new Error("Completa el escenario, el contexto disponible, el comportamiento esperado y la salida observada.");
+      if (visualUploads.length && !organizationId.trim()) throw new Error("Indica el ID de organización para guardar evidencia visual.");
+      if (visualUploads.length && agentCode === "a23_creatividad_meta" && (!metaCreativeId.trim() || !metaAdId.trim() || !metaPeriodStart || !metaPeriodEnd)) throw new Error("Completa creativo, anuncio y periodo de Meta para asociar las imágenes.");
+      if (organizationId.trim()) evidence.organization_id = organizationId.trim();
+      const visual_uploads = await Promise.all(visualUploads.map(async (item) => ({
+        bytes_base64: await fileBase64(item.file), media_type: item.file.type, role: item.role,
+        ...(agentCode === "a23_creatividad_meta" ? { entity_type: "meta_creative_image", related_entity_id: metaCreativeId.trim(), ad_id: metaAdId.trim(), period_start: metaPeriodStart, period_end: metaPeriodEnd } : {}),
+        ...(agentCode === "a26_contenido_email" ? { entity_type: "a26_email_render_capture", viewport: item.viewport ?? "desktop" } : {}),
+        ...(agentCode === "a15_analista_imagenes" ? { entity_type: "instagram_image_bank" } : {}),
+        ...(agentCode === "a16_texto_sobre_imagen" ? { entity_type: item.role === "input" ? "instagram_image_bank" : "a16_render_capture" } : {}),
+      })));
+      const response = await apiFetch("/v1/admin/agent-judge-dataset/cases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_code: agentCode, dataset_version: datasetVersion, rubric_version: rubricVersion, split, provenance, privacy_reviewed: provenance === "anonymized_production", scenario, evidence, artifact, ...(visualUploads.length ? { visual_uploads } : {}) }) });
       if (!response.ok) { toast.danger(await readApiError(response)); return; }
-      toast.success("Caso aÃ±adido al dataset."); setScenario(""); reload();
-    } catch { toast.danger("Revisa que evidencia y artefacto sean JSON vÃ¡lidos."); }
+      toast.success("Caso aÃ±adido al dataset."); setScenario(""); visualUploads.forEach((item) => URL.revokeObjectURL(item.previewUrl)); setVisualUploads([]); reload();
+    } catch (error) { toast.danger(error instanceof Error ? error.message : "Revisa que evidencia y artefacto sean JSON vÃ¡lidos."); }
+  }
+
+  function addVisualFiles(files: FileList | null) {
+    const incoming = Array.from(files ?? []);
+    if (!incoming.length) return;
+    if (visualUploads.length + incoming.length > 4) { toast.danger("Adjunta como máximo 4 imágenes por caso."); return; }
+    if (incoming.some((file) => !["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 1_300_000)) { toast.danger("Cada imagen debe ser PNG, JPEG o WebP y pesar como máximo 1,3 MB."); return; }
+    const combined = [...visualUploads, ...incoming.map((file) => ({ id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file), role: (agentCode === "a26_contenido_email" ? "render" : "input") as VisualUploadDraft["role"], ...(agentCode === "a26_contenido_email" ? { viewport: "desktop" as const } : {}) }))];
+    if (combined.reduce((sum, item) => sum + item.file.size, 0) > 4_800_000) { toast.danger("El total de imágenes no puede superar 4,8 MB."); combined.slice(visualUploads.length).forEach((item) => URL.revokeObjectURL(item.previewUrl)); return; }
+    setVisualUploads(combined);
+  }
+
+  function removeVisualUpload(id: string) {
+    setVisualUploads((current) => { const target = current.find((item) => item.id === id); if (target) URL.revokeObjectURL(target.previewUrl); return current.filter((item) => item.id !== id); });
   }
   async function submitLabels() {
     if (!selected) return;
@@ -104,7 +157,7 @@ export function JudgeDatasetPanel() {
         {holdoutState?.runtime.mode === "off" ? <p className="mt-1 text-muted">El juez no está evaluando ejecuciones. Configura `AI_JUDGE_MODE=shadow` en el servicio API para iniciar la observación.</p> : null}
         {holdoutState?.runtime.mode !== "off" && holdoutState?.runtime.provider_ready === false ? <p className="mt-1 text-muted">Proveedor no listo: {holdoutState.runtime.configuration_error}. Las ejecuciones no producirán una evaluación.</p> : null}
         {holdoutState?.runtime.mode === "shadow" && holdoutState.runtime.provider_ready ? <p className="mt-1 text-muted">Activo en shadow: registra dictámenes en segundo plano sin mostrarlos como decisión al consultor.</p> : null}
-        {holdoutState?.runtime.mode === "visible" && holdoutState.runtime.provider_ready ? <p className="mt-1 text-muted">Activo en visible: adjunta el dictamen a la respuesta; la decisión sigue siendo del consultor.</p> : null}
+        {holdoutState?.runtime.mode === "visible" && holdoutState.runtime.provider_ready ? <p className="mt-1 text-muted">El API adjunta el dictamen a la respuesta. La vista del consultor aún no lo presenta en un componente; completa esa integración antes de activar el modo visible.</p> : null}
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm text-muted">Conjunto<Select className="mt-1" value={split} onChange={setSplit} options={[{ value: "development", label: "Desarrollo" }, { value: "calibration", label: "CalibraciÃ³n" }, { value: "holdout", label: "Holdout" }]} /></label>
@@ -116,9 +169,28 @@ export function JudgeDatasetPanel() {
           <label className="text-sm text-muted">Agente<Input className="mt-1" value={agentCode} onChange={(event) => setAgentCode(event.target.value)} /></label>
           <label className="text-sm text-muted">VersiÃ³n de rÃºbrica<Input className="mt-1" value={rubricVersion} onChange={(event) => setRubricVersion(event.target.value)} /></label>
           <label className="text-sm text-muted sm:col-span-2">Escenario<Input className="mt-1" value={scenario} onChange={(event) => setScenario(event.target.value)} /></label>
+          <label className="text-sm text-muted sm:col-span-2">ID de organización<Input className="mt-1 font-mono" value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} placeholder="UUID de la tienda del caso" /></label>
           <label className="text-sm text-muted">Procedencia<Select className="mt-1" value={provenance} onChange={setProvenance} options={[{ value: "synthetic", label: "SintÃ©tico (solo desarrollo)" }, { value: "anonymized_production", label: "ProducciÃ³n anonimizada" }]} /></label>
-          <label className="text-sm text-muted">Evidencia JSON<Textarea className="mt-1 min-h-24 font-mono text-xs" value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} /></label>
-          <label className="text-sm text-muted">Salida del agente JSON<Textarea className="mt-1 min-h-24 font-mono text-xs" value={artifactText} onChange={(event) => setArtifactText(event.target.value)} /></label>
+          {isVisualAgent(agentCode) ? <div className="grid gap-3 rounded-md border border-separator p-3 sm:col-span-2">
+            <div><p className="font-medium">Evidencia visual</p><p className="mt-1 text-xs text-muted">PNG, JPEG o WebP · hasta 4 imágenes · 1,3 MB por imagen. Se guardan en almacenamiento privado.</p><p className="mt-1 text-xs text-muted">{agentCode === "a16_texto_sobre_imagen" ? "A16 necesita entrada, resultado y comparación." : agentCode === "a26_contenido_email" ? "A26 necesita dos resultados: escritorio y móvil." : null}</p></div>
+            <Input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => { addVisualFiles(event.target.files); event.currentTarget.value = ""; }} />
+            {agentCode === "a23_creatividad_meta" ? <div className="grid gap-2 sm:grid-cols-2"><Input aria-label="ID interno del creativo (UUID)" placeholder="ID interno del creativo (UUID)" value={metaCreativeId} onChange={(event) => setMetaCreativeId(event.target.value)} /><Input aria-label="ID interno del anuncio (UUID)" placeholder="ID interno del anuncio (UUID)" value={metaAdId} onChange={(event) => setMetaAdId(event.target.value)} /><Input aria-label="Inicio del periodo" type="date" value={metaPeriodStart} onChange={(event) => setMetaPeriodStart(event.target.value)} /><Input aria-label="Fin del periodo" type="date" value={metaPeriodEnd} onChange={(event) => setMetaPeriodEnd(event.target.value)} /></div> : null}
+            {visualUploads.map((item) => <div key={item.id} className="grid items-center gap-3 rounded border border-separator p-2 sm:grid-cols-[5rem_1fr_auto]">
+              <img src={item.previewUrl} alt={`Vista previa ${item.file.name}`} className="h-16 w-20 rounded object-cover" />
+              <div className="grid gap-2 sm:grid-cols-2"><span className="truncate text-xs">{item.file.name}</span><Select aria-label={`Tipo de imagen ${item.file.name}`} disabled={agentCode === "a26_contenido_email"} value={item.role} onChange={(value) => setVisualUploads((current) => current.map((entry) => entry.id === item.id ? { ...entry, role: value as VisualUploadDraft["role"] } : entry))} options={[{ value: "input", label: "Entrada del agente" }, { value: "render", label: "Resultado renderizado" }, { value: "reference", label: "Referencia" }, { value: "neighbor", label: "Imagen comparativa" }]} />
+                {agentCode === "a26_contenido_email" ? <Select aria-label={`Dispositivo ${item.file.name}`} value={item.viewport ?? "desktop"} onChange={(value) => setVisualUploads((current) => current.map((entry) => entry.id === item.id ? { ...entry, viewport: value as "desktop" | "mobile" } : entry))} options={[{ value: "desktop", label: "Escritorio" }, { value: "mobile", label: "Móvil" }]} /> : null}
+              </div><Button type="button" variant="secondary" onClick={() => removeVisualUpload(item.id)}>Quitar</Button>
+            </div>)}
+          </div> : null}
+          <div className="grid gap-3 rounded-md border border-separator p-3 sm:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">Captura guiada</p><p className="text-xs text-muted">Resume el caso sin escribir JSON. El ID se guarda como referencia para localizar la ejecución.</p></div><Button type="button" variant="secondary" onClick={() => setCaptureMode(captureMode === "guided" ? "json" : "guided")}>{captureMode === "guided" ? "Usar JSON avanzado" : "Volver a captura guiada"}</Button></div>
+            {captureMode === "guided" ? <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm text-muted sm:col-span-2">ID de ejecución de origen (opcional)<Input className="mt-1 font-mono" value={sourceRunId} onChange={(event) => setSourceRunId(event.target.value)} placeholder="UUID de agent_runs" /></label>
+              <label className="text-sm text-muted">Contexto y evidencia disponible<Textarea className="mt-1 min-h-24" value={evidenceSummary} onChange={(event) => setEvidenceSummary(event.target.value)} placeholder="Qué datos recibió el agente y qué fuentes puede usar" /></label>
+              <label className="text-sm text-muted">Comportamiento esperado<Textarea className="mt-1 min-h-24" value={expectedBehavior} onChange={(event) => setExpectedBehavior(event.target.value)} placeholder="Qué debería hacer, evitar y reconocer como incierto" /></label>
+              <label className="text-sm text-muted sm:col-span-2">Salida observada<Textarea className="mt-1 min-h-24" value={observedOutput} onChange={(event) => setObservedOutput(event.target.value)} placeholder="Pega o resume el resultado real del agente" /></label>
+            </div> : <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm text-muted">Evidencia JSON<Textarea className="mt-1 min-h-24 font-mono text-xs" value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} /></label><label className="text-sm text-muted">Salida del agente JSON<Textarea className="mt-1 min-h-24 font-mono text-xs" value={artifactText} onChange={(event) => setArtifactText(event.target.value)} /></label></div>}
+          </div>
           {provenance === "anonymized_production" ? <p className="text-xs text-muted sm:col-span-2">Al guardar declaras que eliminaste identificadores de cliente, tienda y personas. El servidor tambiÃ©n bloquea patrones habituales de email y telÃ©fono.</p> : null}
           <div><Button disabled={!scenario.trim() || (holdoutState?.frozen ?? false)} onClick={() => void createCase()}>Guardar caso ciego</Button></div>
         </div>

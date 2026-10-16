@@ -24,6 +24,7 @@ type EvalRunResult = {
   release_eligible: boolean;
   results: Array<{ caseId: string; passed: boolean; failures: string[]; latencyMs: number; costUsd: number }>;
 };
+type VisualArtifactInput = { artifact_id: string; role: string; media_type: string; sha256?: string; bytes_base64?: string };
 
 export function AgentReleaseEvalFixturesPanel() {
   const { data, error, isLoading, reload } = useCachedQuery<FixtureList>(
@@ -49,6 +50,8 @@ export function AgentReleaseEvalFixturesPanel() {
   const selectedFixtures = (data?.cases ?? []).filter((item) => selectedFixtureIds.includes(item.id));
   const selectedCandidate = (candidateData?.candidates ?? []).find((item) => item.id === candidateVersionId);
   const selectedAgentMismatch = Boolean(selectedCandidate && selectedFixtures.some((item) => item.agent_code !== selectedCandidate.code));
+  const visualArtifacts = parsed.ok && Array.isArray(parsed.value.visual_artifacts)
+    ? (parsed.value.visual_artifacts as VisualArtifactInput[]).filter((artifact) => artifact.media_type !== "text/html") : [];
 
   async function importFixture() {
     if (!parsed.ok || busy) return;
@@ -75,14 +78,51 @@ export function AgentReleaseEvalFixturesPanel() {
 
   async function loadFile(file?: File) {
     if (!file) return;
-    if (file.size > 250_000) {
-      toast.danger("El archivo supera el límite de 250 KB.");
+    if (file.size > 8 * 1024 * 1024) {
+      toast.danger("El archivo supera el límite de 8 MiB.");
       return;
     }
     try {
       setFixtureText(await file.text());
     } catch {
       toast.danger("No se pudo leer el archivo JSON.");
+    }
+  }
+
+  async function attachVisualArtifact(index: number, file?: File) {
+    if (!file || !parsed.ok) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size <= 0 || file.size > 1_350_000) {
+      toast.danger("Usa una imagen PNG, JPEG o WebP de hasta 1,35 MB.");
+      return;
+    }
+    const current = parsed.value.visual_artifacts;
+    if (!Array.isArray(current) || !current[index] || typeof current[index] !== "object") return;
+    const existingTotal = current.reduce((total, artifact, artifactIndex) => {
+      if (artifactIndex === index || !artifact || typeof artifact !== "object") return total;
+      const value = (artifact as VisualArtifactInput).bytes_base64;
+      return total + (typeof value === "string" ? Math.floor(value.length * 3 / 4) : 0);
+    }, 0);
+    const imageCount = current.filter((artifact) => artifact && typeof artifact === "object"
+      && (artifact as VisualArtifactInput).media_type !== "text/html").length;
+    if (imageCount > 4 || existingTotal + file.size > 5 * 1024 * 1024) {
+      toast.danger("El fixture admite cuatro imágenes y 5 MiB en total.");
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 32_768) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+      }
+      const updated = structuredClone(parsed.value);
+      const artifacts = updated.visual_artifacts as VisualArtifactInput[];
+      artifacts[index] = { ...artifacts[index]!, media_type: file.type, sha256, bytes_base64: btoa(binary) };
+      setFixtureText(JSON.stringify(updated, null, 2));
+      toast.success(`Imagen ${artifacts[index]!.role} adjuntada y hasheada.`);
+    } catch {
+      toast.danger("No se pudo preparar la imagen para el fixture.");
     }
   }
 
@@ -128,7 +168,7 @@ export function AgentReleaseEvalFixturesPanel() {
           Los datos sintéticos solo se aceptan en desarrollo. Calibración y release requieren datos anonimizados y revisados. La ejecución llama al modelo configurado y puede generar coste; cada caso tiene un límite de coste.
         </div>
         <label className="text-sm text-muted">
-          Archivo JSON (máximo 250 KB)
+          Archivo JSON (máximo 8 MiB)
           <input
             className="mt-1 block w-full text-sm text-foreground file:mr-3 file:rounded-md file:border file:border-separator file:bg-surface file:px-3 file:py-2"
             type="file"
@@ -146,6 +186,20 @@ export function AgentReleaseEvalFixturesPanel() {
             spellCheck={false}
           />
         </label>
+        {visualArtifacts.length > 0 ? (
+          <section aria-label="Evidencia visual del fixture" className="grid gap-2 rounded-lg border border-separator p-3">
+            <strong className="text-sm">Evidencia visual · {visualArtifacts.filter((artifact) => artifact.bytes_base64).length}/{visualArtifacts.length} adjunta</strong>
+            <p className="text-xs text-muted">Adjunta cada imagen al artefacto con el rol correcto. El servidor validará la firma y el hash antes de guardar o ejecutar el caso.</p>
+            {visualArtifacts.map((artifact, index) => (
+              <label key={`${artifact.artifact_id}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-separator p-2 text-sm">
+                <span>{artifact.role} · {artifact.media_type} · {artifact.bytes_base64 ? "lista" : "falta imagen"}</span>
+                <input className="max-w-full text-xs" type="file" accept="image/png,image/jpeg,image/webp"
+                  aria-label={`Adjuntar imagen ${artifact.role}`}
+                  onChange={(event) => { void attachVisualArtifact(index, event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
+              </label>
+            ))}
+          </section>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="secondary" disabled={!parsed.ok || busy} onClick={() => void importFixture()}>
             {busy ? "Guardando…" : "Importar fixture"}

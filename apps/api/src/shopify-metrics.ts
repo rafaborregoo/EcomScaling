@@ -1,5 +1,5 @@
 import { createLogger } from "@e-nora/observability";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { type AuthContext, createUserScopedClient, membershipCoversStore } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
 import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
@@ -128,6 +128,9 @@ type ShopifyMetricsData = {
     period: { start: string; end: string };
     sales: ShopifyMetricsData["sales"];
     financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null };
+    // Pedidos entre sesiones del periodo anterior; null si ese periodo no
+    // tiene sesiones sincronizadas (no se compara contra un cero inventado).
+    conversion_rate_own: number | null;
   } | null;
   // La misma ventana del ano anterior. Responde una pregunta distinta a
   // `previous_period`: en un negocio con temporada, agosto contra julio dice
@@ -428,11 +431,7 @@ export async function getShopifyMetrics(
     const membership = [...context.memberships, ...(context.storeMemberships ?? [])].find(
       (item) => item.organization_id === organizationId,
     );
-    if (
-      membership?.accessSource === "membership" &&
-      membership.access_scope === "store" &&
-      (!storeId || membership.store_id !== storeId)
-    ) {
+    if (membership && !membershipCoversStore(membership, storeId)) {
       return {
         ok: false as const,
         statusCode: 403,
@@ -553,6 +552,7 @@ export async function getShopifyMetrics(
       targetsResult,
       yearAgoSalesResult,
       yearAgoFinancialResult,
+      previousFunnelResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -676,6 +676,14 @@ export async function getShopifyMetrics(
             target_store_id: storeId,
           })
         : Promise.resolve({ data: null, error: null }),
+      previousPeriodStart
+        ? supabase.rpc("shopify_funnel_summary", {
+            target_organization_id: organizationId,
+            period_start: previousPeriodStart.toISOString(),
+            period_end: previousPeriodEnd!.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -792,6 +800,14 @@ export async function getShopifyMetrics(
     const previousMargin = !previousMarginResult.error && previousPeriodStart
       ? previousMarginResult.data?.[0] ?? null
       : null;
+    const previousFunnelRow = !previousFunnelResult.error
+      ? (previousFunnelResult.data?.[0] as { sessions?: number; days_with_sessions?: number } | undefined)
+      : undefined;
+    const previousSessions = Number(previousFunnelRow?.sessions) || 0;
+    const previousConversion =
+      previousSales && Number(previousFunnelRow?.days_with_sessions) > 0 && previousSessions > 0
+        ? (Number(previousSales.orders_count) || 0) / previousSessions
+        : null;
     const previousPeriod =
       previousPeriodStart && previousSales && previousFinancial
         ? {
@@ -804,6 +820,7 @@ export async function getShopifyMetrics(
                 ? Number(previousMargin.lines_without_metrics)
                 : null,
             },
+            conversion_rate_own: previousConversion,
           }
         : null;
 

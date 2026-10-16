@@ -1,5 +1,5 @@
 {
-  "name": "ecomscaling-ia",
+  "name": "e-nora",
   "version": "0.1.0",
   "private": true,
   "description": "Monorepo E-NORA IA",
@@ -61,7 +61,7 @@
     "prettier": "^3.6.2",
     "supabase": "^2.31.8",
     "tsx": "^4.21.0",
-    "typescript": "^5.8.3"
+    "typescript": "~6.0.3"
   },
   "engines": {
     "node": ">=20.9.0",

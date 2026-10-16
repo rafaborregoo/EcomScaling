@@ -8,11 +8,27 @@ import {
   deltaPct,
   monthLabel,
   monthlyChartRows,
+  monthlyChartScale,
   targetStatus,
   targetsByKey,
   totalCosts,
   type PanelFinancial,
 } from "./panel-view-model";
+
+test("una serie menor a mil conserva importes completos y su moneda", () => {
+  const scale = monthlyChartScale(900, "USD");
+  assert.equal(900 / scale.divisor, 900);
+  assert.equal(scale.label, "Importes en USD");
+});
+test("las series en miles anuncian la escala y la moneda de sus datos", () => {
+  const scale = monthlyChartScale(4200, "EUR");
+  assert.equal(4200 / scale.divisor, 4.2);
+  assert.equal(scale.label, "Importes en miles de EUR");
+  assert.equal(monthlyChartScale(1000, "USD").label, "Importes en miles de USD");
+});
+test("una moneda desconocida no se etiqueta como euros", () => {
+  assert.equal(monthlyChartScale(800, null).label, "Escala en unidades · moneda sin confirmar");
+});
 
 const financial: PanelFinancial = {
   net_revenue_ex_tax: 1000,

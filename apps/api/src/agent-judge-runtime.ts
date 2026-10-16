@@ -13,12 +13,15 @@ import {
   prepareAgentJudgeRequest,
   pricingFor,
   runAgentTurnOpenAI,
+  serializeUntrustedContextBlocks,
   type AgentImageAttachment,
   type AgentInput,
   type AgentJudgeResult,
 } from "@e-nora/ai";
 
 const JUDGE_MAX_COST_USD = 0.03;
+const JUDGE_EVIDENCE_PACK_VERSION = "judge-evidence-pack-v5";
+const JUDGE_CONTEXT_LIMITS = { maxBlockChars: 600_000, maxContextChars: 620_000 } as const;
 
 export type PersistedJudgeOutcome = {
   judgment_id: string | null;
@@ -40,6 +43,9 @@ type JudgeInput = {
   expectedToolCallCount: number;
   visualEvidenceAvailable?: boolean;
   visualEvidence?: PersistedJudgeVisualEvidence | null;
+  candidateModel?: string | null;
+  candidateProvider?: string | null;
+  sourceAssetId?: string | null;
 };
 
 type AgentJudgeQueuePayload = JudgeInput;
@@ -72,10 +78,22 @@ function validJudgeQueuePayload(value: unknown): value is AgentJudgeQueuePayload
 export type PersistedJudgeVisualEvidence = {
   images: AgentImageAttachment[];
   sha256: string;
+  imageSha256: string[];
 };
 
 const MAX_JUDGE_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_JUDGE_IMAGES = 4;
+
+/** Reuses the judge's validated bytes as candidate input so both models assess the same visual version. */
+export function candidateImagesFromFrozenJudgeEvidence(
+  evidence: PersistedJudgeVisualEvidence | null,
+): AgentImageAttachment[] | null {
+  if (!evidence?.images.length || evidence.images.some((image) => !("base64" in image))) return null;
+  return evidence.images.map((image) => {
+    if (!("base64" in image)) throw new Error("frozen_visual_bytes_required");
+    return { base64: image.base64, mediaType: image.mediaType, role: "contenido", label: "contenido" };
+  });
+}
 
 /** Congela en hash+bytes activos visuales propios: URL de buckets de E-NORA o bytes ya validados por un preparador interno. */
 export async function loadPersistedJudgeVisualEvidence(
@@ -150,7 +168,7 @@ export async function loadPersistedJudgeVisualEvidence(
     });
   }
   const digest = createHash("sha256").update(loaded.map((item) => item.hash).join(":" )).digest("hex");
-  return { images: loaded.map((item) => item.image), sha256: digest };
+  return { images: loaded.map((item) => item.image), sha256: digest, imageSha256: loaded.map((item) => item.hash) };
 }
 
 function sha256(value: string): string {
@@ -170,6 +188,23 @@ export function judgeProviderPreflightError(apiKey: string | undefined, model: s
     return "judge_model_price_unknown";
   }
   return null;
+}
+
+/** Persist a bounded provider error category, never the provider's raw message. */
+export function judgeProviderFailureCode(error: unknown): string {
+  if (error && typeof error === "object") {
+    const detail = error as { status?: unknown; name?: unknown };
+    if (typeof detail.status === "number" && detail.status >= 400 && detail.status <= 599) {
+      return `judge_provider_http_${detail.status}`;
+    }
+    const name = typeof detail.name === "string" ? detail.name : "";
+    if (name === "APIConnectionError" || name === "APIConnectionTimeoutError") {
+      return "judge_provider_connection_failed";
+    }
+    if (name === "APIError") return "judge_provider_api_failed";
+    if (name === "TypeError" || name === "RangeError") return `judge_provider_${name.toLowerCase()}`;
+  }
+  return "judge_provider_or_validation_failed";
 }
 
 export function getAgentJudgeRuntimeStatus(
@@ -227,7 +262,7 @@ async function judgePersistedAgentOutputNow(
 
   const [snapshotResult, toolCallsResult] = await Promise.all([
     supabase.from("agent_context_snapshots").select("snapshot").eq("run_id", input.runId).eq("organization_id", input.organizationId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    supabase.from("agent_tool_calls").select("id, tool_name, is_error").eq("run_id", input.runId).eq("organization_id", input.organizationId),
+    supabase.from("agent_tool_calls").select("id, tool_name, is_error, output").eq("run_id", input.runId).eq("organization_id", input.organizationId),
   ]);
   const snapshot = snapshotResult.error ? null : snapshotResult.data?.snapshot ?? null;
   const receipts = toolCallsResult.error ? null : (toolCallsResult.data ?? []);
@@ -238,6 +273,15 @@ async function judgePersistedAgentOutputNow(
   const sourceRefs = [
     ...(receipts ?? []).map((receipt) => `tool_receipt:${receipt.id}`),
     ...(input.visualEvidence ? [`visual_sha256:${input.visualEvidence.sha256}`] : []),
+    ...(input.visualEvidence?.images.length && ["a15_analista_imagenes", "a16_texto_sobre_imagen"].includes(input.agentCode)
+      ? [`runtime_visual_lineage:${input.visualEvidence.sha256}`]
+      : []),
+    ...(input.visualEvidence?.images.length && ["a15_analista_imagenes", "a16_texto_sobre_imagen"].includes(input.agentCode)
+      ? [`$.runtime_verified_visual_lineage.candidate_run_id`, `$.runtime_verified_visual_lineage.candidate_model`, `$.runtime_verified_visual_lineage.candidate_provider`]
+      : []),
+    ...(input.agentCode === "a15_analista_imagenes" && input.sourceAssetId
+      ? [`$.runtime_verified_visual_lineage.asset_id`, `$.runtime_verified_visual_lineage.asset_version`, `$.runtime_verified_visual_lineage.asset_version_kind`]
+      : []),
   ];
   const prepared = prepareAgentJudgeRequest({
     agentCode: input.agentCode,
@@ -252,6 +296,9 @@ async function judgePersistedAgentOutputNow(
       id: receipt.id,
       tool_name: receipt.tool_name,
       is_error: receipt.is_error,
+      evidence: receipt.output && typeof receipt.output === "object"
+        ? (receipt.output as Record<string, unknown>).judge_evidence
+        : undefined,
     })) ?? [],
     generationStatus: input.generationStatus,
     visualEvidenceAvailable: input.visualEvidence?.images.length
@@ -263,7 +310,32 @@ async function judgePersistedAgentOutputNow(
     : toolCallsResult.error
       ? "tool_receipts_query_failed"
       : prepared.reason;
-  const payload = prepared.ready ? prepared.payload : {};
+  const payload: Record<string, unknown> = prepared.ready
+    ? {
+        ...prepared.payload,
+        ...(input.visualEvidence?.images.length
+          && ["a15_analista_imagenes", "a16_texto_sobre_imagen"].includes(input.agentCode)
+          ? {
+              runtime_verified_visual_lineage: {
+                verification: "same_frozen_sha256_bytes_sent_to_candidate_and_judge",
+                algorithm: "SHA-256",
+                package_sha256: input.visualEvidence.sha256,
+                image_sha256: input.visualEvidence.imageSha256,
+                candidate_run_id: input.runId,
+                candidate_model: input.candidateModel ?? null,
+                candidate_provider: input.candidateProvider ?? null,
+                ...(input.agentCode === "a15_analista_imagenes"
+                  ? {
+                      asset_id: input.sourceAssetId ?? null,
+                      asset_version: input.visualEvidence.imageSha256[0] ?? null,
+                      asset_version_kind: "sha256_content",
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      }
+    : {};
   const refs = new Set((payload.source_refs as string[] | undefined) ?? []);
   const fingerprint = sha256(canonical({
     run_id: input.runId,
@@ -273,8 +345,9 @@ async function judgePersistedAgentOutputNow(
     source_refs: sourceRefs,
     expected_tool_calls: expectedToolCallCount,
     rubric_version: JUDGE_RUBRIC_VERSION,
+    evidence_pack_version: JUDGE_EVIDENCE_PACK_VERSION,
   }));
-  const idempotencyBase = sha256(`${input.runId}:${input.outputId}:${artifactHash}:${JUDGE_RUBRIC_VERSION}`);
+  const idempotencyBase = sha256(`${input.runId}:${input.outputId}:${artifactHash}:${JUDGE_RUBRIC_VERSION}:${JUDGE_EVIDENCE_PACK_VERSION}`);
   let idempotencyKey = idempotencyBase;
   const existing = await supabase.from("agent_run_judgments").select("id, status, result, error_code, idempotency_key").like("idempotency_key", `${idempotencyBase}%`).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (existing.data && existing.data.status !== "error") {
@@ -313,11 +386,22 @@ async function judgePersistedAgentOutputNow(
     return { judgment_id: data?.id ?? null, status: "error", error_code: error?.message ?? errorCode };
   } else {
     try {
+      const evidence = serializeUntrustedContextBlocks(
+        [{ label: "Artefacto y evidencia inmutable no confiables", data: payload }],
+        JUDGE_CONTEXT_LIMITS,
+      );
+      if (evidence.truncated) throw new Error("judge_evidence_context_truncated");
       const startedAt = Date.now();
       const turn = await runAgentTurnOpenAI<unknown>({
         apiKey: env.OPENAI_API_KEY!,
         model: judgeModel,
-        systemPrompt: buildAgentJudgeSystemPrompt(input.agentCode),
+        systemPrompt: [
+          buildAgentJudgeSystemPrompt(input.agentCode),
+          ...(input.visualEvidence?.images.length
+            && ["a15_analista_imagenes", "a16_texto_sobre_imagen"].includes(input.agentCode)
+            ? ["El campo runtime_verified_visual_lineage del paquete lo genera el servidor y no procede del candidato. Si verification indica same_frozen_sha256_bytes_sent_to_candidate_and_judge, considera probado que ambos recibieron los mismos bytes visuales validados por SHA-256; no afirmes que el hash no puede enlazarse con la imagen adjunta. Si candidate_run_id, candidate_model, candidate_provider, asset_id o asset_version están poblados, cítalos como identidad/modelo del run y del activo. asset_version_kind=sha256_content significa que el hash de bytes es la versión inmutable del contenido; no exijas un contador/versionado separado si ese hash está presente. Si un campo está null, reconoce exactamente ese dato ausente. Esto prueba la identidad de bytes y, cuando está presente, la identidad/version durable del activo; no demuestra propiedad ni resultados comerciales."]
+            : []),
+        ].join("\n"),
         input: {
           run_id: randomUUID(),
           agent_code: input.agentCode,
@@ -330,12 +414,14 @@ async function judgePersistedAgentOutputNow(
           approval_mode: "none",
         },
         contextBlocks: [{ label: "Artefacto y evidencia inmutable no confiables", data: payload }],
+        contextLimits: JUDGE_CONTEXT_LIMITS,
         ...(input.visualEvidence?.images.length ? { images: input.visualEvidence.images } : {}),
         tools: [],
         outputContract: { jsonSchema: agentJudgeOutputJsonSchema, schema: agentJudgeModelOutputSchema },
         budget: { maxCostUsd: JUDGE_MAX_COST_USD, maxToolCalls: 0 },
         maxCompletionTokens: 4096,
       });
+      if (turn.contextTruncated) throw new Error("judge_evidence_context_truncated");
       result = finalizeAgentJudgeResult(
         input.agentCode,
         agentJudgeModelOutputSchema.parse(turn.output),
@@ -348,6 +434,10 @@ async function judgePersistedAgentOutputNow(
               render_readability: "el run conserva el original y el JSON propuesto, pero no el render final compuesto",
               carousel_consistency: "no se congelaron los slides vecinos de este carrusel",
             }
+          : input.agentCode === "a23_creatividad_meta" && !input.visualEvidence?.images.length
+            ? {
+                visual_evidence: "el snapshot A23 no contiene bytes visuales adjuntos; evaluar rendimiento y decisión solo con datos congelados, sin afirmar atributos visuales",
+              }
           : {},
       );
       usage = {
@@ -365,13 +455,15 @@ async function judgePersistedAgentOutputNow(
         ? "judge_model_output_invalid"
         : errorName === "AgentBudgetExceededError"
           ? "judge_cost_budget_exceeded"
+          : errorMessage === "judge_evidence_context_truncated"
+            ? "judge_evidence_context_truncated"
           : errorMessage.startsWith("judge_evidence_reference")
             ? "judge_evidence_reference_rejected"
             : errorMessage.startsWith("judge_criterion") || errorMessage.startsWith("judge_score")
               ? "judge_rubric_contract_rejected"
               : errorName === "ZodError"
                 ? "judge_model_output_schema_invalid"
-                : "judge_provider_or_validation_failed";
+                : judgeProviderFailureCode(error);
       result = noEvaluableResult(input.agentCode, errorCode);
     }
   }
@@ -426,7 +518,7 @@ export async function judgePersistedAgentOutput(
     return judgePersistedAgentOutputNow(env, supabase, input);
   }
   const artifactHash = sha256(canonical({ output: input.output, visual_sha256: input.visualEvidence?.sha256 ?? null }));
-  const dedupeKey = sha256(`${input.runId}:${input.outputId}:${artifactHash}:${JUDGE_RUBRIC_VERSION}`);
+  const dedupeKey = sha256(`${input.runId}:${input.outputId}:${artifactHash}:${JUDGE_RUBRIC_VERSION}:${JUDGE_EVIDENCE_PACK_VERSION}`);
   const now = Date.now();
   const existingJob = await supabase.from("agent_judge_jobs")
     .select("id, status")

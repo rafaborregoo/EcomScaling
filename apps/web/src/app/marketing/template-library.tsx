@@ -105,11 +105,6 @@ export function TemplateLibrary({
   );
 
   useEffect(() => {
-    if (!isOpen || hasLoaded) return;
-    void loadPage(null, true);
-  }, [hasLoaded, isOpen, loadPage]);
-
-  useEffect(() => {
     requestVersionRef.current += 1;
     loadingRef.current = false;
     setTemplates([]);
@@ -118,6 +113,11 @@ export function TemplateLibrary({
     setQuery("");
     setFilter("all");
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!isOpen || hasLoaded) return;
+    void loadPage(null, true);
+  }, [hasLoaded, isOpen, loadPage]);
 
   const filteredTemplates = useMemo(
     () =>

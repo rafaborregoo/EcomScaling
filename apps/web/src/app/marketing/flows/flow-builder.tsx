@@ -535,13 +535,13 @@ export function FlowBuilder({
     <div className={s.builder}>
       <header className={s.top}>
         <div className={s.piece}>
-          <span className={s.crumb}>
+          <h1 className={s.crumb}>
             Marketing /{" "}
             <button type="button" onClick={onClose}>
               Flows
             </button>{" "}
             / {row ? "Editar flow" : "Nuevo flow"}
-          </span>
+          </h1>
           <input
             id="flow-name"
             className={s.flowName}
@@ -1143,7 +1143,7 @@ function TriggerInspector({ trigger, account, onChange }: { trigger: FlowTrigger
             <MetricSelect id="flow-trigger-metric" value={trigger.id} account={account} onChange={(id) => onChange({ id }, false)} />
           </Field>
           {help ? <p className={s.note}>{help}</p> : null}
-          <Field label="Solo si el importe es de al menos" counter="€" hint="Vacío = cualquier importe. Mira el valor del evento (por ejemplo, lo que vale el carrito).">
+          <Field label="Solo si el importe es de al menos" counter="Moneda del evento" hint="Vacío = cualquier importe. El importe se compara en la moneda del evento (por ejemplo, la del carrito); compruébala en Klaviyo.">
             <input
               className={s.inp}
               type="number"

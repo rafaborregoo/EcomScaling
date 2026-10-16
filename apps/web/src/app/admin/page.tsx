@@ -41,6 +41,7 @@ const modules = [
     links: [
       ["Observabilidad", "/admin/observabilidad"],
       ["Agentes de IA", "/admin/agentes"],
+      ["Costes de IA", "/admin/costes-ia"],
       ["Herramientas", "/admin/tools"],
       ["Laboratorio de mailing", "/admin/laboratorio-mailing"],
     ],

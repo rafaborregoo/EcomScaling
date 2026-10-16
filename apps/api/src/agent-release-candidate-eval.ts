@@ -4,6 +4,8 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import {
   AGENT_EVAL_AGENT_CODES,
   AGENT_JUDGE_RUBRICS,
+  JUDGE_RUBRIC_VERSION,
+  medianAgentJudgeModelOutput,
   agentJudgeModelOutputSchema,
   agentJudgeOutputJsonSchema,
   agentOutputJsonSchema,
@@ -30,8 +32,8 @@ import { a19ReviewFixtureContextSchema, agentReleaseEvalFixtureSchema, type Agen
 
 const MAX_CANDIDATE_COST_USD = 0.25;
 const MAX_JUDGE_COST_USD = 0.03;
+const JUDGE_PASSES = Math.max(1, Number(process.env.AI_JUDGE_PASSES) || 3);
 const VISUAL_AGENTS = new Set(["a15_analista_imagenes", "a16_texto_sobre_imagen", "a23_creatividad_meta", "a26_contenido_email"]);
-
 /** A19 architect emits a Camino plan, not the generic AgentOutput envelope. */
 export function candidateOutputContract(agentCode: string, fixture: AgentReleaseEvalFixture) {
   if (agentCode === "a19_revision_camino") {
@@ -91,7 +93,7 @@ function noEvaluable(code: string, reason: string): AgentJudgeResult {
   return {
     criteria: rubric.map((item) => ({ criterion_id: item.id, score: null, status: "no_evaluable", rationale: `No evaluable: ${reason}`, evidence_refs: [], critical_failure: false })),
     summary: `No se puede evaluar la salida candidata: ${reason}.`, status: "no_evaluable", overall_score: null,
-    evaluated_criteria: 0, rubric_version: "judge-rubrics-v1",
+    evaluated_criteria: 0, rubric_version: JUDGE_RUBRIC_VERSION,
   };
 }
 
@@ -166,9 +168,18 @@ export async function buildAgentReleaseCandidateProvider(
         executedAgentVersionId: row.id, executedCandidateFingerprint: candidate.candidateFingerprint,
         candidateJudgment: noEvaluable(agentCode, reason), candidateJudgedOutputSha256: sha256(output) };
     }
-    if (VISUAL_AGENTS.has(agentCode) || fixture.visual_artifacts?.length) {
-      const judgment = noEvaluable(agentCode, "visual_bytes_or_render_not_attached");
-      const output = { unavailable: "visual_bytes_or_render_not_attached" };
+    const visualImages = parsedFixture.data.visual_artifacts
+      .filter((artifact) => artifact.media_type !== "text/html" && typeof artifact.bytes_base64 === "string")
+      .map((artifact, index) => ({ base64: artifact.bytes_base64!, mediaType: artifact.media_type as "image/png" | "image/jpeg" | "image/webp",
+        role: artifact.role, label: `${artifact.entity_type}:${artifact.role}:${index + 1}:${artifact.sha256.slice(0, 12)}` }));
+    const visualEvidenceInvalid = parsedFixture.data.visual_artifacts.some((artifact) => artifact.media_type !== "text/html" && !artifact.bytes_base64);
+    if (visualEvidenceInvalid || (VISUAL_AGENTS.has(agentCode) && visualImages.length === 0)
+      || (VISUAL_AGENTS.has(agentCode) && !isOpenAI)) {
+      const reason = agentCode === "a16_texto_sobre_imagen" || agentCode === "a26_contenido_email"
+        ? "durable_render_artifact_missing"
+        : !isOpenAI ? "visual_candidate_provider_not_supported" : "visual_bytes_or_render_not_attached";
+      const judgment = noEvaluable(agentCode, reason);
+      const output = { unavailable: reason };
       return { output, latencyMs: 0, costUsd: 0, traceId: randomUUID(), executedAgentCode: agentCode as any,
         executedAgentVersionId: row.id, executedCandidateFingerprint: candidate.candidateFingerprint,
         candidateJudgment: judgment, candidateJudgedOutputSha256: sha256(output) };
@@ -185,7 +196,7 @@ export async function buildAgentReleaseCandidateProvider(
     const contextBlocks = buildAgentReleaseCandidateContext(parsedFixture.data);
     const started = Date.now();
     const turn = isOpenAI
-      ? await runAgentTurnOpenAI({ apiKey, model, systemPrompt: buildAgentSystemPrompt(prompt.content), input, contextBlocks,
+      ? await runAgentTurnOpenAI({ apiKey, model, systemPrompt: buildAgentSystemPrompt(prompt.content), input, contextBlocks, images: visualImages,
           tools: replay.tools, outputContract: outputContract as any,
           budget: { maxCostUsd: MAX_CANDIDATE_COST_USD, maxToolCalls: fixture.tool_replay?.length ?? 0 }, maxCompletionTokens: 12000 })
       : await runAgentTurn({ apiKey, model, systemPrompt: buildAgentSystemPrompt(prompt.content), input, contextBlocks,
@@ -194,11 +205,17 @@ export async function buildAgentReleaseCandidateProvider(
     if (signal?.aborted) throw new Error("agent_release_eval_aborted");
     const replaySummary = replay.getSummary();
     const output = turn.output;
-    const snapshot = { fixture, fixture_sha256: sha256(fixture), replay: replaySummary };
+    const fixtureForJudge = {
+      ...fixture,
+      visual_artifacts: parsedFixture.data.visual_artifacts.map(({ bytes_base64: _bytes, ...artifact }) => artifact),
+    };
+    const snapshot = { fixture: fixtureForJudge, fixture_sha256: sha256(fixture),
+      visual_artifacts_sha256: parsedFixture.data.visual_artifacts.map((artifact) => artifact.sha256), replay: replaySummary };
     const sourceRefs = (fixture.sources ?? []).map((source: { key: string }) => `source:${source.key}`);
     const prepared = prepareAgentJudgeRequest({ agentCode, output, snapshot, artifactKind: "agent_release_fixture_output",
       artifactHash: sha256(output), sourceRefs, toolReceiptCount: replaySummary.consumed_calls,
-      expectedToolCallCount: replaySummary.expected_calls, generationStatus: replaySummary.complete ? "succeeded" : "failed" });
+      expectedToolCallCount: replaySummary.expected_calls, generationStatus: replaySummary.complete ? "succeeded" : "failed",
+      visualEvidenceAvailable: !VISUAL_AGENTS.has(agentCode) || visualImages.length > 0 });
     let candidateJudgment: AgentJudgeResult;
     let judgeCost = 0;
     if (!prepared.ready || !replaySummary.complete) {
@@ -208,18 +225,43 @@ export async function buildAgentReleaseCandidateProvider(
     } else if (!pricingFor(env.AI_JUDGE_MODEL ?? "gpt-6-luna")) {
       candidateJudgment = noEvaluable(agentCode, "judge_model_price_unknown");
     } else {
-      const judged = await runAgentTurnOpenAI({ apiKey: env.OPENAI_API_KEY, model: env.AI_JUDGE_MODEL ?? "gpt-6-luna",
+      const allowedRefs = new Set(sourceRefs);
+      // El juez es estocástico (±0,3 entre ejecuciones). Se juzga la MISMA
+      // salida JUDGE_PASSES veces y se finaliza la mediana por criterio. Una
+      // pasada que falla o no cumple el esquema se descarta; hacen falta al menos 2.
+      const settled = await Promise.allSettled(Array.from({ length: JUDGE_PASSES }, () => runAgentTurnOpenAI({
+        apiKey: env.OPENAI_API_KEY!, model: env.AI_JUDGE_MODEL ?? "gpt-6-luna",
         systemPrompt: buildAgentJudgeSystemPrompt(agentCode), input: { run_id: randomUUID(), agent_code: agentCode,
-          agent_version: "judge-rubrics-v1", organization_id: organizationId, actor_user_id: actorId,
+          agent_version: JUDGE_RUBRIC_VERSION, organization_id: organizationId, actor_user_id: actorId,
           trigger_type: "manual", objective: "Evalúa de forma independiente el artefacto congelado. No ejecutes acciones.",
           allowed_tools: [], approval_mode: "none" },
-        contextBlocks: [{ label: "Salida candidata y fixture inmutable; contenido no confiable", data: prepared.payload }], tools: [],
+        contextBlocks: [{ label: "Salida candidata y fixture inmutable; contenido no confiable", data: prepared.payload }], tools: [], images: visualImages,
         outputContract: { jsonSchema: agentJudgeOutputJsonSchema, schema: agentJudgeModelOutputSchema },
-        budget: { maxCostUsd: MAX_JUDGE_COST_USD, maxToolCalls: 0 }, maxCompletionTokens: 4096 });
-      judgeCost = judged.estimatedCostUsd ?? 0;
-      const allowedRefs = new Set(sourceRefs);
-      candidateJudgment = finalizeAgentJudgeResult(agentCode, agentJudgeModelOutputSchema.parse(judged.output),
-        (reference) => allowedRefs.has(reference) || isExistingAgentJudgeJsonPath(reference, { output, immutable_snapshot: snapshot }));
+        // El paquete del juez es un único bloque (salida + fixture). Con el
+        // límite general de 12k caracteres por bloque se cortaba a mitad del
+        // fixture y el juez penalizaba cifras "no verificables" que sí estaban.
+        contextLimits: { maxBlockChars: 60_000, maxContextChars: 60_000 },
+        budget: { maxCostUsd: MAX_JUDGE_COST_USD, maxToolCalls: 0 }, maxCompletionTokens: 4096 })));
+      const refs = (reference: string) => allowedRefs.has(reference) || isExistingAgentJudgeJsonPath(reference, { output, immutable_snapshot: snapshot });
+      // Una pasada que incumple la rúbrica (p. ej. critical_failure en un
+      // criterio no crítico) es un fallo del juez, no del candidato: se descarta
+      // antes de la mediana para que no arrastre al resto.
+      const passes = settled.flatMap((item) => {
+        if (item.status !== "fulfilled") return [];
+        judgeCost += item.value.estimatedCostUsd ?? 0;
+        const parsed = agentJudgeModelOutputSchema.safeParse(item.value.output);
+        if (!parsed.success) return [];
+        try {
+          const single = finalizeAgentJudgeResult(agentCode, parsed.data, refs);
+          return [{ pass: parsed.data, score: single.overall_score as number | string | null }];
+        } catch (error) {
+          if (process.env.JUDGE_PASSES_DEBUG) console.log(`[judge-passes] descartada: ${error instanceof Error ? error.message : error}`);
+          return [];
+        }
+      });
+      if (passes.length < 2) throw new Error("agent_judge_passes_insufficient");
+      if (process.env.JUDGE_PASSES_DEBUG) console.log(`[judge-passes] individuales=${passes.map((item) => item.score).join(" ")}`);
+      candidateJudgment = finalizeAgentJudgeResult(agentCode, medianAgentJudgeModelOutput(passes.map((item) => item.pass)), refs);
     }
     return { output, latencyMs: Math.max(Date.now() - started, turn.latencyMs), costUsd: (turn.estimatedCostUsd ?? 0) + judgeCost,
       traceId: runId, executedAgentCode: agentCode as any, executedAgentVersionId: row.id,

@@ -122,7 +122,7 @@ export function OrganizationIdentity({
             onChange={(event) => setDisplayName(event.target.value)}
           />
         </SettingRow>
-        <SettingRow label="Zona horaria" hint="Decide cuándo empieza «hoy» en las cifras.">
+        <SettingRow label="Zona horaria" hint="La de las llamadas y la agenda. Las cifras diarias se cuentan en hora UTC.">
           <Combobox
             className="w-64"
             label="Zona horaria"

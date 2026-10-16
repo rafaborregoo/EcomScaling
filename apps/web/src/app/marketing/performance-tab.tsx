@@ -23,6 +23,7 @@ import {
 import { fmtDate } from "./format";
 
 const PERIODS = [
+  { value: "7", label: "Últimos 7 días" },
   { value: "30", label: "Últimos 30 días" },
   { value: "90", label: "Últimos 90 días" },
 ];
@@ -38,7 +39,7 @@ function delta(current: number, previous: number | null | undefined) {
   return `${sign}${change.toFixed(0)}% vs periodo anterior`;
 }
 
-function KlaviyoBlock({ report }: { report: KlaviyoAttribution | null }) {
+function KlaviyoBlock({ report, currency }: { report: KlaviyoAttribution | null; currency?: string | null }) {
   const style = channelStyle("Email");
   if (!report?.connected) {
     return (
@@ -51,17 +52,18 @@ function KlaviyoBlock({ report }: { report: KlaviyoAttribution | null }) {
     );
   }
   const { totals, previous, campaigns } = report;
+  const money = (value: number) => currency ? formatMoney(value, currency) : value.toLocaleString("es-ES", { maximumFractionDigits: 2 });
   return (
     <Card
       title="Email · Klaviyo"
-      description="EUR atribuidos por Klaviyo en su propia ventana de conversión. No es venta Shopify."
+      description={`Ingresos atribuidos por Klaviyo en su propia ventana de conversión. No es venta Shopify.${currency ? "" : " Moneda no disponible."}`}
       actions={<span className={`h-5 w-1 ${style.fill}`} aria-hidden />}
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <Metric
           card
-          label="EUR atribuidos por Klaviyo"
-          value={formatMoney(totals.revenue, "EUR")}
+          label="Ingresos atribuidos por Klaviyo"
+          value={money(totals.revenue)}
           delta={delta(totals.revenue, previous?.revenue)}
         />
         <Metric
@@ -98,7 +100,7 @@ function KlaviyoBlock({ report }: { report: KlaviyoAttribution | null }) {
                   ) : null}
                 </span>
                 <span className="shrink-0 tabular-nums">
-                  {formatMoney(campaign.revenue, "EUR")}
+                  {money(campaign.revenue)}
                 </span>
               </List.Item>
             ))}
@@ -128,16 +130,16 @@ function MetaBlock({ report }: { report: MetaAttribution | null }) {
   return (
     <Card
       title="Meta Ads"
-      description="EUR atribuidos por Meta en su ventana de atribución. Se cuenta un único tipo de compra por cuenta."
+      description="Valor atribuido por Meta en su ventana de atribución. Moneda no disponible; se muestran los importes tal como los informa Meta."
       actions={<span className={`h-5 w-1 ${style.fill}`} aria-hidden />}
     >
       <div className="grid gap-4 sm:grid-cols-3">
-        <Metric card label="Gasto" value={formatMoney(spend, "EUR")} />
+        <Metric card label="Gasto" value={spend.toLocaleString("es-ES", { maximumFractionDigits: 2 })} />
         <Metric
           card
-          label="EUR atribuidos por Meta"
-          value={formatMoney(value, "EUR")}
-          hint={actionType ? `Cuenta como compra: ${actionType}` : undefined}
+          label="Valor atribuido por Meta"
+          value={value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}
+          hint={actionType ? "Compras según el evento configurado en Meta" : undefined}
         />
         <Metric
           card
@@ -167,7 +169,7 @@ function MetaBlock({ report }: { report: MetaAttribution | null }) {
                 </span>
                 <span className="flex shrink-0 items-center gap-3 tabular-nums">
                   <span className="text-muted">
-                    {formatMoney(num(campaign.spend), "EUR")}
+                    {num(campaign.spend).toLocaleString("es-ES", { maximumFractionDigits: 2 })}
                   </span>
                   <Badge
                     tone={
@@ -206,6 +208,7 @@ export function PerformanceTab({
   days,
   onDaysChange,
   klaviyo,
+  klaviyoCurrency,
   meta,
   shopify,
   isLoading,
@@ -213,6 +216,7 @@ export function PerformanceTab({
   days: string;
   onDaysChange: (value: string) => void;
   klaviyo: KlaviyoAttribution | null;
+  klaviyoCurrency?: string | null;
   meta: MetaAttribution | null;
   shopify: ShopifyFirstParty;
   isLoading: boolean;
@@ -243,15 +247,14 @@ export function PerformanceTab({
       <Banner tone="warn" className="text-sm">
         Las cifras de Klaviyo y de Meta son <strong>atribuidas</strong>, cada
         una en la ventana de su plataforma: la misma venta puede aparecer en las
-        dos. No se suman entre sí ni con la venta de Shopify, que es lo único
-        realmente facturado.
+        dos. No se suman entre sí ni con las ventas registradas en Shopify.
       </Banner>
 
       {isLoading ? (
         <LoadingBlock label="Cargando el rendimiento del periodo…" />
       ) : (
         <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
-          <KlaviyoBlock report={klaviyo} />
+          <KlaviyoBlock report={klaviyo} currency={klaviyoCurrency} />
           <MetaBlock report={meta} />
         </div>
       )}

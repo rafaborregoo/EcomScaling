@@ -4,8 +4,9 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { toast } from "@/components/ui";
+import { Skeleton, toast } from "@/components/ui";
 import { BarRows } from "@/components/data-bars";
 import { salesChangePct } from "./store-pulse";
 import { fmtEur, fmtNum } from "./client-pulse-model";
@@ -22,6 +23,7 @@ import {
   type Diagnostic,
 } from "./client-pulse";
 import s from "./client-pulse.module.css";
+import { DashboardSections } from "./dashboard-sections";
 
 /**
  * Pestaña Klaviyo del panel del cliente.
@@ -152,6 +154,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
+  const verdictOf = useMetricAnalysis(organizationId, period === "all" ? "all" : Number(period), connectionId);
 
   const report = useCachedQuery<EmailReport>(`${base}/klaviyo/email-report?days=${period}${scope}`);
   const insights = useCachedQuery<KlaviyoInsights>(`${base}/klaviyo/insights?days=${period}${scope}`);
@@ -183,9 +186,10 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   if (report.isLoading && !data) {
     return (
       <div className={s.root}>
-        <div className={s.hero}>
+        <div className={s.hero} role="status" aria-busy="true">
           <p className={s.heroMeta}>{organizationName} · Klaviyo</p>
           <p className={s.headline}>Cargando tu email marketing…</p>
+          <Skeleton className="h-32 w-full" aria-hidden="true" />
         </div>
       </div>
     );
@@ -196,7 +200,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
       <div className={s.root}>
         <div className={s.hero}>
           <p className={s.heroMeta}>{organizationName} · Klaviyo</p>
-          <p className={s.headline}>{report.error && !data ? "No hemos podido cargar Klaviyo." : "Klaviyo todavía no está conectado."}</p>
+          <h1 className={s.headline}>{report.error && !data ? "No hemos podido cargar Klaviyo" : "Klaviyo todavía no está conectado"}</h1>
           <p className={s.headlineDetail}>
             {asConsultant
               ? "Las integraciones de este cliente no están disponibles desde el portal consultor."
@@ -205,10 +209,11 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           {!asConsultant ? (
             <div className={s.heroActions}>
               <a className={cx(s.btn, s.acc)} href="/integraciones/klaviyo">
-                Conectar Klaviyo
+                {report.error ? "Revisar conexión de Klaviyo" : "Conectar Klaviyo"}
               </a>
             </div>
           ) : null}
+          {report.error ? <div className={s.heroActions}><button type="button" className={cx(s.btn, s.ghost)} onClick={report.reload}>Reintentar la carga</button></div> : null}
         </div>
       </div>
     );
@@ -247,6 +252,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
 
   return (
     <div className={s.root}>
+      <DashboardSections items={[{"id":"kl-headline","label":"Resumen"},{"id":"kl-flows","label":"Flujos"},{"id":"kl-camp","label":"Campañas"},{"id":"kl-subj","label":"Contenido"},{"id":"kl-health","label":"Salud del canal"}]} />
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.hero} aria-labelledby="kl-headline">
         <div className={s.heroTop}>
@@ -262,9 +268,9 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
               </div>
             </div>
             <h1 id="kl-headline" className={s.headline}>
-              {aiHeadline ? <span className={s.ia}>IA</span> : null}
-              {headline}
+              Klaviyo: email y retención
             </h1>
+            <p className={s.headlineDetail}>{aiHeadline ? <span className={s.ia}>{(emailDiag?.output.headline ?? emailDiag?.output.findings[0]?.title) ? "A12" : "A02"}</span> : null}{headline}</p>
             <p className={s.headlineDetail}>
               {fmtNum(totals.conversions)} compras atribuidas a {fmtNum(totals.recipients)} envíos. Es lo que Klaviyo se atribuye con su ventana de conversión, no ventas exclusivas del email.
             </p>
@@ -276,7 +282,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                 Preguntar qué mejorar
               </button>
               <button type="button" className={cx(s.btn, s.ghost)} disabled={monitorRunning} onClick={() => void runMonitorKlaviyo()}>
-                {monitorRunning ? "Analizando Klaviyo…" : "Actualizar análisis Klaviyo"}
+                {monitorRunning ? "Analizando Klaviyo…" : "Actualizar análisis"}
               </button>
               <a className={cx(s.btn, s.ghost)} href="/klaviyo">
                 Analítica completa
@@ -355,7 +361,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
 
       <section className={s.sec} aria-label="Lectura ejecutiva de Klaviyo">
         <div className={s.panel}>
-          <p className={s.lbl}>A02 · Klaviyo</p>
+          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> Lectura de Klaviyo</h2>
           <p className={s.headlineDetail}>
             {monitor.data?.output.headline ?? "El análisis específico de Klaviyo aparecerá aquí cuando termine su primera ejecución."}
           </p>
@@ -393,6 +399,8 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           slot={<p className={s.trackTxt}>{fmtNum(totals.delivered)} entregados</p>}
         />
         <Kpi
+          verdict={<MetricVerdict analysis={verdictOf("email_open_rate")} />}
+          anchorId="insight-metric-email_open_rate"
           label="Apertura"
           value={pct(totals.open_rate)}
           delta={<Delta change={ppChange(totals.open_rate, previous?.open_rate)} suffix="pp" />}
@@ -415,10 +423,10 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           slot={<p className={s.trackTxt}>{fmtNum(totals.unsubscribes)} personas se dieron de baja</p>}
         />
         <Kpi
-          label="Spam y rebotes"
+          label="Quejas de spam"
           tag={(totals.spam_rate ?? 0) > SPAM_LIMIT || (totals.bounce_rate ?? 0) > BOUNCE_LIMIT ? "revisar" : undefined}
           value={pct(totals.spam_rate, 2)}
-          slot={<p className={s.trackTxt}>Spam · rebotes {pct(totals.bounce_rate, 1)}</p>}
+          slot={<p className={s.trackTxt}>Rebotes: {pct(totals.bounce_rate, 1)}</p>}
         />
       </div>
 
@@ -428,6 +436,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           id="kl-flows"
           title="Flujos"
           ai={findingFor(emailDiag, /flujo|flow|automat|bienvenida|carrito/i)?.title ?? null}
+          tag="A12"
           fallback={
             weakestFlow
               ? `El flujo que menos rinde por destinatario es «${weakestFlow.name}» (${fmtEur(weakestFlow.revenue_per_recipient ?? 0, 2)}).`
@@ -439,16 +448,16 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           {flows.length === 0 ? (
             <Empty>No hay flujos con envíos en este periodo. Un flujo de bienvenida y otro de carrito abandonado suelen ser lo primero.</Empty>
           ) : (
-            <div className={s.tblWrap} style={{ marginTop: 0 }}>
-              <table className={s.tbl}>
+            <div className={s.tblWrap} role="region" aria-label="Flujos de email; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+              <table className={s.tbl} aria-label="Resultados de los flujos de email">
                 <thead>
                   <tr>
-                    <th>Flujo</th>
-                    <th>Ingresos</th>
-                    <th>Destinatarios</th>
-                    <th>Apertura</th>
-                    <th>Clics</th>
-                    <th>€ / destinatario</th>
+                    <th scope="col">Flujo</th>
+                    <th scope="col">Ingresos atribuidos</th>
+                    <th scope="col">Destinatarios</th>
+                    <th scope="col">Apertura</th>
+                    <th scope="col">Clics</th>
+                    <th scope="col">€ / destinatario</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -473,7 +482,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                       <td className={s.tdN}>{pct(f.click_rate, 2)}</td>
                       <td className={s.tdN}>
                         {f.revenue_per_recipient != null ? fmtEur(f.revenue_per_recipient, 2) : "—"}{" "}
-                        {weakestFlow?.id === f.id && flows.length > 1 ? <span className={cx(s.chip, s.chipWarn)}>el más flojo</span> : null}
+                        {weakestFlow?.id === f.id && flows.length > 1 ? <span className={cx(s.chip, s.chipWarn)} title="Menor ingreso atribuido por destinatario en este periodo">Menor retorno</span> : null}
                       </td>
                     </tr>
                   ))}
@@ -490,6 +499,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           id="kl-camp"
           title="Campañas"
           ai={findingFor(emailDiag, /campa|env[ií]o|newsletter|frecuen/i)?.title ?? null}
+          tag="A12"
           fallback={bestCampaign ? `La que más rindió por destinatario fue «${bestCampaign.name}».` : "Los envíos puntuales a tu lista, del más reciente al más antiguo."}
           onAsk={() => askCopilot("¿Qué rasgos comparten las campañas con mejores resultados observados y qué elemento convendría probar de nuevo? Cita campañas y métricas comparables; no atribuyas causalidad a una diferencia aislada.", "Campañas de Klaviyo")}
         />
@@ -497,17 +507,17 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           {campaigns.length === 0 ? (
             <Empty>No hay campañas enviadas en este periodo.</Empty>
           ) : (
-            <div className={s.tblWrap} style={{ marginTop: 0 }}>
-              <table className={s.tbl}>
+            <div className={s.tblWrap} role="region" aria-label="Campañas de email; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+              <table className={s.tbl} aria-label="Resultados de las campañas de email">
                 <thead>
                   <tr>
-                    <th>Enviada</th>
-                    <th>Campaña</th>
-                    <th>Destinatarios</th>
-                    <th>Apertura</th>
-                    <th>Clics</th>
-                    <th>Ingresos</th>
-                    <th>€ / destinatario</th>
+                    <th scope="col">Enviada</th>
+                    <th scope="col">Campaña</th>
+                    <th scope="col">Destinatarios</th>
+                    <th scope="col">Apertura</th>
+                    <th scope="col">Clics</th>
+                    <th scope="col">Ingresos atribuidos</th>
+                    <th scope="col">€ / destinatario</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -528,7 +538,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                       <td className={s.tdN}>{fmtEur(c.revenue)}</td>
                       <td className={s.tdN}>
                         {c.revenue_per_recipient != null ? fmtEur(c.revenue_per_recipient, 2) : "—"}{" "}
-                        {bestCampaign?.id === c.id && campaigns.length > 1 ? <span className={cx(s.chip, s.chipGood)}>la mejor</span> : null}
+                        {bestCampaign?.id === c.id && campaigns.length > 1 ? <span className={cx(s.chip, s.chipGood)} title="Mayor ingreso atribuido por destinatario en este periodo">Mayor retorno</span> : null}
                       </td>
                     </tr>
                   ))}
@@ -545,6 +555,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           id="kl-subj"
           title="Qué funciona"
           ai={findingFor(emailDiag, /asunto|subject|apertura|enlace|clic/i)?.title ?? null}
+          tag="A12"
           fallback="Qué rasgos de tus asuntos se abren más y dónde hace clic la gente."
           onAsk={() => askCopilot("¿Qué asuntos tienen mejores aperturas en una comparación válida? Cita el tamaño o periodo disponible y propone una dirección para el próximo asunto sin asegurar que vaya a mejorar el resultado.", "Asuntos de email")}
         />
@@ -601,14 +612,14 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
             ) : data.top_links.length === 0 ? (
               <Empty>Todavía no hay clics registrados en este periodo.</Empty>
             ) : (
-              <div className={s.tblWrap} style={{ marginTop: 0 }}>
-                <table className={s.tbl}>
+              <div className={s.tblWrap} role="region" aria-label="Enlaces de email; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+                <table className={s.tbl} aria-label="Clics en enlaces de email">
                   <thead>
                     <tr>
-                      <th>Enlace</th>
-                      <th>Clics</th>
-                      <th>Personas</th>
-                      <th>Emails</th>
+                      <th scope="col">Enlace</th>
+                      <th scope="col">Clics</th>
+                      <th scope="col">Personas</th>
+                      <th scope="col">Emails</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -636,6 +647,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           id="kl-health"
           title="Salud de la cuenta"
           ai={findingFor(emailDiag, /entregab|spam|rebote|baja|utm|seguimiento|medici/i)?.title ?? null}
+          tag="A12"
           fallback="Lo que hace que tus emails lleguen a la bandeja y que sus ventas se puedan medir."
           onAsk={() => askCopilot("¿Qué señales verificables afectan a la entregabilidad o a la medición de Klaviyo? Cita el indicador y la fecha; distingue problemas confirmados de datos que todavía no se han recibido.", "Salud de Klaviyo")}
         />
@@ -656,7 +668,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                 const over = row.v != null && row.v > row.limit;
                 return (
                   <li key={row.label} className={s.finding}>
-                    <span className={cx(s.pr, over ? s.prUrgent : undefined)} aria-hidden="true" style={over ? undefined : { background: "var(--good)", boxShadow: "none" }} />
+                    <span className={cx(s.pr, over ? s.prUrgent : undefined)} aria-hidden="true" style={over ? undefined : { background: row.v == null ? "var(--ink-3)" : "var(--good)", boxShadow: "none" }} />
                     <div>
                       <div className={s.secondT}>
                         <b style={{ fontWeight: 600 }}>{row.label}</b>
@@ -665,7 +677,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                         </span>
                       </div>
                       <p className={s.trackTxt}>
-                        {over ? "Por encima" : "Por debajo"} del {pct(row.limit, row.digits)} a partir del cual empieza a afectar a que lleguen
+                        {row.v == null ? "Sin datos suficientes para evaluar esta tasa." : `${over ? "Por encima" : "Por debajo"} del ${pct(row.limit, row.digits)} a partir del cual empieza a afectar a que lleguen`}
                       </p>
                     </div>
                   </li>
@@ -734,7 +746,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         </div>
         {!hasConsultant && emailDiag?.output_status === "pending_approval" && emailDiag.output.proposed_writes.length ? (
           <p className={s.aiNote}>
-            <span className={s.ia}>IA</span>
+            <span className={s.ia}>A12</span>
             El analista de email propone {emailDiag.output.proposed_writes.length} mejora(s). Apruébalas en <a href="/dashboard?tab=todo#pulse-hoy">Prioridades</a>.
           </p>
         ) : null}

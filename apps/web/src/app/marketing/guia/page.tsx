@@ -40,11 +40,11 @@ type Scope = "org" | "store";
 type SectionDef = { id: string; title: string; description: string; fields: BrandProfileField[] };
 const SECTIONS: SectionDef[] = [
   { id: "identidad", title: "Identidad", description: "Cómo se presenta la marca en la cabecera de cada email.", fields: ["brand_name", "logo_url"] },
-  { id: "colores", title: "Colores", description: "Cada color tiene un papel. A11 los aplica por papel, no por orden.", fields: ["palette"] },
+  { id: "colores", title: "Colores", description: "Define el uso de cada color en los contenidos de tu marca.", fields: ["palette"] },
   { id: "tipografia", title: "Tipografía", description: "En orden de preferencia. Si un cliente de correo no tiene la primera, usa la siguiente.", fields: ["available_fonts"] },
   { id: "voz", title: "Voz y tono", description: "Cómo habla la marca cuando escribe un email.", fields: ["tone_guidelines"] },
   { id: "palabras", title: "Palabras", description: "Escribe y pulsa Enter. Pega una lista y se separa sola.", fields: ["preferred_vocabulary", "avoided_vocabulary"] },
-  { id: "limites", title: "Límites", description: "Lo que A11 nunca puede afirmar y lo que siempre tiene que aparecer.", fields: ["claim_restrictions", "required_texts"] },
+  { id: "limites", title: "Límites", description: "Lo que tus contenidos nunca pueden afirmar y lo que siempre tiene que aparecer.", fields: ["claim_restrictions", "required_texts"] },
   { id: "imagen", title: "Imagen", description: "Qué fotos encajan con la marca.", fields: ["image_guidelines"] },
   { id: "legal", title: "Pie legal", description: "Va al final de cada email, tal cual.", fields: ["legal_footer"] },
 ];
@@ -188,7 +188,7 @@ export default function MarketingBrandGuidePage() {
         setStoreSaved(storeDraft);
         setStoreUpdatedAt(new Date().toISOString());
       }
-      setNotice("Guía guardada. A11 la usa desde el próximo email que genere.");
+      setNotice("Guía guardada. Se aplicará al próximo email que generes.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo guardar la guía de marca.");
     } finally {
@@ -227,8 +227,7 @@ export default function MarketingBrandGuidePage() {
     <div className={styles.page}>
       <header className={styles.top}>
         <div className="min-w-0">
-          <p className={styles.crumb}>Marketing / Identidad</p>
-          <p className={styles.title}>Guía de marca</p>
+          <h1 className={styles.title}>Guía de marca</h1>
         </div>
         <div className={styles.scopeGroup} role="group" aria-label="Qué guía editas">
           <button type="button" className={styles.scopeBtn} aria-pressed={scope === "org"} onClick={() => setScope("org")}>
@@ -278,10 +277,10 @@ export default function MarketingBrandGuidePage() {
         <main className={styles.work}>
           <nav className={styles.nav} aria-label="Secciones de la guía">
             <div>
-              <p className="text-sm font-medium">Lo que A11 sabe</p>
+              <p className="text-sm font-medium">Contexto de tu marca</p>
               <p className="mt-1 text-xs text-muted">
                 {BRAND_PROFILE_FIELDS.length - missing.length}/{BRAND_PROFILE_FIELDS.length} campos
-                {missing.length > 0 ? ". Donde falte algo, A11 escribe en tono neutro y lo avisa." : ": la guía está completa."}
+                {missing.length > 0 ? ". Donde falte información, el contenido generado usará un tono neutro y lo indicará." : ": la guía está completa."}
               </p>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-edge/50">
                 <div

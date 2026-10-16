@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AGENT_EVAL_AGENT_CODES, AGENT_JUDGE_RUBRICS, agentJudgeModelOutputSchema, computeExponentialBackoffMs, DEFAULT_AGENT_RESILIENCE_POLICY, setLiveModelPricing } from "@e-nora/ai";
-import { estimateJudgeCost, getAgentJudgeRuntimeStatus, judgePersistedAgentOutput, judgeProviderPreflightError, loadPersistedJudgeVisualEvidence, processAgentJudgeQueue } from "./agent-judge-runtime.js";
+import { candidateImagesFromFrozenJudgeEvidence, estimateJudgeCost, getAgentJudgeRuntimeStatus, judgePersistedAgentOutput, judgeProviderFailureCode, judgeProviderPreflightError, loadPersistedJudgeVisualEvidence, processAgentJudgeQueue } from "./agent-judge-runtime.js";
 
 test("judge cost uses the configured per-million-token price", () => {
   assert.ok(Math.abs((estimateJudgeCost("gpt-6-luna", 3_737, 1_048) ?? 0) - 0.0008977) < 1e-12);
@@ -15,6 +15,12 @@ test("judge refuses a provider call when its model price is unknown", () => {
   assert.equal(judgeProviderPreflightError("test-api-key", "unregistered-model"), "judge_model_price_unknown");
   assert.equal(judgeProviderPreflightError(undefined, "gpt-6-luna"), "judge_provider_unavailable");
   assert.equal(judgeProviderPreflightError("test-api-key", "gpt-6-luna"), null);
+});
+
+test("judge persists provider failure class without exposing raw error details", () => {
+  assert.equal(judgeProviderFailureCode({ name: "APIError", status: 413, message: "sensitive request content" }), "judge_provider_http_413");
+  assert.equal(judgeProviderFailureCode({ name: "APIConnectionTimeoutError" }), "judge_provider_connection_failed");
+  assert.equal(judgeProviderFailureCode(new Error("sensitive request content")), "judge_provider_or_validation_failed");
 });
 
 test("judge runtime status reports mode and readiness without exposing credentials", () => {
@@ -57,7 +63,9 @@ test("persisted judge runtime completes and stores a result for every active age
   const originalFetch = globalThis.fetch;
   const persisted: Array<Record<string, unknown>> = [];
   let currentCode: (typeof AGENT_EVAL_AGENT_CODES)[number] = AGENT_EVAL_AGENT_CODES[0]!;
-  globalThis.fetch = async () => {
+  let a15JudgeRequestBody: string | null = null;
+  globalThis.fetch = async (_input, init) => {
+    if (currentCode === "a15_analista_imagenes") a15JudgeRequestBody = String(init?.body ?? "");
     const modelOutput = {
       summary: `Mock review for ${currentCode}`,
       criteria: AGENT_JUDGE_RUBRICS[currentCode].map((criterion) => ({
@@ -131,7 +139,8 @@ test("persisted judge runtime completes and stores a result for every active age
           generationStatus: "succeeded",
           triggerType: "manual",
           expectedToolCallCount: 0,
-          ...(visual ? { visualEvidence: { images: [{ base64: png, mediaType: "image/png" as const, label: "test evidence" }], sha256: "a".repeat(64) } } : {}),
+          ...(visual ? { visualEvidence: { images: [{ base64: png, mediaType: "image/png" as const, label: "test evidence" }], sha256: "a".repeat(64), imageSha256: ["a".repeat(64)] } } : {}),
+          ...(code === "a15_analista_imagenes" ? { candidateModel: "gpt-6-luna", candidateProvider: "openai", sourceAssetId: "fixture-image-id" } : {}),
         },
       );
       assert.ok(outcome.judgment_id, `${code} must persist a judgment row`);
@@ -143,6 +152,13 @@ test("persisted judge runtime completes and stores a result for every active age
   }
   assert.equal(persisted.length, AGENT_EVAL_AGENT_CODES.length);
   assert.deepEqual(persisted.map((row) => row.agent_code).sort(), [...AGENT_EVAL_AGENT_CODES].sort());
+  const capturedA15Body = a15JudgeRequestBody as string | null;
+  assert.match(capturedA15Body ?? "", /runtime_verified_visual_lineage/);
+  assert.match(capturedA15Body ?? "", /same_frozen_sha256_bytes_sent_to_candidate_and_judge/);
+  assert.match(capturedA15Body ?? "", /no demuestra propiedad/);
+  assert.match(capturedA15Body ?? "", /fixture-image-id/);
+  assert.match(capturedA15Body ?? "", /candidate_model/);
+  assert.match(capturedA15Body ?? "", /asset_version_kind/);
 });
 
 test("shadow mode enqueues judge work without waiting for the provider", async () => {
@@ -323,4 +339,21 @@ test("visual judge hashes validated base64 supplied by internal render preparers
     [{ base64: png.toString("base64"), mediaType: "image/jpeg", label: "Tipo falsificado" }],
   );
   assert.equal(mismatch, null);
+});
+
+test("visual candidate reuses the exact validated bytes that the judge will receive", () => {
+  const base64 = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64");
+  const evidence = {
+    images: [{ base64, mediaType: "image/png" as const, role: "imagen original evaluada", label: "activo" }],
+    sha256: "a".repeat(64),
+    imageSha256: ["b".repeat(64)],
+  };
+  const candidateImages = candidateImagesFromFrozenJudgeEvidence(evidence);
+  assert.equal(candidateImages?.length, 1);
+  assert.equal(candidateImages?.[0] && "base64" in candidateImages[0] ? candidateImages[0].base64 : null, base64);
+  assert.equal(candidateImages?.[0]?.role, "contenido");
+  assert.equal(candidateImagesFromFrozenJudgeEvidence({
+    ...evidence,
+    images: [{ url: "https://project.supabase.co/storage/v1/object/public/marketing-assets/org/item.png" }],
+  }), null, "URLs are not frozen evidence and cannot claim candidate/judge byte parity");
 });
