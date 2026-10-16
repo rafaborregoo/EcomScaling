@@ -17,7 +17,10 @@
 set -Eeuo pipefail
 
 host="${ECOM_SSH_HOST:-ecom}"
-remote="/opt/e-nora"
+# El stack se llama e-nora desde rename-to-e-nora.sh, pero el directorio sigue siendo
+# /opt/ecomscaling (moverlo exige sudo). Los scripts del repo dicen /opt/e-nora: al
+# copiarlos se reescribe esa ruta a la real.
+remote="${ECOM_REMOTE_DIR:-/opt/ecomscaling}"
 compose="-f $remote/docker-compose.prod.yml -f $remote/docker-compose.build.yml"
 
 cd "$(git rev-parse --show-toplevel)"
@@ -96,8 +99,13 @@ echo "==> 4/6 Config del VPS: compose, cron y runner de jobs"
 # Los compose van aqui porque run-worker-job.sh depende de docker-compose.build.yml
 # en el VPS: si el repo lo cambia y el VPS no se entera, los 22 jobs del cron se
 # caen sin que nadie lo vea hasta la madrugada siguiente.
-scp deploy/docker-compose.prod.yml deploy/docker-compose.build.yml \
-    ops/vps/run-worker-job.sh ops/vps/e-nora.crontab "$host:$remote/"
+stage="$(mktemp -d)"
+cp deploy/docker-compose.prod.yml deploy/docker-compose.build.yml "$stage/"
+sed "s#/opt/e-nora#$remote#g" ops/vps/run-worker-job.sh > "$stage/run-worker-job.sh"
+sed "s#/opt/e-nora#$remote#g" ops/vps/e-nora.crontab > "$stage/e-nora.crontab"
+scp "$stage/docker-compose.prod.yml" "$stage/docker-compose.build.yml" \
+    "$stage/run-worker-job.sh" "$stage/e-nora.crontab" "$host:$remote/"
+rm -rf "$stage"
 ssh "$host" "chmod 750 $remote/run-worker-job.sh && crontab $remote/e-nora.crontab"
 # El Caddyfile no se sincroniza: cambiarlo exige recargar Caddy, que este script
 # no toca. Se copia a mano y `docker compose restart caddy`.
