@@ -32,6 +32,8 @@ jobs:
         run: npm run verify
 
       - name: Build shared packages and API
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build:packages && npm run build --workspace=@e-nora/api
 
       - name: Run AI contracts, rubrics and calibration tests
