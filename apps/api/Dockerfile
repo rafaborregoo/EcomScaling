@@ -12,7 +12,7 @@ WORKDIR /app
 # "JavaScript heap out of memory", incluso compilando un solo servicio. Subir
 # el limite deja que V8 use el swap en vez de abortar; en una runner de CI con
 # mas RAM esto no reserva nada de mas, solo levanta el techo.
-ENV NODE_OPTIONS=--max-old-space-size=2048
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 COPY package.json package-lock.json ./
 COPY packages/ai/package.json packages/ai/package.json

@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Ver apps/api/Dockerfile: el VPS de produccion solo tiene 1.6GB de RAM y tsc
 # agota el heap por defecto de Node a mitad de compilacion sin esto.
-ENV NODE_OPTIONS=--max-old-space-size=2048
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 COPY package.json package-lock.json ./
 COPY packages/ai/package.json packages/ai/package.json
