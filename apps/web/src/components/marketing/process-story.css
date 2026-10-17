@@ -40,3 +40,4 @@ html:has(.enoraProcess_story){scroll-behavior:smooth;scroll-snap-type:y mandator
 .enoraPhase_actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.enoraPhase_secondary{display:inline-flex;align-items:center;min-height:48px;margin-top:24px;padding:0 6px;color:var(--green);font-size:14px;font-weight:600;text-decoration:none}.enoraPhase_secondary:hover{text-decoration:underline}
 @media(max-width:760px){.enoraProcess_caption em,.enoraProcess_progress{display:none}.enoraProcess_caption{position:absolute;bottom:7px}.enoraProcess_caption span{font-size:9px}}
 @media(prefers-reduced-motion:reduce){.enoraProcess_float{animation:none!important}.enoraProcess_progress i{transition:none}}
+@media(max-width:760px){html:has(.enoraProcess_story){scroll-padding-top:60px}.enoraProcess_visual{top:60px}}

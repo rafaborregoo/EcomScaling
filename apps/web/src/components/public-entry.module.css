@@ -118,3 +118,11 @@
   .footer { justify-content: center; text-align: center; padding: 0 20px 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .nav a { transition: none; } }
+/* Conoce E-NORA en móvil: cabecera fija arriba (logo + dos botones) para poder volver a ella con el snap obligatorio. */
+@media (max-width: 760px) {
+  .shell[data-entry="platform"] .header { position: sticky; top: 0; z-index: 50; grid-template-columns: auto 1fr; justify-items: stretch; gap: 8px; height: 60px; padding: 0 12px; }
+  .shell[data-entry="platform"] .logo { justify-self: start; min-height: 40px; }
+  .shell[data-entry="platform"] .logo img { height: 22px; }
+  .shell[data-entry="platform"] .nav { grid-column: 2; justify-self: end; width: auto; max-width: none; }
+  .shell[data-entry="platform"] .nav a { min-height: 38px; padding: 0 12px; font-size: 13px; }
+}
