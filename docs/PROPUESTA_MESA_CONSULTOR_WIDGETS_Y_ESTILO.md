@@ -10,7 +10,7 @@ La mesa debe ayudar al consultor a responder tres preguntas en pocos segundos: *
 
 Mi propuesta es una mesa sobria, compacta y con jerarquía clara. La cola de trabajo ocupa el espacio principal; la cartera permite comparar clientes; la agenda aporta contexto. Las métricas de negocio aparecen cuando ayudan a tomar una decisión.
 
-Esta propuesta complementa el [plan funcional de mesa diaria](PLAN_MESA_TRABAJO_DIARIA_CONSULTOR.md). Se apoya en el [contexto de producto](../apps/web/PRODUCT.md) y conserva los [tokens visuales aprobados](decisions/ADR-0020-design-tokens-y-escala.md).
+Esta propuesta complementa el [plan funcional de mesa diaria](PLAN_MESA_TRABAJO_DIARIA_CONSULTOR.md). Se apoya en el `apps/web/PRODUCT.md` y conserva los [tokens visuales aprobados](decisions/ADR-0020-design-tokens-y-escala.md).
 
 Supuesto de uso: un consultor entra varias veces al día, gestiona varios clientes y necesita preparar llamadas, desbloquear trabajo y revisar propuestas. Las recomendaciones siguientes describen cómo organizar esa experiencia; la disponibilidad de cada fuente debe comprobarse al implementarla.
 

@@ -679,7 +679,7 @@ Antes de afirmar liderazgo comercial falta un benchmark ciego con alternativas r
 
 ### Contexto interno consultado
 
-- [Producto web](../apps/web/PRODUCT.md).
+- `apps/web/PRODUCT.md`.
 - [Plan del copiloto integrado](PLAN_COPILOTO_INTEGRADO.md).
 - [Auditoría previa de gráficos/RAG y correcciones posteriores](AUDITORIA_COPILOTO_GRAFICOS_RAG.md).
 - [Arquitectura de IA](ai/AI_ARCHITECTURE.md) y [seguridad de IA](ai/AI_SECURITY.md).

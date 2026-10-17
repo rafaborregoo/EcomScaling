@@ -52,7 +52,7 @@ La validación comunicada de esta entrega incluye 47 tests aprobados: 41 existen
 
 Se probaron con sesión de cliente Prioridades, Shopify, Meta, Klaviyo e Informes en escritorio de 1440×1000 y móvil de 390×844. La comprobación cubrió ausencia de desbordamiento horizontal de página, destinos válidos de enlaces locales, selección del gráfico con ArrowLeft, cambio de periodo 90→7→30 y búsqueda sin coincidencias/restablecimiento en Informes.
 
-Las capturas completas y de viewport por prefijo `client`, `shopify`, `meta`, `klaviyo` y `reports` están en [apps/web/.impeccable/review](../apps/web/.impeccable/review). El registro de tests está en [unit-tests.txt](../apps/web/.impeccable/review/unit-tests.txt).
+Las capturas completas y de viewport por prefijo `client`, `shopify`, `meta`, `klaviyo` y `reports` están en `apps/web/.impeccable/review`. El registro de tests está en `apps/web/.impeccable/review/unit-tests.txt`.
 
 La revisión de cierre detectó cuatro problemas de interpretación: atribución, duración absoluta del periodo, spam frente a bounce y moneda/escala mensual. Los cuatro se corrigieron y recibieron evaluación `resolved`; la disposición `ship` de ese revisor se limita a esas cuatro correcciones. No equivale a aprobación visual general de todas las pantallas.
 
@@ -64,4 +64,4 @@ La revisión de cierre detectó cuatro problemas de interpretación: atribución
 - No se probaron mutaciones externas de generación, envío o publicación; su éxito no se infiere del rediseño ni de las capturas.
 - La revisión no acredita contratos ni cambios backend previos o fuera de alcance.
 
-El sistema visual implementado queda registrado en [DESIGN.md](../apps/web/DESIGN.md), su extensión [design.json](../apps/web/.impeccable/design.json) y el [contrato de superficie](../apps/web/.impeccable/surfaces/src-app-dashboard.md). Esas fuentes distinguen los tokens efectivos, el alcance local y las limitaciones verificadas.
+El sistema visual implementado queda registrado en [DESIGN.md](../apps/web/DESIGN.md), su extensión `apps/web/.impeccable/design.json` y el `apps/web/.impeccable/surfaces/src-app-dashboard.md`. Esas fuentes distinguen los tokens efectivos, el alcance local y las limitaciones verificadas.

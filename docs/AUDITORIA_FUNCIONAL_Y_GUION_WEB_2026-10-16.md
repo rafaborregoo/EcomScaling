@@ -162,4 +162,4 @@ La expansión inicial puede usar secciones ancladas en la misma ruta, con el mis
 - Límite actual de Meta: [meta-ad-plan-block.tsx](../apps/web/src/app/marketing/meta-ad-plan-block.tsx), [meta-ad-write-plan.ts](../apps/api/src/meta-ad-write-plan.ts), [meta-ad-executor.ts](../packages/integrations/src/meta-ad-executor.ts).
 - Informes: [report-generate.ts](../apps/api/src/report-generate.ts), [report-templates.ts](../apps/api/src/report-templates.ts), [reports-api.ts](../apps/api/src/reports-api.ts).
 - Colaboración: [consultant-messages.ts](../apps/api/src/consultant-messages.ts), [operations.ts](../apps/api/src/operations.ts), [calls.ts](../apps/api/src/calls.ts), [calls-client.tsx](../apps/web/src/app/llamadas/calls-client.tsx).
-- Contraste histórico: [PRODUCT.md](../apps/web/PRODUCT.md), [INVENTARIO_METRICAS.md](./INVENTARIO_METRICAS.md), [OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md](./OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
+- Contraste histórico: `apps/web/PRODUCT.md`, [INVENTARIO_METRICAS.md](./INVENTARIO_METRICAS.md), [OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md](./OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
