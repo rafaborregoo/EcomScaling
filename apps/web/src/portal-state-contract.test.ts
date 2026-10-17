@@ -25,7 +25,12 @@ const authenticatedPortalRoutes = [
 test("las rutas autenticadas mantienen el contrato de estados de producto", () => {
   for (const route of authenticatedPortalRoutes) {
     const pagePath = resolve(sourceDirectory, "app", route, "page.tsx");
-    const source = readFileSync(pagePath, "utf8");
+    // Los estados pueden vivir en ficheros hermanos de la ruta (p. ej. client-dashboard.tsx).
+    const routeDir = dirname(pagePath);
+    const source = readdirSync(routeDir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(".tsx") && !e.name.endsWith(".test.tsx"))
+      .map((e) => readFileSync(resolve(routeDir, e.name), "utf8"))
+      .join("\n");
 
     // PortalShell vive normalmente en page.tsx, pero una ruta con subrutas
     // propias (p. ej. marketing/guia, marketing/plantillas) puede moverlo a un
