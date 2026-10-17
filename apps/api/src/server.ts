@@ -291,6 +291,7 @@ import {
   listShopifyCatalogProducts,
 } from "./shopify-catalog.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
+import { getShopifyToday } from "./shopify-today.js";
 import { getMetricAnalysis } from "./metric-analysis.js";
 
 // A29: periodo de la explicacion (mismo rango que /metric-analysis) y cada cuanto se puede
@@ -6460,6 +6461,22 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendServiceFailure(reply, result);
       }
 
+      return result.data;
+    },
+  );
+
+  // "Hoy" de la app movil: desde las 00:00 de la tienda frente al mismo tramo de hace una semana.
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
+    "/v1/organizations/:organizationId/shopify/today",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+      const result = await getShopifyToday(env, request.headers.authorization!, auth.context, request.params.organizationId, request.query.connectionId);
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
       return result.data;
     },
   );

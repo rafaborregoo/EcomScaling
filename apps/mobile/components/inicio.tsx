@@ -10,9 +10,13 @@ import { smallTitle } from "./bloques";
 
 const GOOD = "#0f9d7a";
 
-const arrow = (delta: number) => `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(1).replace(".", ",")} %`;
+/** Variación con flecha. `pp`: puntos porcentuales (una tasa que pasa del 2,0 % al 2,2 % sube 0,2 pp, no un 10 %). */
+const arrow = (delta: number, pp?: boolean) => `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(pp ? 2 : 1).replace(".", ",")}${pp ? " pp" : " %"}`;
 
-/** Nombre de la tienda a la izquierda y periodo a la derecha, en una sola línea. */
+/** Periodo "Hoy" en el selector: desde las 00:00 de la tienda. */
+export const TODAY = 0;
+
+/** Nombre de la tienda a la izquierda y periodo a la derecha, en una sola línea. La opción `TODAY` se lee "Hoy". */
 export function TopBar({ name, options, days, onChange }: { name: string; options: number[]; days: number; onChange: (d: number) => void }) {
   const th = useTheme();
   return (
@@ -22,8 +26,8 @@ export function TopBar({ name, options, days, onChange }: { name: string; option
         {options.map((d) => {
           const on = d === days;
           return (
-            <Pressable key={d} onPress={() => onChange(d)} hitSlop={4} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`${d} días`} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: on ? c.bg : "transparent" }}>
-              <Text style={{ fontSize: 13, fontFamily: on ? font.semibold : font.regular, color: on ? th.ink : c.muted }}>{d} d</Text>
+            <Pressable key={d} onPress={() => onChange(d)} hitSlop={4} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={d === TODAY ? "Hoy" : `${d} días`} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: on ? c.bg : "transparent" }}>
+              <Text style={{ fontSize: 13, fontFamily: on ? font.semibold : font.regular, color: on ? th.ink : c.muted }}>{d === TODAY ? "Hoy" : `${d} d`}</Text>
             </Pressable>
           );
         })}
@@ -41,6 +45,8 @@ export type HeroMetric = {
   lowerIsBetter?: boolean;
   /** Ni buena ni mala (la inversión): la variación va en gris. */
   neutral?: boolean;
+  /** La variación está en puntos porcentuales (tasas). */
+  pp?: boolean;
   /** Serie del gráfico; sin ella la cifra se enseña sola. */
   points?: Point[];
   format?: (v: number) => string;
@@ -67,7 +73,7 @@ export function Hero({ metrics, compare, height = 160 }: { metrics: HeroMetric[]
         {point ? (point.y == null ? "—" : (m.format ?? String)(point.y)) : m.value}
       </Text>
       <Text style={{ fontSize: 13, fontFamily: font.medium, color: point || m.delta == null || !Number.isFinite(m.delta) ? c.muted : m.neutral ? c.muted : good ? GOOD : c.danger }}>
-        {point ? point.label : m.delta != null && Number.isFinite(m.delta) ? `${arrow(m.delta)} vs ${compare}` : " "}
+        {point ? point.label : m.delta != null && Number.isFinite(m.delta) ? `${arrow(m.delta, m.pp)} vs ${compare}` : " "}
       </Text>
       {hasChart && (
         <View style={{ marginTop: 8 }}>
@@ -122,7 +128,7 @@ export function AllClear() {
 }
 
 /** Fila de un canal en Todo: color de marca, su cifra propia y variación. Tocarla abre la vista del canal. */
-export function ChannelRow({ name, color, caption, value, delta, lowerIsBetter, first, onPress }: { name: string; color: string; caption: string; value?: string; delta?: number | null; lowerIsBetter?: boolean; first?: boolean; onPress: () => void }) {
+export function ChannelRow({ name, color, caption, value, delta, pp, lowerIsBetter, first, onPress }: { name: string; color: string; caption: string; value?: string; delta?: number | null; pp?: boolean; lowerIsBetter?: boolean; first?: boolean; onPress: () => void }) {
   const good = delta != null && (lowerIsBetter ? delta <= 0 : delta >= 0);
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Abrir ${name}`} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 16, borderTopWidth: first ? 0 : 1, borderTopColor: c.edge }}>
@@ -134,7 +140,7 @@ export function ChannelRow({ name, color, caption, value, delta, lowerIsBetter, 
       {value ? (
         <View style={{ alignItems: "flex-end" }}>
           <Text style={{ fontSize: 17, fontFamily: font.semibold, color: c.ink }}>{value}</Text>
-          {delta != null && Number.isFinite(delta) && <Text style={{ fontSize: 12, fontFamily: font.medium, color: good ? GOOD : c.danger }}>{arrow(delta)}</Text>}
+          {delta != null && Number.isFinite(delta) && <Text style={{ fontSize: 12, fontFamily: font.medium, color: good ? GOOD : c.danger }}>{arrow(delta, pp)}</Text>}
         </View>
       ) : null}
       <ChevronRight size={18} color={c.muted} />

@@ -21,7 +21,7 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_BATCH = 100;
 
 type PendingRow = { id: string; user_id: string; type: string; title: string; message: string | null; created_at: string };
-export type PushMessage = { to: string; title: string; body: string; sound: "default"; priority: "high"; data: { notificationId: string } };
+export type PushMessage = { to: string; title: string; body: string; sound: "default"; priority: "high"; data: { notificationId: string; type: string } };
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -55,7 +55,7 @@ export function buildPushMessages(rows: PendingRow[], tokensByUser: Map<string, 
   for (const row of rows) {
     if (quietUsers.has(row.user_id) && row.type !== "alert_critical") continue;
     for (const to of tokensByUser.get(row.user_id) ?? []) {
-      out.push({ to, title: row.title, body: row.message ?? "", sound: "default", priority: "high", data: { notificationId: row.id } });
+      out.push({ to, title: row.title, body: row.message ?? "", sound: "default", priority: "high", data: { notificationId: row.id, type: row.type } });
     }
   }
   return out;

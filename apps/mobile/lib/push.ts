@@ -34,3 +34,20 @@ export async function unregisterPush() {
   current = null;
   await apiSend("DELETE", "/v1/me/push-token", { token }).catch(() => {});
 }
+
+/** Tipo del aviso que llega en `data.type` (alert, alert_critical, message, task_assigned...). */
+export type PushKind = string;
+
+/**
+ * Llama a `onOpen` con el tipo del aviso cuando el usuario toca una notificación, también si la app estaba cerrada
+ * y se abrió por ella. Devuelve la función para dejar de escuchar.
+ */
+export function onPushOpened(onOpen: (kind: PushKind) => void) {
+  const read = (r: Notifications.NotificationResponse | null) => {
+    const kind = r?.notification.request.content.data?.type;
+    if (r) onOpen(typeof kind === "string" ? kind : "");
+  };
+  Notifications.getLastNotificationResponseAsync().then(read).catch(() => {});
+  const sub = Notifications.addNotificationResponseReceivedListener(read);
+  return () => sub.remove();
+}

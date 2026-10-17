@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react-native";
 import { supabase } from "../lib/supabase";
 import { apiGet, type Bootstrap } from "../lib/api";
 import { clearApiCache } from "../lib/use-api";
-import { registerForPush, unregisterPush } from "../lib/push";
+import { onPushOpened, registerForPush, unregisterPush } from "../lib/push";
 import { c, font } from "../lib/theme";
 import { CopilotoModule } from "./copiloto";
 import { DashboardSelector, HeaderSelect, HomeContent, type DashTab } from "./dashboard";
@@ -59,10 +59,20 @@ export function AppShell() {
       },
       (e: Error) => setError(e.message),
     );
+    // Tocar un aviso lleva a donde se resuelve: los mensajes a Mensajes; alertas y tareas a «Para hoy» de Inicio.
+    const stopPush = onPushOpened((kind) => {
+      if (kind === "message") {
+        setModule("mensajes");
+        return;
+      }
+      setModule("inicio");
+      setDashTab((tab) => (tab === "cartera" ? tab : "todo"));
+    });
     // Con el teclado abierto el nav estorba: se esconde.
     const show = Keyboard.addListener("keyboardDidShow", () => setKeyboard(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboard(false));
     return () => {
+      stopPush();
       show.remove();
       hide.remove();
     };
