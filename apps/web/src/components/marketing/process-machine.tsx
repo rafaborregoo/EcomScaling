@@ -22,8 +22,8 @@ type Painter = (k: Kit) => void;
 
 const P = { origin: [420, 170] as [number, number], scale: 1.55 };
 const c = {
-  ink: "#33403c", green: "#176b64", shopify: "#3f9c6d", meta: "#2f6fe0", klaviyo: "#3a3836", coral: "#e0795b",
-  gold: "#e8b94a", sand: "#efe6d6", wood: "#c99a6b", paper: "#ffffff", cream: "#f6f2ea", sky: "#cfe4f2", mint: "#d7ece4",
+  ink: "#33403c", green: "#3d3b3a", shopify: "#3f9c6d", meta: "#2f6fe0", klaviyo: "#3a3836", coral: "#e0795b",
+  gold: "#e8b94a", sand: "#efe6d6", wood: "#c99a6b", paper: "#ffffff", cream: "#f6f2ea", sky: "#cfe4f2", mint: "#e6e4e2",
   grey: "#a9b8b2", skin: "#f1d3b6", card: "#d8b48a",
 };
 const routeColors = { shopify: c.shopify, meta: c.meta, klaviyo: c.klaviyo };
@@ -142,7 +142,7 @@ function calendar(k: Kit, x: number, y: number, z: number, marked: number) {
 
 function chart(k: Kit, x: number, y: number, z: number, heights: number[], alertAt = -1) {
   k.block(x, y, 18 + heights.length * 9, 22, z, 2, c.paper, { r: 3 });
-  heights.forEach((h, i) => k.block(x + 6 + i * 9, y + 8, 5, 6, z + 2, h, i === alertAt ? c.coral : i === heights.length - 1 ? c.green : "#8fb3a7", { r: 1 }));
+  heights.forEach((h, i) => k.block(x + 6 + i * 9, y + 8, 5, 6, z + 2, h, i === alertAt ? c.coral : i === heights.length - 1 ? c.green : "#b3afac", { r: 1 }));
 }
 
 // ── Chapters ────────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ const numbers: Painter = (k) => {
   k.block(40, 22, 130, 5, 0, 4, c.wood, { r: 1 });
   k.block(44, 23, 122, 3, 4, 52, c.ink, { r: 2 });
   k.block(47, 26, 116, .6, 8, 44, c.mint, { r: 1 });
-  [12, 18, 15, 24, 30, 36].forEach((h, i) => k.block(56 + i * 17, 26.6, 9, .6, 13, h, i === 5 ? c.green : "#8fb3a7", { r: 1 }));
+  [12, 18, 15, 24, 30, 36].forEach((h, i) => k.block(56 + i * 17, 26.6, 9, .6, 13, h, i === 5 ? c.green : "#b3afac", { r: 1 }));
   [2, 4, 6, 9].forEach((n, i) => coins(k, 70 + i * 26, 64, 0, n));
   calendar(k, 22, 104, 0, 6);
   const receipt = k.block(110, 104, 34, 26, 0, 1.2, c.paper, { r: 1 });
@@ -232,7 +232,7 @@ const copilot: Painter = (k) => {
   k.block(44, 44, .6, 66, 8, 42, c.paper, { r: 1 });
   k.block(44.6, 48, .6, 36, 38, 9, c.mint, { r: 1 });
   k.block(44.6, 70, .6, 36, 13, 20, "#eef3f1", { r: 1 });
-  [6, 10, 8, 14].forEach((h, i) => k.block(44.8, 76 + i * 6, .6, 3.5, 16, h, i === 3 ? c.green : "#8fb3a7", { r: 0 }));
+  [6, 10, 8, 14].forEach((h, i) => k.block(44.8, 76 + i * 6, .6, 3.5, 16, h, i === 3 ? c.green : "#b3afac", { r: 0 }));
   bubble(k, 120, 28, 52, 44, 18, c.paper, 2);
   bubble(k, 136, 64, 30, 50, 22, c.mint, 3);
   [0, 1, 2].forEach((i) => {

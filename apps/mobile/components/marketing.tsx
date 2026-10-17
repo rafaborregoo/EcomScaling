@@ -5,7 +5,7 @@ import { WebView } from "react-native-webview";
 import { useApi } from "../lib/use-api";
 import { c, fmtCurrency, fmtNum, font } from "../lib/theme";
 import { Sheet } from "./sheet";
-import { FlowsSection } from "./flows";
+import { FlowsSection, type KlaviyoFlow } from "./flows";
 import { EstudioModal } from "./estudio";
 import { MiniPreview } from "./estudio-canvas";
 import { ListCard, ListRow, Note, PeriodChips, RowMeta, RowTitle, Screen, SubNav, Status, SummaryRow } from "./ui";
@@ -27,7 +27,7 @@ type Campaign = {
   audiences: { included: Audience[]; excluded: Audience[] } | null;
   stats: Stats | null;
 };
-type Flow = { id: string; name: string; status: string | null; trigger_type: string | null; stats: Stats | null };
+type Flow = KlaviyoFlow;
 type StudioDraft = { id: string; status: "draft" | "pending_approval" | "approved" | "rejected" | "published"; content_type: string; request: { channel?: string } | null; template_name: string; subject: string; html: string; updated_at: string };
 const DRAFT_STATUS: Record<StudioDraft["status"], string> = { draft: "Borrador", pending_approval: "En revisión", approved: "Aprobada", rejected: "Con cambios", published: "Publicada" };
 
@@ -245,7 +245,7 @@ export function MarketingModule({ org }: { org: Org }) {
   return (
     <Screen flat title="Marketing" subtitle={org.name} onRefresh={async () => void (await Promise.all([reload(), drafts.reload()]))}>
       {nav}
-      {data?.connected && (
+      {data?.connected && section !== "flows" && (
         <Pressable onPress={() => setCreating(true)} style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 14, backgroundColor: c.ink }}>
           <Plus size={18} color="#fff" />
           <Text style={{ fontSize: 15, fontFamily: font.semibold, color: "#fff" }}>Nueva campaña</Text>

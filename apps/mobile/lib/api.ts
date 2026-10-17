@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { fetch as streamFetch } from "expo/fetch";
 
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -48,4 +49,39 @@ export async function apiSend<T = unknown>(method: "POST" | "PUT" | "PATCH" | "D
     throw Object.assign(new Error(detail?.message ?? detail?.error ?? `${path} -> ${res.status}`), { status: res.status, canUpgrade: detail?.can_upgrade === true });
   }
   return (await res.json().catch(() => ({}))) as T;
+}
+
+/** POST con respuesta NDJSON en directo (una línea JSON por evento). Mismos errores que apiSend. */
+export async function apiStream(path: string, body: unknown, onEvent: (event: { type: string; [key: string]: unknown }) => void, timeoutMs = 120_000): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const res = await streamFetch(`${apiUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  }).catch(() => {
+    throw new Error(`No llego a la API (${apiUrl}). Revisa wifi y firewall.`);
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string; message?: string; can_upgrade?: boolean } | null;
+    throw Object.assign(new Error(detail?.message ?? detail?.error ?? `${path} -> ${res.status}`), { status: res.status, canUpgrade: detail?.can_upgrade === true });
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No se pudo leer la respuesta en directo.");
+  const decoder = new TextDecoder();
+  let pending = "";
+  const accept = (line: string) => {
+    if (line.trim()) onEvent(JSON.parse(line));
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    pending += decoder.decode(value, { stream: !done });
+    for (let nl = pending.indexOf("\n"); nl >= 0; nl = pending.indexOf("\n")) {
+      accept(pending.slice(0, nl));
+      pending = pending.slice(nl + 1);
+    }
+    if (done) break;
+  }
+  accept(pending);
 }

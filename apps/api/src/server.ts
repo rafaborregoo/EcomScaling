@@ -841,6 +841,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     { parseAs: "buffer" },
     (_request, body, done) => done(null, body),
   );
+
+  // Un cuerpo JSON vacío (p. ej. un DELETE que manda Content-Type: application/json sin cuerpo, como hace el cliente
+  // móvil de forma genérica) no es un error: se lee como «sin cuerpo». El resto se parsea con el parser por defecto de
+  // Fastify, que conserva la protección contra __proto__ y constructor.
+  const parseJsonBody = app.getDefaultJsonParser("error", "error");
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    if (typeof body === "string" && body.trim() === "") return done(null, undefined);
+    parseJsonBody(request, body as string, done);
+  });
   registerInternalMailingVisualImageBodyParser(app);
 
   await app.register(cors, {
@@ -11846,6 +11856,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(async (webhookScope) => {
+    // El parser JSON del padre ya no es el de fábrica; este ámbito necesita el cuerpo crudo para firmar webhooks.
+    webhookScope.removeContentTypeParser("application/json");
     webhookScope.addContentTypeParser(
       "application/json",
       { parseAs: "buffer" },

@@ -45,15 +45,17 @@ export type Theme = {
   soft: string;
   ink: string;
   secondary: string;
+  /** Color de marca del canal para cifras y líneas (en "klaviyo" el acento del tema sigue siendo grafito). */
+  tone: string;
   radius: number;
   card: { borderWidth: number; borderColor: string; shadowOpacity: number; shadowRadius: number; elevation: number };
 };
 
 export const themes = {
-  todo: { paper: c.bg, accent: c.accent, soft: c.accentTint, ink: c.ink, secondary: c.ink, radius: 16, card: { borderWidth: 1, borderColor: c.edge, shadowOpacity: 0, shadowRadius: 0, elevation: 0 } },
-  shopify: { paper: "#e9f3ee", accent: "#008060", soft: "#e0f2ea", ink: "#004c3f", secondary: "#95bf47", radius: 12, card: { borderWidth: 0, borderColor: "transparent", shadowOpacity: 0.08, shadowRadius: 2, elevation: 1 } },
-  meta: { paper: "#e6effc", accent: "#0866ff", soft: "#e5eefe", ink: "#0a4fc4", secondary: "#7fb0ff", radius: 8, card: { borderWidth: 0, borderColor: "transparent", shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 } },
-  klaviyo: { paper: "#efefef", accent: "#232426", soft: "#ececed", ink: "#232426", secondary: "#9a9a9f", radius: 4, card: { borderWidth: 1, borderColor: "#dcdcde", shadowOpacity: 0, shadowRadius: 0, elevation: 0 } },
+  todo: { paper: c.bg, accent: c.accent, soft: c.accentTint, ink: c.ink, secondary: c.ink, tone: c.ink, radius: 16, card: { borderWidth: 1, borderColor: c.edge, shadowOpacity: 0, shadowRadius: 0, elevation: 0 } },
+  shopify: { paper: "#e9f3ee", accent: "#008060", soft: "#e0f2ea", ink: "#004c3f", secondary: "#95bf47", tone: "#008060", radius: 12, card: { borderWidth: 0, borderColor: "transparent", shadowOpacity: 0.08, shadowRadius: 2, elevation: 1 } },
+  meta: { paper: "#e6effc", accent: "#0866ff", soft: "#e5eefe", ink: "#0a4fc4", secondary: "#7fb0ff", tone: "#0866ff", radius: 8, card: { borderWidth: 0, borderColor: "transparent", shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 } },
+  klaviyo: { paper: "#efefef", accent: "#232426", soft: "#ececed", ink: "#232426", secondary: "#9a9a9f", tone: "#0f9d7a", radius: 4, card: { borderWidth: 1, borderColor: "#dcdcde", shadowOpacity: 0, shadowRadius: 0, elevation: 0 } },
 } satisfies Record<string, Theme>;
 export type ThemeKey = keyof typeof themes;
 
@@ -72,3 +74,6 @@ export const cardStyle = (th: Theme, background = c.bg) => ({
   shadowOffset: { width: 0, height: 1 },
   elevation: th.card.elevation,
 });
+
+/** Verde de acento de las pantallas de Klaviyo (barras, cifras destacadas); el tema del canal sigue siendo grafito. */
+export const klaviyo = { mint: "#0f9d7a", soft: "#e0f5ee", amber: "#e8a317" };

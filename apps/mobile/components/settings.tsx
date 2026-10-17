@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from "react";
-import { Linking, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Animated, Linking, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Check, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Plug, Shield, Sparkles, User, UserCheck, X } from "lucide-react-native";
+import { Bell, Check, ChevronLeft, ChevronRight, CreditCard, HelpCircle, Plug, Shield, Sparkles, User, UserCheck } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { apiSend, type Bootstrap } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { useApi } from "../lib/use-api";
 import { c, font } from "../lib/theme";
+import { useSwipeDown } from "./sheet";
 import { ListCard, ListRow, Note, RowMeta, RowTitle, Status } from "./ui";
 import type { Org } from "./views";
 
@@ -28,6 +29,9 @@ export function SettingsModal({ visible, onClose, boot, org, isConsultant, onSig
     onClose();
   };
 
+  const back = page ? () => setPage(null) : close;
+  const swipe = useSwipeDown(back);
+
   const item = (key: Page, label: string, Icon: LucideIcon, first = false) => (
     <ListRow key={key} first={first} onPress={() => setPage(key)} right={<ChevronRight size={18} color={c.muted} />}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -40,18 +44,13 @@ export function SettingsModal({ visible, onClose, boot, org, isConsultant, onSig
   const titles: Record<Page, string> = { perfil: "Perfil", notificaciones: "Notificaciones", seguridad: "Seguridad", integraciones: "Integraciones", copiloto: "Copiloto IA", consultor: "Tu consultor", plan: "Plan", ayuda: "Ayuda y legal" };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={page ? () => setPage(null) : close}>
-      <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.edge }}>
-          {page ? (
-            <Pressable onPress={() => setPage(null)} hitSlop={10}>
-              <ChevronLeft size={24} color={c.ink} />
-            </Pressable>
-          ) : null}
-          <Text style={{ flex: 1, fontSize: 18, fontFamily: font.semibold, color: c.ink }}>{page ? titles[page] : "Configuración"}</Text>
-          <Pressable onPress={close} hitSlop={10} accessibilityLabel="Cerrar">
-            <X size={22} color={c.muted} />
+    <Modal visible={visible} animationType="slide" onRequestClose={back}>
+      <Animated.View style={[{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }, swipe.style]}>
+        <View {...swipe.panHandlers} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.edge }}>
+          <Pressable onPress={back} hitSlop={10} accessibilityLabel="Volver">
+            <ChevronLeft size={24} color={c.ink} />
           </Pressable>
+          <Text style={{ flex: 1, fontSize: 18, fontFamily: font.semibold, color: c.ink }}>{page ? titles[page] : "Configuración"}</Text>
         </View>
 
         <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
@@ -86,7 +85,7 @@ export function SettingsModal({ visible, onClose, boot, org, isConsultant, onSig
           {page === "plan" && org && <Plan org={org} />}
           {page === "ayuda" && <Ayuda />}
         </ScrollView>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

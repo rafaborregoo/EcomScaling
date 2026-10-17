@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
-import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import * as Haptics from "expo-haptics";
 import { c, cardStyle, font, useTheme } from "../lib/theme";
@@ -18,7 +18,7 @@ export type ChartTab = {
   summary: string;
 };
 
-const PAD = { t: 8, b: 22, l: 0, r: 4 };
+const PAD = { t: 18, b: 22, l: 0, r: 8 };
 
 const compact = (v: number) => {
   const abs = Math.abs(v);
@@ -32,7 +32,7 @@ const compact = (v: number) => {
  */
 function LineChart({ series: raw, height, onActive }: { series: Series[]; height: number; onActive: (i: number | null) => void }) {
   const th = useTheme();
-  const series = raw.map((s) => ({ ...s, color: s.color === "accent" ? th.accent : s.color === "secondary" ? th.secondary : s.color }));
+  const series = raw.map((s) => ({ ...s, color: s.color === "accent" ? th.tone : s.color === "secondary" ? th.secondary : s.color }));
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState<number | null>(null);
   const n = series[0]?.points.length ?? 0;
@@ -89,7 +89,6 @@ function LineChart({ series: raw, height, onActive }: { series: Series[]; height
     return out;
   };
   const line = (seg: Array<[number, number]>) => seg.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)} ${py.toFixed(1)}`).join(" ");
-  const area = (seg: Array<[number, number]>) => `${line(seg)} L${seg[seg.length - 1]![0].toFixed(1)} ${PAD.t + plotH} L${seg[0]![0].toFixed(1)} ${PAD.t + plotH} Z`;
 
   const first = series[0];
   const xLabels = n > 0 && first ? [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i) : [];
@@ -99,12 +98,6 @@ function LineChart({ series: raw, height, onActive }: { series: Series[]; height
     <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ height }}>
       {width > 0 && (
         <Svg width={width} height={height}>
-          <Defs>
-            <LinearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={first?.color ?? th.accent} stopOpacity={0.22} />
-              <Stop offset="1" stopColor={first?.color ?? th.accent} stopOpacity={0} />
-            </LinearGradient>
-          </Defs>
           {[0, 0.5, 1].map((f) => (
             <Line key={f} x1={PAD.l} x2={width - PAD.r} y1={PAD.t + plotH * (1 - f)} y2={PAD.t + plotH * (1 - f)} stroke={c.edge} strokeWidth={1} strokeDasharray={f === 0 ? undefined : "3 4"} />
           ))}
@@ -113,7 +106,6 @@ function LineChart({ series: raw, height, onActive }: { series: Series[]; height
               {compact(max * f)}
             </SvgText>
           ))}
-          {first && segments(first).map((seg, i) => seg.length > 1 && <Path key={`a${i}`} d={area(seg)} fill="url(#fill)" />)}
           {series.map((s) =>
             segments(s).map((seg, i) =>
               seg.length === 1 ? (
@@ -156,13 +148,13 @@ export function ChartCard({ title, tab, height = 190, onScrub }: { title: string
   const activeValue = active !== null && first ? first.points[active]?.y : null;
 
   return (
-    <View style={{ ...cardStyle(th), padding: 16 }}>
+    <View>
       <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: font.medium, color: c.muted }}>{title}</Text>
 
       <View style={{ marginTop: 6, minHeight: 56 }}>
         {single ? (
           <>
-            <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 28, fontFamily: font.semibold, color: c.ink }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 28, fontFamily: font.semibold, color: th.tone }}>
               {active !== null ? (activeValue == null ? "—" : tab.format(activeValue)) : tab.summary}
             </Text>
             <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>{dateLabel ?? "Mantén pulsado y arrastra"}</Text>
@@ -175,7 +167,7 @@ export function ChartCard({ title, tab, height = 190, onScrub }: { title: string
                 const v = active !== null ? s.points[active]?.y : null;
                 return (
                   <View key={s.name} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: s.color === "accent" ? th.accent : s.color === "secondary" ? th.secondary : s.color }} />
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: s.color === "accent" ? th.tone : s.color === "secondary" ? th.secondary : s.color }} />
                     <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{active !== null ? (v == null ? "—" : tab.format(v)) : s.name}</Text>
                   </View>
                 );
@@ -196,13 +188,13 @@ export function ChartCard({ title, tab, height = 190, onScrub }: { title: string
   );
 }
 
-const GAP = 12;
+const GAP = 40;
 
 /** Ruleta de gráficos: se desliza de lado, cada página encaja y deja asomar la siguiente. */
 export function ChartCarousel({ tabs: cards, suffix = "", height = 190 }: { tabs: ChartTab[]; suffix?: string; height?: number }) {
   const th = useTheme();
   const { width: screen } = useWindowDimensions();
-  const page = screen - 40 - 28; // 20 de margen a cada lado + 28 que deja asomar la siguiente
+  const page = screen - 40; // ancho completo (20 de margen a cada lado): sin gráfico asomando; los puntos indican que hay más
   const ref = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const [scrubbing, setScrubbing] = useState(false);
@@ -231,7 +223,7 @@ export function ChartCarousel({ tabs: cards, suffix = "", height = 190 }: { tabs
       <View style={{ marginTop: 12, flexDirection: "row", justifyContent: "center", gap: 6 }}>
         {cards.map((card, i) => (
           <Pressable key={card.key} hitSlop={8} onPress={() => ref.current?.scrollTo({ x: i * (page + GAP), animated: true })}>
-            <View style={{ width: i === index ? 18 : 6, height: 6, borderRadius: 3, backgroundColor: i === index ? th.accent : c.edge }} />
+            <View style={{ width: i === index ? 18 : 6, height: 6, borderRadius: 3, backgroundColor: i === index ? th.tone : c.edge }} />
           </Pressable>
         ))}
       </View>

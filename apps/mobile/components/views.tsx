@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { useApi } from "../lib/use-api";
-import { c, fmtCurrency, fmtNum, font } from "../lib/theme";
+import { c, fmtCurrency, fmtNum, font, klaviyo } from "../lib/theme";
 import { ChartCarousel, type ChartTab } from "./chart";
+import { RateBars, Strip, Tunnel, smallTitle } from "./bloques";
 import { ListCard, ListRow, MetricList, Note, PeriodChips, RowMeta, RowTitle, Screen, Status } from "./ui";
 import { StockAlert } from "./stock";
 import { AlertsWidget, type Alert } from "./alerts";
@@ -169,11 +170,17 @@ export function TodoView({ org }: { org: Org }) {
   );
 }
 
+const SHOPIFY = "#008060";
+const META = "#0866ff";
+
 export function ShopifyView({ org }: { org: Org }) {
   const [days, setDays] = useState(30);
   const { data: d, error, reload, retry } = useApi<ShopifyMetrics>(withStore(org, `/v1/organizations/${org.id}/shopify/metrics?days=${days}`));
   const profit = d ? profitOf(d) : null;
   const f = d?.funnel;
+  const cur = d?.currency_code;
+  const top = d ? d.top_products.slice(0, 5) : [];
+  const topRevenue = Math.max(1, ...top.map((p) => p.revenue));
 
   return (
     <Screen flat title="Shopify" theme="shopify" subtitle={org.name} onRefresh={reload}>
@@ -182,40 +189,44 @@ export function ShopifyView({ org }: { org: Org }) {
       {d && (
         <>
           <ChartCarousel tabs={salesTabs(d)} suffix={` · ${days} días`} height={220} />
-          {profit && (
-            <MetricList
-              rows={[
-                { label: "Beneficio neto", value: money(profit.net_profit, d.currency_code) },
-                { label: "Margen neto", value: `${profit.net_margin_pct.toFixed(1).replace(".", ",")} %` },
-              ]}
-            />
-          )}
+          <Strip
+            color={SHOPIFY}
+            items={[
+              { label: "Pedidos", value: fmtNum(d.sales.orders_count) },
+              { label: "Ticket medio", value: money(d.sales.aov, cur, 2) },
+              profit ? { label: "Beneficio neto", value: money(profit.net_profit, cur) } : { label: "Unidades", value: fmtNum(d.sales.units_sold) },
+            ]}
+          />
           {f?.has_sessions && f.has_funnel_steps && f.sessions > 0 && (
-            <MetricList
-              title="Embudo"
-              rows={[
-                { label: "Sesiones", value: fmtNum(f.sessions) },
-                { label: "Añaden al carrito", value: fmtNum(f.cart_additions), bar: f.cart_additions / f.sessions },
-                { label: "Llegan al pago", value: fmtNum(f.checkouts_reached), bar: f.checkouts_reached / f.sessions },
-                { label: "Compran", value: fmtNum(f.purchases), bar: f.purchases / f.sessions },
+            <Tunnel
+              title="Del visitante al pedido"
+              steps={[
+                { label: "Sesiones", value: fmtNum(f.sessions), rate: 1 },
+                { label: "Carrito", value: fmtNum(f.cart_additions), rate: f.cart_additions / f.sessions },
+                { label: "Pago", value: fmtNum(f.checkouts_reached), rate: f.checkouts_reached / f.sessions },
+                { label: "Compra", value: fmtNum(f.purchases), rate: f.purchases / f.sessions },
               ]}
             />
           )}
           <StockAlert orgId={org.id} stock={d.stock} />
-          {d.top_products.length > 0 && (
-            <ListCard flat title="Más vendidos">
-              {d.top_products.slice(0, 5).map((p, i) => (
-                <ListRow
-                  flat
-                  key={p.product_id}
-                  first={false}
-                  right={<Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{money(p.revenue, d.currency_code)}</Text>}
-                >
-                  <RowTitle>{p.title}</RowTitle>
-                  <RowMeta>{`${fmtNum(p.quantity_sold)} uds`}</RowMeta>
-                </ListRow>
+          {top.length > 0 && (
+            <View style={{ gap: 12 }}>
+              <Text style={smallTitle}>Más vendidos</Text>
+              {top.map((p) => (
+                <View key={p.product_id} style={{ gap: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{p.title}</Text>
+                      <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{`${fmtNum(p.quantity_sold)} uds`}</Text>
+                    </View>
+                    <Text style={{ fontSize: 16, fontFamily: font.semibold, color: SHOPIFY }}>{money(p.revenue, cur)}</Text>
+                  </View>
+                  <View style={{ height: 4, borderRadius: 2, backgroundColor: "#e0f2ea" }}>
+                    <View style={{ width: `${Math.max(2, (p.revenue / topRevenue) * 100)}%`, height: 4, borderRadius: 2, backgroundColor: SHOPIFY }} />
+                  </View>
+                </View>
               ))}
-            </ListCard>
+            </View>
           )}
         </>
       )}
@@ -240,8 +251,10 @@ export function MetaView({ org }: { org: Org }) {
       {data && s && (
         <>
           <ChartCarousel tabs={tabs} suffix={` · ${days} días`} height={220} />
-          <MetricList
-            rows={[
+          <Strip
+            title="Resultado atribuido"
+            color={META}
+            items={[
               { label: "Compras", value: fmtNum(s.purchases) },
               { label: "CAC", value: money(s.cac, cur, 2) },
               { label: "Atribuido por Meta", value: money(s.purchase_value, cur) },
@@ -270,12 +283,18 @@ export function KlaviyoView({ org }: { org: Org }) {
       {data && data.connected && t && (
         <>
           <ChartCarousel tabs={tabs} height={220} />
-          <MetricList
-            rows={[
+          <Strip
+            color={klaviyo.mint}
+            items={[
               { label: "Atribuido por Klaviyo", value: eur(t.revenue) },
               { label: "Conversiones", value: fmtNum(t.conversions) },
-              { label: "Aperturas", value: pct(t.open_rate) },
-              { label: "Clics", value: pct(t.click_rate) },
+            ]}
+          />
+          <RateBars
+            title="Interacción"
+            steps={[
+              { label: "Aperturas", rate: t.open_rate, value: pct(t.open_rate) },
+              { label: "Clics", rate: t.click_rate, value: pct(t.click_rate, 2) },
             ]}
           />
           {flowShare !== null && <Note flat text={`${Math.round(flowShare * 10)} de cada 10 € atribuidos llegan solos, desde flujos automáticos.`} />}

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { BrandLogo } from "@/components/ui";
 import { LegalFooterLinks } from "@/components/legal-page";
+import { PublicCompactNav } from "./public-compact-nav";
 import styles from "./public-entry.module.css";
 
 export function PublicEntryShell({ active, children }: { active: "login" | "platform"; children: ReactNode }) {
@@ -14,9 +15,10 @@ export function PublicEntryShell({ active, children }: { active: "login" | "plat
         </Link>
         <nav aria-label="Navegación pública" className={styles.nav}>
           <Link href="/conoce-e-nora" aria-current={active === "platform" ? "page" : undefined}>Conoce E-NORA</Link>
-          <Link href="/login" aria-current={active === "login" ? "page" : undefined}>Iniciar sesión</Link>
+          <Link href="/login" aria-current={active === "login" ? "page" : undefined}>Ingresar</Link>
         </nav>
       </header>
+      {active === "platform" && <PublicCompactNav />}
       {children}
       <footer className={styles.footer}>
         <span>E-NORA · Tu negocio, con perspectiva.</span>

@@ -48,13 +48,9 @@ function LoginPageContent() {
     <PublicEntryShell active="login">
       <main id="public-content" className={styles.main}>
         <aside className={styles.story} aria-label="Tu espacio E-NORA">
-          <h2>De los datos a la siguiente decisión.</h2>
-          <p>El espacio donde tu tienda, tu equipo y tu consultor trabajan con la misma perspectiva.</p>
-          <dl className={styles.steps}>
-            <div><dt>Entender</dt><dd>Las cifras, con su contexto.</dd></div>
-            <div><dt>Priorizar</dt><dd>Lo que necesita tu atención.</dd></div>
-            <div><dt>Actuar</dt><dd>El siguiente paso, en equipo.</dd></div>
-          </dl>
+          {/* eslint-disable-next-line @next/next/no-img-element -- SVG estatico */}
+          <img className={styles.storyLogo} src="/logos/e-nora-login.svg" alt="E-NORA" />
+          <h2><span>Todo conectado</span><span>de la mejor forma</span></h2>
         </aside>
         <section className={styles.formPanel} aria-labelledby="login-title">
           <div className={styles.formInner}>

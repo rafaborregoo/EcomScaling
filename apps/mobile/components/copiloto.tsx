@@ -1,19 +1,21 @@
 import { useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SendHorizontal } from "lucide-react-native";
-import { apiSend } from "../lib/api";
+import { apiStream } from "../lib/api";
 import { c, font } from "../lib/theme";
 import { Note } from "./ui";
 import { ModelPicker } from "./model-picker";
+import { Reasoning, type Step } from "./copiloto-razonando";
 import type { Org } from "./views";
 
 // Respuesta de POST /v1/organizations/:id/consultant-chat (ver apps/web/src/components/copilot-panel.tsx).
 type KeyFigure = { label: string; value: string; change: string | null };
 const webUrl = process.env.EXPO_PUBLIC_WEB_URL ?? "";
 type Turn = { conversation_id: string; can_upgrade?: boolean; model?: { degraded?: boolean }; saldo?: { exhausted?: boolean }; output: { answer: string; key_figures?: KeyFigure[]; warnings?: string[]; next_action?: string } };
-type Msg = { role: "user" | "assistant"; text: string; figures?: KeyFigure[]; warnings?: string[]; error?: boolean; upgrade?: "yes" | "ask" };
+type Live = { steps: Step[]; answer: string };
+type Msg = { role: "user" | "assistant"; text: string; steps?: Step[]; figures?: KeyFigure[]; warnings?: string[]; error?: boolean; upgrade?: "yes" | "ask" };
 
-const SUGGESTIONS = ["¿Cómo van las ventas esta semana?", "¿Qué productos se están quedando sin stock?", "¿Cómo está rindiendo Meta este mes?"];
+const SUGGESTIONS = ["¿Qué es el CAC payback y por qué importa?", "¿Cómo van las ventas de mi tienda esta semana?"];
 
 // La API pide un id por turno para no duplicar la pregunta si se reintenta.
 const turnId = () =>
@@ -30,6 +32,7 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [live, setLive] = useState<Live | null>(null);
   const [conversation, setConversation] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const scroll = useRef<ScrollView>(null);
@@ -42,24 +45,39 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
     setInput("");
     setBusy(true);
     setMsgs((m) => [...m, { role: "user", text: q }]);
+    const live: Live = { steps: [], answer: "" };
+    setLive(live);
+    let turn: Turn | null = null;
     try {
-      const turn = await apiSend<Turn>("POST", `/v1/organizations/${org.id}/consultant-chat`, { message: q, conversation_id: conversation ?? undefined, client_turn_id: turnId(), ...(model ? { model } : {}) });
-      setConversation(turn.conversation_id);
-      setMsgs((m) => [...m, { role: "assistant", text: plain(turn.output.answer), figures: turn.output.key_figures?.slice(0, 4), warnings: turn.output.warnings?.slice(0, 2), ...(turn.model?.degraded && turn.saldo?.exhausted ? { upgrade: turn.can_upgrade ? ("yes" as const) : ("ask" as const) } : {}) }]);
+      await apiStream(`/v1/organizations/${org.id}/consultant-chat/stream`, { message: q, conversation_id: conversation ?? undefined, client_turn_id: turnId(), ...(model ? { model } : {}) }, (e) => {
+        if (e.type === "tool") {
+          const step = { id: String(e.id), name: String(e.name), status: e.status as Step["status"] };
+          live.steps = live.steps.some((s) => s.id === step.id) ? live.steps.map((s) => (s.id === step.id ? step : s)) : [...live.steps, step];
+        } else if (e.type === "answer_delta") live.answer += String(e.delta);
+        else if (e.type === "answer_reset") live.answer = "";
+        else if (e.type === "done") turn = e.data as Turn;
+        else if (e.type === "error") throw new Error((e.error as { message?: string } | undefined)?.message ?? "No se pudo responder.");
+        else return;
+        setLive({ ...live });
+      });
+      if (!turn) throw new Error("La respuesta se interrumpió antes de terminar.");
+      const t: Turn = turn;
+      setConversation(t.conversation_id);
+      setMsgs((m) => [...m, { role: "assistant", text: plain(t.output.answer), steps: live.steps, figures: t.output.key_figures?.slice(0, 4), warnings: t.output.warnings?.slice(0, 2), ...(t.model?.degraded && t.saldo?.exhausted ? { upgrade: t.can_upgrade ? ("yes" as const) : ("ask" as const) } : {}) }]);
     } catch (e) {
       setMsgs((m) => [...m, { role: "assistant", text: e instanceof Error ? e.message : "No se pudo responder.", error: true }]);
     } finally {
+      setLive(null);
       setBusy(false);
     }
   }
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={offset}>
-      <ScrollView ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })} contentContainerStyle={{ padding: 20, gap: 16, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20, gap: 16, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         {msgs.length === 0 && (
           <View style={{ gap: 4 }}>
-            <Text style={{ fontSize: 24, fontFamily: font.semibold, color: c.ink }}>Copiloto</Text>
-            <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted, marginBottom: 12 }}>{org.name}</Text>
+            <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted, marginBottom: 12 }}>{org.name}</Text>
             {SUGGESTIONS.map((s) => (
               <Pressable key={s} onPress={() => ask(s)} style={{ paddingVertical: 14, borderTopWidth: 1, borderTopColor: c.edge }}>
                 <Text style={{ fontSize: 15, fontFamily: font.regular, color: c.ink }}>{s}</Text>
@@ -74,6 +92,7 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
             </View>
           ) : (
             <View key={i} style={{ gap: 10 }}>
+              {m.steps && <Reasoning steps={m.steps} active={false} />}
               <Text style={{ fontSize: 15, lineHeight: 23, fontFamily: font.regular, color: m.error ? c.danger : c.ink }}>{m.text}</Text>
               {m.figures && m.figures.length > 0 && (
                 <View style={{ borderRadius: 12, borderWidth: 1, borderColor: c.edge, overflow: "hidden" }}>
@@ -95,7 +114,12 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
             </View>
           ),
         )}
-        {busy && <ActivityIndicator color={c.accent} style={{ alignSelf: "flex-start" }} />}
+        {live && (
+          <View style={{ gap: 10 }}>
+            <Reasoning steps={live.steps} active={!live.answer} />
+            {live.answer ? <Text style={{ fontSize: 15, lineHeight: 23, fontFamily: font.regular, color: c.ink }}>{plain(live.answer)}</Text> : null}
+          </View>
+        )}
       </ScrollView>
 
       <View style={{ paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.edge, backgroundColor: c.bg }}>

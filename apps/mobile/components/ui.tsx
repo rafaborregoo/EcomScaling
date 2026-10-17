@@ -11,7 +11,7 @@ export function Screen({ title, subtitle, theme = "todo", flat, onRefresh, child
     <ThemeContext.Provider value={th}>
     <ScrollView
       style={{ backgroundColor: flat ? c.bg : th.paper }}
-      contentContainerStyle={{ padding: 20, gap: flat ? 28 : 16, paddingBottom: flat ? 48 : 20 }}
+      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, gap: flat ? 28 : 16, paddingBottom: flat ? 48 : 20 }}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -24,10 +24,7 @@ export function Screen({ title, subtitle, theme = "todo", flat, onRefresh, child
         />
       }
     >
-      <View>
-        <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted }}>{subtitle ?? " "}</Text>
-        <Text style={{ fontSize: 24, fontFamily: font.semibold, color: c.ink }}>{title}</Text>
-      </View>
+      {subtitle ? <Text accessibilityRole="header" accessibilityLabel={`${title} · ${subtitle}`} style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{subtitle}</Text> : null}
       {children}
     </ScrollView>
     </ThemeContext.Provider>
@@ -328,16 +325,32 @@ export function SheetList({ title, items }: { title?: string; items: Array<Sheet
 }
 
 /** Cifra principal de la pantalla: grande, sin tarjeta, con su variación. */
-export function BigNumber({ label, value, delta }: { label: string; value: string; delta?: number | null }) {
+export function BigNumber({ label, value, delta, color }: { label: string; value: string; delta?: number | null; color?: string }) {
   return (
     <View style={{ gap: 4 }}>
       <Text style={{ fontSize: 14, fontFamily: font.medium, color: c.muted }}>{label}</Text>
-      <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 40, fontFamily: font.semibold, color: c.ink }}>{value}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 40, fontFamily: font.semibold, color: color ?? c.ink }}>{value}</Text>
       {delta != null && Number.isFinite(delta) && (
         <Text style={{ fontSize: 14, fontFamily: font.medium, color: delta >= 0 ? c.accent : c.danger }}>
           {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1).replace(".", ",")} % vs periodo anterior
         </Text>
       )}
+    </View>
+  );
+}
+
+/** Bloque de una pantalla: cabecera grande con su contador y una línea que explica qué contiene; las filas van debajo, dentro de una tarjeta. */
+export function Section({ title, count, hint, flat, children }: { title: string; count?: number; hint?: string; flat?: boolean; children: ReactNode }) {
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={{ gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+          <Text style={{ fontSize: 24, fontFamily: font.semibold, color: c.ink }}>{title}</Text>
+          {count != null ? <Text style={{ fontSize: 15, fontFamily: font.medium, color: c.muted }}>{count}</Text> : null}
+        </View>
+        {hint ? <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>{hint}</Text> : null}
+      </View>
+      <ListCard flat={flat}>{children}</ListCard>
     </View>
   );
 }

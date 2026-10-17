@@ -7,12 +7,26 @@ import {
   requireOperationalOrganization,
 } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { deleteCachedByPattern } from "./redis-cache.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  REDIS_URL?: string;
 };
+
+/**
+ * Los costes entran en las métricas de Shopify, en los LTV y en la rentabilidad de la cartera, y esas respuestas se
+ * guardan 60 s en Redis. Sin esto, tras cambiar un coste las cifras seguían viejas hasta un minuto.
+ */
+async function refreshCostDependentCaches(env: ApiEnv, organizationId: string) {
+  await deleteCachedByPattern(env.REDIS_URL, [
+    `shopify:metrics:v4:${organizationId}:*`,
+    `shopify:insights:${organizationId}:*`,
+    "consultant:profitability:v2:*",
+  ]);
+}
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -271,6 +285,7 @@ export async function upsertFinancialSettings(
     newData: input,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -362,6 +377,7 @@ export async function createFixedExpense(
     newData: input,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -411,6 +427,7 @@ export async function deactivateFixedExpense(
     entityId: data.id,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -493,6 +510,7 @@ export async function createShippingRule(
     newData: input,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -542,6 +560,7 @@ export async function deactivateShippingRule(
     entityId: data.id,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -675,6 +694,7 @@ export async function upsertMetricTarget(
     newData: input,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -725,5 +745,6 @@ export async function retireMetricTarget(
     entityId: data.id,
   });
 
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }

@@ -62,3 +62,26 @@ export async function setCached(
     logger.error(`Redis cache write failed for key ${key}, continuing without cache`, error);
   }
 }
+
+/** Borra las claves que casen con cada patrón (`*` comodín). Si Redis falla, no pasa nada: la caché caduca sola. */
+export async function deleteCachedByPattern(redisUrl: string | undefined, patterns: string[]): Promise<void> {
+  const redis = getClient(redisUrl);
+
+  if (!redis) {
+    return;
+  }
+
+  try {
+    for (const match of patterns) {
+      const keys: string[] = [];
+      for await (const batch of redis.scanStream({ match, count: 200 })) {
+        keys.push(...(batch as string[]));
+      }
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    }
+  } catch (error) {
+    logger.error("Redis cache invalidation failed, entries will expire on their own", error);
+  }
+}

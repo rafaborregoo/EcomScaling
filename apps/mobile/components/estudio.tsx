@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowDown, ArrowUp, ChevronRight, Copy, Layers, Palette, Plus, Sparkles, Trash2, Undo2, X } from "lucide-react-native";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Copy, Layers, Palette, Plus, Sparkles, Trash2, Undo2, X } from "lucide-react-native";
 import { apiGet, apiSend, type ApiError } from "../lib/api";
 import { useApi } from "../lib/use-api";
 import { c, fmtCurrency, font } from "../lib/theme";
@@ -28,7 +28,7 @@ import {
   type StudioDesign,
   type StudioProduct,
 } from "../lib/studio";
-import { Sheet } from "./sheet";
+import { Sheet, useSwipeDown } from "./sheet";
 import { Choice, DateField, Field, ImageField, Scroll, Section, Stepper, Toggle, labelStyle, type ImageOption } from "./estudio-campos";
 import { BlockEditor, type BlockCtx } from "./estudio-bloques";
 import { Canvas, MiniPreview } from "./estudio-canvas";
@@ -79,6 +79,7 @@ const toProduct = (row: ApiProduct): StudioProduct => ({
 
 export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: { org: Org; workspace: StudioWorkspace; openDraftId?: string | null; onClose: () => void; onDone: () => void }) {
   const insets = useSafeAreaInsets();
+  const swipe = useSwipeDown(() => void close());
   const base = `/v1/organizations/${org.id}`;
   const brandQ = useApi<{ profile: Record<string, unknown> | null }>(`${base}/marketing/brand-profile`);
   const bestQ = useApi<{ products: ApiProduct[] }>(`${base}/marketing/studio/products?source=best`);
@@ -411,9 +412,9 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
 
   return (
     <Modal visible animationType="slide" onRequestClose={close}>
-      <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 12 }}>
-          <Pressable onPress={close} hitSlop={12} accessibilityLabel="Cerrar"><X size={24} color={c.ink} /></Pressable>
+      <Animated.View style={[{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }, swipe.style]}>
+        <View {...swipe.panHandlers} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 12 }}>
+          <Pressable onPress={() => void close()} hitSlop={12} accessibilityLabel="Volver"><ChevronLeft size={26} color={c.ink} /></Pressable>
           <View style={{ flex: 1 }}>
             <Text numberOfLines={1} style={{ fontSize: 17, fontFamily: font.semibold, color: c.ink }}>{piece ? header.name || header.subject || "Nueva campaña" : "Nueva campaña"}</Text>
             {piece && <Text style={{ fontSize: 12, fontFamily: font.regular, color: save === "error" ? c.danger : c.muted }}>{[ref ? STATUS_LABEL[ref.status] : "Sin guardar", saveLabel].filter(Boolean).join(" · ")}</Text>}
@@ -576,7 +577,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
             />
           </KeyboardAvoidingView>
         )}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

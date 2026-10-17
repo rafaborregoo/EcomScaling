@@ -1,15 +1,26 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 import { useApi } from "../lib/use-api";
 import { c, fmtCurrency, fmtNum, font } from "../lib/theme";
 import { Sheet } from "./sheet";
-import { ListCard, ListRow, RowMeta, RowTitle } from "./ui";
+import { ListRow, Section } from "./ui";
 
 // Flows en solo lectura: los de Klaviyo (con sus cifras) y los diseñados en la web (con sus pasos).
 // Contrato de los diseños: apps/web/src/app/marketing/flows/flow-design.ts.
 type Stats = { revenue: number; recipients: number; opens_unique: number; clicks_unique: number };
-export type KlaviyoFlow = { id: string; name: string; status: string | null; trigger_type: string | null; stats: Stats | null };
+type FlowStats = Stats & { delivered: number };
+type GraphNode = { id: string; kind: string; label: string; subject?: string | null; next?: string | null; yes?: string | null; no?: string | null };
+export type KlaviyoFlow = {
+  id: string;
+  name: string;
+  status: string | null;
+  trigger_type: string | null;
+  stats: Stats | null;
+  // Mismo contrato que KFlow en apps/web/src/app/marketing/klaviyo-workspace.ts.
+  graph?: { entry: string | null; triggers: Array<{ label: string }>; nodes: GraphNode[] } | null;
+  messages?: Array<{ action_id: string | null; message_id: string; name: string | null; subject: string | null; stats: FlowStats | null }>;
+};
 type Step =
   | { id: string; type: "email"; name: string; subject: string }
   | { id: string; type: "delay"; value: number; unit: "minutes" | "hours" | "days" }
@@ -53,28 +64,149 @@ function describe(step: Step): string {
   }
 }
 
+// Diagrama vertical: nodos unidos por conectores. Las divisiones apilan las ramas Sí / No (en un móvil no caben lado a lado).
+const KIND_LABEL: Record<string, string> = { email: "Email", sms: "SMS", push: "Push", delay: "Espera", split: "División", update: "Perfil", webhook: "Webhook", end: "Fin", other: "Paso", trigger: "Disparador" };
+const MAX_DEPTH = 60;
+
+const Conn = () => <View style={{ width: 1, height: 14, backgroundColor: c.edge, marginLeft: 20 }} />;
+
+function Node({ kind, title, sub, stats, off }: { kind: string; title: string; sub?: string | null; stats?: string | null; off?: boolean }) {
+  const strong = kind === "email" || kind === "sms" || kind === "push" || kind === "trigger";
+  return (
+    <View style={{ gap: 2, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: c.edge, backgroundColor: strong ? c.bg : c.surface }}>
+      <Text style={{ fontSize: 12, fontFamily: font.semibold, color: off ? c.warning : c.muted }}>{KIND_LABEL[kind] ?? "Paso"}{off ? " · Sin enviar" : ""}</Text>
+      <Text style={{ fontSize: 15, fontFamily: strong ? font.medium : font.regular, color: c.ink }}>{title}</Text>
+      {sub ? <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>«{sub}»</Text> : null}
+      {stats ? <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>{stats}</Text> : null}
+    </View>
+  );
+}
+
+function Branch({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <View style={{ marginLeft: 12, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: c.edge }}>
+      <Conn />
+      <Text style={{ fontSize: 12, fontFamily: font.semibold, color: c.ink }}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+const End = () => (
+  <>
+    <Conn />
+    <Node kind="end" title="Sale del flow" />
+  </>
+);
+
+/** Flow de Klaviyo: recorre `graph` desde `entry` como la web (flow-diagram.tsx). */
+function KlaviyoChain({ flow }: { flow: KlaviyoFlow }) {
+  const graph = flow.graph;
+  const byAction = new Map((flow.messages ?? []).map((m) => [m.action_id, m]));
+  const live = (flow.status ?? "").toLowerCase() === "live";
+  const trigger = graph?.triggers[0]?.label ?? flow.trigger_type ?? "Disparador";
+  const seen = new Set<string>();
+
+  const emailNode = (n: GraphNode) => {
+    const m = byAction.get(n.id);
+    const s = m?.stats;
+    const stats = s && s.delivered > 0 ? `Aperturas ${Math.round((s.opens_unique / s.delivered) * 100)} % · Clics ${Math.round((s.clicks_unique / s.delivered) * 100)} % · ${eur(s.revenue)} atrib.` : live ? "Sin envíos en el periodo" : null;
+    return <Node kind={n.kind} title={m?.name ?? n.label} sub={n.subject ?? m?.subject} stats={stats} off={!live} />;
+  };
+
+  function sequence(start: string | null | undefined, depth: number): ReactNode[] {
+    const out: ReactNode[] = [];
+    const nodes = new Map(graph!.nodes.map((n) => [n.id, n]));
+    let current = start ?? null;
+    let steps = depth;
+    while (current && steps < MAX_DEPTH) {
+      const n = nodes.get(current);
+      if (!n || seen.has(current)) break;
+      seen.add(current);
+      steps += 1;
+      out.push(<Conn key={`c-${n.id}`} />);
+      if (n.kind === "split") {
+        out.push(<Node key={n.id} kind="split" title={n.label} />);
+        for (const [label, target] of [["Sí", n.yes], ["No", n.no]] as const) {
+          const branch = sequence(target, steps);
+          out.push(<Branch key={`${n.id}-${label}`} label={label}>{branch.length ? branch : <End />}</Branch>);
+        }
+        break;
+      }
+      out.push(n.kind === "email" || n.kind === "sms" || n.kind === "push" ? <View key={n.id}>{emailNode(n)}</View> : <Node key={n.id} kind={n.kind} title={n.label} />);
+      current = n.next ?? null;
+    }
+    return out;
+  }
+
+  // Sin grafo (aún no sincronizado): los emails guardados, en orden.
+  const body = graph?.entry
+    ? sequence(graph.entry, 0)
+    : (flow.messages ?? []).map((m) => (
+        <View key={m.message_id}>
+          <Conn />
+          <Node kind="email" title={m.name ?? "Email"} sub={m.subject} off={!live} />
+        </View>
+      ));
+  return (
+    <View>
+      <Node kind="trigger" title={trigger} />
+      {body}
+    </View>
+  );
+}
+
+/** Flow diseñado en la web: mismo dibujo a partir de los pasos. */
 function Steps({ steps }: { steps: Step[] }) {
   return (
-    <View style={{ gap: 10 }}>
-      {steps.map((s) => (
-        <View key={s.id} style={{ gap: 8 }}>
-          <Text style={{ fontSize: 15, fontFamily: s.type === "email" ? font.medium : font.regular, color: s.type === "email" ? c.ink : c.muted }}>{describe(s)}</Text>
-          {(s.type === "split" || s.type === "trigger_split") && (
-            <View style={{ gap: 8, paddingLeft: 14, borderLeftWidth: 1, borderLeftColor: c.edge }}>
-              <Text style={{ fontSize: 12, fontFamily: font.semibold, color: c.ink }}>Sí</Text>
-              {s.yes.length ? <Steps steps={s.yes} /> : <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>Fin</Text>}
-              <Text style={{ fontSize: 12, fontFamily: font.semibold, color: c.ink }}>No</Text>
-              {s.no.length ? <Steps steps={s.no} /> : <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>Fin</Text>}
-            </View>
-          )}
-        </View>
-      ))}
+    <View>
+      {steps.map((s) => {
+        const branches = s.type === "split" || s.type === "trigger_split" ? s : null;
+        const title = s.type === "email" ? s.subject || s.name || "Sin asunto" : describe(s);
+        return (
+          <View key={s.id}>
+            <Conn />
+            <Node kind={s.type === "trigger_split" ? "split" : s.type} title={title} />
+            {branches &&
+              ([["Sí", branches.yes], ["No", branches.no]] as const).map(([label, list]) => (
+                <Branch key={label} label={label}>{list.length ? <Steps steps={list} /> : <End />}</Branch>
+              ))}
+          </View>
+        );
+      })}
     </View>
   );
 }
 
 function countEmails(steps: Step[]): number {
   return steps.reduce((n, s) => n + (s.type === "email" ? 1 : s.type === "split" || s.type === "trigger_split" ? countEmails(s.yes) + countEmails(s.no) : 0), 0);
+}
+
+const PILL = {
+  live: { bg: "#e3f1e6", fg: "#1f6b34" },
+  draft: { bg: "#fbf0cf", fg: c.warning },
+  manual: { bg: c.accentTint, fg: c.muted },
+} as const;
+
+/** Nombre y detalle a la izquierda; estado y cifra a la derecha. */
+function FlowRow({ first, title, pill, meta, revenue, onPress }: { first: boolean; title: string; pill: { label: string; tone: keyof typeof PILL }; meta: string; revenue?: string | null; onPress: () => void }) {
+  const tone = PILL[pill.tone];
+  return (
+    <ListRow first={first} onPress={onPress} right={<ChevronRight size={18} color={c.muted} />}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text numberOfLines={2} style={{ fontSize: 16, fontFamily: font.medium, color: c.ink }}>{title}</Text>
+          {meta ? <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>{meta}</Text> : null}
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 4 }}>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: tone.bg }}>
+            <Text style={{ fontSize: 12, fontFamily: font.semibold, color: tone.fg }}>{pill.label}</Text>
+          </View>
+          {revenue ? <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{revenue}</Text> : null}
+        </View>
+      </View>
+    </ListRow>
+  );
 }
 
 export function FlowsSection({ orgId, flows, account }: { orgId: string; flows: KlaviyoFlow[]; account: Account | undefined }) {
@@ -92,27 +224,38 @@ export function FlowsSection({ orgId, flows, account }: { orgId: string; flows: 
   return (
     <>
       {list.length > 0 && (
-        <ListCard title={`Diseñados en NORA · ${list.length}`}>
+        <Section title="En preparación" count={list.length} hint="Flows que has diseñado en E-NORA. Hasta que pasan a Klaviyo no envían nada.">
           {list.map((d, i) => (
-            <ListRow key={d.id} first={i === 0} onPress={() => setDesign(d)} right={<ChevronRight size={18} color={c.muted} />}>
-              <RowTitle>{d.name}</RowTitle>
-              <RowMeta tone={d.status === "in_klaviyo" ? "good" : "warn"}>{`${d.status === "in_klaviyo" ? "En Klaviyo" : "Borrador"} · ${countEmails(d.design.steps)} emails`}</RowMeta>
-            </ListRow>
+            <FlowRow
+              key={d.id}
+              first={i === 0}
+              title={d.name}
+              pill={d.status === "in_klaviyo" ? { label: "En Klaviyo", tone: "live" } : { label: "Borrador", tone: "draft" }}
+              meta={`${countEmails(d.design.steps)} emails`}
+              onPress={() => setDesign(d)}
+            />
           ))}
-        </ListCard>
+        </Section>
       )}
-      <ListCard title={`En Klaviyo · ${flows.length}`}>
+      <Section title="En Klaviyo" count={flows.length} hint="Los flows de tu cuenta de Klaviyo, con lo que han generado en el periodo.">
         {flows.map((f, i) => {
           const st = flowStatus(f.status);
+          const emails = f.messages?.length ?? 0;
+          const when = f.graph?.triggers[0]?.label ?? f.trigger_type;
           return (
-            <ListRow key={f.id} first={i === 0} onPress={() => setFlow(f)} right={f.stats ? <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{eur(f.stats.revenue)}</Text> : <ChevronRight size={18} color={c.muted} />}>
-              <RowTitle>{f.name}</RowTitle>
-              <RowMeta tone={st.key === "live" ? "good" : st.key === "draft" ? "warn" : undefined}>{st.label}</RowMeta>
-            </ListRow>
+            <FlowRow
+              key={f.id}
+              first={i === 0}
+              title={f.name}
+              pill={{ label: st.label, tone: st.key === "live" ? "live" : st.key === "draft" ? "draft" : "manual" }}
+              meta={[emails ? `${emails} emails` : null, when].filter(Boolean).join(" · ")}
+              revenue={f.stats ? eur(f.stats.revenue) : null}
+              onPress={() => setFlow(f)}
+            />
           );
         })}
-        {flows.length === 0 && <ListRow first><RowMeta>No hay flows.</RowMeta></ListRow>}
-      </ListCard>
+        {flows.length === 0 && <ListRow first><Text style={{ fontSize: 14, fontFamily: font.regular, color: c.muted }}>No hay flows.</Text></ListRow>}
+      </Section>
 
       <Sheet visible={Boolean(flow)} onClose={() => setFlow(null)} title={flow?.name ?? ""}>
         {flow && (
@@ -128,6 +271,7 @@ export function FlowsSection({ orgId, flows, account }: { orgId: string; flows: 
             ) : (
               <Text style={{ fontSize: 14, fontFamily: font.regular, color: c.muted }}>Sin cifras en este periodo.</Text>
             )}
+            <KlaviyoChain flow={flow} />
           </View>
         )}
       </Sheet>
@@ -135,7 +279,7 @@ export function FlowsSection({ orgId, flows, account }: { orgId: string; flows: 
       <Sheet visible={Boolean(design)} onClose={() => setDesign(null)} title={design?.name ?? ""}>
         {design && (
           <View style={{ gap: 16 }}>
-            <Text style={{ fontSize: 14, fontFamily: font.medium, color: c.ink }}>{trigger(design)}</Text>
+            <Node kind="trigger" title={trigger(design)} />
             {design.design.steps.length ? <Steps steps={design.design.steps} /> : <Text style={{ fontSize: 14, fontFamily: font.regular, color: c.muted }}>Este flow aún no tiene pasos.</Text>}
             <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>Se edita desde la web.</Text>
           </View>
