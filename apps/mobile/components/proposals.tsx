@@ -14,6 +14,9 @@ export type Diagnostic = {
 
 type Decision = "approved" | "rejected";
 
+export const pendingDiagnostics = (diagnostics: Diagnostic[]) =>
+  diagnostics.filter((d): d is NonNullable<Diagnostic> => d !== null && d.output_status === "pending_approval" && d.output.proposed_writes.length > 0);
+
 const PRIORITY_LABEL: Record<string, string> = { urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja" };
 
 /**
@@ -27,7 +30,7 @@ export function ProposalsWidget({ orgId, diagnostics, onDone }: { orgId: string;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const pending = diagnostics.filter((d): d is NonNullable<Diagnostic> => d !== null && d.output_status === "pending_approval" && d.output.proposed_writes.length > 0);
+  const pending = pendingDiagnostics(diagnostics);
   const total = pending.reduce((n, d) => n + d.output.proposed_writes.length, 0);
   if (total === 0) return null;
 

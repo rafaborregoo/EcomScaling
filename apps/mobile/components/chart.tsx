@@ -30,7 +30,7 @@ const compact = (v: number) => {
  * Gráfico de líneas con SVG. Se toca o se arrastra el dedo para ver el valor de cada punto
  * (línea guía, marcador y vibración suave al cambiar de punto).
  */
-function LineChart({ series: raw, height, onActive }: { series: Series[]; height: number; onActive: (i: number | null) => void }) {
+export function LineChart({ series: raw, height, onActive }: { series: Series[]; height: number; onActive: (i: number | null) => void }) {
   const th = useTheme();
   const series = raw.map((s) => ({ ...s, color: s.color === "accent" ? th.tone : s.color === "secondary" ? th.secondary : s.color }));
   const [width, setWidth] = useState(0);

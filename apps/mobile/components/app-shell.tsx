@@ -113,6 +113,13 @@ export function AppShell() {
               setOrg({ ...client, isConsultant: true });
               setDashTab("todo");
             }}
+            nav={{
+              onTab: setDashTab,
+              onMetrics: (section) => {
+                setMetricasTab(section);
+                setModule("metricas");
+              },
+            }}
           />
         )}
         {module === "metricas" && (org ? <MetricasModule org={org} section={metricasTab} /> : needsOrg)}

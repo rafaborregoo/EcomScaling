@@ -33,7 +33,7 @@ function dueLabel(t: Task) {
 }
 
 // Vencidas primero, luego por prioridad y por fecha.
-function sortTasks(tasks: Task[]) {
+export function sortTasks(tasks: Task[]) {
   return tasks.filter(isShortTerm).sort((a, b) => {
     const o = Number(isOverdue(b)) - Number(isOverdue(a));
     if (o) return o;
@@ -59,17 +59,18 @@ function Row({ task }: { task: Task }) {
   );
 }
 
-/** Tareas a 2 semanas vista: una fila-resumen y todas en la hoja. Solo lectura; completarlas pide un resultado y se hace en la web. */
+/** Tareas a 2 semanas vista: una fila-resumen y todas en la hoja. Solo lectura; completarlas pide un resultado y se hace en la web. Si no hay ninguna, no ocupa sitio. */
 export function TasksWidget({ tasks }: { tasks: Task[] }) {
   const [open, setOpen] = useState(false);
   const list = sortTasks(tasks);
   const overdue = list.filter(isOverdue).length;
+  if (list.length === 0) return null;
 
   return (
     <>
       <SummaryRow
         title="Tareas"
-        summary={list.length === 0 ? "Al día" : overdue ? `${overdue} vencida${overdue > 1 ? "s" : ""}` : `${list.length} abierta${list.length > 1 ? "s" : ""}`}
+        summary={overdue ? `${overdue} vencida${overdue > 1 ? "s" : ""}` : `${list.length} abierta${list.length > 1 ? "s" : ""}`}
         color={overdue ? c.danger : undefined}
         dot={overdue ? c.danger : undefined}
         onPress={() => setOpen(true)}

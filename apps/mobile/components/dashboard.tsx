@@ -4,7 +4,7 @@ import { Check, ChevronDown } from "lucide-react-native";
 import { c, font } from "../lib/theme";
 import { Cartera } from "./cartera";
 import { Note } from "./ui";
-import { KlaviyoView, MetaView, ShopifyView, TodoView, type Org } from "./views";
+import { KlaviyoView, MetaView, ShopifyView, TodoView, type HomeNav, type Org } from "./views";
 
 // Mismas cuatro vistas que las pestañas del Dashboard de la web (todo, shopify, meta, klaviyo); el consultor suma Cartera.
 const TABS = [
@@ -54,8 +54,8 @@ export function HeaderSelect<K extends string>({ items: tabs, value: tab, onChan
 }
 
 /** Contenido de Inicio. El consultor sin cliente elegido ve la cartera, sea cual sea la vista. */
-export function HomeContent({ tab, org, isConsultant, onPick }: { tab: DashTab; org: Org | null; isConsultant: boolean; onPick: (org: { id: string; name: string }) => void }) {
+export function HomeContent({ tab, org, isConsultant, onPick, nav }: { tab: DashTab; org: Org | null; isConsultant: boolean; onPick: (org: { id: string; name: string }) => void; nav: HomeNav }) {
   if (isConsultant && (tab === "cartera" || !org)) return <Cartera onSelect={onPick} />;
   if (!org) return <View style={{ padding: 20 }}><Note text="Tu cuenta no tiene ninguna tienda asignada." /></View>;
-  return tab === "shopify" ? <ShopifyView org={org} /> : tab === "meta" ? <MetaView org={org} /> : tab === "klaviyo" ? <KlaviyoView org={org} /> : <TodoView org={org} />;
+  return tab === "shopify" ? <ShopifyView org={org} nav={nav} /> : tab === "meta" ? <MetaView org={org} nav={nav} /> : tab === "klaviyo" ? <KlaviyoView org={org} nav={nav} /> : <TodoView org={org} nav={nav} />;
 }

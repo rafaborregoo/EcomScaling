@@ -20,7 +20,7 @@ const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "
 
 // Mismo criterio que la web: una alerta cuenta mientras esté abierta o reconocida.
 const isActive = (a: Alert) => a.status === "open" || a.status === "acknowledged";
-const sortAlerts = (alerts: Alert[]) =>
+export const sortAlerts = (alerts: Alert[]) =>
   alerts.filter(isActive).sort((a, b) => (SEVERITY_WEIGHT[b.severity] ?? 0) - (SEVERITY_WEIGHT[a.severity] ?? 0) || b.first_detected_at.localeCompare(a.first_detected_at));
 
 function Row({ alert }: { alert: Alert }) {

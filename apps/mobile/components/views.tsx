@@ -2,13 +2,13 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { useApi } from "../lib/use-api";
 import { c, fmtCurrency, fmtNum, font, klaviyo } from "../lib/theme";
-import { ChartCarousel, type ChartTab } from "./chart";
-import { RateBars, Strip, Tunnel, smallTitle } from "./bloques";
-import { ListCard, ListRow, MetricList, Note, PeriodChips, RowMeta, RowTitle, Screen, Status } from "./ui";
+import { Bars, RateBars, Strip, Tunnel } from "./bloques";
+import { AllClear, Block, ChannelRow, Hero, MoreLink, TopBar, type HeroMetric } from "./inicio";
+import { Note, Screen, ShareBar, SheetList, Status } from "./ui";
 import { StockAlert } from "./stock";
-import { AlertsWidget, type Alert } from "./alerts";
-import { ProposalsWidget, type Diagnostic } from "./proposals";
-import { TasksWidget, type Task } from "./tasks";
+import { AlertsWidget, sortAlerts, type Alert } from "./alerts";
+import { ProposalsWidget, pendingDiagnostics, type Diagnostic } from "./proposals";
+import { TasksWidget, sortTasks, type Task } from "./tasks";
 
 // `connectionId`: tienda Shopify elegida en Configuración; vacío = todas las tiendas del cliente.
 export type Org = { id: string; name: string; isConsultant: boolean; connectionId?: string };
@@ -51,10 +51,11 @@ export type EmailReport = {
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 export const dayLabel = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""}`;
 export const monthLabel = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""} ${iso.slice(2, 4)}`;
-const pctDelta = (now: number, before: number | null | undefined) => (before ? ((now - before) / before) * 100 : null);
+const pctDelta = (now: number | null | undefined, before: number | null | undefined) => (now == null || !before ? null : ((now - before) / Math.abs(before)) * 100);
+const ratio = (a: number, b: number) => (b > 0 ? a / b : null);
+const dec = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2).replace(".", ","));
 const pct = (ratio: number | null | undefined, d = 1) => (ratio == null ? "—" : `${(ratio * 100).toFixed(d).replace(".", ",")} %`);
 const money = (v: number | null | undefined, cur: string | null | undefined, d = 0) => (cur ? fmtCurrency(v, cur, d) : v == null ? "—" : fmtNum(Math.round(v)));
-const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
 // Mismas condiciones que canShowProfit de la web: sin costes completos el beneficio engaña, y no se enseña.
 export function profitOf(d: ShopifyMetrics) {
@@ -62,89 +63,54 @@ export function profitOf(d: ShopifyMetrics) {
   return ok ? d.financial : null;
 }
 
-function salesTabs(d: ShopifyMetrics): ChartTab[] {
-  const cur = d.currency_code;
-  const tabs: ChartTab[] = [
-    {
-      key: "ventas",
-      label: "Ventas netas",
-      series: [{ name: "Ventas", color: "accent", points: d.daily.map((p) => ({ label: dayLabel(p.date), y: p.net_sales })) }],
-      format: (v) => money(v, cur),
-      summary: money(d.sales.net_sales, cur),
-    },
-    {
-      key: "pedidos",
-      label: "Pedidos",
-      series: [{ name: "Pedidos", color: "accent", points: d.daily.map((p) => ({ label: dayLabel(p.date), y: p.orders_count })) }],
-      format: (v) => fmtNum(v),
-      summary: fmtNum(d.sales.orders_count),
-    },
-    {
-      key: "ticket",
-      label: "Ticket medio",
-      series: [{ name: "Ticket medio", color: "accent", points: d.daily.map((p) => ({ label: dayLabel(p.date), y: p.orders_count > 0 ? p.net_sales / p.orders_count : null })) }],
-      format: (v) => money(v, cur, 2),
-      summary: money(d.sales.aov, cur, 2),
-    },
-  ];
-  if (d.funnel?.has_sessions && d.funnel_daily.some((p) => p.conversion_rate_own != null)) {
-    tabs.push({
-      key: "conv",
-      label: "Conversión",
-      series: [{ name: "Conversión", color: "accent", points: d.funnel_daily.map((p) => ({ label: dayLabel(p.date), y: p.conversion_rate_own == null ? null : p.conversion_rate_own * 100 })) }],
-      format: (v) => `${v.toFixed(2).replace(".", ",")} %`,
-      summary: pct(d.funnel.conversion_rate_own, 2),
-    });
-  }
-  return tabs;
-}
 
-function metaTabs(data: MetaInsights): ChartTab[] {
-  const s = data.summary;
-  const cur = data.currency;
-  return [
-    {
-      key: "gasto",
-      label: "Inversión en Meta",
-      series: [{ name: "Inversión", color: "accent", points: data.daily_spend.map((p) => ({ label: dayLabel(p.bucket_date), y: p.spend })) }],
-      format: (v) => money(v, cur, 2),
-      summary: money(s?.spend ?? sum(data.daily_spend.map((p) => p.spend)), cur),
-    },
-    {
-      key: "roas",
-      label: "ROAS de Meta",
-      series: [{ name: "ROAS", color: "accent", points: data.daily_roas.map((p) => ({ label: dayLabel(p.bucket_date), y: p.roas })) }],
-      format: (v) => v.toFixed(2).replace(".", ","),
-      summary: s?.roas == null ? "—" : s.roas.toFixed(2).replace(".", ","),
-    },
-  ];
-}
+/** Navegación desde Inicio: abrir la vista de un canal o su detalle en Métricas. */
+export type HomeNav = { onTab: (tab: TabKey) => void; onMetrics: (tab: TabKey) => void };
 
+const PERIODS = [7, 30, 90];
+const SHOPIFY = "#008060";
+const META = "#0866ff";
 // La web enseña los importes de Klaviyo en € sin moneda en la respuesta; se mantiene igual.
 const eur = (v: number) => fmtCurrency(v, "EUR");
 
-function mailTabs(data: EmailReport): ChartTab[] {
-  return [
-    {
-      key: "ingresos",
-      label: "Atribuido por Klaviyo",
-      series: [
-        { name: "Flujos", color: "accent", points: data.trend.map((p) => ({ label: monthLabel(p.month), y: p.flow_revenue })) },
-        { name: "Campañas", color: "secondary", points: data.trend.map((p) => ({ label: monthLabel(p.month), y: p.campaign_revenue })) },
-      ],
-      format: eur,
-      summary: "Por mes",
-    },
+/** Ventas, pedidos, ticket y conversión de Shopify: la cifra principal de Todo y de Shopify. */
+function salesMetrics(d: ShopifyMetrics): HeroMetric[] {
+  const cur = d.currency_code;
+  const prev = d.previous_period?.sales;
+  const out: HeroMetric[] = [
+    { key: "ventas", label: "Ventas netas", value: money(d.sales.net_sales, cur), delta: pctDelta(d.sales.net_sales, prev?.net_sales), points: d.daily.map((p) => ({ label: dayLabel(p.date), y: p.net_sales })), format: (v) => money(v, cur) },
+    { key: "pedidos", label: "Pedidos", value: fmtNum(d.sales.orders_count), delta: pctDelta(d.sales.orders_count, prev?.orders_count), points: d.daily.map((p) => ({ label: dayLabel(p.date), y: p.orders_count })), format: (v) => fmtNum(Math.round(v)) },
+    { key: "ticket", label: "Ticket medio", value: money(d.sales.aov, cur, 2), delta: pctDelta(d.sales.aov, prev?.aov), points: d.daily.map((p) => ({ label: dayLabel(p.date), y: p.orders_count > 0 ? p.net_sales / p.orders_count : null })), format: (v) => money(v, cur, 2) },
   ];
+  if (d.funnel?.has_sessions && d.funnel_daily.some((p) => p.conversion_rate_own != null)) {
+    out.push({
+      key: "conv",
+      label: "Conversión",
+      value: pct(d.funnel.conversion_rate_own, 2),
+      delta: pctDelta(d.funnel.conversion_rate_own, d.previous_period?.conversion_rate_own),
+      points: d.funnel_daily.map((p) => ({ label: dayLabel(p.date), y: p.conversion_rate_own == null ? null : p.conversion_rate_own * 100 })),
+      format: (v) => `${v.toFixed(2).replace(".", ",")} %`,
+    });
+  }
+  return out;
 }
 
-// "Todo": la portada, una ruleta con las curvas de todos los canales. Las cifras de Meta y Klaviyo son atribuidas
-// por cada plataforma (ADR-0021): cada una va en su gráfico, nunca sumadas.
-export function TodoView({ org }: { org: Org }) {
+/** Meta del periodo anterior: la API no lo trae, así que se pide el doble de días y se resta (igual que Métricas). */
+function metaBefore(s: MetaInsights["summary"], s2: MetaInsights["summary"] | undefined) {
+  if (!s || !s2) return null;
+  const spend = s2.spend - s.spend;
+  const purchases = s2.purchases - s.purchases;
+  return { spend, purchases, roas: ratio(s2.purchase_value - s.purchase_value, spend), cac: ratio(spend, purchases) };
+}
+
+// "Todo": lo primero que se ve al abrir la app. Una cifra, lo que pide atención y un acceso a cada canal.
+// Lo atribuido por Meta y Klaviyo va en la fila de cada uno, nunca sumado (ADR-0021).
+export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   const [days, setDays] = useState(30);
   const base = `/v1/organizations/${org.id}`;
   const shop = useApi<ShopifyMetrics>(withStore(org, `${base}/shopify/metrics?days=${days}`));
   const meta = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days}`));
+  const meta2 = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days * 2}`));
   const mail = useApi<EmailReport>(withStore(org, `${base}/klaviyo/email-report?days=${days}`));
   const ops = useApi<{ tasks: Task[]; alerts: Alert[] }>(`${base}/operations`);
   // Los tres agentes que proponen tareas (igual que el Dashboard de la web); solo lectura hasta que se decide.
@@ -152,28 +118,71 @@ export function TodoView({ org }: { org: Org }) {
   const stockAi = useApi<Diagnostic>(`${base}/ai/stock-planner?days=30`);
   const emailAi = useApi<Diagnostic>(`${base}/ai/email-analyst?days=30`);
   const reloadProposals = () => void Promise.all([monitor.reload(), stockAi.reload(), emailAi.reload(), ops.reload()]);
+
   const d = shop.data;
-  const tabs = [...(d ? salesTabs(d) : []), ...(meta.data?.summary ? metaTabs(meta.data) : []), ...(mail.data?.connected ? mailTabs(mail.data) : [])];
+  const cur = d?.currency_code;
+  const profit = d ? profitOf(d) : null;
+  const ms = meta.data?.summary ?? null;
+  const mb = metaBefore(ms, meta2.data?.summary);
+  const mt = mail.data?.connected ? mail.data.totals : null;
+
+  const diagnostics = [monitor.data, stockAi.data, emailAi.data];
+  const pendingCount = pendingDiagnostics(diagnostics).length;
+  const alertCount = ops.data ? sortAlerts(ops.data.alerts ?? []).length : 0;
+  const taskCount = ops.data ? sortTasks(ops.data.tasks).length : 0;
+  const stockCount = d ? d.stock.out_of_stock_items + d.stock.low_stock_items : 0;
+  const clear = !!ops.data && pendingCount + alertCount + taskCount + stockCount === 0;
 
   return (
-    <Screen flat title="Pulso" subtitle={org.name} onRefresh={async () => void (await Promise.all([shop.reload(), meta.reload(), mail.reload(), ops.reload(), monitor.reload(), stockAi.reload(), emailAi.reload()]))}>
-      <PeriodChips options={[7, 30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Pulso" onRefresh={async () => void (await Promise.all([shop.reload(), meta.reload(), meta2.reload(), mail.reload(), ops.reload(), monitor.reload(), stockAi.reload(), emailAi.reload()]))}>
+      <TopBar name={org.name} options={PERIODS} days={days} onChange={setDays} />
       <Status error={shop.error} loading={!d} retry={shop.retry} />
-      {d && <ChartCarousel tabs={tabs} suffix={` · ${days} días`} height={210} />}
-      <View>
-        {d && <StockAlert orgId={org.id} stock={d.stock} />}
-        <ProposalsWidget orgId={org.id} diagnostics={[monitor.data, stockAi.data, emailAi.data]} onDone={reloadProposals} />
-        {ops.data && <AlertsWidget alerts={ops.data.alerts ?? []} />}
-        {ops.data && <TasksWidget tasks={ops.data.tasks} />}
-      </View>
+      {d && <Hero metrics={salesMetrics(d)} compare={`${days} días anteriores`} />}
+
+      {ops.data && (
+        <Block title="Para hoy">
+          <ProposalsWidget orgId={org.id} diagnostics={diagnostics} onDone={reloadProposals} />
+          <AlertsWidget alerts={ops.data.alerts ?? []} />
+          {d && <StockAlert orgId={org.id} stock={d.stock} />}
+          <TasksWidget tasks={ops.data.tasks} />
+          {clear && <AllClear />}
+        </Block>
+      )}
+
+      <Block title="Canales">
+        <ChannelRow
+          first
+          name="Shopify"
+          color={SHOPIFY}
+          caption={!d ? "Cargando…" : profit ? "Beneficio neto" : "Unidades vendidas"}
+          value={!d ? undefined : profit ? money(profit.net_profit, cur) : fmtNum(d.sales.units_sold)}
+          delta={profit ? pctDelta(profit.net_profit, d?.previous_period?.financial.net_profit) : null}
+          onPress={() => nav.onTab("shopify")}
+        />
+        <ChannelRow
+          name="Meta Ads"
+          color={META}
+          caption={!meta.data ? "Cargando…" : ms ? "ROAS atribuido por Meta" : "Sin datos en este periodo"}
+          value={ms ? dec(ms.roas) : undefined}
+          delta={ms ? pctDelta(ms.roas, mb?.roas) : null}
+          onPress={() => nav.onTab("meta")}
+        />
+        <ChannelRow
+          name="Klaviyo"
+          color={klaviyo.mint}
+          caption={!mail.data ? "Cargando…" : mt ? "Atribuido por Klaviyo" : "No conectado"}
+          value={mt ? eur(mt.revenue) : undefined}
+          delta={mt ? pctDelta(mt.revenue, mail.data?.previous?.revenue) : null}
+          onPress={() => nav.onTab("klaviyo")}
+        />
+      </Block>
+
+      {d && <MoreLink onPress={() => nav.onMetrics("todo")} />}
     </Screen>
   );
 }
 
-const SHOPIFY = "#008060";
-const META = "#0866ff";
-
-export function ShopifyView({ org }: { org: Org }) {
+export function ShopifyView({ org, nav }: { org: Org; nav: HomeNav }) {
   const [days, setDays] = useState(30);
   const { data: d, error, reload, retry } = useApi<ShopifyMetrics>(withStore(org, `/v1/organizations/${org.id}/shopify/metrics?days=${days}`));
   const profit = d ? profitOf(d) : null;
@@ -181,53 +190,82 @@ export function ShopifyView({ org }: { org: Org }) {
   const cur = d?.currency_code;
   const top = d ? d.top_products.slice(0, 5) : [];
   const topRevenue = Math.max(1, ...top.map((p) => p.revenue));
+  const atRisk = d ? d.stock.out_of_stock_items + d.stock.low_stock_items : 0;
 
   return (
-    <Screen flat title="Shopify" theme="shopify" subtitle={org.name} onRefresh={reload}>
-      <PeriodChips options={[7, 30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Shopify" theme="shopify" onRefresh={reload}>
+      <TopBar name={org.name} options={PERIODS} days={days} onChange={setDays} />
       <Status error={error} loading={!d} retry={retry} />
       {d && (
         <>
-          <ChartCarousel tabs={salesTabs(d)} suffix={` · ${days} días`} height={220} />
-          <Strip
-            color={SHOPIFY}
+          <Hero metrics={salesMetrics(d)} compare={`${days} días anteriores`} />
+
+          <Block title="Para hoy">
+            <StockAlert orgId={org.id} stock={d.stock} />
+            {atRisk === 0 && <AllClear />}
+          </Block>
+
+          <SheetList
+            title="Detalle"
             items={[
-              { label: "Pedidos", value: fmtNum(d.sales.orders_count) },
-              { label: "Ticket medio", value: money(d.sales.aov, cur, 2) },
-              profit ? { label: "Beneficio neto", value: money(profit.net_profit, cur) } : { label: "Unidades", value: fmtNum(d.sales.units_sold) },
+              profit && {
+                title: "Beneficio neto",
+                summary: money(profit.net_profit, cur),
+                theme: "shopify",
+                content: (
+                  <Bars
+                    title="Dónde se queda cada euro"
+                    rows={[
+                      { label: "Ventas sin IVA", value: profit.net_revenue_ex_tax, shown: money(profit.net_revenue_ex_tax, cur), color: SHOPIFY },
+                      { label: "Coste de producto", value: profit.cogs, shown: money(profit.cogs, cur), color: c.muted },
+                      { label: "Publicidad", value: profit.ads_spend, shown: money(profit.ads_spend, cur), color: c.muted },
+                      { label: "Envíos", value: profit.shipping_costs, shown: money(profit.shipping_costs, cur), color: c.muted },
+                      { label: "Comisiones de pago", value: profit.payment_fees, shown: money(profit.payment_fees, cur), color: c.muted },
+                      { label: "Costes fijos", value: profit.fixed_costs, shown: money(profit.fixed_costs, cur), color: c.muted },
+                      { label: "Beneficio neto", value: profit.net_profit, shown: money(profit.net_profit, cur), color: profit.net_profit >= 0 ? SHOPIFY : c.danger, strong: true },
+                    ]}
+                  />
+                ),
+              },
+              top.length > 0 && {
+                title: "Más vendidos",
+                summary: `Top ${top.length}`,
+                theme: "shopify",
+                content: top.map((p) => (
+                  <View key={p.product_id} style={{ gap: 6 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{p.title}</Text>
+                        <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{`${fmtNum(p.quantity_sold)} uds`}</Text>
+                      </View>
+                      <Text style={{ fontSize: 16, fontFamily: font.semibold, color: SHOPIFY }}>{money(p.revenue, cur)}</Text>
+                    </View>
+                    <View style={{ height: 4, borderRadius: 2, backgroundColor: "#e0f2ea" }}>
+                      <View style={{ width: `${Math.max(2, (p.revenue / topRevenue) * 100)}%`, height: 4, borderRadius: 2, backgroundColor: SHOPIFY }} />
+                    </View>
+                  </View>
+                )),
+              },
+              !!f?.has_sessions && f.has_funnel_steps && f.sessions > 0 && {
+                title: "Del visitante al pedido",
+                summary: `${fmtNum(f.sessions)} sesiones`,
+                theme: "shopify",
+                content: (
+                  <Tunnel
+                    title="Embudo"
+                    steps={[
+                      { label: "Sesiones", value: fmtNum(f.sessions), rate: 1 },
+                      { label: "Carrito", value: fmtNum(f.cart_additions), rate: f.cart_additions / f.sessions },
+                      { label: "Pago", value: fmtNum(f.checkouts_reached), rate: f.checkouts_reached / f.sessions },
+                      { label: "Compra", value: fmtNum(f.purchases), rate: f.purchases / f.sessions },
+                    ]}
+                  />
+                ),
+              },
             ]}
           />
-          {f?.has_sessions && f.has_funnel_steps && f.sessions > 0 && (
-            <Tunnel
-              title="Del visitante al pedido"
-              steps={[
-                { label: "Sesiones", value: fmtNum(f.sessions), rate: 1 },
-                { label: "Carrito", value: fmtNum(f.cart_additions), rate: f.cart_additions / f.sessions },
-                { label: "Pago", value: fmtNum(f.checkouts_reached), rate: f.checkouts_reached / f.sessions },
-                { label: "Compra", value: fmtNum(f.purchases), rate: f.purchases / f.sessions },
-              ]}
-            />
-          )}
-          <StockAlert orgId={org.id} stock={d.stock} />
-          {top.length > 0 && (
-            <View style={{ gap: 12 }}>
-              <Text style={smallTitle}>Más vendidos</Text>
-              {top.map((p) => (
-                <View key={p.product_id} style={{ gap: 6 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{p.title}</Text>
-                      <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{`${fmtNum(p.quantity_sold)} uds`}</Text>
-                    </View>
-                    <Text style={{ fontSize: 16, fontFamily: font.semibold, color: SHOPIFY }}>{money(p.revenue, cur)}</Text>
-                  </View>
-                  <View style={{ height: 4, borderRadius: 2, backgroundColor: "#e0f2ea" }}>
-                    <View style={{ width: `${Math.max(2, (p.revenue / topRevenue) * 100)}%`, height: 4, borderRadius: 2, backgroundColor: SHOPIFY }} />
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
+
+          <MoreLink onPress={() => nav.onMetrics("shopify")} />
         </>
       )}
     </Screen>
@@ -235,69 +273,102 @@ export function ShopifyView({ org }: { org: Org }) {
 }
 
 // ADR-0021: lo que Meta se atribuye es "atribuido por Meta", nunca "generado", y no se suma con otras plataformas.
-export function MetaView({ org }: { org: Org }) {
+export function MetaView({ org, nav }: { org: Org; nav: HomeNav }) {
   const [days, setDays] = useState(30);
-  const { data, error, reload, retry } = useApi<MetaInsights>(withStore(org, `/v1/organizations/${org.id}/meta/insights?days=${days}`));
+  const base = `/v1/organizations/${org.id}`;
+  const { data, error, reload, retry } = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days}`));
+  const prev = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days * 2}`));
   const s = data?.summary;
   const cur = data?.currency;
+  const before = metaBefore(s ?? null, prev.data?.summary);
 
-  const tabs = data ? metaTabs(data) : [];
+  const metrics: HeroMetric[] = data && s
+    ? [
+        { key: "gasto", label: "Inversión", value: money(s.spend, cur), delta: pctDelta(s.spend, before?.spend), neutral: true, points: data.daily_spend.map((p) => ({ label: dayLabel(p.bucket_date), y: p.spend })), format: (v) => money(v, cur, 2) },
+        { key: "roas", label: "ROAS atribuido", value: dec(s.roas), delta: pctDelta(s.roas, before?.roas), points: data.daily_roas.map((p) => ({ label: dayLabel(p.bucket_date), y: p.roas })), format: dec },
+      ]
+    : [];
 
   return (
-    <Screen flat title="Meta Ads" theme="meta" subtitle={org.name} onRefresh={reload}>
-      <PeriodChips options={[7, 30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Meta Ads" theme="meta" onRefresh={async () => void (await Promise.all([reload(), prev.reload()]))}>
+      <TopBar name={org.name} options={PERIODS} days={days} onChange={setDays} />
       <Status error={error} loading={!data} retry={retry} />
       {data && !s && <Note flat text="Meta Ads no tiene datos en este periodo. Si aún no está conectado, se hace desde la web." />}
       {data && s && (
         <>
-          <ChartCarousel tabs={tabs} suffix={` · ${days} días`} height={220} />
-          <Strip
-            title="Resultado atribuido"
-            color={META}
+          <Hero metrics={metrics} compare={`${days} días anteriores`} />
+          <SheetList
+            title="Detalle"
             items={[
-              { label: "Compras", value: fmtNum(s.purchases) },
-              { label: "CAC", value: money(s.cac, cur, 2) },
-              { label: "Atribuido por Meta", value: money(s.purchase_value, cur) },
+              {
+                title: "Resultado atribuido",
+                summary: money(s.purchase_value, cur),
+                theme: "meta",
+                content: (
+                  <>
+                    <Strip
+                      color={META}
+                      items={[
+                        { label: "Compras", value: fmtNum(s.purchases), delta: pctDelta(s.purchases, before?.purchases) },
+                        { label: "CAC", value: money(s.cac, cur, 2), delta: pctDelta(s.cac, before?.cac), lowerIsBetter: true },
+                        { label: "Atribuido por Meta", value: money(s.purchase_value, cur) },
+                      ]}
+                    />
+                    <Note flat text="Es lo que Meta se atribuye: no se suma a Klaviyo ni coincide con las ventas de Shopify." />
+                  </>
+                ),
+              },
             ]}
           />
-          <Note flat text="Las compras y el valor son los que Meta se atribuye; no se suman a los de Klaviyo ni coinciden con las ventas de Shopify." />
+          <MoreLink label="Ver campañas y cifras" onPress={() => nav.onMetrics("meta")} />
         </>
       )}
     </Screen>
   );
 }
 
-export function KlaviyoView({ org }: { org: Org }) {
+export function KlaviyoView({ org, nav }: { org: Org; nav: HomeNav }) {
   const [days, setDays] = useState(30);
   const { data, error, reload, retry } = useApi<EmailReport>(withStore(org, `/v1/organizations/${org.id}/klaviyo/email-report?days=${days}`));
   const t = data?.totals;
-  const flowShare = t && t.revenue > 0 ? t.flow_revenue / t.revenue : null;
+  const p = data?.previous;
 
-  const tabs = data ? mailTabs(data) : [];
+  // Flujos + campañas sí se suman: son la misma plataforma (lo que no se suma es Klaviyo con Meta).
+  const metrics: HeroMetric[] = data && t
+    ? [{ key: "ingresos", label: "Atribuido por Klaviyo", value: eur(t.revenue), delta: pctDelta(t.revenue, p?.revenue), points: data.trend.map((m) => ({ label: monthLabel(m.month), y: m.flow_revenue + m.campaign_revenue })), format: eur }]
+    : [];
 
   return (
-    <Screen flat title="Klaviyo" theme="klaviyo" subtitle={org.name} onRefresh={reload}>
-      <PeriodChips options={[30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Klaviyo" theme="klaviyo" onRefresh={reload}>
+      <TopBar name={org.name} options={[30, 90]} days={days} onChange={setDays} />
       <Status error={error} loading={!data} retry={retry} />
       {data && !data.connected && <Note flat text="Klaviyo no está conectado. Se conecta desde la web." />}
       {data && data.connected && t && (
         <>
-          <ChartCarousel tabs={tabs} height={220} />
-          <Strip
-            color={klaviyo.mint}
+          <Hero metrics={metrics} compare="periodo anterior" />
+          <SheetList
+            title="Detalle"
             items={[
-              { label: "Atribuido por Klaviyo", value: eur(t.revenue) },
-              { label: "Conversiones", value: fmtNum(t.conversions) },
+              {
+                title: "Flujos y campañas",
+                summary: t.revenue > 0 ? `${Math.round((t.flow_revenue / t.revenue) * 100)} % flujos` : undefined,
+                theme: "klaviyo",
+                content: <ShareBar title="De dónde sale lo atribuido" format={eur} parts={[{ label: "Flujos automáticos", value: t.flow_revenue, color: klaviyo.mint }, { label: "Campañas", value: t.campaign_revenue, color: c.ink }]} />,
+              },
+              {
+                title: "Interacción",
+                summary: `${pct(t.open_rate)} aperturas`,
+                theme: "klaviyo",
+                content: (
+                  <>
+                    <RateBars title="Del envío al clic" steps={[{ label: "Aperturas", rate: t.open_rate, value: pct(t.open_rate) }, { label: "Clics", rate: t.click_rate, value: pct(t.click_rate, 2) }]} />
+                    <Strip items={[{ label: "Conversiones", value: fmtNum(t.conversions), delta: pctDelta(t.conversions, p?.conversions) }]} />
+                  </>
+                ),
+              },
             ]}
           />
-          <RateBars
-            title="Interacción"
-            steps={[
-              { label: "Aperturas", rate: t.open_rate, value: pct(t.open_rate) },
-              { label: "Clics", rate: t.click_rate, value: pct(t.click_rate, 2) },
-            ]}
-          />
-          {flowShare !== null && <Note flat text={`${Math.round(flowShare * 10)} de cada 10 € atribuidos llegan solos, desde flujos automáticos.`} />}
+          <MoreLink label="Ver campañas y cifras" onPress={() => nav.onMetrics("klaviyo")} />
         </>
       )}
     </Screen>

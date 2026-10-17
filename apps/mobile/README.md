@@ -27,6 +27,7 @@ Sin fila con veredicto **Entra**, no se escribe código de esa función.
 |---|---|---|---|
 | Login + identidad (`/v1/bootstrap`) | Entra | Base necesaria para todo lo demás | 2026-10-15 |
 | Selector de dashboard Todo / Shopify / Meta / Klaviyo | Entra (limitado) | Cifras clave y gráficos de línea interactivos por vista (ampliado por Rafa 2026-10-15); sin tablas largas, creatividades ni análisis IA | 2026-10-15 |
+| Inicio rediseñado: una cifra principal con pastillas para cambiarla, «Para hoy» (propuestas, alertas, stock, tareas o «Todo en orden»), filas de canal que abren su vista y enlace a Métricas | Entra | Pedido por Rafa 2026-10-17: menos datos de primeras y más intuitivo. Mismo esquema en las cuatro vistas; el detalle (beneficio, más vendidos, embudo, atribuido, interacción) en hojas a un toque | 2026-10-17 |
 | Widget de tareas abiertas (solo lectura) | Entra (limitado) | Ver qué vence y qué está vencido es sensible al tiempo; completar pide registrar un resultado, eso va a la web | 2026-10-15 |
 | Detalle de stock en riesgo (hoja) | Entra | Productos agotados y con stock bajo (foto + nombre) y análisis del agente con nombres; sin explicaciones genéricas | 2026-10-15 |
 | Widget de alertas activas (solo lectura) | Entra | Urgente por definición; reconocer/resolver va a la web | 2026-10-15 |
