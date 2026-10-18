@@ -76,4 +76,9 @@ export const cardStyle = (th: Theme, background = c.bg) => ({
 });
 
 /** Verde de acento de las pantallas de Klaviyo (barras, cifras destacadas); el tema del canal sigue siendo grafito. */
+/** Verde de "va bien" (variaciones, aprobar, completar): el acento grafito no se distingue de "neutro". */
+export const GOOD = "#0f9d7a";
+/** Naranja de "revisar" (vencidas, margen bajo, cambios pedidos): entre el rojo de urgente y el gris de neutro. */
+export const CAUTION = "#d97706";
+
 export const klaviyo = { mint: "#0f9d7a", soft: "#e0f5ee", amber: "#e8a317" };

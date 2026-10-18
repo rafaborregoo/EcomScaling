@@ -3,11 +3,12 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
+import { ZoneNoteMark, zoneAnchor } from "@/components/zone-notes";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { Skeleton, toast } from "@/components/ui";
-import { BarRows, Waterfall } from "@/components/data-bars";
+import { useRouter } from "next/navigation";
+import { ArchiveIcon, CheckIcon, CloseIcon, MessageIcon, PlusIcon, Skeleton, toast } from "@/components/ui";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
 import {
@@ -16,17 +17,12 @@ import {
   fmtCurrency,
   fmtEur,
   fmtNum,
-  isClientReadable,
   MIN_NEW_CUSTOMERS_FOR_CAC,
-  moneyFlow,
   monthlyWithProjection,
   pickFinding,
-  shortMoney,
-  unitEconomics,
   type PulseFinancial,
 } from "./client-pulse-model";
 import s from "./client-pulse.module.css";
-import { DashboardSections } from "./dashboard-sections";
 
 /**
  * Panel del cliente, vista "Pulso".
@@ -143,6 +139,7 @@ type Task = {
   assigned_to: string | null;
   assignee_name: string | null;
   updated_at: string;
+  is_visible_to_client?: boolean;
   task_comments?: Array<{ body: string; is_internal: boolean; created_at: string }>;
 };
 export type Alert = {
@@ -176,8 +173,14 @@ export type Diagnostic = {
       owner_role?: "cliente" | "consultor";
       due_hint?: string | null;
     }>;
+    proposal_decisions?: Array<{ index: number; status: string; reason?: string; task_id?: string }>;
+    weekly_demand_coverage?: "available" | "unavailable" | "incomplete";
+    product_count?: number;
+    returned_count?: number;
+    truncated?: boolean;
     confidence: "low" | "medium" | "high";
   };
+  stale?: boolean;
   envelope?: {
     quality: { confidence: string; dataCompleteness: string };
     sources: Array<{ id: string; label: string }>;
@@ -190,11 +193,6 @@ type IntegrationsPayload = {
     name: string;
     connection: { status: string; last_sync_at: string | null } | null;
   }>;
-};
-
-type Agenda = {
-  planning_items: Array<{ id: string; title: string; channel: string; starts_at: string; status: string }>;
-  milestones: Array<{ id: string; name: string; target_date: string; status: string; phase_name: string | null }>;
 };
 
 type Message = {
@@ -298,30 +296,8 @@ export function findingFor(diagnostic: Diagnostic | undefined, pattern: RegExp, 
   return pickFinding(diagnostic, pattern, taken);
 }
 
-/**
- * Las notas de IA salen del último diagnóstico, que puede tener días. Si sus
- * cifras no coinciden con las del panel (otro periodo), la fecha lo explica
- * en vez de dejar al cliente con dos números distintos sin motivo.
- */
-function datedAi(text: string | null | undefined, generatedAt: string | null | undefined) {
-  if (!text) return null;
-  if (!generatedAt) return text;
-  const ageDays = (Date.now() - new Date(generatedAt).getTime()) / 86_400_000;
-  if (ageDays < 2) return text;
-  return `${text} · análisis del ${new Date(generatedAt).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
-}
-
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const PRIORITY_LABEL: Record<string, string> = { urgent: "Urgente", critical: "Urgente", high: "Alta", medium: "Media", low: "Baja", info: "Baja" };
-const PLANNING_STATUS: Record<string, string> = {
-  draft: "Borrador",
-  planned: "Planificado",
-  scheduled: "Programado",
-  pending: "Pendiente",
-  in_progress: "En preparación",
-  completed: "Hecho",
-  done: "Hecho",
-};
 
 export function prioClass(priority: string) {
   const rank = PRIORITY_RANK[priority] ?? 2;
@@ -512,8 +488,10 @@ export function SectionHead({ id, title, ai, fallback, onAsk, tag = "A02" }: {
   onAsk?: () => void;
 }) {
   return (
-    <div className={s.secHead}>
-      <h2 id={id}>{title}</h2>
+    <div className={cx(s.secHead, "zone-card")}>
+      <h2 id={id}>
+        {title} <ZoneNoteMark anchor={`seccion:${id}`} label={title} />
+      </h2>
       {ai ? (
         <p className={s.aiLine}>
           <span className={s.ia}>{tag}</span>
@@ -528,16 +506,6 @@ export function SectionHead({ id, title, ai, fallback, onAsk, tag = "A02" }: {
         </button>
       ) : null}
     </div>
-  );
-}
-
-export function AiNote({ finding }: { finding: Finding | null }) {
-  if (!finding) return null;
-  return (
-    <p className={s.aiNote}>
-      <span className={s.ia}>A02</span>
-      {finding.title}
-    </p>
   );
 }
 
@@ -587,7 +555,7 @@ type Decision = "approved" | "rejected";
 
 // `asConsultant`: la misma cola vista desde la mesa del consultor. Cambia de
 // quién es cada propuesta (owner_role) y quién es "el otro" en los filtros.
-export function WorkQueue({ base, userId, consultant, asConsultant = false, proposals, operations, reloadAll, onComment }: {
+export function WorkQueue({ base, userId, consultant, asConsultant = false, proposals, operations, reloadAll, title = "Qué hacer", titleId }: {
   base: string;
   userId: string;
   consultant: AssignedConsultant;
@@ -595,12 +563,24 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   proposals: Diagnostic[];
   operations: Operations | undefined;
   reloadAll: () => void;
-  onComment: (text: string) => void;
+  /** Ya no se usa: comentar se hace sobre la propia tarea. Se mantiene por compatibilidad. */
+  onComment?: (text: string) => void;
+  title?: string;
+  /** Si la cola es la sección principal de la vista, su título hace de ancla. */
+  titleId?: string;
+  /** Una línea de la IA sobre qué atacar primero, encima de la lista. */
+  lead?: string | null;
 }) {
   const [filter, setFilter] = useState<"all" | "mine" | "consultant" | "ai">("all");
   const [showAll, setShowAll] = useState(false);
   const [decisions, setDecisions] = useState<Record<string, Record<number, Decision>>>({});
+  const [sentOutputs, setSentOutputs] = useState<string[]>([]);
+  const [goneTasks, setGoneTasks] = useState<string[]>([]);
+  const [goneProposals, setGoneProposals] = useState<string[]>([]);
   const [closing, setClosing] = useState<string | null>(null);
+  const [commenting, setCommenting] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const [openComments, setOpenComments] = useState<string | null>(null);
   const [outcome, setOutcome] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
@@ -609,15 +589,23 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   const items = useMemo<QueueItem[]>(() => {
     const list: QueueItem[] = [];
     for (const diagnostic of proposals) {
-      if (diagnostic.output_status !== "pending_approval") continue;
+      if (diagnostic.output_status !== "pending_approval" || sentOutputs.includes(diagnostic.output_id)) continue;
       const writes = diagnostic.output.proposed_writes;
+      // Las descartadas una a una ya están guardadas en el servidor (proposal_edits).
+      const dismissed = new Set<number>(
+        ((diagnostic.output as { proposal_edits?: Array<{ index?: number; skip?: boolean }> }).proposal_edits ?? [])
+          .filter((edit) => edit.skip === true && Number.isInteger(edit.index))
+          .map((edit) => Number(edit.index)),
+      );
+      const live = writes.length - dismissed.size;
       writes.forEach((write, index) => {
+        if (dismissed.has(index) || goneProposals.includes(`${diagnostic.output_id}:${index}`)) return;
         list.push({
           kind: "proposal",
           key: `${diagnostic.output_id}:${index}`,
           outputId: diagnostic.output_id,
           index,
-          total: writes.length,
+          total: live,
           title: write.title,
           why: write.description,
           priority: write.priority,
@@ -632,17 +620,22 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
       list.push({ kind: "alert", key: alert.id, title: alert.title, why: alert.message, priority: alert.severity });
     }
     for (const task of operations?.tasks ?? []) {
-      if (!["pending", "in_progress"].includes(task.status)) continue;
-      if (task.due_at && Date.parse(task.due_at) - now > SHORT_TERM_DAYS * DAY_MS) continue;
-      list.push({ kind: "task", key: task.id, task, mine: !task.assigned_to || task.assigned_to === userId, priority: task.priority });
+      if (!["proposed", "pending", "in_progress"].includes(task.status) || goneTasks.includes(task.id)) continue;
+      // Una propuesta del consultor espera decisión, venza cuando venza.
+      if (task.status !== "proposed" && task.due_at && Date.parse(task.due_at) - now > SHORT_TERM_DAYS * DAY_MS) continue;
+      list.push({ kind: "task", key: task.id, task, mine: asConsultant ? task.assigned_to === userId : !task.assigned_to || task.assigned_to === userId, priority: task.priority });
     }
     // Las propuestas de IA esperan una decision humana: van primero, si no quedan tapadas por tareas urgentes.
+    // A igual prioridad, lo que vence antes (lo vencido el primero).
+    const dueOf = (i: QueueItem) => (i.kind === "task" && i.task.due_at ? Date.parse(i.task.due_at) : Infinity);
+    const awaitsDecision = (i: QueueItem) => i.kind === "proposal" || (i.kind === "task" && i.task.status === "proposed");
     return list.sort(
       (a, b) =>
-        Number(b.kind === "proposal") - Number(a.kind === "proposal") ||
-        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2),
+        Number(awaitsDecision(b)) - Number(awaitsDecision(a)) ||
+        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2) ||
+        dueOf(a) - dueOf(b),
     );
-  }, [asConsultant, now, operations, proposals, userId]);
+  }, [asConsultant, goneProposals, goneTasks, now, operations, proposals, sentOutputs, userId]);
 
   const laterCount = (operations?.tasks ?? []).filter(
     (t) => ["pending", "in_progress"].includes(t.status) && t.due_at && Date.parse(t.due_at) - now > SHORT_TERM_DAYS * DAY_MS,
@@ -654,13 +647,15 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
 
   const filters = [
     { key: "all" as const, label: "Todo", test: () => true },
-    { key: "mine" as const, label: "Tuyas", test: (i: QueueItem) => i.kind !== "alert" && i.mine },
+    { key: "mine" as const, label: "Tuyas", test: (i: QueueItem) => i.kind === "task" && i.mine },
     ...(consultant || asConsultant
-      ? [{ key: "consultant" as const, label: asConsultant ? "Del cliente" : `De ${consultantName}`, test: (i: QueueItem) => i.kind !== "alert" && !i.mine }]
+      ? [{ key: "consultant" as const, label: asConsultant ? "Del cliente" : `De ${consultantName}`, test: (i: QueueItem) => i.kind === "task" && !i.mine }]
       : []),
     { key: "ai" as const, label: "Propuestas IA", test: (i: QueueItem) => i.kind === "proposal" },
   ];
-  const activeFilter = filters.find((f) => f.key === filter) ?? filters[0];
+  // Un filtro a cero no filtra nada: solo se enseñan los que tienen algo.
+  const usefulFilters = filters.filter((f) => f.key === "all" || items.some(f.test));
+  const activeFilter = usefulFilters.find((f) => f.key === filter) ?? usefulFilters[0];
   const filtered = items.filter(activeFilter.test);
   const visible = showAll ? filtered : filtered.slice(0, QUEUE_PREVIEW);
   const urgent = items.filter((i) => (PRIORITY_RANK[i.priority] ?? 2) === 0).length;
@@ -668,7 +663,38 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   async function decide(item: Extract<QueueItem, { kind: "proposal" }>, decision: Decision) {
     const forOutput = { ...(decisions[item.outputId] ?? {}), [item.index]: decision };
     setDecisions((prev) => ({ ...prev, [item.outputId]: forOutput }));
-    if (Object.keys(forOutput).length < item.total) return;
+    if (Object.keys(forOutput).length < item.total) {
+      // Descartar una propuesta se guarda al momento: si no, el consultor la seguiría viendo.
+      if (decision === "rejected") {
+        setBusy(item.key);
+        try {
+          const response = await apiFetch(`${base}/ai/outputs/${item.outputId}/decision`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ decision: "dismiss_proposal", edits: [{ index: item.index, skip: true }] }),
+          });
+          if (!response.ok) throw new Error(await readApiError(response));
+          setDecisions((prev) => {
+            const next = { ...(prev[item.outputId] ?? {}) };
+            delete next[item.index];
+            return { ...prev, [item.outputId]: next };
+          });
+          setGoneProposals((prev) => [...prev, item.key]);
+          toast.success("Propuesta descartada.");
+          reloadAll();
+        } catch (cause) {
+          setDecisions((prev) => {
+            const next = { ...(prev[item.outputId] ?? {}) };
+            delete next[item.index];
+            return { ...prev, [item.outputId]: next };
+          });
+          toast.danger(cause instanceof Error && cause.message ? `No se pudo descartar: ${cause.message}` : "No se pudo descartar la propuesta.");
+        } finally {
+          setBusy(null);
+        }
+      }
+      return;
+    }
 
     // El endpoint decide la tanda entera: se envía cuando todas tienen respuesta.
     const approved = Object.values(forOutput).filter((d) => d === "approved").length;
@@ -689,16 +715,19 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
         setDecisions((prev) => ({ ...prev, [item.outputId]: {} }));
         return;
       }
+      setSentOutputs((prev) => [...prev, item.outputId]);
       toast.success(batch === "approved" ? `${approved} tarea(s) creada(s) en Tareas.` : "Propuestas descartadas.");
       reloadAll();
-    } catch {
-      toast.danger("No se pudo guardar la decisión por un error de red. Reintenta.");
+    } catch (cause) {
+      console.error("decision_failed", cause);
+      setDecisions((prev) => ({ ...prev, [item.outputId]: {} }));
+      toast.danger(cause instanceof Error && cause.message ? `No se pudo guardar la decisión: ${cause.message}` : "No se pudo guardar la decisión. Reintenta.");
     } finally {
       setBusy(null);
     }
   }
 
-  async function setStatus(task: Task, status: "in_progress" | "completed", note?: string) {
+  async function setStatus(task: Task, status: "pending" | "in_progress" | "completed" | "ignored", note?: string) {
     setBusy(task.id);
     try {
       if (note) {
@@ -715,12 +744,42 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
         body: JSON.stringify({ status }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
-      toast.success(status === "completed" ? "Tarea cerrada con su resultado." : "Tarea en curso.");
+      if (status !== "in_progress") setGoneTasks((prev) => [...prev, task.id]);
+      toast.success(
+        task.status === "proposed"
+          ? status === "pending" ? "Tarea aceptada: ya está en tu lista." : "Propuesta rechazada. Tu consultor lo verá."
+          : status === "completed" ? "Tarea cerrada con su resultado." : status === "ignored" ? "Tarea archivada. La encontrarás en Tareas, filtro Ignoradas." : "Tarea en curso.",
+      );
       setClosing(null);
       setOutcome("");
       reloadAll();
     } catch (cause) {
       toast.danger(cause instanceof Error ? cause.message : "No se pudo actualizar la tarea.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Comentario sobre la tarea, visible para el cliente y el consultor (no es el chat).
+  async function submitComment(event: FormEvent<HTMLFormElement>, task: Task) {
+    event.preventDefault();
+    const body = commentText.trim();
+    if (!body) return;
+    setBusy(task.id);
+    try {
+      const response = await apiFetch(`${base}/tasks/${task.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, isInternal: false }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      toast.success("Comentario añadido a la tarea.");
+      setCommenting(null);
+      setCommentText("");
+      setOpenComments(task.id);
+      reloadAll();
+    } catch (cause) {
+      toast.danger(cause instanceof Error ? cause.message : "No se pudo guardar el comentario.");
     } finally {
       setBusy(null);
     }
@@ -746,10 +805,12 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   }
 
   return (
-    <div className={s.panel}>
+    <div className={cx(s.panel, "zone-card")}>
       <div className={s.panelH}>
         <div>
-          <h3>Qué hacer</h3>
+          <h3 id={titleId}>
+            {title} <ZoneNoteMark anchor={zoneAnchor("bloque", title)} label={title} />
+          </h3>
           <p className={s.qSum}>
             {items.length ? `${items.length} por resolver` : operations ? "Al día" : "Pendientes de comprobar"}
             {laterCount ? (
@@ -767,9 +828,9 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
           </p>
         </div>
         {/* Filtrar una lista vacía son cuatro botones a cero: solo con algo que filtrar. */}
-        {items.length > 0 ? (
+        {usefulFilters.length > 1 ? (
         <div className={s.seg} role="group" aria-label="Filtrar trabajo pendiente">
-          {filters.map((f) => (
+          {usefulFilters.map((f) => (
             <button key={f.key} type="button" aria-pressed={f.key === activeFilter.key} onClick={() => setFilter(f.key)}>
               {f.label}
               <b>{items.filter(f.test).length}</b>
@@ -792,7 +853,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
               const decided = decisions[item.outputId]?.[item.index];
               const pendingOthers = item.total - Object.keys(decisions[item.outputId] ?? {}).length;
               return (
-                <li key={item.key} className={cx(s.qi, s.qiProposal)}>
+                <li key={item.key} className={cx(s.qi, s.qiProposal, "hover-sweep")}>
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                   <div>
                     <p className={s.qiK}>
@@ -804,7 +865,6 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                       <span className={cx(s.prioL, prioClass(item.priority) === s.prUrgent && s.prioUrgent)}>
                         {PRIORITY_LABEL[item.priority] ?? item.priority}
                       </span>
-                      {who(item.mine)}
                       {item.due ? <span className={s.chip}>{item.due}</span> : null}
                       {decided ? (
                         <span className={cx(s.chip, decided === "approved" ? s.chipGood : undefined)}>
@@ -818,11 +878,11 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                     <span />
                   ) : (
                     <div className={s.qiA}>
-                      <button type="button" className={cx(s.btn, s.acc, s.sm)} disabled={busy !== null} onClick={() => void decide(item, "approved")}>
-                        Crear tarea
+                      <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Crear tarea" title="Crear tarea" disabled={busy !== null} onClick={() => void decide(item, "approved")}>
+                        <CheckIcon aria-hidden="true" />
                       </button>
-                      <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={busy !== null} onClick={() => void decide(item, "rejected")}>
-                        Descartar
+                      <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconNo)} aria-label="Descartar" title="Descartar" disabled={busy !== null} onClick={() => void decide(item, "rejected")}>
+                        <CloseIcon aria-hidden="true" />
                       </button>
                     </div>
                   )}
@@ -831,7 +891,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             }
             if (item.kind === "alert") {
               return (
-                <li key={item.key} className={s.qi}>
+                <li key={item.key} className={cx(s.qi, "hover-sweep")}>
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                   <div>
                     <p className={s.qiK} style={{ color: "var(--warn)" }}>Aviso</p>
@@ -843,27 +903,110 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
               );
             }
             const { task } = item;
+            // Vencida = su fecha ya pasó (comparando días, no horas).
+            const overdue = Boolean(task.due_at && Date.parse(task.due_at.slice(0, 10)) < Date.parse(new Date(now).toISOString().slice(0, 10)));
+            const rank = PRIORITY_RANK[item.priority] ?? 2;
+            const proposed = task.status === "proposed";
             return (
-              <li key={item.key} className={s.qi}>
+              <li key={item.key} className={cx(s.qi, proposed && s.qiProposal, "hover-sweep")}>
                 <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                 <div>
+                  {proposed ? (
+                    <p className={s.qiK}>
+                      {asConsultant ? "Propuesta tuya · esperando al cliente" : `Propuesta de ${consultantName} · acéptala o recházala`}
+                    </p>
+                  ) : null}
                   <p className={s.qiT}>{task.title}</p>
-                  {task.description ? <TaskDetail text={task.description} label="Ver pasos" /> : null}
                   <div className={s.qiM}>
-                    <span className={cx(s.prioL, prioClass(item.priority) === s.prUrgent && s.prioUrgent, prioClass(item.priority) === s.prHigh && s.prioHigh)}>
-                      {PRIORITY_LABEL[item.priority] ?? item.priority}
-                    </span>
-                    {who(item.mine, task.assignee_name)}
-                    {task.categories.slice(0, 1).map((c) => (
-                      <span key={c} className={s.chip}>
-                        {c}
+                    {/* Solo se nombra la prioridad cuando cambia algo: urgente o alta. */}
+                    {rank <= 1 ? (
+                      <span className={cx(s.prioL, rank === 0 ? s.prioUrgent : s.prioHigh)}>
+                        {PRIORITY_LABEL[item.priority] ?? item.priority}
                       </span>
-                    ))}
-                    {task.due_at ? <span className={s.chip}>{dayLabel(task.due_at, true)}</span> : null}
-                    <span className={cx(s.chip, task.status === "in_progress" && s.chipAcc)}>
-                      {task.status === "in_progress" ? "En curso" : "Pendiente"}
-                    </span>
+                    ) : null}
+                    {task.due_at ? (
+                      <span className={cx(s.chip, overdue && s.chipBad)}>
+                        {overdue ? "Vencida · " : ""}
+                        {dayLabel(task.due_at, true)}
+                      </span>
+                    ) : null}
+                    {item.mine ? null : who(false, task.assignee_name)}
+                    {task.status === "in_progress" ? <span className={cx(s.chip, s.chipAcc)}>En curso</span> : null}
+                    {asConsultant && task.is_visible_to_client === false ? <span className={s.chip}>Interna · el cliente no la ve</span> : null}
+                    {item.mine && !asConsultant && task.status === "pending" ? (
+                      <button type="button" className={s.linkBtn} disabled={busy === task.id} onClick={() => void setStatus(task, "in_progress")}>
+                        Empezar
+                      </button>
+                    ) : null}
                   </div>
+                  {task.description ? <TaskDetail text={task.description} label="Ver pasos" /> : null}
+                  {(() => {
+                    const notes = (task.task_comments ?? []).filter((c) => !c.is_internal && !c.body.startsWith("Resultado:"));
+                    if (!notes.length) return null;
+                    const open = openComments === task.id;
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          className={s.cmtBadge}
+                          aria-expanded={open}
+                          onClick={() => setOpenComments(open ? null : task.id)}
+                        >
+                          {notes.length === 1 ? "Comentario" : "Comentarios"} ({notes.length})
+                        </button>
+                        {open ? (
+                          <ul className={s.cmtList}>
+                            {notes
+                              .slice()
+                              .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+                              .map((c, i) => (
+                                <li key={`${c.created_at}-${i}`}>
+                                  {c.body}
+                                  <small>{dayLabel(c.created_at, true)}</small>
+                                </li>
+                              ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+                  {commenting === task.id ? (
+                    <form className={s.cmtBox} onSubmit={(event) => void submitComment(event, task)}>
+                      <label className="sr-only" htmlFor={`pulse-comment-${task.id}`}>Comentario sobre la tarea</label>
+                      <textarea
+                        id={`pulse-comment-${task.id}`}
+                        className={s.cmtInput}
+                        rows={2}
+                        maxLength={2000}
+                        value={commentText}
+                        onChange={(event) => setCommentText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                            event.preventDefault();
+                            event.currentTarget.form?.requestSubmit();
+                          }
+                          if (event.key === "Escape") setCommenting(null);
+                        }}
+                        placeholder={asConsultant ? "Escribe un comentario para el cliente…" : "Escribe un comentario para tu consultor…"}
+                        autoFocus
+                      />
+                      <div className={s.cmtFoot}>
+                        <span className={s.cmtHint}>
+                          <MessageIcon aria-hidden="true" />
+                          {asConsultant ? "Lo verá el cliente en esta tarea" : "Lo verá tu consultor en esta tarea"}
+                          <kbd>Ctrl + Enter</kbd>
+                        </span>
+                        <div className={s.cmtActions}>
+                          <button type="button" className={s.cmtCancel} onClick={() => setCommenting(null)}>
+                            Cancelar
+                          </button>
+                          <button type="submit" className={s.cmtSend} disabled={!commentText.trim() || busy === task.id}>
+                            {busy === task.id ? "Enviando…" : "Comentar"}
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  ) : null}
                   {closing === task.id ? (
                     <form className={s.qf} onSubmit={(event) => submitOutcome(event, task)}>
                       <label htmlFor={`pulse-outcome-${task.id}`}>¿Qué resultado tuvo?</label>
@@ -887,20 +1030,35 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                   ) : null}
                 </div>
                 <div className={s.qiA}>
-                  {item.mine ? (
-                    <>
-                      {task.status === "pending" ? (
-                        <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={busy === task.id} onClick={() => void setStatus(task, "in_progress")}>
-                          Empezar
-                        </button>
-                      ) : null}
-                      <button type="button" className={cx(s.btn, s.sm)} disabled={busy === task.id} onClick={() => { setClosing(task.id); setOutcome(""); }}>
-                        Hecha
-                      </button>
-                    </>
-                  ) : consultant || asConsultant ? (
-                    <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => onComment(`Sobre «${task.title}»: `)}>
-                      Comentar
+                  {proposed && !asConsultant ? (
+                  <>
+                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Aceptar tarea" title="Aceptar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "pending")}>
+                      <CheckIcon aria-hidden="true" />
+                    </button>
+                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconNo)} aria-label="Rechazar tarea" title="Rechazar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
+                      <CloseIcon aria-hidden="true" />
+                    </button>
+                  </>
+                  ) : proposed ? null : item.mine && !asConsultant ? (
+                  <>
+                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Marcar como hecha" title="Marcar como hecha" disabled={busy === task.id} onClick={() => { setClosing(task.id); setOutcome(""); }}>
+                      <CheckIcon aria-hidden="true" />
+                    </button>
+                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn)} aria-label="Archivar: ya no me interesa" title="Archivar: ya no me interesa" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
+                      <ArchiveIcon aria-hidden="true" />
+                    </button>
+                  </>
+                  ) : null}
+                  {consultant || asConsultant ? (
+                    <button
+                      type="button"
+                      className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.cmtBtn)}
+                      aria-label="Añadir comentario a la tarea"
+                      title="Añadir comentario"
+                      onClick={() => { setCommenting(commenting === task.id ? null : task.id); setCommentText(""); }}
+                    >
+                      <MessageIcon aria-hidden="true" />
+                      <PlusIcon aria-hidden="true" className={s.cmtPlus} />
                     </button>
                   ) : null}
                 </div>
@@ -1053,56 +1211,29 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
   );
 }
 
-function CopilotCard({ onAsk }: { onAsk: (question: string, label: string) => void }) {
-  const questions = [
-    "¿Qué debería hacer primero esta semana?",
-    "¿Por qué han cambiado mis ventas este mes?",
-    "¿Qué productos debería reponer?",
-  ];
-  return (
-    <div className={s.panel}>
-      <div className={s.person}>
-        <span className={s.avatar} aria-hidden="true" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
-          IA
-        </span>
-        <div>
-          <b>Tu copiloto</b>
-          <span>Conoce tus ventas, tu stock y tus campañas</span>
-        </div>
-      </div>
-      <p className={s.aiNote}>
-        No tienes consultor asignado. Pregúntale al copiloto lo que le preguntarías a uno.
-      </p>
-      <div className={s.qfB} style={{ marginTop: 14 }}>
-        {questions.map((q) => (
-          <button key={q} type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => onAsk(q, "Tu tienda")}>
-            {q}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Vista
 // ---------------------------------------------------------------------------
 
-export function ClientPulse({ userId, organizationId, organizationName, connectionId, consultant }: {
+export function ClientPulse({ userId, organizationId, organizationName, connectionId, consultant, asConsultant = false, extraProposals = [], onReload, extraKpis, sideTop }: {
   userId: string;
   organizationId: string;
   organizationName: string;
   connectionId: string | null;
   consultant: AssignedConsultant;
+  /** La misma portada vista por el consultor asignado: mismas cifras y lista, con sus textos y sus agentes. */
+  asConsultant?: boolean;
+  /** Propuestas de agentes que solo ve el consultor (planes semanal y mensual). */
+  extraProposals?: Diagnostic[];
+  onReload?: () => void;
+  /** Cifras de más que solo necesita el consultor, al final de la fila de KPIs. */
+  extraKpis?: ReactNode;
+  /** Tarjetas propias del consultor, arriba de la columna derecha. */
+  sideTop?: ReactNode;
 }) {
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
   const verdictOf = useMetricAnalysis(organizationId, 30, connectionId);
-  const [agendaQuery] = useState(() => {
-    const from = new Date();
-    const to = new Date(from.getTime() + 28 * DAY_MS);
-    return `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}&scope=${encodeURIComponent(organizationId)}`;
-  });
 
   const metrics = useCachedQuery<Metrics>(`${base}/shopify/metrics?days=30${scope}`);
   const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30`);
@@ -1112,17 +1243,16 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
   // A04: el plan diario propone tareas; sin esto sus propuestas nunca llegaban al widget.
   const plannerAi = useCachedQuery<Diagnostic>(`${base}/ai/task-planner?days=30${scope}`);
+  // Con una tienda elegida, el plan de toda la cuenta también trae propuestas: sin él,
+  // cliente y consultor veían listas distintas según la tienda que tuviera cada uno.
+  const plannerOrgAi = useCachedQuery<Diagnostic>(scope ? `${base}/ai/task-planner?days=30` : null);
   // Sin consultor, el análisis de email es parte del acompañamiento; con
   // consultor lo filtra él.
-  const emailAi = useCachedQuery<Diagnostic>(consultant ? null : `${base}/ai/email-analyst?days=30${scope}`);
+  const emailAi = useCachedQuery<Diagnostic>(consultant && !asConsultant ? null : `${base}/ai/email-analyst?days=30${scope}`);
   const integrations = useCachedQuery<IntegrationsPayload>(`${base}/integrations`);
-  const agenda = useCachedQuery<Agenda>(`/v1/consultant/agenda?${agendaQuery}`);
 
   const ask = useCopilotAsk();
-  const [activePin, setActivePin] = useState<number | null>(null);
-  const [draft, setDraft] = useState("");
-  const [running, setRunning] = useState<string | null>(null);
-  const messageRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
   const [today] = useState(() => new Date());
 
   function askCopilot(question: string, focusLabel: string) {
@@ -1131,56 +1261,35 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 
   function reloadAll() {
     invalidateApiGetCache();
-    invalidateCachedQueries(base);
     operations.reload();
     monitor.reload();
     stockAi.reload();
     plannerAi.reload();
+    plannerOrgAi.reload();
     emailAi.reload();
+    onReload?.();
   }
 
-  async function runAgent(runPath: string, label: string, reload: () => void, view?: string) {
-    setRunning(runPath);
-    try {
-      const viewQuery = view ? `&view=${encodeURIComponent(view)}` : "";
-      const response = await apiFetch(`${base}${runPath}?days=30${scope}${viewQuery}`, { method: "POST" });
-      if (!response.ok) {
-        toast.danger(await readApiError(response));
-        return;
-      }
-      toast.success(`${label} actualizado.`);
-      reload();
-    } catch {
-      toast.danger("No se pudo lanzar el análisis por un error de red.");
-    } finally {
-      setRunning(null);
-    }
-  }
-
-  function comment(text: string) {
-    setDraft(text);
-    messageRef.current?.focus();
-  }
+  // Lo mismo dicho desde el lado del consultor.
+  const yourStore = asConsultant ? `la tienda de ${organizationName}` : "tu tienda";
 
   const data = metrics.data;
   const formatStoreMoney = (value: number | null | undefined, decimals = 0) =>
     fmtCurrency(value, data?.currency_code, decimals);
-  const pins = usePins(data?.daily, operations.data?.alerts);
   const storeSelectionRequired = metrics.error?.includes("shopify_store_selection_required") ?? false;
   const financialCurrencyComparable = data?.financial_currency_coverage?.status === "compatible";
   const klaviyoCurrencyComparable = data?.financial_currency_coverage?.klaviyo_status === "compatible";
   const diagnostic = !storeSelectionRequired ? monitor.data : undefined;
-  const monitorPending = !diagnostic && /agent_diagnostic_pending/.test(monitor.error ?? "");
-  const monitorNoData = !diagnostic && /agent_sin_datos/.test(monitor.error ?? "");
 
   if (metrics.isLoading && !data) {
     return (
-      <div className={s.root}>
-        <div className={s.hero} role="status" aria-busy="true">
-          <p className={s.heroMeta}>{organizationName}</p>
-          <p className={s.headline}>Cargando tu tienda…</p>
-          <Skeleton className="h-32 w-full" aria-hidden="true" />
-        </div>
+      <div className={cx(s.root, s.prio)} role="status" aria-busy="true">
+        <header className={s.pHead}>
+          <p className={s.pMeta}>{organizationName}</p>
+          <p className={s.pTitle}>Cargando {yourStore}…</p>
+        </header>
+        <Skeleton className="h-24 w-full" aria-hidden="true" />
+        <Skeleton className="h-64 w-full" aria-hidden="true" />
       </div>
     );
   }
@@ -1201,203 +1310,162 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
     hasFinancialSettings: showProfit && (financial?.has_settings ?? false),
     previousNetSales: previous?.sales.net_sales ?? null,
   });
-  const aiHeadline = diagnostic?.output.headline ?? diagnostic?.output.answer ?? null;
-  const headline = aiHeadline || pulse.headline;
+  // La frase de la IA es el titular; si trae jerga de sistema, la de `storePulse`.
+  const headline = clientReadable(diagnostic?.output.headline ?? diagnostic?.output.answer) ?? pulse.headline;
   const daily = data?.daily ?? [];
-  const previousAverage = previous && daily.length ? previous.sales.net_sales / daily.length : null;
   const target = (key: string) => data?.metric_targets.find((t) => t.metric_key === key)?.target_value ?? null;
 
-  const proposals = [diagnostic, plannerAi.data, stockAi.data, emailAi.data].filter((d): d is Diagnostic => Boolean(d));
-  const nextStep = diagnostic?.output.recommendations
-    .slice()
-    .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2))[0];
+  const proposals = [diagnostic, plannerAi.data, plannerOrgAi.data, stockAi.data, emailAi.data, ...extraProposals]
+    .filter((d): d is Diagnostic => Boolean(d))
+    .filter((d, i, all) => all.findIndex((o) => o.output_id === d.output_id) === i);
+  const analysisDate = diagnostic
+    ? new Date(diagnostic.generated_at).toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })
+    : null;
 
   // Sin un mínimo de clientes nuevos el CAC no es una media sino una anécdota.
   const cacReliable = (financial?.new_customers ?? MIN_NEW_CUSTOMERS_FOR_CAC) >= MIN_NEW_CUSTOMERS_FOR_CAC;
-  const profitPerOrder = financialCurrencyComparable && financial && financial.orders_count > 0 ? financial.net_profit / financial.orders_count : null;
-  // Cada sección se queda con un hallazgo distinto: las específicas eligen
-  // primero y la genérica (Canales) se queda con lo que sobra.
-  const takenFindings = new Set<Finding>();
-  const moneyAi = findingFor(diagnostic, /rentab|margen|finan|beneficio|profit|coste|unit/i, takenFindings);
-  const storeAi = findingFor(diagnostic, /conver|embudo|tienda|web|cro|carrito|checkout/i, takenFindings);
-  const metaAi = findingFor(diagnostic, /meta|anunc|ads|paid/i, takenFindings);
-  const klaviyoAi = emailAi.data?.output.findings[0] ?? findingFor(diagnostic, /email|klaviyo|crm|reten|flujo/i, takenFindings);
-  const channelsAi = findingFor(diagnostic, /adquis|marketing|canal/i, takenFindings);
-  const planAi = findingFor(diagnostic, /objetivo|camino|crecim|plan|tendencia/i, takenFindings);
-  // El planificador de stock a veces escribe con nombres de campo; al cliente
-  // solo le llega lo que se lee como una frase.
-  const stockHeadline =
-    [
-      stockAi.data?.output.headline,
-      ...(stockAi.data?.output.findings.map((finding) => finding.title) ?? []),
-      findingFor(diagnostic, /stock|invent|reposi/i, takenFindings)?.title,
-    ].find((text): text is string => typeof text === "string" && isClientReadable(text)) ?? null;
-  const stockFindings = (stockAi.data?.output.findings ?? [])
-    .filter((finding) => isClientReadable(finding.title))
-    .map((finding) => ({ ...finding, evidence: clientReadable(finding.evidence) ?? "" }));
-  const dated = (finding: Finding | null) => datedAi(finding?.title, diagnostic?.generated_at);
+  const showCac = financialCurrencyComparable && financial?.cac_blended != null && cacReliable;
+
+  // Fuentes caídas o con más de un día sin sincronizar: las cifras pueden no estar al día.
+  const staleSources = (integrations.data?.providers ?? []).filter(
+    (p) =>
+      p.connection &&
+      p.id !== "fathom" &&
+      (!["connected", "syncing"].includes(p.connection.status) ||
+        !p.connection.last_sync_at ||
+        today.getTime() - Date.parse(p.connection.last_sync_at) > DAY_MS),
+  );
+
+  const revenueTarget = financialCurrencyComparable ? target("net_revenue_ex_tax") : null;
+  const december = revenueTarget !== null && data
+    ? monthlyWithProjection(data.financial_monthly.map((m) => ({ month: m.month, value: m.net_revenue_ex_tax })), today)
+        .find((p) => p.month === `${today.getUTCFullYear()}-12`)
+    : undefined;
 
   const metaAcq = meta.data?.acquisition;
   const hasMeta = Boolean(metaAcq && metaAcq.days_with_data > 0);
   const hasKlaviyo = Boolean(klaviyo.data?.connected && klaviyo.data.totals);
 
+  // Lo que hay que vigilar fuera de las tareas: una línea y un enlace a donde se resuelve.
+  type Signal = { key: string; tone: "bad" | "warn"; text: string; href: string; action: string };
+  const signals: Signal[] = [];
+  if (data && data.stock.out_of_stock_items + data.stock.low_stock_items > 0) {
+    signals.push({
+      key: "stock",
+      tone: data.stock.out_of_stock_items > 0 ? "bad" : "warn",
+      text: [
+        data.stock.out_of_stock_items ? `${fmtNum(data.stock.out_of_stock_items)} agotados` : null,
+        data.stock.low_stock_items ? `${fmtNum(data.stock.low_stock_items)} con stock bajo` : null,
+      ].filter(Boolean).join(" · "),
+      href: "/dashboard?tab=shopify",
+      action: "Ver stock",
+    });
+  }
+  if (data && !financialCurrencyComparable) {
+    signals.push({ key: "currency", tone: "warn", text: "Rentabilidad pendiente de validar la moneda", href: "/configuracion?section=rentabilidad", action: "Revisar" });
+  } else if (financial && !showProfit) {
+    signals.push({
+      key: "profit",
+      tone: "warn",
+      text: data?.margin.lines_without_metrics
+        ? "Beneficio sin calcular: faltan líneas de pedido por sincronizar"
+        : financial.has_settings
+        ? `Beneficio sin calcular: faltan costes de ${fmtNum(financial.items_without_cost)} producto(s)`
+        : "Beneficio sin calcular: faltan costes y gastos",
+      href: financial.has_settings ? "/dashboard?tab=shopify" : "/configuracion?section=rentabilidad",
+      action: "Completar",
+    });
+  }
+  if (revenueTarget !== null && december && december.value < revenueTarget) {
+    signals.push({ key: "goal", tone: "warn", text: `Por debajo del ritmo para ${formatStoreMoney(revenueTarget)} al mes`, href: "/informes", action: "Ver informe" });
+  }
+
+  const channels = [
+    {
+      key: "shopify",
+      name: "Tienda online",
+      color: "var(--store)",
+      href: "/dashboard?tab=shopify",
+      value: data?.funnel?.has_sessions ? `${fmtNum(data.funnel.sessions)} sesiones` : `${fmtNum(data?.sales.orders_count ?? 0)} pedidos`,
+      detail: `Ticket medio ${formatStoreMoney(data?.sales.aov ?? 0, 2)}`,
+    },
+    {
+      key: "meta",
+      name: "Meta Ads",
+      color: "var(--meta)",
+      href: hasMeta ? "/dashboard?tab=meta" : "/integraciones/meta",
+      value: hasMeta && metaAcq && financialCurrencyComparable && metaAcq.roas != null ? `ROAS ${fmtNum(metaAcq.roas, 2)}×` : hasMeta ? "Conectado" : "Sin conectar",
+      detail: hasMeta && metaAcq && financialCurrencyComparable ? `${formatStoreMoney(metaAcq.spend)} invertidos · atribuido por Meta` : hasMeta ? "Importes pendientes de validar la moneda" : "Conecta tu cuenta publicitaria",
+    },
+    {
+      key: "klaviyo",
+      name: "Klaviyo",
+      color: "var(--klaviyo)",
+      href: hasKlaviyo ? "/dashboard?tab=klaviyo" : "/integraciones/klaviyo",
+      value: hasKlaviyo && klaviyo.data && klaviyoCurrencyComparable ? formatStoreMoney(klaviyo.data.totals.revenue) : hasKlaviyo ? "Conectado" : "Sin conectar",
+      detail: hasKlaviyo && klaviyoCurrencyComparable ? "Atribuidos por Klaviyo" : hasKlaviyo ? "Importes pendientes de validar la moneda" : "Conecta tu email",
+    },
+  ];
+
   return (
-    <div className={s.root}>
-      <DashboardSections items={[
-    { id: "pulse-headline", label: "Resumen" },
-    { id: "pulse-hoy", label: "Qué hacer" },
-    ...(financial ? [{ id: "pulse-dinero", label: "Dinero" }] : []),
-    ...(data ? [{ id: "pulse-canales", label: "Canales" }, { id: "pulse-stock", label: "Stock" }, { id: "pulse-plan", label: "Plan" }] : []),
-  ]} />
-      {/* ------------------------------ Hero ------------------------------ */}
-      <section className={s.hero} aria-labelledby="pulse-headline">
-        <div className={s.heroTop}>
-          <div>
-            <p className={s.heroMeta}>
-              <span>{organizationName}</span>
-              <span>{today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })}</span>
-              <span>Últimos 30 días frente a los 30 anteriores</span>
-            </p>
-            <h1 id="pulse-headline" className={s.headline}>
-              Tu tienda, de un vistazo
-            </h1>
-            <p className={s.headlineDetail}>Tus resultados y las prioridades para esta semana.</p>
-            {metrics.error && !data ? (
-              <p className={s.headlineDetail}>
-                {storeSelectionRequired
-                  ? "Hay varias tiendas conectadas. Selecciona una en la cabecera para consultar sus datos sin mezclar tiendas."
-                  : "No hemos podido cargar los datos de tu tienda. Revisa que Shopify esté conectado en Integraciones."}
-              </p>
-            ) : null}
-            <div className={s.heroActions}>
-              <button
-                type="button"
-                className={cx(s.btn, s.acc)}
-                onClick={() =>
-                  askCopilot(`Explícame esto sobre mi tienda: «${headline}». ¿Por qué pasa y qué harías primero?`, "Resumen de tu tienda")
-                }
-              >
-                <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
-                  IA
-                </span>
-                Preguntar por qué
-              </button>
-              <a className={cx(s.btn, s.ghost)} href="#pulse-hoy">
-                Ver qué hacer
-              </a>
-            </div>
-          </div>
-          <aside className={s.heroSide} aria-label="Análisis de la IA">
-            {diagnostic ? (
-              <>
-                <details className={s.analysisDisclosure}>
-                  <summary>
-                  <strong>
-                    Análisis del {dayLabel(diagnostic.generated_at, true)},{" "}
-                    {new Date(diagnostic.generated_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-                  </strong>
-                  </summary>
-                  <p>La lectura corresponde a esa fecha; las cifras muestran el periodo actual. Actualiza el análisis si necesitas una lectura nueva.</p>
-                </details>
-                <button
-                  type="button"
-                  className={cx(s.btn, s.ghost, s.sm)}
-                  disabled={running !== null}
-                  onClick={() => void runAgent("/ai/monitor-run", "Análisis", monitor.reload, "overview")}
-                >
-                  {running === "/ai/monitor-run" ? "Analizando…" : "Actualizar análisis"}
-                </button>
-              </>
-            ) : monitorNoData ? (
-              <p>Cuando se sincronice tu tienda, la IA empezará a analizarla.</p>
-            ) : (
-              <>
-                <p>
-                  <span className={s.ia}>A02</span>
-                  <strong>{monitorPending ? "El primer análisis está pendiente" : "Sin análisis todavía"}</strong>
-                </p>
-                <p>La IA revisa tus pedidos, costes y campañas y te dice qué está pasando y qué haría.</p>
-                <button
-                  type="button"
-                  className={cx(s.btn, s.acc, s.sm)}
-                  disabled={running !== null}
-                  onClick={() => void runAgent("/ai/monitor-run", "Análisis", monitor.reload, "overview")}
-                >
-                  {running === "/ai/monitor-run" ? "Analizando… puede tardar 1-2 min" : "Analizar ahora"}
-                </button>
-              </>
-            )}
-          </aside>
+    <div className={cx(s.root, s.prio)}>
+      {/* ------------------------------ Titular ------------------------------ */}
+      <header className={s.pHead}>
+        <p className={s.pMeta}>
+          <span>{organizationName}</span>
+          <span>{today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</span>
+          <span>Últimos 30 días</span>
+        </p>
+        <h1 id="pulse-headline" className={s.pTitle}>
+          {headline}
+        </h1>
+        <div className={s.pHeadFoot}>
+          {analysisDate ? (
+            <span className={s.pStamp}>
+              <span className={s.ia}>IA</span>
+              Análisis del {analysisDate}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className={cx(s.pAction, "hover-sweep")}
+            onClick={() =>
+              askCopilot(
+                asConsultant
+                  ? `Explícame esto sobre ${yourStore}: «${headline}». ¿Por qué pasa y qué harías primero como su consultor?`
+                  : `Explícame esto sobre mi tienda: «${headline}». ¿Por qué pasa y qué harías primero?`,
+                asConsultant ? `Resumen de ${organizationName}` : "Resumen de tu tienda",
+              )
+            }
+          >
+            <span className={s.ia}>IA</span>
+            Preguntar por qué
+          </button>
         </div>
+      </header>
 
-        {data && !financialCurrencyComparable ? (
-          <div className={s.panel} role="status" style={{ marginTop: 16 }}>
-            <strong>Rentabilidad pendiente de validar por moneda</strong>
-            <p className={s.trackTxt}>
-              {data.financial_currency_coverage?.status === "incompatible"
-                ? `Hay fuentes en monedas distintas a ${data.currency_code ?? "la tienda"}: ${data.financial_currency_coverage.mismatched_sources.map((item) => `${item.source} (${item.currencies.join(", ")})`).join("; ")}.`
-                : `No se pudo confirmar la moneda de todas las fuentes financieras${data.financial_currency_coverage?.unknown_sources.length ? `: ${data.financial_currency_coverage.unknown_sources.join(", ")}` : ""}.`}
-              {" "}La lectura de la IA sigue disponible aunque la moneda esté pendiente. Los cálculos que comparan importes entre fuentes permanecen sujetos a validar la moneda; no se convierte moneda automáticamente.
-            </p>
-          </div>
-        ) : null}
+      {metrics.error && !data ? (
+        <p className={s.error} role="alert">
+          {storeSelectionRequired
+            ? "Hay varias tiendas conectadas. Selecciona una en la cabecera para ver sus datos sin mezclarlas."
+            : `No hemos podido cargar los datos de ${yourStore}. Revisa que Shopify esté conectado en Integraciones.`}
+        </p>
+      ) : null}
 
-        {daily.length > 1 ? (
-          <details className={s.chartDisclosure}>
-            <summary>Evolución diaria de ventas <span>Comparar días y consultar alertas</span></summary>
-          <SalesChart
-            daily={daily.map((d) => ({ date: d.date, value: d.net_sales, detail: `${fmtNum(d.orders_count)} pedidos` }))}
-            previousAverage={previousAverage}
-            currencyCode={data?.currency_code}
-              pins={pins}
-              active={activePin}
-              onPin={(k) => setActivePin((current) => (current === k ? null : k))}
-            />
-            <div className={s.legend} aria-hidden="true">
-              <span>
-                <i className={s.lgLine} />
-                Ventas netas por día
-              </span>
-              {previousAverage !== null ? (
-                <span>
-                  <i className={s.lgPrev} />
-                  Media diaria del periodo anterior
-                </span>
-              ) : null}
-              {pins.length ? (
-                <span>
-                  <i className={s.lgPin} />
-                  Alertas detectadas en el periodo
-                </span>
-              ) : null}
-            </div>
-            {pins.length ? (
-              <ol className={s.notes}>
-                {pins.map((pin, k) => (
-                  <li key={`${pin.date}-${k}`}>
-                    <button
-                      type="button"
-                      className={s.note}
-                      aria-pressed={activePin === k}
-                      onClick={() => setActivePin((current) => (current === k ? null : k))}
-                    >
-                      <span className={s.noteH}>
-                        <span className={s.noteN}>{k + 1}</span>
-                        {dayLabel(pin.date, true)} · {pin.source}
-                      </span>
-                      <p>{pin.title}</p>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-          </details>
-        ) : null}
-      </section>
+      {staleSources.length ? (
+        <p className={s.pNotice} role="status">
+          <span className={cx(s.dot, s.dotWarn)} aria-hidden="true" />
+          {staleSources.map((p) => p.name).join(" y ")}{" "}
+          {staleSources.every((p) => ["connected", "syncing"].includes(p.connection?.status ?? ""))
+            ? `sin sincronizar ${ago(staleSources[0].connection?.last_sync_at ?? null)}: las cifras pueden no estar al día.`
+            : "necesita reconectarse."}
+          <a href="/integraciones" className="hover-sweep">Revisar</a>
+        </p>
+      ) : null}
 
-      {/* ------------------------------ KPIs ------------------------------ */}
+      {/* ------------------------------ Cifras ------------------------------ */}
       {data ? (
-        <div className={s.kpis} aria-label="Cifras clave">
+        <div className={s.pKpis} aria-label="Cifras clave" id={showCac ? undefined : "insight-metric-cac_new"}>
           <Kpi
             label="Ventas netas"
             value={formatStoreMoney(data.sales.net_sales)}
@@ -1413,45 +1481,23 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             slot={<Spark values={daily.map((d) => d.orders_count)} />}
           />
           <Kpi
-            label="Ticket medio"
-            value={formatStoreMoney(data.sales.aov, 2)}
-            delta={<Delta change={salesChangePct(data.sales.aov, previous?.sales.aov ?? null)} />}
-            vs={previous ? formatStoreMoney(previous.sales.aov, 2) : null}
-            slot={<Spark values={daily.filter((d) => d.orders_count > 0).map((d) => d.net_sales / d.orders_count)} />}
-          />
-          {showProfit && financial ? (
-            <Kpi
-              label="Beneficio neto"
-              value={formatStoreMoney(financial.net_profit)}
-            delta={<Delta change={previous?.financial.lines_without_metrics === 0 ? salesChangePct(financial.net_profit, previous.financial.net_profit) : null} />}
-            vs={previous?.financial.lines_without_metrics === 0 ? formatStoreMoney(previous.financial.net_profit) : null}
-              slot={
+            label="Beneficio neto"
+            value={showProfit && financial ? formatStoreMoney(financial.net_profit) : "—"}
+            delta={showProfit && financial && previous?.financial.lines_without_metrics === 0 ? <Delta change={salesChangePct(financial.net_profit, previous.financial.net_profit)} /> : null}
+            vs={showProfit && previous?.financial.lines_without_metrics === 0 ? formatStoreMoney(previous.financial.net_profit) : null}
+            slot={
+              showProfit && financial ? (
                 <TargetBar
                   value={financial.net_margin_pct}
                   target={target("net_margin_pct") ?? financial.net_margin_pct}
                   max={Math.max(40, (target("net_margin_pct") ?? 0) * 1.4)}
                   text={`Margen ${fmtNum(financial.net_margin_pct, 1)} %${target("net_margin_pct") !== null ? ` · objetivo ${fmtNum(target("net_margin_pct") ?? 0, 1)} %` : ""}`}
                 />
-              }
-            />
-          ) : (
-            <Kpi
-              label="Beneficio neto"
-              tag={!financialCurrencyComparable ? "moneda pendiente" : data?.margin.lines_without_metrics !== 0 ? "cobertura pendiente" : financial?.has_settings ? "faltan costes" : "falta configurar"}
-              value="—"
-              slot={
-                <p className={s.trackTxt}>
-                  {!financialCurrencyComparable
-                    ? "Consulta el aviso de moneda antes de usar el beneficio, el margen o el CAC."
-                    : data?.margin.lines_without_metrics !== 0
-                    ? `Falta cobertura neta en ${data?.margin.lines_without_metrics ?? "algunas"} líneas de pedido; sincronízalas antes de consultar beneficio y margen.`
-                    : financial?.has_settings
-                    ? `Faltan los costes de ${financial.items_without_cost} producto(s)`
-                    : "Sin costes ni gastos no se puede calcular"}
-                </p>
-              }
-            />
-          )}
+              ) : (
+                <p className={s.trackTxt}>Pendiente de completar costes</p>
+              )
+            }
+          />
           <Kpi
             verdict={<MetricVerdict analysis={verdictOf("conversion")} />}
             anchorId="insight-metric-conversion"
@@ -1464,309 +1510,127 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             }
             vs={previous?.conversion_rate_own != null ? `${fmtNum(previous.conversion_rate_own * 100, 2)} %` : null}
             slot={
-              target("conversion_rate") !== null && data.funnel?.conversion_rate_own != null ? (
-                <TargetBar
-                  value={data.funnel.conversion_rate_own * 100}
-                  target={target("conversion_rate") ?? 0}
-                  max={Math.max((target("conversion_rate") ?? 0) * 1.6, data.funnel.conversion_rate_own * 120)}
-                  text={`Objetivo ${fmtNum(target("conversion_rate") ?? 0, 2)} %`}
-                />
-              ) : data.funnel?.has_sessions ? (
+              data.funnel?.has_sessions ? (
                 <Spark values={data.funnel_daily.map((d) => d.conversion_rate_own ?? 0)} />
               ) : (
                 <p className={s.trackTxt}>Sin datos de sesiones todavía</p>
               )
             }
           />
-          <Kpi
-            verdict={<MetricVerdict analysis={verdictOf("cac_new")} />}
-            anchorId="insight-metric-cac_new"
-            label="CAC combinado"
-            value={financialCurrencyComparable && financial?.cac_blended != null && cacReliable ? formatStoreMoney(financial.cac_blended, 2) : "—"}
-            tag={financialCurrencyComparable && financial?.cac_blended != null && !cacReliable ? "muestra pequeña" : undefined}
-            slot={
-              financialCurrencyComparable && financial?.cac_blended != null && !cacReliable ? (
-                <p className={s.trackTxt} title="Dividir toda la publicidad entre tan pocos clientes nuevos no da un coste por cliente fiable.">
-                  Solo {fmtNum(financial.new_customers ?? 0)} {financial.new_customers === 1 ? "cliente nuevo" : "clientes nuevos"} en el periodo
-                </p>
-              ) : financialCurrencyComparable && target("cac_blended") !== null && financial?.cac_blended != null ? (
-                <TargetBar
-                  value={financial.cac_blended}
-                  target={target("cac_blended") ?? 0}
-                  max={Math.max((target("cac_blended") ?? 0) * 1.6, financial.cac_blended * 1.2)}
-                  lowerIsBetter
-                  text={`Objetivo ≤ ${formatStoreMoney(target("cac_blended") ?? 0)} por cliente nuevo`}
-                />
-              ) : (
-                <p className={s.trackTxt}>Toda la publicidad entre clientes nuevos</p>
-              )
-            }
-          />
+          {showCac && financial?.cac_blended != null ? (
+            <Kpi
+              verdict={<MetricVerdict analysis={verdictOf("cac_new")} />}
+              anchorId="insight-metric-cac_new"
+              label="CAC combinado"
+              value={formatStoreMoney(financial.cac_blended, 2)}
+              slot={<p className={s.trackTxt}>Publicidad entre clientes nuevos</p>}
+            />
+          ) : null}
+          {extraKpis}
         </div>
       ) : null}
 
-      {diagnostic && aiHeadline ? (
-        <section className={s.sec} aria-labelledby="pulse-reading">
-          <div className={s.panel}>
-            <h2 id="pulse-reading" className={s.qiT}><span className={s.ia}>A02</span> Qué está pasando</h2>
-            <p className={s.headlineDetail}>{aiHeadline}</p>
-          </div>
-        </section>
-      ) : null}
-
-      {/* ------------------------------ Hoy ------------------------------ */}
-      <section className={s.sec} aria-labelledby="pulse-hoy">
-        <SectionHead
-          id="pulse-hoy"
-          title="Hoy"
-          ai={nextStep ? `Lo primero: ${nextStep.action}` : null}
-          onAsk={() => askCopilot("Con las métricas y tareas visibles de esta tienda, ¿qué única prioridad debería iniciar esta semana? Justifícala con su métrica, fuente y periodo; indica si falta evidencia.", "Qué hacer hoy")}
-        />
-        <div className={s.two}>
+      {/* ------------------------------ Prioridades ------------------------------ */}
+      <div className={s.pGrid}>
+        <section aria-labelledby="pulse-hoy" className={s.pMain}>
           {operations.error && !operations.data ? (
-            <div className={s.panel}>
-              <p className={s.error}>No se pudieron cargar tus tareas: {operations.error}</p>
-            </div>
+            <p className={s.error}>No se pudieron cargar las tareas: {operations.error}</p>
           ) : (
             <WorkQueue
               base={base}
               userId={userId}
-              consultant={consultant}
+              consultant={asConsultant ? null : consultant}
+              asConsultant={asConsultant}
               proposals={proposals}
               operations={operations.data}
               reloadAll={reloadAll}
-              onComment={comment}
+              onComment={() => router.push("/mensajes")}
+              title="Prioridades"
+              titleId="pulse-hoy"
             />
           )}
-          {consultant ? (
-            <ConsultantThread base={base} name={consultant.full_name ?? "Tu consultor"} role="Tu consultor en E-NORA" draft={draft} setDraft={setDraft} inputRef={messageRef} />
-          ) : (
-            <CopilotCard onAsk={askCopilot} />
-          )}
-        </div>
-      </section>
-
-      {/* ------------------------------ Dinero ------------------------------ */}
-          {financial ? (
-        <section className={s.sec} aria-labelledby="pulse-dinero">
-          <SectionHead
-            id="pulse-dinero"
-            title="Dinero"
-            ai={dated(moneyAi)}
-            fallback={showProfit && profitPerOrder !== null ? `De cada pedido te quedan ${formatStoreMoney(profitPerOrder, 2)}.` : null}
-            onAsk={() => askCopilot("¿Qué partida reduce más mi rentabilidad y qué debería revisar primero? Cita cifra, fuente y periodo; si falta un coste, dime cuál.", "Dónde se va el dinero")}
-          />
-          {showProfit ? (
-            <MoneyPanels financial={financial} currencyCode={data?.currency_code ?? null} />
-          ) : (
-            <div className={s.panel}>
-              <Empty
-                action={
-                  <div className={s.qfB}>
-                    <a className={cx(s.btn, s.sm)} href="/shopify">
-                      Añadir costes de producto
-                    </a>
-                    <a className={cx(s.btn, s.ghost, s.sm)} href="/configuracion?section=rentabilidad">
-                      Configurar gastos
-                    </a>
-                  </div>
-                }
-              >
-                {!financialCurrencyComparable
-                  ? "No mostramos estos cálculos hasta validar que Shopify, costes y publicidad usan la misma moneda."
-                  : financial.has_settings
-                  ? `Para enseñarte de dónde sale tu beneficio faltan los costes de ${financial.items_without_cost} producto(s). Un beneficio sin ellos sería un número que te creerías y no es real.`
-                  : "Para enseñarte de dónde sale tu beneficio necesitamos tus costes de producto y tus gastos fijos."}
-              </Empty>
-            </div>
-          )}
         </section>
-      ) : null}
 
-      {/* ------------------------------ Canales ------------------------------ */}
-      {data ? (
-        <section className={s.sec} aria-labelledby="pulse-canales">
-          <SectionHead
-            id="pulse-canales"
-            title="Canales"
-            ai={dated(channelsAi)}
-            fallback="Cada plataforma cuenta su parte de las ventas."
-            onAsk={() =>
-              askCopilot(
-                "Compara por separado lo que registran Shopify, Meta y Klaviyo en sus propios periodos. ¿Qué señal permite priorizar una revisión? No sumes ingresos atribuidos y explica cualquier incompatibilidad de moneda.",
-                "Canales",
-              )
-            }
-          />
-          <div className={s.three}>
-            <StorePanel data={data} note={storeAi} onAsk={() => askCopilot("Según las etapas medibles de la tienda, ¿dónde cae más la conversión y qué dato respalda la conclusión? Si faltan sesiones o eventos, indícalo.", "Tienda online")} />
-            <div className={s.panel}>
-              <div className={s.panelH}>
-                <div>
-                  <h3>
-                    <i className={s.sw} style={{ background: "var(--meta)" }} />
-                    Meta Ads
-                  </h3>
-                  <p className={s.sub}>Cifras atribuidas según Meta</p>
-                </div>
-                <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => askCopilot("En el periodo analizado, ¿qué métrica de Meta Ads merece revisión primero y qué cambio propondrías? Cita la campaña, la cifra y el periodo; no afirmes que el cambio ya se hizo.", "Meta Ads")}>
-                  Preguntar
-                </button>
-              </div>
-              {hasMeta && metaAcq && financialCurrencyComparable ? (
-              <MetaBody meta={meta.data as MetaMetrics} breakeven={showProfit ? financial?.breakeven_roas ?? null : null} currencyCode={data.currency_code ?? null} />
-              ) : hasMeta && metaAcq ? (
-                <Empty>Importes y ROAS ocultos hasta comprobar que la inversión publicitaria usa la moneda de la tienda.</Empty>
-              ) : (
-                <Empty action={<a className={cx(s.btn, s.sm)} href="/integraciones/meta">Conectar Meta Ads</a>}>
-                  Conecta tu cuenta publicitaria para ver inversión, ROAS y compras atribuidas.
-                </Empty>
-              )}
-              {hasMeta ? <AiNote finding={metaAi} /> : null}
-            </div>
-            <div className={s.panel}>
-              <div className={s.panelH}>
-                <div>
-                  <h3>
-                    <i className={s.sw} style={{ background: "var(--klaviyo)" }} />
-                    Klaviyo
-                  </h3>
-                  <p className={s.sub}>Ingresos atribuidos según Klaviyo</p>
-                </div>
-                <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => askCopilot("En el periodo analizado, ¿qué email o flujo de Klaviyo revisaría primero y qué métrica lo justifica? Distingue ingresos atribuidos de ventas de Shopify.", "Klaviyo")}>
-                  Preguntar
-                </button>
-              </div>
-              {hasKlaviyo && klaviyo.data && klaviyoCurrencyComparable ? (
-                <KlaviyoBody report={klaviyo.data} currencyCode={data.currency_code ?? null} />
-              ) : hasKlaviyo && klaviyo.data ? (
-                <Empty
-                  action={
-                    <a className={cx(s.btn, s.ghost, s.sm)} href="/configuracion?section=rentabilidad">
-                      Configurar moneda de Klaviyo
+        <aside className={s.pSide} aria-label="Vigilar y canales">
+          {sideTop}
+          {signals.length ? (
+            <section className={cx(s.pBlock, "zone-card")} aria-labelledby="pulse-vigilar">
+              <h2 id="pulse-vigilar" className={s.pBlockT}>
+                Vigilar <ZoneNoteMark anchor="bloque:vigilar" label="Vigilar" />
+              </h2>
+              <ul className={s.pList}>
+                {signals.map((signal) => (
+                  <li key={signal.key}>
+                    <a className={cx(s.pRow, "hover-sweep")} href={signal.href}>
+                      <span className={cx(s.dot, signal.tone === "bad" ? s.dotBad : s.dotWarn)} aria-hidden="true" />
+                      <span className={s.pRowT}>{signal.text}</span>
                     </a>
-                  }
-                >
-                  {data.financial_currency_coverage?.klaviyo_status === "incompatible"
-                    ? `Los ingresos de Klaviyo están confirmados en ${data.financial_currency_coverage.klaviyo_currency_code ?? "otra moneda"} y Shopify en ${data.currency_code ?? "una moneda distinta"}. Se mantienen separados para evitar comparar importes distintos.`
-                    : "La moneda preferida de la cuenta no confirma la moneda de los ingresos atribuidos. Confírmala en la configuración financiera; los importes seguirán ocultos hasta entonces."}
-                </Empty>
-              ) : (
-                <Empty action={<a className={cx(s.btn, s.sm)} href="/integraciones/klaviyo">Conectar Klaviyo</a>}>
-                  Conecta Klaviyo para ver cuánto generan tus emails y flujos.
-                </Empty>
-              )}
-              {hasKlaviyo ? <AiNote finding={klaviyoAi} /> : null}
-            </div>
-          </div>
-          {(hasMeta && financialCurrencyComparable || hasKlaviyo && klaviyoCurrencyComparable) ? (
-            <Attribution
-              storeSales={data.sales.net_sales}
-              meta={hasMeta && financialCurrencyComparable ? metaAcq?.purchase_value ?? null : null}
-              klaviyo={hasKlaviyo && klaviyoCurrencyComparable ? klaviyo.data?.totals.revenue ?? null : null}
-              currencyCode={data.currency_code ?? null}
-            />
-          ) : null}
-        </section>
-      ) : null}
-
-      {/* ------------------------------ Stock ------------------------------ */}
-      {data ? (
-        <section className={s.sec} aria-labelledby="pulse-stock">
-          <SectionHead
-            id="pulse-stock"
-            title="Stock"
-            ai={stockHeadline}
-            tag={stockAi.data ? "A06" : "A02"}
-            onAsk={() => askCopilot("¿Qué productos tienen mayor riesgo de rotura según ventas, stock y previsión disponibles? Prioriza la reposición y da cantidades solo si hay cobertura, plazo de entrega y unidades suficientes para calcularlas; cita la evidencia.", "Stock")}
-          />
-          <div className={s.panel}>
-            <div className={s.stockStats}>
-              <div className={cx(s.stat, data.stock.out_of_stock_items > 0 && s.statBad)}>
-                <span className={s.lbl}>Agotados</span>
-                <span className={s.num}>{fmtNum(data.stock.out_of_stock_items)}</span>
-              </div>
-              <div className={cx(s.stat, data.stock.low_stock_items > 0 && s.statWarn)}>
-                <span className={s.lbl}>Stock bajo</span>
-                <span className={s.num}>{fmtNum(data.stock.low_stock_items)}</span>
-              </div>
-              <div className={s.stat}>
-                <span className={s.lbl}>Productos con stock controlado</span>
-                <span className={s.num}>{fmtNum(data.stock.tracked_items)}</span>
-              </div>
-            </div>
-            {stockAi.data ? (
-              <ul className={s.findings}>
-                {stockFindings.slice(0, 5).map((finding, i) => (
-                  <li key={i} className={s.finding}>
-                    <span className={cx(s.pr, prioClass(finding.severity))} aria-hidden="true" />
-                    <div>
-                      <p className={s.qiT}>{finding.title}</p>
-                      {finding.evidence ? <p className={s.findingE}>{finding.evidence}</p> : null}
-                    </div>
                   </li>
                 ))}
-                {stockAi.data.output_status === "pending_approval" && stockAi.data.output.proposed_writes.length ? (
-                  <li className={s.finding}>
-                    <span />
-                    <p className={s.muted}>
-                      La IA propone {stockAi.data.output.proposed_writes.length} tarea(s) de reposición. Las tienes en <a href="#pulse-hoy">Hoy</a> para aprobarlas.
-                    </p>
-                  </li>
-                ) : null}
               </ul>
+            </section>
+          ) : null}
+
+          {data ? (
+            <section className={cx(s.pBlock, "zone-card")} aria-labelledby="pulse-canales">
+              <h2 id="pulse-canales" className={s.pBlockT}>
+                Canales <ZoneNoteMark anchor="bloque:canales" label="Canales" />
+              </h2>
+              <ul className={s.pList}>
+                {channels.map((channel) => (
+                  <li key={channel.key}>
+                    <a className={cx(s.pRow, "hover-sweep")} href={channel.href}>
+                      <span className={s.dot} style={{ background: channel.color }} aria-hidden="true" />
+                      <span className={s.pRowT}>
+                        {channel.name}
+                        <small>{channel.detail}</small>
+                      </span>
+                      <span className={cx(s.pRowV, s.num)}>{channel.value}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <p className={s.pFoot}>Cada plataforma cuenta su parte; sus cifras no se suman.</p>
+            </section>
+          ) : null}
+
+          <section className={s.pBlock} aria-label={asConsultant ? "Tu cliente" : consultant ? "Tu consultor" : "Tu copiloto"}>
+            {asConsultant ? (
+              <a className={cx(s.pRow, "hover-sweep")} href="/mensajes">
+                <span className={s.pAvatar} aria-hidden="true">
+                  {organizationName.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                </span>
+                <span className={s.pRowT}>
+                  {organizationName}
+                  <small>Hablar con el cliente</small>
+                </span>
+              </a>
+            ) : consultant ? (
+              <a className={cx(s.pRow, "hover-sweep")} href="/mensajes">
+                <span className={s.pAvatar} aria-hidden="true">
+                  {(consultant.full_name ?? "C").split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                </span>
+                <span className={s.pRowT}>
+                  {consultant.full_name ?? "Tu consultor"}
+                  <small>Tu consultor en E-NORA</small>
+                </span>
+              </a>
             ) : (
-              <div className={s.qfB} style={{ marginTop: 16 }}>
-                <button
-                  type="button"
-                  className={cx(s.btn, s.ghost, s.sm)}
-                  disabled={running !== null}
-                  onClick={() => void runAgent("/ai/stock-planner-run", "Análisis de stock", stockAi.reload)}
-                >
-                  {running === "/ai/stock-planner-run" ? "Cruzando stock y ventas…" : "Pedir a la IA qué reponer"}
-                </button>
-                <a className={cx(s.btn, s.ghost, s.sm)} href="/shopify">
-                  Ver inventario completo
-                </a>
-              </div>
+              <button
+                type="button"
+                className={cx(s.pRow, "hover-sweep")}
+                onClick={() => askCopilot("¿Qué debería hacer primero esta semana?", "Tu tienda")}
+              >
+                <span className={cx(s.pAvatar, s.pAvatarIa)} aria-hidden="true">IA</span>
+                <span className={s.pRowT}>
+                  Tu copiloto
+                  <small>Conoce tus ventas, tu stock y tus campañas</small>
+                </span>
+              </button>
             )}
-          </div>
-        </section>
-      ) : null}
-
-      {/* ------------------------------ Plan ------------------------------ */}
-      {data ? (
-        <section className={s.sec} aria-labelledby="pulse-plan">
-          <SectionHead
-            id="pulse-plan"
-            title="Plan"
-            ai={dated(planAi)}
-            onAsk={() => askCopilot("Con las ventas del periodo y el objetivo configurado, ¿voy al ritmo necesario? Cuantifica la diferencia, cita la fecha y la fuente, y señala los datos que falten.", "Tu objetivo")}
-          />
-          <div className={s.two}>
-            <GoalPanel
-              monthly={data.financial_monthly}
-              revenueTarget={financialCurrencyComparable ? target("net_revenue_ex_tax") : null}
-              marginTarget={financialCurrencyComparable ? target("net_margin_pct") : null}
-              margin={showProfit ? financial?.net_margin_pct ?? null : null}
-              currencyCode={data.currency_code ?? null}
-              today={today}
-            />
-            <div className={s.panel}>
-              <div className={s.panelH}>
-                <div>
-                  <h3>Próximas 4 semanas</h3>
-                  <p className={s.sub}>Plan de marketing e hitos de tu camino</p>
-                </div>
-              </div>
-              <AgendaList agenda={agenda.data} error={agenda.error} />
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {/* ------------------------------ Integraciones ------------------------------ */}
-      <IntegrationsFooter payload={integrations.data} />
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -1804,12 +1668,14 @@ export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId }: {
   anchorId?: string;
 }) {
   return (
-    <div id={anchorId} className={s.kpi} role="group" aria-label={label}>
-      <p className={s.kpiL}>
+    <div id={anchorId} className={cx(s.kpi, "zone-card")} role="group" aria-label={label}>
+      {/* div y no p: `verdict` es un Popover con botón y capa, que dentro de un <p> rompe la hidratación. */}
+      <div className={s.kpiL}>
         {verdict}
         {label}
+        <ZoneNoteMark anchor={zoneAnchor("kpi", label)} label={label} />
         {tag ? <span className={cx(s.chip, s.chipWarn)}>{tag}</span> : null}
-      </p>
+      </div>
       <p className={s.kpiV}>{value}</p>
       <p className={s.kpiD}>
         {delta}
@@ -1823,530 +1689,5 @@ export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId }: {
       </p>
       <div className={s.slot}>{slot}</div>
     </div>
-  );
-}
-
-const UNIT_COLORS: Record<string, string> = {
-  prod: "var(--ink-2)",
-  ship: "var(--ink-3)",
-  fee: "var(--line)",
-  ads: "var(--warn)",
-  fix: "var(--ink)",
-  other: "var(--sunken)",
-  profit: "var(--good)",
-};
-
-function MoneyPanels({ financial, currencyCode }: { financial: Metrics["financial"]; currencyCode: string | null }) {
-  const formatMoney = (value: number, decimals = 0) => fmtCurrency(value, currencyCode, decimals);
-  const ads = Object.entries(financial.ads_by_platform ?? {})
-    .filter(([, v]) => v > 0)
-    .map(([platform, v]) => `${platform === "meta" ? "Meta" : platform === "google" ? "Google" : platform} ${fmtNum(v)}`)
-    .join(" · ");
-  const rows = moneyFlow(financial, ads || undefined);
-  const base = financial.net_revenue_ex_tax || 1;
-  const slices = unitEconomics(financial);
-  const positive = slices.filter((x) => x.value > 0);
-  const totalSlices = positive.reduce((acc, x) => acc + x.value, 0) || 1;
-  const perOrder = financial.orders_count > 0 ? financial.net_profit / financial.orders_count : 0;
-  const gaugeMax = Math.max(financial.mbee, financial.cac_per_order) * 1.2 || 1;
-
-  return (
-    <div className={s.two}>
-      <div className={s.panel}>
-        <div className={s.panelH}>
-          <div>
-            <h3>De las ventas al beneficio</h3>
-            <p className={s.sub}>Últimos 30 días · porcentajes sobre el ingreso sin IVA</p>
-          </div>
-        </div>
-        <Waterfall
-          ariaLabel="De las ventas al beneficio"
-          rows={rows.map((row) => ({
-            key: row.label,
-            label: row.label,
-            hint: row.hint,
-            value: row.value,
-            kind: row.kind,
-            display: formatMoney(row.value),
-            share: row.kind !== "total" && row.label !== "IVA" ? `${fmtNum((Math.abs(row.value) / base) * 100, 1)} %` : row.label === "Ingreso sin IVA" ? "100 %" : undefined,
-            color: row.label === "Publicidad" ? "var(--warn)" : undefined,
-          }))}
-        />
-      </div>
-      <div className={s.panel}>
-        <div className={s.panelH}>
-          <div>
-            <h3>Lo que deja cada pedido</h3>
-            <p className={s.sub}>
-              Ticket medio sin IVA: <span className={s.num}>{formatMoney(financial.aov_ex_tax, 2)}</span>
-            </p>
-          </div>
-        </div>
-        <div className={s.ueBig}>
-          <span className={s.num} style={{ color: perOrder < 0 ? "var(--bad)" : "var(--good)" }}>
-            {formatMoney(perOrder, 2)}
-          </span>
-          <span>de beneficio por pedido</span>
-        </div>
-        <div className={s.ueBar} aria-hidden="true">
-          {positive.map((slice) => (
-            <i key={slice.key} style={{ width: `${(slice.value / totalSlices) * 100}%`, background: UNIT_COLORS[slice.key] }} title={`${slice.label}: ${formatMoney(slice.value, 2)}`} />
-          ))}
-        </div>
-        <div className={s.ueLeg}>
-          {slices.map((slice) => (
-            <div key={slice.key}>
-              <i className={s.sw} style={{ background: UNIT_COLORS[slice.key] }} />
-              <span>{slice.label}</span>
-              <span className={s.num}>{formatMoney(slice.value, 2)}</span>
-            </div>
-          ))}
-        </div>
-        {financial.mbee > 0 ? (
-          <div className={s.headroom}>
-            <p className={s.lbl}>Techo de publicidad</p>
-            <div className={s.gauge} aria-hidden="true">
-              <span className={s.fill} style={{ width: `${(financial.cac_per_order / gaugeMax) * 100}%` }} />
-              <span className={s.gaugeLim} style={{ left: `${(financial.mbee / gaugeMax) * 100}%` }} />
-              <span className={s.gaugeLbl} style={{ left: `${(financial.mbee / gaugeMax) * 100}%`, top: -22, transform: "translateX(-50%)", color: "var(--bad)" }}>
-                {formatMoney(financial.mbee, 2)}
-              </span>
-              <span className={s.gaugeLbl} style={{ left: 0, top: 18, color: "var(--warn)" }}>
-                hoy {formatMoney(financial.cac_per_order, 2)}
-              </span>
-            </div>
-            <p>
-              Puedes gastar hasta <b>{formatMoney(financial.mbee, 2)}</b> de publicidad por pedido antes de perder dinero. Ahora gastas{" "}
-              <b>{formatMoney(financial.cac_per_order, 2)}</b>.
-              {financial.breakeven_roas ? (
-                <>
-                  {" "}
-                  Tu ROAS de equilibrio es <b>{fmtNum(financial.breakeven_roas, 2)}×</b>.
-                </>
-              ) : null}
-            </p>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function StorePanel({ data, note, onAsk }: { data: Metrics; note: Finding | null; onAsk: () => void }) {
-  const funnel = data.funnel;
-  const steps =
-    funnel?.has_sessions
-      ? [
-          { label: "Sesiones", value: funnel.sessions, pct: 100, hint: "Visitas a la tienda online" },
-          ...(funnel.has_funnel_steps
-            ? [
-                { label: "Añaden al carrito", value: funnel.cart_additions, pct: (funnel.cart_additions / (funnel.sessions || 1)) * 100, hint: "de las sesiones" },
-                { label: "Llegan al pago", value: funnel.checkouts_reached, pct: (funnel.checkouts_reached / (funnel.cart_additions || 1)) * 100, hint: "de los que añaden al carrito" },
-                { label: "Sesiones con compra", value: funnel.purchases, pct: (funnel.purchases / (funnel.checkouts_reached || 1)) * 100, hint: "de los que llegan al pago (sesiones, no pedidos)" },
-              ]
-            : [{ label: "Pedidos", value: funnel.orders_count, pct: (funnel.conversion_rate_own ?? 0) * 100, hint: "de las sesiones" }]),
-        ]
-      : [];
-  const top = data.top_products.slice(0, 5);
-  const topRevenue = Math.max(...top.map((p) => p.revenue), 1);
-  return (
-    <div className={s.panel}>
-      <div className={s.panelH}>
-        <div>
-          <h3>
-            <i className={s.sw} style={{ background: "var(--store)" }} />
-            Tienda online
-          </h3>
-          <p className={s.sub}>Shopify · últimos 30 días</p>
-        </div>
-        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={onAsk}>
-          Preguntar
-        </button>
-      </div>
-      {steps.length ? (
-        // Cada barra mide cuánto de las sesiones llega hasta ahí; el porcentaje
-        // de debajo es el paso respecto al anterior.
-        <BarRows
-          variant="stack"
-          ariaLabel="Embudo de la tienda online"
-          max={Math.max(steps[0]?.value ?? 0, 1)}
-          rows={steps.map((step, i) => ({
-            key: step.label,
-            label: step.label,
-            value: Math.max(step.value, (steps[0]?.value ?? 0) * 0.01),
-            display: fmtNum(step.value),
-            sub: i === 0 ? step.hint : `${fmtNum(step.pct, 1)} % ${step.hint}`,
-          }))}
-        />
-      ) : (
-        <p className={s.muted}>Todavía no hay datos de sesiones de la tienda online.</p>
-      )}
-      {top.length ? (
-        <>
-          <div className={s.subH}>
-            <p className={s.lbl}>Más vendidos</p>
-            <p className={s.lbl}>Ventas</p>
-          </div>
-          <BarRows
-            variant="stack"
-            size="sm"
-            ariaLabel="Productos más vendidos"
-            max={topRevenue}
-            rows={top.map((product) => ({
-              key: product.product_id,
-              label: product.title,
-              value: product.revenue,
-              display: fmtCurrency(product.revenue, data.currency_code),
-              color: "var(--ink-3)",
-            }))}
-          />
-        </>
-      ) : null}
-      <AiNote finding={note} />
-    </div>
-  );
-}
-
-function MetaBody({ meta, breakeven, currencyCode }: { meta: MetaMetrics; breakeven: number | null; currencyCode: string | null }) {
-  const money = (value: number, decimals = 0) => fmtCurrency(value, currencyCode, decimals);
-  const acq = meta.acquisition;
-  const campaigns = meta.campaigns
-    .map((c) => ({ id: c.campaign_id, name: c.campaign_name ?? "Sin nombre", spend: Number(c.spend) || 0, roas: c.roas === null ? null : Number(c.roas), purchases: Number(c.purchases) || 0 }))
-    .sort((a, b) => b.spend - a.spend)
-    .slice(0, 5);
-  const scale = Math.max(5, ...campaigns.map((c) => c.roas ?? 0));
-  return (
-    <>
-      <div className={s.minis}>
-        <div className={s.mini}>
-          <span className={s.lbl}>Inversión</span>
-          <span className={s.num}>{money(acq.spend)}</span>
-        </div>
-        <div className={s.mini}>
-          <span className={s.lbl}>ROAS atribuido</span>
-          <span className={s.num}>{acq.roas !== null ? `${fmtNum(acq.roas, 2)}×` : "—"}</span>
-          {breakeven ? <small>equilibrio {fmtNum(breakeven, 2)}×</small> : null}
-        </div>
-        <div className={s.mini}>
-          <span className={s.lbl}>CPA atribuido</span>
-          <span className={s.num}>{acq.cac !== null ? money(acq.cac, 2) : "—"}</span>
-        </div>
-        <div className={s.mini}>
-          <span className={s.lbl}>Compras atribuidas</span>
-          <span className={s.num}>{fmtNum(acq.purchases)}</span>
-          <small>{money(acq.purchase_value)} atribuidos por Meta</small>
-        </div>
-      </div>
-      {campaigns.length ? (
-        <div className={s.tblWrap} role="region" aria-label="Tabla de resultados; desliza para ver todas las columnas" tabIndex={0}>
-          <table className={s.tbl} aria-label="Resultados del periodo seleccionado">
-            <thead>
-              <tr>
-                <th scope="col">Campaña</th>
-                <th scope="col">Gasto</th>
-                <th scope="col">ROAS</th>
-                <th scope="col">Compras</th>
-              </tr>
-            </thead>
-            <tbody>
-              {campaigns.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td className={s.tdN}>{money(c.spend)}</td>
-                  <td>
-                    <span className={s.roas}>
-                      <span className={s.roasBar} title={breakeven ? `La línea roja marca el ROAS de equilibrio (${fmtNum(breakeven, 2)}×)` : undefined}>
-                        <i style={{ width: `${((c.roas ?? 0) / scale) * 100}%` }} />
-                        {breakeven ? <b style={{ left: `${(breakeven / scale) * 100}%` }} /> : null}
-                      </span>
-                      <span className={s.num}>{c.roas !== null ? `${fmtNum(c.roas, 1)}×` : "—"}</span>
-                    </span>
-                  </td>
-                  <td className={s.tdN}>{fmtNum(c.purchases)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function KlaviyoBody({ report, currencyCode }: { report: KlaviyoReport; currencyCode: string | null }) {
-  const money = (value: number, decimals = 0) => fmtCurrency(value, currencyCode, decimals);
-  const { totals } = report;
-  const total = totals.flow_revenue + totals.campaign_revenue || 1;
-  const trend = report.trend.slice(-6);
-  const trendMax = Math.max(...trend.map((t) => t.flow_revenue + t.campaign_revenue), 1);
-  const flows = report.flows.slice().sort((a, b) => b.revenue - a.revenue).slice(0, 4);
-  const change = report.previous ? salesChangePct(totals.revenue, report.previous.revenue) : null;
-  return (
-    <>
-      <div className={s.kv}>
-        <span className={s.num}>{money(totals.revenue)}</span>
-        <span className={s.muted}>atribuidos por Klaviyo</span>
-        <Delta change={change} />
-      </div>
-      <div className={s.split} aria-hidden="true">
-        <i style={{ width: `${(totals.flow_revenue / total) * 100}%`, background: "var(--klaviyo)" }} />
-        <i style={{ width: `${(totals.campaign_revenue / total) * 100}%`, background: "color-mix(in srgb, var(--klaviyo) 40%, white)" }} />
-      </div>
-      <div className={s.splitL}>
-        <span>
-          Flujos <span className={s.num}>{money(totals.flow_revenue)}</span>
-        </span>
-        <span>
-          Campañas <span className={s.num}>{money(totals.campaign_revenue)}</span>
-        </span>
-      </div>
-      {trend.length > 1 ? (
-        <>
-          <div className={s.trend} aria-label="Ingresos atribuidos por Klaviyo por mes">
-            {trend.map((t) => (
-              <div key={t.month} className={s.tcol} title={`${t.month}: flujos ${money(t.flow_revenue)}, campañas ${money(t.campaign_revenue)}`}>
-                <i style={{ height: `${(t.campaign_revenue / trendMax) * 100}%`, background: "color-mix(in srgb, var(--klaviyo) 40%, white)" }} />
-                <i style={{ height: `${(t.flow_revenue / trendMax) * 100}%`, background: "var(--klaviyo)" }} />
-              </div>
-            ))}
-          </div>
-          <div className={s.tlab}>
-            {trend.map((t) => (
-              <span key={t.month}>{MONTHS[Number(t.month.slice(5, 7)) - 1] ?? t.month}</span>
-            ))}
-          </div>
-        </>
-      ) : null}
-      {flows.length ? (
-        <div style={{ marginTop: 14 }}>
-          {flows.map((flow) => (
-            <div key={flow.id} className={s.flow}>
-              <span>{flow.name}</span>
-              <span className={s.num}>{money(flow.revenue)}</span>
-              <span className={cx(s.num, s.muted)}>
-                {flow.revenue_per_recipient !== null ? `${money(flow.revenue_per_recipient, 2)}/dest.` : ""}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function Attribution({ storeSales, meta, klaviyo, currencyCode }: { storeSales: number; meta: number | null; klaviyo: number | null; currencyCode: string | null }) {
-  const money = (value: number) => fmtCurrency(value, currencyCode);
-  const base = storeSales || 1;
-  const rows = [
-    { label: "Ventas de tu tienda", value: storeSales, color: "var(--ink)" },
-    ...(meta !== null ? [{ label: "Meta se atribuye", value: meta, color: "var(--meta)" }] : []),
-    ...(klaviyo !== null ? [{ label: "Klaviyo se atribuye", value: klaviyo, color: "var(--klaviyo)" }] : []),
-  ];
-  const both = meta !== null && klaviyo !== null;
-  return (
-    <div className={cx(s.panel, s.attr)}>
-      <div>
-        <h3>Cada plataforma cuenta su parte</h3>
-        <p>
-          Una misma compra puede aparecer en Meta y en Klaviyo a la vez, porque cada una usa su propia ventana de atribución. Por eso sus
-          cifras no se suman. La única venta que no se repite es la de tu tienda.
-        </p>
-      </div>
-      <BarRows
-        ariaLabel="Ventas de la tienda frente a lo que se atribuye cada plataforma"
-        max={base}
-        rows={[
-          ...rows.map((row) => ({
-            key: row.label,
-            label: row.label,
-            value: row.value,
-            display: money(row.value),
-            share: `${Math.round((row.value / base) * 100)} %`,
-            color: row.color,
-          })),
-          ...(both
-            ? [
-                {
-                  key: "sum",
-                  label: "Si las sumaras",
-                  value: (meta ?? 0) + (klaviyo ?? 0),
-                  display: money((meta ?? 0) + (klaviyo ?? 0)),
-                  share: `${Math.round((((meta ?? 0) + (klaviyo ?? 0)) / base) * 100)} %`,
-                  dashed: true,
-                },
-              ]
-            : []),
-        ]}
-      />
-    </div>
-  );
-}
-
-function GoalPanel({ monthly, revenueTarget, marginTarget, margin, currencyCode, today }: {
-  monthly: Metrics["financial_monthly"];
-  revenueTarget: number | null;
-  marginTarget: number | null;
-  margin: number | null;
-  currencyCode: string | null;
-  today: Date;
-}) {
-  const money = (value: number) => fmtCurrency(value, currencyCode);
-  const currencySymbol = currencyCode ? (new Intl.NumberFormat("es-ES", { style: "currency", currency: currencyCode }).formatToParts(0).find((part) => part.type === "currency")?.value ?? currencyCode) : "";
-  const points = monthlyWithProjection(
-    monthly.map((m) => ({ month: m.month, value: m.net_revenue_ex_tax })),
-    today,
-  );
-  if (!points.length) {
-    return (
-      <div className={s.panel}>
-        <Empty>Cuando haya meses completos de ventas, aquí verás tu evolución y hacia dónde vas.</Empty>
-      </div>
-    );
-  }
-  const year = today.getUTCFullYear();
-  const byMonth = new Map(points.map((p) => [p.month, p]));
-  const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
-  const max = Math.max(...points.map((p) => p.value), revenueTarget ?? 0) * 1.12 || 1;
-  const december = byMonth.get(`${year}-12`);
-  const onTrack = revenueTarget !== null && december ? december.value >= revenueTarget : null;
-  return (
-    <div className={s.panel}>
-      <div className={s.panelH}>
-        <div>
-          <h3>{revenueTarget !== null ? `Tu objetivo: ${money(revenueTarget)} al mes` : `Tus ingresos en ${year}`}</h3>
-          <p className={s.sub}>Ingresos sin IVA por mes · proyección al ritmo de los últimos meses</p>
-        </div>
-        {onTrack !== null ? (
-          <span className={cx(s.chip, onTrack ? s.chipGood : s.chipWarn)}>{onTrack ? "Vas al ritmo" : "Por debajo del ritmo"}</span>
-        ) : null}
-      </div>
-      <div className={s.goal}>
-        {months.map((key) => {
-          const point = byMonth.get(key);
-          const labelled = point && (point.kind === "current" || key === `${year}-12`);
-          return (
-            <div
-              key={key}
-              className={cx(s.gcol, point?.kind === "current" && s.gcolCur, point?.kind === "projection" && s.gcolProj)}
-              title={point ? `${MONTHS[Number(key.slice(5)) - 1]}: ${money(point.value)}${point.kind === "projection" ? " (proyección)" : point.kind === "current" ? " (en curso)" : ""}` : undefined}
-            >
-              {labelled && point ? (
-                <span className={s.gcolV} style={{ bottom: `calc(${(point.value / max) * 100}% + 5px)` }}>
-                  {shortMoney(point.value, currencySymbol)}
-                </span>
-              ) : null}
-              <i style={{ height: `${point ? (point.value / max) * 100 : 0}%` }} />
-            </div>
-          );
-        })}
-        {revenueTarget !== null ? (
-          <div className={s.tline} style={{ bottom: `${(revenueTarget / max) * 100}%` }}>
-            <span>objetivo {money(revenueTarget)}</span>
-          </div>
-        ) : null}
-      </div>
-      <div className={s.glab}>
-        {MONTHS.map((m) => (
-          <span key={m}>{m}</span>
-        ))}
-      </div>
-      <div className={s.goalLeg}>
-        <span>
-          <i className={s.sw} style={{ background: "var(--ink)" }} />
-          Mes en curso
-        </span>
-        <span>
-          <i className={s.sw} style={{ background: "var(--ink-3)" }} />
-          Meses cerrados
-        </span>
-        <span>
-          <i className={s.sw} style={{ boxShadow: "inset 0 0 0 1.5px var(--accent-ink)", background: "var(--accent-soft)" }} />
-          Proyección
-        </span>
-      </div>
-      {marginTarget !== null && margin !== null ? (
-        <div className={s.second}>
-          <div className={s.secondT}>
-            <span>Margen neto ≥ {fmtNum(marginTarget, 1)} %</span>
-            <span className={s.num}>{fmtNum(margin, 1)} %</span>
-          </div>
-          <TargetBar value={margin} target={marginTarget} max={Math.max(marginTarget * 1.4, margin * 1.1, 1)} text="" />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function AgendaList({ agenda, error }: { agenda: Agenda | undefined; error: string | null }) {
-  if (error && !agenda) return <p className={s.error}>No se pudo cargar la agenda.</p>;
-  const entries = [
-    ...(agenda?.planning_items ?? []).map((item) => ({
-      id: item.id,
-      at: item.starts_at,
-      title: item.title,
-      chips: [item.channel],
-      status: PLANNING_STATUS[item.status] ?? item.status,
-    })),
-    ...(agenda?.milestones ?? []).map((milestone) => ({
-      id: milestone.id,
-      at: milestone.target_date,
-      title: milestone.name,
-      chips: ["Hito", ...(milestone.phase_name ? [milestone.phase_name] : [])],
-      status: PLANNING_STATUS[milestone.status] ?? milestone.status,
-    })),
-  ]
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
-    .slice(0, 6);
-  if (!entries.length) return <Empty>No hay nada planificado para las próximas 4 semanas.</Empty>;
-  return (
-    <ul>
-      {entries.map((entry) => {
-        const d = new Date(entry.at.length === 10 ? `${entry.at}T12:00:00Z` : entry.at);
-        return (
-          <li key={entry.id} className={s.ev}>
-            <div className={s.date}>
-              <small>{WEEKDAYS[d.getUTCDay()]}</small>
-              <b>{d.getUTCDate()}</b>
-            </div>
-            <div>
-              <p className={s.evT}>{entry.title}</p>
-              <div className={s.evM}>
-                {entry.chips.map((chip) => (
-                  <span key={chip} className={s.chip}>
-                    {chip}
-                  </span>
-                ))}
-                <span className={cx(s.chip, s.chipAcc)}>{entry.status}</span>
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function IntegrationsFooter({ payload }: { payload: IntegrationsPayload | undefined }) {
-  const connected = (payload?.providers ?? []).filter((p) => p.connection && p.id !== "fathom");
-  if (!connected.length) return null;
-  const needsAction = connected.some((p) => !["connected", "syncing"].includes(p.connection?.status ?? ""));
-  return (
-    <footer className={s.integr} aria-label="Estado de las integraciones">
-      {connected.map((provider) => {
-        const ok = ["connected", "syncing"].includes(provider.connection?.status ?? "");
-        return (
-          <span key={provider.id}>
-            <span className={cx(s.dot, !ok && s.dotWarn)} />
-            <b>{provider.name}</b>
-            {ok ? ago(provider.connection?.last_sync_at ?? null) : "necesita reconectarse"}
-          </span>
-        );
-      })}
-      {needsAction ? (
-        <a className={cx(s.btn, s.ghost, s.sm)} href="/integraciones">
-          Revisar integraciones
-        </a>
-      ) : null}
-    </footer>
   );
 }

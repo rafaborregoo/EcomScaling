@@ -201,22 +201,28 @@ const MARKET_WORDS: Array<[Market, RegExp]> = [
 ];
 
 /** Mercados mencionados en el contexto; España si no se menciona ninguno. */
-export function detectMarkets(storeDescription: string): Market[] {
+export function detectMarkets(storeDescription: string, defaultMarket: Market | null = "ES"): Market[] {
   const found = MARKET_WORDS.filter(([, pattern]) => pattern.test(storeDescription)).map(([market]) => market);
-  return found.length ? found : ["ES"];
+  return found.length ? found : defaultMarket ? [defaultMarket] : [];
 }
 
 export function commercialCalendar(
   referenceDate: Date,
   horizonDays: number,
   storeDescription = "",
+  configuration?: { markets?: Market[]; defaultMarket?: Market | null; vertical?: string | null },
 ): CommercialEvent[] {
   const today = utc(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth() + 1, referenceDate.getUTCDate());
   const end = today.getTime() + horizonDays * DAY_MS;
-  const markets = detectMarkets(storeDescription);
+  const markets = configuration
+    ? configuration.markets?.length
+      ? configuration.markets
+      : detectMarkets(storeDescription, configuration.defaultMarket ?? null)
+    : detectMarkets(storeDescription);
+  const categoryContext = [storeDescription, configuration?.vertical].filter(Boolean).join(" ");
   const specs: Array<{ spec: EventSpec; scope: CommercialEvent["scope"] }> = [
     ...GENERAL_EVENTS.map((spec) => ({ spec, scope: "general" as const })),
-    ...CATEGORY_SEASONS.filter((season) => season.match.test(storeDescription)).flatMap((season) =>
+    ...CATEGORY_SEASONS.filter((season) => season.match.test(categoryContext)).flatMap((season) =>
       season.specs.map((spec) => ({ spec, scope: "category" as const })),
     ),
   ];
@@ -228,7 +234,7 @@ export function commercialCalendar(
       : markets.filter((market) => spec.markets.includes(market));
     for (const market of applicable) {
       for (const year of [today.getUTCFullYear(), today.getUTCFullYear() + 1]) {
-        const date = spec.date(year, market === "global" ? markets[0]! : market);
+        const date = spec.date(year, market === "global" ? markets[0] ?? "ES" : market);
         const prepStart = addDays(date, -spec.prepWeeks * 7);
         // Entra si el evento cae en el horizonte o si su preparación empieza dentro de él.
         const inHorizon = date.getTime() >= today.getTime() && date.getTime() <= end;

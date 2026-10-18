@@ -314,24 +314,31 @@ export async function createKnowledgeDocument(
   }
   const checksum = crypto.createHash("sha256").update(content).digest("hex");
 
-  const { data: document, error: documentError } = await supabase
-    .from("knowledge_documents")
-    .insert({
-      organization_id: organizationId,
-      store_id: storeId,
-      title: title.slice(0, 255),
-      description:
-        typeof payload.description === "string" ? payload.description : null,
-      content,
-      source_type: sourceType,
-      visibility: organizationId === null ? "global" : "organization",
-      audience: requestedAudience,
-      checksum,
-      embedding_model: embeddings.provider.model,
-      created_by: context.user.id,
-    })
-    .select("id, title, visibility, audience, version")
-    .single();
+  const { data: createdDocuments, error: documentError } = await (supabase as any).rpc(
+    "create_knowledge_document_index",
+    {
+      p_organization_id: organizationId,
+      p_store_id: storeId,
+      p_title: title.slice(0, 255),
+      p_description: typeof payload.description === "string" ? payload.description : null,
+      p_source_type: sourceType,
+      p_visibility: organizationId === null ? "global" : "organization",
+      p_audience: requestedAudience,
+      p_content: content,
+      p_checksum: checksum,
+      p_embedding_model: embeddings.provider.model,
+      p_created_by: context.user.id,
+      p_chunks: chunks.map((chunk, index) => ({
+        chunk_index: index,
+        content: chunk,
+        token_count: Math.ceil(chunk.length / 4),
+        embedding: JSON.stringify(vectors[index]),
+      })),
+    },
+  );
+  const document = (createdDocuments as Array<Record<string, unknown>> | null)?.[0] as {
+    id: string; title: string; visibility: string; audience: string; version: number;
+  } | undefined;
 
   if (documentError || !document) {
     return {
@@ -339,32 +346,6 @@ export async function createKnowledgeDocument(
       statusCode: 500,
       error: "knowledge_document_create_failed",
       detail: documentError?.message,
-    };
-  }
-
-  const { error: chunksError } = await supabase.from("knowledge_chunks").insert(
-    chunks.map((chunk, index) => ({
-      document_id: document.id,
-      organization_id: organizationId,
-      chunk_index: index,
-      content: chunk,
-      token_count: Math.ceil(chunk.length / 4),
-      embedding: JSON.stringify(vectors[index]),
-    })),
-  );
-
-  if (chunksError) {
-    // Sin chunks el documento no sirve: se marca archivado para no dejar
-    // basura activa (no se borra: eso lo decide un humano).
-    await supabase
-      .from("knowledge_documents")
-      .update({ status: "archived" })
-      .eq("id", document.id);
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "knowledge_chunks_insert_failed",
-      detail: chunksError.message,
     };
   }
 
@@ -470,64 +451,42 @@ export async function updateKnowledgeDocument(
     };
   }
 
+  const { data: replaced, error: replaceError } = await (supabase as any).rpc(
+    "replace_knowledge_document_index",
+    {
+      p_document_id: documentId,
+      p_expected_version: existing.version,
+      p_content: content,
+      p_checksum: checksum,
+      p_embedding_model: embeddings.provider.model,
+      p_chunks: chunks.map((chunk, index) => ({
+        chunk_index: index,
+        content: chunk,
+        token_count: Math.ceil(chunk.length / 4),
+        embedding: JSON.stringify(vectors[index]),
+      })),
+    },
+  );
+
+  if (replaceError || replaced !== true) {
+    return {
+      ok: false as const,
+      statusCode: replaceError ? 500 : 409,
+      error: replaceError ? "knowledge_document_update_failed" : "knowledge_document_version_conflict",
+      detail: replaceError?.message,
+    };
+  }
   const { data: document, error: documentError } = await supabase
     .from("knowledge_documents")
-    .update({
-      content,
-      checksum,
-      embedding_model: embeddings.provider.model,
-      version: existing.version + 1,
-    })
-    .eq("id", documentId)
     .select("id, title, visibility, audience, version")
+    .eq("id", documentId)
     .single();
-
   if (documentError || !document) {
     return {
       ok: false as const,
       statusCode: 500,
-      error: "knowledge_document_update_failed",
+      error: "knowledge_document_load_after_update_failed",
       detail: documentError?.message,
-    };
-  }
-
-  const { error: deleteChunksError } = await supabase
-    .from("knowledge_chunks")
-    .delete()
-    .eq("document_id", documentId);
-
-  if (deleteChunksError) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "knowledge_chunks_delete_failed",
-      detail: deleteChunksError.message,
-    };
-  }
-
-  const { error: chunksError } = await supabase.from("knowledge_chunks").insert(
-    chunks.map((chunk, index) => ({
-      document_id: document.id,
-      organization_id: targetOrganizationId,
-      chunk_index: index,
-      content: chunk,
-      token_count: Math.ceil(chunk.length / 4),
-      embedding: JSON.stringify(vectors[index]),
-    })),
-  );
-
-  if (chunksError) {
-    // Sin chunks el documento no sirve: se marca archivado en vez de dejar
-    // contenido nuevo sin retrieval detras (mismo criterio que al crear).
-    await supabase
-      .from("knowledge_documents")
-      .update({ status: "archived" })
-      .eq("id", document.id);
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "knowledge_chunks_insert_failed",
-      detail: chunksError.message,
     };
   }
 

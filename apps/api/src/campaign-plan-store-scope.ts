@@ -6,6 +6,9 @@ export type CampaignPlanStore = {
   shop_name: string | null;
   timezone: string | null;
   myshopify_domain: string | null;
+  country_code?: string | null;
+  market_codes?: string[] | null;
+  business_vertical?: string | null;
 };
 
 export type CampaignPlanStoreScope =
@@ -36,7 +39,7 @@ export async function resolveCampaignPlanStoreScope(
   }
   let query = supabase
     .from("shopify_stores")
-    .select("id, connection_id, shop_name, timezone, myshopify_domain")
+    .select("id, connection_id, shop_name, timezone, myshopify_domain, country_code, market_codes, business_vertical")
     .eq("organization_id", organizationId)
     .eq("is_active", true);
   query = query.eq("connection_id", connectionId);

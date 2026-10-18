@@ -70,6 +70,7 @@ test("A18 measurement and exact Camino milestone survive task materialization wi
   assert.equal(readProposedMilestoneId(fields.milestone_id), fields.milestone_id);
   assert.equal(readProposedMilestoneId("not-a-uuid"), null);
   assert.equal(shouldFallbackToCurrentMilestone("a18_plan_mensual"), false);
+  assert.equal(shouldFallbackToCurrentMilestone("a04_generador_tareas"), false);
   assert.equal(shouldFallbackToCurrentMilestone("a17_plan_semanal"), true);
   assert.equal(
     appendMonthlyInitiativeDetails("Reducir descuentos sin margen.", fields, "a18_plan_mensual"),

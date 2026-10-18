@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { apiFetch, invalidateApiGetCache, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
@@ -11,27 +12,21 @@ import { useActiveConnection } from "@/components/active-connection";
 import { Skeleton, toast } from "@/components/ui";
 import type { DailyWorkbench, PortfolioHealthRow, UpcomingItem, WorkbenchAction } from "../consultor/workbench";
 import {
-  ConsultantThread,
+  ClientPulse,
   Delta,
   Empty,
   Kpi,
-  SalesChart,
   SectionHead,
-  Spark,
-  WorkQueue,
   ago,
   cx,
   dayLabel,
-  usePins,
   type Diagnostic,
-  type KlaviyoReport,
   type MetaMetrics,
   type Metrics,
-  type Operations,
 } from "./client-pulse";
-import { fmtEur, fmtNum } from "./client-pulse-model";
+import { fmtCurrency, fmtNum } from "./client-pulse-model";
 import { formatMoney } from "@/lib/money";
-import { canShowProfit, salesChangePct } from "./store-pulse";
+import { salesChangePct } from "./store-pulse";
 import { ClientShopify } from "./client-shopify";
 import { ClientMeta } from "./client-meta";
 import { ClientKlaviyo } from "./client-klaviyo";
@@ -142,7 +137,6 @@ const tierOf = (status: PortfolioHealthRow["status"] | undefined) => TIERS.find(
 
 const KIND_LABEL: Record<WorkbenchAction["kind"], string> = {
   critical_alert: "Alerta",
-  overdue_task: "Tarea vencida",
   call_approval: "Llamada",
   ai_proposal: "Propuesta IA",
   unread_message: "Mensaje",
@@ -170,41 +164,19 @@ const SOURCE_LABEL: Record<string, string> = {
   campaigns: "planificación",
 };
 
-type InboxFilter = "todo" | "urgente" | "vencidas" | "decision" | "datos";
+type InboxFilter = "todo" | "urgente" | "decision" | "datos";
 const DECISION_KINDS: Array<WorkbenchAction["kind"]> = ["call_approval", "ai_proposal", "unread_message"];
 const DATA_KINDS: Array<WorkbenchAction["kind"]> = ["integration_reauth", "financial_coverage"];
 const INBOX_FILTERS: Array<{ key: InboxFilter; label: string; test: (a: WorkbenchAction) => boolean }> = [
   { key: "todo", label: "Todo", test: () => true },
   { key: "urgente", label: "Urgente", test: (a) => a.priority === "urgent" },
-  { key: "vencidas", label: "Vencidas", test: (a) => a.kind === "overdue_task" },
   { key: "decision", label: "Mi decisión", test: (a) => DECISION_KINDS.includes(a.kind) },
   { key: "datos", label: "Datos", test: (a) => DATA_KINDS.includes(a.kind) },
 ];
 
-// En la ficha de un cliente la cola de trabajo ya pinta alertas, tareas y
-// propuestas; de la mesa solo sube lo que esa cola no cubre.
-const DESK_ONLY_KINDS: Array<WorkbenchAction["kind"]> = [
-  "call_approval",
-  "unread_message",
-  "integration_reauth",
-  "financial_coverage",
-  "milestone_due",
-];
-
-// Agentes que solo ve el consultor: planifican su trabajo, no el del cliente.
-const CONSULTANT_AGENTS = [
-  { key: "task-planner", label: "Plan diario", getPath: "/ai/task-planner", runPath: "/ai/task-planner-run" },
-  { key: "plan-week", label: "Plan semanal", getPath: "/ai/plan/week", runPath: "/ai/plan/week/run" },
-  { key: "plan-month", label: "Plan mensual", getPath: "/ai/plan/month", runPath: "/ai/plan/month/run" },
-  { key: "stock", label: "Stock", getPath: "/ai/stock-planner", runPath: "/ai/stock-planner-run" },
-  { key: "email", label: "Email", getPath: "/ai/email-analyst", runPath: "/ai/email-analyst-run" },
-] as const;
-
 const plural = (n: number, one: string, many: string) => `${fmtNum(n)} ${n === 1 ? one : many}`;
-const signedEur = (n: number | null) => (n === null ? "—" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fmtEur(Math.abs(n))}`);
 const sourceMoney = (value: number | null, currencyCode: string | null) =>
   value == null || !currencyCode ? "—" : formatMoney(value, currencyCode);
-const signedNum = (n: number | null) => (n === null ? "—" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fmtNum(Math.abs(n))}`);
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -225,8 +197,8 @@ const leaveForModule = () => invalidateCachedQueries();
 
 export function ConsultantDashboard({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId, setOrganizationId } = useActiveOrganization();
-  const { connectionId, setConnectionId } = useActiveConnection();
-  const [tab, setTab] = useUrlSection("tab", TABS, "todo");
+  const { connectionId } = useActiveConnection();
+  const [tab] = useUrlSection("tab", TABS, "todo");
 
   if (!organizationId) {
     return (
@@ -279,9 +251,6 @@ export function ConsultantDashboard({ bootstrap }: { bootstrap: BootstrapRespons
         organizationId={organizationId}
         organizationName={organizationName}
         connectionId={connection}
-        onBack={() => setOrganizationId("")}
-        onSelectStore={setConnectionId}
-        onTab={setTab}
       />
     </div>
   );
@@ -670,10 +639,6 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
               <b>{fmtNum(urgentActions)}</b>
               <span>Urgentes</span>
             </button>
-            <button type="button" className={s.counter} onClick={() => jump("vencidas")}>
-              <b>{fmtNum(summary.overdue_tasks)}</b>
-              <span>Tareas vencidas</span>
-            </button>
             <button type="button" className={s.counter} onClick={() => jump("decision")}>
               <b>{fmtNum(decisions)}</b>
               <span>Esperan tu decisión</span>
@@ -724,7 +689,6 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                       <span className={s.cardB}>
                         {row.critical_alerts ? <span className={s.b}>{plural(row.critical_alerts, "crítica", "críticas")}</span> : null}
                         {otherAlerts > 0 ? <span>{plural(otherAlerts, "alerta", "alertas")}</span> : null}
-                        {row.overdue_tasks ? <span className={s.w}>{plural(row.overdue_tasks, "vencida", "vencidas")}</span> : null}
                         {unread ? <span className={s.a}>{unread} sin leer</span> : null}
                         {row.data_issues.length ? <span className={s.w}>datos</span> : null}
                       </span>
@@ -1060,60 +1024,65 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
 // Un cliente (o una de sus tiendas)
 // ---------------------------------------------------------------------------
 
-export function ConsultantClientDesk({ userId, organizationId, organizationName, connectionId, onBack, onSelectStore, onTab }: {
+// Agentes que solo lanza el consultor; sus propuestas entran en Prioridades.
+const CONSULTANT_AGENTS = [
+  { key: "task-planner", label: "Plan diario", getPath: "/ai/task-planner", runPath: "/ai/task-planner-run" },
+  { key: "plan-week", label: "Plan semanal", getPath: "/ai/plan/week", runPath: "/ai/plan/week/run" },
+  { key: "plan-month", label: "Plan mensual", getPath: "/ai/plan/month", runPath: "/ai/plan/month/run" },
+  { key: "stock", label: "Stock", getPath: "/ai/stock-planner", runPath: "/ai/stock-planner-run" },
+  { key: "email", label: "Email", getPath: "/ai/email-analyst", runPath: "/ai/email-analyst-run" },
+] as const;
+
+const signed = (n: number | null, format: (v: number) => string) =>
+  n === null ? "—" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${format(Math.abs(n))}`;
+
+// La portada de un cliente vista por su consultor es la misma que ve el
+// cliente (ClientPulse): titular, cifras, Prioridades, Vigilar y Canales, con
+// los mismos estilos y los textos dichos desde su lado. Encima, lo que solo
+// necesita el consultor para llevar la tienda: tres cifras más (ticket, ROAS
+// frente a equilibrio, stock), el seguimiento de la relación con "Marcar como
+// revisado", qué ha cambiado desde su revisión y los agentes que lanza él.
+export function ConsultantClientDesk({ userId, organizationId, organizationName, connectionId }: {
   userId: string;
   organizationId: string;
   organizationName: string;
   connectionId: string | null;
-  onBack: () => void;
-  onSelectStore: (connectionId: string) => void;
-  onTab: (tab: (typeof TABS)[number]) => void;
 }) {
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
   const workbench = useCachedQuery<DailyWorkbench>(`/v1/consultant/daily-workbench?days=30&organizationId=${encodeURIComponent(organizationId)}`);
+  // Mismas claves que ClientPulse: comparten caché, no se piden dos veces.
   const metrics = useCachedQuery<Metrics>(`${base}/shopify/metrics?days=30${scope}`);
   const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30`);
-  const klaviyo = useCachedQuery<KlaviyoReport>(`${base}/klaviyo/email-report?days=30`);
-  const operations = useCachedQuery<Operations>(`${base}/operations`);
-  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30${scope}`);
   const planner = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[0].getPath}?days=30${scope}`);
   const week = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[1].getPath}?days=30${scope}`);
   const month = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[2].getPath}?days=30${scope}`);
   const stockAi = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[3].getPath}?days=30${scope}`);
   const emailAi = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[4].getPath}?days=30${scope}`);
   const agentQueries = [planner, week, month, stockAi, emailAi];
+  const extraProposals = useMemo(
+    () => [week.data, month.data].filter((d): d is Diagnostic => Boolean(d)),
+    [week.data, month.data],
+  );
 
-  const ask = useCopilotAsk();
-  const [draft, setDraft] = useState("");
-  const messageRef = useRef<HTMLInputElement>(null);
-  const [activePin, setActivePin] = useState<number | null>(null);
   const [running, setRunning] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const [savingReview, setSavingReview] = useState(false);
-  const pins = usePins(metrics.data?.daily, operations.data?.alerts);
 
-  const wb = workbench.data;
-  const client = wb?.client;
-  const name = client?.organization_name ?? organizationName;
-  const row = wb?.portfolio.find((r) => r.organization_id === organizationId);
+  const client = workbench.data?.client;
+  const row = workbench.data?.portfolio.find((r) => r.organization_id === organizationId);
   const tier = tierOf(row?.status);
-  const shopifyStores = (client?.stores ?? []).filter((store) => store.provider === "shopify");
-  const activeStore = shopifyStores.find((store) => store.id === connectionId) ?? null;
-  const deskActions = (wb?.actions ?? []).filter(
-    (a) => a.organization_id === organizationId && DESK_ONLY_KINDS.includes(a.kind),
-  );
-  const upcoming = (wb?.upcoming ?? []).filter((u) => u.organization_id === organizationId);
+  const relationship = client?.relationship;
+  const changes = client?.changes;
+  const camino = client?.camino;
 
-  function reloadAll() {
-    invalidateApiGetCache();
-    invalidateCachedQueries(base);
-    operations.reload();
-    monitor.reload();
-    agentQueries.forEach((q) => q.reload());
-    workbench.reload();
-  }
+  const data = metrics.data;
+  const money = (value: number | null | undefined, decimals = 0) => fmtCurrency(value, data?.currency_code, decimals);
+  const previous = data?.previous_period ?? null;
+  const acquisition = meta.data?.acquisition;
+  const hasMeta = Boolean(acquisition && acquisition.days_with_data > 0);
+  const breakeven = data?.financial_currency_coverage?.status === "compatible" ? data.financial?.breakeven_roas ?? null : null;
 
   async function runAgent(runPath: string, label: string, reload: () => void) {
     setRunning(runPath);
@@ -1125,10 +1094,9 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
       }
       toast.success(`${label} actualizado.`);
       invalidateApiGetCache();
-      invalidateCachedQueries(base);
       reload();
-    } catch {
-      toast.danger("No se pudo lanzar el análisis por un error de red.");
+    } catch (cause) {
+      toast.danger(cause instanceof Error && cause.message ? `No se pudo lanzar el análisis: ${cause.message}` : "No se pudo lanzar el análisis.");
     } finally {
       setRunning(null);
     }
@@ -1153,7 +1121,6 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
       setReviewing(false);
       setReviewNote("");
       invalidateApiGetCache();
-      invalidateCachedQueries("/v1/consultant/daily-workbench");
       workbench.reload();
     } catch {
       toast.danger("No se pudo marcar la revisión. Revisa la conexión e inténtalo de nuevo.");
@@ -1162,620 +1129,197 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
     }
   }
 
-  const data = metrics.data;
-  const previous = data?.previous_period ?? null;
-  const financial = data?.financial;
-  const showProfit = financial
-    ? canShowProfit({
-        hasFinancialSettings: financial.has_settings,
-        itemsWithoutCost: financial.items_without_cost,
-        linesWithoutNetMetrics: metrics.data?.margin.lines_without_metrics,
-      })
-    : false;
-  const daily = data?.daily ?? [];
-  const previousAverage = previous && daily.length ? previous.sales.net_sales / daily.length : null;
-  const diagnostic = monitor.data;
-  const aiHeadline = diagnostic?.output.headline ?? diagnostic?.output.answer ?? null;
-  const nextStep = diagnostic?.output.recommendations[0]?.action ?? null;
-  const proposals = [monitor.data, ...agentQueries.map((q) => q.data)].filter((d): d is Diagnostic => Boolean(d));
-  const acquisition = meta.data?.acquisition;
-  const hasMeta = Boolean(acquisition && acquisition.days_with_data > 0);
-  const breakeven = showProfit ? financial?.breakeven_roas ?? null : null;
-  const report = klaviyo.data;
-  const hasKlaviyo = Boolean(report?.connected && report.totals);
-  const changes = client?.changes;
-  const relationship = client?.relationship;
-  const camino = client?.camino;
+  const extraKpis = data ? (
+    <>
+      <Kpi
+        label="Ticket medio"
+        value={money(data.sales.aov, 2)}
+        delta={<Delta change={salesChangePct(data.sales.aov, previous?.sales.aov ?? null)} />}
+        vs={previous ? money(previous.sales.aov, 2) : null}
+        slot={<p className={p.trackTxt}>Por pedido</p>}
+      />
+      <Kpi
+        label="ROAS Meta"
+        value={hasMeta && acquisition?.roas != null ? `${fmtNum(acquisition.roas, 2)}×` : "—"}
+        tag={hasMeta && acquisition?.roas != null && breakeven !== null && acquisition.roas < breakeven ? "bajo equilibrio" : undefined}
+        slot={
+          <p className={p.trackTxt}>
+            {!hasMeta ? "Sin datos de Meta" : breakeven !== null ? `Equilibrio ${fmtNum(breakeven, 2)}× · atribuido por Meta` : "Atribuido por Meta"}
+          </p>
+        }
+      />
+      <Kpi
+        label="Stock"
+        value={`${fmtNum(data.stock.out_of_stock_items)} agotados`}
+        tag={data.stock.out_of_stock_items ? "agotados" : undefined}
+        slot={<p className={p.trackTxt}>{plural(data.stock.low_stock_items, "producto", "productos")} con poco stock</p>}
+      />
+    </>
+  ) : null;
 
-  return (
-    <div className={p.root}>
-      <DashboardSections items={[{ id: "desk-headline", label: "Resumen del cliente" }, { id: "desk-hoy", label: "Qué hacer" }, { id: "desk-ia", label: "Análisis IA" }, { id: "desk-canales", label: "Canales" }]} />
-      {/* ------------------------------ Hero ------------------------------ */}
-      <section className={cx(p.hero, tier?.cls)} aria-labelledby="desk-headline">
-        <div className={p.heroTop}>
-          <div>
-            <p className={p.heroMeta}>
-              <span>
-                {activeStore
-                  ? `Tienda · ${activeStore.name ?? "sin nombre"}`
-                  : `Cliente · ${plural(shopifyStores.length, "tienda", "tiendas")}`}
+  const sideTop = (
+    <>
+      <section className={p.pBlock} aria-labelledby="desk-seguimiento">
+        <h2 id="desk-seguimiento" className={p.pBlockT}>Seguimiento</h2>
+        <ul className={p.pList}>
+          {tier ? (
+            <li className={tier.cls}>
+              <span className={p.pRow}>
+                <span className={p.dot} style={{ background: "var(--t)" }} aria-hidden="true" />
+                <span className={p.pRowT}>
+                  Estado de la cuenta
+                  <small>
+                    {client?.last_review
+                      ? `Revisada ${dayLabel(client.last_review.reviewed_at, true)}${client.last_review.note ? ` · ${client.last_review.note}` : ""}`
+                      : "Sin revisión tuya todavía"}
+                  </small>
+                </span>
+                <span className={p.pRowV}>{tier.label}</span>
               </span>
-              {tier ? <span style={{ color: "var(--t)" }}>● {tier.label}</span> : null}
-              <span>Últimos 30 días</span>
-            </p>
-            <h1 id="desk-headline" className={p.headline}>
-              {name}
-            </h1>
-            {aiHeadline ? (
-              <p className={p.headlineDetail}>
-                <span className={p.ia}>A02</span>
-                {aiHeadline}
-              </p>
-            ) : null}
-            {workbench.error && !wb ? <p className={p.headlineDetail}>No se pudo cargar la mesa de este cliente.</p> : null}
-            <div className={p.heroActions}>
-              {reviewing ? (
-                <form className={s.review} onSubmit={markReviewed}>
-                  <label className="sr-only" htmlFor="desk-review-note">
-                    Nota de la revisión (opcional)
-                  </label>
-                  <input
-                    id="desk-review-note"
-                    value={reviewNote}
-                    maxLength={500}
-                    autoFocus
-                    onChange={(event) => setReviewNote(event.target.value)}
-                    placeholder="Qué has mirado o dejado pendiente (opcional)"
-                  />
-                  <button type="submit" className={cx(p.btn, p.acc)} disabled={savingReview}>
-                    {savingReview ? "Guardando…" : "Confirmar"}
-                  </button>
-                  <button type="button" className={cx(p.btn, p.ghost)} onClick={() => setReviewing(false)}>
-                    Cancelar
-                  </button>
-                </form>
-              ) : (
-                <>
-                  <button type="button" className={cx(p.btn, p.acc)} onClick={() => setReviewing(true)}>
-                    Marcar como revisado
-                  </button>
-                  <button
-                    type="button"
-                    className={cx(p.btn, p.ghost)}
-                    onClick={() =>
-                      ask({
-                        question: `Resume la situación de ${name} y dime qué harías primero como su consultor.`,
-                        focusLabel: name,
-                      })
-                    }
-                  >
-                    <span className={p.ia}>IA</span>
-                    Preguntar
-                  </button>
-                  <button type="button" className={cx(p.btn, p.ghost)} onClick={onBack}>
-                    ← Toda la cartera
-                  </button>
-                </>
-              )}
-            </div>
-            {client?.last_review ? (
-              <p className={s.heroNote} style={{ marginTop: 10 }}>
-                Última revisión: {dayLabel(client.last_review.reviewed_at, true)} a las {clock(client.last_review.reviewed_at)}
-                {client.last_review.note ? ` · ${client.last_review.note}` : ""}
-              </p>
-            ) : null}
-          </div>
-          <aside className={s.rel} aria-label="Relación con el cliente">
-            <div className={s.relRow}>
-              <span>Contacto</span>
-              <strong>{relationship?.counterpart_name ?? "—"}</strong>
-            </div>
-            <div className={s.relRow}>
-              <span>Próxima llamada</span>
-              <strong>
+            </li>
+          ) : null}
+          <li>
+            <Link className={cx(p.pRow, "hover-sweep")} href="/llamadas">
+              <span className={cx(p.dot, p.dotMuted)} aria-hidden="true" />
+              <span className={p.pRowT}>
+                Próxima llamada
+                <small>
+                  {relationship?.last_call?.held_at
+                    ? `Última ${dayLabel(relationship.last_call.held_at, true)}${relationship.last_call.summary_pending ? " · resumen pendiente" : ""}`
+                    : "Sin llamadas anteriores"}
+                </small>
+              </span>
+              <span className={p.pRowV}>
                 {relationship?.next_call?.scheduled_at
                   ? `${dayLabel(relationship.next_call.scheduled_at, true)}, ${clock(relationship.next_call.scheduled_at)}`
                   : "Sin agendar"}
-              </strong>
-            </div>
-            <div className={s.relRow}>
-              <span>Última llamada</span>
-              <strong>
-                {relationship?.last_call?.held_at ? dayLabel(relationship.last_call.held_at, true) : "—"}
-                {relationship?.last_call?.summary_pending ? " · resumen pendiente" : ""}
-              </strong>
-            </div>
-            <div className={s.relRow}>
-              <span>Mensajes sin leer</span>
-              <strong>{fmtNum(relationship?.unread_count ?? 0)}</strong>
-            </div>
-            <div className={s.relRow}>
-              <span>Tareas</span>
-              <strong>
-                {row ? `${fmtNum(row.open_tasks)} abiertas${row.overdue_tasks ? ` · ${fmtNum(row.overdue_tasks)} vencidas` : ""}` : "—"}
-              </strong>
-            </div>
-            <div className={s.relRow}>
-              <span>Camino</span>
-              <strong>
-                {camino ? `${camino.phase_name} · ${camino.milestones_done}/${camino.milestones_total} hitos` : "Sin plan"}
-              </strong>
-            </div>
-          </aside>
-        </div>
-
-        {changes ? (
-          <div>
-            <p className={s.heroNote} style={{ marginBottom: 8 }}>
-              {changes.since_kind === "review"
-                ? `Desde tu última revisión (${dayLabel(changes.since, true)}):`
-                : "En los últimos 30 días (no hay una revisión tuya dentro de esta ventana):"}
-            </p>
-            <div className={s.since}>
-              <div>
-                <b>{fmtNum(changes.new_alerts)}</b>
-                <span>Alertas nuevas</span>
-              </div>
-              <div>
-                <b>{fmtNum(changes.closed_tasks)}</b>
-                <span>Tareas cerradas</span>
-              </div>
-              <div>
-                <b>{signedEur(changes.net_sales_delta)}</b>
-                <span>Ventas netas</span>
-              </div>
-              <div>
-                <b>{signedNum(changes.orders_delta)}</b>
-                <span>Pedidos</span>
-              </div>
-              <div>
-                <b>{signedEur(changes.meta_spend_delta)}</b>
-                <span>Inversión Meta</span>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {shopifyStores.length > 1 ? (
-          <div className={s.stores} role="group" aria-label="Elegir tienda">
-            <button type="button" className={s.st} aria-pressed={!activeStore} onClick={() => onSelectStore("")}>
-              <span>
-                Todas las tiendas
-                <small>Cifras agregadas</small>
               </span>
-            </button>
-            {shopifyStores.map((store) => {
-              const stale = !store.last_sync_at || Date.parse(store.last_sync_at) < Date.parse(wb?.generated_at ?? "") - 3 * DAY_MS;
-              const broken = !["connected", "syncing"].includes(store.status);
-              return (
-                <button
-                  key={store.id}
-                  type="button"
-                  className={s.st}
-                  aria-pressed={store.id === activeStore?.id}
-                  onClick={() => onSelectStore(store.id)}
-                >
-                  <span className={cx(s.stDot, (stale || broken) && s.stDotWarn)} aria-hidden="true" />
-                  <span>
-                    {store.name ?? "Tienda sin nombre"}
-                    <small>{broken ? "Requiere reconectar" : `Sincronizada ${ago(store.last_sync_at)}`}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-
-        {daily.length > 1 ? (
-          <>
-            <SalesChart
-              daily={daily.map((d) => ({ date: d.date, value: d.net_sales, detail: `${fmtNum(d.orders_count)} pedidos` }))}
-              previousAverage={previousAverage}
-              pins={pins}
-              active={activePin}
-              onPin={(k) => setActivePin((current) => (current === k ? null : k))}
+            </Link>
+          </li>
+          <li>
+            <Link className={cx(p.pRow, "hover-sweep")} href="/mensajes">
+              <span className={cx(p.dot, relationship?.unread_count ? p.dotWarn : p.dotMuted)} aria-hidden="true" />
+              <span className={p.pRowT}>
+                Mensajes sin leer
+                <small>{relationship?.counterpart_name ?? organizationName}</small>
+              </span>
+              <span className={p.pRowV}>{fmtNum(relationship?.unread_count ?? 0)}</span>
+            </Link>
+          </li>
+          <li>
+            <Link className={cx(p.pRow, "hover-sweep")} href="/camino">
+              <span className={cx(p.dot, p.dotMuted)} aria-hidden="true" />
+              <span className={p.pRowT}>
+                {camino ? `Camino · ${camino.phase_name}` : "Camino"}
+                <small>
+                  {camino?.next_milestone ? `Siguiente: ${camino.next_milestone.name}` : camino ? "Sin hito siguiente" : "Sin plan estratégico"}
+                </small>
+              </span>
+              <span className={p.pRowV}>{camino ? `${camino.milestones_done}/${camino.milestones_total}` : "—"}</span>
+            </Link>
+          </li>
+        </ul>
+        {reviewing ? (
+          <form className={s.review} onSubmit={markReviewed}>
+            <label className="sr-only" htmlFor="desk-review-note">Nota de la revisión (opcional)</label>
+            <input
+              id="desk-review-note"
+              value={reviewNote}
+              maxLength={500}
+              autoFocus
+              onChange={(event) => setReviewNote(event.target.value)}
+              placeholder="Qué has mirado o dejado pendiente (opcional)"
             />
-            <div className={p.legend} aria-hidden="true">
-              <span>
-                <i className={p.lgLine} />
-                Ventas netas por día
-              </span>
-              {previousAverage !== null ? (
-                <span>
-                  <i className={p.lgPrev} />
-                  Media diaria del periodo anterior
-                </span>
-              ) : null}
-              {pins.length ? (
-                <span>
-                  <i className={p.lgPin} />
-                  Alertas detectadas en el periodo
-                </span>
-              ) : null}
-            </div>
-          </>
-        ) : null}
+            <button type="submit" className={cx(p.btn, p.sm)} disabled={savingReview}>
+              {savingReview ? "Guardando…" : "Confirmar"}
+            </button>
+            <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => setReviewing(false)}>
+              Cancelar
+            </button>
+          </form>
+        ) : (
+          <button type="button" className={cx(p.btn, p.sm)} onClick={() => setReviewing(true)}>
+            Marcar como revisado
+          </button>
+        )}
       </section>
 
-      {/* ------------------------------ KPIs ------------------------------ */}
-      {data ? (
-        <div className={p.kpis} aria-label="Cifras clave, últimos 30 días">
-          <Kpi
-            label="Ventas netas"
-            value={fmtEur(data.sales.net_sales)}
-            delta={<Delta change={salesChangePct(data.sales.net_sales, previous?.sales.net_sales ?? null)} />}
-            vs={previous ? fmtEur(previous.sales.net_sales) : null}
-            slot={<Spark values={daily.map((d) => d.net_sales)} />}
-          />
-          <Kpi
-            label="Pedidos"
-            value={fmtNum(data.sales.orders_count)}
-            delta={<Delta change={salesChangePct(data.sales.orders_count, previous?.sales.orders_count ?? null)} />}
-            vs={previous ? fmtNum(previous.sales.orders_count) : null}
-            slot={<Spark values={daily.map((d) => d.orders_count)} />}
-          />
-          <Kpi
-            label="Ticket medio"
-            value={fmtEur(data.sales.aov, 2)}
-            delta={<Delta change={salesChangePct(data.sales.aov, previous?.sales.aov ?? null)} />}
-            vs={previous ? fmtEur(previous.sales.aov, 2) : null}
-            slot={<p className={p.trackTxt}>Por pedido</p>}
-          />
-          {showProfit && financial ? (
-            <Kpi
-              label="Beneficio neto"
-              value={fmtEur(financial.net_profit)}
-              delta={<Delta change={previous?.financial.lines_without_metrics === 0 ? salesChangePct(financial.net_profit, previous.financial.net_profit) : null} />}
-              vs={previous?.financial.lines_without_metrics === 0 ? fmtEur(previous.financial.net_profit) : null}
-              slot={<p className={p.trackTxt}>Margen neto {fmtNum(financial.net_margin_pct, 1)} %</p>}
-            />
-          ) : (
-            <Kpi
-              label="Beneficio neto"
-              tag={metrics.data?.margin.lines_without_metrics !== 0 ? "cobertura pendiente" : "faltan costes"}
-              value="—"
-              slot={
-                <p className={p.trackTxt}>
-                  {metrics.data?.margin.lines_without_metrics !== 0
-                    ? `Falta cobertura neta en ${metrics.data?.margin.lines_without_metrics ?? "algunas"} líneas de pedido; sincronízalas antes de consultar beneficio y margen.`
-                    : financial?.has_settings
-                    ? `Faltan los costes de ${plural(financial.items_without_cost, "producto", "productos")}`
-                    : "Sin configuración financiera"}
-                </p>
-              }
-            />
-          )}
-          <Kpi
-            label="ROAS Meta"
-            value={hasMeta && acquisition?.roas != null ? `${fmtNum(acquisition.roas, 2)}×` : "—"}
-            slot={
-              <p className={p.trackTxt}>
-                {!hasMeta
-                  ? "Sin datos de Meta"
-                  : breakeven !== null
-                    ? `Equilibrio ${fmtNum(breakeven, 2)}× · atribuido por Meta`
-                    : "Atribuido por Meta"}
-              </p>
-            }
-          />
-          <Kpi
-            label="Stock"
-            tag={data.stock.out_of_stock_items ? "agotados" : undefined}
-            value={`${fmtNum(data.stock.out_of_stock_items)} agotados`}
-            slot={<p className={p.trackTxt}>{plural(data.stock.low_stock_items, "producto", "productos")} con poco stock</p>}
-          />
-        </div>
-      ) : metrics.error ? (
-        <div className={p.panel}>
-          <p className={p.error}>No se pudieron cargar las cifras de Shopify: {metrics.error}</p>
-        </div>
+      {changes ? (
+        <section className={p.pBlock} aria-labelledby="desk-cambios">
+          <h2 id="desk-cambios" className={p.pBlockT}>
+            {changes.since_kind === "review" ? "Desde tu revisión" : "Últimos 30 días"}
+          </h2>
+          <ul className={p.pList}>
+            {[
+              { key: "alerts", label: "Alertas nuevas", value: fmtNum(changes.new_alerts) },
+              { key: "tasks", label: "Tareas cerradas", value: fmtNum(changes.closed_tasks) },
+              { key: "sales", label: "Ventas netas", value: signed(changes.net_sales_delta, (v) => money(v)) },
+              { key: "orders", label: "Pedidos", value: signed(changes.orders_delta, (v) => fmtNum(v)) },
+              { key: "meta", label: "Inversión Meta", value: signed(changes.meta_spend_delta, (v) => money(v)) },
+            ].map((item) => (
+              <li key={item.key}>
+                <span className={p.pRow}>
+                  <span className={p.pRowT}>{item.label}</span>
+                  <span className={cx(p.pRowV, p.num)}>{item.value}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {changes.since_kind === "review" ? <p className={p.pFoot}>Desde el {dayLabel(changes.since, true)}.</p> : null}
+        </section>
       ) : null}
 
-      {/* ------------------------------ Pendiente ------------------------------ */}
-      <section className={p.sec} aria-labelledby="desk-hoy">
-        <SectionHead
-          id="desk-hoy"
-          title="Pendiente"
-          ai={nextStep ? `Lo primero: ${nextStep}` : null}
-          fallback="Propuestas de la IA, alertas y tareas de este cliente; y la conversación al lado."
-          onAsk={() => ask({ question: `¿Qué debería resolver primero esta semana con ${name}?`, focusLabel: `Pendiente de ${name}` })}
-        />
-        <div className={p.two}>
-          <div className={s.stackCol}>
-            {operations.error && !operations.data ? (
-              <div className={p.panel}>
-                <p className={p.error}>No se pudieron cargar las tareas: {operations.error}</p>
-              </div>
-            ) : (
-              <WorkQueue
-                base={base}
-                userId={userId}
-                consultant={null}
-                asConsultant
-                proposals={proposals}
-                operations={operations.data}
-                reloadAll={reloadAll}
-                onComment={(text) => {
-                  setDraft(text);
-                  messageRef.current?.focus();
-                }}
-              />
-            )}
-            {deskActions.length ? (
-              <div className={p.panel}>
-                <div className={p.panelH}>
-                  <div>
-                    <h3>Otros asuntos de la mesa</h3>
-                    <p className={p.sub}>Llamadas, integraciones, datos e hitos</p>
-                  </div>
-                </div>
-                <ul>
-                  {deskActions.map((action) => (
-                    <ActionRow key={action.id} action={action} />
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-          <div className={s.stackCol}>
-            <ConsultantThread
-              base={base}
-              name={relationship?.counterpart_name ?? name}
-              role={`Cliente · ${name}`}
-              viewer="consultant"
-              draft={draft}
-              setDraft={setDraft}
-              inputRef={messageRef}
-            />
-            <Upcoming items={upcoming} showClient={false} />
-          </div>
-        </div>
+      <section className={p.pBlock} aria-labelledby="desk-agentes">
+        <h2 id="desk-agentes" className={p.pBlockT}>Agentes IA</h2>
+        <ul className={p.pList}>
+          {CONSULTANT_AGENTS.map((agent, i) => {
+            const query = agentQueries[i];
+            const output = query.data;
+            const pending = output?.output_status === "pending_approval" ? output.output.proposed_writes.length : 0;
+            return (
+              <li key={agent.key}>
+                <span className={p.pRow}>
+                  <span className={cx(p.dot, pending ? p.dotWarn : p.dotMuted)} aria-hidden="true" />
+                  <span className={p.pRowT}>
+                    {agent.label}
+                    <small>
+                      {output ? `${ago(output.generated_at)}${pending ? ` · ${plural(pending, "propuesta", "propuestas")}` : ""}` : "Sin ejecutar"}
+                    </small>
+                  </span>
+                  <button
+                    type="button"
+                    className={p.linkBtn}
+                    disabled={running !== null}
+                    onClick={() => void runAgent(agent.runPath, agent.label, query.reload)}
+                  >
+                    {running === agent.runPath ? "Analizando…" : output ? "Actualizar" : "Lanzar"}
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className={p.pFoot}>Sus propuestas entran en Prioridades.</p>
       </section>
+    </>
+  );
 
-      {/* ------------------------------ IA ------------------------------ */}
-      <section className={p.sec} aria-labelledby="desk-ia">
-        <SectionHead
-          id="desk-ia"
-          title="Lo que ve la IA"
-          ai={null}
-          fallback="El resumen lo ve también el cliente; los planes y los agentes de canal son solo para ti."
-          onAsk={() => ask({ question: `¿Qué riesgos ves en ${name} que yo debería vigilar?`, focusLabel: `Riesgos de ${name}` })}
-        />
-        <div className={p.three}>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>Resumen ejecutivo</h3>
-                <p className={p.sub}>
-                  {diagnostic ? `Análisis del ${dayLabel(diagnostic.generated_at, true)}, ${clock(diagnostic.generated_at)}` : "Sin análisis todavía"}
-                </p>
-              </div>
-              <button
-                type="button"
-                className={cx(p.btn, p.ghost, p.sm)}
-                disabled={running !== null}
-                onClick={() => void runAgent("/ai/monitor-run", "Resumen", monitor.reload)}
-              >
-                {running === "/ai/monitor-run" ? "Analizando…" : diagnostic ? "Actualizar" : "Analizar"}
-              </button>
-            </div>
-            {diagnostic?.output.findings.length ? (
-              <div>
-                {diagnostic.output.findings.slice(0, 4).map((finding, i) => (
-                  <div key={`${finding.title}-${i}`} className={s.agent}>
-                    <div>
-                      <b>{finding.title}</b>
-                      <p>{finding.evidence}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty>{diagnostic ? "Sin hallazgos en este análisis." : "Lánzalo para ver qué está pasando y qué haría la IA."}</Empty>
-            )}
-          </div>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>Agentes solo para ti</h3>
-                <p className={p.sub}>Sus propuestas entran en Pendiente</p>
-              </div>
-            </div>
-            <div>
-              {CONSULTANT_AGENTS.map((agent, i) => {
-                const query = agentQueries[i];
-                const output = query.data;
-                const pending = output?.output_status === "pending_approval" ? output.output.proposed_writes.length : 0;
-                return (
-                  <div key={agent.key} className={s.agent}>
-                    <div style={{ minWidth: 0 }}>
-                      <b>{agent.label}</b>
-                      {output ? <p>{output.output.headline ?? output.output.findings[0]?.title ?? "Sin hallazgos."}</p> : null}
-                      <p className={s.agentMeta}>
-                        {output
-                          ? `${ago(output.generated_at)}${pending ? ` · ${plural(pending, "propuesta", "propuestas")} por decidir` : ""}`
-                          : "Sin ejecutar"}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className={cx(p.btn, p.ghost, p.sm)}
-                      disabled={running !== null}
-                      onClick={() => void runAgent(agent.runPath, agent.label, query.reload)}
-                    >
-                      {running === agent.runPath ? "…" : output ? "Actualizar" : "Lanzar"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>Camino</h3>
-                <p className={p.sub}>{camino ? `Fase: ${camino.phase_name}` : "Sin plan estratégico"}</p>
-              </div>
-              <a className={cx(p.btn, p.ghost, p.sm)} href="/camino">
-                Abrir
-              </a>
-            </div>
-            {camino ? (
-              <>
-                <div className={s.steps} aria-label={`${camino.milestones_done} de ${camino.milestones_total} hitos cumplidos`}>
-                  {Array.from({ length: Math.max(1, camino.milestones_total) }, (_, i) => (
-                    <i key={i} className={i < camino.milestones_done ? s.stepDone : i === camino.milestones_done ? s.stepNext : undefined} />
-                  ))}
-                </div>
-                <div className={s.chanR}>
-                  <span>Hitos cumplidos</span>
-                  <b>
-                    {camino.milestones_done} / {camino.milestones_total}
-                  </b>
-                </div>
-                {camino.next_milestone ? (
-                  <div className={s.chanR}>
-                    <span>Siguiente: {camino.next_milestone.name}</span>
-                    <b>{camino.next_milestone.target_date ? dayLabel(camino.next_milestone.target_date) : "sin fecha"}</b>
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <Empty>Cuando definas el plan de este cliente, aquí verás en qué fase está y el siguiente hito.</Empty>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------ Canales ------------------------------ */}
-      <section className={p.sec} aria-labelledby="desk-canales">
-        <SectionHead
-          id="desk-canales"
-          title="Canales"
-          ai={null}
-          fallback="Un resumen por canal; el detalle está en su pestaña. Lo atribuido va con su plataforma y no se suma."
-          onAsk={() => ask({ question: `¿Qué canal de ${name} tiene más margen de mejora ahora mismo?`, focusLabel: `Canales de ${name}` })}
-        />
-        <div className={p.three}>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>
-                  <span className={p.sw} style={{ background: "var(--store)" }} />
-                  Tienda
-                </h3>
-                <p className={p.sub}>{activeStore ? activeStore.name : "Shopify"}</p>
-              </div>
-              <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => onTab("shopify")}>
-                Ver
-              </button>
-            </div>
-            {data ? (
-              <div>
-                <div className={s.chanR}>
-                  <span>Conversión</span>
-                  <b>
-                    {data.funnel?.has_sessions && data.funnel.conversion_rate_own !== null
-                      ? `${fmtNum(data.funnel.conversion_rate_own * 100, 2)} %`
-                      : "—"}
-                  </b>
-                </div>
-                <div className={s.chanR}>
-                  <span>Producto más vendido</span>
-                  <b>{data.top_products[0] ? (
-                    <a
-                      className="underline decoration-dotted underline-offset-4"
-                      href={`/shopify/productos/${encodeURIComponent(data.top_products[0].product_id)}?${new URLSearchParams({ organizationId, ...(connectionId ? { connectionId } : {}) }).toString()}`}
-                      aria-label={`Abrir ficha de ${data.top_products[0].title}`}
-                    >
-                      {data.top_products[0].title} · {fmtNum(data.top_products[0].quantity_sold)} u.
-                    </a>
-                  ) : "—"}</b>
-                </div>
-                <div className={s.chanR}>
-                  <span>CAC combinado</span>
-                  <b>{financial?.cac_blended != null ? fmtEur(financial.cac_blended, 2) : "—"}</b>
-                </div>
-              </div>
-            ) : (
-              <Empty>Sin datos de Shopify.</Empty>
-            )}
-          </div>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>
-                  <span className={p.sw} style={{ background: "var(--meta)" }} />
-                  Meta Ads
-                </h3>
-                <p className={p.sub}>Atribuido por Meta</p>
-              </div>
-              <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => onTab("meta")}>
-                Ver
-              </button>
-            </div>
-            {hasMeta && acquisition ? (
-              <div>
-                <div className={s.chanR}>
-                  <span>Inversión</span>
-                  <b>{fmtEur(acquisition.spend)}</b>
-                </div>
-                <div className={s.chanR}>
-                  <span>ROAS frente a equilibrio</span>
-                  <b className={acquisition.roas !== null && breakeven !== null && acquisition.roas < breakeven ? s.bad : undefined}>
-                    {acquisition.roas !== null ? `${fmtNum(acquisition.roas, 2)}×` : "—"}
-                    {breakeven !== null ? ` / ${fmtNum(breakeven, 2)}×` : ""}
-                  </b>
-                </div>
-                <div className={s.chanR}>
-                  <span>CPA</span>
-                  <b>
-                    {acquisition.cac !== null ? fmtEur(acquisition.cac, 2) : "—"}
-                    {showProfit && financial?.mbee ? ` · máx. ${fmtEur(financial.mbee, 2)}` : ""}
-                  </b>
-                </div>
-              </div>
-            ) : (
-              <Empty>{meta.isLoading ? "Cargando…" : "Sin datos de Meta Ads en los últimos 30 días."}</Empty>
-            )}
-          </div>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>
-                  <span className={p.sw} style={{ background: "var(--klaviyo)" }} />
-                  Email
-                </h3>
-                <p className={p.sub}>Atribuido por Klaviyo</p>
-              </div>
-              <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => onTab("klaviyo")}>
-                Ver
-              </button>
-            </div>
-            {hasKlaviyo && report ? (
-              <div>
-                <div className={s.chanR}>
-                  <span>Ingresos atribuidos</span>
-                  <b>
-                    {fmtEur(report.totals.revenue)}{" "}
-                    <Delta change={salesChangePct(report.totals.revenue, report.previous?.revenue ?? null)} />
-                  </b>
-                </div>
-                <div className={s.chanR}>
-                  <span>Flujos</span>
-                  <b>{fmtEur(report.totals.flow_revenue)}</b>
-                </div>
-                <div className={s.chanR}>
-                  <span>Campañas</span>
-                  <b>{fmtEur(report.totals.campaign_revenue)}</b>
-                </div>
-              </div>
-            ) : (
-              <Empty>{klaviyo.isLoading ? "Cargando…" : "Klaviyo sin conectar."}</Empty>
-            )}
-          </div>
-        </div>
-      </section>
-    </div>
+  return (
+    <ClientPulse
+      userId={userId}
+      organizationId={organizationId}
+      organizationName={organizationName}
+      connectionId={connectionId}
+      consultant={null}
+      asConsultant
+      extraProposals={extraProposals}
+      extraKpis={extraKpis}
+      sideTop={sideTop}
+      onReload={() => {
+        week.reload();
+        month.reload();
+        workbench.reload();
+      }}
+    />
   );
 }

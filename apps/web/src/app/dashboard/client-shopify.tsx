@@ -209,7 +209,10 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
     setRunning(path);
     try {
       const viewQuery = view ? `&view=${encodeURIComponent(view)}` : "";
-      const response = await apiFetch(`${base}${path}?days=30${scope}${viewQuery}`, { method: "POST" });
+      const response = await apiFetch(`${base}${path}?days=30${scope}${viewQuery}`, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
@@ -224,7 +227,6 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   }
   const runStockPlanner = () => runAgent("/ai/stock-planner-run", "Análisis de stock", stockAi.reload);
   const runOperativaShopify = () => runAgent("/ai/operativa-shopify-run", "Operativa de Shopify", operativaShopify.reload);
-  const runMonitorShopify = () => runAgent("/ai/monitor-run", "Lectura A02 de Shopify", monitor.reload, "shopify");
   // Older cached diagnostics may contain financial claims created before the
   // live currency-coverage guard existed. Keep stock advice, suppress finance.
   const proposals = [stockAi.data, financialCurrencyComparable ? operativaShopify.data : undefined]
@@ -313,13 +315,23 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   const recovery = ins?.checkout_recovery ?? null;
   const top = data.top_products.slice(0, 8);
   const topMax = Math.max(...top.map((p) => p.revenue), 1);
-  const stockRecommendations = (stockAi.data?.output.proposed_writes ?? []).flatMap((write) => {
+  const stockRecommendations = (stockAi.data?.output.proposed_writes ?? []).flatMap((write, index) => {
+    const decision = stockAi.data?.output.proposal_decisions?.find((item) => item.index === index);
     const productId = write.related_product_id?.toLowerCase();
-    if (!productId) return [];
+    if (!productId) return [{ write, product: { product_id: "", title: write.title }, decision }];
     const matchedProduct = top.find((item) => item.product_id.toLowerCase() === productId);
     const product = matchedProduct ?? { product_id: productId, title: write.title };
-    return [{ write, product }];
+    return [{ write, product, decision }];
   });
+  const stockAssessmentMessage = stockAi.data?.stale
+    ? "Este análisis está desactualizado; actualiza la previsión antes de decidir."
+    : stockAi.data?.output.weekly_demand_coverage === "unavailable"
+      ? "No se pudo cargar el histórico semanal. El análisis no usa semanas ausentes como ventas cero."
+      : stockAi.data?.output.weekly_demand_coverage === "incomplete"
+        ? "El histórico semanal no cubre todas las semanas; las semanas ausentes se consideran desconocidas."
+        : stockAi.data?.output.product_count === 0
+          ? "No hay productos activos con ventas observadas en el periodo."
+          : "El análisis actual no propone reponer ninguno de estos productos. Consulta el panel de stock para ver otros riesgos.";
 
   return (
     <div className={s.root}>
@@ -351,9 +363,6 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                   IA
                 </span>
                 Preguntar por qué
-              </button>
-              <button type="button" className={cx(s.btn, s.ghost)} disabled={running !== null} onClick={() => void runMonitorShopify()}>
-                {running === "/ai/monitor-run" ? "Analizando Shopify…" : "Actualizar análisis Shopify"}
               </button>
               {hideFullLink ? null : (
                 <a className={cx(s.btn, s.ghost)} href="/shopify">
@@ -722,18 +731,24 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                   {running === "/ai/stock-planner-run" ? "Actualizando…" : "Actualizar previsión"}
                 </button>
               </div>
+              {stockAi.data?.stale ? <p className={s.muted}>Este análisis está desactualizado; verifica el inventario actual antes de aprobar una reposición.</p> : null}
               {stockRecommendations.length ? (
                 <ul className={s.restockList}>
-                  {stockRecommendations.map(({ write, product }) => (
+                {stockRecommendations.map(({ write, product, decision }) => (
                     <li className={s.restockItem} key={`${product.product_id}:${write.title}`}>
                       <div>
-                        <a
-                          className={s.restockProduct}
-                          href={`/shopify/productos/${encodeURIComponent(product.product_id)}?${new URLSearchParams({ organizationId, ...(connectionId ? { connectionId } : {}) }).toString()}`}
-                        >
-                          {product.title}
-                        </a>
-                        <p className={s.restockStatus}>Propuesto para reponer · pendiente de aprobación</p>
+                        {product.product_id ? (
+                          <a
+                            className={s.restockProduct}
+                            href={`/shopify/productos/${encodeURIComponent(product.product_id)}?${new URLSearchParams({ organizationId, ...(connectionId ? { connectionId } : {}) }).toString()}`}
+                          >{product.title}</a>
+                        ) : <span className={s.restockProduct}>{product.title}</span>}
+                        <p className={s.restockStatus}>
+                          {decision?.status === "created" || decision?.status === "link_failed" ? <><a href={decision.task_id ? `/tareas?taskId=${encodeURIComponent(decision.task_id)}` : "/tareas"}>Tarea creada</a> · aprobada</>
+                            : decision?.status === "skipped" ? "No se creó una tarea: ya hay una reposición abierta o falta vincular el producto."
+                              : decision?.status === "failed" ? "No se pudo crear la tarea; la propuesta sigue pendiente de revisión."
+                                : stockAi.data?.output_status === "pending_approval" ? "Propuesto para reponer · pendiente de aprobación" : "Propuesta anterior; revisa su estado en Tareas"}
+                        </p>
                       </div>
                       <details className={s.restockWhy}>
                         <summary aria-label={`Por qué se propone reponer ${product.title}`} title="Por qué se propone">
@@ -753,7 +768,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                 </ul>
               ) : stockAi.data ? (
                 <p className={s.muted}>
-                  El análisis actual no propone reponer ninguno de estos productos. Consulta el panel de stock para ver otros riesgos.
+                  {stockAssessmentMessage}
                 </p>
               ) : (
                 <p className={s.muted}>Aún no hay una previsión disponible. Actualiza el análisis para ver productos priorizados.</p>

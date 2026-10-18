@@ -367,7 +367,7 @@ test("A02 mantiene el scope de tienda en la consulta de inversión Meta", () => 
   );
 });
 
-test("A02 abrir el dashboard solo lee; refrescar y cron son las únicas rutas de ejecución", () => {
+test("A02 solo se genera automáticamente y las rutas manuales quedan deshabilitadas", () => {
   const runtime = readFileSync(new URL("./ai-runtime.ts", import.meta.url), "utf8");
   const server = readFileSync(new URL("./server.ts", import.meta.url), "utf8");
   const web = readFileSync(
@@ -390,7 +390,12 @@ test("A02 abrir el dashboard solo lee; refrescar y cron son las únicas rutas de
   const postRoute = server.slice(postStart, postEnd);
   assert.match(getRoute, /getMonitorDiagnostic/);
   assert.doesNotMatch(getRoute, /runMonitorAgent/);
-  assert.match(postRoute, /runMonitorAgent/);
+  assert.match(postRoute, /410/);
+  assert.match(postRoute, /monitor_manual_refresh_disabled/);
+  const monitorStart = runtime.indexOf("export async function runMonitorAgent(");
+  const monitorEnd = runtime.indexOf("export async function getMonitorDiagnostic(", monitorStart);
+  assert.ok(monitorStart >= 0 && monitorEnd > monitorStart);
+  assert.match(runtime.slice(monitorStart, monitorEnd), /runOptions\?\.trigger !== "cron"/);
 
   const loadStart = web.indexOf("async function load()");
   const regenerateStart = web.indexOf("async function regenerate()", loadStart);
@@ -398,8 +403,8 @@ test("A02 abrir el dashboard solo lee; refrescar y cron son las únicas rutas de
   const pageLoad = web.slice(loadStart, regenerateStart);
   assert.match(pageLoad, /apiFetch\(/);
   assert.doesNotMatch(pageLoad, /method:\s*["']POST/);
-  const manualRun = web.slice(regenerateStart, web.indexOf("async function applyProposalDecisions", regenerateStart));
-  assert.match(manualRun, /method:\s*["']POST/);
+  assert.match(web, /const manualRunEnabled = runPath !== "\/ai\/monitor-run"/);
+  assert.match(web, /manualRunEnabled && \(diagnostic \|\| needsFirstRun\)/);
 });
 
 test("A09 falla cerrado si no puede leer la conversación o su historial", () => {

@@ -1,6 +1,6 @@
 export const KNOWLEDGE_CATALOG_PAGE_SIZE = 200;
 export const KNOWLEDGE_CATALOG_MAX_DOCUMENTS = 1000;
-export const KNOWLEDGE_CATALOG_PROMPT_SAMPLE_LIMIT = 80;
+export const KNOWLEDGE_CATALOG_PROMPT_SAMPLE_LIMIT = 16;
 
 export type KnowledgeCatalogDocument = {
   id: string;
@@ -10,6 +10,9 @@ export type KnowledgeCatalogDocument = {
   visibility: string;
   audience: string;
   embedding_model: string | null;
+  version?: number;
+  checksum?: string;
+  store_id?: string | null;
   updated_at: string;
 };
 
@@ -59,12 +62,15 @@ export function buildKnowledgeCatalogPromptContext<T extends {
 
   const documents = selected.map((document) => ({
     id: document.id,
-    title: document.title.slice(0, 180),
-    description: document.description?.slice(0, 240) ?? null,
+    title: document.title.slice(0, 160),
+    description: document.description?.slice(0, 120) ?? null,
     source_type: document.source_type.slice(0, 60),
     visibility: document.visibility.slice(0, 40),
     audience: document.audience.slice(0, 40),
     embedding_model: document.embedding_model?.slice(0, 80) ?? null,
+    ...(typeof document.version === "number" ? { version: document.version } : {}),
+    ...(typeof document.checksum === "string" ? { checksum: document.checksum.slice(0, 64) } : {}),
+    ...(document.store_id ? { store_id: document.store_id } : {}),
     updated_at: document.updated_at,
   }));
 

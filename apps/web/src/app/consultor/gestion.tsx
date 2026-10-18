@@ -108,7 +108,6 @@ export type ConsultantOrganization = {
     critical_alerts: number;
     high_alerts: number;
     oldest_alert_days: number;
-    overdue_tasks: number;
     open_tasks: number;
     score: number;
   };
@@ -1168,12 +1167,6 @@ export function PortfolioManagement({
                         ) : null}
                         {" · "}
                         {row.attention.open_tasks} tareas
-                        {row.attention.overdue_tasks > 0 ? (
-                          <span className="text-danger">
-                            {" "}
-                            · {row.attention.overdue_tasks} vencidas
-                          </span>
-                        ) : null}
                         {" · "}
                         {row.subscription
                           ? `${planName(row.subscription.plan_code)} · ${SUBSCRIPTION_STATUS_LABELS[row.subscription.status] ?? row.subscription.status}`

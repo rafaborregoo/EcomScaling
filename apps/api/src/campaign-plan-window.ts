@@ -176,5 +176,19 @@ export function localCampaignDateTimeToUtc(
     );
     guess += targetWallTime - renderedWallTime;
   }
-  return new Date(guess);
+  const matchesWallTime = (candidate: number) => {
+    const parts = formatter.formatToParts(new Date(candidate));
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find((item) => item.type === type)?.value ?? 0);
+    return Date.UTC(
+      part("year"), part("month") - 1, part("day"),
+      part("hour"), part("minute"), part("second"),
+    ) === targetWallTime;
+  };
+  const candidates = Array.from({ length: 13 }, (_, index) => guess + (index - 6) * 30 * 60 * 1000)
+    .filter(matchesWallTime)
+    .sort((a, b) => a - b);
+  if (!candidates.length) throw new Error("nonexistent_campaign_plan_local_time");
+  // If the autumn clock change repeats a wall time, choose its first occurrence.
+  return new Date(candidates[0]!);
 }

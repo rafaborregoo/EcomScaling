@@ -56,7 +56,8 @@ export function SettingsModal({ visible, onClose, boot, org, isConsultant, onSig
         <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
           {!page && (
             <>
-              {org && <StorePicker org={org} onPick={onStore} />}
+              {/* El consultor cambia de tienda en el selector de su cabecera. */}
+              {org && !isConsultant && <StorePicker org={org} onPick={onStore} />}
               <ListCard title="Tú">
                 {item("perfil", "Perfil", User, true)}
                 {item("notificaciones", "Notificaciones", Bell)}

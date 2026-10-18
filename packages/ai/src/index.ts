@@ -1300,10 +1300,20 @@ export const CAMPAIGN_PLAN_HORIZON_DAYS = {
 export type CampaignPlanHorizon = keyof typeof CAMPAIGN_PLAN_HORIZON_DAYS;
 export const CAMPAIGN_PLAN_MAX_CUSTOM_DAYS = 366;
 
+const campaignDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}, "Debe ser una fecha real con formato año-mes-día.");
+
+const campaignTimezoneSchema = z.string().min(1).max(80).refine((value) => {
+  try { new Intl.DateTimeFormat("en-US", { timeZone: value }); return true; }
+  catch { return false; }
+}, "Debe ser una zona horaria IANA válida.");
+
 export const campaignPlanWindowSchema = z.object({
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timezone: z.string().min(1).max(80),
+  start_date: campaignDateSchema,
+  end_date: campaignDateSchema,
+  timezone: campaignTimezoneSchema,
 });
 
 /** Canales que el calendario sabe mapear a categoria de tarea. */
@@ -1321,7 +1331,7 @@ export const proposedCampaignSchema = z.object({
   /** Brief listo para que el equipo produzca el mailing o el creativo Meta. */
   creative_brief: z.string().optional(),
   /** Fecha absoluta local de envío/lanzamiento para mantener el rango elegido. */
-  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  scheduled_date: campaignDateSchema.optional(),
   start_offset_days: z.number().int().min(0),
   duration_days: z.number().int().min(1),
   evidence: z.array(agentEvidenceItemSchema).default([]),
@@ -1330,7 +1340,7 @@ export const proposedCampaignSchema = z.object({
 
 const campaignMessageSchema = z.object({
   title: z.string().min(1).max(160),
-  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  scheduled_date: campaignDateSchema,
   scheduled_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   purpose: z.string().min(1).max(500),
   creative_brief: z.string().min(1).max(2400),
@@ -1359,7 +1369,7 @@ const plannedFlowStepSchema = z.object({
 const plannedKlaviyoFlowSchema = z.object({
   name: z.string().min(1).max(160),
   trigger: z.string().min(1).max(500),
-  preparation_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  preparation_date: campaignDateSchema,
   audience: z.string().min(1).max(500),
   steps: z.array(plannedFlowStepSchema).min(1).max(20),
 }).strict().superRefine((flow, context) => {
@@ -1376,7 +1386,7 @@ const plannedKlaviyoFlowSchema = z.object({
 const plannedMetaAdSchema = z.object({
   name: z.string().min(1).max(160),
   format: z.enum(["video_vertical", "video_horizontal", "carousel", "imagen_unica", "coleccion", "por_definir"]),
-  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  scheduled_date: campaignDateSchema,
   scheduled_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   purpose: z.string().min(1).max(500),
   creative_brief: z.string().min(1).max(2400),
@@ -1392,8 +1402,8 @@ const plannedMetaAdSetSchema = z.object({
 const plannedMetaCampaignSchema = z.object({
   name: z.string().min(1).max(160),
   objective: z.string().min(1).max(500),
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  start_date: campaignDateSchema,
+  end_date: campaignDateSchema,
   budget_guidance: z.string().min(1).max(500),
   ad_sets: z.array(plannedMetaAdSetSchema).min(1).max(20),
 }).strict();
@@ -1500,7 +1510,7 @@ export function flattenCampaignPlanActions(plan: CampaignPlanOutput, anchorMs = 
       purpose: campaign.objective,
       creative_brief: campaign.creative_brief ?? "",
       breadcrumb: [initiative],
-      hierarchy: { kind: "legacy_action", initiative_name: initiative },
+      hierarchy: { kind: "legacy_action", initiative_name: initiative, duration_days: campaign.duration_days },
       description: [
         `Campaña paraguas: ${initiative}`,
         `Objetivo: ${campaign.objective}`,
@@ -3079,7 +3089,7 @@ export const currentCampaignPlanOutputSchema = campaignPlanOutputSchema.extend({
   sources: z.array(agentSourceSchema),
   initiatives: z.array(campaignInitiativeSchema),
   campaigns: z.array(proposedCampaignSchema.extend({
-    scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    scheduled_date: campaignDateSchema,
     creative_brief: z.string().min(1).max(2400),
     evidence: z.array(agentEvidenceItemSchema).min(1),
   })),

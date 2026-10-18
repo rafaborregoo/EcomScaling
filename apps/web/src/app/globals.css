@@ -241,8 +241,8 @@ body {
      pantalla como una herramienta operativa: encabezado claro, métricas sin
      relieve y superficies sobrias en vez de cajas anidadas decorativas. */
   .marketing-workspace {
-    --mkt-line: #d5dfdf;
-    --mkt-muted: #5c6b6b;
+    --mkt-line: #e2dfdc;
+    --mkt-muted: #6b6662;
   }
 
   .marketing-workspace .mkt-page-header {
@@ -1072,16 +1072,16 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 }
 .trabajo-theme--consultant,
 .trabajo-theme--client {
-  --tw-paper: #f3f6f6;
-  --tw-surface-2: #f4f7f7;
+  --tw-paper: #f5f4f2;
+  --tw-surface-2: #f8f7f5;
   --tw-ink: #3d3b3a;
-  --tw-ink-3: #5c6b6b;
-  --tw-line: #d5dfdf;
-  --tw-accent: #176b64;
-  --tw-accent-hover: #135c55;
+  --tw-ink-3: #6b6662;
+  --tw-line: #e2dfdc;
+  --tw-accent: #3d3b3a;
+  --tw-accent-hover: #292827;
   --tw-on-accent: #ffffff;
-  --tw-accent-soft: #e3f1ee;
-  --tw-accent-ink: #176b64;
+  --tw-accent-soft: #efeeec;
+  --tw-accent-ink: #3d3b3a;
   --tw-good: #2f7d5b;
 }
 /* Todo el portal del consultor va sobre el mismo papel, también Inicio y
@@ -1095,8 +1095,8 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 }
 #portal-content.trabajo-theme {
   background: var(--tw-paper);
-  --color-separator: #e6eded;
-  --separator: #e6eded;
+  --color-separator: #eeebe8;
+  --separator: #eeebe8;
   --color-surface: #ffffff;
   --surface: #ffffff;
 }
@@ -1114,15 +1114,15 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   color: var(--tw-ink);
 }
 body:has(#portal-content.trabajo-theme) {
-  --ov-accent: #176b64;
-  --ov-accent-hover: #135c55;
+  --ov-accent: #3d3b3a;
+  --ov-accent-hover: #292827;
   --ov-on-accent: #ffffff;
-  --ov-accent-soft: #e3f1ee;
-  --ov-accent-ink: #176b64;
+  --ov-accent-soft: #efeeec;
+  --ov-accent-ink: #3d3b3a;
   --ov-ink: #3d3b3a;
-  --ov-muted: #5c6b6b;
-  --ov-line: #d5dfdf;
-  --ov-edge: #d5dfdf;
+  --ov-muted: #6b6662;
+  --ov-line: #e2dfdc;
+  --ov-edge: #e2dfdc;
   --ov-surface: #ffffff;
 }
 /* El acento es de relleno (botones, marcas); como color de texto sobre blanco
@@ -1167,20 +1167,273 @@ body:has(#portal-content.trabajo-theme) {
 #portal-content.analytics-theme[data-channel][data-role] {
   --foreground: #3d3b3a;
   --color-foreground: #3d3b3a;
-  --color-muted: #5c6b6b;
-  --muted: #5c6b6b;
-  --separator: #e6eded;
-  --color-separator: #e6eded;
+  --color-muted: #6b6662;
+  --muted: #6b6662;
+  --separator: #eeebe8;
+  --color-separator: #eeebe8;
   --success: #216947;
   --color-success: #216947;
   background: var(--ch-paper);
   color: #3d3b3a;
 }
 #portal-content.analytics-theme[data-channel] [data-slot="card"] {
-  border: 1px solid #d5dfdf;
+  border: 1px solid #e2dfdc;
   border-radius: 16px;
   box-shadow: none;
   background: #ffffff;
 }
 #portal-content.analytics-theme[data-channel] [data-slot="button"] { border-radius: 8px; }
 .analytics-theme ::selection { background: var(--ch-soft); color: var(--ch-ink); }
+
+/* Fila pulsable (listas, accesos): al pasar el ratón el fondo se rellena de
+   izquierda a derecha. Solo anima el fondo: un transform mandaría el texto a
+   otra capa y al soltarlo se redibujaría con otro grosor. Uso: className="hover-sweep". */
+.hover-sweep {
+  background-image: linear-gradient(var(--hover-sweep-color, rgb(0 0 0 / 5%)), var(--hover-sweep-color, rgb(0 0 0 / 5%)));
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 0% 100%;
+  transition: background-size 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hover-sweep:hover,
+.hover-sweep:focus-visible {
+  background-size: 100% 100%;
+}
+.hover-sweep:active {
+  --hover-sweep-color: rgb(0 0 0 / 9%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hover-sweep { transition: none; }
+}
+
+/* ---------- Notas del consultor en tarjetas (components/zone-notes.tsx) ----------
+   Aviso ligero: la tarjeta con una nota sin ver se sombrea en amarillo suave.
+   Cualquier tarjeta que quiera admitir notas lleva la clase global
+   `zone-card` y pinta <ZoneNoteMark> dentro. */
+.zone-card {
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+}
+.zone-card:has([data-zone-note="unseen"]) {
+  background-color: #fffbea !important;
+  box-shadow: inset 0 0 0 1px #f3d65a;
+}
+.zone-note-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9a948f;
+  font: 600 11px/1 inherit;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.zone-note-mark svg {
+  width: 12px;
+  height: 12px;
+}
+.zone-note-mark .zone-note-plus {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+}
+.zone-note-mark:hover,
+.zone-note-mark[data-zone-note="seen"] {
+  background: #f4f2ef;
+  color: #57534f;
+}
+.zone-note-mark[data-zone-note="unseen"] {
+  background: #fdf3c4;
+  color: #7a5b00;
+}
+.zone-note-pop {
+  display: grid;
+  gap: 12px;
+  width: min(22rem, calc(100vw - 32px));
+  max-height: 30rem;
+  overflow-y: auto;
+  padding: 16px;
+}
+.zone-note-eyebrow {
+  color: #85807b;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.zone-note-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.zone-note-list li {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fffbea;
+  box-shadow: inset 2px 0 0 #f3d65a;
+}
+.zone-note-list p {
+  margin: 0;
+  color: #262423;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.zone-note-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #85807b;
+  font-size: 11.5px;
+}
+.zone-note-meta button {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57534f;
+  font: 600 12px/1 inherit;
+  cursor: pointer;
+}
+.zone-note-meta button:hover {
+  background: #f4f2ef;
+}
+.zone-note-meta .zone-note-seen {
+  background: #262423;
+  color: #ffffff;
+}
+.zone-note-meta .zone-note-seen:hover {
+  background: #57534f;
+}
+.zone-note-form {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #dedad6;
+  border-radius: 10px;
+}
+.zone-note-form:focus-within {
+  border-color: #e9c84a;
+  box-shadow: 0 0 0 3px #fdf3c4;
+}
+.zone-note-form textarea {
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  font: 400 13.5px/1.5 inherit;
+}
+.zone-note-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 6px 8px;
+  border-top: 1px solid #ebe8e4;
+  background: #f8f7f5;
+}
+.zone-note-foot select {
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid #dedad6;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 12.5px;
+}
+.zone-note-send {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #262423;
+  color: #ffffff;
+  font: 600 12.5px/1 inherit;
+  cursor: pointer;
+}
+.zone-note-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zone-card { transition: none; }
+}
+
+/* Duración de la nota: rueda de 0 a 100 horas (0 = sin límite). */
+.zone-note-dur {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid #ebe8e4;
+  color: #57534f;
+  font-size: 12px;
+}
+.zone-note-dur label {
+  font-weight: 600;
+}
+.zone-note-dur output {
+  min-width: 7.5em;
+  color: #262423;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.zone-note-dur input[type="range"] {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #e9c84a var(--zone-fill, 0%), #ebe8e4 var(--zone-fill, 0%));
+  appearance: none;
+  cursor: pointer;
+}
+.zone-note-dur input[type="range"]::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #262423;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  appearance: none;
+  transition: transform 120ms ease;
+}
+.zone-note-dur input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+.zone-note-dur input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #262423;
+}
+.zone-note-hint {
+  color: #85807b;
+  font-size: 11.5px;
+}
+.zone-note-status {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.zone-note-status[data-seen="yes"] {
+  background: #e1f1e8;
+  color: #216947;
+}
+.zone-note-status[data-seen="no"] {
+  background: #fdf3c4;
+  color: #7a5b00;
+}

@@ -938,24 +938,20 @@ Ninguna escritura directa. Solo respuesta o propuesta.
 
 | **Fase**              | Fase 3                                               |
 | --------------------- | ---------------------------------------------------- |
-| **Estado actual**     | Definido; pendiente de pipeline RAG                  |
-| **Usuario principal** | Consultor y platform_admin                           |
-| **Tipo**              | Agente de ingestión y gobernanza                     |
+| **Estado actual**     | Activo; auditor de catálogo e indexación             |
+| **Usuario principal** | Consultor, platform_admin y ejecución programada      |
+| **Tipo**              | Auditoría de conocimiento, solo lectura               |
 | **Riesgo**            | Medio: afecta a la fuente de verdad del Consultor IA |
 
 ### Objetivo de negocio
 
-Clasificar, dividir, versionar y preparar documentos para RAG sin mezclar conocimiento global con información privada de una organización.
+Revisar la cobertura, el estado de indexación, posibles duplicados y señales de conocimiento no resueltas. La ingesta y edición pertenecen al pipeline de conocimiento, no al agente A08.
 
 ### Disparadores
 
-- Documento subido.
-
-- Nueva versión.
-
-- Reindexación.
-
-- Detección de duplicado o conflicto.
+- Lectura de la última auditoría desde el panel; la página no lanza una ejecución.
+- Ejecución manual con límite diario e idempotencia opcional.
+- Orquestador de fondo, con cadencia y presupuesto compartidos; puede procesar organizaciones con conocimiento aunque no tengan Shopify.
 
 ### Contexto empresarial disponible y expansión adaptativa
 
@@ -971,35 +967,23 @@ Clasificar, dividir, versionar y preparar documentos para RAG sin mezclar conoci
 
 ### Tablas de lectura
 
-\`knowledge_documents\`, \`knowledge_chunks\`, \`organizations\`
+`knowledge_documents`, `knowledge_chunks`, `organizations`
 
 ### Tablas de escritura
 
-\`knowledge_documents\`, \`knowledge_chunks\`, \`agent_runs\`, \`agent_outputs\`, \`agent_approvals\`
+Solo registros de ejecución, contexto y salida. A08 no escribe documentos ni crea tareas del cliente.
 
 ### Herramientas y servicios
 
-- extract_document(...)
-
-- classify_document(...)
-
-- chunk_document(...)
-
-- generate_embeddings(...)
-
-- detect_duplicates(...)
+- `search_knowledge` para comprobar contenido recuperado.
+- Cobertura agregada, candidatos semánticos acotados y señales recientes de búsquedas/rechazos.
+- Catálogo limitado a documentos `client_visible` globales y de la organización activa. La muestra incluye procedencia, versión y checksum; las parejas incluyen evidencia de sus IDs exactos cuando está disponible.
 
 ### Salida estructurada mínima
 
-- Clasificación.
-
-- Estructura y chunks.
-
-- Metadatos y etiquetas.
-
-- Conflictos o duplicados.
-
-- Propuesta de publicación.
+- Estado y cobertura del catálogo/indexación con muestra explícita.
+- Hallazgos y recomendaciones editoriales sustentados en evidencia.
+- Candidatos semánticos que requieren revisión humana; nunca se declaran duplicados automáticamente.
 
 ### Aprobación humana y límites
 
@@ -1019,15 +1003,12 @@ Clasificar, dividir, versionar y preparar documentos para RAG sin mezclar conoci
 
 - Tiempo de ingestión.
 
-### Decisiones pendientes
+### Límites conocidos
 
-- Definir taxonomía.
-
-- Elegir embeddings y dimensión.
-
-- Definir política de versiones.
-
-- Crear tests de retrieval.
+- La lectura del catálogo se limita a 1.000 documentos por pasada; la muestra del modelo también está acotada y declara cobertura incompleta si se trunca.
+- El rendimiento SQL requiere medición con corpus representativo antes de cambiar consultas o índices.
+- La reindexación sustituye contenido y chunks en una transacción con control de versión.
+- El estado de implementación, migración y pendientes está en `docs/MEJORAS_AGENTES.md` (sección A08).
 
 ## A09 — Copiloto del consultor
 

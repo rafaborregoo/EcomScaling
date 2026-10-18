@@ -173,7 +173,7 @@ function esc(text: string) {
 // Cliente: petróleo + azafrán. Consultor: grafito + mandarina, como su mesa.
 export type MapVariant = "client" | "consultant";
 export type DiscussTopic = { code: string; name: string; targetDate: string | null; doneTasks: number; totalTasks: number; late: boolean };
-const WORK_MAP_PALETTE = { goodPill: "#e3f1ee", acc: "#176b64", dk: "#3d3b3a", onAcc: "#ffffff", ink: "#3d3b3a", good: "#2f7d5b", p1: "#e3f1ee", p2: "#f4f7f7", l1: "#176b64", l2: "#d5dfdf", mu: "#5c6b6b", lock: "#e5ecec", lockIcon: "#5c6b6b" };
+const WORK_MAP_PALETTE = { goodPill: "#efeeec", acc: "#3d3b3a", dk: "#3d3b3a", onAcc: "#ffffff", ink: "#3d3b3a", good: "#2f7d5b", p1: "#efeeec", p2: "#f8f7f5", l1: "#3d3b3a", l2: "#e2dfdc", mu: "#6b6662", lock: "#ebe8e5", lockIcon: "#6b6662" };
 const PALETTES = { client: WORK_MAP_PALETTE, consultant: WORK_MAP_PALETTE };
 // ponytail: paleta de módulo que fija renderSvg antes de dibujar (render síncrono).
 let P = PALETTES.client;

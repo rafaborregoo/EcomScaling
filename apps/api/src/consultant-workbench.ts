@@ -103,7 +103,6 @@ export type WorkbenchCampaignRow = {
 
 export type WorkbenchActionKind =
   | "critical_alert"
-  | "overdue_task"
   | "call_approval"
   | "ai_proposal"
   | "unread_message"
@@ -141,7 +140,6 @@ export type PortfolioHealthRow = {
   open_alerts: number;
   critical_alerts: number;
   open_tasks: number;
-  overdue_tasks: number;
   data_issues: string[];
   next_event: { label: string; at: string } | null;
   href: string;
@@ -183,13 +181,6 @@ const PRIORITY_RANK: Record<WorkbenchAction["priority"], number> = {
   urgent: 0,
   high: 1,
   normal: 2,
-};
-
-const TASK_PRIORITY_TO_ACTION: Record<string, WorkbenchAction["priority"]> = {
-  urgent: "urgent",
-  high: "high",
-  medium: "normal",
-  low: "normal",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -275,61 +266,18 @@ export function buildWorkbench(input: {
 
   const actions: WorkbenchAction[] = [];
 
-  // --- Tareas vencidas ----------------------------------------------------
-  // Van antes que las alertas a proposito: una tarea vencida ya es una
-  // decision tomada que nadie ejecuto, y arrastra consigo la alerta que la
-  // origino (ver dedup mas abajo).
+  // --- Tareas ---------------------------------------------------------------
+  // Las tareas vencidas NO son una accion del consultor (ruido en dashboards y app): viven en Tareas.
+  // Solo se usan para no duplicar una alerta que ya tiene tarea abierta.
   const openTasks = tasks.filter(
     (task) =>
       inPortfolio(task.organization_id) &&
       ["pending", "in_progress"].includes(task.status),
   );
-  const alertById = new Map(alerts.map((alert) => [alert.id, alert]));
-  // Una alerta que ya tiene tarea abierta NO ocupa dos filas: se fusiona con
-  // la tarea y se declara la relacion como evidencia.
+  // Una alerta que ya tiene tarea abierta no ocupa fila: la tarea la esta tratando.
   const alertsCoveredByTask = new Set(
     openTasks.flatMap((task) => (task.alert_id ? [task.alert_id] : [])),
   );
-
-  for (const task of openTasks) {
-    const overdue = Boolean(task.due_at && Date.parse(task.due_at) < nowMs);
-    if (!overdue) continue;
-    const linkedAlert = task.alert_id ? alertById.get(task.alert_id) : null;
-    const lateDays = daysAgo(task.due_at, nowMs) ?? 0;
-    const evidence: WorkbenchAction["evidence"] = [
-      {
-        label: "Venció",
-        value: lateDays <= 0 ? "hoy" : `hace ${plural(lateDays, "día", "días")}`,
-        source: "tareas",
-      },
-    ];
-    if (linkedAlert) {
-      evidence.push({
-        label: "Alerta vinculada",
-        value: `${linkedAlert.title} (${linkedAlert.severity})`,
-        source: "alertas",
-      });
-    }
-    actions.push({
-      id: `overdue_task:${task.id}`,
-      kind: "overdue_task",
-      organization_id: task.organization_id,
-      organization_name: nameOf(task.organization_id),
-      priority:
-        lateDays >= 7
-          ? "urgent"
-          : (TASK_PRIORITY_TO_ACTION[task.priority] ?? "normal"),
-      title: `Revisa la tarea vencida: ${task.title}`,
-      reason: linkedAlert
-        ? "La tarea que abrió esta alerta sigue sin cerrarse."
-        : "Comprometida con fecha y sin cerrar.",
-      evidence,
-      due_at: task.due_at,
-      assignee_name: task.assignee_name,
-      href: withOrg("/tareas", task.organization_id),
-      action_label: "Abrir en Tareas",
-    });
-  }
 
   // --- Alertas criticas sin tarea ----------------------------------------
   for (const alert of alerts) {
@@ -739,7 +687,6 @@ export function buildWorkbench(input: {
       open_alerts: organization.attention.open_alerts,
       critical_alerts: organization.attention.critical_alerts,
       open_tasks: organization.attention.open_tasks,
-      overdue_tasks: organization.attention.overdue_tasks,
       data_issues: dataIssues,
       next_event: next
         ? { label: `${UPCOMING_LABELS[next.kind]}: ${next.title}`, at: next.at }
@@ -774,7 +721,6 @@ export function buildWorkbench(input: {
         (sum, org) => sum + org.attention.critical_alerts,
         0,
       ),
-      overdue_tasks: countKind("overdue_task"),
       pending_call_summaries: countKind("call_approval"),
       pending_ai_proposals: countKind("ai_proposal"),
       unread_threads: countKind("unread_message"),

@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SendHorizontal } from "lucide-react-native";
-import { apiStream } from "../lib/api";
+import { apiGet, apiSend, apiStream } from "../lib/api";
 import { c, font } from "../lib/theme";
 import { Note } from "./ui";
 import { ModelPicker } from "./model-picker";
@@ -10,10 +10,12 @@ import type { Org } from "./views";
 
 // Respuesta de POST /v1/organizations/:id/consultant-chat (ver apps/web/src/components/copilot-panel.tsx).
 type KeyFigure = { label: string; value: string; change: string | null };
+type ReportArtifact = { report_id: string; file_name: string; template_id: string };
+type ProposedWrite = { kind: string; title: string; description?: string };
 const webUrl = process.env.EXPO_PUBLIC_WEB_URL ?? "";
-type Turn = { conversation_id: string; can_upgrade?: boolean; model?: { degraded?: boolean }; saldo?: { exhausted?: boolean }; output: { answer: string; key_figures?: KeyFigure[]; warnings?: string[]; next_action?: string } };
+type Turn = { conversation_id: string; output_id?: string | null; approval_required?: boolean; report_artifacts?: ReportArtifact[]; can_upgrade?: boolean; model?: { degraded?: boolean }; saldo?: { exhausted?: boolean }; output: { answer: string; key_figures?: KeyFigure[]; warnings?: string[]; next_action?: string; proposed_writes?: ProposedWrite[] } };
 type Live = { steps: Step[]; answer: string };
-type Msg = { role: "user" | "assistant"; text: string; steps?: Step[]; figures?: KeyFigure[]; warnings?: string[]; error?: boolean; upgrade?: "yes" | "ask" };
+type Msg = { role: "user" | "assistant"; text: string; steps?: Step[]; figures?: KeyFigure[]; warnings?: string[]; error?: boolean; upgrade?: "yes" | "ask"; reports?: ReportArtifact[]; proposedWrites?: ProposedWrite[]; outputId?: string | null; approvalStatus?: "pending" | "approved" | "rejected" };
 
 const SUGGESTIONS = ["¿Qué es el CAC payback y por qué importa?", "¿Cómo van las ventas de mi tienda esta semana?"];
 
@@ -27,29 +29,48 @@ const turnId = () =>
 // Las respuestas llegan con Markdown; en móvil se muestran como texto limpio.
 const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1");
 
-/** Copiloto: preguntas cortas a la IA sobre la tienda. Solo consulta; no genera informes ni edita. */
-export function CopilotoModule({ org, offset }: { org: Org | null; offset: number }) {
+/** Copiloto en el ámbito de organización y tienda seleccionados. */
+export function CopilotoModule({ org, offset, seed }: { org: Org | null; offset: number; seed?: string | null }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [input, setInput] = useState("");
+  // Con `seed` (pregunta que llega desde una métrica) el campo nace escrito: se revisa y se envía a mano.
+  const [input, setInput] = useState(seed ?? "");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [conversation, setConversation] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const pendingTurn = useRef<{ question: string; id: string; scope: string; conversationId: string | null } | null>(null);
+  const currentScope = useRef("");
   const scroll = useRef<ScrollView>(null);
+
+  const scope = `${org?.id ?? ""}:${org?.connectionId ?? ""}`;
+  currentScope.current = scope;
+  useEffect(() => {
+    setMsgs([]);
+    setConversation(null);
+    setLive(null);
+    setBusy(false);
+    pendingTurn.current = null;
+  }, [scope]);
 
   if (!org) return <View style={{ padding: 20 }}><Note text="Elige un cliente en Inicio para preguntarle al copiloto sobre su tienda." /></View>;
 
-  async function ask(question: string) {
+  async function ask(question: string, retry = false) {
     const q = question.trim();
     if (!q || busy || !org) return;
+    const previous = retry && pendingTurn.current?.scope === scope && pendingTurn.current.question === q
+      ? pendingTurn.current
+      : null;
+    const request = previous ?? { question: q, id: turnId(), scope, conversationId: conversation };
+    pendingTurn.current = request;
     setInput("");
     setBusy(true);
-    setMsgs((m) => [...m, { role: "user", text: q }]);
+    if (!previous) setMsgs((m) => [...m, { role: "user", text: q }]);
     const live: Live = { steps: [], answer: "" };
     setLive(live);
     let turn: Turn | null = null;
     try {
-      await apiStream(`/v1/organizations/${org.id}/consultant-chat/stream`, { message: q, conversation_id: conversation ?? undefined, client_turn_id: turnId(), ...(model ? { model } : {}) }, (e) => {
+      await apiStream(`/v1/organizations/${org.id}/consultant-chat/stream`, { message: q, conversation_id: request.conversationId ?? undefined, client_turn_id: request.id, view_context: org.connectionId ? { connection_id: org.connectionId } : {}, ...(model ? { model } : {}) }, (e) => {
+        if (currentScope.current !== request.scope) return;
         if (e.type === "tool") {
           const step = { id: String(e.id), name: String(e.name), status: e.status as Step["status"] };
           live.steps = live.steps.some((s) => s.id === step.id) ? live.steps.map((s) => (s.id === step.id ? step : s)) : [...live.steps, step];
@@ -60,15 +81,44 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
         else return;
         setLive({ ...live });
       });
+      if (currentScope.current !== request.scope) return;
       if (!turn) throw new Error("La respuesta se interrumpió antes de terminar.");
       const t: Turn = turn;
       setConversation(t.conversation_id);
-      setMsgs((m) => [...m, { role: "assistant", text: plain(t.output.answer), steps: live.steps, figures: t.output.key_figures?.slice(0, 4), warnings: t.output.warnings?.slice(0, 2), ...(t.model?.degraded && t.saldo?.exhausted ? { upgrade: t.can_upgrade ? ("yes" as const) : ("ask" as const) } : {}) }]);
+      pendingTurn.current = null;
+      setMsgs((m) => [...m, { role: "assistant", text: plain(t.output.answer), steps: live.steps, figures: t.output.key_figures?.slice(0, 4), warnings: t.output.warnings?.slice(0, 2), reports: t.report_artifacts ?? [], proposedWrites: t.output.proposed_writes ?? [], outputId: t.output_id, approvalStatus: t.approval_required ? "pending" : undefined, ...(t.model?.degraded && t.saldo?.exhausted ? { upgrade: t.can_upgrade ? ("yes" as const) : ("ask" as const) } : {}) }]);
     } catch (e) {
+      if (currentScope.current !== request.scope) return;
       setMsgs((m) => [...m, { role: "assistant", text: e instanceof Error ? e.message : "No se pudo responder.", error: true }]);
     } finally {
-      setLive(null);
-      setBusy(false);
+      if (currentScope.current === request.scope) {
+        setLive(null);
+        setBusy(false);
+      }
+    }
+  }
+
+  async function openReport(report: ReportArtifact) {
+    if (!org) return;
+    try {
+      const result = await apiGet<{ download_url?: string }>(`/v1/organizations/${org.id}/copilot-reports/${report.report_id}/link?file_name=${encodeURIComponent(report.file_name)}`);
+      if (!result.download_url) throw new Error("El informe ya no está disponible.");
+      await Linking.openURL(result.download_url);
+    } catch (error) {
+      setMsgs((items) => [...items, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo abrir el PDF.", error: true }]);
+    }
+  }
+
+  async function decideProposal(index: number, outputId: string, decision: "approved" | "rejected") {
+    if (!org) return;
+    try {
+      await apiSend("POST", `/v1/organizations/${org.id}/ai/outputs/${outputId}/decision`, {
+        decision,
+        reason: decision === "approved" ? "Aprobada desde el Copiloto móvil" : "Rechazada desde el Copiloto móvil",
+      });
+      setMsgs((items) => items.map((item, position) => position === index ? { ...item, approvalStatus: decision } : item));
+    } catch (error) {
+      setMsgs((items) => [...items, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo revisar la propuesta.", error: true }]);
     }
   }
 
@@ -111,6 +161,24 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
                 </Pressable>
               )}
               {m.warnings?.map((w) => <Text key={w} style={{ fontSize: 13, fontFamily: font.regular, color: c.warning }}>{w}</Text>)}
+              {m.reports?.map((report) => (
+                <Pressable key={report.report_id} onPress={() => void openReport(report)} style={{ paddingVertical: 8 }}>
+                  <Text style={{ fontSize: 14, fontFamily: font.semibold, color: c.accent }}>Abrir informe: {report.file_name}</Text>
+                </Pressable>
+              ))}
+              {m.proposedWrites && m.proposedWrites.length > 0 && (
+                <View style={{ gap: 6, borderWidth: 1, borderColor: c.edge, borderRadius: 12, padding: 12 }}>
+                  <Text style={{ fontSize: 14, fontFamily: font.semibold, color: c.ink }}>Propuestas para revisar</Text>
+                  {m.proposedWrites.map((write, position) => <Text key={position} style={{ fontSize: 13, fontFamily: font.regular, color: c.ink }}>• {write.title}</Text>)}
+                  {m.approvalStatus === "pending" && m.outputId && (
+                    <View style={{ flexDirection: "row", gap: 18 }}>
+                      <Pressable onPress={() => void decideProposal(i, m.outputId!, "approved")}><Text style={{ color: c.accent, fontFamily: font.semibold }}>Aprobar todas</Text></Pressable>
+                      <Pressable onPress={() => void decideProposal(i, m.outputId!, "rejected")}><Text style={{ color: c.danger, fontFamily: font.semibold }}>Rechazar</Text></Pressable>
+                    </View>
+                  )}
+                  {m.approvalStatus && m.approvalStatus !== "pending" && <Text style={{ fontSize: 13, color: c.muted }}>{m.approvalStatus === "approved" ? "Aprobadas" : "Rechazadas"}</Text>}
+                </View>
+              )}
             </View>
           ),
         )}
@@ -119,6 +187,14 @@ export function CopilotoModule({ org, offset }: { org: Org | null; offset: numbe
             <Reasoning steps={live.steps} active={!live.answer} />
             {live.answer ? <Text style={{ fontSize: 15, lineHeight: 23, fontFamily: font.regular, color: c.ink }}>{plain(live.answer)}</Text> : null}
           </View>
+        )}
+        {!busy && pendingTurn.current?.scope === scope && (
+          <Pressable onPress={() => {
+            const pending = pendingTurn.current;
+            if (pending) void ask(pending.question, true);
+          }} style={{ paddingVertical: 10 }}>
+            <Text style={{ fontSize: 14, fontFamily: font.semibold, color: c.accent }}>Recuperar respuesta pendiente</Text>
+          </Pressable>
         )}
       </ScrollView>
 

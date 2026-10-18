@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { ChevronLeft, SendHorizontal } from "lucide-react-native";
 import { apiGet, apiSend } from "../lib/api";
+import { refreshWorkbench } from "../lib/cartera";
 import { useApi } from "../lib/use-api";
 import { c, font } from "../lib/theme";
 import { Note, Screen, Status } from "./ui";
@@ -19,39 +20,71 @@ type Message = { id: string; author_kind: "consultant" | "client" | "platform" |
 const POLL_MS = 30_000;
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
+const daysAgo = (iso: string) => Math.round((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
+
 function listWhen(iso: string) {
-  const d = new Date(iso);
-  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
+  const days = daysAgo(iso);
   if (days <= 0) return hhmm(iso);
   if (days === 1) return "ayer";
-  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  return new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
+/** Separador de día dentro del chat. */
+function dayTitle(iso: string) {
+  const days = daysAgo(iso);
+  if (days <= 0) return "Hoy";
+  if (days === 1) return "Ayer";
+  return new Date(iso).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
+}
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+
+/**
+ * Consultor: abre el chat de un cliente, con un borrador ya escrito si viene de algo concreto (una alerta). Sin
+ * proveedor (interfaz del cliente) vale null y los botones de «Escribir al cliente» no salen.
+ */
+export const WriteToClient = createContext<((orgId: string, draft?: string) => void) | null>(null);
+
 /** Chats consultor ↔ cliente: lista y conversación. Sin adjuntos (se hacen en la web). */
-export function MensajesModule({ isConsultant, offset }: { isConsultant: boolean; offset: number }) {
+export function MensajesModule({ isConsultant, offset, openOrg, draft }: { isConsultant: boolean; offset: number; openOrg?: string | null; draft?: string | null }) {
   const { data, error, reload, retry } = useApi<{ threads: Thread[] }>("/v1/consultant/message-threads");
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const threads = data?.threads ?? [];
+  // `openOrg`: el consultor llega desde un cliente (o desde un aviso) y su conversación se abre sola.
+  const [activeId, setActiveId] = useState<string | null>(openOrg ?? null);
+  // Lo que espera respuesta, arriba; después, lo más reciente.
+  const threads = [...(data?.threads ?? [])].sort((a, b) => Number(b.unread_count > 0) - Number(a.unread_count > 0) || (b.last_message?.created_at ?? "").localeCompare(a.last_message?.created_at ?? ""));
   // Con una sola conversación (lo normal en un cliente) se abre sola.
   const only = threads.length === 1 && !isConsultant ? threads[0] : null;
   const active = threads.find((t) => t.organization_id === activeId) ?? only;
+  // Leer un chat baja el número de Mensajes del nav del consultor, que sale de la mesa de la cartera.
+  const onActivity = useCallback(() => void Promise.all([reload(), isConsultant && refreshWorkbench()]), [reload, isConsultant]);
 
   if (active) {
-    return <Chat thread={active} isConsultant={isConsultant} offset={offset} onBack={only ? null : () => { setActiveId(null); reload(); }} onActivity={reload} />;
+    return <Chat thread={active} draft={active.organization_id === openOrg ? draft : null} isConsultant={isConsultant} offset={offset} onBack={only ? null : () => { setActiveId(null); reload(); }} onActivity={onActivity} />;
   }
 
   return (
-    <Screen title="Mensajes" onRefresh={reload}>
+    <Screen flat title="Mensajes" onRefresh={reload}>
       <Status error={error} loading={!data} retry={retry} />
-      {data && threads.length === 0 && <Note text="Todavía no tienes conversaciones." />}
+      {data && threads.length === 0 && <Note flat text="Todavía no tienes conversaciones." />}
       {threads.length > 0 && (
-        <View style={{ borderTopWidth: 1, borderTopColor: c.edge }}>
-          {threads.map((t) => {
+        <View>
+          {threads.map((t, i) => {
             const waiting = isConsultant && t.last_message?.author_kind === "client";
+            const name = isConsultant ? t.organization_name : t.counterpart_name ?? "Tu consultor";
             return (
-              <Pressable key={t.organization_id} onPress={() => setActiveId(t.organization_id)} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.edge }}>
+              <Pressable key={t.organization_id} onPress={() => setActiveId(t.organization_id)} accessibilityRole="button" accessibilityLabel={`${name}${t.unread_count ? `, ${t.unread_count} sin leer` : ""}`} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: c.edge }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.accentTint }}>
+                  <Text style={{ fontSize: 14, fontFamily: font.semibold, color: c.ink }}>{initials(name)}</Text>
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ fontSize: 15, fontFamily: t.unread_count > 0 ? font.semibold : font.medium, color: c.ink }}>{t.organization_name}</Text>
+                  <Text numberOfLines={1} style={{ fontSize: 15, fontFamily: t.unread_count > 0 ? font.semibold : font.medium, color: c.ink }}>{name}</Text>
                   <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: t.unread_count > 0 ? font.medium : font.regular, color: waiting ? c.warning : c.muted }}>
                     {t.last_message ? (t.last_message.body || (t.last_message.has_attachments ? "Adjunto" : "")) : "Sin mensajes"}
                   </Text>
@@ -73,11 +106,11 @@ export function MensajesModule({ isConsultant, offset }: { isConsultant: boolean
   );
 }
 
-function Chat({ thread, isConsultant, offset, onBack, onActivity }: { thread: Thread; isConsultant: boolean; offset: number; onBack: (() => void) | null; onActivity: () => void }) {
+function Chat({ thread, draft, isConsultant, offset, onBack, onActivity }: { thread: Thread; draft?: string | null; isConsultant: boolean; offset: number; onBack: (() => void) | null; onActivity: () => void }) {
   const base = `/v1/organizations/${thread.organization_id}/consultant-messages`;
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(draft ?? "");
   const [sending, setSending] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const lastMarked = useRef("");
@@ -137,16 +170,29 @@ function Chat({ thread, isConsultant, offset, onBack, onActivity }: { thread: Th
 
       <ScrollView ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })} contentContainerStyle={{ padding: 16, gap: 8, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         {!messages && !error && <ActivityIndicator color={c.accent} style={{ marginTop: 40 }} />}
-        {messages?.map((m) =>
-          m.author_kind === "system" ? (
-            <Text key={m.id} style={{ textAlign: "center", fontSize: 12, fontFamily: font.regular, color: c.muted, paddingVertical: 4 }}>{m.body}</Text>
-          ) : (
-            <View key={m.id} style={{ alignSelf: mine(m) ? "flex-end" : "flex-start", maxWidth: "85%", borderRadius: 14, padding: 12, backgroundColor: mine(m) ? c.accentTint : c.surface, borderWidth: mine(m) ? 0 : 1, borderColor: c.edge }}>
-              <Text style={{ fontSize: 15, lineHeight: 22, fontFamily: font.regular, color: c.ink }}>{m.body}</Text>
-              <Text style={{ marginTop: 4, fontSize: 11, fontFamily: font.regular, color: c.muted, textAlign: "right" }}>{hhmm(m.created_at)}</Text>
-            </View>
-          ),
-        )}
+        {messages?.map((m, i) => {
+          const prev = messages[i - 1];
+          const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
+          // Mensajes seguidos del mismo autor van pegados; el nombre solo sale al cambiar de autor (en el lado ajeno).
+          const sameAuthor = !newDay && prev?.author_kind === m.author_kind && prev?.author_name === m.author_name;
+          const own = mine(m);
+          return (
+            <Fragment key={m.id}>
+              {newDay && <Text style={{ alignSelf: "center", marginTop: i === 0 ? 0 : 12, marginBottom: 4, fontSize: 12, fontFamily: font.medium, color: c.muted }}>{dayTitle(m.created_at)}</Text>}
+              {m.author_kind === "system" ? (
+                <Text style={{ textAlign: "center", fontSize: 12, fontFamily: font.regular, color: c.muted, paddingVertical: 4 }}>{m.body}</Text>
+              ) : (
+                <View style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "85%", marginTop: sameAuthor ? -4 : 4 }}>
+                  {!own && !sameAuthor && m.author_name ? <Text style={{ marginLeft: 4, marginBottom: 2, fontSize: 12, fontFamily: font.medium, color: c.muted }}>{m.author_name}</Text> : null}
+                  <View style={{ borderRadius: 16, borderBottomRightRadius: own ? 4 : 16, borderBottomLeftRadius: own ? 16 : 4, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: own ? c.accent : c.accentTint }}>
+                    <Text style={{ fontSize: 15, lineHeight: 21, fontFamily: font.regular, color: own ? "#fff" : c.ink }}>{m.body}</Text>
+                    <Text style={{ marginTop: 2, fontSize: 11, fontFamily: font.regular, color: own ? "rgba(255,255,255,0.7)" : c.muted, textAlign: "right" }}>{hhmm(m.created_at)}</Text>
+                  </View>
+                </View>
+              )}
+            </Fragment>
+          );
+        })}
         {messages?.length === 0 && <Text style={{ textAlign: "center", marginTop: 40, fontSize: 14, fontFamily: font.regular, color: c.muted }}>Escribe el primer mensaje.</Text>}
       </ScrollView>
 

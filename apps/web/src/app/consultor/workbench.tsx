@@ -44,7 +44,6 @@ import {
 
 export type WorkbenchActionKind =
   | "critical_alert"
-  | "overdue_task"
   | "call_approval"
   | "ai_proposal"
   | "unread_message"
@@ -77,7 +76,6 @@ export type PortfolioHealthRow = {
   open_alerts: number;
   critical_alerts: number;
   open_tasks: number;
-  overdue_tasks: number;
   data_issues: string[];
   next_event: { label: string; at: string } | null;
   href: string;
@@ -170,7 +168,6 @@ export type DailyWorkbench = {
     clients: number;
     urgent_clients: number;
     critical_alerts: number;
-    overdue_tasks: number;
     pending_call_summaries: number;
     pending_ai_proposals: number;
     unread_threads: number;
@@ -196,7 +193,6 @@ const PRIORITY_BADGE: Record<
 
 const KIND_LABELS: Record<WorkbenchActionKind, string> = {
   critical_alert: "Alerta",
-  overdue_task: "Tarea vencida",
   call_approval: "Resumen de llamada",
   ai_proposal: "Propuesta IA",
   unread_message: "Mensaje",
@@ -269,7 +265,6 @@ function dayKey(iso: string): string {
 export type InboxFilter =
   | "todo"
   | "urgente"
-  | "vencidas"
   | "decision"
   | "datos"
   | "semana";
@@ -277,7 +272,6 @@ export type InboxFilter =
 const INBOX_FILTERS: Array<{ value: InboxFilter; label: string }> = [
   { value: "todo", label: "Todo" },
   { value: "urgente", label: "Urgente" },
-  { value: "vencidas", label: "Tareas vencidas" },
   { value: "decision", label: "Esperando mi decisión" },
   { value: "datos", label: "Datos e integraciones" },
   { value: "semana", label: "Esta semana" },
@@ -307,8 +301,6 @@ function matchesFilter(action: WorkbenchAction, filter: InboxFilter): boolean {
   switch (filter) {
     case "urgente":
       return action.priority === "urgent";
-    case "vencidas":
-      return action.kind === "overdue_task";
     case "decision":
       return DECISION_KINDS.includes(action.kind);
     case "datos":
@@ -546,7 +538,7 @@ function ActionRow({
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
       <div className="min-w-[15rem] flex-1">
-        {/* El tipo (Alerta/Tarea vencida/Propuesta IA...) va siempre visible,
+        {/* El tipo (Alerta/Propuesta IA...) va siempre visible,
             no solo en la meta de abajo: sin badge de prioridad (la mayoria de
             filas son "normal"), era la unica pista de que trataba cada una. */}
         <div className="flex flex-wrap items-center gap-2">
@@ -753,7 +745,6 @@ export function PortfolioHealthBoard({
                 ? `${row.critical_alerts} críticas`
                 : null,
               `${row.open_tasks} ${row.open_tasks === 1 ? "tarea" : "tareas"}`,
-              row.overdue_tasks > 0 ? `${row.overdue_tasks} vencidas` : null,
             ].filter(Boolean);
 
             return (

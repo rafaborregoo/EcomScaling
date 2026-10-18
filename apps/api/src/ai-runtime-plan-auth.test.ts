@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getPlanDiagnostic, runPlanAgent } from "./ai-runtime.js";
+import { getPlanDiagnostic, orchestratorScopesForAgent, runPlanAgent } from "./ai-runtime.js";
 
 const unaffiliatedContext = { memberships: [] } as never;
 const emptyEnv = {} as never;
@@ -35,4 +35,15 @@ test("A04 generation authorizes the organization before resolving a store or pro
     statusCode: 403,
     error: "organization_access_denied",
   });
+});
+
+test("A04 cron generates store scopes and the organization aggregate", () => {
+  assert.deepEqual(orchestratorScopesForAgent("a04_generador_tareas", [
+    { storeId: "store-a", connectionId: "connection-a" },
+    { storeId: "store-b", connectionId: "connection-b" },
+  ]), [
+    { storeId: "store-a", connectionId: "connection-a" },
+    { storeId: "store-b", connectionId: "connection-b" },
+    { storeId: null, connectionId: null },
+  ]);
 });

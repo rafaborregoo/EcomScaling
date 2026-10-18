@@ -62,7 +62,7 @@ export function readProposedMilestoneId(value: unknown): string | null {
 }
 
 export function shouldFallbackToCurrentMilestone(agentCode: string | null): boolean {
-  return agentCode !== "a18_plan_mensual";
+  return agentCode !== "a04_generador_tareas" && agentCode !== "a06_planificador_stock" && agentCode !== "a18_plan_mensual";
 }
 
 const trimBounded = (value: unknown, max: number): string | null =>

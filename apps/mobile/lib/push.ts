@@ -42,10 +42,10 @@ export type PushKind = string;
  * Llama a `onOpen` con el tipo del aviso cuando el usuario toca una notificación, también si la app estaba cerrada
  * y se abrió por ella. Devuelve la función para dejar de escuchar.
  */
-export function onPushOpened(onOpen: (kind: PushKind) => void) {
+export function onPushOpened(onOpen: (kind: PushKind, organizationId: string | null) => void) {
   const read = (r: Notifications.NotificationResponse | null) => {
-    const kind = r?.notification.request.content.data?.type;
-    if (r) onOpen(typeof kind === "string" ? kind : "");
+    const data = r?.notification.request.content.data;
+    if (r) onOpen(typeof data?.type === "string" ? data.type : "", typeof data?.organizationId === "string" ? data.organizationId : null);
   };
   Notifications.getLastNotificationResponseAsync().then(read).catch(() => {});
   const sub = Notifications.addNotificationResponseReceivedListener(read);

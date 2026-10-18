@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { useApi } from "../lib/use-api";
-import { c, fmtCurrency, fmtNum, font, klaviyo } from "../lib/theme";
+import { PackageX, Pause, Play, Sparkles } from "lucide-react-native";
+import { c, fmtCurrency, fmtNum, font, GOOD, klaviyo } from "../lib/theme";
 import { useAnalyst, VERDICT } from "./analista";
 import { Strip, RateBars, Bars, Tunnel, smallTitle } from "./bloques";
 import { ChartCarousel, type ChartTab } from "./chart";
-import { ListCard, BigNumber, Kpi, KpiGroup, ListRow, MetricList, Meters, Note, PeriodChips, RowMeta, RowTitle, Screen, Section, ShareBar, SheetList, Status } from "./ui";
+import { ListCard, BigNumber, Delta, ListRow, MetricList, Meters, Note, RowMeta, RowTitle, Screen, Section, ShareBar, SheetList, Status } from "./ui";
+import { TopBar } from "./inicio";
 import { SentCampaigns } from "./campanas-enviadas";
 import { dayLabel, monthLabel, profitOf, type EmailReport, type MetaInsights, type Org, type ShopifyMetrics, withStore } from "./views";
 
@@ -62,7 +64,7 @@ function Todo({ org }: { org: Org }) {
   const meta = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days}`));
   const meta2 = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days * 2}`));
   const mail = useApi<EmailReport>(withStore(org, `${base}/klaviyo/email-report?days=${days}`));
-  const analyst = useAnalyst(org.id, days);
+  const analyst = useAnalyst(org, days);
 
   const d = shop.data;
   const cur = d?.currency_code;
@@ -152,8 +154,8 @@ function Todo({ org }: { org: Org }) {
   ];
 
   return (
-    <Screen flat title="Todo el negocio" subtitle={org.name} onRefresh={async () => void (await Promise.all([shop.reload(), shop2.reload(), ins.reload(), meta.reload(), meta2.reload(), mail.reload(), analyst.reload()]))}>
-      <PeriodChips options={[7, 30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Todo el negocio" onRefresh={async () => void (await Promise.all([shop.reload(), shop2.reload(), ins.reload(), meta.reload(), meta2.reload(), mail.reload(), analyst.reload()]))}>
+      <TopBar name={org.isConsultant ? "" : org.name} options={[7, 30, 90]} days={days} onChange={setDays} />
       <Status error={shop.error} loading={!d} retry={shop.retry} />
       {d && fin && (
         <>
@@ -164,7 +166,7 @@ function Todo({ org }: { org: Org }) {
           <MetricList
             rows={[
               profit ? { label: "Beneficio neto", value: money(profit.net_profit, cur), delta: delta(profit.net_profit, prev?.financial.net_profit) } : { label: "Pedidos", value: fmtNum(d.sales.orders_count), delta: delta(d.sales.orders_count, prev?.sales.orders_count) },
-              { ...analyst.kpi("mer"), label: "MER", value: dec(mer), delta: delta(mer, merBefore), hint: "Ventas ÷ inversión en anuncios" },
+              { ...analyst.kpi("mer"), label: "MER", value: dec(mer), delta: delta(mer, merBefore) },
               { label: "Inversión en anuncios", value: money(fin.ads_spend, cur), delta: delta(fin.ads_spend, before?.spend), neutral: true },
             ]}
           />
@@ -179,7 +181,7 @@ function Todo({ org }: { org: Org }) {
                     rows={[
                       { ...analyst.kpi("cac_new"), label: "CAC cliente nuevo", value: money(ncac, cur, 2), delta: delta(ncac, ncacBefore), lowerIsBetter: true },
                       { label: "Clientes nuevos", value: fmtNum(fin.new_customers), delta: delta(fin.new_customers, before?.newCustomers) },
-                      { label: "aMER", value: dec(amer), hint: "Ventas de clientes nuevos ÷ inversión" },
+                      { label: "aMER (clientes nuevos)", value: dec(amer) },
                       { label: "Publicidad sobre ventas", value: pct(adShare), delta: delta(adShare, adShareBefore), lowerIsBetter: true },
                     ]}
                   />
@@ -208,7 +210,7 @@ function Todo({ org }: { org: Org }) {
                       parts={Object.entries(fin.ads_by_platform ?? {}).map(([k, v]) => ({ label: PLATFORM_LABEL[k] ?? k, value: v, color: k === "meta" ? BRAND.meta : BRAND.other }))}
                       format={(v) => money(v, cur)}
                     />
-                    <Meters title="Ventas que se atribuye cada plataforma" items={attributed} note="Cada plataforma se atribuye ventas por su cuenta y se solapan: no se suman." />
+                    <Meters title="Atribuido por cada plataforma" items={attributed} note="Se solapan: no se suman." />
                   </>
                 ),
               },
@@ -238,11 +240,11 @@ function BreakEven({ d }: { d: ShopifyMetrics }) {
   return (
     <MetricList
       rows={[
-        { label: "Ventas mínimas al mes", value: money(p.break_even_monthly_revenue, cur), hint: "Con menos que esto el negocio pierde dinero" },
-        { label: "Máximo a pagar por pedido", value: money(p.breakeven_cac_per_order, cur, 2), hint: cac == null ? "Lo que puedes gastar en publicidad por pedido sin perder" : `Ahora pagas ${money(cac, cur, 2)} por cliente nuevo`, tone: cac == null ? undefined : cac <= p.breakeven_cac_per_order ? "good" : "bad" },
-        { label: "Rendimiento mínimo de la publicidad", value: dec(p.breakeven_roas), hint: mer == null || merOk == null ? "Ventas ÷ inversión que hay que superar (ROAS/MER)" : `Ahora: ${dec(mer)}${merOk ? " · la publicidad sale rentable" : " · la publicidad pierde dinero"}`, tone: merOk == null ? undefined : merOk ? "good" : "bad" },
-        { label: "Te queda por pedido tras publicidad", value: money(p.mbee, cur, 2), hint: p.mbee >= 0 ? "Cada pedido deja dinero" : "Cada pedido cuesta dinero", tone: p.mbee >= 0 ? "good" : "bad" },
-        { label: "Contribución por pedido", value: money(p.contribution_per_order, cur, 2), hint: "Lo que deja cada pedido antes de publicidad" },
+        { label: "Ventas mínimas al mes", value: money(p.break_even_monthly_revenue, cur) },
+        { label: "CAC máximo por pedido", value: money(p.breakeven_cac_per_order, cur, 2), hint: cac == null ? undefined : `Ahora ${money(cac, cur, 2)}`, tone: cac == null ? undefined : cac <= p.breakeven_cac_per_order ? "good" : "bad" },
+        { label: "ROAS / MER mínimo", value: dec(p.breakeven_roas), hint: mer == null || merOk == null ? undefined : `Ahora ${dec(mer)}`, tone: merOk == null ? undefined : merOk ? "good" : "bad" },
+        { label: "Queda por pedido tras anuncios", value: money(p.mbee, cur, 2), tone: p.mbee >= 0 ? "good" : "bad", dot: p.mbee >= 0 ? GOOD : c.danger },
+        { label: "Contribución por pedido", value: money(p.contribution_per_order, cur, 2) },
       ]}
     />
   );
@@ -301,8 +303,8 @@ function ShopifyGroups({ d, i, analyst, compact }: { d: ShopifyMetrics; i: Insig
                   { label: "Pedidos que repiten", value: pct(i.recurrence?.repeat_order_rate) },
                   { label: "Pedidos por cliente", value: dec(i.customer_value?.avg_orders_per_customer) },
                   { label: "Valor por cliente", value: money(i.customer_value?.avg_revenue_per_customer, cur) },
-                  { label: "Cliente típico (mediana)", value: money(i.customer_value?.median_revenue_per_customer, cur), hint: "La mitad de tus clientes gasta menos que esto" },
-                  { label: "Mejores clientes (10 %)", value: money(i.customer_value?.p90_revenue_per_customer, cur), hint: "El 10 % que más gasta supera esta cifra" },
+                  { label: "Cliente típico (mediana)", value: money(i.customer_value?.median_revenue_per_customer, cur) },
+                  { label: "Top 10 % de clientes, desde", value: money(i.customer_value?.p90_revenue_per_customer, cur) },
                   { label: ltv ? `LTV a ${ltv.milestone_days} días` : "LTV", value: money(ltv?.avg_revenue, cur) },
                   { label: `Se van a ${i.churn?.churn_days ?? 180} días`, value: pct(churn) },
                   i.lifetime?.payback && { label: "Recuperas lo que costó captarlo", value: i.lifetime.payback.status === "PAID_BACK" ? `${i.lifetime.payback.days} días` : i.lifetime.payback.status === "NOT_WITHIN_HORIZON" ? "> 1 año" : "—" },
@@ -322,7 +324,7 @@ function ShopifyGroups({ d, i, analyst, compact }: { d: ShopifyMetrics; i: Insig
                   { label: "Horas hasta recuperar", value: i.checkout_recovery?.avg_hours_to_recover == null ? "—" : dec(i.checkout_recovery.avg_hours_to_recover, 1) },
                   { label: "Horas hasta enviar", value: i.delivery?.avg_hours_to_ship == null ? "—" : dec(i.delivery.avg_hours_to_ship, 1) },
                   { label: "Días hasta entregar", value: i.delivery?.avg_days_to_deliver == null ? "—" : dec(i.delivery.avg_days_to_deliver, 1) },
-                  { label: "Retraso medio", value: i.delivery?.avg_delay_days == null ? "—" : `${dec(i.delivery.avg_delay_days, 1)} días`, hint: "En las entregas que llegan tarde" },
+                  { label: "Retraso de las que llegan tarde", value: i.delivery?.avg_delay_days == null ? "—" : `${dec(i.delivery.avg_delay_days, 1)} días` },
                   { label: "Entregas tarde", value: i.delivery?.with_estimate ? pct(i.delivery.late_deliveries / i.delivery.with_estimate) : "—" },
                 ]}
               />
@@ -364,13 +366,13 @@ function Shopify({ org }: { org: Org }) {
   const base = `/v1/organizations/${org.id}`;
   const shop = useApi<ShopifyMetrics>(withStore(org, `${base}/shopify/metrics?days=${days}`));
   const ins = useApi<Insights>(withStore(org, `${base}/shopify/insights?days=${days}`));
-  const analyst = useAnalyst(org.id, days);
+  const analyst = useAnalyst(org, days);
   const d = shop.data;
   const i = ins.data;
 
   return (
-    <Screen flat title="Shopify" theme="shopify" subtitle={org.name} onRefresh={async () => void (await Promise.all([shop.reload(), ins.reload()]))}>
-      <PeriodChips options={[7, 30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Shopify" theme="shopify" onRefresh={async () => void (await Promise.all([shop.reload(), ins.reload()]))}>
+      <TopBar name={org.isConsultant ? "" : org.name} options={[7, 30, 90]} days={days} onChange={setDays} />
       <Status error={shop.error} loading={!d} retry={shop.retry} />
       {d && (
         <>
@@ -399,10 +401,10 @@ function TopProducts({ org, days }: { org: Org; days: number }) {
     <ListCard flat title="Más vendidos">
       {rows.map((p, idx) => {
         const m = p.metrics;
-        const meta = [m ? `${fmtNum(m.units_ordered)} uds` : null, m?.stock_available != null ? `stock ${fmtNum(m.stock_available)}` : null, m?.margin_complete && m.margin_pct != null ? `margen ${m.margin_pct.toFixed(0)} %` : null].filter(Boolean).join(" · ");
+        const meta = [m ? `${fmtNum(m.units_ordered)} vendidas` : null, m?.margin_complete && m.margin_pct != null ? `margen ${Math.round(m.margin_pct * 100)} %` : null].filter(Boolean).join(" · ");
         const thumb = { width: 40, height: 40, borderRadius: 8, backgroundColor: c.surface };
         return (
-          <ListRow flat key={p.id} first={idx === 0} right={m && m.variants_out > 0 ? <Text style={{ fontSize: 12, fontFamily: font.medium, color: c.danger }}>Agotado</Text> : null}>
+          <ListRow flat key={p.id} first={idx === 0} right={m && m.variants_out > 0 ? <PackageX size={18} color={c.danger} accessibilityLabel="Agotado" /> : null}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               {p.primary_image_url ? <Image source={{ uri: p.primary_image_url }} style={thumb} /> : <View style={{ ...thumb, borderWidth: 1, borderColor: c.edge }} />}
               <View style={{ flex: 1 }}>
@@ -426,19 +428,22 @@ function Meta({ org }: { org: Org }) {
   const [days, setDays] = useState(30);
   const base = `/v1/organizations/${org.id}`;
   const ins = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days}`));
-  const analyst = useAnalyst(org.id, days);
+  // Periodo anterior por resta, como en Todo: (2N días) − (N días).
+  const ins2 = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${days * 2}`));
+  const analyst = useAnalyst(org, days);
   const camps = useApi<MetaCampaigns>(withStore(org, `${base}/meta/campaigns?page=1&sort=spend&periodDays=${days}`));
   const s = ins.data?.summary;
+  const s2 = ins2.data?.summary;
   const cur = ins.data?.currency;
   const list = camps.data?.campaigns.slice(0, 5) ?? [];
+  const roasBefore = s && s2 ? ratioOr(s2.purchase_value - s.purchase_value, s2.spend - s.spend) : null;
 
   return (
-    <Screen flat title="Meta Ads" theme="meta" subtitle={org.name} onRefresh={async () => void (await Promise.all([ins.reload(), camps.reload()]))}>
-      <PeriodChips options={[7, 30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Meta Ads" theme="meta" onRefresh={async () => void (await Promise.all([ins.reload(), ins2.reload(), camps.reload()]))}>
+      <TopBar name={org.isConsultant ? "" : org.name} options={[7, 30, 90]} days={days} onChange={setDays} />
       <Status error={ins.error} loading={!ins.data} retry={ins.retry} />
-      {ins.data && !s && <Note flat text="Meta Ads no tiene datos en este periodo. Si aún no está conectado, se hace desde la web." />}
-      {s && <MetaOverview s={s} cur={cur} roasDelta={null} analyst={analyst} campaigns={list} />}
-      {s && <Note flat text="Compras, ROAS y valor son los que Meta se atribuye; no se suman a los de otros canales." />}
+      {ins.data && !s && <Note flat text="Sin datos de Meta Ads en este periodo." />}
+      {s && <MetaOverview s={s} cur={cur} roasDelta={delta(s.roas, roasBefore)} analyst={analyst} campaigns={list} />}
       {analyst.sheet}
     </Screen>
   );
@@ -453,17 +458,17 @@ type KlaviyoReport = EmailReport & { campaigns: Entity[]; flows: Entity[] };
 function Klaviyo({ org }: { org: Org }) {
   const [days, setDays] = useState(30);
   const { data, error, reload, retry } = useApi<KlaviyoReport>(withStore(org, `/v1/organizations/${org.id}/klaviyo/email-report?days=${days}`));
-  const analyst = useAnalyst(org.id, days);
+  const analyst = useAnalyst(org, days);
   const t = data?.totals;
   const p = data?.previous;
   const flows = [...(data?.flows ?? [])].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
   const split = t && t.revenue > 0 ? [{ label: "Flows", value: t.flow_revenue, color: klaviyo.mint }, { label: "Campañas", value: Math.max(0, t.revenue - t.flow_revenue), color: c.ink }] : [];
 
   return (
-    <Screen flat title="Klaviyo" theme="klaviyo" subtitle={org.name} onRefresh={reload}>
-      <PeriodChips options={[30, 90]} value={days} onChange={setDays} />
+    <Screen flat title="Klaviyo" theme="klaviyo" onRefresh={reload}>
+      <TopBar name={org.isConsultant ? "" : org.name} options={[30, 90]} days={days} onChange={setDays} />
       <Status error={error} loading={!data} retry={retry} />
-      {data && !data.connected && <Note flat text="Klaviyo no está conectado. Se conecta desde la web." />}
+      {data && !data.connected && <Note flat text="Klaviyo no está conectado." />}
       {data?.connected && t && (
         <>
           <View style={{ gap: 12 }}>
@@ -508,17 +513,16 @@ function Klaviyo({ org }: { org: Org }) {
             ]}
           />
           {flows.length > 0 && (
-            <Section flat title="Flows que más ingresan" hint="Los cinco con más ingresos atribuidos en el periodo.">
+            <Section flat title="Flows que más ingresan">
               {flows.map((e, i) => (
                 <ListRow flat key={e.id} first={i === 0} right={<Text style={{ fontSize: 17, fontFamily: font.semibold, color: klaviyo.mint }}>{eur(e.revenue)}</Text>}>
                   <Text numberOfLines={2} style={{ fontSize: 16, fontFamily: font.medium, color: c.ink }}>{e.name}</Text>
-                  <RowMeta>{`Aperturas ${pct(e.open_rate)} · clics ${pct(e.click_rate)}`}</RowMeta>
+                  <RowMeta>{`${pct(e.open_rate)} abren · ${pct(e.click_rate)} clic`}</RowMeta>
                 </ListRow>
               ))}
             </Section>
           )}
           <SentCampaigns org={org} days={days} />
-          <Note flat text="Los ingresos son los que Klaviyo se atribuye; no se suman a los de otros canales." />
         </>
       )}
       {analyst.sheet}
@@ -540,8 +544,10 @@ function ShopifyOverview({ d, analyst }: { d: ShopifyMetrics; analyst: Analyst }
     <>
       <View style={{ gap: 6 }}>
         <BigNumber label="Ventas netas" color={BRAND.shopify} value={money(d.sales.net_sales, cur)} delta={delta(d.sales.net_sales, prev?.sales.net_sales)} />
-        <Pressable onPress={"onPress" in k ? k.onPress : undefined} disabled={!("onPress" in k)}>
-          <Text style={{ fontSize: 14, fontFamily: font.regular, color: c.muted }}>{line}</Text>
+        <Pressable onPress={"onPress" in k ? k.onPress : undefined} disabled={!("onPress" in k)} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {"dot" in k && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: k.dot }} />}
+          <Text style={{ flexShrink: 1, fontSize: 14, fontFamily: font.regular, color: c.muted }}>{line}</Text>
+          {"ai" in k && <Sparkles size={14} color={c.accent} />}
         </Pressable>
       </View>
       <Bars
@@ -596,12 +602,13 @@ function MetaOverview({ s, cur, roasDelta, analyst, campaigns }: { s: NonNullabl
         <Text style={{ fontSize: 14, fontFamily: font.medium, color: c.muted }}>Por cada 1 € invertido, Meta se atribuye</Text>
         <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10 }}>
           <Text style={{ fontSize: 44, fontFamily: font.semibold, color: BRAND.meta }}>{s.roas == null ? "—" : `${dec(s.roas)} €`}</Text>
-          {roasDelta != null && Number.isFinite(roasDelta) && <Text style={{ fontSize: 14, fontFamily: font.medium, color: roasDelta >= 0 ? BRAND.meta : c.danger }}>{roasDelta >= 0 ? "▲" : "▼"} {Math.abs(roasDelta).toFixed(1).replace(".", ",")} %</Text>}
+          <Delta value={roasDelta} size={14} />
         </View>
         {"dot" in k && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: k.dot }} />
-            <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.ink }}>{`${Object.values(VERDICT).find((v) => v.color === k.dot)?.label ?? "Análisis"} · toca para ver por qué`}</Text>
+            <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.ink }}>{Object.values(VERDICT).find((v) => v.color === k.dot)?.label ?? "Análisis"}</Text>
+            <Sparkles size={14} color={c.accent} />
           </View>
         )}
         {[
@@ -645,11 +652,12 @@ function MetaOverview({ s, cur, roasDelta, analyst, campaigns }: { s: NonNullabl
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                   <View style={{ flex: 1 }}>
                     <Text numberOfLines={1} style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{r.name}</Text>
-                    <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{`${r.effective_status === "ACTIVE" ? "Activa" : "En pausa"} · ${fmtNum(r.purchases)} compras · ${money(r.spend, cur)}`}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      {r.effective_status === "ACTIVE" ? <Play size={11} color={GOOD} fill={GOOD} accessibilityLabel="Activa" /> : <Pause size={11} color={c.muted} accessibilityLabel="En pausa" />}
+                      <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{`${money(r.spend, cur)} · ${fmtNum(r.purchases)} compras`}</Text>
+                    </View>
                   </View>
-                  <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: good ? "#e3f1e6" : "#fbf0cf" }}>
-                    <Text style={{ fontSize: 14, fontFamily: font.semibold, color: good ? "#1f6b34" : c.warning }}>{`ROAS ${dec(r.roas)}`}</Text>
-                  </View>
+                  <Text style={{ fontSize: 16, fontFamily: font.semibold, color: good ? GOOD : c.warning }}>{dec(r.roas)}</Text>
                 </View>
                 <View style={{ height: 4, borderRadius: 2, backgroundColor: "#eef3fd" }}>
                   <View style={{ width: `${Math.max(2, (r.spend / maxSpend) * 100)}%`, height: 4, borderRadius: 2, backgroundColor: BRAND.meta }} />

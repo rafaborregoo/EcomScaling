@@ -240,7 +240,9 @@ test("A08 v7 diferencia cobertura del catálogo y muestra acotada al modelo", ()
   assert.match(migration, /version = 'v6'[\s\S]*?'v7'/);
   assert.match(migration, /at most 80 documents/);
   assert.match(migration, /must not claim every document was semantically reviewed/);
-  assert.match(helper, /KNOWLEDGE_CATALOG_PROMPT_SAMPLE_LIMIT = 80/);
+  // El prompt v7 promete "at most 80 documents"; la muestra real puede ser menor (A08 la bajó a 16).
+  const sampleLimit = Number(/KNOWLEDGE_CATALOG_PROMPT_SAMPLE_LIMIT = (\d+)/.exec(helper)?.[1]);
+  assert.ok(sampleLimit > 0 && sampleLimit <= 80, `muestra fuera del límite del prompt: ${sampleLimit}`);
   assert.match(helper, /round_robin_by_visibility_audience_source_type_then_freshness/);
   assert.match(helper, /document_sample:/);
   assert.match(runtime, /buildKnowledgeCatalogPromptContext\(\{/);

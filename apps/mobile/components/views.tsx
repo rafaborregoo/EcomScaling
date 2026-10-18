@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
+import { Send } from "lucide-react-native";
 import { useApi } from "../lib/use-api";
 import { c, fmtCurrency, fmtNum, font, klaviyo } from "../lib/theme";
 import { Bars, RateBars, Strip, Tunnel } from "./bloques";
 import { AllClear, Block, ChannelRow, Hero, MoreLink, TODAY, TopBar, type HeroMetric } from "./inicio";
 import { Sheet } from "./sheet";
 import { Note, Screen, ShareBar, SheetList, Status, SummaryRow } from "./ui";
-import { StockAlert } from "./stock";
+import { StockAlert, stockCount, type StockForecast } from "./stock";
+import { MetricsAlert, badMetrics, useAnalyst } from "./analista";
 import { AlertsWidget, sortAlerts, type Alert } from "./alerts";
 import { ProposalsWidget, pendingDiagnostics, type Diagnostic } from "./proposals";
 import { TasksWidget, sortTasks, type Task } from "./tasks";
+import { ZoneNotesWidget } from "./zone-notes";
 
 // `connectionId`: tienda Shopify elegida en Configuración; vacío = todas las tiendas del cliente.
 export type Org = { id: string; name: string; isConsultant: boolean; connectionId?: string };
@@ -168,6 +171,9 @@ export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   const meta2 = useApi<MetaInsights>(withStore(org, `${base}/meta/insights?days=${span * 2}`));
   const mail = useApi<EmailReport>(withStore(org, `${base}/klaviyo/email-report?days=${span}`));
   const ops = useApi<{ tasks: Task[]; alerts: Alert[] }>(`${base}/operations`);
+  const stock = useApi<StockForecast>(withStore(org, `${base}/shopify/stock-forecast`));
+  // Veredictos por reglas (sin IA) del periodo de Métricas: lo que esté en rojo sale en Para hoy.
+  const analyst = useAnalyst(org, 30);
   // Los tres agentes que proponen tareas (igual que el Dashboard de la web). Son lecturas de su último análisis.
   const monitor = useApi<Diagnostic>(`${base}/ai/monitor?days=30&view=overview`);
   const stockAi = useApi<Diagnostic>(`${base}/ai/stock-planner?days=30`);
@@ -185,24 +191,27 @@ export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   const metrics: HeroMetric[] = days === TODAY ? (today.data ? todayMetrics(today.data) : []) : d ? [...(business ? [business] : []), ...salesMetrics(d, false)] : [];
 
   const diagnostics = [monitor.data, stockAi.data, emailAi.data];
-  const pendingCount = pendingDiagnostics(diagnostics).length;
+  // Propuestas de la IA y reponer stock son del cliente: el consultor no los ve en su Pulso.
+  const pendingCount = org.isConsultant ? 0 : pendingDiagnostics(diagnostics).length;
   const alertCount = ops.data ? sortAlerts(ops.data.alerts ?? []).length : 0;
-  const taskCount = ops.data ? sortTasks(ops.data.tasks).length : 0;
-  const stockCount = d ? d.stock.out_of_stock_items + d.stock.low_stock_items : 0;
-  const clear = !!ops.data && pendingCount + alertCount + taskCount + stockCount === 0;
+  // Las tareas del cliente (vencidas o no) no son ruido que el consultor deba ver en su Pulso: viven en Trabajo.
+  const taskCount = ops.data && !org.isConsultant ? sortTasks(ops.data.tasks).length : 0;
+  const clear = !!ops.data && pendingCount + alertCount + taskCount + (org.isConsultant ? 0 : stockCount(stock.data)) + badMetrics(analyst).length === 0;
 
   return (
-    <Screen flat title="Pulso" onRefresh={async () => void (await Promise.all([shop.reload(), today.reload(), shop2.reload(), meta.reload(), meta2.reload(), mail.reload(), ops.reload(), monitor.reload(), stockAi.reload(), emailAi.reload()]))}>
-      <TopBar name={org.name} options={[TODAY, 7, 30, 90]} days={days} onChange={setDays} />
+    <Screen flat title="Pulso" onRefresh={async () => void (await Promise.all([shop.reload(), today.reload(), shop2.reload(), meta.reload(), meta2.reload(), mail.reload(), ops.reload(), stock.reload(), analyst.reload(), monitor.reload(), stockAi.reload(), emailAi.reload()]))}>
+      <TopBar name={org.isConsultant ? "" : org.name} options={[TODAY, 7, 30, 90]} days={days} onChange={setDays} />
       <Status error={(days === TODAY ? today.error : null) ?? shop.error} loading={metrics.length === 0} retry={() => { shop.retry(); today.retry(); }} />
       {metrics.length > 0 && <Hero key={days === TODAY ? "hoy" : "periodo"} metrics={metrics} compare={compareOf(days)} />}
 
       {ops.data && (
         <Block title="Para hoy">
-          <ProposalsWidget orgId={org.id} diagnostics={diagnostics} onDone={reloadProposals} />
+          {!org.isConsultant && <ZoneNotesWidget orgId={org.id} connectionId={org.connectionId} />}
+          {!org.isConsultant && <ProposalsWidget orgId={org.id} diagnostics={diagnostics} onDone={reloadProposals} />}
           <AlertsWidget orgId={org.id} alerts={ops.data.alerts ?? []} onChanged={() => void ops.reload()} />
-          {d && <StockAlert orgId={org.id} stock={d.stock} />}
-          <TasksWidget orgId={org.id} tasks={ops.data.tasks} onChanged={() => void ops.reload()} />
+          {!org.isConsultant && <StockAlert stock={stock.data} />}
+          <MetricsAlert analyst={analyst} />
+          {!org.isConsultant && <TasksWidget orgId={org.id} tasks={ops.data.tasks} onChanged={() => void ops.reload()} />}
           {clear && <AllClear />}
         </Block>
       )}
@@ -251,22 +260,24 @@ export function ShopifyView({ org, nav }: { org: Org; nav: HomeNav }) {
   const cur = d?.currency_code;
   const top = d ? d.top_products.slice(0, 5) : [];
   const topRevenue = Math.max(1, ...top.map((p) => p.revenue));
-  const atRisk = d ? d.stock.out_of_stock_items + d.stock.low_stock_items : 0;
+  const stock = useApi<StockForecast>(withStore(org, `${base}/shopify/stock-forecast`));
   const metrics = days === TODAY ? (today.data ? todayMetrics(today.data) : []) : d ? salesMetrics(d, true) : [];
   const tail = days === TODAY ? " (24 h)" : "";
 
   return (
-    <Screen flat title="Shopify" theme="shopify" onRefresh={async () => void (await Promise.all([reload(), today.reload()]))}>
-      <TopBar name={org.name} options={[TODAY, 7, 30, 90]} days={days} onChange={setDays} />
+    <Screen flat title="Shopify" theme="shopify" onRefresh={async () => void (await Promise.all([reload(), today.reload(), stock.reload()]))}>
+      <TopBar name={org.isConsultant ? "" : org.name} options={[TODAY, 7, 30, 90]} days={days} onChange={setDays} />
       <Status error={(days === TODAY ? today.error : null) ?? error} loading={!d || metrics.length === 0} retry={() => { retry(); today.retry(); }} />
       {d && metrics.length > 0 && (
         <>
           <Hero key={days === TODAY ? "hoy" : "periodo"} metrics={metrics} compare={compareOf(days)} />
 
-          <Block title="Para hoy">
-            <StockAlert orgId={org.id} stock={d.stock} />
-            {atRisk === 0 && <AllClear />}
-          </Block>
+          {!org.isConsultant && (
+            <Block title="Para hoy">
+              <StockAlert stock={stock.data} />
+              {stock.data && stockCount(stock.data) === 0 && <AllClear />}
+            </Block>
+          )}
 
           <SheetList
             title="Detalle"
@@ -341,8 +352,21 @@ function BreakEvenAlert({ roas, breakeven }: { roas: number; breakeven: number }
   return (
     <>
       <SummaryRow title="ROAS bajo el mínimo rentable" summary={`${dec(roas)} de ${dec(breakeven)}`} color={c.danger} dot={c.danger} onPress={() => setOpen(true)} />
-      <Sheet visible={open} onClose={() => setOpen(false)} title="ROAS bajo el mínimo rentable">
-        <Note flat text={`Con tus costes, cada euro en Meta tiene que volver ${dec(breakeven)} € para no perder dinero. Ahora Meta se atribuye ${dec(roas)} €.`} />
+      <Sheet visible={open} onClose={() => setOpen(false)} title="ROAS bajo el mínimo">
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 24 }}>
+          <View>
+            <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted }}>Atribuido</Text>
+            <Text style={{ fontSize: 34, fontFamily: font.semibold, color: c.danger }}>{dec(roas)}</Text>
+          </View>
+          <View>
+            <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted }}>Mínimo</Text>
+            <Text style={{ fontSize: 34, fontFamily: font.semibold, color: c.ink }}>{dec(breakeven)}</Text>
+          </View>
+        </View>
+        <View style={{ height: 8, borderRadius: 4, backgroundColor: c.accentTint }}>
+          <View style={{ width: `${Math.max(2, Math.min(100, (roas / breakeven) * 100))}%`, height: 8, borderRadius: 4, backgroundColor: c.danger }} />
+        </View>
+        <Text style={{ fontSize: 14, fontFamily: font.regular, color: c.muted }}>Por debajo del mínimo, cada euro en Meta pierde dinero.</Text>
       </Sheet>
     </>
   );
@@ -370,7 +394,7 @@ export function MetaView({ org, nav }: { org: Org; nav: HomeNav }) {
 
   return (
     <Screen flat title="Meta Ads" theme="meta" onRefresh={async () => void (await Promise.all([reload(), prev.reload(), shop.reload()]))}>
-      <TopBar name={org.name} options={[7, 30, 90]} days={days} onChange={setDays} />
+      <TopBar name={org.isConsultant ? "" : org.name} options={[7, 30, 90]} days={days} onChange={setDays} />
       <Status error={error} loading={!data} retry={retry} />
       {data && !s && <Note flat text="Meta Ads no tiene datos en este periodo. Si aún no está conectado, se hace desde la web." />}
       {data && s && (
@@ -425,9 +449,10 @@ function OutgoingToday({ campaigns }: { campaigns: KlaviyoCampaign[] }) {
   return (
     <>
       <SummaryRow title="Salen hoy" summary={`${campaigns.length} campaña${campaigns.length > 1 ? "s" : ""}`} onPress={() => setOpen(true)} />
-      <Sheet visible={open} onClose={() => setOpen(false)} title={`Salen hoy (${campaigns.length})`}>
+      <Sheet visible={open} onClose={() => setOpen(false)} title="Salen hoy" count={campaigns.length}>
         {campaigns.map((x, i) => (
           <View key={x.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: c.edge }}>
+            <Send size={16} color={c.muted} />
             <Text numberOfLines={2} style={{ flex: 1, fontSize: 15, fontFamily: font.medium, color: c.ink }}>{x.name}</Text>
             <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{hourOf(x.send_time!)}</Text>
           </View>
@@ -452,7 +477,7 @@ export function KlaviyoView({ org, nav }: { org: Org; nav: HomeNav }) {
 
   return (
     <Screen flat title="Klaviyo" theme="klaviyo" onRefresh={async () => void (await Promise.all([reload(), ws.reload()]))}>
-      <TopBar name={org.name} options={[30, 90]} days={days} onChange={setDays} />
+      <TopBar name={org.isConsultant ? "" : org.name} options={[30, 90]} days={days} onChange={setDays} />
       <Status error={error} loading={!data} retry={retry} />
       {data && !data.connected && <Note flat text="Klaviyo no está conectado. Se conecta desde la web." />}
       {data && data.connected && t && (

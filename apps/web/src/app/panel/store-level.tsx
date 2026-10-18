@@ -317,11 +317,6 @@ export function StoreLevel({
             <button type="button" className={cx(s.btn, s.ghost)} onClick={nav.clientOfStore}>
               ← {organizationName}
             </button>
-            {reading.supported ? (
-              <button type="button" className={cx(s.btn, s.ghost)} disabled={reading.running} title="La lectura se actualiza sola dos veces al día. A mano, hasta dos veces al día." onClick={reading.run}>
-                {reading.running ? "Leyendo…" : "Actualizar lectura IA"}
-              </button>
-            ) : null}
           </>
         }
         side={

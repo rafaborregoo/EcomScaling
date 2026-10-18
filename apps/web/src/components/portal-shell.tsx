@@ -807,8 +807,14 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   if (error || !bootstrap || !token) {
     return (
-      <main className="min-h-dvh bg-white p-6 text-foreground">
-        <ErrorBlock>{error ?? "No se pudo resolver la sesión"}</ErrorBlock>
+      <main className="grid min-h-dvh place-content-center gap-4 bg-white p-6 text-foreground">
+        <ErrorBlock>
+          {/* "Failed to fetch" es el error crudo del navegador cuando la API no responde. */}
+          {!error ? "No se pudo resolver la sesión." : /failed to fetch|networkerror|load failed/i.test(error) ? "No hemos podido conectar con E-NORA. Comprueba tu conexión y vuelve a intentarlo." : error}
+        </ErrorBlock>
+        <Button variant="secondary" onClick={() => window.location.reload()}>
+          Reintentar
+        </Button>
       </main>
     );
   }

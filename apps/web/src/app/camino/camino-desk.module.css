@@ -29,13 +29,13 @@
 
 .desk {
   --ink: #3d3b3a;
-  --ink-2: #495858;
-  --ink-3: #5c6b6b;
-  --line: #d5dfdf;
-  --line-2: #e6eded;
+  --ink-2: #55514e;
+  --ink-3: #6b6662;
+  --line: #e2dfdc;
+  --line-2: #eeebe8;
   --surface: #ffffff;
-  --surface-2: #f4f7f7;
-  --sunken: #e5ecec;
+  --surface-2: #f8f7f5;
+  --sunken: #ebe8e5;
   --bad: #b8364a;
 
   display: grid;

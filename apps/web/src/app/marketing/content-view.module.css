@@ -3,13 +3,13 @@
    la raíz de la pestaña. */
 
 .tok {
-  --ct-line: var(--tw-line, #d5dfdf);
-  --ct-surface: var(--tw-surface-2, #f4f7f7);
+  --ct-line: var(--tw-line, #e2dfdc);
+  --ct-surface: var(--tw-surface-2, #f8f7f5);
   --ct-ink: var(--tw-ink, #3d3b3a);
-  --ct-ink-3: var(--tw-ink-3, #5c6b6b);
-  --ct-accent: var(--tw-accent, #176b64);
-  --ct-accent-soft: var(--tw-accent-soft, #e3f1ee);
-  --ct-accent-ink: var(--tw-accent-ink, #176b64);
+  --ct-ink-3: var(--tw-ink-3, #6b6662);
+  --ct-accent: var(--tw-accent, #3d3b3a);
+  --ct-accent-soft: var(--tw-accent-soft, #efeeec);
+  --ct-accent-ink: var(--tw-accent-ink, #3d3b3a);
   --ct-info: #3f6b8a;
   --ct-info-soft: #e1edf5;
   --ct-bad: #b3361f;

@@ -10,9 +10,8 @@ import {
   CONSULTANT_MONITOR_SCOPES,
   MONITOR_DASHBOARD_SCOPES,
   PANEL_CONSULTANT_GUIDANCE,
-  A02_MANUAL_REFRESH_DAILY_LIMIT,
   isMonitorDashboardScope,
-  manualRefreshCapExceeded,
+  PANEL_MIN_RUN_AGE_MS,
   panelReadingDue,
   monitorScopeAllowedFor,
 } from "./ai-runtime.js";
@@ -55,14 +54,12 @@ test("el periodo de la rentabilidad solo admite los del selector", () => {
   assert.equal(normalizeProfitabilityDays(undefined), 30);
 });
 
-test("la lectura del panel se regenera con el cron y a mano rige el mismo tope de dos que en los dashboards", () => {
+test("la lectura del panel respeta la cadencia del cron de mañana y tarde", () => {
   const now = Date.parse("2026-10-07T12:00:00Z");
-  // Sin lectura previa, o con mas edad que el ritmo del cron de 12 h: toca.
+  // Sin lectura previa o con ocho horas de antigüedad: toca.
   assert.equal(panelReadingDue(null, now), true);
-  assert.equal(panelReadingDue(now - 11 * 60 * 60 * 1000, now), true);
-  // Recien generada: no se repite en el mismo tick ni a las pocas horas.
-  assert.equal(panelReadingDue(now - 3 * 60 * 60 * 1000, now), false);
-  assert.equal(A02_MANUAL_REFRESH_DAILY_LIMIT, 2);
-  assert.equal(manualRefreshCapExceeded(1, A02_MANUAL_REFRESH_DAILY_LIMIT), false);
-  assert.equal(manualRefreshCapExceeded(2, A02_MANUAL_REFRESH_DAILY_LIMIT), true);
+  assert.equal(PANEL_MIN_RUN_AGE_MS, 8 * 60 * 60 * 1000);
+  assert.equal(panelReadingDue(now - 8 * 60 * 60 * 1000, now), true);
+  // A las siete horas y cincuenta y nueve minutos no repite la pasada.
+  assert.equal(panelReadingDue(now - (8 * 60 * 60 * 1000 - 60_000), now), false);
 });

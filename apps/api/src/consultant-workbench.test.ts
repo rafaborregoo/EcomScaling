@@ -146,7 +146,7 @@ test("una conexion rota sube por encima del resto del trabajo del cliente", () =
   assert.match(result.actions[0]?.title ?? "", /Reconecta Shopify/);
 });
 
-test("una alerta con tarea abierta no ocupa dos filas: se fusiona con evidencia", () => {
+test("una alerta con tarea abierta (aunque vencida) no genera fila", () => {
   const result = build({
     alerts: [alert({ id: "alert-9" })],
     tasks: [
@@ -158,14 +158,8 @@ test("una alerta con tarea abierta no ocupa dos filas: se fusiona con evidencia"
     ],
   });
 
-  const kinds = result.actions.map((action) => action.kind);
-  assert.deepEqual(kinds, ["overdue_task"]);
-  assert.ok(
-    result.actions[0]?.evidence.some(
-      (item) => item.label === "Alerta vinculada",
-    ),
-    "la tarea debe declarar de que alerta viene",
-  );
+  // La tarea vencida ya no es una accion y la alerta que trata tampoco se repite.
+  assert.deepEqual(result.actions, []);
 });
 
 test("la alerta sin tarea que la trate si tiene su propia fila", () => {
@@ -214,7 +208,7 @@ test("dentro de la misma urgencia manda el cliente que peor va", () => {
   );
 });
 
-test("lo vencido va antes que lo que solo esta priorizado alto", () => {
+test("una tarea vencida no genera accion para el consultor", () => {
   const result = build({
     tasks: [
       task({
@@ -236,7 +230,7 @@ test("lo vencido va antes que lo que solo esta priorizado alto", () => {
     ],
   });
 
-  assert.equal(result.actions[0]?.id, "overdue_task:task-late");
+  assert.ok(!result.actions.some((action) => action.id.startsWith("overdue_task")));
 });
 
 test("cada fila abre el modulo que la ejecuta con el cliente ya seleccionado", () => {
@@ -278,7 +272,6 @@ test("cada fila abre el modulo que la ejecuta con el cliente ya seleccionado", (
   const hrefByKind = new Map(
     result.actions.map((action) => [action.kind, action.href]),
   );
-  assert.equal(hrefByKind.get("overdue_task"), "/tareas?organizationId=org-a");
   assert.equal(hrefByKind.get("critical_alert"), "/tareas?organizationId=org-a");
   assert.equal(hrefByKind.get("ai_proposal"), "/tareas?organizationId=org-a");
   assert.equal(

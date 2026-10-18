@@ -206,7 +206,10 @@ export function summarizeKnowledgeGapSignals(
       };
     })
     .filter((signal) => signal.recurrent || signal.explicit_missing_knowledge_rejection_runs > 0)
-    .sort((a, b) => b.unique_zero_result_runs - a.unique_zero_result_runs ||
+    .sort((a, b) =>
+      b.explicit_missing_knowledge_rejection_runs - a.explicit_missing_knowledge_rejection_runs ||
+      Date.parse(b.last_seen_at) - Date.parse(a.last_seen_at) ||
+      b.unique_zero_result_runs - a.unique_zero_result_runs ||
       a.topic_id.localeCompare(b.topic_id))
     .slice(0, 12);
 }

@@ -565,7 +565,15 @@ async function runScenario(scenario: Scenario, actorUserId: string) {
   const { organizationId, connectionId, expectedStoreId, expectUnknownCurrency } = await scenario.setup();
   try {
     const context = fakeAuthContext(organizationId, actorUserId);
-    const result = await runMonitorAgent(env, context, organizationId, connectionId ?? null, 30);
+    const result = await runMonitorAgent(
+      env,
+      context,
+      organizationId,
+      connectionId ?? null,
+      30,
+      "overview",
+      { trigger: "cron", enforceManualRefreshCap: false },
+    );
 
     if (!result.ok) {
       const { data: run } = await admin

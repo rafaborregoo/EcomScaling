@@ -4,16 +4,16 @@
 
 .root {
   --surface: #ffffff;
-  --surface-2: #f4f7f7;
-  --sunken: #e5ecec;
+  --surface-2: #f8f7f5;
+  --sunken: #ebe8e5;
   --ink: #3d3b3a;
-  --ink-2: #495858;
-  --ink-3: #5c6b6b;
-  --line: #d5dfdf;
-  --line-2: #e6eded;
-  --accent: #176b64;
-  --accent-soft: #e3f1ee;
-  --accent-ink: #176b64;
+  --ink-2: #55514e;
+  --ink-3: #6b6662;
+  --line: #e2dfdc;
+  --line-2: #eeebe8;
+  --accent: #3d3b3a;
+  --accent-soft: #efeeec;
+  --accent-ink: #3d3b3a;
   --on-accent: #ffffff;
   --good: #2f7d5b;
   --good-soft: #dcefe5;
@@ -21,7 +21,7 @@
   --bad-soft: #f7dde1;
   --bar: #4f8a6e;
   --hero: #3d3b3a;
-  --hero-muted: #e6eded;
+  --hero-muted: #eeebe8;
   --node-locked: #2a5561;
 
   display: grid;

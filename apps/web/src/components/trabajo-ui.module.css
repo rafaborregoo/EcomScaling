@@ -5,8 +5,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 1px;
-  background: var(--tw-line, #d5dfdf);
-  border: 1px solid var(--tw-line, #d5dfdf);
+  background: var(--tw-line, #e2dfdc);
+  border: 1px solid var(--tw-line, #e2dfdc);
   border-radius: 16px;
   overflow: hidden;
 }
@@ -87,7 +87,7 @@
   cursor: pointer;
 }
 .heroActs .primary {
-  background: var(--tw-accent, #176b64);
+  background: var(--tw-accent, #3d3b3a);
   border-color: transparent;
   color: var(--tw-on-accent, #fff);
 }

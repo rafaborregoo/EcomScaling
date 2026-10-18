@@ -292,6 +292,8 @@ import {
 } from "./shopify-catalog.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
 import { getShopifyToday } from "./shopify-today.js";
+import { getStockForecast } from "./stock-forecast.js";
+import { createMetricActionTask } from "./metric-actions.js";
 import { getMetricAnalysis } from "./metric-analysis.js";
 
 // A29: periodo de la explicacion (mismo rango que /metric-analysis) y cada cuanto se puede
@@ -434,6 +436,7 @@ import {
   updateTaskAssignment,
   updateTaskStatus,
 } from "./operations.js";
+import { archiveZoneNote, createZoneNote, listZoneNotes, markZoneNoteSeen } from "./zone-notes.js";
 import { listAlertRules, upsertAlertRule } from "./alert-rules.js";
 import { deleteReportSchedule, generatePortfolioReport, generateReportOnDemand, listReports, upsertReportSchedule } from "./reports-api.js";
 import {
@@ -544,7 +547,6 @@ import {
   runKnowledgeManagerAgent,
   runOperativaShopifyAgent,
   runOperativaMetaAgent,
-  runMonitorAgent,
   runStockPlannerAgent,
   runTaskPlannerAgent,
   runCaminoArchitectAgent,
@@ -6481,6 +6483,47 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Previsión de stock de la app móvil: solo productos que se venden y se agotan pronto (o ya lo están).
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
+    "/v1/organizations/:organizationId/shopify/stock-forecast",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+      const result = await getStockForecast(env, request.headers.authorization!, auth.context, request.params.organizationId, request.query.connectionId);
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+      return result.data;
+    },
+  );
+
+  // A29: una recomendación de la explicación pasa a tarea al pulsar "Crear tarea" (el toque es la aprobación).
+  app.post<{
+    Params: { organizationId: string; metric: string };
+    Querystring: { days?: string; connectionId?: string };
+    Body: { index?: number };
+  }>(
+    "/v1/organizations/:organizationId/metric-analysis/:metric/actions",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (!(request.params.metric in METRIC_SPECS)) return reply.code(404).send({ error: "metric_not_found" });
+      const result = await createMetricActionTask(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.metric,
+        Number(request.body?.index),
+        metricExplanationDays(request.query.days),
+        request.query.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(result.data.created ? 201 : 200).send(result.data);
+    },
+  );
+
   // Analista de metricas (ADR-0027): veredicto bien/vigilar/mal de cada
   // metrica de la ficha, determinista y sin IA. Lo leen la web y el movil.
   app.get<{
@@ -8053,6 +8096,54 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Notas del consultor ancladas a tarjetas del panel (zone-notes.ts).
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
+    "/v1/organizations/:organizationId/zone-notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listZoneNotes(env, auth.context, request.params.organizationId, request.query?.connectionId ?? null);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { anchor?: string; body?: string; expiresAt?: string | null; connectionId?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/zone-notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createZoneNote(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{ Params: { organizationId: string; noteId: string } }>(
+    "/v1/organizations/:organizationId/zone-notes/:noteId/seen",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await markZoneNoteSeen(env, auth.context, request.params.organizationId, request.params.noteId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; noteId: string } }>(
+    "/v1/organizations/:organizationId/zone-notes/:noteId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await archiveZoneNote(env, auth.context, request.params.organizationId, request.params.noteId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.patch<{
     Params: { organizationId: string; alertId: string };
     Body: { status?: string };
@@ -9095,40 +9186,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  // Regenerar ahora bajo acción explícita del usuario: botón «Actualizar ahora».
+  // Compatibilidad: la generación manual de A02 está deshabilitada; solo corre el orquestador.
   app.post<{
     Params: { organizationId: string };
-    Querystring: { connectionId?: string; days?: string; view?: string };
-  }>(
-    "/v1/organizations/:organizationId/ai/monitor-run",
-    aiEndpointRateLimit,
-    async (request, reply) => {
-      if (request.query.view && !isMonitorDashboardScope(request.query.view)) {
-        return reply.code(400).send({ error: "invalid_monitor_dashboard_scope" });
-      }
-      const auth = await resolveAuthContext(env, request.headers.authorization);
-
-      if (isAuthContextError(auth)) {
-        return sendAuthFailure(reply, auth.error);
-      }
-
-      const result = await runMonitorAgent(
-        env,
-        auth.context,
-        request.params.organizationId,
-        request.query.connectionId,
-        request.query.days ? Number(request.query.days) : null,
-        request.query.view && isMonitorDashboardScope(request.query.view)
-          ? request.query.view
-          : "overview",
-      );
-
-      if (isServiceFailure(result)) {
-        return sendServiceFailure(reply, result);
-      }
-
-      return reply.code(201).send(result.data);
-    },
+  }>("/v1/organizations/:organizationId/ai/monitor-run", async (_request, reply) =>
+    reply.code(410).send({ error: "monitor_manual_refresh_disabled" }),
   );
 
   // AI-05 (A04): plan de tareas automatico, mismo patron de cache/regenerar que A02.
@@ -9173,12 +9235,19 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
+      const rawIdempotencyKey = request.headers["idempotency-key"];
+      if (Array.isArray(rawIdempotencyKey) || (rawIdempotencyKey && rawIdempotencyKey.trim().length > 128)) {
+        return reply.code(400).send({ error: "invalid_idempotency_key" });
+      }
+      const idempotencyKey = rawIdempotencyKey?.trim() || null;
+
       const result = await runTaskPlannerAgent(
         env,
         auth.context,
         request.params.organizationId,
         request.query.connectionId,
         request.query.days ? Number(request.query.days) : null,
+        { manualRequestKey: idempotencyKey },
       );
 
       if (isServiceFailure(result)) {
@@ -9242,6 +9311,12 @@ export async function buildApp(): Promise<FastifyInstance> {
         return reply.code(400).send({ error: "invalid_plan_horizon" });
       }
 
+      const rawIdempotencyKey = request.headers["idempotency-key"];
+      if (Array.isArray(rawIdempotencyKey) || (rawIdempotencyKey && rawIdempotencyKey.trim().length > 128)) {
+        return reply.code(400).send({ error: "invalid_idempotency_key" });
+      }
+      const idempotencyKey = rawIdempotencyKey?.trim() || null;
+
       const result = await runPlanAgent(
         env,
         auth.context,
@@ -9249,6 +9324,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.horizon,
         request.query.connectionId,
         request.query.days ? Number(request.query.days) : null,
+        request.params.horizon === "day" ? { manualRequestKey: idempotencyKey } : undefined,
       );
 
       if (isServiceFailure(result)) {
@@ -9602,13 +9678,18 @@ export async function buildApp(): Promise<FastifyInstance> {
         return reply.code(400).send({ error: "invalid_campaign_plan_horizon" });
       }
 
+      const rawIdempotencyKey = request.headers["idempotency-key"];
+      if (Array.isArray(rawIdempotencyKey) || (rawIdempotencyKey && rawIdempotencyKey.trim().length > 128)) {
+        return reply.code(400).send({ error: "invalid_idempotency_key" });
+      }
+
       const result = await runCampaignStrategist(
         env,
         auth.context,
         request.params.organizationId,
         horizon,
         request.query.connectionId,
-        undefined,
+        { manualRequestKey: rawIdempotencyKey?.trim() || null },
         typeof request.body?.brief === "string"
           ? request.body.brief.slice(0, 2000)
           : null,
@@ -9651,7 +9732,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // el calendario interno, sin aprobar ni publicar la salida del agente.
   app.post<{
     Params: { organizationId: string };
-    Body: { output_id?: string; calendar_id?: string };
+    Body: { output_id?: string; calendar_id?: string; selected_indexes?: number[] };
   }>(
     "/v1/organizations/:organizationId/campaign-planning/from-proposal/drafts",
     async (request, reply) => {
@@ -9664,6 +9745,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         {
           outputId: request.body?.output_id,
           calendarId: request.body?.calendar_id,
+          selectedIndexes: request.body?.selected_indexes,
           mode: "draft",
         },
       );
@@ -9750,12 +9832,18 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
+      const rawIdempotencyKey = request.headers["idempotency-key"];
+      if (Array.isArray(rawIdempotencyKey) || (rawIdempotencyKey && rawIdempotencyKey.trim().length > 128)) {
+        return reply.code(400).send({ error: "invalid_idempotency_key" });
+      }
+
       const result = await runStockPlannerAgent(
         env,
         auth.context,
         request.params.organizationId,
         request.query.connectionId,
         request.query.days ? Number(request.query.days) : null,
+        { manualRequestKey: rawIdempotencyKey?.trim() || null },
       );
 
       if (isServiceFailure(result)) {
@@ -9800,10 +9888,15 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendAuthFailure(reply, auth.error);
       }
 
+      const rawIdempotencyKey = request.headers["idempotency-key"];
+      if (Array.isArray(rawIdempotencyKey) || (rawIdempotencyKey && rawIdempotencyKey.trim().length > 128)) {
+        return reply.code(400).send({ error: "invalid_idempotency_key" });
+      }
       const result = await runKnowledgeManagerAgent(
         env,
         auth.context,
         request.params.organizationId,
+        { manualRequestKey: rawIdempotencyKey?.trim() || null },
       );
 
       if (isServiceFailure(result)) {

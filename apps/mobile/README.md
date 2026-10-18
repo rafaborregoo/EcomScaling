@@ -7,6 +7,24 @@ App móvil de E-NORA (Expo / React Native, TypeScript). Mismo backend que la web
 **La app móvil NO replica la web.** Es solo para lo más importante. Cada función que se añada debe pasar
 por el **juez de alcance**; si no pasa, va a la web y no se programa aquí. Ante la duda, **no entra**.
 
+### Tres interfaces, una por rol
+
+La app abre una interfaz distinta según `platform_role` (`components/app-shell.tsx`); no hay conmutador. El juez de alcance de
+abajo vale para el **cliente**. El consultor y el administrador trabajan con la app como herramienta de decisión, y se
+amplía (Rafa, 2026-10-17): lo urgente y lo que decide dónde intervenir también ocurre lejos del ordenador.
+
+| Rol | Fichero | Pestañas | Idea |
+|---|---|---|---|
+| Cliente | `shell-cliente.tsx` | Inicio, Métricas, Marketing, Copiloto, Mensajes | Su tienda y su consultor |
+| Consultor | `shell-consultor.tsx` | Hoy, Clientes, Trabajo, Marketing, Mensajes (el chat tiene dos páginas: Clientes y Copiloto) | Una cartera: arriba DÓNDE está (selector de cliente y tienda), abajo QUÉ hace |
+| Admin de plataforma | `shell-admin.tsx` | Estado, Consultores, Clientes | Vigila la plataforma; desde un cliente abre su vista para soporte |
+
+Consultor: cambiar de cliente o tienda no cambia de pestaña. Hoy sin cliente es la mesa de la cartera (acciones por
+urgencia con aprobar/descartar en la fila); con cliente, su Pulso con el canal como filtro. Trabajo: propuestas de la IA, tareas, llamadas y clientes sin llamada de toda la cartera. Marketing: cola de revisión
+de campañas (revisada / pedir cambios) y envíos de la semana pasada; con cliente, además su contenido. Sin logo en la
+cabecera en ninguna interfaz. «Marcar revisado» (icono junto a los canales del cliente) y el aviso push abre al cliente del aviso. Clientes sin cliente elegido:
+Estado (semáforo) y Rentabilidad (comparativa de la cartera, lo peor primero). «Escribir al cliente» (`WriteToClient` en `mensajes.tsx`, solo lo provee el consultor): icono junto a los canales, desde cada alerta y desde la hoja de una métrica, con borrador. Las propuestas de la IA se deciden solo en Trabajo (Hoy enlaza con cuántas esperan). Con un cliente abierto, la pestaña Clientes pasa a llamarse Métricas. Deslizar la cabecera pasa al cliente siguiente/anterior por urgencia («3/12» junto al nombre); el nav lleva números (alertas críticas, trabajo, mensajes). Pendiente: aportes del consultor junto al ✨ (cuando la web los tenga).
+
 ### Juez de alcance
 
 Una función entra solo si cumple **las cuatro**:
@@ -33,7 +51,12 @@ Sin fila con veredicto **Entra**, no se escribe código de esa función.
 | «Para hoy» en Meta (ROAS bajo el mínimo rentable) y Klaviyo (campañas que salen hoy) | Entra | Pedido por Rafa 2026-10-17: avisos reales del día, solo lectura | 2026-10-17 |
 | Tocar una notificación push abre donde se resuelve (Mensajes o «Para hoy») | Entra | Pedido por Rafa 2026-10-17: sin esto, el aviso abre la app donde estuviera | 2026-10-17 |
 | Widget de tareas abiertas: ver y completar con una línea de resultado | Entra (limitado) | Ver qué vence es sensible al tiempo. Ampliado por Rafa 2026-10-17: completar con una línea de resultado (queda como comentario, igual que el Pulso de la web) cabe en un minuto; asignar, editar o medir el resultado con cifras sigue en la web | 2026-10-17 |
+| Tareas vencidas del cliente en Hoy/Pulso del consultor | No | Pedido por Rafa 2026-10-17: ruido para el consultor; ya no son acción, ni cuentan en el semáforo ni en el badge. Viven en Tareas (web) y en Trabajo (solo las suyas) | 2026-10-17 |
+| Propuestas de la IA y «reponer stock» en la interfaz del consultor | No | Pedido por Rafa 2026-10-18: son del cliente; el consultor no los ve (ni en Pulso, ni en Shopify, ni en Trabajo, ni en el badge) | 2026-10-18 |
+| Hoy del consultor sin cliente: ranking de salud por tiendas (peor primero) y ficha de tienda en hoja (Resumen, Por pedido, Marketing, Avisos) | Entra | Pedido por Rafa 2026-10-17: Hoy se rehace de cero y esto es lo primero; lo demás (acciones, gráficos) se añade después | 2026-10-17 |
+| Hoy del consultor sin cliente: ranking de salud por tiendas (peor primero) y ficha de tienda en hoja (Resumen, Por pedido, Marketing, Avisos) | Entra | Pedido por Rafa 2026-10-17: Hoy se rehace de cero y esto es lo primero; lo demás (acciones, gráficos) se añade después | 2026-10-17 |
 | Detalle de stock en riesgo (hoja) | Entra | Productos agotados y con stock bajo (foto + nombre) y análisis del agente con nombres; sin explicaciones genéricas | 2026-10-15 |
+| Notas del consultor en tarjetas: verlas en «Para hoy» del cliente y marcarlas como vistas | Entra (limitado) | Pedido por Rafa 2026-10-18: es un aviso de su consultor y se despacha en un toque; escribir notas y verlas sobre cada tarjeta sigue en la web | 2026-10-18 |
 | Widget de alertas activas: marcar vista y resolver | Entra | Urgente por definición. Ampliado por Rafa 2026-10-17: marcar vista o resolver es un toque; las reglas de alertas siguen en la web | 2026-10-17 |
 | Nav inferior: Inicio, Métricas, Marketing, Copiloto, Mensajes | Entra | Elegidos por Rafa 2026-10-15; máximo 5, ninguno más sin quitar otro | 2026-10-15 |
 | Métricas: Todo / Shopify / Meta / Klaviyo (selector de cabecera) | Entra (limitado) | Cifras de fondo en rejilla con variación vs periodo anterior (ventas, embudo, rentabilidad, clientes, captación, salud de email) y top 5 por canal; sin gráficos (están en Inicio), sin fichas de detalle ni promociones. Ampliado por Rafa 2026-10-16 | 2026-10-16 |
@@ -58,7 +81,8 @@ Sin fila con veredicto **Entra**, no se escribe código de esa función.
 | Constructor de flows, editor de Meta/Instagram/popup | No | Editores: necesitan pantalla grande (el de email sí entra, ver arriba) | 2026-10-15 |
 | Conectar integraciones (OAuth Shopify/Meta/Klaviyo) | No | Poco frecuente; se hace en la web | 2026-10-15 |
 | Configuración, Plan y plazas, facturación | No | Poco frecuente, sin urgencia | 2026-10-15 |
-| Catálogo/Productos, Analítica de cartera, Mi Camino | No | Exploración y análisis: ruido en móvil | 2026-10-15 |
+| Camino de la tienda en Trabajo (consultor): fase en curso con nombre, objetivo, cifras y tareas; deslizar a las otras fases; cambiar nombre de fase, y añadir o editar tareas (título, prioridad, fecha) | Entra (limitado) | Pedido por Rafa 2026-10-18: el consultor ajusta el camino desde el móvil con formularios de una línea; el mapa, crear caminos, hitos y reordenar siguen en la web. Un cliente solo se elige con tienda | 2026-10-18 |
+| Catálogo/Productos, Analítica de cartera, Mi Camino (mapa y editor) | No | Exploración y análisis: ruido en móvil | 2026-10-15 |
 
 ### Reglas de diseño
 

@@ -620,8 +620,7 @@ function TrustStrip({
 
 /**
  * Bloque de diagnóstico reutilizable (A02, A04, A06). Al montarse solo lee el
- * resultado almacenado; la generación corresponde al cron o al botón explícito
- * «Actualizar ahora». La aprobación humana solo materializa proposed_writes
+ * resultado almacenado; A02 solo se genera mediante el cron. La aprobación humana solo materializa proposed_writes
  * como tareas reales. Mismo patrón de caché de
  * 24h en el backend (getMonitorDiagnostic / getTaskPlannerDiagnostic /
  * getStockPlannerDiagnostic), solo cambia el par de endpoints.
@@ -849,7 +848,8 @@ export function AiDiagnosticSection({
     </span>
   ) : null;
 
-  const refreshButton = diagnostic || needsFirstRun ? (
+  const manualRunEnabled = runPath !== "/ai/monitor-run";
+  const refreshButton = manualRunEnabled && (diagnostic || needsFirstRun) ? (
     <Button
       variant="ghost"
       size="sm"
@@ -870,8 +870,7 @@ export function AiDiagnosticSection({
     </p>
   ) : needsFirstRun ? (
     <p className="text-sm leading-6 text-muted">
-      El primer análisis está pendiente. Puedes generarlo con «Actualizar ahora»
-      o esperar al próximo ciclo automático.
+      El primer análisis está pendiente. Aparecerá en el próximo ciclo automático.
     </p>
   ) : error ? (
     <ErrorBlock>{error}</ErrorBlock>
@@ -1319,7 +1318,7 @@ export function AiDiagnosticSection({
             </div>
           ) : null}
 
-          {variant === "tasks" || hasMonitorSections ? null : (
+          {(variant === "tasks" && getPath !== "/ai/task-planner") || hasMonitorSections ? null : (
             <div>
               {variant === "full" ? (
                 <h3 className="text-base font-semibold text-foreground">
@@ -1351,8 +1350,7 @@ export function AiDiagnosticSection({
           {diagnostic.no_activity_since ? (
             <p className="text-xs text-muted">
               Sin cambios desde la última vez: no se ha vuelto a analizar porque
-              no ha habido actividad en la tienda. Usa “Actualizar ahora” para
-              forzarlo.
+              no ha habido actividad en la tienda.
             </p>
           ) : null}
 
@@ -1362,7 +1360,7 @@ export function AiDiagnosticSection({
 
           {renderPreview ? <A26EmailRenderPreview organizationId={organizationId} runId={diagnostic.run_id} /> : null}
 
-          {variant === "tasks" && !diagnostic.output.proposed_writes.length ? (
+          {variant === "tasks" && getPath !== "/ai/task-planner" && !diagnostic.output.proposed_writes.length ? (
             <p className="text-sm text-muted">
               Sin tareas nuevas en este ciclo. Las que ya existen están en{" "}
               <Link href="/tareas">Tareas</Link>.

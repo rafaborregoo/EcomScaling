@@ -5,13 +5,13 @@
 
 .page {
   --ib-ink: var(--tw-ink, #3d3b3a);
-  --ib-ink-3: var(--tw-ink-3, #5c6b6b);
-  --ib-line: var(--tw-line, #d5dfdf);
+  --ib-ink-3: var(--tw-ink-3, #6b6662);
+  --ib-line: var(--tw-line, #e2dfdc);
   --ib-line-soft: color-mix(in srgb, var(--tw-line, #e2dfdc) 55%, #ffffff);
   --ib-surface: #ffffff;
-  --ib-canvas: #f3f6f6;
-  --ib-ground: #e5ecec;
-  --ib-accent: var(--tw-accent, #176b64);
+  --ib-canvas: #f5f4f2;
+  --ib-ground: #ebe8e5;
+  --ib-accent: var(--tw-accent, #3d3b3a);
   --ib-on-accent: var(--tw-on-accent, #ffffff);
   --ib-on-petrol: #e8f1f2;
   display: flex;

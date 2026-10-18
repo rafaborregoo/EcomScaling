@@ -97,7 +97,7 @@ async function ensureClientCalendar(
   const supabase = createServiceClient(env);
   let query = supabase
     .from("campaign_calendars")
-    .select("id")
+    .select("id, metadata")
     .eq("organization_id", organizationId)
     .eq("is_visible_to_client", true)
     .neq("status", "archived")
@@ -463,6 +463,9 @@ export async function createCampaignCalendarItem(
       campaignIndex: number;
       initiative: string;
       hierarchy?: Record<string, unknown>;
+      decision?: "pending" | "approved";
+      decisionBy?: string | null;
+      decisionAt?: string | null;
     };
     /**
      * «Sugerir una acción»: cualquier miembro puede proponer una acción; entra
@@ -635,6 +638,9 @@ export async function createCampaignCalendarItem(
                       action_index: input.a05ProposalSource.campaignIndex,
                       initiative: input.a05ProposalSource.initiative,
                       hierarchy: input.a05ProposalSource.hierarchy ?? null,
+                      decision: input.a05ProposalSource.decision ?? "pending",
+                      decision_by: input.a05ProposalSource.decisionBy ?? null,
+                      decision_at: input.a05ProposalSource.decisionAt ?? null,
                     },
                   }
                 : {}),
@@ -679,6 +685,8 @@ export async function createCampaignCalendarItem(
         ? (input.isVisibleToClient ?? true)
         : true,
       milestoneId: input.milestoneId ?? null,
+      agentOutputId: input.a05ProposalSource?.outputId ?? null,
+      agentProposalIndex: input.a05ProposalSource?.campaignIndex ?? null,
     });
     if (task.ok === false)
       return {
@@ -699,13 +707,15 @@ export async function createCampaignCalendarItem(
         "id, organization_id, calendar_id, store_id, title, description, channel, item_type, starts_at, ends_at, status, is_visible_to_client, task_id, milestone_id, marketing_draft_id, meta_campaign_id, klaviyo_campaign_id, origin, review_status, created_by, metadata, created_at, updated_at",
       )
       .single();
-    if (linked.error)
+    if (linked.error) {
+      await supabase.from("tasks").delete().eq("id", task.data.id).eq("organization_id", organizationId).eq("status", "pending");
       return {
         ok: false as const,
         statusCode: 500,
         error: "campaign_calendar_task_link_failed",
         detail: linked.error.message,
       };
+    }
     return { ok: true as const, data: linked.data };
   }
   if (fromClient) {
@@ -1395,6 +1405,10 @@ export function campaignPlanToCalendarItems(
     const action = all[index]!;
     const [hour, minute] = action.scheduled_time?.split(":").map(Number) ?? [9, 0];
     const startsAt = localCampaignDateTimeToUtc(action.scheduled_date, timezone, hour, minute);
+    const legacyDuration = action.action_type === "legacy_action"
+      ? Number(action.hierarchy.duration_days ?? 1)
+      : 1;
+    const durationDays = Number.isInteger(legacyDuration) && legacyDuration > 0 ? legacyDuration : 1;
     return {
       index,
       title: action.title,
@@ -1403,7 +1417,7 @@ export function campaignPlanToCalendarItems(
       hierarchy: action.hierarchy,
       startsAt: startsAt.toISOString(),
       endsAt: localCampaignDateTimeToUtc(
-        new Date(Date.parse(action.scheduled_date + "T00:00:00.000Z") + dayMs).toISOString().slice(0, 10),
+        new Date(Date.parse(action.scheduled_date + "T00:00:00.000Z") + durationDays * dayMs).toISOString().slice(0, 10),
         timezone,
         hour,
         minute,
@@ -1422,6 +1436,7 @@ async function ensureStoreCalendar(
   context: AuthContext,
   organizationId: string,
   storeId: string,
+  year = new Date().getUTCFullYear(),
   forClientSuggestion = false,
 ) {
   const supabase = createServiceClient(env);
@@ -1430,6 +1445,7 @@ async function ensureStoreCalendar(
     .select("id, year, status, is_visible_to_client")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
+    .eq("year", year)
     .neq("status", "archived")
     .order("year", { ascending: false })
     .order("created_at", { ascending: false })
@@ -1443,7 +1459,6 @@ async function ensureStoreCalendar(
   }
   const existing = data?.[0];
   if (existing) return { ok: true as const, calendarId: existing.id as string };
-  const year = new Date().getUTCFullYear();
   if (forClientSuggestion) {
     // Hace falta un contenedor visible para que el consultor pueda revisar las
     // sugerencias A05. Crear este calendario no aprueba ni publica acciones.
@@ -1553,6 +1568,12 @@ export async function rejectCampaignPlanProposal(
       return { ok: false as const, statusCode: 409, error: "campaign_plan_tasks_in_progress", message: "Una tarea de estas campañas ya empezó o está compartida. Revísala antes de rechazar el plan." };
   }
 
+  const decisionToken = crypto.randomUUID();
+  const { data: claimed, error: claimError } = await (supabase as any).rpc("a05_claim_campaign_decision", {
+    p_output_id: outputId, p_organization_id: organizationId, p_token: decisionToken, p_decision: "rejected",
+  });
+  if (claimError || claimed !== true) return { ok: false as const, statusCode: 409, error: "campaign_plan_decision_in_progress" };
+
   if (activeItems.length) {
     const { data: archived, error: archiveError } = await supabase
       .from("campaign_calendar_items")
@@ -1563,31 +1584,41 @@ export async function rejectCampaignPlanProposal(
       .eq("status", "planned")
       .is("deleted_at", null)
       .select("id");
-    if (archiveError) return { ok: false as const, statusCode: 503, error: "campaign_plan_items_archive_failed" };
-    if (archived?.length !== activeItems.length)
+    if (archiveError) {
+      await (supabase as any).rpc("a05_release_campaign_decision", { p_output_id: outputId, p_token: decisionToken });
+      return { ok: false as const, statusCode: 503, error: "campaign_plan_items_archive_failed" };
+    }
+    if (archived?.length !== activeItems.length) {
+      await (supabase as any).rpc("a05_release_campaign_decision", { p_output_id: outputId, p_token: decisionToken });
       return { ok: false as const, statusCode: 409, error: "campaign_plan_items_changed", message: "Las campañas cambiaron mientras se rechazaba el plan. Revisa el calendario y vuelve a intentarlo." };
+    }
   }
   if (taskIds.length) {
-    const { error: deleteError } = await supabase.from("tasks")
-      .delete().eq("organization_id", organizationId).in("id", taskIds).eq("status", "pending");
-    if (deleteError) return { ok: false as const, statusCode: 503, error: "campaign_plan_tasks_delete_failed", detail: deleteError.message };
+    const { data: deletedTasks, error: deleteError } = await supabase.from("tasks")
+      .delete().eq("organization_id", organizationId).in("id", taskIds).eq("status", "pending").select("id");
+    if (deleteError) {
+      await (supabase as any).rpc("a05_release_campaign_decision", { p_output_id: outputId, p_token: decisionToken });
+      return { ok: false as const, statusCode: 503, error: "campaign_plan_tasks_delete_failed", detail: deleteError.message };
+    }
+    if ((deletedTasks?.length ?? 0) !== taskIds.length) {
+      await (supabase as any).rpc("a05_release_campaign_decision", { p_output_id: outputId, p_token: decisionToken });
+      return { ok: false as const, statusCode: 409, error: "campaign_plan_tasks_changed", message: "El estado de una tarea cambió durante el rechazo. Actualiza e inténtalo de nuevo." };
+    }
   }
   const { data: remaining, error: remainingError } = await supabase.from("campaign_calendar_items")
     .select("id").eq("organization_id", organizationId).eq("store_id", run.store_id)
     .contains("metadata", { a05_proposal: { output_id: outputId } }).is("deleted_at", null).limit(1);
   if (remainingError || remaining?.length)
     return { ok: false as const, statusCode: 409, error: "campaign_plan_items_changed", message: "Quedan campañas activas de esta propuesta. Revisa el calendario y vuelve a intentarlo." };
-  const { error: rejectError } = await supabase.from("agent_outputs")
-    .update({ status: "rejected" })
-    .eq("id", outputId).eq("organization_id", organizationId);
-  if (rejectError) return { ok: false as const, statusCode: 503, error: "campaign_plan_reject_failed" };
-  await supabase.from("agent_approvals").insert({
-    output_id: outputId,
-    organization_id: organizationId,
-    decision: "rejected",
-    decided_by: context.user.id,
-    reason: "Propuesta A05 rechazada; acciones planificadas retiradas del calendario",
+  const { data: finished, error: rejectError } = await (supabase as any).rpc("a05_finish_campaign_decision", {
+    p_output_id: outputId, p_organization_id: organizationId, p_token: decisionToken,
+    p_decision: "rejected", p_decided_by: context.user.id,
+    p_reason: "Propuesta A05 rechazada; acciones planificadas retiradas del calendario",
   });
+  if (rejectError || finished !== true) {
+    await (supabase as any).rpc("a05_release_campaign_decision", { p_output_id: outputId, p_token: decisionToken });
+    return { ok: false as const, statusCode: 503, error: "campaign_plan_reject_failed" };
+  }
   return { ok: true as const, data: { removed: activeItems.length } };
 }
 
@@ -1629,7 +1660,7 @@ export async function createCampaignItemsFromProposal(
   const { data: output, error: outputError } = await supabase
     .from("agent_outputs")
     .select(
-      "id, status, output, agent_runs!inner(id, store_id, agent_versions!inner(agent_definitions!inner(code)))",
+      "id, status, output, agent_runs!inner(id, store_id, objective, agent_versions!inner(agent_definitions!inner(code)))",
     )
     .eq("id", input.outputId)
     .eq("organization_id", organizationId)
@@ -1680,39 +1711,25 @@ export async function createCampaignItemsFromProposal(
   }
 
   let calendarId = input.calendarId;
-  if (!calendarId && runStoreId) {
-    const resolved = await ensureStoreCalendar(
-      env,
-      context,
-      organizationId,
-      runStoreId,
-      isClientSuggestion,
-    );
-    if (resolved.ok === false) return resolved;
-    calendarId = resolved.calendarId;
-  }
-  if (!calendarId) {
-    return { ok: false as const, statusCode: 400, error: "invalid_campaign_plan_proposal_input" };
-  }
-  const { data: calendar, error: calendarError } = await supabase
+  const { data: calendar, error: calendarError } = calendarId ? await supabase
     .from("campaign_calendars")
     .select("id, store_id")
     .eq("id", calendarId)
     .eq("organization_id", organizationId)
-    .maybeSingle();
+    .maybeSingle() : { data: null, error: null };
   if (calendarError)
     return {
       ok: false as const,
       statusCode: 503,
       error: "campaign_plan_calendar_lookup_failed",
     };
-  if (!calendar)
+  if (calendarId && !calendar)
     return {
       ok: false as const,
       statusCode: 404,
       error: "campaign_plan_calendar_not_found",
     };
-  if (!runStoreId || calendar.store_id !== runStoreId)
+  if (!runStoreId || (calendarId && calendar?.store_id !== runStoreId))
     return {
       ok: false as const,
       statusCode: 409,
@@ -1763,14 +1780,27 @@ export async function createCampaignItemsFromProposal(
       detail: parsed === null ? "campaign_plan_output_format_not_supported" : parsed.error.message,
     };
   }
-  const allItems = campaignPlanToCalendarItems(parsed.data, Date.now(), undefined, store.timezone || parsed.data.planning_window?.timezone || "UTC");
+  const runObjective = String((run as { objective?: string | null } | null)?.objective ?? "");
+  const expectedWindow = runObjective.match(/\[campaign_window=(\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\|([^\]]+)\]/);
+  if (expectedWindow && parsed.data.planning_window && (
+    parsed.data.planning_window.start_date !== expectedWindow[1] ||
+    parsed.data.planning_window.end_date !== expectedWindow[2] ||
+    parsed.data.planning_window.timezone !== expectedWindow[3]
+  )) {
+    return { ok: false as const, statusCode: 409, error: "campaign_plan_window_mismatch", message: "La propuesta no conserva la ventana solicitada. Genera de nuevo el calendario." };
+  }
+  const allActions = flattenCampaignPlanActions(parsed.data, Date.now());
   const selectedIndexes = input.selectedIndexes === undefined
-    ? allItems.map((item) => item.index)
+    ? allActions.map((item) => item.index)
     : [...new Set(input.selectedIndexes)];
+  if (mode === "approve") {
+    const writer = await requireAgendaWriter(env, context, organizationId);
+    if (writer.ok === false) return writer;
+  }
   if (
     (mode !== "draft" && selectedIndexes.length === 0) ||
     selectedIndexes.some((index) =>
-      !Number.isInteger(index) || index < 0 || index >= allItems.length,
+      !Number.isInteger(index) || index < 0 || index >= allActions.length,
     )
   ) {
     return {
@@ -1783,22 +1813,9 @@ export async function createCampaignItemsFromProposal(
 
   if (parsed.data.planning_window) {
     const { timezone, start_date: startDate, end_date: endDate } = parsed.data.planning_window;
-    const todayParts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(new Date());
-    const today = todayParts.find((part) => part.type === "year")?.value + "-" +
-      todayParts.find((part) => part.type === "month")?.value + "-" +
-      todayParts.find((part) => part.type === "day")?.value;
-    const localDate = (value: string) => {
-      const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
-      return `${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`;
-    };
     const invalidDate = selectedIndexes.some((index) => {
-      const date = allItems[index] ? localDate(allItems[index]!.startsAt) : "";
-      return !date || date < startDate || date > endDate || allItems[index]!.startsAt < new Date().toISOString();
+      const date = allActions[index]?.scheduled_date ?? "";
+      return !date || date < startDate || date > endDate;
     });
     if (invalidDate)
       return {
@@ -1810,7 +1827,12 @@ export async function createCampaignItemsFromProposal(
   }
   const timezone = store.timezone || parsed.data.planning_window?.timezone || "UTC";
 
-  const items = campaignPlanToCalendarItems(parsed.data, Date.now(), selectedIndexes, timezone);
+  let items: ReturnType<typeof campaignPlanToCalendarItems>;
+  try {
+    items = campaignPlanToCalendarItems(parsed.data, Date.now(), selectedIndexes, timezone);
+  } catch (error) {
+    return { ok: false as const, statusCode: 422, error: error instanceof Error && error.message === "nonexistent_campaign_plan_local_time" ? "campaign_plan_local_time_not_real" : "campaign_plan_date_conversion_failed", message: "Una hora propuesta no existe en la zona horaria de la tienda. Genera de nuevo el calendario." };
+  }
   if (items.length === 0)
     return mode === "draft"
       ? { ok: true as const, data: { created: 0, already_created: 0, item_ids: [], failed: [], linked_to_plan: 0, complete: true, status: "planned" } }
@@ -1826,27 +1848,50 @@ export async function createCampaignItemsFromProposal(
   const { data: openPlan } = mode === "approve"
     ? await supabase
         .from("strategic_plans")
-        .select("id, strategic_plan_phases(strategic_plan_milestones(id, target_date, position))")
+        .select("id, strategic_plan_phases(status, position, strategic_plan_milestones(id, status, target_date, position))")
         .eq("organization_id", organizationId)
         .eq("store_id", runStoreId)
-        .in("status", ["draft", "active"])
+        .eq("status", "active")
         .order("version", { ascending: false })
         .limit(1)
         .maybeSingle()
     : { data: null };
   const planMilestones = mode === "approve"
-    ? ((openPlan as { strategic_plan_phases?: Array<{ strategic_plan_milestones?: Array<{ id: string; target_date: string | null; position: number | null }> }> } | null)
-        ?.strategic_plan_phases ?? []).flatMap((phase) => phase.strategic_plan_milestones ?? [])
+    ? ((openPlan as { strategic_plan_phases?: Array<{ status: string; position: number | null; strategic_plan_milestones?: Array<{ id: string; status: string; target_date: string | null; position: number | null }> }> } | null)
+        ?.strategic_plan_phases ?? []).filter((phase) => phase.status === "active")
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .flatMap((phase) => (phase.strategic_plan_milestones ?? []).filter((milestone) => ["pending", "active"].includes(milestone.status)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)))
     : [];
+
+  const decisionToken = mode === "approve" ? crypto.randomUUID() : null;
+  if (decisionToken) {
+    const { data: claimed, error: claimError } = await (supabase as any).rpc("a05_claim_campaign_decision", {
+      p_output_id: input.outputId,
+      p_organization_id: organizationId,
+      p_token: decisionToken,
+      p_decision: "approved",
+    });
+    if (claimError || claimed !== true) return { ok: false as const, statusCode: 409, error: "campaign_plan_decision_in_progress", message: "La propuesta ya se está aprobando o rechazando. Actualiza la página antes de reintentar." };
+  }
 
   const created: string[] = [];
   const alreadyCreated: string[] = [];
   const failed: Array<{ title: string; error: string }> = [];
   let linkedToPlan = 0;
   for (const item of items) {
+    let itemCalendarId = calendarId;
+    if (!itemCalendarId) {
+      const localYear = Number(new Intl.DateTimeFormat("en", { timeZone: timezone, year: "numeric" }).format(new Date(item.startsAt)));
+      const resolved = await ensureStoreCalendar(env, context, organizationId, runStoreId, localYear, isClientSuggestion);
+      if (resolved.ok === false) {
+        failed.push({ title: item.title, error: resolved.error });
+        continue;
+      }
+      itemCalendarId = resolved.calendarId;
+    }
     const { data: existingItem, error: existingItemError } = await supabase
       .from("campaign_calendar_items")
-      .select("id")
+      .select("id, deleted_at, metadata, task_id, milestone_id")
       .eq("organization_id", organizationId)
       .eq("store_id", runStoreId)
       .contains("metadata", {
@@ -1861,12 +1906,56 @@ export async function createCampaignItemsFromProposal(
       continue;
     }
     if (existingItem) {
-      alreadyCreated.push((existingItem as { id: string }).id);
+      const existing = existingItem as { id: string; deleted_at: string | null; metadata: Record<string, unknown> | null; task_id: string | null; milestone_id: string | null };
+      if (existing.deleted_at) {
+        failed.push({ title: item.title, error: "campaign_plan_action_archived" });
+        continue;
+      }
+      const milestoneId = existing.milestone_id ?? (planMilestones.length ? pickMilestoneForDate(planMilestones, item.startsAt) : null);
+      if (mode === "approve" && !existing.task_id && milestoneId) {
+        const task = await createTask(env, context, organizationId, {
+          title: item.title,
+          description: item.description,
+          category: item.channel === "Meta" ? "meta" : item.channel === "Email" ? "klaviyo" : "general",
+          dueAt: item.endsAt,
+          isVisibleToClient: true,
+          milestoneId,
+          agentOutputId: input.outputId,
+          agentProposalIndex: item.index,
+        });
+        if (task.ok === false) {
+          failed.push({ title: item.title, error: "campaign_plan_task_repair_failed" });
+          continue;
+        }
+        const { error: taskLinkError } = await supabase.from("campaign_calendar_items")
+          .update({ task_id: task.data.id, milestone_id: milestoneId, is_visible_to_client: true })
+          .eq("id", existing.id).eq("organization_id", organizationId).is("deleted_at", null);
+        if (taskLinkError) {
+          await supabase.from("tasks").delete().eq("id", task.data.id).eq("organization_id", organizationId).eq("status", "pending");
+          failed.push({ title: item.title, error: "campaign_plan_task_link_repair_failed" });
+          continue;
+        }
+        linkedToPlan += 1;
+      }
+      if (mode === "approve") {
+        const metadata = { ...(existing.metadata ?? {}), a05_proposal: { ...((existing.metadata?.a05_proposal as Record<string, unknown> | undefined) ?? {}), decision: "approved", decision_by: context.user.id, decision_at: new Date().toISOString() } };
+        const { data: updatedItem, error: decisionError } = await supabase.from("campaign_calendar_items")
+          .update({ metadata }).eq("id", existing.id).eq("organization_id", organizationId).is("deleted_at", null).select("id").maybeSingle();
+        if (decisionError || !updatedItem) {
+          failed.push({ title: item.title, error: "campaign_plan_action_decision_save_failed" });
+          continue;
+        }
+      }
+      alreadyCreated.push(existing.id);
+      continue;
+    }
+    if (Date.parse(item.startsAt) <= Date.now()) {
+      failed.push({ title: item.title, error: "campaign_plan_action_in_past" });
       continue;
     }
     const milestoneId = planMilestones.length ? pickMilestoneForDate(planMilestones, item.startsAt) : null;
     const result = await createCampaignCalendarItem(env, context, organizationId, {
-      calendarId,
+      calendarId: itemCalendarId,
       title: item.title,
       description: item.description,
       channel: item.channel,
@@ -1886,6 +1975,9 @@ export async function createCampaignItemsFromProposal(
         campaignIndex: item.index,
         initiative: item.initiative,
         hierarchy: item.hierarchy,
+        decision: mode === "approve" ? "approved" : "pending",
+        decisionBy: mode === "approve" ? context.user.id : null,
+        decisionAt: mode === "approve" ? new Date().toISOString() : null,
       },
       clientSuggestion: isClientSuggestion,
     });
@@ -1901,29 +1993,37 @@ export async function createCampaignItemsFromProposal(
   // sigue disponible para reintentar en vez de quedar consumida.
   const { data: allAppliedItems, error: allAppliedError } = await supabase
     .from("campaign_calendar_items")
-    .select("id")
+    .select("id, metadata")
     .eq("organization_id", organizationId)
     .eq("store_id", runStoreId)
     .is("deleted_at", null)
     .contains("metadata", { a05_proposal: { output_id: input.outputId } });
   if (allAppliedError)
     failed.push({ title: "Verificar progreso del plan", error: "campaign_plan_completion_lookup_failed" });
-  const allCampaignsApplied = !allAppliedError &&
-    (allAppliedItems?.length ?? 0) >= allItems.length;
+  const approvedIndexes = new Set((allAppliedItems ?? []).flatMap((row) => {
+    const proposal = (row.metadata as Record<string, unknown> | null)?.a05_proposal as Record<string, unknown> | undefined;
+    return proposal?.decision === "approved" && Number.isInteger(proposal.campaign_index) ? [Number(proposal.campaign_index)] : [];
+  }));
+  const materializedIndexes = new Set((allAppliedItems ?? []).flatMap((row) => {
+    const proposal = (row.metadata as Record<string, unknown> | null)?.a05_proposal as Record<string, unknown> | undefined;
+    return Number.isInteger(proposal?.campaign_index) ? [Number(proposal!.campaign_index)] : [];
+  }));
+  const allActionsMaterialized = !allAppliedError && allActions.every((item) => materializedIndexes.has(item.index));
+  const allCampaignsApplied = !allAppliedError && allActions.every((item) => approvedIndexes.has(item.index));
   if (mode === "approve" && allCampaignsApplied && failed.length === 0) {
-    await supabase
-      .from("agent_outputs")
-      .update({ status: "published", published_at: new Date().toISOString() })
-      .eq("id", input.outputId);
-
-    await supabase.from("agent_approvals").insert({
-      output_id: input.outputId,
-      organization_id: organizationId,
-      decision: "approved",
-      decided_by: context.user.id,
-      reason: `${allAppliedItems?.length ?? 0} campana(s) creadas en el calendario`,
+    const { data: finished, error: finishError } = await (supabase as any).rpc("a05_finish_campaign_decision", {
+      p_output_id: input.outputId,
+      p_organization_id: organizationId,
+      p_token: decisionToken,
+      p_decision: "approved",
+      p_decided_by: context.user.id,
+      p_reason: `${approvedIndexes.size} acción(es) A05 aprobadas`,
     });
+    if (finishError || finished !== true) {
+      failed.push({ title: "Cerrar la propuesta", error: "campaign_plan_output_publish_failed" });
+    }
   }
+  if (decisionToken) await (supabase as any).rpc("a05_release_campaign_decision", { p_output_id: input.outputId, p_token: decisionToken });
 
   return {
     ok: true as const,
@@ -1933,8 +2033,8 @@ export async function createCampaignItemsFromProposal(
       item_ids: [...alreadyCreated, ...created],
       failed,
       linked_to_plan: linkedToPlan,
-      complete: allCampaignsApplied && failed.length === 0,
-      status: mode === "draft" ? "planned" : "approved",
+      complete: allActionsMaterialized && failed.length === 0,
+      status: mode === "draft" ? "planned" : allCampaignsApplied && failed.length === 0 ? "approved" : "pending",
     },
   };
 }

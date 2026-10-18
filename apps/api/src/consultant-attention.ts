@@ -71,7 +71,7 @@ export function scoreAttention(
       oldest_alert_days: oldestAlertDays,
       overdue_tasks: overdueTasks,
       open_tasks: orgTasks.length,
-      score: severityScore + Math.min(oldestAlertDays, 14) + overdueTasks * 3,
+      score: severityScore + Math.min(oldestAlertDays, 14),
     });
   }
   return result;

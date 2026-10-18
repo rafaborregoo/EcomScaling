@@ -2,16 +2,16 @@
    como único acento, IBM Plex Sans para todo, cifras tabulares. */
 
 .stage {
-  --paper: #f3f6f6; --surface: #ffffff; --surface-2: #f4f7f7; --sunken: #e5ecec;
-  --ink: #3d3b3a; --ink-2: #495858; --ink-3: #5c6b6b;
-  --line: #d5dfdf; --line-2: #e6eded;
-  --accent: #176b64; --accent-soft: #e3f1ee; --accent-ink: #176b64; --on-accent: #ffffff;
+  --paper: #f5f4f2; --surface: #ffffff; --surface-2: #f8f7f5; --sunken: #ebe8e5;
+  --ink: #3d3b3a; --ink-2: #55514e; --ink-3: #6b6662;
+  --line: #e2dfdc; --line-2: #eeebe8;
+  --accent: #3d3b3a; --accent-soft: #efeeec; --accent-ink: #3d3b3a; --on-accent: #ffffff;
   --good: #0f7455; --good-soft: #dcefe5; --good-bar: #2aa17f;
   --warn: #8f4c07; --warn-soft: #f9e6d3; --warn-bar: #e0a030;
   --bad: #b62a45; --bad-soft: #f7dde1; --bad-bar: #d9475f;
-  --meta: #3b6fd8; --meta-soft: #dce9fb; --today: #e3f1ee;
-  --hero: #ffffff; --hero-2: #f4f7f7; --hero-3: #e5ecec; --hero-ink: #3d3b3a;
-  --hero-muted: #5c6b6b; --hero-line: #d5dfdf; --hero-series: #176b64;
+  --meta: #3b6fd8; --meta-soft: #dce9fb; --today: #efeeec;
+  --hero: #ffffff; --hero-2: #f8f7f5; --hero-3: #ebe8e5; --hero-ink: #3d3b3a;
+  --hero-muted: #6b6662; --hero-line: #e2dfdc; --hero-series: #3d3b3a;
   box-sizing: border-box;
   width: min(100%, 96rem);
   margin-inline: auto;

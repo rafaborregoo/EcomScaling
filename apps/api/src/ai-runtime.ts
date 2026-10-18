@@ -2,13 +2,13 @@ import crypto from "node:crypto";
 import { loadDisabledAgents } from "./ai-agent-groups.js";
 import { rejectToolInputWithReceipt } from "./agent-tool-input-receipt.js";
 import { createCopilotAnswerStream } from "./copilot-answer-stream.js";
+import { redactConsultantOnly } from "./calls.js";
 import { copilotEvidenceReferenceSchema, parseLifetimeRows, type CopilotEvidenceReference } from "@e-nora/contracts";
 import { resolveCopilotEvidenceReference } from "./copilot-evidence.js";
 import type { Json } from "@e-nora/db";
 import { z } from "zod";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { hasAssignedConsultant } from "./client-autonomy.js";
 import {
   appendMonthlyInitiativeDetails,
   appendWeeklyDeliveryDetails,
@@ -51,7 +51,7 @@ import { audienceWithMethodology, keepAllowedKnowledgeRows } from "./knowledge-m
 import { caminoSeasonality, type MonthlySalesRow } from "./camino-seasonality.js";
 import { scalingEconomics } from "./camino-scaling.js";
 import { insertEventMilestones, keyEvents, uncoveredEvents } from "./camino-event-coverage.js";
-import { carrierLeadTimes, commercialCalendar, shippingCutoffs, type CarrierDeliveryRow, type CommercialEvent } from "./commercial-calendar.js";
+import { carrierLeadTimes, commercialCalendar, shippingCutoffs, type CarrierDeliveryRow, type CommercialEvent, type Market } from "./commercial-calendar.js";
 import { detailTargets, detailerBrief, mergeDetailedTasks, type CaminoTask } from "./camino-task-detailer.js";
 import { beginCaminoRun, caminoRunKey, finishCaminoRun, getCaminoRun } from "./camino-run-tracker.js";
 import {
@@ -79,8 +79,9 @@ import {
   hasOpenStockTaskForProduct,
 } from "./stock-risk-evidence.js";
 import { buildDeliveryComparisonWindows } from "./shopify-delivery-comparison.js";
-import { resolveShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
+import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
 import { loadCurrencyContext } from "./fx-rates.js";
+import { zoneNotesForContext } from "./zone-notes.js";
 
 // Monedas: el bloque dice en que moneda esta cada fuente y trae el tipo BCE
 // para convertir. Antes no habia conversion y el copiloto llenaba cada
@@ -197,6 +198,7 @@ import {
   getToolDefinition,
   normalizeToolConnectorId,
   type AgentInput,
+  type AgentOutput,
   type AgentJudgeResult,
   type PlatformAgentInput,
   type AgentTurnInput,
@@ -231,7 +233,7 @@ import type {
   MetricAnalysis,
 } from "@e-nora/contracts";
 import { INTEGRATION_CATALOG } from "@e-nora/integrations";
-import { resolveCampaignPlanWindow } from "./campaign-plan-window.js";
+import { localCampaignDateTimeToUtc, resolveCampaignPlanWindow } from "./campaign-plan-window.js";
 import { resolveCampaignPlanStoreScope } from "./campaign-plan-store-scope.js";
 import { createLogger, sanitizeForTelemetry } from "@e-nora/observability";
 import {
@@ -552,6 +554,7 @@ const AGENT_TASK_CATEGORY: Record<
 
 const SHOPIFY_FINANCIAL_AGENT_CODES = new Set([
   "a02_monitor_negocio",
+  "a05_estrategia_campanas",
   "a13_operativa_shopify",
   "a17_plan_semanal",
   "a18_plan_mensual",
@@ -1857,6 +1860,8 @@ export function buildAgentTools(
   // anada una llamada.
   authorization?: {
     actorUserId: string;
+    actorContext?: AuthContext;
+    bearerAuthorization?: string | undefined;
     approvalMode: ToolContext["approval_mode"];
     onReportGenerated?: (artifact: GeneratedReportArtifact) => void;
   },
@@ -1871,6 +1876,8 @@ export function buildAgentTools(
   securityEvents: AgentSecurityEvent[];
 } {
   const preparedReportPreviews = new Set<string>();
+  const generatedReports = new Map<string, unknown>();
+  const mayReadInternalWork = knowledgeAudience.includes("consultant_only");
   const requestedToolNames = Array.isArray(rawAllowedTools)
     ? (rawAllowedTools as unknown[]).filter(
         (name): name is string => typeof name === "string",
@@ -2095,7 +2102,28 @@ export function buildAgentTools(
       name: toolName,
       description,
       inputSchema:
-        toolName === "meta_creative_diagnostics"
+        toolName === "get_campaign_calendar"
+          ? {
+              type: "object",
+              properties: { year: { type: "integer", minimum: 2020, maximum: 2100 } },
+              additionalProperties: false,
+            }
+        : toolName === "get_consultant_workbench"
+          ? {
+              type: "object",
+              properties: { days: { type: "integer", enum: [7, 30, 90] } },
+              additionalProperties: false,
+            }
+        : toolName === "get_task_detail" || toolName === "get_call_detail"
+          ? {
+              type: "object",
+              properties: {
+                [toolName === "get_task_detail" ? "task_id" : "call_id"]: { type: "string", format: "uuid" },
+              },
+              required: [toolName === "get_task_detail" ? "task_id" : "call_id"],
+              additionalProperties: false,
+            }
+        : toolName === "meta_creative_diagnostics"
           ? {
               type: "object",
               properties: {
@@ -2106,14 +2134,14 @@ export function buildAgentTools(
               required: ["ad_id", "period_start", "period_end"],
               additionalProperties: false,
             }
-          : toolName === "meta_change_log"
+          : ["meta_change_log", "meta_spend_detail"].includes(toolName)
             ? {
                 type: "object",
                 properties: {
                   period_start: { type: "string", format: "date" },
                   period_end: { type: "string", format: "date" },
                 },
-                required: ["period_start", "period_end"],
+                ...(toolName === "meta_change_log" ? { required: ["period_start", "period_end"] } : {}),
                 additionalProperties: false,
               }
             : toolName === "get_shopify_product_catalog"
@@ -2395,6 +2423,9 @@ export function buildAgentTools(
         if (parsedInput.data.preview && parsedInput.data.analysis) {
           return fail({ error: "report_preview_cannot_include_analysis", why: "El preview solo prepara cifras; la lectura se añade después de revisar las métricas.", how_to_fix: "Llama primero con preview=true y sin analysis." });
         }
+        if (!parsedInput.data.preview && generatedReports.has(previewKey)) {
+          return generatedReports.get(previewKey);
+        }
         if (!parsedInput.data.preview && !preparedReportPreviews.has(previewKey)) {
           return fail({ error: "report_preview_required", why: "No existe una vista previa de esta plantilla, tienda y periodo en el turno actual.", how_to_fix: "Genera y revisa preview=true con las mismas fechas antes de crear el PDF." });
         }
@@ -2465,6 +2496,7 @@ export function buildAgentTools(
         }, false, Date.now() - started);
         const validatedOutput = validateToolOutput("generate_report", output);
         if (validatedOutput.ok) {
+          generatedReports.set(previewKey, validatedOutput.data);
           authorization?.onReportGenerated?.({
             report_id: output.report_id,
             template_id: output.template_id,
@@ -4032,7 +4064,7 @@ export function buildAgentTools(
           "id, name, description, goal, horizon_months, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, strategic_plan_milestones(id, name, description, success_criteria, position, status, target_date, completed_at))",
         )
         .eq("organization_id", organizationId)
-        .neq("status", "archived");
+        .eq("status", "active");
       query = storeId ? query.eq("store_id", storeId) : query.is("store_id", null);
       return query
         .order("version", { ascending: false })
@@ -4045,7 +4077,7 @@ export function buildAgentTools(
     "get_current_milestone",
     TOOL_DESCRIPTIONS.get_current_milestone,
     async (client) => {
-      const milestoneId = await findCurrentMilestoneId(client, organizationId);
+      const milestoneId = await findCurrentMilestoneId(client, organizationId, storeId);
       if (!milestoneId) return { data: null, error: null };
       return client
         .from("strategic_plan_milestones")
@@ -4066,13 +4098,16 @@ export function buildAgentTools(
         typeof input.cursor === "string"
           ? Number(input.cursor.slice("offset:".length))
           : 0;
-      return client
+      let query = client
         .from("tasks")
         .select(
-          "id, title, description, status, priority, due_at, categories, source, is_visible_to_client, created_at, updated_at",
+          "id, store_id, title, description, status, priority, due_at, categories, source, is_visible_to_client, created_at, updated_at",
         )
         .eq("organization_id", organizationId)
-        .in("status", ["pending", "in_progress"])
+        .in("status", ["pending", "in_progress"]);
+      if (storeId) query = query.eq("store_id", storeId);
+      if (!mayReadInternalWork) query = query.eq("is_visible_to_client", true);
+      return query
         .order("due_at", { ascending: true, nullsFirst: false })
         .range(offset, offset + limit);
     },
@@ -4110,14 +4145,31 @@ export function buildAgentTools(
         typeof input.cursor === "string"
           ? Number(input.cursor.slice("offset:".length))
           : 0;
-      return client
+      let query = client
         .from("tasks")
         .select(
-          "id, title, description, status, priority, due_at, categories, source, is_visible_to_client, created_at, updated_at, completed_at",
+          "id, store_id, title, description, status, priority, due_at, categories, source, is_visible_to_client, created_at, updated_at, completed_at",
         )
-        .eq("organization_id", organizationId)
+        .eq("organization_id", organizationId);
+      if (storeId) query = query.eq("store_id", storeId);
+      if (!mayReadInternalWork) query = query.eq("is_visible_to_client", true);
+      return query
         .order("updated_at", { ascending: false })
         .range(offset, offset + limit);
+    },
+  );
+
+  registerScopedReadTool(
+    "get_task_detail",
+    TOOL_DESCRIPTIONS.get_task_detail,
+    async (client, input) => {
+      let query = client.from("tasks")
+        .select("id, organization_id, store_id, title, description, status, priority, due_at, categories, source, assigned_to, is_visible_to_client, created_at, updated_at, completed_at")
+        .eq("organization_id", organizationId)
+        .eq("id", String(input.task_id));
+      if (storeId) query = query.eq("store_id", storeId);
+      if (!mayReadInternalWork) query = query.eq("is_visible_to_client", true);
+      return query.maybeSingle();
     },
   );
 
@@ -4125,21 +4177,123 @@ export function buildAgentTools(
     "get_call_history",
     TOOL_DESCRIPTIONS.get_call_history,
     async (client, input) => {
+      if (storeId) {
+        return { data: null, error: { message: "Las llamadas no tienen ámbito de tienda; selecciona la vista de organización." } };
+      }
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
       const offset =
         typeof input.cursor === "string"
           ? Number(input.cursor.slice("offset:".length))
           : 0;
-      return client
+      let query = client
         .from("consulting_calls")
         .select(
           "id, title, call_type, status, scheduled_at, held_at, duration_minutes, recording_provider, is_visible_to_client, created_at",
         )
-        .eq("organization_id", organizationId)
+        .eq("organization_id", organizationId);
+      if (!mayReadInternalWork) query = query.eq("is_visible_to_client", true);
+      return query
         .order("created_at", { ascending: false })
         .range(offset, offset + limit);
     },
   );
+
+  registerScopedReadTool(
+    "get_call_detail",
+    TOOL_DESCRIPTIONS.get_call_detail,
+    async (client, input) => {
+      if (storeId) {
+        return { data: null, error: { message: "Las llamadas no tienen ámbito de tienda; selecciona la vista de organización." } };
+      }
+      let query = client.from("consulting_calls")
+        .select("id, title, call_type, status, scheduled_at, held_at, duration_minutes, is_visible_to_client, created_at")
+        .eq("organization_id", organizationId)
+        .eq("id", String(input.call_id));
+      if (!mayReadInternalWork) query = query.eq("is_visible_to_client", true);
+      const { data: call, error: callError } = await query.maybeSingle();
+      if (callError || !call) return { data: null, error: callError };
+      let summaryQuery = client.from("call_ai_summaries")
+        .select("id, summary, key_points, agreed_actions, status, published_at, updated_at")
+        .eq("organization_id", organizationId)
+        .eq("call_id", call.id);
+      if (!mayReadInternalWork) summaryQuery = summaryQuery.eq("status", "published");
+      const { data: summary, error: summaryError } = await summaryQuery
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return summaryError
+        ? { data: null, error: summaryError }
+        : {
+            data: {
+              call,
+              summary: summary && !mayReadInternalWork
+                ? { ...summary, key_points: redactConsultantOnly(summary.key_points) }
+                : summary ?? null,
+            },
+            error: null,
+          };
+    },
+  );
+
+  if (authorization?.actorContext) {
+    registerScopedReadTool(
+      "get_campaign_calendar",
+      TOOL_DESCRIPTIONS.get_campaign_calendar,
+      async (_client, input) => {
+        const { listCampaignPlanning } = await import("./campaign-planning.js");
+        const result = await listCampaignPlanning(
+          env,
+          authorization.actorContext!,
+          organizationId,
+          { year: typeof input.year === "number" ? input.year : new Date().getUTCFullYear(), storeId },
+        );
+        if (!result.ok) return { data: null, error: { message: result.error } };
+        return {
+          data: {
+            calendars: result.data.calendars.slice(0, 30),
+            items: result.data.items.slice(0, 100),
+            truncated: result.data.calendars.length > 30 || result.data.items.length > 100,
+            year: typeof input.year === "number" ? input.year : new Date().getUTCFullYear(),
+            store_id: storeId,
+          },
+          error: null,
+        };
+      },
+    );
+  }
+
+  if (
+    authorization?.actorContext &&
+    authorization.bearerAuthorization?.startsWith("Bearer ") &&
+    ["consultant", "platform_admin"].includes(authorization.actorContext.profile.platform_role)
+  ) {
+    registerScopedReadTool(
+      "get_consultant_workbench",
+      TOOL_DESCRIPTIONS.get_consultant_workbench,
+      async (_client, input) => {
+        const { getDailyWorkbench } = await import("./consultant-workbench-api.js");
+        const result = await getDailyWorkbench(
+          env,
+          authorization.bearerAuthorization!,
+          authorization.actorContext!,
+          { days: typeof input.days === "number" ? input.days : 7 },
+        );
+        if (!result.ok) return { data: null, error: { message: result.error } };
+        const data = result.data;
+        return {
+          data: {
+            summary: data.summary,
+            actions: data.actions.slice(0, 50),
+            portfolio: data.portfolio.slice(0, 50),
+            upcoming: data.upcoming.slice(0, 30),
+            sources: data.sources,
+            window_days: data.window_days,
+            generated_at: data.generated_at,
+            truncated: data.actions.length > 50 || data.portfolio.length > 50 || data.upcoming.length > 30,
+          },
+          error: null,
+        };
+      },
+    );
+  }
 
   registerScopedReadTool(
     "get_financial_settings",
@@ -5015,24 +5169,30 @@ async function loadPriorProposalHistory(
   storeId: string | null,
   limit = 8,
 ): Promise<Array<{ label: string; data: unknown }>> {
-  const { data } = await supabase
+  let historyQuery = supabase
     .from("agent_outputs")
     .select(
       "status, created_at, output, agent_runs!inner(store_id, agent_versions!inner(agent_definitions!inner(code)))",
     )
     .eq("organization_id", organizationId)
-    .eq("agent_runs.agent_versions.agent_definitions.code", agentCode)
+    .eq("agent_runs.agent_versions.agent_definitions.code", agentCode);
+  historyQuery = storeId === null
+    ? historyQuery.is("agent_runs.store_id", null)
+    : historyQuery.eq("agent_runs.store_id", storeId);
+  const { data, error } = await historyQuery
     .order("created_at", { ascending: false })
     .limit(limit);
 
+  if (error) {
+    return [{
+      label: "Historial de propuestas no disponible; no asumir que no existen propuestas previas",
+      data: { status: "unavailable", reason: "query_error" },
+    }];
+  }
+
   // Mismo criterio de scope que getCachedDiagnostic: un run de "todas las
   // tiendas" (store_id null) y uno de una tienda concreta no se mezclan.
-  const scoped = (data ?? []).filter((row) => {
-    const runStoreId =
-      (row.agent_runs as unknown as { store_id: string | null } | null)
-        ?.store_id ?? null;
-    return runStoreId === storeId;
-  });
+  const scoped = data ?? [];
 
   if (scoped.length === 0) {
     return [];
@@ -5072,14 +5232,17 @@ async function loadPriorProposalHistory(
                 )
                 .filter((title): title is string => typeof title === "string")
             : [],
-          proposals: rawProposals.flatMap((proposal) => {
+          proposals: rawProposals.flatMap((proposal, index) => {
             if (typeof proposal !== "object" || proposal === null) return [];
             const item = proposal as Record<string, unknown>;
+            const decisions = Array.isArray(output.proposal_decisions) ? output.proposal_decisions : [];
+            const decision = decisions.find((candidate) => candidate && typeof candidate === "object" && (candidate as Record<string, unknown>).index === index) as Record<string, unknown> | undefined;
             return [
               {
-                title: typeof item.title === "string" ? item.title : "",
-                priority:
-                  typeof item.priority === "string" ? item.priority : "",
+                title: typeof decision?.title === "string" ? decision.title : typeof item.title === "string" ? item.title : "",
+                priority: typeof decision?.priority === "string" ? decision.priority : typeof item.priority === "string" ? item.priority : "",
+                status: typeof decision?.status === "string" ? decision.status : row.status,
+                task_id: typeof decision?.task_id === "string" ? decision.task_id : null,
               },
             ];
           }),
@@ -5143,6 +5306,8 @@ export type DiagnosticRunOptions = {
   trigger?: "manual" | "cron";
   enforceManualRefreshCap?: boolean;
   contextProfile?: "full" | "shopify" | "meta" | "klaviyo" | "panel";
+  activityDigest?: string | null;
+  manualRequestKey?: string | null;
 };
 
 type DiagnosticContextBlock = { label: string; data: unknown };
@@ -5157,6 +5322,8 @@ const DEFAULT_DIAGNOSTIC_RUN_OPTIONS: Required<DiagnosticRunOptions> = {
   trigger: "manual",
   enforceManualRefreshCap: true,
   contextProfile: "full",
+  activityDigest: null,
+  manualRequestKey: null,
 };
 
 // Durante las pruebas cada agente puede regenerarse hasta 1000 veces por día
@@ -5201,6 +5368,8 @@ async function assertManualRefreshQuota(
   // A02: el tope se cuenta por vista (overview, shopify, meta, klaviyo, panel)
   // y tienda, para que una pestaña no gaste el cupo de otra.
   view?: { tag: string; storeId: string | null },
+  reservationRunId?: string,
+  requestKey?: string | null,
 ): Promise<
   | { ok: true }
   | { ok: false; statusCode: number; error: string; message: string }
@@ -5240,6 +5409,32 @@ async function assertManualRefreshQuota(
 
   const cap =
     setting?.daily_manual_refresh_limit ?? defaultManualRefreshLimit(agentCode);
+  if (["a04_generador_tareas", "a05_estrategia_campanas", "a06_planificador_stock", "a08_gestor_conocimiento"].includes(agentCode) && reservationRunId) {
+    const agentLabel = agentCode === "a05_estrategia_campanas" ? "A05" : agentCode === "a06_planificador_stock" ? "A06" : agentCode === "a08_gestor_conocimiento" ? "A08" : "A04";
+    const scopedRequestKey = agentCode === "a06_planificador_stock" && requestKey
+      ? `${requestKey}:${view?.storeId ?? "all"}`
+      : requestKey ?? null;
+    const { data: reserved, error: reservationError } = await (supabase as any).rpc(
+      "reserve_agent_manual_refresh",
+      {
+        p_run_id: reservationRunId,
+        p_organization_id: organizationId,
+        p_agent_code: agentCode,
+        p_daily_limit: cap,
+        p_request_key: scopedRequestKey,
+      },
+    );
+    if (reservationError) {
+      return { ok: false, statusCode: 503, error: "manual_refresh_quota_unavailable", message: `No se pudo reservar el cupo manual de ${agentLabel}.` };
+    }
+    if (reserved === "duplicate") {
+      return { ok: false, statusCode: 409, error: "manual_refresh_request_already_seen", message: `Esta petición de ${agentLabel} ya se recibió; consulta la ejecución existente antes de reintentarla.` };
+    }
+    if (reserved !== "reserved") {
+      return { ok: false, statusCode: 429, error: "manual_refresh_quota_exceeded", message: `${agentLabel} ha alcanzado su límite diario de ejecuciones manuales.` };
+    }
+    return { ok: true };
+  }
   const versionIds = (versions ?? []).map(
     (version: { id: string }) => version.id,
   );
@@ -5448,7 +5643,7 @@ export async function setAdminAiAgentRefreshLimit(
  * agente dejaria de escribirlo y la UI se quedaria en blanco.
  */
 const LEAN_OUTPUT_BY_AGENT: Record<string, readonly OmittableOutputField[]> = {
-  a04_generador_tareas: ["answer", "findings", "recommendations"],
+  a04_generador_tareas: ["findings", "recommendations"],
   a17_plan_semanal: ["answer", "findings", "recommendations"],
   a18_plan_mensual: ["answer", "findings", "recommendations"],
   a13_operativa_shopify: ["answer", "findings", "recommendations"],
@@ -5467,9 +5662,26 @@ function leanOutputContractFor(agentCode: string, contextBlocks: unknown) {
       metaMeasurementStatusFromContext(contextBlocks),
     );
   }
-  if (agentCode === "a29_analista_metrica") return buildReadOnlyOutputContract();
+  if (agentCode === "a29_analista_metrica" || agentCode === "a08_gestor_conocimiento") return buildReadOnlyOutputContract();
   const omit = LEAN_OUTPUT_BY_AGENT[agentCode];
   return omit ? buildLeanOutputContract(omit) : null;
+}
+
+function constrainA04Output(contract: OutputContract<AgentOutput>): OutputContract<AgentOutput> {
+  const jsonSchema = structuredClone(contract.jsonSchema) as {
+    properties?: Record<string, Record<string, unknown>>;
+  };
+  if (jsonSchema.properties?.proposed_writes) {
+    jsonSchema.properties.proposed_writes.maxItems = 5;
+  }
+  return {
+    jsonSchema: jsonSchema as Record<string, unknown>,
+    schema: contract.schema.superRefine((output, ctx) => {
+      if (output.proposed_writes.length > 5) {
+        ctx.addIssue({ code: "custom", path: ["proposed_writes"], message: "A04 permite como máximo cinco propuestas por ejecución." });
+      }
+    }) as z.ZodType<AgentOutput>,
+  };
 }
 
 async function runGenericDiagnosticAgent(
@@ -5484,6 +5696,7 @@ async function runGenericDiagnosticAgent(
   buildContextBlocks: (
     supabase: SupabaseClient,
     runId: string,
+    sharedCurrencyCoverage?: ShopifyFinancialCurrencyCoverage | null,
   ) => Promise<DiagnosticContextBuildResult>,
   runOptions: DiagnosticRunOptions = {},
   // Agentes cuya salida NO es el contrato generico de diagnostico
@@ -5611,6 +5824,8 @@ async function runGenericDiagnosticAgent(
     };
   }
 
+  const runId = crypto.randomUUID();
+
   if (enforceManualRefreshCap) {
     const viewTag =
       agentCode === "a02_monitor_negocio"
@@ -5618,12 +5833,19 @@ async function runGenericDiagnosticAgent(
         : agentCode === "a29_analista_metrica"
           ? objective.match(/\[metric=\w+\]/)?.[0]
           : undefined;
+    const quotaScope = viewTag
+      ? { tag: viewTag, storeId }
+      : agentCode === "a06_planificador_stock"
+        ? { tag: "a06", storeId }
+        : undefined;
     const quotaCheck = await assertManualRefreshQuota(
       supabase,
       organizationId,
       agentCode,
       agentVersion.definition_id,
-      viewTag ? { tag: viewTag, storeId } : undefined,
+      quotaScope,
+      runId,
+      runOptions.manualRequestKey,
     );
     if (quotaCheck.ok === false) {
       return quotaCheck;
@@ -5646,7 +5868,6 @@ async function runGenericDiagnosticAgent(
     };
   }
 
-  const runId = crypto.randomUUID();
   const connectedConnectors = await loadConnectedConnectorIds(
     supabase,
     organizationId,
@@ -5717,6 +5938,9 @@ async function runGenericDiagnosticAgent(
     lookback_days: lookbackDays,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
     ...agentRunTraceFields(env, runId, runBudget),
+    ...(agentCode === "a04_generador_tareas" && runOptions.activityDigest
+      ? { activity_digest: runOptions.activityDigest }
+      : {}),
   });
 
   if (runInsertError) {
@@ -5745,28 +5969,40 @@ async function runGenericDiagnosticAgent(
           agentCode,
           storeId,
         );
-    const builtContext = await buildContextBlocks(supabase, runId);
+    const needsShopifyCurrencyCoverage =
+      agentCode === "a02_monitor_negocio"
+        ? contextProfile === "full" || contextProfile === "shopify" || contextProfile === "panel"
+        : SHOPIFY_FINANCIAL_AGENT_CODES.has(agentCode) || AGENT_TASK_CATEGORY[agentCode] === "shopify";
+    const sharedCurrencyCoverage = needsShopifyCurrencyCoverage
+      ? await resolveShopifyFinancialCurrencyCoverage(supabase, organizationId, storeId).catch(() => null)
+      : null;
+    const builtContext = await buildContextBlocks(supabase, runId, sharedCurrencyCoverage);
+    if (agentCode === "a08_gestor_conocimiento") {
+      const { data: knowledgeDigest, error: knowledgeDigestError } = await (supabase as any).rpc(
+        "organization_knowledge_digest",
+        { target_organization_id: organizationId },
+      );
+      const { error: saveDigestError } = await supabase.from("agent_runs")
+        .update({ activity_digest: knowledgeDigestError ? null : typeof knowledgeDigest === "string" ? knowledgeDigest : null })
+        .eq("id", runId).eq("organization_id", organizationId);
+      if (knowledgeDigestError || saveDigestError) {
+        logger.info("a08_knowledge_digest_snapshot_incomplete", {
+          organization_id: organizationId,
+          run_id: runId,
+          error: knowledgeDigestError?.message ?? saveDigestError?.message,
+        });
+      }
+    }
     const baseContextBlocks = Array.isArray(builtContext)
       ? builtContext
       : builtContext.blocks;
     const visionImages = Array.isArray(builtContext)
       ? []
       : (builtContext.images ?? []);
-    const needsShopifyCurrencyCoverage =
-      agentCode === "a02_monitor_negocio"
-        ? contextProfile === "full" ||
-          contextProfile === "shopify" ||
-          contextProfile === "panel"
-        : SHOPIFY_FINANCIAL_AGENT_CODES.has(agentCode) ||
-          AGENT_TASK_CATEGORY[agentCode] === "shopify";
     const shopifyCurrencyCoverageBlock = needsShopifyCurrencyCoverage
       ? {
           label: "Cobertura de moneda de los cálculos Shopify",
-          data: await resolveShopifyFinancialCurrencyCoverage(
-            supabase,
-            organizationId,
-            storeId,
-          ).catch(() => ({
+          data: sharedCurrencyCoverage ?? ({
             status: "unknown" as const,
             currency_code: null,
             store_scope: "unavailable" as const,
@@ -5775,7 +6011,7 @@ async function runGenericDiagnosticAgent(
             mismatched_sources: [],
             unknown_sources: ["comprobación de moneda"],
             as_of: new Date().toISOString(),
-          })),
+          }),
         }
       : null;
     const currencyContext = needsShopifyCurrencyCoverage
@@ -5788,14 +6024,20 @@ async function runGenericDiagnosticAgent(
       ...(isScopedMonitor
         ? []
         : [await loadConsultantAssignmentBlock(supabase, organizationId)]),
-      ...priorProposalBlocks,
-      ...(isExecutiveMonitor
+      ...(agentCode === "a08_gestor_conocimiento" ? [] : priorProposalBlocks),
+      ...(isExecutiveMonitor || agentCode === "a08_gestor_conocimiento"
         ? []
         : await loadSharedActivityBlocks(supabase, organizationId, storeId)),
       ...constraintBlocks,
-      ...(isExecutiveMonitor
+      ...(isExecutiveMonitor || agentCode === "a08_gestor_conocimiento"
         ? []
-        : (await loadDecisionPlaybookContextBlocks(supabase, organizationId)).filter(
+        : (await loadDecisionPlaybookContextBlocks(
+            supabase,
+            organizationId,
+            agentCode === "a04_generador_tareas"
+              ? { includeLearning: false, includeExecutiveDiagnosis: false }
+              : undefined,
+          )).filter(
             (block) =>
               // A04 decide lo de hoy y A06 el stock: el aprendizaje continuo (F9,
               // ~31-37k caracteres) y el diagnostico ejecutivo (F11) desbordan el
@@ -5808,13 +6050,32 @@ async function runGenericDiagnosticAgent(
           )),
     ];
     const contextDuration = Date.now() - contextStart;
+    if (agentCode === "a04_generador_tareas" && trigger === "cron") {
+      const { data: contextDigest, error: contextDigestError } = await supabase.rpc(
+        "organization_activity_digest",
+        { target_organization_id: organizationId },
+      );
+      const { error: digestSaveError } = await supabase.from("agent_runs")
+        .update({ activity_digest: contextDigestError ? null : typeof contextDigest === "string" ? contextDigest : null })
+        .eq("id", runId).eq("organization_id", organizationId);
+      if (contextDigestError || digestSaveError) {
+        logger.info("a04_activity_digest_snapshot_incomplete", {
+          organization_id: organizationId,
+          run_id: runId,
+          error: contextDigestError?.message ?? digestSaveError?.message,
+        });
+      }
+    }
 
-    await supabase.from("agent_context_snapshots").insert({
+    const { error: snapshotError } = await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: organizationId,
       context_level: "C2",
       snapshot: { blocks: contextBlocks, period: input.time_range },
     });
+    if (snapshotError) {
+      throw new Error(`agent_context_snapshot_persist_failed: ${snapshotError.message}`);
+    }
 
     await recordStep(
       supabase,
@@ -5827,8 +6088,11 @@ async function runGenericDiagnosticAgent(
       contextDuration,
     );
 
-    const leanContract =
+    const baseLeanContract =
       outputContractOverride ?? leanOutputContractFor(agentCode, contextBlocks);
+    const leanContract = agentCode === "a04_generador_tareas" && baseLeanContract
+      ? constrainA04Output(baseLeanContract as OutputContract<AgentOutput>)
+      : baseLeanContract;
     const imageReviewGuidance =
       agentCode === "a23_creatividad_meta" && visionImages.length > 0
         ? "\n\nREVISION VISUAL A23: las imágenes adjuntas proceden del banco privado y están vinculadas a anuncios Meta enumerados en el bloque de cobertura visual. Describe solo rasgos observables (formato, encuadre, jerarquía, legibilidad aparente, contraste, producto, oferta y CTA); las imágenes son evidencia de diseño, no de rendimiento. Comprueba el estado de asignación temporal por anuncio: current_snapshot_only o asignaciones múltiples/parciales impiden asociar esa imagen a todo el periodo. No infieras resultados, intención, audiencia ni causalidad desde la imagen. Si no hay imagen adjunta, no afirmes haber inspeccionado la creatividad."
@@ -5851,7 +6115,7 @@ async function runGenericDiagnosticAgent(
         ? `\n\nALCANCE DE ESTE A02: este resultado pertenece exclusivamente al dashboard ${contextProfile}. Usa solo las métricas incluidas en su contexto y genera secciones de esa área. No completes con datos de otras áreas ni repitas un resumen ejecutivo general. Si faltan métricas de esta área, explica la limitación y no fabriques una conclusión.`
         : "";
     const stockForecastGuidance = agentCode === "a06_planificador_stock"
-      ? "\n\nPREVISION DE DEMANDA A06: demand_forecast es la linea base reciente (hasta 12 semanas), no incluye campañas ni estacionalidad. weekly_units_last_52 aporta el historial para contrastar el mismo periodo/evento del año anterior cuando haya suficientes semanas. El contexto puede incluir eventos comerciales estándar y campañas propias planificadas, con fechas, alcance y descuento si se configuraron. Para Black Friday, Snow Day u otra campaña, vincula una previsión a un producto solo si hay ventas históricas comparables para ese producto y periodo; declara por separado la línea base y el ajuste respaldado por datos. Un descuento anunciado del 50% no demuestra por sí solo un aumento de demanda: sin ventas comparables o elasticidad medida, muestra el escenario como no cuantificable y no inventes unidades. No trates eventos estándar como campañas confirmadas por la tienda. Usa coverageDays solo si inventory_status es tracked_current, la lectura tiene menos de 48 horas y available_quantity está disponible. Las señales high/watch son prioridades de revisión, no fechas garantizadas de rotura. No inventes plazos de proveedor, stock de seguridad ni cantidades de compra. Recomienda una tarea de revisión/reposición unicamente cuando la evidencia sea suficiente y no exista ya una tarea abierta para ese producto."
+      ? "\n\nPREVISION DE DEMANDA A06: demand_forecast es una linea base reciente de hasta doce semanas completas, no incluye campañas ni estacionalidad. weekly_units_last_12 solo aparece si la cobertura de esas doce semanas es completa; si weekly_demand_coverage es incomplete o unavailable, abstente de cuantificar la demanda futura. Las semanas ausentes son desconocidas, no cero. product_count es el total elegible y truncated indica que solo se muestra la muestra priorizada; no afirmes que cubre todo el catalogo. Los SKU agregados ayudan a identificar el producto, pero no demuestran riesgo de una variante o ubicacion concreta. Usa fechas y mercados solo cuando vengan de la configuracion de tienda; separa eventos de referencia de campañas confirmadas. Sin ventas comparables disponibles, el efecto de campaña no se puede cuantificar y no inventes unidades. Usa cobertura solo con inventario completo, reciente y cantidad disponible. Las señales de riesgo priorizan una revision, no garantizan fechas de rotura. No inventes plazos de proveedor, stock de seguridad, pedidos en transito ni cantidades de compra. Propón tareas solo con evidencia suficiente y un producto vinculado."
       : "";
     const turn = await runAgentTurnWithFallback(
       env,
@@ -5986,10 +6250,13 @@ async function runGenericDiagnosticAgent(
       }
     }
 
-    await supabase
+    const { error: completionError } = await supabase
       .from("agent_runs")
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
+    if (completionError) {
+      throw new Error(`agent_run_completion_persist_failed: ${completionError.message}`);
+    }
     await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(agentCode, "succeeded", turn.estimatedCostUsd);
@@ -6074,6 +6341,43 @@ async function resolveStoreScope(
   }
 
   return { storeId: store.id, storeLabel: `la tienda "${store.shop_name}"` };
+}
+
+async function resolveMonitorStoreScope(
+  supabase: SupabaseClient,
+  organizationId: string,
+  connectionId: string | null | undefined,
+): Promise<
+  | { ok: true; storeId: string | null; storeLabel: string }
+  | { ok: false; statusCode: number; error: string; message: string }
+> {
+  if (!connectionId) {
+    return { ok: true, storeId: null, storeLabel: "todas las tiendas de la organizacion" };
+  }
+  const { data: store, error } = await supabase
+    .from("shopify_stores")
+    .select("id, shop_name")
+    .eq("organization_id", organizationId)
+    .eq("connection_id", connectionId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) {
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "monitor_store_scope_unavailable",
+      message: "No se pudo verificar la tienda seleccionada. Inténtalo de nuevo.",
+    };
+  }
+  if (!store) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "monitor_store_scope_not_found",
+      message: "La tienda seleccionada no está activa en esta organización.",
+    };
+  }
+  return { ok: true, storeId: store.id, storeLabel: `la tienda "${store.shop_name}"` };
 }
 
 async function resolveMarketingDiagnosticStoreScope(
@@ -6427,6 +6731,7 @@ async function getCachedDiagnostic(
     langsmith_tracing: resolveLangSmithRuntimeConfig(env).tracing,
   } as const;
 
+  const monitorScopeTag = `[dashboard_scope=${monitorScope}]`;
   let query = supabase
     .from("agent_runs")
     .select(
@@ -6441,10 +6746,15 @@ async function getCachedDiagnostic(
   // reusarse cuando el consultor tiene una tienda concreta seleccionada, y
   // viceversa (evita mezclar tiendas sin avisar en el diagnostico mostrado).
   query = storeId ? query.eq("store_id", storeId) : query.is("store_id", null);
+  if (agentCode === "a02_monitor_negocio") {
+    query = monitorScope === "overview"
+      ? query.or(`objective.like.%${monitorScopeTag}%,objective.not.like.%[dashboard_scope=%`)
+      : query.like("objective", `%${monitorScopeTag}%`);
+  }
 
   const { data: recentRuns, error: latestRunError } = await query
     .order("started_at", { ascending: false })
-    .limit(agentCode === "a02_monitor_negocio" || objectiveTag ? 25 : 1);
+    .limit(agentCode === "a02_monitor_negocio" ? 1 : objectiveTag ? 25 : 1);
 
   if (latestRunError) {
     return {
@@ -6457,13 +6767,7 @@ async function getCachedDiagnostic(
 
   const latestRun =
     agentCode === "a02_monitor_negocio"
-      ? (recentRuns ?? []).find((run) => {
-          const objective = String(run.objective ?? "");
-          return (
-            objective.includes(`[dashboard_scope=${monitorScope}]`) ||
-            (monitorScope === "overview" && !objective.includes("[dashboard_scope="))
-          );
-        }) ?? null
+      ? recentRuns?.[0] ?? null
       : objectiveTag
         ? (recentRuns ?? []).find((run) => String(run.objective ?? "").includes(objectiveTag)) ?? null
         : recentRuns?.[0] ?? null;
@@ -6472,9 +6776,10 @@ async function getCachedDiagnostic(
   // ultimo run, no se ha movido nada desde entonces. Si la RPC falla,
   // currentDigest queda null y solo mostramos la antiguedad del resultado.
   const { data: activityDigest } = latestRun
-    ? await supabase.rpc("organization_activity_digest", {
-        target_organization_id: organizationId,
-      })
+    ? await (supabase as any).rpc(
+        agentCode === "a08_gestor_conocimiento" ? "organization_knowledge_digest" : "organization_activity_digest",
+        { target_organization_id: organizationId },
+      )
     : { data: null };
   const currentDigest =
     typeof activityDigest === "string" ? activityDigest : null;
@@ -6485,19 +6790,19 @@ async function getCachedDiagnostic(
     (latestRun?.agent_outputs as unknown as Record<string, unknown> | null) ??
     null;
   const generatedAt = latestRun?.finished_at ?? latestRun?.started_at ?? null;
+  const staleAfterMs = agentCode === "a02_monitor_negocio"
+    ? monitorScope === "panel"
+      ? PANEL_MIN_RUN_AGE_MS
+      : MONITOR_CADENCES.find((cadence) => cadence.lookbackDays === lookbackDays)?.minRunAgeMs ?? DIAGNOSTIC_STALE_AFTER_MS
+    : agentCode === "a04_generador_tareas" || agentCode === "a06_planificador_stock" || agentCode === "a08_gestor_conocimiento"
+      ? orchestratorMinRunAgeFor(agentCode)
+      : DIAGNOSTIC_STALE_AFTER_MS;
   const cacheDecision = diagnosticCacheFreshness({
     generatedAt: generatedAt ? new Date(generatedAt as string).getTime() : null,
     storedDigest:
       (latestRun?.activity_digest as string | null | undefined) ?? null,
     currentDigest,
-    ...(agentCode === "a02_monitor_negocio"
-      ? {
-          staleAfterMs:
-            MONITOR_CADENCES.find(
-              (cadence) => cadence.lookbackDays === lookbackDays,
-            )?.minRunAgeMs ?? DIAGNOSTIC_STALE_AFTER_MS,
-        }
-      : {}),
+    staleAfterMs,
   });
 
   // GET es exclusivamente de lectura. La edad y el digest se exponen a la UI
@@ -6531,6 +6836,19 @@ async function getCachedDiagnostic(
           completedAt: latestRun.finished_at,
           fromCache: true,
           content,
+          ...(agentCode === "a02_monitor_negocio" || agentCode === "a04_generador_tareas" || agentCode === "a06_planificador_stock" || agentCode === "a08_gestor_conocimiento"
+            ? {
+                freshness: {
+                  status: cacheDecision.stale ? "stale" as const : "fresh" as const,
+                  reason: cacheDecision.noActivitySince
+                    ? "no_activity_since"
+                    : cacheDecision.stale
+                      ? "ttl_expired"
+                      : "diagnostic_ttl",
+                  validUntil: new Date(Date.parse(cachedGeneratedAt) + staleAfterMs).toISOString(),
+                },
+              }
+            : {}),
           ...(typeof output.status === "string"
             ? { outputStatus: output.status }
             : {}),
@@ -6546,7 +6864,7 @@ async function getCachedDiagnostic(
   }
 
   // Sin cache, informar si faltan datos o si el primer run esta pendiente.
-  // La primera generacion corresponde al cron o al boton manual, nunca a GET.
+  // La primera generacion corresponde al orquestador, nunca a GET.
   const { data: orgConnections } =
     agentCode === "a08_gestor_conocimiento"
       ? { data: null }
@@ -6589,8 +6907,8 @@ export const MONITOR_DASHBOARD_SCOPES = [
  * Alcances que solo lee el consultor. "panel" es la lectura de rentabilidad de
  * /panel: otro destinatario, otro tono y otro titular que los dashboards del
  * cliente, asi que tiene su propia ejecucion y su propia cache (la etiqueta
- * [dashboard_scope=panel] del objetivo) y NO entra en el cron de los alcances
- * del cliente: se genera con "Actualizar lectura" desde el panel.
+ * [dashboard_scope=panel] del objetivo) y se genera desde su ciclo automático
+ * independiente del dashboard del cliente.
  */
 export const CONSULTANT_MONITOR_SCOPES = ["panel"] as const;
 export type MonitorDashboardScope =
@@ -6625,12 +6943,11 @@ const MONITOR_SCOPE_CONSULTANT_ONLY = {
 
 /**
  * Ritmo de la lectura A02 del panel: la regenera el orquestador dos veces al
- * dia (su cron) y a mano rige el mismo tope que en los dashboards del cliente
- * (A02_MANUAL_REFRESH_DAILY_LIMIT). Mas no aporta: las cifras que lee cambian
- * al ritmo de las sincronizaciones, y cada pasada cuesta un turno de modelo.
+ * dia. No admite ejecuciones iniciadas por usuarios; conserva los presupuestos
+ * y controles de programación del orquestador.
  */
-/** Un poco menos de 12 h: el cron de 12 h no se salta una pasada por segundos de deriva. */
-export const PANEL_MIN_RUN_AGE_MS = 10 * 60 * 60 * 1000;
+/** El cron separa las pasadas 9 h; deja margen sin saltar la de tarde. */
+export const PANEL_MIN_RUN_AGE_MS = 8 * 60 * 60 * 1000;
 const PANEL_MAX_RUNS_PER_TICK = 20;
 const PANEL_OBJECTIVE_TAG = "[dashboard_scope=panel]";
 
@@ -6680,6 +6997,7 @@ export function buildAgentOutputEnvelope<
   fromCache,
   content,
   outputStatus,
+  freshness,
 }: {
   runId: string;
   agentCode: string;
@@ -6691,6 +7009,7 @@ export function buildAgentOutputEnvelope<
   fromCache: boolean;
   content: TContent;
   outputStatus?: string;
+  freshness?: AgentOutputEnvelope<TContent>["freshness"];
 }): AgentOutputEnvelope<TContent> {
   const rawSources = Array.isArray(content.sources) ? content.sources : [];
   const sources = rawSources.flatMap((source, index) => {
@@ -6759,9 +7078,13 @@ export function buildAgentOutputEnvelope<
     content.confidence === "low" || content.confidence === "high"
       ? content.confidence
       : "medium";
-  const validUntil = new Date(
-    new Date(generatedAt).getTime() + DIAGNOSTIC_STALE_AFTER_MS,
-  ).toISOString();
+  const resolvedFreshness = freshness ?? {
+    status: "fresh" as const,
+    reason: "diagnostic_ttl",
+    validUntil: new Date(
+      new Date(generatedAt).getTime() + DIAGNOSTIC_STALE_AFTER_MS,
+    ).toISOString(),
+  };
 
   return {
     run: {
@@ -6777,11 +7100,7 @@ export function buildAgentOutputEnvelope<
       organizationId,
       ...(storeId ? { storeId } : {}),
     },
-    freshness: {
-      status: fromCache ? "fresh" : "fresh",
-      reason: "diagnostic_ttl",
-      validUntil,
-    },
+    freshness: resolvedFreshness,
     quality: {
       confidence,
       groundedness:
@@ -6838,6 +7157,14 @@ export async function runMonitorAgent(
   dashboardScope: MonitorDashboardScope = "overview",
   runOptions?: DiagnosticRunOptions,
 ) {
+  if (runOptions?.trigger !== "cron") {
+    return {
+      ok: false as const,
+      statusCode: 410,
+      error: "monitor_manual_refresh_disabled",
+      message: "A02 solo se genera desde el ciclo automático.",
+    };
+  }
   if (!monitorScopeAllowedFor(dashboardScope, context.profile.platform_role)) {
     return MONITOR_SCOPE_CONSULTANT_ONLY;
   }
@@ -6847,11 +7174,32 @@ export async function runMonitorAgent(
     now.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
   );
   const supabaseForScope = createServiceClient(env);
-  const { storeId, storeLabel } = await resolveStoreScope(
+  const storeScope = await resolveMonitorStoreScope(
     supabaseForScope,
     organizationId,
     connectionId,
   );
+  if (!storeScope.ok) return storeScope;
+  const { storeId, storeLabel } = storeScope;
+  const allowedSectionKeys: Record<MonitorDashboardScope, readonly string[]> = {
+    overview: ["ventas", "finanzas", "stock", "meta", "klaviyo", "operativa", "integraciones"],
+    shopify: ["ventas", "finanzas", "stock", "operativa", "integraciones"],
+    meta: ["meta", "operativa", "integraciones"],
+    klaviyo: ["klaviyo", "operativa", "integraciones"],
+    panel: ["finanzas", "meta", "ventas"],
+  };
+  const scopedMonitorOutputSchema = monitorOutputSchema.superRefine((output, issueContext) => {
+    const seen = new Set<string>();
+    output.sections.forEach((section, index) => {
+      if (!allowedSectionKeys[dashboardScope].includes(section.key)) {
+        issueContext.addIssue({ code: "custom", path: ["sections", index, "key"], message: `Seccion no permitida para ${dashboardScope}` });
+      }
+      if (seen.has(section.key)) {
+        issueContext.addIssue({ code: "custom", path: ["sections", index, "key"], message: "Las claves de seccion deben ser unicas" });
+      }
+      seen.add(section.key);
+    });
+  });
 
   return runGenericDiagnosticAgent(
     env,
@@ -6864,36 +7212,48 @@ export async function runMonitorAgent(
     { start: periodStart.toISOString(), end: now.toISOString() },
     storeId,
     lookbackDays,
-    async (supabase) => {
-      const [sales, financial, stock, riskProducts, meta, alerts, klaviyo, currencyCoverage] =
+    async (supabase, _runId, sharedCurrencyCoverage) => {
+      const wantsShopify = dashboardScope === "overview" || dashboardScope === "shopify" || dashboardScope === "panel" || dashboardScope === "klaviyo";
+      const wantsFinancial = dashboardScope === "overview" || dashboardScope === "shopify" || dashboardScope === "panel";
+      const wantsStock = dashboardScope === "overview" || dashboardScope === "shopify";
+      const wantsMeta = dashboardScope === "overview" || dashboardScope === "meta" || dashboardScope === "panel";
+      const wantsAlerts = dashboardScope === "overview" || dashboardScope === "shopify" || dashboardScope === "panel";
+      const wantsKlaviyo = dashboardScope === "overview" || dashboardScope === "klaviyo";
+      const emptyQueryResult = { data: null, error: null };
+      let connectionsQuery = supabase
+        .from("integration_connections")
+        .select("provider, status, last_sync_at")
+        .eq("organization_id", organizationId);
+      connectionsQuery = connectionId ? connectionsQuery.eq("id", connectionId) : connectionsQuery;
+      const [sales, financial, stock, riskProducts, meta, alerts, klaviyo, integrationFreshness, metaBackfillNotice] =
         await Promise.all([
-          supabase.rpc("shopify_sales_summary", {
+          wantsShopify ? supabase.rpc("shopify_sales_summary", {
             target_organization_id: organizationId,
             period_start: periodStart.toISOString(),
             period_end: now.toISOString(),
             target_store_id: storeId,
-          }),
-          supabase.rpc("shopify_financial_summary", {
+          }) : Promise.resolve(emptyQueryResult),
+          wantsFinancial ? supabase.rpc("shopify_financial_summary", {
             target_organization_id: organizationId,
             period_start: periodStart.toISOString(),
             period_end: now.toISOString(),
             target_store_id: storeId,
-          }),
-          supabase.rpc("shopify_stock_summary", {
+          }) : Promise.resolve(emptyQueryResult),
+          wantsStock ? supabase.rpc("shopify_stock_summary", {
             target_organization_id: organizationId,
             low_stock_threshold: 5,
             target_store_id: storeId,
-          }),
+          }) : Promise.resolve(emptyQueryResult),
           // Mismo cruce stock/venta ya resuelto en SQL que usa A06 (evita que A02
           // tuviera que reconstruirlo el solo via sql_select, ver R-011); aqui solo
           // se usa el top de mayor riesgo, no la lista completa de 30 filas de A06.
-          supabase.rpc("shopify_stock_risk_products", {
+          wantsStock ? supabase.rpc("shopify_stock_risk_products", {
             target_organization_id: organizationId,
             period_start: periodStart.toISOString(),
             period_end: now.toISOString(),
             target_store_id: storeId,
-          }),
-          supabase.rpc(
+          }) : Promise.resolve(emptyQueryResult),
+          wantsMeta ? supabase.rpc(
             "meta_spend_summary",
             monitorMetaSpendArgs({
               organizationId,
@@ -6901,28 +7261,31 @@ export async function runMonitorAgent(
               periodEnd: now,
               storeId,
             }),
-          ),
-          (async () => {
+          ) : Promise.resolve(emptyQueryResult),
+          wantsAlerts ? (async () => {
             let query = supabase
               .from("alerts")
-              .select("title, severity, status, metric_value, store_id")
+              .select("title, severity, status, metric_value, store_id, created_at", { count: "exact" })
               .eq("organization_id", organizationId)
               .in("status", ["open", "acknowledged"]);
             if (storeId) query = query.eq("store_id", storeId);
-            return query.limit(20);
-          })(),
-          supabase.rpc("klaviyo_email_report", {
+            return query
+              .order("severity", { ascending: false })
+              .order("created_at", { ascending: false })
+              .limit(20);
+          })() : Promise.resolve({ data: [], error: null, count: 0 }),
+          wantsKlaviyo ? supabase.rpc("klaviyo_email_report", {
             target_organization_id: organizationId,
             period_start: periodStart.toISOString().slice(0, 10),
             period_end: now.toISOString().slice(0, 10),
             target_store_id: storeId,
-          }),
-          resolveShopifyFinancialCurrencyCoverage(
-            supabase,
-            organizationId,
-            storeId,
-          ).catch(() => null),
+          }) : Promise.resolve(emptyQueryResult),
+          connectionsQuery,
+          !storeId ? loadMetaBackfillNoticeBlock(supabase, organizationId) : Promise.resolve(null),
         ]);
+      const currencyCoverage = sharedCurrencyCoverage ?? (dashboardScope === "klaviyo"
+        ? await resolveShopifyFinancialCurrencyCoverage(supabase, organizationId, storeId).catch(() => null)
+        : null);
 
       const salesEvidence = agentRpcEvidence(
         sales.data?.[0] ?? null,
@@ -6955,14 +7318,15 @@ export async function runMonitorAgent(
           periodEnd: now.toISOString(),
         },
       );
-      // La funcion ya viene ordenada por riesgo (vende mucho, queda poco); nos
-      // quedamos con las 5 mas urgentes para no saturar el contexto de un
-      // agente resumen (A06 usa la lista completa para planificar reposicion).
-      const topStockRisk = riskProductRows.slice(0, 5);
-
-      const metaBackfillNotice = storeId
-        ? null
-        : await loadMetaBackfillNoticeBlock(supabase, organizationId);
+      // Reordena la muestra de hasta 30 filas por cobertura fiable; la RPC se
+      // comparte con A06 y no se altera su contrato ni su orden.
+      const topStockRisk = [...riskProductRows]
+        .sort((a, b) => {
+          const coverA = typeof a.days_of_cover === "number" ? a.days_of_cover : Number.POSITIVE_INFINITY;
+          const coverB = typeof b.days_of_cover === "number" ? b.days_of_cover : Number.POSITIVE_INFINITY;
+          return coverA - coverB || Number(b.quantity_sold_in_period ?? 0) - Number(a.quantity_sold_in_period ?? 0);
+        })
+        .slice(0, 5);
 
       const metaData =
         metaEvidence.availability === "available"
@@ -6996,6 +7360,12 @@ export async function runMonitorAgent(
 
       const blocks: DiagnosticContextBlock[] = [
         ...(metaBackfillNotice ? [metaBackfillNotice] : []),
+        {
+          label: "Frescura de las fuentes conectadas",
+          data: integrationFreshness.error
+            ? { availability: "unavailable" }
+            : { availability: "available", connections: integrationFreshness.data ?? [] },
+        },
         {
           label: `Ventas Shopify (${lookbackDays} dias)`,
           data: {
@@ -7051,6 +7421,8 @@ export async function runMonitorAgent(
                 availability: "available",
                 scope: storeId ? "store" : "organization",
                 items: alerts.data ?? [],
+                truncated: (alerts.count ?? 0) > (alerts.data?.length ?? 0),
+                total_open: alerts.count ?? alerts.data?.length ?? 0,
               },
         },
       ];
@@ -7087,7 +7459,7 @@ export async function runMonitorAgent(
         );
         return [
           ...blocks.filter((block) =>
-            /Ventas Shopify|Resumen financiero|Adquisicion Meta|AVISO SOBRE LOS DATOS DE META|Alertas activas/.test(
+            /Ventas Shopify|Resumen financiero|Adquisicion Meta|AVISO SOBRE LOS DATOS DE META|Alertas activas|Frescura de las fuentes/.test(
               block.label,
             ),
           ),
@@ -7110,17 +7482,48 @@ export async function runMonitorAgent(
           },
         ];
       }
-      if (dashboardScope === "overview") return blocks;
+      if (dashboardScope === "overview") {
+        const previousStart = new Date(
+          periodStart.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
+        );
+        const [previousSales, previousFinancial] = await Promise.all([
+          supabase.rpc("shopify_sales_summary", {
+            target_organization_id: organizationId,
+            period_start: previousStart.toISOString(),
+            period_end: periodStart.toISOString(),
+            target_store_id: storeId,
+          }),
+          supabase.rpc("shopify_financial_summary", {
+            target_organization_id: organizationId,
+            period_start: previousStart.toISOString(),
+            period_end: periodStart.toISOString(),
+            target_store_id: storeId,
+          }),
+        ]);
+        return [
+          ...blocks,
+          {
+            label: `Comparativa del periodo equivalente anterior (${lookbackDays} dias)`,
+            data: {
+              availability: previousSales.error || previousFinancial.error ? "partial" : "available",
+              sales: agentRpcEvidence(previousSales.data?.[0] ?? null, previousSales.error),
+              financial: agentRpcEvidence(previousFinancial.data?.[0] ?? null, previousFinancial.error),
+              period_start: previousStart.toISOString(),
+              period_end: periodStart.toISOString(),
+            },
+          },
+        ];
+      }
       if (dashboardScope === "shopify") {
         return blocks.filter((block) =>
-          /Ventas Shopify|Resumen financiero|Stock actual|Productos con mayor riesgo|Alertas activas/.test(block.label),
+          /Ventas Shopify|Resumen financiero|Stock actual|Productos con mayor riesgo|Alertas activas|Frescura de las fuentes/.test(block.label),
         );
       }
       if (dashboardScope === "meta") {
-        return blocks.filter((block) => /Adquisicion Meta|AVISO SOBRE LOS DATOS DE META/i.test(block.label));
+        return blocks.filter((block) => /Adquisicion Meta|AVISO SOBRE LOS DATOS DE META|Frescura de las fuentes/i.test(block.label));
       }
       return blocks.filter((block) =>
-        /Email y CRM Klaviyo/.test(block.label) ||
+        /Email y CRM Klaviyo|Frescura de las fuentes/.test(block.label) ||
         (currencyCoverage?.klaviyo_status === "compatible" && /Ventas Shopify/.test(block.label)),
       );
     },
@@ -7130,7 +7533,7 @@ export async function runMonitorAgent(
     },
     {
       jsonSchema: monitorOutputJsonSchema as unknown as Record<string, unknown>,
-      schema: monitorOutputSchema,
+      schema: scopedMonitorOutputSchema,
     },
   );
 }
@@ -7149,11 +7552,13 @@ export async function getMonitorDiagnostic(
   }
   const lookbackDays = normalizeLookbackDays(days);
   const supabaseForScope = createServiceClient(env);
-  const { storeId } = await resolveStoreScope(
+  const storeScope = await resolveMonitorStoreScope(
     supabaseForScope,
     organizationId,
     connectionId,
   );
+  if (!storeScope.ok) return storeScope;
+  const { storeId } = storeScope;
 
   return getCachedDiagnostic(
     env,
@@ -7227,6 +7632,7 @@ export function summarizeMonitorForPlan(
   output: unknown,
   generatedAt: string | null,
   now = Date.now(),
+  staleAfterMs = DIAGNOSTIC_STALE_AFTER_MS,
 ) {
   if (!output || typeof output !== "object") return null;
   const content = output as Record<string, unknown>;
@@ -7247,7 +7653,7 @@ export function summarizeMonitorForPlan(
     stale:
       !generatedAt ||
       !Number.isFinite(Date.parse(generatedAt)) ||
-      now - Date.parse(generatedAt) > 7 * 24 * 60 * 60 * 1000,
+      now - Date.parse(generatedAt) > staleAfterMs,
     headline:
       typeof content.headline === "string"
         ? content.headline.slice(0, 350)
@@ -7342,7 +7748,7 @@ export async function runPlanAgent(
           let query = supabase
             .from("agent_runs")
             .select(
-              "started_at, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(status, approval_required, output)",
+              "id, started_at, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(id, status, approval_required, output)",
             )
             .eq("organization_id", organizationId)
             .eq("agent_versions.agent_definitions.code", code)
@@ -7356,13 +7762,15 @@ export async function runPlanAgent(
       let monitorQuery = supabase
         .from("agent_runs")
         .select(
-          "finished_at, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(output)",
+          "id, finished_at, lookback_days, objective, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(output)",
         )
         .eq("organization_id", organizationId)
         .eq("agent_versions.agent_definitions.code", "a02_monitor_negocio")
         // La lectura del panel del consultor es para el consultor: no alimenta
         // los planes, que acaban en manos del cliente.
-        .not("objective", "like", "%[dashboard_scope=panel]%")
+        .or("objective.is.null,objective.not.like.%[dashboard_scope=panel]%")
+        .eq("lookback_days", lookbackDays)
+        .or("objective.like.%[dashboard_scope=overview]%,objective.not.like.%[dashboard_scope=%,objective.is.null")
         .eq("status", "succeeded");
       monitorQuery = storeId
         ? monitorQuery.eq("store_id", storeId)
@@ -7383,10 +7791,13 @@ export async function runPlanAgent(
       ).toISOString();
       const [
         tasks,
+        tasksCount,
         recentTaskOutcomes,
+        alertsCount,
         alerts,
         sales,
         previousSales,
+        salesSync,
         siblingRunResults,
         monitorRun,
         activePath,
@@ -7399,13 +7810,23 @@ export async function runPlanAgent(
           let query = supabase
             .from("tasks")
             .select(
-              "title, description, priority, status, source, due_at, created_at, store_id, metadata",
+              "id, title, description, priority, status, source, due_at, created_at, store_id, metadata",
             )
             .eq("organization_id", organizationId)
             .in("status", ["pending", "in_progress"]);
           if (storeId)
             query = query.or(`store_id.is.null,store_id.eq.${storeId}`);
-          return query.order("priority", { ascending: false }).limit(200);
+          return query
+            .order("status", { ascending: true })
+            .order("due_at", { ascending: true, nullsFirst: true })
+            .order("priority", { ascending: false })
+            .limit(500);
+        })(),
+        (() => {
+          let query = supabase.from("tasks").select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId).in("status", ["pending", "in_progress"]);
+          if (storeId) query = query.or(`store_id.is.null,store_id.eq.${storeId}`);
+          return query;
         })(),
         (() => {
           let query = supabase
@@ -7420,6 +7841,12 @@ export async function runPlanAgent(
             query = query.or(`store_id.is.null,store_id.eq.${storeId}`);
           return query.order("updated_at", { ascending: false }).limit(60);
         })(),
+        (() => {
+          let query = supabase.from("alerts").select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId).in("status", ["open", "acknowledged"]);
+          if (storeId) query = query.eq("store_id", storeId);
+          return query;
+        })(),
         (async () => {
           let query = supabase
             .from("alerts")
@@ -7429,7 +7856,10 @@ export async function runPlanAgent(
             .eq("organization_id", organizationId)
             .in("status", ["open", "acknowledged"]);
           if (storeId) query = query.eq("store_id", storeId);
-          return query.limit(30);
+          return query
+            .order("severity", { ascending: true })
+            .order("first_detected_at", { ascending: true })
+            .limit(100);
         })(),
         supabase.rpc("shopify_sales_summary", {
           target_organization_id: organizationId,
@@ -7449,6 +7879,15 @@ export async function runPlanAgent(
               target_store_id: storeId,
             })
           : Promise.resolve({ data: null, error: null }),
+        (() => {
+          let query = supabase
+            .from("integration_sync_runs")
+            .select("connection_id, status, sync_scope, started_at, finished_at, records_failed, error_code")
+            .eq("organization_id", organizationId)
+            .eq("provider", "shopify");
+          if (connectionId) query = query.eq("connection_id", connectionId);
+          return query.order("created_at", { ascending: false }).limit(60);
+        })(),
         siblingRunsPromise,
         monitorQuery
           .order("started_at", { ascending: false })
@@ -7478,7 +7917,7 @@ export async function runPlanAgent(
             })
           : Promise.resolve(null),
         horizon === "day"
-          ? buildCaminoCalendarPack(supabase, organizationId, storeId, now, 45, storeLabel).catch(() => null)
+          ? buildCaminoCalendarPack(supabase, organizationId, storeId, now, 45, storeLabel, true).catch(() => null)
           : Promise.resolve(null),
         horizon === "day"
           ? getExecutiveDiagnosis(supabase, organizationId, { storeId }).catch(() => null)
@@ -7515,8 +7954,9 @@ export async function runPlanAgent(
           data: planQueryEvidence(
             summarizeOpenTasksForPlan(tasks.data ?? [], storeId, {
               now: now.getTime(),
+              totalCount: tasksCount.count,
             }),
-            tasks.error,
+            tasks.error ?? tasksCount.error,
           ),
         },
         {
@@ -7535,13 +7975,36 @@ export async function runPlanAgent(
           label:
             "Alertas activas del alcance seleccionado; las organizativas sin tienda no se atribuyen a una tienda concreta",
           data: planQueryEvidence(
-            scopeAlertsForPlan(alerts.data ?? [], storeId),
-            alerts.error,
+            {
+              alerts: scopeAlertsForPlan(alerts.data ?? [], storeId),
+              total_open: alertsCount.count ?? alerts.data?.length ?? 0,
+              sample_truncated: (alertsCount.count ?? 0) > (alerts.data?.length ?? 0),
+            },
+            alerts.error ?? alertsCount.error,
           ),
         },
         {
           label: `Ventas Shopify (${lookbackDays} dias)`,
           data: planQueryEvidence(sales.data?.[0] ?? "sin_datos", sales.error),
+        },
+        {
+          label: "Estado de sincronización Shopify que origina las ventas. Si no hay éxito reciente o hay una sincronización fallida posterior, baja la confianza en las conclusiones comerciales afectadas.",
+          data: salesSync.error
+            ? { status: "unavailable", reason: "sync_status_query_error" }
+            : (() => {
+                const rows = salesSync.data ?? [];
+                const latest = rows[0] ?? null;
+                const latestSuccess = rows.find((row) => row.status === "succeeded") ?? null;
+                return {
+                  scope: connectionId ? "store" : "organization_latest_connections",
+                  attempts: rows.length,
+                  latest_status: latest?.status ?? "no_sync_record",
+                  latest_attempt_at: latest?.started_at ?? null,
+                  last_success_at: latestSuccess?.finished_at ?? null,
+                  latest_error_code: latest?.status === "failed" ? latest.error_code : null,
+                  truncated: rows.length === 60,
+                };
+              })(),
         },
         {
           label:
@@ -7597,6 +8060,7 @@ export async function runPlanAgent(
           data: { status: "unavailable", reason: "no_successful_run" },
         });
       } else {
+        const successfulMonitorRun = monitorRun.data;
         const rawOutput = monitorRun.data.agent_outputs as
           { output?: unknown } | { output?: unknown }[] | null;
         const monitorOutput = Array.isArray(rawOutput)
@@ -7604,13 +8068,22 @@ export async function runPlanAgent(
           : rawOutput?.output;
         const summary = summarizeMonitorForPlan(
           monitorOutput,
-          monitorRun.data.finished_at,
+          successfulMonitorRun.finished_at,
+          now.getTime(),
+          MONITOR_CADENCES.find((cadence) => cadence.lookbackDays === successfulMonitorRun.lookback_days)?.minRunAgeMs ?? DIAGNOSTIC_STALE_AFTER_MS,
         );
         blocks.push({
           label: summary
             ? "Diagnostico A02 de la misma tienda (usar para priorizar, no copiar como tarea)"
             : "Diagnostico A02 no interpretable; no asumir que no hay hallazgos",
-          data: summary ?? { status: "unavailable", reason: "invalid_output" },
+          data: summary
+            ? {
+                ...summary,
+                source_run_id: successfulMonitorRun.id,
+                lookback_days: successfulMonitorRun.lookback_days,
+                dashboard_scope: "overview",
+              }
+            : { status: "unavailable", reason: "invalid_output" },
         });
       }
 
@@ -7641,6 +8114,7 @@ export async function runPlanAgent(
           data: calendarPack
             ? {
                 eventos: calendarPack.events.map((event) => ({ evento: event.name, fecha: event.date, empieza_a_preparar: event.prep_start, vas_tarde: event.late_start })),
+                cobertura_de_mercados: calendarPack.marketCoverage,
                 limites_de_envio: calendarPack.cutoffs,
                 campanas_planificadas: calendarPack.plannedCampaigns,
                 propuestas_aprobadas: calendarPack.marketingPeers,
@@ -8779,7 +9253,7 @@ export async function runCaminoWeeklyReviewAgent(
                 : query.is("store_id", null);
               return query.order("updated_at", { ascending: false }).limit(100);
             })()
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
         (() => {
           let query = db
             .from("agent_runs")
@@ -9280,8 +9754,22 @@ async function buildCaminoCalendarPack(
   now: Date,
   horizonDays: number,
   storeDescription: string,
+  useConfiguredStoreMarkets = false,
 ) {
-  const events = commercialCalendar(now, horizonDays, storeDescription);
+  const { data: storeMarketProfile, error: storeMarketProfileError } = useConfiguredStoreMarkets && storeId
+    ? await supabase.from("shopify_stores").select("country_code, market_codes, business_vertical").eq("organization_id", organizationId).eq("id", storeId).maybeSingle()
+    : { data: null, error: null };
+  const marketCodes = Array.isArray(storeMarketProfile?.market_codes)
+    ? storeMarketProfile.market_codes.filter((value): value is Market => ["ES", "PT", "FR", "IT", "DE", "UK", "US", "MX"].includes(String(value)))
+    : [];
+  const countryCode = storeMarketProfile?.country_code === "GB" ? "UK" : storeMarketProfile?.country_code;
+  const countryMarket = typeof countryCode === "string" && ["ES", "PT", "FR", "IT", "DE", "UK", "US", "MX"].includes(countryCode)
+    ? countryCode as Market
+    : null;
+  const calendarConfiguration = useConfiguredStoreMarkets
+    ? { markets: marketCodes.length ? marketCodes : countryMarket ? [countryMarket] : [], defaultMarket: null, vertical: typeof storeMarketProfile?.business_vertical === "string" ? storeMarketProfile.business_vertical.slice(0, 100) : null }
+    : undefined;
+  const events = commercialCalendar(now, horizonDays, storeDescription, calendarConfiguration);
   const horizonEnd = new Date(now.getTime() + horizonDays * 86_400_000).toISOString();
   const [deliveryRows, planned, peers] = await Promise.all([
     storeId
@@ -9318,6 +9806,13 @@ async function buildCaminoCalendarPack(
   ]);
   return {
     events,
+    marketCoverage: useConfiguredStoreMarkets
+      ? storeMarketProfileError
+        ? { status: "unavailable" as const, reason: "store_profile_query_failed" }
+        : marketCodes.length || countryMarket
+          ? { status: "configured" as const, markets: marketCodes.length ? marketCodes : [countryMarket] }
+          : { status: "not_configured" as const, markets: [] }
+      : { status: "inferred_from_description" as const },
     cutoffs: shippingCutoffs(events, carrierLeadTimes((deliveryRows.data ?? []) as CarrierDeliveryRow[])),
     deliveryUnavailable: Boolean(deliveryRows.error),
     plannedCampaigns: planned.error ? { status: "unavailable" } : (planned.data ?? []),
@@ -9518,6 +10013,7 @@ async function loadCampaignMethodologyBlock(
     const reranker = createReranker(env);
     const audience = ["client_visible"];
     const fragments: Array<{ tema: string; documento: string; fragmento: string }> = [];
+    const queryErrors: string[] = [];
     const seen = new Set<string>();
     // Limitar y serializar consultas mantiene el coste y la carga de knowledge_search acotados.
     for (const query of queries) {
@@ -9530,6 +10026,10 @@ async function loadCampaignMethodologyBlock(
         targetStoreId: storeId,
         matchCount: 2,
       }, reranker);
+      if (result.error) {
+        queryErrors.push("knowledge_search_failed");
+        continue;
+      }
       const rows = keepAllowedKnowledgeRows(
         (result.data ?? []) as Array<{ chunk_id?: string; document_title?: string; content?: string; audience?: unknown; visibility?: unknown }>,
         audience,
@@ -9547,12 +10047,15 @@ async function loadCampaignMethodologyBlock(
     }
     return fragments.length
       ? {
-          status: "available" as const,
+          status: queryErrors.length ? "partial" as const : "available" as const,
+          errors: queryErrors,
           knowledge_scope: ["metodología global E-NORA", "conocimiento visible de esta organización/tienda"],
           queries,
           fragmentos: fragments.slice(0, 12),
         }
-      : { status: "empty" as const, reason: "sin_resultados" };
+      : queryErrors.length
+        ? { status: "unavailable" as const, reason: "knowledge_search_failed", errors: queryErrors }
+        : { status: "empty" as const, reason: "sin_resultados" };
   } catch (error) {
     logger.info("campaign_methodology_search_failed", {
       organization_id: organizationId,
@@ -10426,7 +10929,7 @@ export async function runWeeklyMailingPlanner(
               if (targetStoreId) query = query.eq("store_id", targetStoreId);
               return query;
             })()
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
         (supabase as any)
           .from("internal_mailing_playbook_entries")
           .select(INTERNAL_MAILING_PLAYBOOK_RETRIEVAL_SELECT)
@@ -10857,8 +11360,72 @@ export async function runCampaignStrategist(
   );
   if (!resolvedWindow.ok) return resolvedWindow;
   const { startDate, endDate, days: horizonDays } = resolvedWindow;
-  const market = requestedWindow?.market?.trim().slice(0, 100) || "";
-  const marketIsSpain = /^(es|españa|spain)$/i.test(market);
+  const requestSignature = crypto.createHash("sha256").update(JSON.stringify({
+    organizationId, storeId: store.id, horizon, startDate, endDate, market: requestedWindow?.market ?? "", brief: cleanBrief,
+  })).digest("hex").slice(0, 20);
+  const supportedMarkets = new Set(["ES", "PT", "FR", "IT", "DE", "UK", "US", "MX"]);
+  const profileMarkets = (store.market_codes ?? []).filter((code) => supportedMarkets.has(code));
+  const defaultMarket = store.country_code && supportedMarkets.has(store.country_code)
+    ? store.country_code : null;
+  const requestedMarketCode = requestedWindow?.market?.trim().toUpperCase();
+  const requestedMarket = requestedMarketCode && supportedMarkets.has(requestedMarketCode)
+    ? requestedMarketCode
+    : (/^(es|españa|spain)$/i.test(requestedWindow?.market ?? "") ? "ES" : null);
+  const marketCodes = profileMarkets.length ? profileMarkets : [requestedMarket ?? defaultMarket].filter((value): value is string => Boolean(value));
+  const market = marketCodes.join(", ") || requestedWindow?.market?.trim().slice(0, 100) || "";
+  const marketIsConfigured = marketCodes.length > 0;
+  const commercialConfiguration = {
+    markets: marketCodes as Array<"ES" | "PT" | "FR" | "IT" | "DE" | "UK" | "US" | "MX">,
+    defaultMarket: defaultMarket as "ES" | "PT" | "FR" | "IT" | "DE" | "UK" | "US" | "MX" | null,
+    vertical: store.business_vertical ?? null,
+  };
+  const requestKey = runOptions?.manualRequestKey?.trim();
+  if (requestKey) {
+    const { data: reservation, error: reservationError } = await supabaseForScope
+      .from("agent_manual_refresh_reservations")
+      .select("run_id")
+      .eq("organization_id", organizationId)
+      .eq("agent_code", "a05_estrategia_campanas")
+      .eq("reservation_day", new Date().toISOString().slice(0, 10))
+      .eq("request_key", requestKey)
+      .maybeSingle();
+    if (reservationError) return { ok: false as const, statusCode: 503, error: "campaign_plan_idempotency_lookup_failed" };
+    if (reservation?.run_id) {
+      const { data: priorRun, error: priorRunError } = await supabaseForScope
+        .from("agent_runs")
+        .select("id, status, objective, store_id, input_tokens, output_tokens, estimated_cost_usd, latency_ms, agent_outputs!inner(id, status, output, created_at, approval_required)")
+        .eq("id", reservation.run_id)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (priorRunError) return { ok: false as const, statusCode: 503, error: "campaign_plan_idempotency_lookup_failed" };
+      if (!priorRun || priorRun.store_id !== storeId || !String(priorRun.objective ?? "").includes(`[campaign_window=${startDate}|${endDate}|${timezone}]`) || !String(priorRun.objective ?? "").includes(`[campaign_request=${requestSignature}]`)) {
+        return { ok: false as const, statusCode: 409, error: "idempotency_key_conflict", message: "Esta clave ya se usó para otra ventana o tienda." };
+      }
+      const outputs = priorRun.agent_outputs as Array<Record<string, unknown>> | Record<string, unknown> | null;
+      const priorOutput = Array.isArray(outputs) ? outputs[0] : outputs;
+      if (priorRun.status !== "succeeded" || !priorOutput) {
+        return { ok: false as const, statusCode: 409, error: "manual_refresh_request_already_seen", message: "La ejecución anterior sigue en curso o terminó sin propuesta; revisa el estado antes de volver a intentarlo." };
+      }
+      return {
+        ok: true as const,
+        data: {
+          run_id: priorRun.id,
+          output_id: priorOutput.id,
+          output_status: priorOutput.status,
+          generated_at: priorOutput.created_at,
+          approval_required: priorOutput.approval_required,
+          output: priorOutput.output,
+          from_idempotency_key: true,
+          usage: {
+            input_tokens: priorRun.input_tokens ?? 0,
+            output_tokens: priorRun.output_tokens ?? 0,
+            estimated_cost_usd: priorRun.estimated_cost_usd ?? 0,
+            latency_ms: priorRun.latency_ms ?? 0,
+          },
+        },
+      };
+    }
+  }
   const todayParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -10868,11 +11435,8 @@ export async function runCampaignStrategist(
   const today = todayParts.find((part) => part.type === "year")?.value + "-" +
     todayParts.find((part) => part.type === "month")?.value + "-" +
     todayParts.find((part) => part.type === "day")?.value;
-  const endOffsetDays = Math.ceil(
-    (Date.parse(endDate + "T00:00:00.000Z") -
-      Date.parse(today + "T00:00:00.000Z")) / (24 * 60 * 60 * 1000),
-  ) + 1;
-  const commercialLookaheadDays = Math.min(366, Math.max(1, endOffsetDays));
+  const commercialLookaheadDays = Math.min(366, Math.max(1, horizonDays));
+  const commercialStart = new Date(startDate + "T12:00:00.000Z");
   // Recuperar primero el conocimiento que orienta la estrategia. Se prepara
   // para esta tienda, mercado, objetivo y ventana antes de evaluar resultados.
   const initialStoreContext = [
@@ -10880,19 +11444,14 @@ export async function runCampaignStrategist(
     store.myshopify_domain,
     cleanBrief,
   ].filter(Boolean).join(" ").slice(0, 3000);
-  const initialCommercialEvents = marketIsSpain
-    ? commercialCalendar(now, commercialLookaheadDays, initialStoreContext).filter(
+  const initialCommercialEvents = marketIsConfigured
+    ? commercialCalendar(commercialStart, commercialLookaheadDays, initialStoreContext, commercialConfiguration).filter(
         (event) =>
           (event.date >= startDate && event.date <= endDate) ||
           (event.date > endDate && event.prep_start >= today && event.prep_start <= endDate),
       )
     : [];
-  const campaignMethodology = await loadCampaignMethodologyBlock(
-    env,
-    supabaseForScope,
-    organizationId,
-    storeId,
-    campaignMethodologyQueries(
+  const methodologyQueries = campaignMethodologyQueries(
       initialCommercialEvents,
       storeLabel,
       [
@@ -10901,8 +11460,7 @@ export async function runCampaignStrategist(
         "Mercado: " + (market || "no indicado"),
         "Tienda: " + (store.shop_name || store.myshopify_domain || "sin nombre"),
       ].filter(Boolean).join(". "),
-    ),
-  );
+    );
 
   return runGenericDiagnosticAgent(
     env,
@@ -10910,7 +11468,7 @@ export async function runCampaignStrategist(
     organizationId,
     "a05_estrategia_campanas",
     "Planificar el calendario de marketing de " + storeLabel + " del " +
-      startDate + " al " + endDate + " (" + horizonDays + " dias; " +
+      startDate + " al " + endDate + " [campaign_window=" + startDate + "|" + endDate + "|" + timezone + "] [campaign_request=" + requestSignature + "] (" + horizonDays + " dias; " +
       CAMPAIGN_PLAN_HORIZON_LABEL[horizon] + "), usando datos historicos de los ultimos " +
       lookbackDays + " dias. Devuelve initiatives[] como campañas paraguas con objetivo, audiencia, oferta verificada/propuesta/ninguna y periodo; cada iniciativa debe incluir al menos una ejecución concreta de Klaviyo o Meta. Si la evidencia no permite proponer ejecuciones, devuelve initiatives[] y campaigns[] vacíos, explica la limitación en diagnosis y warnings y no inventes acciones. " +
       "Agrupa dentro de cada iniciativa: campañas programadas de Klaviyo con rutas de audiencia y mensajes fechados individualmente; flows reactivos con trigger, fecha de preparación y pasos ordenados con esperas, nunca como envíos con fecha fija. En cada flow, el primer paso ocurre al dispararse y debe llevar wait_days=0; las esperas posteriores se cuentan desde el paso anterior; campañas Meta con periodo y presupuesto orientativo, conjuntos con audiencia/ubicaciones y anuncios con formato, fecha y brief de creativo. " +
@@ -10922,6 +11480,9 @@ export async function runCampaignStrategist(
     storeId,
     lookbackDays,
     async (supabase) => {
+      const campaignMethodology = await loadCampaignMethodologyBlock(
+        env, supabase, organizationId, storeId, methodologyQueries,
+      );
       const [
         sales,
         previousSales,
@@ -10999,12 +11560,13 @@ export async function runCampaignStrategist(
         // propone otra vez el Black Friday que alguien ya metio en octubre.
         supabase
           .from("campaign_calendar_items")
-          .select("title, channel, status, starts_at, ends_at")
+          .select("title, channel, status, starts_at, ends_at", { count: "exact" })
           .eq("organization_id", organizationId)
           .eq("store_id", storeId)
           .neq("status", "cancelled")
-          .gte("starts_at", new Date(startDate + "T00:00:00.000Z").toISOString())
-          .lte("starts_at", new Date(endDate + "T23:59:59.999Z").toISOString())
+          .is("deleted_at", null)
+          .lte("starts_at", localCampaignDateTimeToUtc(endDate, timezone, 23, 59).toISOString())
+          .or(`ends_at.is.null,ends_at.gte.${localCampaignDateTimeToUtc(startDate, timezone, 0, 0).toISOString()}`)
           .order("starts_at", { ascending: true })
           .limit(60),
         (() => {
@@ -11053,6 +11615,30 @@ export async function runCampaignStrategist(
           now,
         ),
       ]);
+      const { data: connectionHealthRows, error: connectionHealthError } = await supabase
+        .from("integration_connections")
+        .select("id, provider, status, last_sync_at, last_error_at")
+        .eq("organization_id", organizationId)
+        .in("provider", ["shopify", "klaviyo", "meta_ads"])
+        .limit(100);
+      const connectionHealth = (connectionHealthRows ?? []).filter((row) =>
+        row.provider !== "shopify" || row.id === store.connection_id,
+      );
+      const sourceFreshness = (provider: string, storeLastSyncAt?: string | null) => {
+        if (connectionHealthError) return { status: "unknown", reason: "connection_health_unavailable" };
+        const row = connectionHealth.filter((item) => item.provider === provider)
+          .sort((a, b) => Date.parse(b.last_sync_at ?? "") - Date.parse(a.last_sync_at ?? ""))[0];
+        const lastSyncAt = storeLastSyncAt ?? row?.last_sync_at ?? null;
+        if (!row || !lastSyncAt) return { status: "unavailable", connection_status: row?.status ?? "not_connected", last_sync_at: lastSyncAt };
+        const ageHours = Math.max(0, (now.getTime() - Date.parse(lastSyncAt)) / 3_600_000);
+        const newerError = row.last_error_at && Date.parse(row.last_error_at) > Date.parse(lastSyncAt);
+        return { status: ageHours > 48 || newerError || row.status !== "connected" ? "stale" : "fresh", connection_status: row.status, last_sync_at: lastSyncAt, age_hours: Math.round(ageHours), last_error_at: row.last_error_at };
+      };
+      const sourceEvidence = (provider: string, queryError: unknown, rows: unknown[] | null | undefined, storeLastSyncAt?: string | null) => {
+        const freshness = sourceFreshness(provider, storeLastSyncAt);
+        const status = queryError ? "unavailable" : !rows?.length ? "empty" : freshness.status === "fresh" ? "available" : freshness.status === "stale" ? "stale" : "partial";
+        return { status, freshness, ...(queryError ? { reason: "query_error" } : {}), ...(rows?.length ? { value: rows.length === 1 ? rows[0] : rows } : { reason: queryError ? "query_error" : "no_rows" }) };
+      };
       const mailingHistory = email.error
         ? { status: "unavailable", reason: "klaviyo_report_error" }
         : await loadCampaignMailingContentEvidence(
@@ -11067,8 +11653,8 @@ export async function runCampaignStrategist(
         store.myshopify_domain,
         JSON.stringify(sales.data?.[0] ?? {}),
       ].filter(Boolean).join(" ").slice(0, 12_000);
-      const commercialEvents = marketIsSpain
-        ? commercialCalendar(now, commercialLookaheadDays, storeDescription).filter(
+      const commercialEvents = marketIsConfigured
+        ? commercialCalendar(commercialStart, commercialLookaheadDays, storeDescription, commercialConfiguration).filter(
             (event) =>
               (event.date >= startDate && event.date <= endDate) ||
               (event.date > endDate &&
@@ -11096,37 +11682,41 @@ export async function runCampaignStrategist(
       const [klaviyoAccountsResult, metaAccountsResult] = await Promise.all([
         supabase
           .from("klaviyo_accounts")
-          .select("id, name, store_id, last_synced_at")
+          .select("id, name, store_id, last_synced_at", { count: "exact" })
           .eq("organization_id", organizationId)
           .eq("store_id", storeId)
           .limit(100),
         supabase
           .from("meta_ad_accounts")
-          .select("id, account_name, store_id, last_synced_at, is_active")
+          .select("id, account_name, store_id, last_synced_at, is_active", { count: "exact" })
           .eq("organization_id", organizationId)
           .eq("store_id", storeId)
           .eq("is_active", true)
           .limit(30),
       ]);
+      const klaviyoStoreLastSyncAt = klaviyoAccountsResult.data?.map((account) => account.last_synced_at).filter(Boolean).sort().at(-1) ?? null;
+      const metaStoreLastSyncAt = metaAccountsResult.data?.map((account) => account.last_synced_at).filter(Boolean).sort().at(-1) ?? null;
       const klaviyoAccountIds = (klaviyoAccountsResult.data ?? []).map((row) => row.id);
       const metaAccountIds = (metaAccountsResult.data ?? []).map((row) => row.id);
       const [klaviyoFlowsResult, metaCampaignsResult] = await Promise.all([
         klaviyoAccountIds.length
           ? supabase
               .from("klaviyo_flows")
-              .select("id, account_id, name, status, trigger_type, last_synced_at, updated_at_external, raw_data")
+              .select("id, account_id, name, status, trigger_type, last_synced_at, updated_at_external, raw_data", { count: "exact" })
               .eq("organization_id", organizationId)
               .in("account_id", klaviyoAccountIds)
+              .order("updated_at_external", { ascending: false, nullsFirst: false })
               .limit(200)
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
         metaAccountIds.length
           ? supabase
               .from("meta_campaigns")
-              .select("id, ad_account_id, name, objective, configured_status, effective_status, starts_at, ends_at, last_synced_at")
+              .select("id, ad_account_id, name, objective, configured_status, effective_status, starts_at, ends_at, last_synced_at", { count: "exact" })
               .eq("organization_id", organizationId)
               .in("ad_account_id", metaAccountIds)
+              .order("starts_at", { ascending: false, nullsFirst: false })
               .limit(200)
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
       ]);
       const metaCampaignIds = (metaCampaignsResult.data ?? []).map((row) => row.id);
       const klaviyoFlowIds = (klaviyoFlowsResult.data ?? []).map((row) => row.id);
@@ -11134,40 +11724,43 @@ export async function runCampaignStrategist(
         klaviyoFlowIds.length
           ? supabase
               .from("klaviyo_flow_actions")
-              .select("flow_id, action_type, status, position")
+              .select("flow_id, action_type, status, position", { count: "exact" })
               .eq("organization_id", organizationId)
               .in("flow_id", klaviyoFlowIds)
               .order("position", { ascending: true })
               .limit(1200)
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
         klaviyoFlowIds.length
           ? supabase
               .from("klaviyo_flow_messages")
-              .select("flow_id, channel, status")
+              .select("flow_id, channel, status", { count: "exact" })
               .eq("organization_id", organizationId)
               .in("flow_id", klaviyoFlowIds)
               .limit(1200)
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
         metaCampaignIds.length
           ? supabase
               .from("meta_ad_sets")
-              .select("id, campaign_id, name, configured_status, effective_status, optimization_goal, starts_at, ends_at")
+              .select("id, campaign_id, name, configured_status, effective_status, optimization_goal, starts_at, ends_at", { count: "exact" })
               .eq("organization_id", organizationId)
               .in("campaign_id", metaCampaignIds)
+              .order("effective_status", { ascending: true, nullsFirst: false })
+              .order("starts_at", { ascending: false, nullsFirst: false })
               .limit(500)
-          : Promise.resolve({ data: [], error: null }),
+          : Promise.resolve({ data: [], error: null, count: null }),
       ]);
       const metaAdSetIds = (metaAdSetsResult.data ?? []).map((row) => row.id);
       const metaAdsResult = metaAdSetIds.length
         ? await supabase
             .from("meta_ads")
-            .select("id, ad_set_id, name, configured_status, effective_status, parsed_format, parsed_angle, parsed_hook")
+            .select("id, ad_set_id, name, configured_status, effective_status, parsed_format, parsed_angle, parsed_hook", { count: "exact" })
             .eq("organization_id", organizationId)
             .in("ad_set_id", metaAdSetIds)
             .limit(1000)
-        : { data: [], error: null };
+        : { data: [], error: null, count: null };
       const liveChannelInventory = {
-        klaviyo: summarizeKlaviyoFlowInventory({
+        klaviyo: {
+          inventory: summarizeKlaviyoFlowInventory({
           accounts: klaviyoAccountsResult.data ?? [],
           flows: klaviyoFlowsResult.data ?? [],
           actions: klaviyoFlowActionsResult.data ?? [],
@@ -11181,21 +11774,48 @@ export async function runCampaignStrategist(
           ],
           maxFlows: 60,
           now: now.getTime(),
-        }),
+          }),
+          coverage: {
+            accounts_total: klaviyoAccountsResult.count ?? null,
+            flows_total: klaviyoFlowsResult.count ?? null,
+            actions_total: klaviyoFlowActionsResult.count ?? null,
+            messages_total: klaviyoFlowMessagesResult.count ?? null,
+            flows_truncated: (klaviyoFlowsResult.count ?? 0) > Math.min(60, klaviyoFlowsResult.data?.length ?? 0),
+            actions_truncated: (klaviyoFlowActionsResult.count ?? 0) > (klaviyoFlowActionsResult.data?.length ?? 0),
+            messages_truncated: (klaviyoFlowMessagesResult.count ?? 0) > (klaviyoFlowMessagesResult.data?.length ?? 0),
+            latest_sync: klaviyoAccountsResult.data?.map((account) => account.last_synced_at).filter(Boolean).sort().at(-1) ?? null,
+          },
+        },
         meta: {
-          status: metaAccountsResult.error || metaCampaignsResult.error || metaAdSetsResult.error || metaAdsResult.error
+          status: metaAccountsResult.error || metaCampaignsResult.error || metaAdSetsResult.error || metaAdsResult.error ||
+              (metaAccountsResult.count ?? 0) > (metaAccountsResult.data?.length ?? 0) ||
+              (metaCampaignsResult.count ?? 0) > (metaCampaignsResult.data?.length ?? 0) ||
+              (metaAdSetsResult.count ?? 0) > (metaAdSetsResult.data?.length ?? 0) ||
+              (metaAdsResult.count ?? 0) > (metaAdsResult.data?.length ?? 0)
             ? "partial"
             : metaAccountsResult.data?.length ? "available" : "unavailable",
           account_count: metaAccountsResult.data?.length ?? 0,
           campaign_count: metaCampaignsResult.data?.length ?? 0,
           ad_set_count: metaAdSetsResult.data?.length ?? 0,
           ad_count: metaAdsResult.data?.length ?? 0,
+          coverage: {
+            accounts_total: metaAccountsResult.count ?? null,
+            campaigns_total: metaCampaignsResult.count ?? null,
+            ad_sets_total: metaAdSetsResult.count ?? null,
+            ads_total: metaAdsResult.count ?? null,
+            campaigns_truncated: (metaCampaignsResult.count ?? 0) > Math.min(80, metaCampaignsResult.data?.length ?? 0),
+            ad_sets_truncated: (metaAdSetsResult.count ?? 0) > (metaAdSetsResult.data?.length ?? 0),
+            ads_truncated: (metaAdsResult.count ?? 0) > (metaAdsResult.data?.length ?? 0),
+            latest_sync: metaAccountsResult.data?.map((account) => account.last_synced_at).filter(Boolean).sort().at(-1) ?? null,
+          },
           campaigns: (metaCampaignsResult.data ?? []).slice(0, 80).map((campaign) => ({
             name: campaign.name,
             objective: campaign.objective,
             status: campaign.effective_status ?? campaign.configured_status,
             starts_at: campaign.starts_at,
             ends_at: campaign.ends_at,
+            ad_sets_total: (metaAdSetsResult.data ?? []).filter((adSet) => adSet.campaign_id === campaign.id).length,
+            ad_sets_truncated: (metaAdSetsResult.data ?? []).filter((adSet) => adSet.campaign_id === campaign.id).length > 20,
             ad_sets: (metaAdSetsResult.data ?? [])
               .filter((adSet) => adSet.campaign_id === campaign.id)
               .slice(0, 20)
@@ -11203,6 +11823,8 @@ export async function runCampaignStrategist(
                 name: adSet.name,
                 status: adSet.effective_status ?? adSet.configured_status,
                 optimization_goal: adSet.optimization_goal,
+                ads_total: (metaAdsResult.data ?? []).filter((ad) => ad.ad_set_id === adSet.id).length,
+                ads_truncated: (metaAdsResult.data ?? []).filter((ad) => ad.ad_set_id === adSet.id).length > 20,
                 ads: (metaAdsResult.data ?? [])
                   .filter((ad) => ad.ad_set_id === adSet.id)
                   .slice(0, 20)
@@ -11267,26 +11889,35 @@ export async function runCampaignStrategist(
           data: campaignMethodology,
         },
         {
-          label: marketIsSpain
-            ? "Calendario comercial calculado localmente para España; orienta fechas y preparación, no demuestra demanda de esta tienda."
-            : "Calendario público no cargado: no se indicó un mercado que permita usar las fechas españolas.",
-          data: marketIsSpain
+          label: "Salud y frescura de las conexiones usadas por este plan. Una fuente con mas de 48 horas desde la ultima sincronizacion o con un error posterior debe tratarse como desactualizada.",
+          data: connectionHealthError ? { status: "unavailable", reason: "connection_health_query_failed" } : {
+            shopify: sourceFreshness("shopify"),
+            klaviyo: sourceFreshness("klaviyo", klaviyoStoreLastSyncAt),
+            meta_ads: sourceFreshness("meta_ads", metaStoreLastSyncAt),
+            stale_after_hours: 48,
+          },
+        },
+        {
+          label: marketIsConfigured
+            ? "Calendario comercial calculado para los mercados configurados; orienta fechas y preparación, no demuestra demanda de esta tienda."
+            : "Calendario comercial no configurado para esta tienda; no se asignan fechas por defecto.",
+          data: marketIsConfigured
             ? { status: "available", events: commercialEvents }
             : { status: "not_configured", requested_market: market || null },
         },
         {
           label: `Ventas Shopify (${lookbackDays} dias)`,
-          data: sales.data?.[0] ?? "sin_datos",
+          data: { ...sourceEvidence("shopify", sales.error, sales.data), period_end: now.toISOString() },
         },
         {
           label: `Ventas Shopify del periodo anterior (${lookbackDays} dias previos, para tendencia)`,
-          data: previousSales.data?.[0] ?? "sin_datos",
+          data: sourceEvidence("shopify", previousSales.error, previousSales.data),
         },
         {
           label: `Resumen financiero (${lookbackDays} dias)`,
-          data: financial.data?.[0] ?? "sin_datos",
+          data: sourceEvidence("shopify", financial.error, financial.data),
         },
-        { label: "Situacion de stock", data: stock.data?.[0] ?? "sin_datos" },
+        { label: "Situacion de stock", data: sourceEvidence("shopify", stock.error, stock.data) },
         {
           label:
             "Productos con riesgo de rotura (no planifiques campanas que los empujen)",
@@ -11309,8 +11940,8 @@ export async function runCampaignStrategist(
               },
         },
         {
-          label: `Rendimiento de email por Klaviyo (${lookbackDays} dias). EUR atribuidos por Klaviyo, no sumables con Shopify ni Meta`,
-          data: email.data ?? "sin_datos",
+          label: `Rendimiento de email por Klaviyo (${lookbackDays} dias); moneda de origen indicada en el bloque de compatibilidad. No sumar con Shopify ni Meta.`,
+          data: sourceEvidence("klaviyo", email.error, email.data, klaviyoStoreLastSyncAt),
         },
         {
           label: "Aprendizaje historico y contenido observado de mailings de esta tienda. Rankings solo con meses completos, siete dias de maduracion y 50 entregas; las metricas son descriptivas. Los cuerpos disponibles son versiones observadas por sincronizacion, no una prueba del email personalizado que recibio cada destinatario.",
@@ -11333,8 +11964,8 @@ export async function runCampaignStrategist(
           ),
         },
         {
-          label: `Adquisicion pagada en Meta (${lookbackDays} dias). EUR atribuidos por Meta, no sumables con Klaviyo ni Shopify`,
-          data: meta.error ? { status: "unavailable", reason: "meta_report_error" } : metaPerformance ?? "sin_datos",
+          label: `Adquisicion pagada en Meta (${lookbackDays} dias); moneda de origen indicada en el bloque de compatibilidad. No sumar con Klaviyo ni Shopify.`,
+          data: sourceEvidence("meta_ads", meta.error, metaPerformance ? [metaPerformance] : [], metaStoreLastSyncAt),
         },
         {
           label: "Control de inversión Meta: gasto sin compras atribuidas exige revisar medición y eficiencia antes de recomendar más presupuesto; atribución ausente no demuestra ausencia de ventas incrementales.",
@@ -11344,12 +11975,12 @@ export async function runCampaignStrategist(
         },
         {
           label: "Plan estrategico activo (las campanas deberian empujarlo)",
-          data: plan.data ?? "sin_plan_activo",
+          data: plan.error ? { status: "unavailable", reason: "query_error" } : plan.data ?? { status: "empty", reason: "no_active_plan" },
         },
         {
           label:
             "Campanas YA planificadas en el calendario dentro del horizonte (no las dupliques)",
-          data: planned.data ?? [],
+          data: planned.error ? { status: "unavailable", reason: "query_error" } : { status: planned.data?.length ? "available" : "empty", items: planned.data ?? [], returned: planned.data?.length ?? 0, total_matching: planned.count ?? null, truncated: (planned.count ?? 0) > (planned.data?.length ?? 0) },
         },
         {
           label:
@@ -11429,6 +12060,7 @@ export async function getCampaignPlanProposal(
     ? campaignPlanOutputSchema.safeParse(output.output)
     : null;
   const appliedIndexes: number[] = [];
+  const calendarIndexes: number[] = [];
   if (output?.id) {
     const { data: appliedItems } = await supabase
       .from("campaign_calendar_items")
@@ -11438,9 +12070,12 @@ export async function getCampaignPlanProposal(
       .is("deleted_at", null)
       .contains("metadata", { a05_proposal: { output_id: output.id } });
     for (const row of appliedItems ?? []) {
-      const metadata = row.metadata as { a05_proposal?: { campaign_index?: unknown; action_index?: unknown } } | null;
+      const metadata = row.metadata as { a05_proposal?: { campaign_index?: unknown; action_index?: unknown; decision?: unknown } } | null;
       const index = metadata?.a05_proposal?.action_index ?? metadata?.a05_proposal?.campaign_index;
-      if (typeof index === "number" && Number.isInteger(index)) appliedIndexes.push(index);
+      if (typeof index === "number" && Number.isInteger(index)) {
+        calendarIndexes.push(index);
+        if (metadata?.a05_proposal?.decision === "approved") appliedIndexes.push(index);
+      }
     }
   }
 
@@ -11454,6 +12089,7 @@ export async function getCampaignPlanProposal(
             status: output.status as string,
             generated_at: output.created_at as string,
             applied_indexes: [...new Set(appliedIndexes)],
+            calendar_indexes: [...new Set(calendarIndexes)],
             content: (() => {
               const plan = currentOutput?.success ? currentOutput.data : legacyOutput?.success ? legacyOutput.data : null;
               return plan ? { ...plan, calendar_actions: flattenCampaignPlanActions(plan) } : null;
@@ -11554,6 +12190,8 @@ export async function runStockPlannerAgent(
   days?: number | null,
   runOptions?: DiagnosticRunOptions,
 ) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
   const lookbackDays = normalizeLookbackDays(days);
   const now = new Date();
   const periodStart = new Date(
@@ -11586,8 +12224,10 @@ export async function runStockPlannerAgent(
         .eq("organization_id", organizationId)
         .gte("starts_at", campaignHistoryStart)
         .lte("starts_at", campaignHorizonEnd)
+        .is("deleted_at", null)
+        .or(`ends_at.is.null,ends_at.gte.${campaignHistoryStart}`)
         .in("status", ["planned", "in_progress", "published", "completed"])
-        .order("starts_at", { ascending: true })
+        .order("starts_at", { ascending: false })
         .limit(100);
       if (storeId) campaignQuery = campaignQuery.or(`store_id.is.null,store_id.eq.${storeId}`);
       let activePathQuery = supabase
@@ -11603,43 +12243,52 @@ export async function runStockPlannerAgent(
         if (storeId) query = query.or(`store_id.is.null,store_id.eq.${storeId}`);
         return query;
       };
-      const [stock, riskProducts, openTasks, campaigns, recentTaskOutcomes, activePath] = await Promise.all([
+      const [stock, riskProducts, campaigns, recentTaskOutcomes, activePath, storeSettings] = await Promise.all([
         supabase.rpc("shopify_stock_summary", {
           target_organization_id: organizationId,
           low_stock_threshold: 5,
           target_store_id: storeId,
         }),
-        supabase.rpc("shopify_stock_risk_products", {
+        supabase.rpc("shopify_stock_risk_products_a06", {
           target_organization_id: organizationId,
           period_start: periodStart.toISOString(),
           period_end: now.toISOString(),
           target_store_id: storeId,
         }),
-        // El backlog entero (15k+ con un Camino aprobado) se cortaba a mitad:
-        // mismo resumen que el plan diario, cercano con detalle y lejano en titulares.
-        scopedTasks(["pending", "in_progress"], "title, description, priority, status, source, due_at, store_id")
-          .order("priority", { ascending: false }).limit(200),
         campaignQuery,
         // Si una reposición anterior se hizo, se ignoró o se canceló cambia lo que toca ahora.
         scopedTasks(["completed", "ignored", "cancelled"], "title, status, source, completed_at, updated_at, ignored_reason, store_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at")
           .gte("updated_at", new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString())
           .order("updated_at", { ascending: false }).limit(60),
         activePathQuery.order("version", { ascending: false }).limit(1).maybeSingle(),
+        (() => {
+          let query = supabase.from("shopify_stores")
+            .select("country_code, market_codes, business_vertical")
+            .eq("organization_id", organizationId)
+            .eq("is_active", true);
+          if (storeId) query = query.eq("id", storeId);
+          return query;
+        })(),
       ]);
 
       const riskRows = (riskProducts.data ?? []) as Array<{ product_id?: unknown }>;
       const productIds = riskRows.flatMap((row) => typeof row.product_id === "string" ? [row.product_id] : []);
       const weeklyUnitsByProduct = new Map<string, number[]>();
       let weeklyStarts: string[] = [];
+      let weeklyCoverageStatus: "available" | "unavailable" | "incomplete" = "incomplete";
       if (!riskProducts.error && productIds.length) {
-        const weeklyStoreIds = storeId
-          ? [storeId]
-          : ((await supabase
+        const storeResult = storeId
+          ? { data: [{ id: storeId }], error: null }
+          : await supabase
               .from("shopify_stores")
               .select("id")
               .eq("organization_id", organizationId)
-              .eq("is_active", true)).data ?? [])
-              .flatMap((store) => typeof store.id === "string" ? [store.id] : []);
+              .eq("is_active", true);
+        const weeklyStoreIds = (storeResult.data ?? [])
+          .flatMap((store) => typeof store.id === "string" ? [store.id] : []);
+        if (storeResult.error || !weeklyStoreIds.length) {
+          weeklyCoverageStatus = "unavailable";
+        } else {
         const endWeek = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
         endWeek.setUTCDate(endWeek.getUTCDate() - ((endWeek.getUTCDay() + 6) % 7));
         const weeklyResult = await supabase.rpc("shopify_catalog_product_weekly", {
@@ -11647,22 +12296,80 @@ export async function runStockPlannerAgent(
           target_store_ids: weeklyStoreIds,
           target_product_ids: productIds,
           target_period_end: endWeek.toISOString(),
-          weeks: 52,
+          weeks: 12,
         });
         if (!weeklyResult.error) {
-          weeklyStarts = Array.from({ length: 52 }, (_, index) => {
+          weeklyCoverageStatus = "available";
+          weeklyStarts = Array.from({ length: 12 }, (_, index) => {
             const week = new Date(endWeek);
-            week.setUTCDate(week.getUTCDate() - (52 - index) * 7);
+            week.setUTCDate(week.getUTCDate() - (12 - index) * 7);
             return week.toISOString().slice(0, 10);
           });
-          for (const productId of productIds) weeklyUnitsByProduct.set(productId, Array(52).fill(0));
+          const observedByProduct = new Map<string, Map<number, number>>();
           for (const raw of (weeklyResult.data ?? []) as Array<{ product_id: string; week_start: string; units_ordered: number }>) {
-            const series = weeklyUnitsByProduct.get(raw.product_id);
             const index = weeklyStarts.indexOf(String(raw.week_start).slice(0, 10));
-            if (series && index >= 0) series[index] = Number(raw.units_ordered ?? 0);
+            if (index < 0) continue;
+            const observed = observedByProduct.get(raw.product_id) ?? new Map<number, number>();
+            observed.set(index, Number(raw.units_ordered ?? 0));
+            observedByProduct.set(raw.product_id, observed);
           }
+          // The weekly RPC omits zero-sale weeks and does not expose ingestion
+          // coverage. Only forecast a product when every week is observed;
+          // missing rows are unknown, never synthetic zero demand.
+          for (const productId of productIds) {
+            const observed = observedByProduct.get(productId);
+            if (!observed) continue;
+            if (observed.size !== weeklyStarts.length) {
+              weeklyCoverageStatus = "incomplete";
+              continue;
+            }
+            weeklyUnitsByProduct.set(productId, weeklyStarts.map((_week, index) => observed.get(index)!));
+          }
+        } else {
+          weeklyCoverageStatus = "unavailable";
+        }
         }
       }
+
+      const enrichedRiskItems = enrichStockRiskEvidence(
+        (riskProducts.data ?? []) as unknown[],
+        { periodStart: periodStart.toISOString(), periodEnd: now.toISOString(), weeklyUnitsByProduct },
+      );
+      const prioritizedRiskItems = enrichedRiskItems
+        .slice()
+        .sort((left, right) => {
+          const a = left as Record<string, unknown>;
+          const b = right as Record<string, unknown>;
+          const aCover = typeof a.days_of_cover === "number" ? a.days_of_cover : Number.POSITIVE_INFINITY;
+          const bCover = typeof b.days_of_cover === "number" ? b.days_of_cover : Number.POSITIVE_INFINITY;
+          return aCover - bCover || Number(b.quantity_sold_in_period ?? 0) - Number(a.quantity_sold_in_period ?? 0);
+        });
+      const riskProductCount = Number((riskProducts.data?.[0] as Record<string, unknown> | undefined)?.total_eligible ?? riskProducts.data?.length ?? 0);
+      const contextProductIds = prioritizedRiskItems.slice(0, 12)
+        .flatMap((item) => typeof item.product_id === "string" ? [item.product_id] : []);
+      let targetedOpenTasksQuery = supabase.from("tasks")
+        .select("id, title, description, priority, status, source, due_at, store_id, metadata", { count: "exact" })
+        .eq("organization_id", organizationId)
+        .in("status", ["pending", "in_progress"]);
+      targetedOpenTasksQuery = contextProductIds.length
+        ? (targetedOpenTasksQuery as any).in("metadata->>ai_shopify_product_id", contextProductIds).limit(200)
+        : (targetedOpenTasksQuery as any).eq("id", "00000000-0000-0000-0000-000000000000");
+      if (storeId) targetedOpenTasksQuery = (targetedOpenTasksQuery as any).or(`store_id.is.null,store_id.eq.${storeId}`);
+      const { data: targetedOpenTasks, error: targetedOpenTasksError, count: targetedOpenTaskCount } = await targetedOpenTasksQuery;
+      const supportedMarkets: Market[] = ["ES", "PT", "FR", "IT", "DE", "UK", "US", "MX"];
+      const storeSettingRows = storeSettings.data ?? [];
+      const marketCodes = [...new Set(storeSettingRows.flatMap((store) =>
+        Array.isArray(store.market_codes)
+          ? store.market_codes.filter((market): market is Market => supportedMarkets.includes(market as Market))
+          : [],
+      ))];
+      const singleStoreSettings = storeSettingRows.length === 1 ? storeSettingRows[0] : null;
+      const defaultMarket = singleStoreSettings && supportedMarkets.includes(singleStoreSettings.country_code as Market)
+        ? singleStoreSettings.country_code as Market
+        : null;
+      const vertical = [...new Set(storeSettingRows
+        .map((store) => store.business_vertical)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0))].join(" ") || null;
 
       return [
         {
@@ -11683,19 +12390,17 @@ export async function runStockPlannerAgent(
                 status: riskProducts.data?.length
                   ? "available"
                   : "no_sales_in_period",
-                items: enrichStockRiskEvidence(
-                  (riskProducts.data ?? []) as unknown[],
-                  {
-                    periodStart: periodStart.toISOString(),
-                    periodEnd: now.toISOString(),
-                    weeklyUnitsByProduct,
-                  },
-                ).map((item) => ({
+                product_count: riskProductCount,
+                returned_count: prioritizedRiskItems.length,
+                truncated: riskProductCount > prioritizedRiskItems.length,
+                weekly_demand_coverage: weeklyCoverageStatus,
+                items: prioritizedRiskItems.slice(0, 12).map((item) => ({
                   // Campos explícitos: la fila cruda repetía ventas en tres
                   // nombres y la serie semanal como 52 objetos con fecha
                   // (~2,8k por producto, el bloque se cortaba a los 12k).
                   title: (item as Record<string, unknown>).title,
                   product_id: item.product_id,
+                  sku_list: (item as Record<string, unknown>).sku_list,
                   available_quantity: (item as Record<string, unknown>).available_quantity,
                   quantity_sold_in_period: item.quantity_sold_in_period,
                   order_count: (item as Record<string, unknown>).order_count,
@@ -11704,11 +12409,16 @@ export async function runStockPlannerAgent(
                   days_of_cover: item.days_of_cover,
                   stock_coverage_sample_sufficient: item.stock_coverage_sample_sufficient,
                   inventory_status: item.inventory_status,
+                  active_variant_count: (item as Record<string, unknown>).active_variant_count,
+                  mapped_variant_count: (item as Record<string, unknown>).mapped_variant_count,
+                  tracked_variant_count: (item as Record<string, unknown>).tracked_variant_count,
+                  synced_variant_count: (item as Record<string, unknown>).synced_variant_count,
                   inventory_sync_age_hours: item.inventory_sync_age_hours,
+                  inventory_sync_age_basis: "oldest_included_inventory_record",
                   inventory_sync_is_stale: item.inventory_sync_is_stale,
                   demand_forecast: item.demand_forecast,
-                  weekly_units_last_52: typeof item.product_id === "string" && weeklyStarts.length
-                    ? { first_week_start: weeklyStarts[0], units: weeklyUnitsByProduct.get(item.product_id) ?? [] }
+                  weekly_units_last_12: typeof item.product_id === "string" && weeklyStarts.length && weeklyUnitsByProduct.has(item.product_id)
+                    ? { first_week_start: weeklyStarts.at(-12), units: weeklyUnitsByProduct.get(item.product_id)?.slice(-12) ?? [] }
                     : null,
                 })),
               },
@@ -11717,8 +12427,8 @@ export async function runStockPlannerAgent(
           label:
             "Tareas abiertas de la tienda seleccionada (no proponer de nuevo el mismo producto mientras siga abierta una tarea de stock o reposicion sobre el; una tarea cerrada solo se reabre si hay evidencia nueva)",
           data: planQueryEvidence(
-            summarizeOpenTasksForPlan(openTasks.data ?? [], storeId, { now: now.getTime() }),
-            openTasks.error,
+            summarizeOpenTasksForPlan(targetedOpenTasks ?? [], storeId, { now: now.getTime(), totalCount: targetedOpenTaskCount }),
+            targetedOpenTasksError,
           ),
         },
         {
@@ -11740,7 +12450,11 @@ export async function runStockPlannerAgent(
         {
           label: "Calendario comercial de referencia y campañas propias registradas; los eventos de referencia no implican que la tienda haya confirmado una campaña",
           data: {
-            reference_events: commercialCalendar(now, 365, storeLabel)
+            reference_events: commercialCalendar(now, 365, storeLabel, {
+              markets: marketCodes,
+              defaultMarket,
+              vertical,
+            })
               .filter((event) => ["black_friday", "cyber_monday", "temporada_nieve"].includes(event.key))
               .map(({ key, name, date, scope }) => ({ key, name, date, scope })),
             own_campaigns: campaigns.error
@@ -11787,6 +12501,8 @@ export async function getStockPlannerDiagnostic(
   connectionId?: string | null,
   days?: number | null,
 ) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
   const lookbackDays = normalizeLookbackDays(days);
   const supabaseForScope = createServiceClient(env);
   const scope = await resolveStrictStoreScope(
@@ -11807,18 +12523,27 @@ export async function getStockPlannerDiagnostic(
   );
 }
 
-/** Ejecuta A08 (gestor de conocimiento): catalogo global + privado, detecta vacios y duplicados. */
+/** Ejecuta A08: audita metodología global y documentos visibles de la organización. */
 export async function runKnowledgeManagerAgent(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
+  runOptions: DiagnosticRunOptions = {},
 ) {
+  if (!["consultant", "platform_admin"].includes(context.profile.platform_role)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "knowledge_audit_internal_only",
+      message: "La auditoría A08 está reservada al consultor y al administrador de plataforma.",
+    };
+  }
   return runGenericDiagnosticAgent(
     env,
     context,
     organizationId,
     "a08_gestor_conocimiento",
-    "Revisar el catalogo de conocimiento (global y de la organizacion activa) para detectar vacios de metodologia y posibles duplicados. Trata el bloque de catalogo y sus contadores de cobertura como evidencia autoritativa: separa el total completo del catalogo de la muestra/lista de documentos, y una muestra truncada no significa que la cobertura total sea desconocida si coverage_status es complete. Informa los contadores disponibles y el numero exacto de documentos globales/privados; no digas que faltan si aparecen en el snapshot. Del mismo modo, respeta knowledge_gap_signal_status: si indica telemetria reciente disponible, no afirmes que no hay telemetria; describe si las señales son cero, parciales o muestreadas. Los candidatos semanticos solo son pistas para revision, no duplicados confirmados; compara evidencia y alcance antes de recomendar consolidar.",
+    "Auditar el catálogo de metodología global y documentos client_visible de la organización activa para detectar vacíos y posibles duplicados. Trata los contadores de cobertura como evidencia autoritativa; diferencia el total del catálogo y la muestra. Informa solo documentos y señales incluidos en el contexto; no reveles ni infieras metadatos de audiencias internas. Los candidatos semánticos son pistas, no duplicados confirmados. A08 es de solo lectura: presenta recomendaciones editoriales para el equipo E-NORA, nunca tareas del cliente.",
     null,
     null,
     DEFAULT_DIAGNOSTIC_LOOKBACK_DAYS,
@@ -11858,10 +12583,11 @@ export async function runKnowledgeManagerAgent(
           let query = supabase
             .from("knowledge_documents")
             .select(
-              "id, title, description, source_type, visibility, audience, embedding_model, updated_at",
+              "id, title, description, source_type, visibility, audience, embedding_model, version, checksum, store_id, updated_at",
               cursor === null ? { count: "exact" } : {},
             )
             .or(`visibility.eq.global,organization_id.eq.${organizationId}`)
+            .eq("audience", "client_visible")
             .eq("status", "active")
             .order("id", { ascending: true })
             .limit(limit);
@@ -11879,17 +12605,17 @@ export async function runKnowledgeManagerAgent(
         supabase.rpc("ai_knowledge_semantic_candidates", {
           target_organization_id: organizationId,
           source_document_limit: 12,
-          max_candidates: 30,
+          max_candidates: 4,
         }),
         supabase
           .from("agent_tool_calls")
           .select(
             "run_id, input, output, is_error, created_at, agent_runs!inner(store_id, organization_id, agent_versions!inner(agent_definitions!inner(code)))",
+            { count: "exact" },
           )
           .eq("organization_id", organizationId)
           .eq("agent_runs.organization_id", organizationId)
           .eq("tool_name", "search_knowledge")
-          .eq("is_error", false)
           .gte("created_at", knowledgeGapWindowStart)
           .order("created_at", { ascending: false })
           .limit(500),
@@ -11897,6 +12623,7 @@ export async function runKnowledgeManagerAgent(
           .from("agent_approvals")
           .select(
             "id, decision, reason, decided_at, agent_outputs!inner(run_id, organization_id, agent_runs!inner(organization_id))",
+            { count: "exact" },
           )
           .eq("organization_id", organizationId)
           .eq("decision", "rejected")
@@ -11906,6 +12633,21 @@ export async function runKnowledgeManagerAgent(
           .order("decided_at", { ascending: false })
           .limit(500),
       ]);
+      const semanticCandidates = (semanticCandidatesResult.data ?? []) as Array<Record<string, unknown>>;
+      const semanticDocumentIds = [...new Set(semanticCandidates.flatMap((pair) => [
+        pair.source_document_id,
+        pair.candidate_document_id,
+      ]).filter((id): id is string => typeof id === "string"))];
+      const { data: semanticEvidenceRows, error: semanticEvidenceError } = semanticDocumentIds.length
+        ? await (supabase as any).rpc("ai_knowledge_exact_document_evidence", {
+            target_organization_id: organizationId,
+            target_document_ids: semanticDocumentIds,
+          })
+        : { data: [], error: null };
+      const semanticEvidenceById = new Map<string, Record<string, unknown>>(
+        ((semanticEvidenceRows ?? []) as Array<Record<string, unknown>>)
+          .map((row) => [String(row.document_id), row]),
+      );
       const knowledgeGapRows = (knowledgeGapResult.data ??
         []) as unknown as Array<{
         run_id: string;
@@ -11990,25 +12732,37 @@ export async function runKnowledgeManagerAgent(
               ? "unavailable"
               : "bounded_recent_sample",
             semantic_audit_source_limit: 12,
-            semantic_candidates: (semanticCandidatesResult.data ?? []).map(
-              (pair: Record<string, unknown>) => ({
-                ...pair,
-                review_status: "candidate_only",
-              }),
-            ),
+            semantic_evidence_status: semanticEvidenceError
+              ? "unavailable"
+              : semanticEvidenceById.size === semanticDocumentIds.length
+                ? "exact_document_content_available"
+                : "some_documents_unavailable",
+            semantic_candidates: semanticCandidates.map((pair) => ({
+              ...pair,
+              source_evidence: semanticEvidenceById.get(String(pair.source_document_id)) ?? null,
+              candidate_evidence: semanticEvidenceById.get(String(pair.candidate_document_id)) ?? null,
+              review_status: "candidate_only",
+            })),
             knowledge_gap_signal_status: knowledgeGapResult.error
               ? "unavailable"
-              : knowledgeGapRows.length >= 500
+              : (knowledgeGapResult.count ?? 0) > knowledgeGapRows.length
                 ? "bounded_recent_sample"
                 : "available_recent_telemetry",
+            knowledge_gap_calls_total: knowledgeGapResult.count ?? null,
+            knowledge_gap_calls_observed: knowledgeGapRows.length,
+            knowledge_gap_calls_truncated: (knowledgeGapResult.count ?? 0) > knowledgeGapRows.length,
+            knowledge_gap_call_errors_observed: knowledgeGapRows.filter((row) => row.is_error).length,
             knowledge_gap_lookback_days: 30,
             knowledge_gap_raw_queries_included: false,
             knowledge_gap_decision_reason_text_included: false,
             knowledge_gap_decision_status: knowledgeGapDecisionsResult.error
               ? "unavailable"
-              : knowledgeGapDecisionRows.length >= 500
+              : (knowledgeGapDecisionsResult.count ?? 0) > knowledgeGapDecisionRows.length
                 ? "bounded_recent_sample"
                 : "available_recent_decisions",
+            knowledge_gap_decisions_total: knowledgeGapDecisionsResult.count ?? null,
+            knowledge_gap_decisions_observed: knowledgeGapDecisionRows.length,
+            knowledge_gap_decisions_truncated: (knowledgeGapDecisionsResult.count ?? 0) > knowledgeGapDecisionRows.length,
             knowledge_gap_telemetry_note:
               "Solo incluye nuevas llamadas search_knowledge con match_count registrado; telemetría antigua sin count no demuestra ausencia de huecos.",
             knowledge_gap_signals: knowledgeGapResult.error
@@ -12025,6 +12779,7 @@ export async function runKnowledgeManagerAgent(
         },
       ];
     },
+    { ...runOptions, enforceManualRefreshCap: true },
   );
 }
 
@@ -12034,6 +12789,14 @@ export async function getKnowledgeManagerDiagnostic(
   context: AuthContext,
   organizationId: string,
 ) {
+  if (!["consultant", "platform_admin"].includes(context.profile.platform_role)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "knowledge_audit_internal_only",
+      message: "La auditoría A08 está reservada al consultor y al administrador de plataforma.",
+    };
+  }
   return getCachedDiagnostic(
     env,
     context,
@@ -14920,6 +15683,9 @@ const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES = [
   // Especialista de contenido del modulo de Klaviyo. A12 sigue respondiendo
   // por como VA el email; este responde por que DICEN los emails.
   "a26_contenido_email",
+  // Auditoría editorial de menor prioridad; no desplaza a los agentes
+  // operativos cuando el cupo global de una pasada está ajustado.
+  "a08_gestor_conocimiento",
 ] as const;
 
 type DiagnosticStoreScope = {
@@ -14938,6 +15704,17 @@ export function orchestratorScopesForAgent(
       ...stores.map(({ storeId, connectionId }) => ({ storeId, connectionId })),
       { storeId: null, connectionId: null },
     ];
+  }
+
+  if (agentCode === "a04_generador_tareas") {
+    return [
+      ...stores.map(({ storeId, connectionId }) => ({ storeId, connectionId })),
+      { storeId: null, connectionId: null },
+    ];
+  }
+
+  if (agentCode === "a06_planificador_stock") {
+    return stores.map(({ storeId, connectionId }) => ({ storeId, connectionId }));
   }
 
   if (
@@ -14993,9 +15770,9 @@ export function panelReadingDue(
  * Lecturas A02 del panel (alcance del consultor). Solo para clientes que tienen
  * un consultor asignado: nadie mas las lee. Siempre la vista del cliente
  * entero; una por tienda solo si tiene varias (con una sola, la lectura de la
- * tienda es la del cliente y la pantalla la reutiliza). Ventana de 30 dias: la
- * de 90 se genera a mano. Respeta el tope diario de ejecuciones por
- * organizacion y los presupuestos, que revalida cada run.
+ * tienda es la del cliente y la pantalla la reutiliza). Usa la ventana de 30
+ * días y solo la genera el cron. Respeta el tope diario de ejecuciones por
+ * organización y los presupuestos, que revalida cada run.
  */
 async function runPanelReadingsPass(args: {
   env: ApiEnv;
@@ -15003,6 +15780,8 @@ async function runPanelReadingsPass(args: {
   context: AuthContext;
   orgIds: string[];
   storesByOrganization: Map<string, Array<{ storeId: string; connectionId: string }>>;
+  disabledAgentsByOrganization: Map<string, Set<string>>;
+  platformAgentSettings: Map<string, { runs_per_day: number | null; model: string | null }>;
   startOfDayUtc: Date;
   orgRunCap: number;
   note: (
@@ -15014,7 +15793,7 @@ async function runPanelReadingsPass(args: {
     storeId?: string | null,
   ) => void;
 }): Promise<number> {
-  const { env, supabase, context, orgIds, storesByOrganization, startOfDayUtc, orgRunCap, note } = args;
+  const { env, supabase, context, orgIds, storesByOrganization, disabledAgentsByOrganization, platformAgentSettings, startOfDayUtc, orgRunCap, note } = args;
   if (orgIds.length === 0) return 0;
 
   const { data: assignments } = await supabase
@@ -15026,6 +15805,14 @@ async function runPanelReadingsPass(args: {
 
   let ran = 0;
   for (const organizationId of withConsultant) {
+    if (disabledAgentsByOrganization.get(organizationId)?.has("a02_monitor_negocio")) {
+      note(organizationId, "a02_monitor_negocio", "skipped", "cooldown", null);
+      continue;
+    }
+    if (platformAgentSettings.get("a02_monitor_negocio")?.runs_per_day === 0) {
+      note(organizationId, "a02_monitor_negocio", "skipped", "cooldown", null);
+      continue;
+    }
     const stores = storesByOrganization.get(organizationId) ?? [];
     const scopes: Array<{ storeId: string | null; connectionId: string | null }> = [
       { storeId: null, connectionId: null },
@@ -15381,6 +16168,21 @@ async function runDiagnosticOrchestratorTickInner(
   const orgIds = [
     ...new Set((connections ?? []).map((row) => row.organization_id as string)),
   ];
+  const shopifyOrganizationIds = new Set(orgIds);
+  const [knowledgeOrganizations, configuredKnowledgeOrganizations] = await Promise.all([
+    supabase.from("knowledge_documents").select("organization_id")
+      .eq("visibility", "organization").eq("audience", "client_visible").eq("status", "active"),
+    supabase.from("organization_ai_agent_runtime_config").select("organization_id")
+      .contains("active_agent_codes", ["a08_gestor_conocimiento"]),
+  ]);
+  const candidateOrganizationIds = new Set(orgIds);
+  for (const row of knowledgeOrganizations.data ?? []) {
+    if (row.organization_id) candidateOrganizationIds.add(row.organization_id as string);
+  }
+  for (const row of configuredKnowledgeOrganizations.data ?? []) {
+    candidateOrganizationIds.add(row.organization_id as string);
+  }
+  orgIds.splice(0, orgIds.length, ...candidateOrganizationIds);
 
   const { data: activeStores, error: activeStoresError } = await supabase
     .from("shopify_stores")
@@ -15428,6 +16230,7 @@ async function runDiagnosticOrchestratorTickInner(
     digest: string | null;
     priority: number;
     lookbackDays?: number;
+    monitorScopes?: MonitorDashboardScope[];
   }> = [];
   const organizationsWithQueuedStoreMonitor = new Set<string>();
   // Configuración › Copiloto IA: cada organización puede apagar grupos.
@@ -15459,7 +16262,10 @@ async function runDiagnosticOrchestratorTickInner(
       revenue30dUsd: 0,
       planActive: true,
     });
-    for (const agentCode of ORCHESTRATED_DIAGNOSTIC_AGENT_CODES) {
+    const scheduledAgents = shopifyOrganizationIds.has(organizationId)
+      ? ORCHESTRATED_DIAGNOSTIC_AGENT_CODES
+      : ["a08_gestor_conocimiento"] as const;
+    for (const agentCode of scheduledAgents) {
       if (disabledAgentsByOrganization.get(organizationId)?.has(agentCode)) continue;
       const platformRunsPerDay = platformAgentSettings.get(agentCode)?.runs_per_day;
       if (platformRunsPerDay === 0) continue;
@@ -15530,9 +16336,7 @@ async function runDiagnosticOrchestratorTickInner(
             .reduce(
               (count, candidate) =>
                 count +
-                (candidate.agentCode === "a02_monitor_negocio" && candidate.lookbackDays === 30
-                  ? MONITOR_DASHBOARD_SCOPES.length
-                  : 1),
+                (candidate.monitorScopes?.length ?? 1),
               0,
             );
           if (
@@ -15552,50 +16356,62 @@ async function runDiagnosticOrchestratorTickInner(
             continue;
           }
 
-          let lastRunQuery = supabase
-            .from("agent_runs")
-            .select(
-              "id, started_at, finished_at, objective, activity_digest, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(status)",
-            )
-            .eq("organization_id", organizationId)
-            .eq("agent_versions.agent_definitions.code", agentCode)
-            .eq("status", "succeeded");
-          lastRunQuery = scope.storeId
-            ? lastRunQuery.eq("store_id", scope.storeId)
-            : lastRunQuery.is("store_id", null);
-          if (cadence.lookbackDays !== null) {
-            lastRunQuery = lastRunQuery.eq(
-              "lookback_days",
-              cadence.lookbackDays,
-            );
+          let lastRun: any = null;
+          let monitorScopesDue: MonitorDashboardScope[] | undefined;
+          if (agentCode === "a02_monitor_negocio") {
+            const expectedScopes: MonitorDashboardScope[] =
+              cadence.lookbackDays === 30
+                ? [...MONITOR_DASHBOARD_SCOPES]
+                : ["overview"];
+            monitorScopesDue = [];
+            for (const dashboardScope of expectedScopes) {
+              let viewQuery = supabase
+                .from("agent_runs")
+                .select("id, started_at, finished_at, objective, agent_versions!inner(agent_definitions!inner(code))")
+                .eq("organization_id", organizationId)
+                .eq("agent_versions.agent_definitions.code", agentCode)
+                .eq("status", "succeeded")
+                .eq("lookback_days", cadence.lookbackDays);
+              viewQuery = scope.storeId
+                ? viewQuery.eq("store_id", scope.storeId)
+                : viewQuery.is("store_id", null);
+              viewQuery = dashboardScope === "overview"
+                ? viewQuery.or("objective.like.%[dashboard_scope=overview]%,objective.not.like.%[dashboard_scope=%")
+                : viewQuery.like("objective", `%[dashboard_scope=${dashboardScope}]%`);
+              const { data: latestView } = await viewQuery
+                .order("started_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              const finishedAt = latestView?.finished_at ?? latestView?.started_at;
+              if (
+                !finishedAt ||
+                Date.now() - Date.parse(String(finishedAt)) >= cadence.minRunAgeMs
+              ) {
+                monitorScopesDue.push(dashboardScope);
+              }
+            }
+            if (monitorScopesDue.length === 0) {
+              note(organizationId, agentCode, "skipped", "cooldown", currentDigest, scope.storeId);
+              continue;
+            }
+          } else {
+            let lastRunQuery = supabase
+              .from("agent_runs")
+              .select("id, started_at, finished_at, activity_digest, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(status)")
+              .eq("organization_id", organizationId)
+              .eq("agent_versions.agent_definitions.code", agentCode)
+              .eq("status", "succeeded");
+            lastRunQuery = scope.storeId
+              ? lastRunQuery.eq("store_id", scope.storeId)
+              : lastRunQuery.is("store_id", null);
+            if (cadence.lookbackDays !== null) {
+              lastRunQuery = lastRunQuery.eq("lookback_days", cadence.lookbackDays);
+            }
+            const { data: recentRuns } = await lastRunQuery
+              .order("started_at", { ascending: false })
+              .limit(1);
+            lastRun = recentRuns?.[0] ?? null;
           }
-          const { data: recentRuns } = await lastRunQuery
-            .order("started_at", { ascending: false })
-            .limit(agentCode === "a02_monitor_negocio" ? 25 : 1);
-          const expectedMonitorScopes =
-            agentCode === "a02_monitor_negocio" && cadence.lookbackDays === 30
-              ? [...MONITOR_DASHBOARD_SCOPES]
-              : ["overview" as const];
-          const scopedRuns = expectedMonitorScopes.map((dashboardScope) =>
-            (recentRuns ?? []).find((run) => {
-              const objective = String(run.objective ?? "");
-              return (
-                objective.includes(`[dashboard_scope=${dashboardScope}]`) ||
-                (dashboardScope === "overview" && !objective.includes("[dashboard_scope="))
-              );
-            }) ?? null,
-          );
-          const lastRun =
-            agentCode === "a02_monitor_negocio"
-              ? scopedRuns.includes(null)
-                ? null
-                : scopedRuns.reduce((oldest, run) =>
-                    Date.parse(String(run?.finished_at ?? run?.started_at ?? 0)) <
-                    Date.parse(String(oldest?.finished_at ?? oldest?.started_at ?? 0))
-                      ? run
-                      : oldest,
-                  )
-              : recentRuns?.[0] ?? null;
 
           const lastRunAt =
             (lastRun?.finished_at as string | null | undefined) ??
@@ -15614,12 +16430,19 @@ async function runDiagnosticOrchestratorTickInner(
             // continuas ni colapsarlas en un único análisis.
             storedDigest:
               agentCode === "a19_revision_camino" ||
-              agentCode === "a02_monitor_negocio"
+              agentCode === "a02_monitor_negocio" ||
+              agentCode === "a08_gestor_conocimiento"
                 ? null
                 : ((lastRun?.activity_digest as string | null | undefined) ??
                   null),
             currentDigest:
-              agentCode === "a02_monitor_negocio" ? null : currentDigest,
+              agentCode === "a02_monitor_negocio" ||
+              agentCode === "a08_gestor_conocimiento" ||
+              (agentCode === "a04_generador_tareas" &&
+                lastRunAt !== null &&
+                new Date(lastRunAt).toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10))
+                ? null
+                : currentDigest,
             hasUnreviewedPending:
               lastOutput?.status === "pending_approval" &&
               lastRunAt !== null &&
@@ -15667,10 +16490,12 @@ async function runDiagnosticOrchestratorTickInner(
             ...(cadence.lookbackDays === null
               ? {}
               : { lookbackDays: cadence.lookbackDays }),
+            ...(monitorScopesDue ? { monitorScopes: monitorScopesDue } : {}),
             // La revisión estratégica semanal no debe quedarse fuera del cupo
             // global frente a refrescos de caché frecuentes.
             priority:
-              priority + (agentCode === "a19_revision_camino" ? 250_000 : 0),
+              priority + (agentCode === "a19_revision_camino" ? 250_000 : 0) -
+                (agentCode === "a08_gestor_conocimiento" ? 50_000 : 0),
           });
           if (agentCode === "a02_monitor_negocio" && scope.storeId) {
             organizationsWithQueuedStoreMonitor.add(organizationId);
@@ -15686,10 +16511,7 @@ async function runDiagnosticOrchestratorTickInner(
   let selectedRunWeight = 0;
   const overflowCandidates: typeof candidates = [];
   for (const candidate of candidates) {
-    const runWeight =
-      candidate.agentCode === "a02_monitor_negocio" && candidate.lookbackDays === 30
-        ? MONITOR_DASHBOARD_SCOPES.length
-        : 1;
+    const runWeight = candidate.monitorScopes?.length ?? 1;
     if (selectedRunWeight + runWeight <= maxRunsPerTick) {
       selected.push(candidate);
       selectedRunWeight += runWeight;
@@ -15716,15 +16538,9 @@ async function runDiagnosticOrchestratorTickInner(
     let result:
       | Awaited<ReturnType<typeof runMonitorAgent>>
       | { ok: true; skipped: true; reason: string };
-    let monitorViewsRan = 0;
     if (item.agentCode === "a02_monitor_negocio") {
-      result = { ok: true, skipped: true, reason: "no_activity" };
-      const dashboardScopes =
-        item.lookbackDays === 30
-          ? MONITOR_DASHBOARD_SCOPES
-          : ["overview" as const];
-      for (const dashboardScope of dashboardScopes) {
-        result = await runMonitorAgent(
+      for (const dashboardScope of item.monitorScopes ?? ["overview"]) {
+        const monitorResult = await runMonitorAgent(
           env,
           context,
           item.organizationId,
@@ -15733,17 +16549,30 @@ async function runDiagnosticOrchestratorTickInner(
           dashboardScope,
           { trigger: "cron", enforceManualRefreshCap: false },
         );
-        if (result.ok === false) break;
-        if (!("skipped" in result && result.skipped)) monitorViewsRan += 1;
+        if (monitorResult.ok === false) {
+          const reason = monitorResult.error === "organization_daily_budget_exceeded"
+            ? "org_budget"
+            : monitorResult.error === "platform_daily_budget_exceeded"
+              ? "platform_budget"
+              : "error";
+          note(item.organizationId, item.agentCode, "skipped", reason, item.digest, item.storeId);
+          if (reason === "platform_budget" || reason === "org_budget") break;
+          continue;
+        }
+        if (!("skipped" in monitorResult && monitorResult.skipped)) {
+          note(item.organizationId, item.agentCode, "ran", "ran", item.digest, item.storeId);
+          ran += 1;
+        }
       }
+      continue;
     } else if (item.agentCode === "a04_generador_tareas") {
       result = await runTaskPlannerAgent(
         env,
         context,
         item.organizationId,
-        null,
+        item.connectionId,
         undefined,
-        { trigger: "cron", enforceManualRefreshCap: false },
+        { trigger: "cron", enforceManualRefreshCap: false, activityDigest: item.digest },
       );
     } else if (item.agentCode === "a17_plan_semanal") {
       result = await runPlanAgent(
@@ -15849,6 +16678,22 @@ async function runDiagnosticOrchestratorTickInner(
         },
         item.connectionId,
       );
+    } else if (item.agentCode === "a06_planificador_stock") {
+      result = await runStockPlannerAgent(
+        env,
+        context,
+        item.organizationId,
+        item.connectionId,
+        undefined,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else if (item.agentCode === "a08_gestor_conocimiento") {
+      result = await runKnowledgeManagerAgent(
+        env,
+        context,
+        item.organizationId,
+        { trigger: "cron", enforceManualRefreshCap: false, activityDigest: item.digest },
+      );
     } else {
       result = await runStockPlannerAgent(
         env,
@@ -15893,7 +16738,7 @@ async function runDiagnosticOrchestratorTickInner(
         item.digest,
         item.storeId,
       );
-      ran += item.agentCode === "a02_monitor_negocio" ? monitorViewsRan : 1;
+      ran += 1;
     }
   }
 
@@ -15904,6 +16749,8 @@ async function runDiagnosticOrchestratorTickInner(
     context,
     orgIds,
     storesByOrganization,
+    disabledAgentsByOrganization,
+    platformAgentSettings,
     startOfDayUtc,
     orgRunCap,
     note,
@@ -20226,29 +21073,20 @@ async function loadRecentSpecialistOutputBlock(
   const lookbackStart = new Date(
     now.getTime() - 45 * 24 * 60 * 60 * 1000,
   ).toISOString();
-  let query = supabase
-    .from("agent_runs")
-    .select(
-      "id, organization_id, store_id, status, finished_at, time_range, lookback_days, agent_versions!inner(version, agent_definitions!inner(code)), agent_outputs!inner(id, organization_id, status, output)",
-    )
-    .eq("organization_id", organizationId)
-    .eq("agent_outputs.organization_id", organizationId)
-    .eq("status", "succeeded")
-    .in("agent_versions.agent_definitions.code", [...agentCodes])
-    .in("agent_outputs.status", options.includePendingAnalysis
-      ? ["approved", "published", "pending_approval"]
-      : ["approved", "published"])
-    .gte("finished_at", lookbackStart);
-  query =
-    storeId === null
-      ? query.is("store_id", null)
-      : query.eq("store_id", storeId);
-
-  const { data, error } = await query
-    .order("finished_at", { ascending: false })
-    .limit(120);
+  const { data, error } = await (supabase as any).rpc(
+    "get_latest_specialist_runs",
+    {
+      p_organization_id: organizationId,
+      p_store_id: storeId,
+      p_agent_codes: [...agentCodes],
+      p_include_pending: options.includePendingAnalysis === true,
+      p_since: lookbackStart,
+    },
+  );
+  const unavailable = Boolean(error) || !Array.isArray(data);
+  const specialistRows = Array.isArray(data) ? data : [];
   const runs = summarizeRecentSpecialistOutputs(
-    (data ?? []) as unknown as SpecialistRunCandidate[],
+    specialistRows as SpecialistRunCandidate[],
     { organizationId, storeId, now, includePendingAnalysis: options.includePendingAnalysis === true },
   );
   return {
@@ -20257,12 +21095,12 @@ async function loadRecentSpecialistOutputBlock(
         ? "Salidas recientes de especialistas, aprobadas o pendientes de revisión (contexto, no fuente de cifras actuales)"
         : "Salidas recientes y verificadas de especialistas (contexto, no fuente de cifras actuales)",
     data: {
-      status: error
+      status: unavailable
         ? "unavailable"
         : runs.length
           ? "available"
           : "no_recent_approved_outputs",
-      failure_code: error ? "specialist_output_query_failed" : null,
+      failure_code: unavailable ? "specialist_output_query_failed" : null,
       scope: storeId ? "selected_store" : "organization_aggregate_only",
       store_id: storeId,
       retrieved_at: now.toISOString(),
@@ -20271,8 +21109,9 @@ async function loadRecentSpecialistOutputBlock(
         default: 30,
         a19_arquitecto_camino: 45,
       },
-      bounded_sample: !error && (data?.length ?? 0) >= 120,
-      outputs: error ? [] : runs,
+      selection_method: "latest_per_specialist",
+      bounded_sample: false,
+      outputs: unavailable ? [] : runs,
       interpretation:
         "Son evaluaciones previas aprobadas/publicadas. Usa su run_id/output_id como procedencia, menciona su fecha y vigencia, contrástalas con tools para cifras actuales y no las presentes como conclusión propia de este chat.",
     },
@@ -20315,6 +21154,9 @@ export async function runConsultantChatTurn(
 
   if (!trimmedMessage) {
     return { ok: false as const, statusCode: 400, error: "message_requerido" };
+  }
+  if (trimmedMessage.length > 8000) {
+    return { ok: false as const, statusCode: 400, error: "message_too_long" };
   }
   if (clientTurnId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientTurnId)) {
     return { ok: false as const, statusCode: 400, error: "client_turn_id_invalid" };
@@ -20377,6 +21219,26 @@ export async function runConsultantChatTurn(
     knowledgeStoreId = store.id;
   }
 
+  const { data: runtimeConfig, error: runtimeConfigError } = await supabase
+    .from("organization_ai_agent_runtime_config")
+    .select("active_agent_codes")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (runtimeConfigError) {
+    return { ok: false as const, statusCode: 503, error: "client_ai_agent_config_unavailable" };
+  }
+  let activeAgentCodes: string[];
+  try {
+    activeAgentCodes = runtimeConfig
+      ? (runtimeConfig.active_agent_codes ?? [])
+      : await getDefaultActiveClientAgentCodes(supabase);
+  } catch {
+    return { ok: false as const, statusCode: 503, error: "client_ai_agent_catalog_unavailable" };
+  }
+  if (!activeAgentCodes.includes("a09_copiloto_consultor")) {
+    return { ok: false as const, statusCode: 403, error: "client_ai_agent_not_selected" };
+  }
+
   const planPolicy = resolvePlanBudget(
     resolveOrganizationPlanCode(context, organizationId),
     env.AI_PLAN_BUDGETS_JSON,
@@ -20390,6 +21252,10 @@ export async function runConsultantChatTurn(
   if (dailyBudgetCheck.ok === false) {
     return dailyBudgetCheck;
   }
+  const platformBudgetCheck = await checkPlatformDailyBudget(
+    supabase, resolvePlatformDailyBudgetUsd(env),
+  );
+  if (platformBudgetCheck.ok === false) return platformBudgetCheck;
 
   const providerCircuitCheck = await checkOrganizationProviderCircuit(
     supabase,
@@ -20438,11 +21304,11 @@ export async function runConsultantChatTurn(
   // Un mismo ID de cliente nunca vuelve a generar una respuesta ni a consumir
   // saldo. También encuentra un primer turno cuyo conversation_id se perdió
   // con la respuesta de red.
-  let existingTurnMessage: { id: string; conversation_id: string; created_at: string } | null = null;
+  let existingTurnMessage: { id: string; conversation_id: string; created_at: string; content: string } | null = null;
   if (clientTurnId) {
     const { data: existing, error: existingError } = await supabase
       .from("ai_messages")
-      .select("id, conversation_id, created_at")
+      .select("id, conversation_id, created_at, content")
       .eq("organization_id", organizationId)
       .eq("role", "user")
       .contains("metadata", { client_turn_id: clientTurnId })
@@ -20451,6 +21317,9 @@ export async function runConsultantChatTurn(
       return { ok: false as const, statusCode: 500, error: "chat_turn_lookup_failed", detail: existingError.message };
     }
     if (existing) {
+      if (existing.content !== trimmedMessage) {
+        return { ok: false as const, statusCode: 409, error: "client_turn_content_mismatch" };
+      }
       existingTurnMessage = existing;
       const { data: ownerConversation, error: ownerError } = await supabase
         .from("ai_conversations")
@@ -20553,8 +21422,8 @@ export async function runConsultantChatTurn(
       .select("id, role, run_id, metadata")
       .eq("conversation_id", activeConversationId)
       .eq("organization_id", organizationId)
-      .gt("created_at", existingTurnMessage.created_at)
-      .order("created_at", { ascending: true })
+      .eq("role", "assistant")
+      .contains("metadata", { client_turn_id: clientTurnId })
       .limit(1)
       .maybeSingle();
     if (priorAssistantError) {
@@ -20577,9 +21446,12 @@ export async function runConsultantChatTurn(
       };
     }
     const [{ data: priorRun }, { data: priorAgentOutput }] = await Promise.all([
-      supabase.from("agent_runs").select("input_tokens, output_tokens, model_calls, tool_call_count, estimated_cost_usd, latency_ms, model").eq("id", priorAssistant.run_id).maybeSingle(),
+      supabase.from("agent_runs").select("status, input_tokens, output_tokens, model_calls, tool_call_count, estimated_cost_usd, latency_ms, model").eq("id", priorAssistant.run_id).eq("organization_id", organizationId).maybeSingle(),
       supabase.from("agent_outputs").select("id, approval_required, status").eq("run_id", priorAssistant.run_id).eq("organization_id", organizationId).maybeSingle(),
     ]);
+    if (priorRun?.status !== "succeeded" || ((priorOutput.proposed_writes?.length ?? 0) > 0 && !priorAgentOutput)) {
+      return { ok: false as const, statusCode: 409, error: "chat_turn_incomplete", conversation_id: activeConversationId, client_turn_id: clientTurnId };
+    }
     const storedArtifacts = Array.isArray(priorMetadata.report_artifacts)
       ? priorMetadata.report_artifacts as GeneratedReportArtifact[]
       : [];
@@ -20641,6 +21513,24 @@ export async function runConsultantChatTurn(
 
   const history = (priorMessages ?? []).reverse();
 
+  // Resolve dependencies that may fail before claiming a durable turn ID.
+  const saldoAntes = await loadCopilotBalance(supabase, context, organizationId)
+    .catch(() => null);
+  if (!saldoAntes) {
+    return { ok: false as const, statusCode: 503, error: "copilot_balance_unavailable" };
+  }
+  const modeloElegido = resolveCopilotModel({
+    requested: requestedModel,
+    tier: saldoAntes.tier,
+    remainingTokens: saldoAntes.remaining,
+    openai: Boolean(env.OPENAI_API_KEY),
+  });
+  const connectedConnectors = await loadConnectedConnectorIds(supabase, organizationId)
+    .catch(() => null);
+  if (!connectedConnectors) {
+    return { ok: false as const, statusCode: 503, error: "copilot_connectors_unavailable" };
+  }
+
   const { data: savedUserMessage, error: userMessageError } = await supabase
     .from("ai_messages")
     .insert({
@@ -20663,10 +21553,6 @@ export async function runConsultantChatTurn(
   }
 
   const runId = crypto.randomUUID();
-  const connectedConnectors = await loadConnectedConnectorIds(
-    supabase,
-    organizationId,
-  );
 
   const sanitizedView = sanitizeChatViewContext(viewContext);
   const view = sanitizedView
@@ -20705,28 +21591,14 @@ export async function runConsultantChatTurn(
     knowledgeAudience,
     {
       actorUserId: context.user.id,
+      actorContext: context,
+      bearerAuthorization: authorization,
       approvalMode: agentVersion.approval_mode as ToolContext["approval_mode"],
       onReportGenerated: (artifact) => reportArtifacts.push(artifact),
     },
   );
 
   const chatSystemPrompt = `${systemPrompt}\n\n${COPILOT_UI_ACTION_INSTRUCTIONS}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}\n\nCuando haya evidencia verificada de un gráfico o entidad en el contexto, usa sus valores, cobertura, fuente y periodo para responder sobre ese elemento. Añade en sources la fuente de cada cifra usada y su periodo; para puntos diarios de Meta usa kind metric y reference meta_performance_daily. search_knowledge contiene metodología y documentos, no las cifras actuales del gráfico. Si la evidencia del elemento tiene status no_data o unavailable, explica qué dato falta; no deduzcas su valor del texto enviado por el navegador.${CURRENCY_GUIDANCE}${CHAT_ANSWER_FORM_GUIDANCE}`;
-
-  // Fase 4: el saldo se lee ANTES del turno, no despues, porque decide con
-  // que modelo corre. A cero no se corta el copiloto: baja a Haiku hasta que
-  // el saldo se renueve. Un copiloto mudo es un motivo de baja; uno que
-  // responde peor es un motivo para subir de plan.
-  const saldoAntes = await loadCopilotBalance(
-    supabase,
-    context,
-    organizationId,
-  );
-  const modeloElegido = resolveCopilotModel({
-    requested: requestedModel,
-    tier: saldoAntes.tier,
-    remainingTokens: saldoAntes.remaining,
-    openai: Boolean(env.OPENAI_API_KEY),
-  });
 
   const input: AgentInput = {
     run_id: runId,
@@ -20786,6 +21658,8 @@ export async function runConsultantChatTurn(
 
   if (runInsertError) {
     await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
+    await supabase.from("ai_messages").delete()
+      .eq("id", savedUserMessage.id).eq("organization_id", organizationId);
     return {
       ok: false as const,
       statusCode: 500,
@@ -20813,9 +21687,10 @@ export async function runConsultantChatTurn(
       specialistOutputBlock,
       assignmentBlock,
       currencyContext,
+      zoneNotes,
     ] = await Promise.all([
       loadCriticalClientConstraints(supabase, organizationId, knowledgeStoreId),
-      loadDecisionPlaybookContextBlocks(supabase, organizationId),
+      loadDecisionPlaybookContextBlocks(supabase, organizationId, { storeId: knowledgeStoreId }),
       loadRecentSpecialistOutputBlock(
         supabase,
         organizationId,
@@ -20823,6 +21698,7 @@ export async function runConsultantChatTurn(
       ),
       loadConsultantAssignmentBlock(supabase, organizationId),
       loadCurrencyContext(supabase, organizationId, knowledgeStoreId).catch(() => null),
+      zoneNotesForContext(env, organizationId, knowledgeStoreId).catch(() => [] as string[]),
     ]);
     const contextBlocks = [
       ...(referencedEvidence ? [referencedEvidence] : []),
@@ -20831,11 +21707,14 @@ export async function runConsultantChatTurn(
         view,
         history,
         constraintBlocks,
-        decisionPlaybookBlocks,
+        decisionPlaybookBlocks: [],
       }),
-      specialistOutputBlock,
       assignmentBlock,
       ...(currencyContext ? [{ label: CURRENCY_BLOCK_LABEL, data: currencyContext }] : []),
+      // Lo que el consultor ya ha dicho sobre cada tarjeta: el copiloto no debe contradecirlo.
+      ...(zoneNotes.length ? [{ label: "Notas del consultor en el panel", data: zoneNotes }] : []),
+      specialistOutputBlock,
+      ...decisionPlaybookBlocks,
     ];
 
     const { error: contextSnapshotError } = await supabase.from("agent_context_snapshots").insert({
@@ -20918,16 +21797,15 @@ export async function runConsultantChatTurn(
       turn.latencyMs,
     );
 
-    const { data: assistantMessage, error: assistantMessageError } =
-      await supabase
-        .from("ai_messages")
-        .insert({
-          conversation_id: activeConversationId,
-          organization_id: organizationId,
-          role: "assistant",
-          content: chatOutput.answer,
-          run_id: runId,
-          metadata: {
+    const { data: finalizedTurn, error: finalizationError } = await supabase.rpc(
+      "finalize_copilot_chat_turn",
+      {
+        p_organization_id: organizationId,
+        p_conversation_id: activeConversationId,
+        p_user_message_id: savedUserMessage.id,
+        p_run_id: runId,
+        p_answer: chatOutput.answer,
+        p_metadata: {
             copilot_output_version: 1,
             copilot_output: chatOutput,
             model_id: modeloElegido.model.id,
@@ -20941,54 +21819,24 @@ export async function runConsultantChatTurn(
             ...(proposalGuidance
               ? { proposal_guidance: proposalGuidance }
               : {}),
-          },
-        })
-        .select("id")
-        .single();
-
-    if (assistantMessageError) {
-      throw new Error(
-        `assistant_message_save_failed: ${assistantMessageError.message}`,
-      );
+        },
+        p_output: chatOutput,
+        p_schema_version: AGENT_OUTPUT_SCHEMA_VERSION,
+        p_completion: agentRunCompletionFields(turn),
+      },
+    );
+    if (finalizationError || !finalizedTurn || typeof finalizedTurn !== "object") {
+      throw new Error(`chat_turn_finalize_failed: ${finalizationError?.message ?? "invalid_result"}`);
     }
-
-    // Una recomendación del chat solo se convierte en propuesta auditable si
-    // el modelo ha devuelto explícitamente proposed_writes. Se guarda como
-    // pendiente y nunca se materializa aquí; la decisión humana usa el mismo
-    // endpoint que el resto de agentes.
+    const finalization = finalizedTurn as { message_id?: string; output_id?: string | null };
+    if (!finalization.message_id) throw new Error("chat_turn_finalize_missing_message");
+    const assistantMessage = { id: finalization.message_id };
     const proposedWrites = Array.isArray(chatOutput.proposed_writes)
       ? chatOutput.proposed_writes
       : [];
     const approvalRequired = proposedWrites.length > 0;
-    let outputId: string | null = null;
-    if (approvalRequired) {
-      const { data: outputRow, error: outputError } = await supabase
-        .from("agent_outputs")
-        .insert({
-          run_id: runId,
-          organization_id: organizationId,
-          schema_version: AGENT_OUTPUT_SCHEMA_VERSION,
-          output: chatOutput,
-          approval_required: true,
-          status: "pending_approval",
-        })
-        .select("id")
-        .single();
-      if (outputError || !outputRow) {
-        throw new Error(
-          `chat_proposal_persist_failed: ${outputError?.message}`,
-        );
-      }
-      outputId = outputRow.id;
-    }
-
-    const { error: runCompletionError } = await supabase
-      .from("agent_runs")
-      .update(agentRunCompletionFields(turn))
-      .eq("id", runId);
-    if (runCompletionError) {
-      throw new Error(`chat_run_completion_save_failed: ${runCompletionError.message}`);
-    }
+    const outputId = finalization.output_id ?? null;
+    if (approvalRequired && !outputId) throw new Error("chat_turn_finalize_missing_proposal");
     await settleOrganizationDailyBudgetReservation(supabase, organizationId, runId);
 
     recordAiRunMetrics(
@@ -21630,6 +22478,57 @@ export async function decideAgentOutput(
     };
   }
 
+  // Descartar UNA propuesta de una salida con varias: se guarda al momento (si no,
+  // el consultor la seguiria viendo hasta que el cliente decidiera todas). Si ya
+  // no queda ninguna viva, la salida entera pasa a rechazada por el flujo normal.
+  if (decisionInput === "dismiss_proposal") {
+    const index = edits?.[0]?.index;
+    if (!Number.isInteger(index) || (index as number) < 0) {
+      return { ok: false as const, statusCode: 400, error: "invalid_proposal_index" };
+    }
+    const dismissSupabase = createServiceClient(env);
+    const { data: pending, error: pendingError } = await dismissSupabase
+      .from("agent_outputs")
+      .select("id, output")
+      .eq("id", outputId)
+      .eq("organization_id", organizationId)
+      .eq("status", "pending_approval")
+      .maybeSingle();
+    if (pendingError) {
+      return { ok: false as const, statusCode: 500, error: "output_decision_failed", detail: pendingError.message };
+    }
+    if (!pending) {
+      return { ok: false as const, statusCode: 404, error: "pending_output_not_found" };
+    }
+    const body = pending.output as Record<string, unknown>;
+    const total = Array.isArray(body.proposed_writes) ? body.proposed_writes.length : 0;
+    if ((index as number) >= total) {
+      return { ok: false as const, statusCode: 400, error: "invalid_proposal_index" };
+    }
+    const skipped = new Set<number>(
+      (Array.isArray(body.proposal_edits) ? body.proposal_edits as Array<Record<string, unknown>> : [])
+        .filter((edit) => edit.skip === true && Number.isInteger(edit.index))
+        .map((edit) => Number(edit.index)),
+    );
+    skipped.add(index as number);
+    if (skipped.size < total) {
+      const { error: saveError } = await dismissSupabase
+        .from("agent_outputs")
+        .update({
+          output: { ...body, proposal_edits: [...skipped].map((i) => ({ index: i, skip: true })) },
+        })
+        .eq("id", outputId)
+        .eq("organization_id", organizationId)
+        .eq("status", "pending_approval");
+      if (saveError) {
+        return { ok: false as const, statusCode: 500, error: "output_decision_failed", detail: saveError.message };
+      }
+      return { ok: true as const, data: { output_id: outputId, status: "pending_approval", dismissed: skipped.size, total } };
+    }
+    decisionInput = "rejected";
+    edits = undefined;
+  }
+
   if (!decisionInput || !["approved", "rejected"].includes(decisionInput)) {
     return { ok: false as const, statusCode: 400, error: "invalid_decision" };
   }
@@ -21650,21 +22549,10 @@ export async function decideAgentOutput(
 
   const supabase = createServiceClient(env);
 
-  // Solo el cliente necesita consultar la base: para consultor y platform
-  // admin la decision ya esta tomada, y un 403 obvio no deberia costar una
-  // consulta.
-  if (
-    candidate === "client" &&
-    (await hasAssignedConsultant(supabase, organizationId))
-  ) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "approval_denied",
-      message:
-        "Con un consultor asignado, es el consultor quien aprueba las salidas de la IA.",
-    };
-  }
+  // Decision de producto 2026-10-18: el cliente (owner/manager) puede decidir
+  // sobre las propuestas de la IA aunque tenga consultor; el consultor recibe un
+  // aviso de lo que ha decidido el cliente (ver mas abajo).
+  const decidedByClient = candidate === "client";
 
   const outputQuery = supabase
     .from("agent_outputs")
@@ -21691,7 +22579,89 @@ export async function decideAgentOutput(
     };
   }
 
+  if (decisionInput === "approved") {
+    const { data: sourceRun, error: sourceRunError } = await supabase
+      .from("agent_runs")
+      .select("agent_version_id")
+      .eq("id", output.run_id)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    const { data: sourceVersion, error: sourceVersionError } = sourceRun?.agent_version_id
+      ? await supabase.from("agent_versions")
+          .select("agent_definitions!inner(code)")
+          .eq("id", sourceRun.agent_version_id)
+          .maybeSingle()
+      : { data: null, error: null };
+    const definition = sourceVersion?.agent_definitions as unknown as { code?: string } | null;
+    if (sourceRunError || sourceVersionError) {
+      return { ok: false as const, statusCode: 503, error: "approval_agent_lookup_failed" };
+    }
+    if (definition?.code === "a08_gestor_conocimiento") {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        error: "knowledge_audit_is_read_only",
+        message: "A08 solo genera auditorías. El trabajo editorial se gestiona internamente y no se convierte en tareas del cliente.",
+      };
+    }
+  }
+
+  const decisionToken = crypto.randomUUID();
+  const { data: claim, error: claimError } = await (supabase as any).rpc(
+    "claim_agent_output_decision",
+    {
+      p_output_id: outputId,
+      p_organization_id: organizationId,
+      p_token: decisionToken,
+      p_decision: decisionInput,
+      p_edits: edits ?? [],
+    },
+  );
+  if (claimError) {
+    return { ok: false as const, statusCode: 503, error: "approval_claim_unavailable", detail: claimError.message };
+  }
+  if (!claim?.claimed) {
+    return {
+      ok: false as const,
+      statusCode: claim?.reason === "not_pending" ? 404 : 409,
+      error: claim?.reason === "not_pending"
+        ? "pending_output_not_found"
+        : claim?.reason === "decision_conflict"
+          ? "approval_decision_already_started"
+          : "approval_decision_in_progress",
+    };
+  }
+  if (claim.output && typeof claim.output === "object") {
+    output.output = claim.output;
+  }
+  const releaseDecisionClaim = async () => {
+    const { error: releaseError } = await (supabase as any).rpc("release_agent_output_decision", {
+      p_output_id: outputId,
+      p_token: decisionToken,
+    });
+    if (releaseError) logger.error("agent_output_decision_claim_release_failed", { output_id: outputId, error: releaseError.message });
+  };
+
   let tasksCreated = 0;
+  const proposalDecisions = new Map<number, Record<string, unknown>>();
+  if (decisionInput === "rejected") {
+    const original = output.output as Record<string, unknown>;
+    const rejectedWrites = [
+      ...(Array.isArray(original.proposed_writes) ? original.proposed_writes : []),
+      ...(Array.isArray(original.proposed_tasks) ? original.proposed_tasks : []),
+    ];
+    rejectedWrites.forEach((rawWrite, index) => {
+      const write = rawWrite && typeof rawWrite === "object" ? rawWrite as Record<string, unknown> : {};
+      proposalDecisions.set(index, {
+        index,
+        decision: "rejected",
+        status: "rejected",
+        title: typeof write.title === "string" ? write.title : null,
+        description: typeof write.description === "string" ? write.description : null,
+        priority: typeof write.priority === "string" ? write.priority : null,
+      });
+    });
+  }
   const taskCreationFailures: string[] = [];
   const initiativeChangeFailures: Array<{
     previous_task_id: string | null;
@@ -21714,14 +22684,43 @@ export async function decideAgentOutput(
         editByIndex.set(edit.index, edit);
       }
     }
+    const savedEdits = Array.isArray((output.output as Record<string, unknown>)?.proposal_edits)
+      ? (output.output as Record<string, unknown>).proposal_edits as Array<Record<string, unknown>>
+      : [];
+    for (const saved of savedEdits) {
+      const index = saved.index;
+      if (!Number.isInteger(index) || editByIndex.has(Number(index))) continue;
+      editByIndex.set(Number(index), {
+        index: Number(index),
+        ...(saved.skip === true ? { skip: true } : {}),
+        ...(typeof saved.title === "string" ? { title: saved.title } : {}),
+        ...(typeof saved.description === "string" ? { description: saved.description } : {}),
+        ...(typeof saved.priority === "string" ? { priority: saved.priority } : {}),
+      });
+    }
+    const priorDecisions = Array.isArray((output.output as Record<string, unknown>)?.proposal_decisions)
+      ? (output.output as Record<string, unknown>).proposal_decisions as Array<Record<string, unknown>>
+      : [];
+    for (const prior of priorDecisions) {
+      const index = prior.index;
+      if (!Number.isInteger(index) || !["created", "skipped", "failed"].includes(String(prior.status))) continue;
+      editByIndex.set(Number(index), {
+        index: Number(index),
+        skip: prior.status === "skipped",
+        ...(typeof prior.title === "string" ? { title: prior.title } : {}),
+        ...(typeof prior.description === "string" ? { description: prior.description } : {}),
+        ...(typeof prior.priority === "string" ? { priority: prior.priority } : {}),
+      });
+    }
 
     const proposedWrites = rawProposedWrites
-      .map((write, index) => {
+      .map((write, index): Record<string, unknown> | null => {
         const edit = editByIndex.get(index);
-        if (!edit) return write;
+        if (!edit) return { ...write, __proposal_index: index };
         if (edit.skip) return null;
         return {
           ...write,
+          __proposal_index: index,
           ...(typeof edit.title === "string" && edit.title.trim()
             ? { title: edit.title.trim() }
             : {}),
@@ -21735,6 +22734,17 @@ export async function decideAgentOutput(
         };
       })
       .filter((write): write is Record<string, unknown> => write !== null);
+    rawProposedWrites.forEach((rawWrite, index) => {
+      const edit = editByIndex.get(index);
+      const original = rawWrite && typeof rawWrite === "object" ? rawWrite : {};
+      proposalDecisions.set(index, {
+        index,
+        decision: edit?.skip ? "skipped" : "approved",
+        title: edit?.title?.trim() || (typeof original.title === "string" ? original.title : null),
+        description: edit?.description?.trim() ?? (typeof original.description === "string" ? original.description : null),
+        priority: edit?.priority ?? (typeof original.priority === "string" ? original.priority : null),
+      });
+    });
 
     const agentCode = await resolveAgentCodeForRun(supabase, output.run_id);
     // Categoria base: la fija el modulo del agente, no el LLM. El agente puede
@@ -21744,12 +22754,16 @@ export async function decideAgentOutput(
     const baseCategory = agentCode
       ? (AGENT_TASK_CATEGORY[agentCode] ?? "general")
       : "general";
-    const { data: runScope } = await supabase
+    const { data: runScope, error: runScopeError } = await supabase
       .from("agent_runs")
       .select("store_id")
       .eq("id", output.run_id)
       .eq("organization_id", organizationId)
       .maybeSingle();
+    if (runScopeError || !runScope) {
+      await releaseDecisionClaim();
+      return { ok: false as const, statusCode: 503, error: "approval_run_scope_unavailable", detail: runScopeError?.message };
+    }
     const taskStoreId =
       typeof runScope?.store_id === "string" ? runScope.store_id : null;
     const ALLOWED_TASK_CATEGORIES = ["shopify", "meta", "klaviyo", "general"];
@@ -21770,17 +22784,29 @@ export async function decideAgentOutput(
     // exacto normalizado que ya usa la aprobacion de resumenes de llamada
     // (calls.ts) -- no detecta duplicados semanticos, solo el caso mas comun
     // (dos agentes proponiendo literalmente el mismo titulo).
+    const targetedStockProductIds = agentCode === "a06_planificador_stock"
+      ? [...new Set(rawProposedWrites.flatMap((write) => {
+          const id = write && typeof write === "object" ? (write as Record<string, unknown>).related_product_id : null;
+          return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? [id.toLowerCase()] : [];
+        }))]
+      : [];
     let openTasksQuery = supabase
       .from("tasks")
-      .select("title, store_id, metadata")
+      .select("title, store_id, metadata", agentCode === "a06_planificador_stock" ? { count: "exact" } : undefined)
       .eq("organization_id", organizationId)
       .in("status", ["pending", "in_progress"]);
+    if (agentCode === "a06_planificador_stock") {
+      openTasksQuery = targetedStockProductIds.length
+        ? (openTasksQuery as any).in("metadata->>ai_shopify_product_id", targetedStockProductIds).limit(100)
+        : (openTasksQuery as any).eq("id", "00000000-0000-0000-0000-000000000000");
+    }
     if (taskStoreId)
       openTasksQuery = openTasksQuery.or(
         `store_id.is.null,store_id.eq.${taskStoreId}`,
       );
-    const { data: openTasks, error: openTasksError } = await openTasksQuery;
-    if (openTasksError) {
+    const { data: openTasks, error: openTasksError, count: openTaskCount } = await openTasksQuery;
+    if (openTasksError || (agentCode === "a06_planificador_stock" && (openTaskCount ?? 0) > 100)) {
+      await releaseDecisionClaim();
       return {
         ok: false as const,
         statusCode: 503,
@@ -21807,9 +22833,75 @@ export async function decideAgentOutput(
     const createdStockProductIds = new Set<string>();
     const processedA18InitiativeIds = new Set<string>();
 
-    for (const write of proposedWrites) {
-      if (write.kind !== "task") {
+    for (const [proposalArrayIndex, write] of proposedWrites.entries()) {
+      const proposalIndex = Number.isInteger(write.__proposal_index) ? Number(write.__proposal_index) : proposalArrayIndex;
+      if (write.kind === "note") {
+        const noteBody = [write.title, write.description]
+          .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+          .map((part) => part.trim()).join(" — ").slice(0, 4000);
+        if (!noteBody) {
+          proposalDecisions.set(proposalIndex, { index: proposalIndex, status: "failed", reason: "note_body_required" });
+          taskCreationFailures.push("note_body_required");
+          continue;
+        }
+        const { data: createdNote, error: noteError } = await supabase
+          .from("agent_output_notes")
+          .upsert({
+            output_id: outputId,
+            organization_id: organizationId,
+            author_user_id: context.user.id,
+            author_kind: "ai",
+            body: noteBody,
+            agent_proposal_index: proposalIndex,
+          }, { onConflict: "output_id,agent_proposal_index", ignoreDuplicates: true })
+          .select("id").maybeSingle();
+        const { data: existingNote, error: existingNoteError } = !noteError && !createdNote
+          ? await supabase.from("agent_output_notes").select("id")
+              .eq("output_id", outputId).eq("agent_proposal_index", proposalIndex).maybeSingle()
+          : { data: null, error: null };
+        const noteId = createdNote?.id ?? existingNote?.id;
+        if (noteError || existingNoteError || !noteId) {
+          proposalDecisions.set(proposalIndex, { index: proposalIndex, status: "failed", reason: "note_materialization_failed" });
+          taskCreationFailures.push("note_materialization_failed");
+        } else {
+          proposalDecisions.set(proposalIndex, { index: proposalIndex, decision: "approved", status: "created", note_id: noteId });
+        }
         continue;
+      }
+      if (write.kind !== "task") {
+        proposalDecisions.set(proposalIndex, { index: proposalIndex, status: "failed", reason: "proposal_kind_unsupported" });
+        taskCreationFailures.push("proposal_kind_unsupported");
+        continue;
+      }
+
+      if (agentCode === "a06_planificador_stock") {
+        const { data: previousMaterialization, error: previousMaterializationError } = await supabase
+          .from("tasks")
+          .select("id, title, metadata")
+          .eq("organization_id", organizationId)
+          .eq("agent_output_id", outputId)
+          .eq("agent_proposal_index", proposalIndex)
+          .maybeSingle();
+        if (previousMaterializationError) {
+          proposalDecisions.set(proposalIndex, { ...proposalDecisions.get(proposalIndex), status: "failed", reason: "previous_task_recovery_failed" });
+          taskCreationFailures.push("previous_task_recovery_failed");
+          continue;
+        }
+        if (previousMaterialization) {
+          const metadata = previousMaterialization.metadata && typeof previousMaterialization.metadata === "object"
+            ? previousMaterialization.metadata as Record<string, unknown>
+            : {};
+          const productId = typeof metadata.ai_shopify_product_id === "string" ? metadata.ai_shopify_product_id.toLowerCase() : null;
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: "created",
+            task_id: previousMaterialization.id,
+            ...(typeof previousMaterialization.title === "string" ? { title: previousMaterialization.title } : {}),
+          });
+          if (productId) createdStockProductIds.add(productId);
+          if (typeof previousMaterialization.title === "string") existingTitles.add(previousMaterialization.title.trim().toLowerCase());
+          continue;
+        }
       }
 
       const title = String(write.title ?? "Tarea propuesta por IA").slice(
@@ -22018,6 +23110,7 @@ export async function decideAgentOutput(
         )
           ? write.related_product_id.toLowerCase()
           : null;
+      let decisionTaskStoreId = taskStoreId;
 
       if (agentCode === "a06_planificador_stock") {
         // Fail closed: a product-specific stock task without a stable entity
@@ -22030,16 +23123,86 @@ export async function decideAgentOutput(
               ? "open_tasks_unavailable"
               : "related_product_id_missing",
           });
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: "skipped",
+            reason: relatedProductId ? "open_tasks_unavailable" : "product_link_missing",
+          });
           continue;
         }
+        const { data: linkedProduct, error: linkedProductError } = await supabase
+          .from("shopify_products")
+          .select("id, store_id, status")
+          .eq("id", relatedProductId)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        if (linkedProductError || !linkedProduct || linkedProduct.status !== "ACTIVE" ||
+          (taskStoreId !== null && linkedProduct.store_id !== taskStoreId)) {
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: linkedProductError ? "failed" : "skipped",
+            reason: linkedProductError ? "product_scope_check_unavailable" : "product_inactive_or_out_of_scope",
+          });
+          if (linkedProductError) taskCreationFailures.push("product_scope_check_unavailable");
+          continue;
+        }
+        decisionTaskStoreId = typeof linkedProduct.store_id === "string" ? linkedProduct.store_id : taskStoreId;
         if (
           createdStockProductIds.has(relatedProductId) ||
           hasOpenStockTaskForProduct(
             relatedProductId,
             openTasks ?? [],
-            taskStoreId,
+            decisionTaskStoreId,
           )
         ) {
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: "skipped",
+            reason: "open_stock_task_exists",
+          });
+          continue;
+        }
+        const { data: currentStockEvidence, error: currentStockEvidenceError } = await (supabase as any).rpc(
+          "validate_a06_restock_evidence",
+          {
+            p_organization_id: organizationId,
+            p_store_id: decisionTaskStoreId,
+            p_product_id: relatedProductId,
+          },
+        );
+        if (currentStockEvidenceError) {
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: "failed",
+            reason: "current_stock_check_unavailable",
+          });
+          taskCreationFailures.push("current_stock_check_unavailable");
+          continue;
+        }
+        if (currentStockEvidence !== true) {
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: "skipped",
+            reason: "stock_evidence_changed_since_analysis",
+          });
+          continue;
+        }
+        const { data: stockClaimed, error: stockClaimError } = await (supabase as any).rpc(
+          "claim_a06_restock_product",
+          {
+            p_organization_id: organizationId,
+            p_store_id: taskStoreId,
+            p_product_id: relatedProductId,
+            p_claim_token: crypto.randomUUID(),
+          },
+        );
+        if (stockClaimError || stockClaimed !== true) {
+          proposalDecisions.set(proposalIndex, {
+            ...proposalDecisions.get(proposalIndex),
+            status: "failed",
+            reason: stockClaimError ? "stock_dedupe_unavailable" : "stock_dedupe_in_progress",
+          });
+          taskCreationFailures.push(stockClaimError ? "stock_dedupe_unavailable" : "stock_dedupe_in_progress");
           continue;
         }
       }
@@ -22060,13 +23223,40 @@ export async function decideAgentOutput(
         agentCode === "a18_plan_mensual"
           ? readInitiativeMeasurement(write)
           : null;
-      const proposedMilestoneId = readProposedMilestoneId(write.milestone_id);
+      let proposedMilestoneId = readProposedMilestoneId(write.milestone_id);
+      if (["a04_generador_tareas", "a06_planificador_stock"].includes(String(agentCode)) && proposedMilestoneId) {
+        const { data: targetMilestone, error: targetMilestoneError } = await supabase
+          .from("strategic_plan_milestones")
+          .select("id, status, strategic_plan_phases!inner(status, strategic_plans!inner(status, store_id))")
+          .eq("id", proposedMilestoneId)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        const phaseRelation = targetMilestone?.strategic_plan_phases as unknown as Record<string, unknown> | Record<string, unknown>[] | null;
+        const phase = Array.isArray(phaseRelation) ? phaseRelation[0] : phaseRelation;
+        const planRelation = phase?.strategic_plans as Record<string, unknown> | Record<string, unknown>[] | null;
+        const plan = Array.isArray(planRelation) ? planRelation[0] : planRelation;
+        if (
+          targetMilestoneError || !targetMilestone || !["active", "pending"].includes(String(targetMilestone.status)) ||
+          !["active", "pending"].includes(String(phase?.status)) || plan?.status !== "active" ||
+          (plan.store_id ?? null) !== (agentCode === "a06_planificador_stock" ? decisionTaskStoreId : taskStoreId)
+        ) {
+          logger.info("a04_stale_or_out_of_scope_milestone_ignored", {
+            organization_id: organizationId,
+            output_id: outputId,
+            milestone_id: proposedMilestoneId,
+            reason: targetMilestoneError ? "query_error" : "inactive_or_wrong_scope",
+          });
+          proposedMilestoneId = null;
+        }
+      }
 
       const { data: createdTask, error: taskError } = await supabase
         .from("tasks")
-        .insert({
+        .upsert({
+          agent_output_id: outputId,
+          agent_proposal_index: proposalIndex,
           organization_id: organizationId,
-          store_id: taskStoreId,
+          store_id: agentCode === "a06_planificador_stock" ? decisionTaskStoreId : taskStoreId,
           source: "ai_consultant",
           priority:
             typeof write.priority === "string" ? write.priority : "medium",
@@ -22106,60 +23296,50 @@ export async function decideAgentOutput(
               : {}),
           },
           categories: categoriesFor(write),
-        })
+        }, { onConflict: "agent_output_id,agent_proposal_index", ignoreDuplicates: true })
         .select("id")
-        .single();
+        .maybeSingle();
 
-      if (!taskError && createdTask) {
-        tasksCreated += 1;
+      const { data: existingProposalTask } = !taskError && !createdTask
+        ? await supabase.from("tasks").select("id, title")
+            .eq("agent_output_id", outputId).eq("agent_proposal_index", proposalIndex).maybeSingle()
+        : { data: null };
+      const materializedTask = createdTask ?? existingProposalTask;
+      if (taskError) {
+        proposalDecisions.set(proposalIndex, { ...proposalDecisions.get(proposalIndex), status: "failed" });
+        taskCreationFailures.push(taskError.message.slice(0, 240));
+      } else if (!materializedTask) {
+        proposalDecisions.set(proposalIndex, { ...proposalDecisions.get(proposalIndex), status: "failed" });
+        taskCreationFailures.push("No se pudo recuperar la tarea materializada para esta propuesta.");
+      } else {
+        if (createdTask) tasksCreated += 1;
+        proposalDecisions.set(proposalIndex, {
+          ...proposalDecisions.get(proposalIndex),
+          ...(existingProposalTask?.title ? { title: existingProposalTask.title } : {}),
+          status: "created",
+          task_id: materializedTask.id,
+        });
         existingTitles.add(normalizedTitle);
-        if (agentCode === "a06_planificador_stock" && relatedProductId) {
-          createdStockProductIds.add(relatedProductId);
-        }
+        if (agentCode === "a06_planificador_stock" && relatedProductId) createdStockProductIds.add(relatedProductId);
 
-        // La IA puede proponer a que hito de Mi Camino pertenece la tarea
-        // (write.milestone_id); el trigger enforce_milestone_task_link_same_org
-        // rechaza silenciosamente un hito de otra organizacion o inexistente,
-        // asi que el enlace es best-effort y no bloquea la creacion de la tarea.
-        // Si el LLM no propuso hito, se intenta el hito activo actual del plan
-        // (findCurrentMilestoneId, DB-07 2026-07-29) para que la tarea no quede
-        // huerfana de Mi Camino por defecto.
-        const milestoneId =
-          proposedMilestoneId ??
-          (shouldFallbackToCurrentMilestone(agentCode)
-            ? await findCurrentMilestoneId(
-                supabase,
-                organizationId,
-                taskStoreId,
-              )
-            : null);
-
+        const milestoneId = proposedMilestoneId ?? (shouldFallbackToCurrentMilestone(agentCode)
+          ? await findCurrentMilestoneId(supabase, organizationId, taskStoreId)
+          : null);
         if (milestoneId) {
-          const { error: linkError } = await supabase.from("milestone_task_links").insert({
+          const { error: linkError } = await supabase.from("milestone_task_links").upsert({
             organization_id: organizationId,
             milestone_id: milestoneId,
-            task_id: createdTask.id,
-          });
-          if (!linkError) {
-            const reopened = await reopenCaminoMilestoneForWork(
-              supabase,
-              organizationId,
-              milestoneId,
-              context.user.id,
-              createdTask.id,
-            );
-            if (!reopened.ok) {
-              logger.error("camino_milestone_reopen_failed", {
-                organization_id: organizationId,
-                milestone_id: milestoneId,
-                task_id: createdTask.id,
-                error: reopened.detail,
-              });
-            }
+            task_id: materializedTask.id,
+          }, { onConflict: "milestone_id,task_id", ignoreDuplicates: true });
+          if (linkError) {
+            proposalDecisions.set(proposalIndex, { ...proposalDecisions.get(proposalIndex), status: "link_failed" });
+            taskCreationFailures.push("milestone_link_failed");
+            logger.error("a04_milestone_link_failed", { organization_id: organizationId, output_id: outputId, milestone_id: milestoneId, task_id: materializedTask.id, error: linkError.message });
+          } else {
+            const reopened = await reopenCaminoMilestoneForWork(supabase, organizationId, milestoneId, context.user.id, materializedTask.id);
+            if (!reopened.ok) logger.error("camino_milestone_reopen_failed", { organization_id: organizationId, milestone_id: milestoneId, task_id: materializedTask.id, error: reopened.detail });
           }
         }
-      } else if (taskError) {
-        taskCreationFailures.push(taskError.message.slice(0, 240));
       }
     }
   }
@@ -22190,8 +23370,11 @@ export async function decideAgentOutput(
             organization_id: organizationId,
             user_id: userId,
             type: "task_assigned",
-            title:
-              tasksCreated === 1
+            title: decidedByClient
+              ? tasksCreated === 1
+                ? "Se ha creado una tarea nueva en tu cuenta"
+                : `Se han creado ${tasksCreated} tareas nuevas en tu cuenta`
+              : tasksCreated === 1
                 ? "Tu consultor te ha asignado una tarea nueva"
                 : `Tu consultor te ha asignado ${tasksCreated} tareas nuevas`,
             message:
@@ -22218,13 +23401,60 @@ export async function decideAgentOutput(
   // Las tareas ya creadas se deduplican por título al reintentar, así se puede
   // completar el lote sin volver a marcar como aprobada una ejecución parcial.
   if (taskCreationFailures.length || initiativeChangeFailures.length) {
+    await supabase.from("agent_outputs").update({
+      output: { ...(output.output as Record<string, unknown>), proposal_decisions: [...proposalDecisions.values()] },
+    }).eq("id", outputId).eq("organization_id", organizationId).eq("status", "pending_approval");
+    await releaseDecisionClaim();
     return {
       ok: false as const,
       statusCode: 503,
       error: "approval_tasks_partial",
-      detail: `${taskCreationFailures.length} tareas fallaron y ${initiativeChangeFailures.length} cambios de iniciativa requieren revisión.`,
+      detail: `${taskCreationFailures.length} propuestas fallaron y ${initiativeChangeFailures.length} cambios de iniciativa requieren revisión.`,
     };
   }
+
+  // Si decide el cliente, el consultor asignado se entera. Best-effort: el aviso
+  // no puede tumbar una decision ya aplicada.
+  if (decidedByClient) {
+    try {
+      const { data: assignments } = await supabase
+        .from("consultant_assignments")
+        .select("consultant_user_id")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true);
+      const consultantIds = [...new Set((assignments ?? []).map((row) => row.consultant_user_id as string))]
+        .filter((userId) => userId && userId !== context.user.id);
+      if (consultantIds.length) {
+        const { error: notifyError } = await supabase.from("notifications").insert(
+          consultantIds.map((userId) => ({
+            organization_id: organizationId,
+            user_id: userId,
+            type: "client_decided_ai_output",
+            title:
+              decisionInput === "approved"
+                ? tasksCreated > 0
+                  ? `Tu cliente ha aprobado una propuesta de la IA (${tasksCreated} tarea${tasksCreated === 1 ? "" : "s"})`
+                  : "Tu cliente ha aprobado una propuesta de la IA"
+                : "Tu cliente ha descartado una propuesta de la IA",
+            message: "La ha decidido el propio cliente desde su panel. Revisa el resultado si quieres ajustarlo.",
+            action_url: "/tareas",
+            entity_type: "agent_output",
+            entity_id: outputId,
+          })),
+        );
+        if (notifyError) {
+          logger.error("client_decision_notification_failed", { organization_id: organizationId, output_id: outputId, error: notifyError.message });
+        }
+      }
+    } catch (error) {
+      logger.error("client_decision_notification_threw", { organization_id: organizationId, output_id: outputId, error: error instanceof Error ? error.message : "unknown_error" });
+    }
+  }
+
+  const totalMaterializedTasks = Math.max(
+    tasksCreated,
+    [...proposalDecisions.values()].filter((item) => ["created", "link_failed"].includes(String(item.status))).length,
+  );
 
   const { data: approval, error: approvalError } = await supabase
     .from("agent_approvals")
@@ -22236,7 +23466,7 @@ export async function decideAgentOutput(
         decided_by: context.user.id,
         reason: reason ?? null,
         reason_category: reasonCategory ?? null,
-        tasks_created: tasksCreated,
+        tasks_created: totalMaterializedTasks,
       },
       { onConflict: "output_id" },
     )
@@ -22244,6 +23474,7 @@ export async function decideAgentOutput(
     .single();
 
   if (approvalError || !approval) {
+    await releaseDecisionClaim();
     return {
       ok: false as const,
       statusCode: 500,
@@ -22258,6 +23489,10 @@ export async function decideAgentOutput(
       .update({
         status: decisionInput,
         ...(decisionInput === "approved" ? { published_at: new Date().toISOString() } : {}),
+        output: {
+          ...(output.output as Record<string, unknown>),
+          proposal_decisions: [...proposalDecisions.values()],
+        },
       })
       .eq("id", outputId)
       .eq("organization_id", organizationId)
@@ -22265,6 +23500,7 @@ export async function decideAgentOutput(
       .select("id")
       .maybeSingle();
     if (finalizeError || !finalizedOutput) {
+      await releaseDecisionClaim();
       return {
         ok: false as const,
         statusCode: 500,
@@ -22273,6 +23509,8 @@ export async function decideAgentOutput(
       };
     }
   }
+
+  await releaseDecisionClaim();
 
 
   // agent_approvals ya guarda decision/decided_by/reason por output_id -- se
@@ -22288,7 +23526,7 @@ export async function decideAgentOutput(
     newData: {
       status: decisionInput,
       reason: reason ?? null,
-      tasks_created: tasksCreated,
+      tasks_created: totalMaterializedTasks,
       ...(initiativeChangeFailures.length
         ? { initiative_change_failures: initiativeChangeFailures }
         : {}),

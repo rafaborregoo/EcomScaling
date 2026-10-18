@@ -6,11 +6,11 @@
 
 .page {
   --gd-ink: var(--tw-ink, #3d3b3a);
-  --gd-ink-3: var(--tw-ink-3, #5c6b6b);
-  --gd-line: var(--tw-line, #d5dfdf);
+  --gd-ink-3: var(--tw-ink-3, #6b6662);
+  --gd-line: var(--tw-line, #e2dfdc);
   --gd-surface: #ffffff;
-  --gd-canvas: #f3f6f6;
-  --gd-accent: var(--tw-accent, #176b64);
+  --gd-canvas: #f5f4f2;
+  --gd-accent: var(--tw-accent, #3d3b3a);
   --gd-on-accent: var(--tw-on-accent, #ffffff);
   --gd-on-petrol: #e8f1f2;
   display: flex;

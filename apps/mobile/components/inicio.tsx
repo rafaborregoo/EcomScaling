@@ -1,14 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Check, ChevronRight } from "lucide-react-native";
-import { c, font, useTheme } from "../lib/theme";
+import { c, font, GOOD, useTheme } from "../lib/theme";
 import { LineChart, type Point } from "./chart";
 import { smallTitle } from "./bloques";
 
 // Piezas de Inicio. Todas las vistas (Todo, Shopify, Meta, Klaviyo) siguen el mismo orden para que se lean igual:
 // cifra principal con su gráfico → "Para hoy" (lo que pide atención) → filas que abren el detalle → enlace a Métricas.
 
-const GOOD = "#0f9d7a";
 
 /** Variación con flecha. `pp`: puntos porcentuales (una tasa que pasa del 2,0 % al 2,2 % sube 0,2 pp, no un 10 %). */
 const arrow = (delta: number, pp?: boolean) => `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(pp ? 2 : 1).replace(".", ",")}${pp ? " pp" : " %"}`;
@@ -16,17 +15,18 @@ const arrow = (delta: number, pp?: boolean) => `${delta >= 0 ? "▲" : "▼"} ${
 /** Periodo "Hoy" en el selector: desde las 00:00 de la tienda. */
 export const TODAY = 0;
 
-/** Nombre de la tienda a la izquierda y periodo a la derecha, en una sola línea. La opción `TODAY` se lee "Hoy". */
+/** Nombre de la tienda a la izquierda y periodo a la derecha, en una sola línea. La opción `TODAY` se lee "Hoy". El consultor no
+ * ve el nombre (ya lo dice el selector de cliente de su cabecera): llega vacío. */
 export function TopBar({ name, options, days, onChange }: { name: string; options: number[]; days: number; onChange: (d: number) => void }) {
   const th = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
       <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, fontFamily: font.regular, color: c.muted }}>{name}</Text>
-      <View style={{ flexDirection: "row", gap: 2, padding: 2, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.edge }}>
+      <View style={{ flexDirection: "row", gap: 14 }}>
         {options.map((d) => {
           const on = d === days;
           return (
-            <Pressable key={d} onPress={() => onChange(d)} hitSlop={4} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={d === TODAY ? "Hoy" : `${d} días`} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: on ? c.bg : "transparent" }}>
+            <Pressable key={d} onPress={() => onChange(d)} hitSlop={8} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={d === TODAY ? "Hoy" : `${d} días`}>
               <Text style={{ fontSize: 13, fontFamily: on ? font.semibold : font.regular, color: on ? th.ink : c.muted }}>{d === TODAY ? "Hoy" : `${d} d`}</Text>
             </Pressable>
           );
@@ -81,7 +81,8 @@ export function Hero({ metrics, compare, height = 160 }: { metrics: HeroMetric[]
         </View>
       )}
       {metrics.length > 1 && (
-        <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        // Pestañas de texto: la activa en negrita con una raya debajo. Sin "de hoy": ya lo dice el periodo.
+        <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", columnGap: 20, rowGap: 8 }}>
           {metrics.map((x) => {
             const on = x.key === m.key;
             return (
@@ -91,11 +92,13 @@ export function Hero({ metrics, compare, height = 160 }: { metrics: HeroMetric[]
                   setKey(x.key);
                   setActive(null);
                 }}
+                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
-                style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: on ? th.tone : c.edge, backgroundColor: on ? th.soft : c.bg }}
+                accessibilityLabel={x.label}
+                style={{ paddingBottom: 4, borderBottomWidth: 2, borderBottomColor: on ? th.tone : "transparent" }}
               >
-                <Text style={{ fontSize: 13, fontFamily: on ? font.semibold : font.regular, color: on ? th.ink : c.muted }}>{x.label}</Text>
+                <Text style={{ fontSize: 14, fontFamily: on ? font.semibold : font.regular, color: on ? th.ink : c.muted }}>{x.label.replace(/ de hoy$/, "")}</Text>
               </Pressable>
             );
           })}

@@ -82,12 +82,6 @@ function WorkbenchHeader({
           filter: "urgente",
         },
         {
-          label: "tareas vencidas",
-          value: summary.overdue_tasks,
-          needsAttention: summary.overdue_tasks > 0,
-          filter: "vencidas",
-        },
-        {
           label: "resúmenes por aprobar",
           value: summary.pending_call_summaries,
           needsAttention: summary.pending_call_summaries > 0,

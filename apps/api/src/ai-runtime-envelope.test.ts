@@ -41,3 +41,24 @@ test("una propuesta materializable exige aprobacion aunque la version diga none"
   assert.equal(shouldRequireHumanApproval("none", { proposed_tasks: [{ title: "Revisar" }] }), true);
   assert.equal(shouldRequireHumanApproval("required_before_publish", { answer: "ok" }), true);
 });
+
+test("la envolvente permite exponer la frescura calculada por la cache", () => {
+  const envelope = buildAgentOutputEnvelope({
+    runId: "run-stale",
+    agentCode: "a02_monitor_negocio",
+    organizationId: "org-1",
+    generatedAt: "2026-10-01T12:00:00.000Z",
+    fromCache: true,
+    content: { warnings: [], sources: [] },
+    freshness: {
+      status: "stale",
+      reason: "ttl_expired",
+      validUntil: "2026-10-02T12:00:00.000Z",
+    },
+  });
+  assert.deepEqual(envelope.freshness, {
+    status: "stale",
+    reason: "ttl_expired",
+    validUntil: "2026-10-02T12:00:00.000Z",
+  });
+});

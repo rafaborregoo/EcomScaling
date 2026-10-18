@@ -1,5 +1,7 @@
 # AI-02 - A02 Monitor y diagnostico del negocio
 
+> **Ficha histórica (actualizada el 2026-10-17):** varias notas de estado más abajo describen una etapa anterior. La implementación local actual genera A02 desde el orquestador; `GET /ai/monitor` solo lee la caché y el endpoint antiguo `POST /ai/monitor-run` responde `410`. La actualización manual se retiró de dashboards y panel. Para el estado y las mejoras vigentes, consulta [Mejoras de Agentes](../../../../docs/MEJORAS_AGENTES.md). No uses las afirmaciones históricas de “generar al entrar”, “sin cron” o “sin contexto precalculado” como descripción actual.
+
 ## Estado
 
 - **Estado real:** `shadow_pilot`

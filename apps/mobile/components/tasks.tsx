@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
+import { CalendarClock, Check, X } from "lucide-react-native";
 import { apiSend } from "../lib/api";
-import { c, font } from "../lib/theme";
-import { Sheet } from "./sheet";
+import { c, font, GOOD } from "../lib/theme";
+import { LEVEL_COLOR, RoundIcon, Sheet, SheetError } from "./sheet";
 import { SummaryRow } from "./ui";
 
 // Subconjunto de /v1/organizations/:id/operations (ver apps/web/src/app/tareas/page.tsx).
@@ -16,7 +17,6 @@ export type Task = {
   assignee_name: string | null;
 };
 
-const PRIORITY_LABEL: Record<string, string> = { urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja" };
 const PRIORITY_WEIGHT: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -28,9 +28,9 @@ const isShortTerm = (t: Task) => isOpen(t) && (t.due_at === null || new Date(t.d
 const isOverdue = (t: Task) => isOpen(t) && t.due_at !== null && new Date(t.due_at).getTime() < Date.now();
 
 function dueLabel(t: Task) {
-  if (!t.due_at) return "Sin fecha";
+  if (!t.due_at) return null;
   const d = new Date(t.due_at);
-  return `${isOverdue(t) ? "Vencida · " : "Vence "}${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 // Vencidas primero, luego por prioridad y por fecha.
@@ -45,46 +45,45 @@ export function sortTasks(tasks: Task[]) {
 }
 
 // Completar pide una línea de resultado (igual que el Pulso de la web): queda como comentario de la tarea.
-function Row({ task, busy, onComplete }: { task: Task; busy: boolean; onComplete: (note: string) => void }) {
+/** `client`: el nombre del cliente cuando la lista mezcla varios (el consultor). */
+export function TaskRow({ task, busy, onComplete, client }: { task: Task; busy: boolean; onComplete: (note: string) => void; client?: string }) {
   const [closing, setClosing] = useState(false);
   const [note, setNote] = useState("");
   const overdue = isOverdue(task);
-  const hot = task.priority === "urgent" || task.priority === "high";
+  const due = dueLabel(task);
+  const send = () => note.trim() && !busy && onComplete(note.trim());
   return (
-    <View style={{ paddingVertical: 12, gap: 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: hot ? c.danger : c.edge }} />
-        <Text numberOfLines={2} style={{ flex: 1, fontSize: 15, fontFamily: font.medium, color: c.ink }}>{task.title}</Text>
+    <View style={{ paddingVertical: 10, gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: LEVEL_COLOR[task.priority] ?? c.edge }} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text numberOfLines={2} style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{task.title}</Text>
+          {client && <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>{client}</Text>}
+          {due && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <CalendarClock size={13} color={overdue ? c.danger : c.muted} />
+              <Text style={{ fontSize: 13, fontFamily: overdue ? font.semibold : font.regular, color: overdue ? c.danger : c.muted }}>{due}</Text>
+            </View>
+          )}
+        </View>
+        {!closing && <RoundIcon Icon={Check} color={GOOD} label="Completar" onPress={() => setClosing(true)} />}
       </View>
-      <Text style={{ marginLeft: 16, fontSize: 13, fontFamily: overdue ? font.medium : font.regular, color: overdue ? c.danger : c.muted }}>
-        {PRIORITY_LABEL[task.priority] ?? task.priority} · {dueLabel(task)}
-      </Text>
-      {closing ? (
-        <View style={{ marginLeft: 16, gap: 8 }}>
+      {closing && (
+        <View style={{ marginLeft: 20, flexDirection: "row", alignItems: "center", gap: 8 }}>
           <TextInput
             autoFocus
             value={note}
             onChangeText={setNote}
-            placeholder="¿Qué resultado tuvo?"
+            placeholder="Resultado"
             placeholderTextColor={c.muted}
             maxLength={500}
             returnKeyType="done"
-            onSubmitEditing={() => note.trim() && onComplete(note.trim())}
-            style={{ borderWidth: 1, borderColor: c.edge, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, fontFamily: font.regular, color: c.ink }}
+            onSubmitEditing={send}
+            style={{ flex: 1, borderWidth: 1, borderColor: c.edge, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, fontSize: 15, fontFamily: font.regular, color: c.ink }}
           />
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable onPress={() => setClosing(false)} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: c.edge }}>
-              <Text style={{ fontSize: 14, fontFamily: font.medium, color: c.muted }}>Cancelar</Text>
-            </Pressable>
-            <Pressable disabled={!note.trim() || busy} onPress={() => onComplete(note.trim())} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: note.trim() ? c.accent : c.edge }}>
-              <Text style={{ fontSize: 14, fontFamily: font.medium, color: note.trim() ? "#fff" : c.muted }}>{busy ? "Guardando..." : "Completar"}</Text>
-            </Pressable>
-          </View>
+          <RoundIcon Icon={X} color={c.muted} label="Cancelar" onPress={() => setClosing(false)} />
+          <RoundIcon Icon={Check} color={GOOD} on disabled={!note.trim() || busy} label="Completar" onPress={send} />
         </View>
-      ) : (
-        <Pressable onPress={() => setClosing(true)} style={{ marginLeft: 16, alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: c.accent }}>
-          <Text style={{ fontSize: 14, fontFamily: font.medium, color: c.accent }}>Completar</Text>
-        </Pressable>
       )}
     </View>
   );
@@ -125,13 +124,13 @@ export function TasksWidget({ orgId, tasks, onChanged }: { orgId: string; tasks:
         onPress={() => setOpen(true)}
       />
 
-      <Sheet visible={open} onClose={() => setOpen(false)} title={`Tareas (${list.length})`}>
+      <Sheet visible={open} onClose={() => setOpen(false)} title="Tareas" count={list.length}>
         {list.map((t, i) => (
           <View key={t.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: c.edge }}>
-            <Row task={t} busy={busy === t.id} onComplete={(note) => complete(t, note)} />
+            <TaskRow task={t} busy={busy === t.id} onComplete={(note) => complete(t, note)} />
           </View>
         ))}
-        {error && <Text style={{ fontSize: 14, fontFamily: font.regular, color: c.danger }}>{error}</Text>}
+        <SheetError text={error} />
       </Sheet>
     </>
   );

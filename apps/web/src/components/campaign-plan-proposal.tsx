@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -113,6 +113,7 @@ type CampaignPlanProposal = {
   generated_at: string;
   content: CampaignPlanContent | null;
   applied_indexes?: number[];
+  calendar_indexes?: number[];
 };
 
 type Calendar = { id: string; name: string; year: number; status: string };
@@ -219,6 +220,7 @@ export function CampaignPlanProposal({
   onSelect?: (selection: { outputId: string; indexes: number[]; total: number }) => void;
   selectedOutputId?: string | null;
 }) {
+  const generationRequestKey = useRef<string | null>(null);
   const router = useRouter();
   const [horizon, setHorizon] = useState(initialWindow ? "custom" : "month");
   const [startDate, setStartDate] = useState(initialWindow?.start ?? "");
@@ -265,6 +267,13 @@ export function CampaignPlanProposal({
         proposal: CampaignPlanProposal | null;
       };
       setProposal(payload.proposal);
+      const proposalTimezone = payload.proposal?.content?.planning_window?.timezone || "UTC";
+      const todayInProposalTimezone = new Intl.DateTimeFormat("en-CA", {
+        timeZone: proposalTimezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
       // Todas marcadas por defecto: el consultor descarta, no selecciona una a
       // una. Lo normal es querer el plan entero.
       setSelected(
@@ -273,7 +282,7 @@ export function CampaignPlanProposal({
               .map((_, index) => index)
               .filter((index) => mode === "select" || !payload.proposal?.applied_indexes?.includes(index))
               // Una acción con fecha ya pasada no se puede llevar al calendario.
-              .filter((index) => ((payload.proposal?.content?.calendar_actions ?? payload.proposal?.content?.campaigns ?? [])[index]?.scheduled_date ?? "9999") >= new Date().toISOString().slice(0, 10)),
+              .filter((index) => ((payload.proposal?.content?.calendar_actions ?? payload.proposal?.content?.campaigns ?? [])[index]?.scheduled_date ?? "9999") >= todayInProposalTimezone),
         ),
       );
 
@@ -315,6 +324,7 @@ export function CampaignPlanProposal({
     setError(null);
     setActionResult(null);
     try {
+      generationRequestKey.current ??= crypto.randomUUID();
       const query = connectionId
         ? `?connectionId=${encodeURIComponent(connectionId)}`
         : "";
@@ -322,7 +332,7 @@ export function CampaignPlanProposal({
         `/v1/organizations/${organizationId}/ai/campaign-plan/run${query}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Idempotency-Key": generationRequestKey.current },
           body: JSON.stringify({
             horizon,
             ...(horizon === "custom" ? { start_date: startDate, end_date: endDate } : {}),
@@ -342,6 +352,7 @@ export function CampaignPlanProposal({
         return;
       }
       const generated = (await response.json()) as { output_id?: string };
+      generationRequestKey.current = null;
       if (!generated.output_id) {
         const detail = "El servidor terminó la propuesta, pero no devolvió el identificador necesario para guardarla en el calendario.";
         setError(detail);
@@ -358,6 +369,7 @@ export function CampaignPlanProposal({
           body: JSON.stringify({
             output_id: generated.output_id,
             ...(calendarId ? { calendar_id: calendarId } : {}),
+            selected_indexes: [...selected],
           }),
         },
       );
@@ -422,6 +434,7 @@ export function CampaignPlanProposal({
           body: JSON.stringify({
             output_id: proposal.output_id,
             ...(calendarId ? { calendar_id: calendarId } : {}),
+            selected_indexes: [...selected],
           }),
         },
       );
@@ -572,6 +585,12 @@ export function CampaignPlanProposal({
   }
 
   const content = proposal?.content ?? null;
+  const todayInProposalTimezone = new Intl.DateTimeFormat("en-CA", {
+    timeZone: content?.planning_window?.timezone || "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
   const actions: PlannedCalendarAction[] = content
     ? content.calendar_actions ?? content.campaigns.map((campaign, index) => ({
         index,
@@ -624,7 +643,7 @@ export function CampaignPlanProposal({
       <div className="flex flex-wrap items-start gap-2">
         <Checkbox
           checked={selected.has(action.index)}
-          disabled={(mode !== "select" && proposal?.applied_indexes?.includes(action.index)) || action.scheduled_date < new Date().toISOString().slice(0, 10)}
+          disabled={(mode !== "select" && proposal?.applied_indexes?.includes(action.index)) || action.scheduled_date < todayInProposalTimezone}
           onChange={() => toggle(action.index)}
         >
           <span className="text-sm font-medium">{action.title}</span>
@@ -633,7 +652,7 @@ export function CampaignPlanProposal({
         <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">
           {formatCampaignDate(action.scheduled_date)} · {action.scheduled_time ?? "09:00"} ({content?.planning_window.timezone ?? "hora local"})
         </span>
-        {proposal?.applied_indexes?.includes(action.index) ? <Badge tone="success">En calendario</Badge> : null}
+        {proposal?.calendar_indexes?.includes(action.index) ? <Badge tone="success">En calendario</Badge> : null}
       </div>
       <div className="mt-2 space-y-1 pl-6">
         {action.breadcrumb.length > 1 ? <p className="text-xs text-muted">{action.breadcrumb.join(" / ")}</p> : null}

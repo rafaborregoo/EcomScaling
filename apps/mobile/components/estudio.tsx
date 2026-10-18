@@ -525,7 +525,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
               ))}
             </Sheet>
 
-            <Sheet visible={structureOpen} onClose={() => setStructureOpen(false)} title={`Bloques · ${design.blocks.length}`}>
+            <Sheet visible={structureOpen} onClose={() => setStructureOpen(false)} title="Bloques" count={design.blocks.length}>
               {design.blocks.map((b, i) => (
                 <ListRow
                   flat

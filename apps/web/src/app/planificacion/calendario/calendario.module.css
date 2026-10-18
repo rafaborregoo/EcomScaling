@@ -1,7 +1,7 @@
 .page { min-width: 0; }
 .header { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
 .header > header { flex: 1 1 440px; }
-.scroll { margin-top: 20px; overflow-x: auto; scrollbar-color: #b5c7c5 #f4f7f7; border-radius: 12px; }
+.scroll { margin-top: 20px; overflow-x: auto; scrollbar-color: #b5c7c5 #f8f7f5; border-radius: 12px; }
 .scroll:focus-visible { outline: 2px solid var(--tw-accent); outline-offset: 3px; }
 .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-width: 770px; gap: 1px; background: var(--tw-line); border: 1px solid var(--tw-line); border-radius: 12px; overflow: hidden; }
 .day { min-height: 136px; padding: 12px; background: #fff; }

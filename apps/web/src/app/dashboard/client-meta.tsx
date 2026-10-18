@@ -223,7 +223,6 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const [adFilter, setAdFilter] = useState<AdFilter>("all");
   const [activePin, setActivePin] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
-  const [monitorRunning, setMonitorRunning] = useState(false);
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
@@ -259,22 +258,6 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
     }
   }
 
-  async function runMonitorMeta() {
-    setMonitorRunning(true);
-    try {
-      const response = await apiFetch(`${base}/ai/monitor-run?days=30${scope}&view=meta`, { method: "POST" });
-      if (!response.ok) {
-        toast.danger(await readApiError(response));
-        return;
-      }
-      toast.success("Lectura A02 de Meta Ads actualizada.");
-      monitor.reload();
-    } catch {
-      toast.danger("No se pudo lanzar el análisis de Meta por un error de red.");
-    } finally {
-      setMonitorRunning(false);
-    }
-  }
 
   // Los cambios en la cuenta son las chinchetas de esta curva: lo que alguien
   // tocó y el día en que lo tocó.
@@ -399,9 +382,6 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
                   IA
                 </span>
                 Preguntar qué haría
-              </button>
-              <button type="button" className={cx(s.btn, s.ghost)} disabled={monitorRunning} onClick={() => void runMonitorMeta()}>
-                {monitorRunning ? "Analizando Meta…" : "Actualizar análisis"}
               </button>
               {hideFullLink ? null : (
                 <a className={cx(s.btn, s.ghost)} href="/meta">

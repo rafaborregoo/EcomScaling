@@ -937,14 +937,53 @@ function unavailableBlock(label: string): ConsultantChatContextBlock {
 export async function loadDecisionPlaybookContextBlocks(
   supabase: SupabaseClient,
   organizationId: string,
+  options: { includeLearning?: boolean; includeExecutiveDiagnosis?: boolean; storeId?: string | null } = {},
 ): Promise<ConsultantChatContextBlock[]> {
+  if (options.storeId) {
+    const [cases, outputs, robustness, temporal] = await Promise.all([
+      supabase.from("diagnostic_cases")
+        .select("organization_id, id, store_id, target_metric, target_question, scope, granularity, status, finding, diagnosis_type, primary_issue, root_cause, limiting_constraint, severity, trajectory, confidence, summary, limitations, data_quality, updated_at")
+        .eq("organization_id", organizationId)
+        .or(`store_id.eq.${options.storeId},store_id.is.null`)
+        .order("updated_at", { ascending: false }).limit(100),
+      supabase.from("diagnostic_outputs")
+        .select("organization_id, case_id, status, completeness_status, blocking_components, missing_components, finalization_status, diagnostic_summary, limitation_summary, confidence_summary, data_gap_summary, confidence, confidence_language, failure_kind, degraded, manual_review_required, handoff_ready, evaluated_at")
+        .eq("organization_id", organizationId).eq("is_current", true)
+        .order("evaluated_at", { ascending: false }).limit(100),
+      supabase.from("diagnostic_robustness")
+        .select("organization_id, case_id, review_status, false_diagnosis_risk, survival_status, robustness, diagnosis_stability, confidence_before, confidence_after, revision_triggered, reopened_blocks, remaining_limitations, red_team_required_evidence, reviewed_at")
+        .eq("organization_id", organizationId).eq("review_status", "current")
+        .order("reviewed_at", { ascending: false }).limit(100),
+      supabase.from("temporal_diagnoses")
+        .select("organization_id, case_id, assessment_status, current_state, trajectory, short_term_trajectory, medium_term_trajectory, long_term_trajectory, temporal_sufficiency, baseline_status, trajectory_confidence, limitations, assessed_at")
+        .eq("organization_id", organizationId).eq("assessment_status", "current")
+        .order("assessed_at", { ascending: false }).limit(100),
+    ]);
+    if (cases.error || outputs.error || robustness.error || temporal.error) {
+      return [unavailableBlock("F3 DIAGNÓSTICO")];
+    }
+    const scopedCases = tenantRows(cases.data, organizationId);
+    const caseIds = new Set(scopedCases.map((row) => record(row).id));
+    const related = (value: unknown) => tenantRows(value, organizationId)
+      .filter((row) => caseIds.has(record(row).case_id));
+    return buildDecisionPlaybookContextBlocks({
+      diagnosticCases: scopedCases,
+      diagnosticOutputs: related(outputs.data),
+      robustnessReviews: related(robustness.data),
+      temporalDiagnoses: related(temporal.data),
+    }).slice(0, 1);
+  }
+  let diagnosticCaseQuery = supabase
+    .from("diagnostic_cases")
+    .select(
+      "organization_id, id, store_id, target_metric, target_question, scope, granularity, status, finding, diagnosis_type, primary_issue, root_cause, limiting_constraint, severity, trajectory, confidence, summary, limitations, data_quality, updated_at",
+    )
+    .eq("organization_id", organizationId);
+  if (options.storeId) {
+    diagnosticCaseQuery = diagnosticCaseQuery.or(`store_id.eq.${options.storeId},store_id.is.null`);
+  }
   const [diagnosticCaseResult, diagnosticOutputResult, robustnessResult, temporalResult, contextResult, outputResult, playbookResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityRecommendationResult, constraintRecommendationResult, recommendationPortfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult, closureHandoffResult, executionPlanResult, readinessResult, actionEnvelopeResult, executionSupervisionResult, continuousLearningResult] = await Promise.all([
-    supabase
-      .from("diagnostic_cases")
-      .select(
-        "organization_id, id, store_id, target_metric, target_question, scope, granularity, status, finding, diagnosis_type, primary_issue, root_cause, limiting_constraint, severity, trajectory, confidence, summary, limitations, data_quality, updated_at",
-      )
-      .eq("organization_id", organizationId)
+    diagnosticCaseQuery
       .order("updated_at", { ascending: false })
       .limit(100),
     supabase
@@ -1126,22 +1165,28 @@ export async function loadDecisionPlaybookContextBlocks(
     supabase.from("readiness_assessment_runs").select("organization_id, plan_id, action_id, scope, readiness_decision, blocking_reasons, unresolved_unknowns, source_refs, evaluated_at, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(20),
     supabase.from("action_envelope_runs").select("organization_id, context_id, business_id, envelope_version, envelope_zone, violations, warnings, unresolved_unknowns, source_refs, evaluated_at, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(20),
     supabase.from("execution_supervision_runs").select("organization_id, context_id, plan_id, action_id, stage, decision, blockers, warnings, unresolved_unknowns, source_refs, evaluated_at, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(100),
-    supabase.from("continuous_learning_runs").select("organization_id, block_code, experience_id, evaluated_at, status, classification, confidence, gate, rationale, learning, next_evidence_needed, unresolved_unknowns, source_refs, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(120),
+    options.includeLearning === false
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from("continuous_learning_runs").select("organization_id, block_code, experience_id, evaluated_at, status, classification, confidence, gate, rationale, learning, next_evidence_needed, unresolved_unknowns, source_refs, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(120),
   ]);
 
+  const scopedCases = tenantRows(diagnosticCaseResult.data, organizationId);
+  const scopedCaseIds = new Set(scopedCases.map((row) => record(row).id));
+  const relatedCases = (value: unknown) => tenantRows(value, organizationId)
+    .filter((row) => !options.storeId || scopedCaseIds.has(record(row).case_id));
   const blocks = buildDecisionPlaybookContextBlocks({
     diagnosticCases: diagnosticCaseResult.error
       ? []
-      : tenantRows(diagnosticCaseResult.data, organizationId),
+      : scopedCases,
     diagnosticOutputs: diagnosticOutputResult.error
       ? []
-      : tenantRows(diagnosticOutputResult.data, organizationId),
+      : relatedCases(diagnosticOutputResult.data),
     robustnessReviews: robustnessResult.error
       ? []
-      : tenantRows(robustnessResult.data, organizationId),
+      : relatedCases(robustnessResult.data),
     temporalDiagnoses: temporalResult.error
       ? []
-      : tenantRows(temporalResult.data, organizationId),
+      : relatedCases(temporalResult.data),
     decisionContext: contextResult.error
       ? undefined
       : tenantRow(contextResult.data, organizationId),
@@ -1313,5 +1358,15 @@ export async function loadDecisionPlaybookContextBlocks(
     blocks[27] = unavailableBlock("F9 APRENDIZAJE CONTINUO");
   }
   // F11: lectura ensamblada de lo anterior, al final para no mover los indices de arriba.
-  return [...blocks, ...(await loadExecutiveDiagnosisContextBlocks(supabase, organizationId))];
+  const retainedBlocks = options.storeId
+    ? blocks.slice(0, 1)
+    : options.includeLearning === false
+    ? blocks.filter((block) => !block.label.startsWith("F9 "))
+    : blocks;
+  return [
+    ...retainedBlocks,
+    ...(options.storeId || options.includeExecutiveDiagnosis === false
+      ? []
+      : await loadExecutiveDiagnosisContextBlocks(supabase, organizationId)),
+  ];
 }

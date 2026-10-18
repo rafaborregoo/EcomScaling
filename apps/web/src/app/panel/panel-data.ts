@@ -65,30 +65,6 @@ export function usePanelReading({
   const query = useCachedQuery<PanelReading>(
     supported ? `${base}/ai/monitor?days=${days}&view=panel${scope}` : null,
   );
-  const [running, setRunning] = useState(false);
-
-  async function run() {
-    setRunning(true);
-    try {
-      const response = await apiFetch(
-        `${base}/ai/monitor-run?days=${days}&view=panel${scope}`,
-        { method: "POST" },
-      );
-      if (!response.ok) {
-        toast.danger(await readApiError(response));
-        return;
-      }
-      toast.success("Lectura de rentabilidad actualizada.");
-      invalidateApiGetCache();
-      invalidateCachedQueries(`${base}/ai/monitor`);
-      query.reload();
-    } catch {
-      toast.danger("No se pudo lanzar la lectura por un error de red.");
-    } finally {
-      setRunning(false);
-    }
-  }
-
   const text = query.data?.output.headline ?? query.data?.output.answer ?? null;
 
   return {
@@ -97,8 +73,6 @@ export function usePanelReading({
     text,
     generatedAt: query.data?.generated_at ?? null,
     stale: query.data?.stale,
-    running,
-    run,
   };
 }
 

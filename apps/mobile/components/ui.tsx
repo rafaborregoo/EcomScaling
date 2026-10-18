@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import { ChevronRight } from "lucide-react-native";
+import { Check, ChevronRight, Sparkles } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
 import { Sheet } from "./sheet";
-import { c, cardStyle, font, ThemeContext, themes, useTheme, type ThemeKey } from "../lib/theme";
+import { c, cardStyle, font, GOOD, ThemeContext, themes, useTheme, type ThemeKey } from "../lib/theme";
 
 export function Screen({ title, subtitle, theme = "todo", flat, onRefresh, children }: { title: string; subtitle?: string | null; theme?: ThemeKey; flat?: boolean; onRefresh: () => Promise<void>; children: ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
@@ -75,39 +76,17 @@ export function PeriodChips({ options, value, onChange }: { options: number[]; v
   );
 }
 
-export function Hero({ label, value, delta, bars }: { label: string; value: string; delta?: number | null; bars?: number[] }) {
-  const max = Math.max(1, ...(bars ?? []));
+
+/** Variación con flecha y en color: verde si va bien, rojo si va mal, gris si es neutra. */
+export function Delta({ value, lowerIsBetter, neutral, size = 12, suffix = "" }: { value: number | null | undefined; lowerIsBetter?: boolean; neutral?: boolean; size?: number; suffix?: string }) {
+  if (value == null || !Number.isFinite(value)) return null;
+  const good = lowerIsBetter ? value <= 0 : value >= 0;
   return (
-    <View style={{ borderRadius: 16, padding: 20, backgroundColor: c.accentTint, borderWidth: 1, borderColor: c.edge }}>
-      <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted }}>{label}</Text>
-      <Text style={{ marginTop: 4, fontSize: 34, fontFamily: font.semibold, color: c.ink }}>{value}</Text>
-      {delta != null && (
-        <Text style={{ marginTop: 4, fontSize: 14, fontFamily: font.medium, color: delta >= 0 ? c.accent : c.danger }}>
-          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1).replace(".", ",")} % vs periodo anterior
-        </Text>
-      )}
-      {bars && bars.length > 0 && (
-        <View style={{ marginTop: 16, height: 64, flexDirection: "row", alignItems: "flex-end", gap: 2 }}>
-          {bars.map((v, i) => (
-            <View key={i} style={{ flex: 1, height: Math.max(2, (v / max) * 64), backgroundColor: c.accent, borderRadius: 2 }} />
-          ))}
-        </View>
-      )}
-    </View>
+    <Text style={{ fontSize: size, fontFamily: font.medium, color: neutral ? c.muted : good ? GOOD : c.danger }}>
+      {value >= 0 ? "▲" : "▼"} {Math.abs(value).toFixed(1).replace(".", ",")} %{suffix}
+    </Text>
   );
 }
-
-export function Stat({ label, value }: { label: string; value: string }) {
-  const th = useTheme();
-  return (
-    <View style={{ ...cardStyle(th), flex: 1, padding: 16 }}>
-      <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted }}>{label}</Text>
-      <Text numberOfLines={1} adjustsFontSizeToFit style={{ marginTop: 4, fontSize: 22, fontFamily: font.semibold, color: c.ink }}>{value}</Text>
-    </View>
-  );
-}
-
-export const Row = ({ children }: { children: ReactNode }) => <View style={{ flexDirection: "row", gap: 12 }}>{children}</View>;
 
 /** Navegación secundaria de un módulo: solo texto, el activo con línea debajo (igual que el filtro de periodo). */
 export function SubNav<K extends string>({ items, value, onChange }: { items: Array<{ key: K; label: string }>; value: K; onChange: (key: K) => void }) {
@@ -150,46 +129,15 @@ export function ListRow({ first, flat, children, right, onPress }: { first?: boo
 
 export const RowTitle = ({ children }: { children: string }) => <Text numberOfLines={2} style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{children}</Text>;
 export const RowMeta = ({ children, tone }: { children: string; tone?: "bad" | "warn" | "good" }) => (
-  <Text numberOfLines={2} style={{ fontSize: 13, fontFamily: font.regular, color: tone === "bad" ? c.danger : tone === "warn" ? c.warning : tone === "good" ? c.accent : c.muted }}>{children}</Text>
+  <Text numberOfLines={2} style={{ fontSize: 13, fontFamily: font.regular, color: tone === "bad" ? c.danger : tone === "warn" ? c.warning : tone === "good" ? GOOD : c.muted }}>{children}</Text>
 );
-
-/** Grupo de cifras: título corto y rejilla de 2 columnas. */
-export function KpiGroup({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <View style={{ gap: 8 }}>
-      <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{title}</Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{children}</View>
-    </View>
-  );
-}
-
-/** Cifra con variación frente al periodo anterior. `lowerIsBetter` pinta en verde las bajadas (costes, devoluciones); `neutral` en gris (ni buena ni mala, p. ej. la inversión). */
-export function Kpi({ label, value, delta, lowerIsBetter, neutral, dot, onPress }: { label: string; value: string; delta?: number | null; lowerIsBetter?: boolean; neutral?: boolean; dot?: string; onPress?: () => void }) {
-  const th = useTheme();
-  const good = delta != null && (lowerIsBetter ? delta <= 0 : delta >= 0);
-  return (
-    <Pressable onPress={onPress} disabled={!onPress} style={{ ...cardStyle(th), flexBasis: "48%", flexGrow: 1, padding: 12 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {dot && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />}
-        <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, fontFamily: font.medium, color: c.muted }}>{label}</Text>
-      </View>
-      <Text numberOfLines={1} adjustsFontSizeToFit style={{ marginTop: 2, fontSize: 19, fontFamily: font.semibold, color: c.ink }}>{value}</Text>
-      {delta != null && Number.isFinite(delta) && (
-        <Text style={{ marginTop: 2, fontSize: 12, fontFamily: font.medium, color: neutral ? c.muted : good ? c.accent : c.danger }}>
-          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1).replace(".", ",")} %
-        </Text>
-      )}
-    </Pressable>
-  );
-}
 
 /** Reparto de un total en una barra apilada (las partes SÍ suman el total: gasto, ventas nuevas/recurrentes). */
 export function ShareBar({ title, parts, format }: { title: string; parts: Array<{ label: string; value: number; color: string }>; format: (v: number) => string }) {
-  const th = useTheme();
   const total = parts.reduce((a, p) => a + Math.max(0, p.value), 0);
   if (total <= 0) return null;
   return (
-    <View style={{ ...cardStyle(th), padding: 16, gap: 10 }}>
+    <View style={{ gap: 10 }}>
       <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{title}</Text>
       <View style={{ flexDirection: "row", height: 12, borderRadius: 6, overflow: "hidden", backgroundColor: c.surface }}>
         {parts.map((p) => (p.value > 0 ? <View key={p.label} style={{ flex: p.value / total, backgroundColor: p.color }} /> : null))}
@@ -208,10 +156,9 @@ export function ShareBar({ title, parts, format }: { title: string; parts: Array
 
 /** Barras independientes de 0 a 100 %: cada una se lee sola y NO se suman entre sí (atribución por plataforma, ADR-0021). */
 export function Meters({ title, items, note }: { title: string; items: Array<{ label: string; ratio: number; color: string }>; note?: string }) {
-  const th = useTheme();
   if (items.length === 0) return null;
   return (
-    <View style={{ ...cardStyle(th), padding: 16, gap: 12 }}>
+    <View style={{ gap: 12 }}>
       <Text style={{ fontSize: 15, fontFamily: font.semibold, color: c.ink }}>{title}</Text>
       {items.map((it) => (
         <View key={it.label} style={{ gap: 6 }}>
@@ -250,7 +197,7 @@ export function SummaryRow({ title, summary, color, dot, onPress }: { title: str
   );
 }
 
-export type MetricRowProps = { label: string; value: string; delta?: number | null; lowerIsBetter?: boolean; neutral?: boolean; dot?: string; hint?: string; tone?: "bad" | "warn" | "good"; bar?: number | null; onPress?: () => void };
+export type MetricRowProps = { label: string; value: string; delta?: number | null; lowerIsBetter?: boolean; neutral?: boolean; dot?: string; ai?: boolean; hint?: string; tone?: "bad" | "warn" | "good"; bar?: number | null; onPress?: () => void };
 
 /** Lista de cifras sin tarjeta: nombre (y pista) a la izquierda, cifra con variación a la derecha, línea fina entre filas. `bar` (0-1) dibuja una barra fina. Las filas `false` se omiten. */
 export function MetricList({ title, rows }: { title?: string; rows: Array<MetricRowProps | false | null | undefined> }) {
@@ -259,7 +206,6 @@ export function MetricList({ title, rows }: { title?: string; rows: Array<Metric
   return (
     <ListCard title={title} flat>
       {list.map((r, i) => {
-        const good = r.delta != null && (r.lowerIsBetter ? r.delta <= 0 : r.delta >= 0);
         return (
           <ListRow
             key={r.label}
@@ -269,11 +215,7 @@ export function MetricList({ title, rows }: { title?: string; rows: Array<Metric
             right={
               <View style={{ alignItems: "flex-end" }}>
                 <Text style={{ fontSize: 17, fontFamily: font.semibold, color: c.ink }}>{r.value}</Text>
-                {r.delta != null && Number.isFinite(r.delta) && (
-                  <Text style={{ fontSize: 12, fontFamily: font.medium, color: r.neutral ? c.muted : good ? c.accent : c.danger }}>
-                    {r.delta >= 0 ? "▲" : "▼"} {Math.abs(r.delta).toFixed(1).replace(".", ",")} %
-                  </Text>
-                )}
+                <Delta value={r.delta} lowerIsBetter={r.lowerIsBetter} neutral={r.neutral} />
               </View>
             }
           >
@@ -281,6 +223,7 @@ export function MetricList({ title, rows }: { title?: string; rows: Array<Metric
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {r.dot && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: r.dot }} />}
                 <RowTitle>{r.label}</RowTitle>
+                {r.ai && <Sparkles size={14} color={c.accent} accessibilityLabel="Análisis de la IA" />}
               </View>
               {r.hint ? <RowMeta tone={r.tone}>{r.hint}</RowMeta> : null}
               {r.bar != null && (
@@ -330,11 +273,7 @@ export function BigNumber({ label, value, delta, color }: { label: string; value
     <View style={{ gap: 4 }}>
       <Text style={{ fontSize: 14, fontFamily: font.medium, color: c.muted }}>{label}</Text>
       <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 40, fontFamily: font.semibold, color: color ?? c.ink }}>{value}</Text>
-      {delta != null && Number.isFinite(delta) && (
-        <Text style={{ fontSize: 14, fontFamily: font.medium, color: delta >= 0 ? c.accent : c.danger }}>
-          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1).replace(".", ",")} % vs periodo anterior
-        </Text>
-      )}
+      <Delta value={delta} size={14} suffix=" vs periodo anterior" />
     </View>
   );
 }
@@ -351,6 +290,60 @@ export function Section({ title, count, hint, flat, children }: { title: string;
         {hint ? <Text style={{ fontSize: 13, fontFamily: font.regular, color: c.muted }}>{hint}</Text> : null}
       </View>
       <ListCard flat={flat}>{children}</ListCard>
+    </View>
+  );
+}
+
+/** Titular de una pantalla del consultor: línea pequeña (fecha, contexto) y frase grande. */
+export function PageHeader({ eyebrow, title }: { eyebrow?: string; title: string }) {
+  return (
+    <View style={{ gap: 4 }}>
+      {eyebrow ? <Text style={{ fontSize: 13, fontFamily: font.medium, color: c.muted, textTransform: "capitalize" }}>{eyebrow}</Text> : null}
+      <Text accessibilityRole="header" style={{ fontSize: 32, lineHeight: 38, fontFamily: font.semibold, color: c.ink }}>{title}</Text>
+    </View>
+  );
+}
+
+/** Grupo de tarjetas con título pequeño encima y aire entre ellas. */
+export function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 13, fontFamily: font.semibold, color: c.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+/** Tarjeta de algo que pide acción: barra de color a la izquierda, línea pequeña (cliente, plazo), título y un extremo derecho (botones o flecha). */
+export function ActionCard({ color, Icon, eyebrow, when, whenColor, title, dim, right, onPress }: { color: string; Icon?: LucideIcon; eyebrow?: string; when?: string | null; whenColor?: string; title: string; dim?: boolean; right?: ReactNode; onPress?: () => void }) {
+  const body = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingRight: 14, paddingLeft: 16, borderRadius: 16, borderWidth: 1, borderColor: c.edge, borderLeftWidth: 4, borderLeftColor: color, backgroundColor: c.bg }}>
+      <View style={{ flex: 1, gap: 3 }}>
+        {eyebrow || when ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {Icon ? <Icon size={14} color={color} /> : null}
+            <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, fontFamily: font.semibold, color: c.muted }}>
+              {eyebrow}
+              {when ? <Text style={{ color: whenColor ?? color }}>{eyebrow ? ` · ${when}` : when}</Text> : null}
+            </Text>
+          </View>
+        ) : null}
+        <Text numberOfLines={2} style={{ fontSize: 16, lineHeight: 22, fontFamily: font.medium, color: dim ? c.muted : c.ink }}>{title}</Text>
+      </View>
+      {right ?? (onPress ? <ChevronRight size={18} color={c.muted} /> : null)}
+    </View>
+  );
+  return onPress ? <Pressable onPress={onPress} accessibilityRole="button">{body}</Pressable> : body;
+}
+
+/** Estado vacío tranquilo: un tic verde y una frase. */
+export function AllDone({ text }: { text: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 }}>
+      <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#e0f5ee" }}>
+        <Check size={14} color={GOOD} strokeWidth={3} />
+      </View>
+      <Text style={{ fontSize: 15, fontFamily: font.medium, color: c.ink }}>{text}</Text>
     </View>
   );
 }

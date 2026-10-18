@@ -2101,15 +2101,19 @@ export async function listAgentOutputNotes(
   organizationId: string,
   outputId: string,
 ) {
-  if (!resolveDraftAuthorKind(context, organizationId)) {
+  const actorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!actorKind) {
     return { ok: false as const, statusCode: 403, error: "agent_output_notes_access_required" };
   }
   const supabase = createServiceClient(env);
   const { data: output, error: outputError } = await supabase
-    .from("agent_outputs").select("id, organization_id")
+    .from("agent_outputs").select("id, organization_id, status")
     .eq("id", outputId).maybeSingle();
   if (outputError) return { ok: false as const, statusCode: 500, error: "agent_output_load_failed", detail: outputError.message };
   if (!output || output.organization_id !== organizationId) return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
+  if (actorKind === "client" && !["approved", "published"].includes(output.status)) {
+    return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
+  }
   const { data, error } = await supabase.from("agent_output_notes")
     .select("id, body, author_user_id, author_kind, created_at")
     .eq("output_id", outputId).eq("organization_id", organizationId)
@@ -2138,11 +2142,17 @@ export async function addAgentOutputNote(
   if (!text) return { ok: false as const, statusCode: 400, error: "note_body_required" };
   const supabase = createServiceClient(env);
   const { data: output, error: outputError } = await supabase
-    .from("agent_outputs").select("id, organization_id")
+    .from("agent_outputs").select("id, organization_id, status")
     .eq("id", outputId).maybeSingle();
   if (outputError) return { ok: false as const, statusCode: 500, error: "agent_output_load_failed", detail: outputError.message };
   if (!output || output.organization_id !== organizationId) return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
-  const authorKind = body.from_ai ? "ai" : actorKind;
+  if (actorKind === "client" && !["approved", "published"].includes(output.status)) {
+    return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
+  }
+  if (body.from_ai) {
+    return { ok: false as const, statusCode: 403, error: "agent_output_note_author_denied" };
+  }
+  const authorKind = actorKind;
   const { data: note, error } = await supabase.from("agent_output_notes").insert({
     output_id: outputId, organization_id: organizationId, author_user_id: context.user.id,
     author_kind: authorKind, body: text.slice(0, 4000),

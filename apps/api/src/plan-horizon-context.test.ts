@@ -72,6 +72,24 @@ test("conserva solo la ejecucion mas reciente de cada horizonte hermano y su est
   assert.equal(result[0]?.approval_required, true);
 });
 
+test("conserva evidencia estructurada y la decisión efectiva de una propuesta hermana", () => {
+  const weekly = run("a17", "Revisar cobertura", "2026-09-26T12:00:00Z", "approved", false) as any;
+  weekly.id = "run-week";
+  weekly.agent_outputs.id = "output-week";
+  weekly.agent_outputs.output.proposed_writes[0].evidence = [
+    { label: "Cobertura", value: "2 días", period: "semana", source: "Shopify" },
+  ];
+  weekly.agent_outputs.output.proposal_decisions = [
+    { index: 0, decision: "approved", status: "created", title: "Revisar cobertura actualizada", task_id: "task-1" },
+  ];
+  const [proposal] = summarizeSiblingPlanRuns([weekly], options);
+  assert.equal(proposal?.run_id, "run-week");
+  assert.equal(proposal?.output_id, "output-week");
+  assert.equal(proposal?.proposals[0]?.title, "Revisar cobertura actualizada");
+  assert.equal((proposal?.proposals[0]?.evidence as Array<{ value: string }>)[0]?.value, "2 días");
+  assert.equal(proposal?.proposals[0]?.task_id, "task-1");
+});
+
 test("la frescura de los horizontes usa la cadencia diaria, semanal y mensual", () => {
   const result = summarizeSiblingPlanRuns([
     run("a04_generador_tareas", "Plan diario antiguo", "2026-09-25T12:00:00Z"),
@@ -269,21 +287,24 @@ test("resume feedback operativo reciente sin convertir el estado completado en i
 test("los tres horizontes reciben objetivo e hitos del Camino sin tareas de otra tienda", () => {
   const summary = summarizeActiveCaminoForPlan({
     name: "Camino crecimiento",
-    goal: "Mejorar margen de contribucion",
+    goal: { metric_key: "net_margin_pct", metric_label: "Margen neto", unit: "pct", currency_code: null, baseline: 12, target: 18, target_offset_days: 90, rationale: "Mejorar rentabilidad" },
     version: 3,
     strategic_plan_phases: [{
       name: "Fundamentos",
-      status: "in_progress",
+      status: "active",
+      position: 1,
       strategic_plan_milestones: [
         {
           name: "Revisar descuentos",
           description: "Evaluar promociones y margen",
-          status: "in_progress",
+          status: "active",
+          position: 1,
           target_date: "2026-10-15",
           milestone_task_links: [
             { tasks: { title: "Tarea tienda A", status: "pending", store_id: "store-a" } },
             { tasks: { title: "Tarea tienda B", status: "pending", store_id: "store-b" } },
             { tasks: { title: "Tarea compartida", status: "in_progress", store_id: null } },
+            { tasks: { title: "Tarea completada", status: "completed", store_id: "store-a" } },
           ],
         },
         { name: "Hito ya cerrado", status: "completed" },
@@ -291,7 +312,8 @@ test("los tres horizontes reciben objetivo e hitos del Camino sin tareas de otra
     }],
   }, "store-a");
   assert.equal(summary.status, "available");
-  assert.equal(summary.goal, "Mejorar margen de contribucion");
+  assert.equal((summary.goal as { metric_key?: string })?.metric_key, "net_margin_pct");
+  assert.deepEqual(summary.phases, [{ name: "Fundamentos", status: "active" }]);
   assert.deepEqual(summary.milestones[0]?.linked_tasks.map((task) => task.title), ["Tarea tienda A", "Tarea compartida"]);
   assert.deepEqual(summarizeActiveCaminoForPlan(null, "store-a"), { status: "unavailable", reason: "no_active_path" });
 });
@@ -314,6 +336,13 @@ test("summarizeOpenTasksForPlan separa lo cercano del backlog lejano", async () 
   assert.equal(out.later_count, 1);
   assert.equal(out.later[0]?.title, "lejana");
   assert.equal((out.near_term[0]?.description as string).length, 240);
+  const prioritized = summarizeOpenTasksForPlan([
+    ...Array.from({ length: 3 }, (_, index) => ({ ...task(`pendiente ${index}`, 1), id: `p${index}` })),
+    { ...task("en curso", null, "in_progress"), id: "doing" },
+  ], null, { now, nearLimit: 1, totalCount: 4 });
+  assert.equal(prioritized.near_term[0]?.title, "en curso");
+  assert.equal(prioritized.total_open, 4);
+  assert.equal(prioritized.sample_truncated, false);
 });
 
 test("stock risk for the daily plan puts the soonest stock-out first and keeps unknown cover after", async () => {

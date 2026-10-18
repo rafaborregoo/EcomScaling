@@ -2,13 +2,11 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Check, ChevronDown } from "lucide-react-native";
 import { c, font } from "../lib/theme";
-import { Cartera } from "./cartera";
 import { Note } from "./ui";
 import { KlaviyoView, MetaView, ShopifyView, TodoView, type HomeNav, type Org } from "./views";
 
-// Mismas cuatro vistas que las pestañas del Dashboard de la web (todo, shopify, meta, klaviyo); el consultor suma Cartera.
+// Mismas cuatro vistas que las pestañas del Dashboard de la web (todo, shopify, meta, klaviyo).
 const TABS = [
-  { key: "cartera", label: "Cartera" },
   { key: "todo", label: "Todo" },
   { key: "shopify", label: "Shopify" },
   { key: "meta", label: "Meta" },
@@ -16,9 +14,7 @@ const TABS = [
 ] as const;
 export type DashTab = (typeof TABS)[number]["key"];
 
-export const DashboardSelector = ({ tab, onChange, isConsultant }: { tab: DashTab; onChange: (tab: DashTab) => void; isConsultant: boolean }) => (
-  <HeaderSelect items={TABS.filter((t) => isConsultant || t.key !== "cartera")} value={tab} onChange={onChange} />
-);
+export const DashboardSelector = ({ tab, onChange }: { tab: DashTab; onChange: (tab: DashTab) => void }) => <HeaderSelect items={TABS} value={tab} onChange={onChange} />;
 
 /** Selector del centro de la cabecera: el nombre de la vista con un chevron y una lista al tocarlo. Lo usan Inicio y Métricas. */
 export function HeaderSelect<K extends string>({ items: tabs, value: tab, onChange }: { items: ReadonlyArray<{ key: K; label: string }>; value: K; onChange: (key: K) => void }) {
@@ -53,9 +49,8 @@ export function HeaderSelect<K extends string>({ items: tabs, value: tab, onChan
   );
 }
 
-/** Contenido de Inicio. El consultor sin cliente elegido ve la cartera, sea cual sea la vista. */
-export function HomeContent({ tab, org, isConsultant, onPick, nav }: { tab: DashTab; org: Org | null; isConsultant: boolean; onPick: (org: { id: string; name: string }) => void; nav: HomeNav }) {
-  if (isConsultant && (tab === "cartera" || !org)) return <Cartera onSelect={onPick} />;
+/** Contenido de la vista elegida (Todo, Shopify, Meta o Klaviyo) de un cliente. */
+export function HomeContent({ tab, org, nav }: { tab: DashTab; org: Org | null; nav: HomeNav }) {
   if (!org) return <View style={{ padding: 20 }}><Note text="Tu cuenta no tiene ninguna tienda asignada." /></View>;
   return tab === "shopify" ? <ShopifyView org={org} nav={nav} /> : tab === "meta" ? <MetaView org={org} nav={nav} /> : tab === "klaviyo" ? <KlaviyoView org={org} nav={nav} /> : <TodoView org={org} nav={nav} />;
 }

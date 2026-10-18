@@ -238,6 +238,7 @@ type OperationsResponse = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  proposed: "Propuesta",
   pending: "Pendiente",
   in_progress: "En curso",
   completed: "Completada",
@@ -426,6 +427,16 @@ function TaskDetail({
             <Button variant="secondary" size="sm" onClick={() => onOpenMarketingAsset(linkedMarketingAsset)}>
               Abrir borrador · {marketingAssetStatusLabel(linkedMarketingAsset)}
             </Button>
+          ) : null}
+          {onStatusChange && task.status === "proposed" ? (
+            <>
+              <Button size="sm" onClick={() => onStatusChange("pending")}>
+                Aceptar
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onStatusChange("ignored")}>
+                Rechazar
+              </Button>
+            </>
           ) : null}
           {onStatusChange && task.status === "pending" ? (
             <Button
@@ -836,6 +847,16 @@ function TaskRow({
         {due.text}
       </span>
       <div className="flex shrink-0 items-center gap-1.5">
+        {onStatusChange && task.status === "proposed" ? (
+          <>
+            <Button size="sm" disabled={isPending} onClick={() => onStatusChange("pending")}>
+              {isPending ? "..." : "Aceptar"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={isPending} onClick={() => onStatusChange("ignored")}>
+              Rechazar
+            </Button>
+          </>
+        ) : null}
         {onStatusChange && task.status === "pending" ? (
           <Button
             size="sm"
@@ -1347,7 +1368,7 @@ function ConsultantOperationsView({
       return false;
     if (
       statusFilter === "open" &&
-      !["pending", "in_progress"].includes(task.status)
+      !["proposed", "pending", "in_progress"].includes(task.status)
     )
       return false;
     if (
@@ -2046,13 +2067,18 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const normalizedTaskQuery = searchQuery.trim().toLowerCase();
 
+  // Lo que el cliente ha quitado de en medio: aparte de la lista, con acción rápida para recuperarlo.
+  const discardedTasks = (payload?.tasks ?? [])
+    .filter((task) => ["ignored", "cancelled"].includes(task.status))
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+
   const filteredTasks = (payload?.tasks ?? []).filter((task) => {
     if (categoryFilter !== "all" && !task.categories.includes(categoryFilter)) {
       return false;
     }
     if (
       statusFilter === "open" &&
-      !["pending", "in_progress"].includes(task.status)
+      !["proposed", "pending", "in_progress"].includes(task.status)
     ) {
       return false;
     }
@@ -2332,6 +2358,31 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </>
             )}
           </Card>
+
+          {isConsultant && discardedTasks.length > 0 ? (
+            <CollapsibleSection title={`Descartadas y archivadas por el cliente · ${discardedTasks.length}`}>
+              <List>
+                {discardedTasks.map((task) => (
+                  <List.Item key={task.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">{task.title}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {STATUS_LABELS[task.status] ?? task.status} · {new Date(task.updated_at).toLocaleDateString("es-ES")}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={pendingTaskId === task.id}
+                      onClick={() => void changeTaskStatus(task.id, "pending")}
+                    >
+                      {pendingTaskId === task.id ? "..." : "Recuperar"}
+                    </Button>
+                  </List.Item>
+                ))}
+              </List>
+            </CollapsibleSection>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-4">

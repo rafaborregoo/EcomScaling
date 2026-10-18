@@ -16,3 +16,10 @@ test("en silencio solo pasan las alertas críticas", () => {
   const out = buildPushMessages([row("1", "u1", "alert"), row("2", "u1", "alert_critical")], tokens, new Set(["u1"]));
   assert.deepEqual(out.map((m) => m.data.notificationId), ["2"]);
 });
+
+test("el aviso lleva el cliente al que pertenece, para abrirlo al tocarlo", () => {
+  const tokens = new Map([["u1", ["ExponentPushToken[a]"]]]);
+  const [withOrg, withoutOrg] = buildPushMessages([{ ...row("1", "u1", "alert"), organization_id: "org-1" }, row("2", "u1", "alert")], tokens, new Set());
+  assert.equal(withOrg?.data.organizationId, "org-1");
+  assert.equal(withoutOrg?.data.organizationId, null);
+});

@@ -20,8 +20,8 @@ const LOOKBACK_MS = 3_600_000;
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_BATCH = 100;
 
-type PendingRow = { id: string; user_id: string; type: string; title: string; message: string | null; created_at: string };
-export type PushMessage = { to: string; title: string; body: string; sound: "default"; priority: "high"; data: { notificationId: string; type: string } };
+type PendingRow = { id: string; user_id: string; type: string; title: string; message: string | null; created_at: string; organization_id?: string | null };
+export type PushMessage = { to: string; title: string; body: string; sound: "default"; priority: "high"; data: { notificationId: string; type: string; organizationId: string | null } };
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -55,7 +55,7 @@ export function buildPushMessages(rows: PendingRow[], tokensByUser: Map<string, 
   for (const row of rows) {
     if (quietUsers.has(row.user_id) && row.type !== "alert_critical") continue;
     for (const to of tokensByUser.get(row.user_id) ?? []) {
-      out.push({ to, title: row.title, body: row.message ?? "", sound: "default", priority: "high", data: { notificationId: row.id, type: row.type } });
+      out.push({ to, title: row.title, body: row.message ?? "", sound: "default", priority: "high", data: { notificationId: row.id, type: row.type, organizationId: row.organization_id ?? null } });
     }
   }
   return out;
@@ -65,7 +65,7 @@ export async function runMobilePush(env: ApiEnv, now = new Date()) {
   const supabase = createServiceClient(env);
   const { data: pending, error } = await supabase
     .from("notifications")
-    .select("id, user_id, type, title, message, created_at")
+    .select("id, user_id, type, title, message, created_at, organization_id")
     .is("push_sent_at", null)
     .gt("created_at", new Date(now.getTime() - LOOKBACK_MS).toISOString())
     .order("created_at", { ascending: true })

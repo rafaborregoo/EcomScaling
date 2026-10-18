@@ -6,6 +6,9 @@ import { apiGet } from "./api";
 const FRESH_MS = 60_000;
 const cache = new Map<string, { data: unknown; at: number }>();
 const inflight = new Map<string, Promise<unknown>>();
+// Todas las pantallas que leen la misma ruta se enteran de cada recarga: decidir algo en Hoy actualiza también los
+// números del nav y la cabecera, que leen la misma mesa.
+const listeners = new Map<string, Set<(data: unknown) => void>>();
 
 function load<T>(path: string): Promise<T> {
   let p = inflight.get(path) as Promise<T> | undefined;
@@ -13,6 +16,7 @@ function load<T>(path: string): Promise<T> {
     p = apiGet<T>(path)
       .then((data) => {
         cache.set(path, { data, at: Date.now() });
+        listeners.get(path)?.forEach((fn) => fn(data));
         return data;
       })
       .finally(() => inflight.delete(path));
@@ -24,10 +28,22 @@ function load<T>(path: string): Promise<T> {
 /** Vacía la caché (cerrar sesión: los datos son de otro usuario). */
 export const clearApiCache = () => cache.clear();
 
+/** Vuelve a pedir una ruta tras una escritura que la cambia, aunque la pantalla que la lee no esté delante. */
+export const refetch = (path: string) => load(path).catch(() => {});
+
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T | null>(() => (path ? ((cache.get(path)?.data as T | undefined) ?? null) : null));
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!path) return;
+    const set = listeners.get(path) ?? new Set();
+    const fn = (d: unknown) => setData(d as T);
+    set.add(fn);
+    listeners.set(path, set);
+    return () => void set.delete(fn);
+  }, [path]);
 
   useEffect(() => {
     if (!path) return;

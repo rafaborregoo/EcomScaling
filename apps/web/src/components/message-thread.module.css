@@ -2,13 +2,13 @@
    (.trabajo-theme) con los del tema petróleo + azafrán como respaldo. */
 
 .root {
-  --mt-line: var(--tw-line, #d5dfdf);
-  --mt-surface: var(--tw-surface-2, #f4f7f7);
+  --mt-line: var(--tw-line, #e2dfdc);
+  --mt-surface: var(--tw-surface-2, #f8f7f5);
   --mt-ink: var(--tw-ink, #3d3b3a);
-  --mt-ink-3: var(--tw-ink-3, #5c6b6b);
-  --mt-accent: var(--tw-accent, #176b64);
-  --mt-accent-soft: var(--tw-accent-soft, #e3f1ee);
-  --mt-accent-ink: var(--tw-accent-ink, #176b64);
+  --mt-ink-3: var(--tw-ink-3, #6b6662);
+  --mt-accent: var(--tw-accent, #3d3b3a);
+  --mt-accent-soft: var(--tw-accent-soft, #efeeec);
+  --mt-accent-ink: var(--tw-accent-ink, #3d3b3a);
   --mt-good: var(--tw-good, #2f7d5b);
   --mt-bad: #b3361f;
   display: flex;

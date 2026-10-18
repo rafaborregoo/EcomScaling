@@ -437,3 +437,44 @@ test("el resumen de playbooks conserva facts y evidencia de benchmarks F6", () =
   assert.deepEqual(summary.context_evidence_refs, ["shopify_sales_summary:org-a:2026-09-18"]);
   assert.deepEqual(summary.context_source_versions, ["f6-p00.v1"]);
 });
+
+test("el chat de una tienda solo consulta sus casos y evita los demás playbooks globales", async () => {
+  const requested: string[] = [];
+  const org = "org-a";
+  const rows: Record<string, Array<Record<string, unknown>>> = {
+    diagnostic_cases: [
+      { id: "case-a", organization_id: org, store_id: "store-a", summary: "solo tienda A" },
+      { id: "case-b", organization_id: org, store_id: "store-b", summary: "solo tienda B" },
+    ],
+    diagnostic_outputs: [
+      { organization_id: org, case_id: "case-a", diagnostic_summary: "salida A" },
+      { organization_id: org, case_id: "case-b", diagnostic_summary: "salida B" },
+    ],
+    diagnostic_robustness: [],
+    temporal_diagnoses: [],
+  };
+  const client = {
+    from(table: string) {
+      requested.push(table);
+      let scope: string | null = null;
+      const query: any = {
+        select() { return query; },
+        eq() { return query; },
+        or(value: string) { scope = value; return query; },
+        order() { return query; },
+        limit() { return query; },
+        then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
+          const data = (rows[table] ?? []).filter((row) =>
+            !scope || row.store_id === "store-a" || row.store_id === null);
+          return Promise.resolve({ data, error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+  const blocks = await loadDecisionPlaybookContextBlocks(client as never, org, { storeId: "store-a" });
+  assert.equal(blocks.length, 1);
+  assert.match(JSON.stringify(blocks), /case-a/);
+  assert.doesNotMatch(JSON.stringify(blocks), /case-b|salida B/);
+  assert.deepEqual(requested.sort(), ["diagnostic_cases", "diagnostic_outputs", "diagnostic_robustness", "temporal_diagnoses"].sort());
+});

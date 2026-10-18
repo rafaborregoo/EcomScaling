@@ -59,6 +59,11 @@ const serviceOnlyTables = new Set([
   "agent_judge_holdout_claims",
   "agent_release_eval_cases",
   "agent_release_eval_holdout_claims",
+  // Cerrojos de decisión de A04/A05/A06: solo los usa la API con service role.
+  "a05_campaign_decision_claims",
+  "agent_output_decision_claims",
+  "agent_manual_refresh_reservations",
+  "a06_restock_decision_claims",
 ]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));

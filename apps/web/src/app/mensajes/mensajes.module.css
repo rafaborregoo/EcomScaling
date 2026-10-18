@@ -2,13 +2,13 @@
    azafrán en consultor, coral en cliente) con respaldo del tema petróleo. */
 
 .root {
-  --ms-line: var(--tw-line, #d5dfdf);
-  --ms-surface: var(--tw-surface-2, #f4f7f7);
+  --ms-line: var(--tw-line, #e2dfdc);
+  --ms-surface: var(--tw-surface-2, #f8f7f5);
   --ms-ink: var(--tw-ink, #3d3b3a);
-  --ms-ink-3: var(--tw-ink-3, #5c6b6b);
-  --ms-accent: var(--tw-accent, #176b64);
-  --ms-accent-soft: var(--tw-accent-soft, #e3f1ee);
-  --ms-accent-ink: var(--tw-accent-ink, #176b64);
+  --ms-ink-3: var(--tw-ink-3, #6b6662);
+  --ms-accent: var(--tw-accent, #3d3b3a);
+  --ms-accent-soft: var(--tw-accent-soft, #efeeec);
+  --ms-accent-ink: var(--tw-accent-ink, #3d3b3a);
   --ms-bad: #b3361f;
   --ms-bad-soft: #f8e0da;
   display: grid;

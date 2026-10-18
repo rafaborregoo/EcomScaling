@@ -5,6 +5,7 @@ import {
   createUserScopedClient,
   requireOperationalOrganization,
 } from "./auth-context.js";
+import { createLogger } from "@e-nora/observability";
 import { recordAuditLog } from "./audit-log.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
@@ -758,7 +759,7 @@ export async function listOperations(
     supabase
       .from("alerts")
       .select(
-        "id, status, severity, title, message, metric_value, threshold_value, fingerprint, first_detected_at, last_detected_at, resolved_at",
+        "id, status, severity, title, message, metric_value, threshold_value, fingerprint, first_detected_at, last_detected_at, resolved_at, store_id",
       )
       .eq("organization_id", organizationId)
       .order("last_detected_at", { ascending: false })
@@ -843,6 +844,8 @@ export async function listOperations(
     },
   };
 }
+
+const logger = createLogger("operations");
 
 const TASK_STATUSES = [
   "pending",
@@ -932,6 +935,8 @@ export async function createTask(
     isVisibleToClient?: boolean;
     assignedTo?: string | null;
     milestoneId?: string | null;
+    agentOutputId?: string | null;
+    agentProposalIndex?: number | null;
   },
 ) {
   const access = requireMembership(context, organizationId);
@@ -954,6 +959,11 @@ export async function createTask(
   }
 
   const milestoneId = input.milestoneId?.trim() || null;
+  const agentOutputId = input.agentOutputId?.trim() || null;
+  const agentProposalIndex = input.agentProposalIndex ?? null;
+  if ((agentOutputId === null) !== (agentProposalIndex === null) || (agentProposalIndex !== null && (!Number.isInteger(agentProposalIndex) || agentProposalIndex < 0))) {
+    return { ok: false as const, statusCode: 400, error: "invalid_task_idempotency_key" };
+  }
 
   const priority = TASK_PRIORITIES.includes(
     input.priority as (typeof TASK_PRIORITIES)[number],
@@ -971,8 +981,19 @@ export async function createTask(
 
   const supabase = createServiceClient(env);
 
-  const assignedTo = input.assignedTo?.trim() || context.user.id;
-  if (!(await validateTaskAssignee(supabase, organizationId, assignedTo, context.user.id))) {
+  // Proponer no es decidir: lo que el consultor crea para el cliente nace como
+  // propuesta ('proposed') y el cliente la acepta (pasa a 'pending') o la
+  // rechaza ('ignored'). El trabajo interno (no visible al cliente) y las
+  // tareas que materializa una aprobacion de la IA no pasan por aqui.
+  const proposedToClient =
+    access.membership.accessSource === "consultant_assignment" &&
+    (input.isVisibleToClient ?? true) &&
+    agentOutputId === null;
+
+  // Una propuesta, sin responsable explicito, es del cliente (sin asignar =
+  // suya en su lista), no del consultor que la escribe.
+  const assignedTo = input.assignedTo?.trim() || (proposedToClient ? null : context.user.id);
+  if (assignedTo && !(await validateTaskAssignee(supabase, organizationId, assignedTo, context.user.id))) {
     return { ok: false as const, statusCode: 400, error: "invalid_task_assignee", message: "El responsable debe tener acceso activo a esta tienda." };
   }
 
@@ -1003,6 +1024,34 @@ export async function createTask(
     };
   }
 
+  const finishExistingTask = async (taskId: string) => {
+    if (milestoneId) {
+      const { data: existingLink, error: linkLookupError } = await supabase
+        .from("milestone_task_links").select("task_id")
+        .eq("organization_id", organizationId).eq("milestone_id", milestoneId).eq("task_id", taskId).maybeSingle();
+      if (linkLookupError) return { ok: false as const, statusCode: 503, error: "milestone_task_link_lookup_failed" };
+      if (!existingLink) {
+        const { error: linkError } = await supabase.from("milestone_task_links").insert({
+          organization_id: organizationId, milestone_id: milestoneId, task_id: taskId,
+        });
+        if (linkError) return { ok: false as const, statusCode: 503, error: "milestone_task_link_failed", detail: linkError.message };
+      }
+    }
+    const { data: existing, error: taskLookupError } = await supabase.from("tasks")
+      .select("id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at")
+      .eq("id", taskId).eq("organization_id", organizationId).maybeSingle();
+    if (taskLookupError || !existing) return { ok: false as const, statusCode: 503, error: "task_idempotency_lookup_failed" };
+    return { ok: true as const, data: existing };
+  };
+
+  if (agentOutputId && agentProposalIndex !== null) {
+    const { data: existingTask, error: existingTaskError } = await supabase.from("tasks")
+      .select("id").eq("organization_id", organizationId)
+      .eq("agent_output_id", agentOutputId).eq("agent_proposal_index", agentProposalIndex).maybeSingle();
+    if (existingTaskError) return { ok: false as const, statusCode: 503, error: "task_idempotency_lookup_failed" };
+    if (existingTask) return finishExistingTask(existingTask.id as string);
+  }
+
   const { data, error } = await supabase
     .from("tasks")
     .insert({
@@ -1013,6 +1062,7 @@ export async function createTask(
       categories,
       due_at: input.dueAt || null,
       source: "manual",
+      ...(proposedToClient ? { status: "proposed" as const } : {}),
       created_by: context.user.id,
       // Quien la crea se hace responsable. El reparto automatico solo decide
       // cuando no hay nadie eligiendo (alertas, IA).
@@ -1020,6 +1070,9 @@ export async function createTask(
       // Por defecto visible: una tarea manual sin marcar como interna es
       // igual de visible para el cliente que cualquier otra de la lista.
       is_visible_to_client: input.isVisibleToClient ?? true,
+      ...(agentOutputId && agentProposalIndex !== null
+        ? { agent_output_id: agentOutputId, agent_proposal_index: agentProposalIndex }
+        : {}),
     })
     .select(
       "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at",
@@ -1027,6 +1080,12 @@ export async function createTask(
     .single();
 
   if (error) {
+    if (error.code === "23505" && agentOutputId && agentProposalIndex !== null) {
+      const { data: existingTask } = await supabase.from("tasks").select("id")
+        .eq("organization_id", organizationId).eq("agent_output_id", agentOutputId)
+        .eq("agent_proposal_index", agentProposalIndex).maybeSingle();
+      if (existingTask) return finishExistingTask(existingTask.id as string);
+    }
     return {
       ok: false as const,
       statusCode: 500,
@@ -1044,6 +1103,7 @@ export async function createTask(
         task_id: data.id,
       });
     if (linkError) {
+      await supabase.from("tasks").delete().eq("id", data.id).eq("organization_id", organizationId).in("status", ["pending", "proposed"]);
       return {
         ok: false as const,
         statusCode: 500,
@@ -1067,10 +1127,75 @@ export async function createTask(
     },
   });
 
+  if (proposedToClient) {
+    await notifyTaskProposal(supabase, {
+      organizationId,
+      taskId: data.id,
+      actorUserId: context.user.id,
+      audience: "client",
+      title: `Tu consultor te propone una tarea: «${data.title}»`.slice(0, 255),
+      message: "Acéptala para añadirla a tu lista o recházala si no te encaja.",
+    });
+  }
+
   return {
     ok: true as const,
     data: { ...data, task_comments: [], milestone },
   };
+}
+
+/**
+ * Aviso de una propuesta de tarea entre consultor y cliente. Best-effort: un
+ * aviso que falla no puede tumbar la accion que lo origina, y nunca avisa a
+ * quien la hace.
+ */
+async function notifyTaskProposal(
+  supabase: ReturnType<typeof createServiceClient>,
+  input: {
+    organizationId: string;
+    taskId: string;
+    actorUserId: string;
+    audience: "client" | "consultants";
+    title: string;
+    message: string;
+  },
+) {
+  try {
+    const recipients = new Set<string>();
+    if (input.audience === "consultants") {
+      const { data } = await supabase
+        .from("consultant_assignments")
+        .select("consultant_user_id")
+        .eq("organization_id", input.organizationId)
+        .eq("is_active", true);
+      for (const row of data ?? []) recipients.add(row.consultant_user_id as string);
+    } else {
+      const { data } = await supabase
+        .from("organization_members")
+        .select("user_id")
+        .eq("organization_id", input.organizationId)
+        .eq("is_active", true)
+        .in("role", ["owner", "manager"]);
+      for (const row of data ?? []) recipients.add(row.user_id as string);
+    }
+    recipients.delete(input.actorUserId);
+    if (!recipients.size) return;
+    const { error } = await supabase.from("notifications").insert(
+      [...recipients].map((userId) => ({
+        organization_id: input.organizationId,
+        user_id: userId,
+        type: "task_assigned",
+        title: input.title,
+        message: input.message,
+        action_url: "/tareas",
+        entity_type: "task",
+        entity_id: input.taskId,
+      })),
+    );
+    if (error) logger.error("task_proposal_notification_failed", { organization_id: input.organizationId, task_id: input.taskId, error: error.message });
+  } catch (error) {
+    logger.error("task_proposal_notification_threw", { organization_id: input.organizationId, task_id: input.taskId, error: error instanceof Error ? error.message : "unknown_error" });
+  }
 }
 
 export async function updateTaskAssignment(
@@ -1169,7 +1294,7 @@ export async function updateTaskStatus(
 
   const { data: previousTask, error: previousTaskError } = await supabase
     .from("tasks")
-    .select("id, status, completed_at")
+    .select("id, status, completed_at, title")
     .eq("id", taskId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -1177,6 +1302,15 @@ export async function updateTaskStatus(
     return { ok: false as const, statusCode: 500, error: "task_load_failed", detail: previousTaskError.message };
   }
   if (!previousTask) return { ok: false as const, statusCode: 404, error: "task_not_found" };
+  // Una propuesta solo se acepta (-> pending) o se rechaza (-> ignored).
+  if (previousTask.status === "proposed" && !["pending", "ignored"].includes(statusInput)) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "task_proposal_undecided",
+      message: "Primero acepta o rechaza la propuesta.",
+    };
+  }
 
   const { data, error } = await supabase
     .from("tasks")
@@ -1219,6 +1353,23 @@ export async function updateTaskStatus(
 
   if (!data) {
     return { ok: false as const, statusCode: 404, error: "task_not_found" };
+  }
+
+  // El consultor propuso, el cliente ha decidido: se le avisa del resultado.
+  if (previousTask.status === "proposed") {
+    const accepted = statusInput === "pending";
+    await notifyTaskProposal(supabase, {
+      organizationId,
+      taskId: data.id,
+      actorUserId: context.user.id,
+      audience: "consultants",
+      title: `Tu cliente ha ${accepted ? "aceptado" : "rechazado"} la tarea «${previousTask.title}»`.slice(0, 255),
+      message: accepted
+        ? "Ya está en su lista de tareas."
+        : reason
+          ? `Motivo: ${reason}`
+          : "La encontrarás en Tareas, en «Descartadas y archivadas por el cliente».",
+    });
   }
 
   // A task may be the execution handle of one or more calendar items. Keep

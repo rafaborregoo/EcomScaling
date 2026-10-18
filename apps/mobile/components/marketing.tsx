@@ -214,7 +214,7 @@ function Programacion({ orgId, campaigns }: { orgId: string; campaigns: Campaign
 
       {drafts.length > 0 && <SummaryRow title="Borradores sin programar" summary={fmtNum(drafts.length)} onPress={() => setDraftsOpen(true)} />}
 
-      <Sheet visible={draftsOpen} onClose={() => setDraftsOpen(false)} title={`Borradores (${drafts.length})`}>
+      <Sheet visible={draftsOpen} onClose={() => setDraftsOpen(false)} title="Borradores" count={drafts.length}>
         {drafts.map((x, i) => (
           <ListRow flat key={x.id} first={i === 0} onPress={() => { setDraftsOpen(false); setSelected(x); }}>
             <RowTitle>{x.name}</RowTitle>

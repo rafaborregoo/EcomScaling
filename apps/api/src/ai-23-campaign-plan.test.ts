@@ -175,9 +175,9 @@ test("las fechas se anclan al momento de aprobar, no al de generar", () => {
   );
 
   assert.equal(items.length, 3);
-  // 5 de septiembre + 3 dias = 8 de septiembre; es una accion de un dia.
+  // 5 de septiembre + 3 dias = 8 de septiembre; una campaña heredada dura sus duration_days (14).
   assert.equal(items[0]?.startsAt.slice(0, 10), "2026-09-08");
-  assert.equal(items[0]?.endsAt.slice(0, 10), "2026-09-09");
+  assert.equal(items[0]?.endsAt.slice(0, 10), "2026-09-22");
 
   // Aprobar una semana mas tarde corre TODO el plan esa misma semana.
   const unaSemanaDespues = campaignPlanToCalendarItems(
@@ -185,7 +185,7 @@ test("las fechas se anclan al momento de aprobar, no al de generar", () => {
     aprobadoEl + 7 * 86_400_000,
   );
   assert.equal(unaSemanaDespues[0]?.startsAt.slice(0, 10), "2026-09-15");
-  assert.equal(unaSemanaDespues[0]?.endsAt.slice(0, 10), "2026-09-16");
+  assert.equal(unaSemanaDespues[0]?.endsAt.slice(0, 10), "2026-09-29");
 });
 
 test("descartar campanas no reindexa: se crea la que el consultor eligio", () => {

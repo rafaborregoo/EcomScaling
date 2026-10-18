@@ -29,6 +29,23 @@ test("las temporadas de categoria solo aparecen si el contexto las menciona", ()
   assert.equal(events.some((event) => event.scope === "category"), false);
 });
 
+test("A04 no supone España cuando el nombre no declara el mercado", () => {
+  const events = commercialCalendar(
+    new Date("2026-10-06T00:00:00Z"),
+    92,
+    "Atelier Nord",
+    { markets: [], defaultMarket: null, vertical: null },
+  );
+  assert.equal(events.some((event) => event.market === "ES"), false);
+  const frenchEvents = commercialCalendar(
+    new Date("2026-10-06T00:00:00Z"),
+    92,
+    "Atelier Nord",
+    { markets: ["FR"], defaultMarket: null, vertical: "skincare" },
+  );
+  assert.equal(frenchEvents.every((event) => event.market === "global" || event.market === "FR"), true);
+});
+
 test("el Día de la Madre cambia por mercado y se detecta el mercado del contexto", async () => {
   const { detectMarkets } = await import("./commercial-calendar.js");
   assert.deepEqual(detectMarkets("vendemos en España y Portugal"), ["ES", "PT"]);

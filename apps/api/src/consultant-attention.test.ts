@@ -4,7 +4,7 @@ import { fetchAllByOrganization, scoreAttention } from "./consultant-attention.j
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
 
-test("scoreAttention pondera severidad, antiguedad y tareas vencidas por organizacion", () => {
+test("scoreAttention pondera severidad y antiguedad por organizacion (las tareas vencidas no puntuan)", () => {
   const scores = scoreAttention(
     ["a", "b"],
     [
@@ -18,7 +18,7 @@ test("scoreAttention pondera severidad, antiguedad y tareas vencidas por organiz
     NOW,
   );
   // 10 + 1 de severidad, 5 dias de la alerta mas antigua, 1 tarea vencida x3.
-  assert.equal(scores.get("a")?.score, 10 + 1 + 5 + 3);
+  assert.equal(scores.get("a")?.score, 10 + 1 + 5);
   assert.equal(scores.get("a")?.open_alerts, 2);
   assert.equal(scores.get("a")?.critical_alerts, 1);
   assert.equal(scores.get("a")?.overdue_tasks, 1);

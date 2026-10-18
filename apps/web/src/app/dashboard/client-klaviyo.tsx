@@ -150,7 +150,6 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   asConsultant?: boolean;
 }) {
   const [period, setPeriod] = useState<(typeof PERIODS)[number]["key"]>("30");
-  const [monitorRunning, setMonitorRunning] = useState(false);
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
@@ -162,22 +161,6 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   const emailAi = useCachedQuery<Diagnostic>(`${base}/ai/email-analyst${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`);
   const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=klaviyo${scope}`);
 
-  async function runMonitorKlaviyo() {
-    setMonitorRunning(true);
-    try {
-      const response = await apiFetch(`${base}/ai/monitor-run?days=30${scope}&view=klaviyo`, { method: "POST" });
-      if (!response.ok) {
-        toast.danger(await readApiError(response));
-        return;
-      }
-      toast.success("Lectura A02 de Klaviyo actualizada.");
-      monitor.reload();
-    } catch {
-      toast.danger("No se pudo lanzar el análisis de Klaviyo por un error de red.");
-    } finally {
-      setMonitorRunning(false);
-    }
-  }
 
   const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? "";
   const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Klaviyo, ${periodLabel})`, focusLabel, reference: { period_label: periodLabel, filters: { days: period } } });
@@ -280,9 +263,6 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
                   IA
                 </span>
                 Preguntar qué mejorar
-              </button>
-              <button type="button" className={cx(s.btn, s.ghost)} disabled={monitorRunning} onClick={() => void runMonitorKlaviyo()}>
-                {monitorRunning ? "Analizando Klaviyo…" : "Actualizar análisis"}
               </button>
               <a className={cx(s.btn, s.ghost)} href="/klaviyo">
                 Analítica completa

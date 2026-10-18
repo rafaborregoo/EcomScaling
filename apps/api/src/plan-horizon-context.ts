@@ -133,7 +133,7 @@ export function summarizeRecentPlanTaskOutcomes(
 export function summarizeOpenTasksForPlan(
   rawTasks: unknown[],
   selectedStoreId: string | null,
-  options: { now?: number; nearDays?: number; nearLimit?: number; laterLimit?: number } = {},
+  options: { now?: number; nearDays?: number; nearLimit?: number; laterLimit?: number; totalCount?: number | null } = {},
 ) {
   const now = options.now ?? Date.now();
   const nearDays = options.nearDays ?? 14;
@@ -154,6 +154,7 @@ export function summarizeOpenTasksForPlan(
       continue;
     }
     near.push({
+      id: text(task.id, 64),
       title: text(task.title, 140),
       priority: text(task.priority, 20),
       status,
@@ -164,13 +165,21 @@ export function summarizeOpenTasksForPlan(
       due_ms: Number.isFinite(dueMs) ? dueMs : Number.POSITIVE_INFINITY,
     });
   }
-  near.sort((a, b) => a.due_ms - b.due_ms);
+  const priorityRank = (value: unknown) => ({ urgent: 4, high: 3, medium: 2, low: 1 }[String(value)] ?? 0);
+  near.sort((a, b) =>
+    Number(b.status === "in_progress") - Number(a.status === "in_progress") ||
+    Number(b.overdue) - Number(a.overdue) ||
+    priorityRank(b.priority) - priorityRank(a.priority) ||
+    a.due_ms - b.due_ms,
+  );
   later.sort((a, b) => a.due_ms - b.due_ms);
   const nearLimit = options.nearLimit ?? 25;
   const laterLimit = options.laterLimit ?? 15;
   return {
     scope: selectedStoreId ? ("store_plus_unscoped" as const) : ("organization" as const),
-    total_open: total,
+    total_open: options.totalCount ?? total,
+    sample_truncated: options.totalCount !== null && options.totalCount !== undefined && options.totalCount > rawTasks.length,
+    query_omitted: Math.max(0, (options.totalCount ?? rawTasks.length) - rawTasks.length),
     near_term_window_days: nearDays,
     near_term: near.slice(0, nearLimit).map(({ due_ms: _drop, ...row }) => row),
     near_term_omitted: Math.max(0, near.length - nearLimit),
@@ -274,21 +283,23 @@ export function summarizeActiveMonthlyInitiatives(
 export function summarizeActiveCaminoForPlan(rawPlan: unknown, selectedStoreId: string | null) {
   const plan = asRow(rawPlan);
   if (!plan) return { status: "unavailable", reason: "no_active_path" } as const;
-  const phases = Array.isArray(plan.strategic_plan_phases) ? plan.strategic_plan_phases : [];
+  const phases = (Array.isArray(plan.strategic_plan_phases) ? plan.strategic_plan_phases : [])
+    .slice()
+    .sort((a, b) => (asRow(a)?.position as number ?? 0) - (asRow(b)?.position as number ?? 0));
   const milestones = phases.flatMap((rawPhase) => {
     const phase = asRow(rawPhase);
     if (!phase) return [];
     const phaseName = text(phase.name, 180);
     const rows = Array.isArray(phase.strategic_plan_milestones) ? phase.strategic_plan_milestones : [];
-    return rows.flatMap((rawMilestone) => {
+    return rows.slice().sort((a, b) => (asRow(a)?.position as number ?? 0) - (asRow(b)?.position as number ?? 0)).flatMap((rawMilestone) => {
       const milestone = asRow(rawMilestone);
-      if (!milestone || !["pending", "in_progress"].includes(String(milestone.status))) return [];
+      if (!milestone || !["locked", "pending", "active"].includes(String(milestone.status))) return [];
       const linkedRows = Array.isArray(milestone.milestone_task_links) ? milestone.milestone_task_links : [];
       const linkedTasks = linkedRows.flatMap((rawLink) => {
         const link = asRow(rawLink);
         const task = asRow(link?.tasks);
         return task && taskBelongsToPlanStore(task.store_id, selectedStoreId)
-          && text(task.status, 40) !== "done" && text(task.status, 40) !== "cancelled"
+          && !["completed", "done", "cancelled"].includes(text(task.status, 40) ?? "")
           ? [{ title: text(task.title, 180), status: text(task.status, 40) }]
           : [];
       }).slice(0, 3);
@@ -306,14 +317,29 @@ export function summarizeActiveCaminoForPlan(rawPlan: unknown, selectedStoreId: 
   return {
     status: "available" as const,
     plan: text(plan.name, 180),
-    goal: text(plan.goal, 500),
+    goal: (() => {
+      if (typeof plan.goal === "string") return text(plan.goal, 500);
+      const goal = asRow(plan.goal);
+      if (!goal) return null;
+      return {
+        metric_key: text(goal.metric_key, 80),
+        metric_label: text(goal.metric_label, 120),
+        baseline: typeof goal.baseline === "number" && Number.isFinite(goal.baseline) ? goal.baseline : null,
+        target: typeof goal.target === "number" && Number.isFinite(goal.target) ? goal.target : null,
+        unit: text(goal.unit, 40),
+        currency_code: text(goal.currency_code, 3),
+        target_date: text(goal.target_date, 40),
+        target_offset_days: typeof goal.target_offset_days === "number" && Number.isFinite(goal.target_offset_days) ? goal.target_offset_days : null,
+        rationale: text(goal.rationale, 300),
+      };
+    })(),
     version: typeof plan.version === "number" ? plan.version : null,
     phases: phases.flatMap((rawPhase) => {
       const phase = asRow(rawPhase);
-      return phase && ["pending", "in_progress"].includes(String(phase.status))
-        ? [{ name: text(phase.name, 180), status: text(phase.status, 40) }]
+      return phase && ["locked", "pending", "active"].includes(String(phase.status))
+        ? [{ name: text(phase.name, 180), status: text(phase.status, 40), position: typeof phase.position === "number" ? phase.position : 0 }]
         : [];
-    }).slice(0, 8),
+    }).sort((a, b) => a.position - b.position).slice(0, 8).map(({ position: _position, ...phase }) => phase),
     milestones,
   };
 }
@@ -519,9 +545,12 @@ export function summarizeSiblingPlanRuns(
       ? Math.max(0, now - Date.parse(startedAt))
       : null;
     const staleAfterMs = options.staleAfterMsByAgent?.[code] ?? 14 * 24 * 60 * 60 * 1000;
-    const proposals = rawWrites.slice(0, 5).flatMap((rawWrite) => {
+    const decisions = Array.isArray(output.proposal_decisions) ? output.proposal_decisions : [];
+    const proposals = rawWrites.slice(0, 5).flatMap((rawWrite, proposalIndex) => {
       const write = asRow(rawWrite);
       if (!write) return [];
+      const decision = decisions.find((item) => asRow(item)?.index === proposalIndex);
+      const effective = asRow(decision);
       const title = text(write.title, 200);
       if (!title) return [];
       const measurement = asRow(write.initiative_measurement);
@@ -542,12 +571,25 @@ export function summarizeSiblingPlanRuns(
       const ownerRole = write.owner_role === "cliente" || write.owner_role === "consultor"
         ? write.owner_role
         : null;
+      const rawEvidence = write.evidence ?? write.source;
+      const evidence = Array.isArray(rawEvidence)
+        ? rawEvidence.slice(0, 4).flatMap((item) => {
+            const evidenceRow = asRow(item);
+            if (!evidenceRow) return [];
+            return [{ label: text(evidenceRow.label, 100), value: text(evidenceRow.value, 120), period: text(evidenceRow.period, 80), source: text(evidenceRow.source, 80) }];
+          })
+        : text(rawEvidence, 300);
       return [{
         kind: write.kind === "task" || write.kind === "note" ? write.kind : null,
-        title,
-        description: text(write.description),
+        title: text(effective?.title, 200) ?? title,
+        description: text(effective?.description) ?? text(write.description),
         rationale: text(write.rationale ?? write.why_it_matters),
-        priority: text(write.priority, 40),
+        priority: text(effective?.priority, 40) ?? text(write.priority, 40),
+        ...(effective ? {
+          decision: text(effective.decision, 40),
+          status: text(effective.status, 40),
+          task_id: text(effective.task_id, 64),
+        } : {}),
         owner: text(write.owner, 80),
         owner_role: ownerRole,
         milestone_id: milestoneId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(milestoneId)
@@ -556,12 +598,14 @@ export function summarizeSiblingPlanRuns(
         completion_criteria: text(write.completion_criteria, 500),
         expected_metric: text(write.expected_metric, 240),
         initiative_measurement: initiativeMeasurement,
-        evidence: text(write.evidence ?? write.source, 300),
+        evidence,
       }];
     });
     return [{
       horizon: options.horizonByAgent[code],
       agent_code: code,
+      run_id: text(run.id, 64),
+      output_id: text(outputRow?.id, 64),
       generated_at: startedAt,
       stale: ageMs === null || ageMs > staleAfterMs,
       output_status: text(outputRow?.status, 40),

@@ -62,7 +62,7 @@ export function enrichStockRiskEvidence(
     const lastSync = typeof row.latest_inventory_sync_at === "string"
       ? Date.parse(row.latest_inventory_sync_at)
       : Number.NaN;
-    const syncAgeHours = Number.isFinite(lastSync)
+    const syncAgeHours = Number.isFinite(lastSync) && lastSync <= now + 5 * 60_000
       ? Math.max(0, (now - lastSync) / 3_600_000)
       : null;
     const inventoryReliable = inventoryStatus === "tracked_current" &&
@@ -70,11 +70,14 @@ export function enrichStockRiskEvidence(
     const sampleMature = periodDays >= STOCK_COVERAGE_MIN_PERIOD_DAYS &&
       sold !== null && sold >= STOCK_COVERAGE_MIN_UNITS &&
       sellingDays !== null && sellingDays >= STOCK_COVERAGE_MIN_SELLING_DAYS;
-    const averageDailySales = sampleMature && sold !== null
-      ? Math.round((sold / periodDays) * 100) / 100
+    const preciseAverageDailySales = sampleMature && sold !== null
+      ? sold / periodDays
       : null;
-    const daysOfCover = inventoryReliable && sampleMature && available !== null && averageDailySales !== null && averageDailySales > 0
-      ? Math.round((available / averageDailySales) * 10) / 10
+    const averageDailySales = preciseAverageDailySales === null
+      ? null
+      : Math.round(preciseAverageDailySales * 100) / 100;
+    const daysOfCover = inventoryReliable && sampleMature && available !== null && preciseAverageDailySales !== null && preciseAverageDailySales > 0
+      ? Math.round((available / preciseAverageDailySales) * 10) / 10
       : null;
     const productId = typeof row.product_id === "string" ? row.product_id : null;
     const weeklyUnits = productId ? options.weeklyUnitsByProduct?.get(productId) : undefined;
