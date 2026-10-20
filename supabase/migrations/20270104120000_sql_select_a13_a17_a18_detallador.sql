@@ -23,7 +23,7 @@ set allowed_tools = (
 from public.agent_definitions as ad
 where av.definition_id = ad.id
   and ad.code in ('a13_operativa_shopify', 'a17_plan_semanal', 'a18_plan_mensual')
-  and av.is_active = true
+  and av.is_active
   and not (coalesce(av.allowed_tools, '[]'::jsonb) ? 'sql_select');
 
 with next_detailer as (
