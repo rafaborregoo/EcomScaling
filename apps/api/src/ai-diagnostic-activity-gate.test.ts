@@ -85,10 +85,7 @@ test("el orquestador conserva el agregado y crea una pasada por tienda para los 
     { storeId: null, connectionId: null },
     ...stores,
   ]);
-  assert.deepEqual(orchestratorScopesForAgent("a14_operativa_meta", stores), [
-    { storeId: null, connectionId: null },
-    ...stores,
-  ]);
+  assert.deepEqual(orchestratorScopesForAgent("a14_operativa_meta", stores), stores);
   assert.deepEqual(orchestratorScopesForAgent("a21_adquisicion_shopify", stores), [
     { storeId: null, connectionId: null },
     ...stores,

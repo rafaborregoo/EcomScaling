@@ -21,7 +21,6 @@ import {
   Badge,
   Banner,
   Button,
-  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
@@ -31,6 +30,7 @@ import {
   LoadingBlock,
   RetryIcon,
   Select,
+  toast,
 } from "@/components/ui";
 
 type ShopifyMetrics = {
@@ -227,8 +227,8 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
               tone: metrics.margin.items_without_cost > 0 ? "warn" : "success",
               hint:
                 metrics.margin.items_without_cost > 0
-                  ? "El margen real es mejor que el mostrado"
-                  : "Margen fiable",
+                  ? "Faltan costes; el margen puede cambiar cuando se completen"
+                  : "Sin líneas pendientes de coste detectadas",
             },
           ],
         }
@@ -293,7 +293,22 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   if (error) {
-    return <AsyncState status="error" error={error} />;
+    // El código técnico solo le sirve al consultor; el cliente necesita saber
+    // que no es culpa suya y cómo reintentar.
+    return (
+      <AsyncState
+        status="error"
+        error={
+          <>
+            No hemos podido cargar los datos de tu tienda.{" "}
+            <button type="button" className="underline" onClick={() => void reload()}>
+              Reintentar
+            </button>
+            {isConsultant ? <span className="block text-xs opacity-70">{error}</span> : null}
+          </>
+        }
+      />
+    );
   }
 
   if (!overview) {
@@ -364,7 +379,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         eyebrow={
           isAggregate
             ? `${overview.connections.length} tiendas · las cifras de abajo son la suma de todas`
-            : `Tu tienda · ${overview.store?.primary_domain ?? overview.store?.myshopify_domain ?? "sin dominio"}`
+            : `${overview.store?.primary_domain ?? overview.store?.myshopify_domain ?? "sin dominio"} · actualizado ${formatDate(overview.sync_runs[0]?.finished_at)}`
         }
         title={
           isAggregate
@@ -373,18 +388,9 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }
         actions={
           <div className="flex flex-wrap gap-3">
-            <ButtonLink href="/shopify/productos" variant="secondary">Ver productos</ButtonLink>
             {overview.connection?.status === "syncing" ? (
               <Badge tone="warn">Sincronizando...</Badge>
             ) : null}
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={isRefreshing}
-              onClick={() => void reload()}
-            >
-              {isRefreshing ? "Actualizando..." : "Actualizar"}
-            </Button>
             {/* Sincronizar es siempre de UNA conexion. Con el agregado
                 delante, el boton sincronizaria la tienda que el backend
                 resolvio por su cuenta -- que no es ninguna de las que el
@@ -396,7 +402,10 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 variant="secondary"
                 type="button"
                 disabled={isSyncing}
-                onClick={() => void triggerSync()}
+                onClick={async () => {
+                  // El sync va a una cola: sin este aviso el botón parecía no hacer nada.
+                  if (await triggerSync()) toast.success("Sincronización en marcha: las cifras se actualizan en unos minutos.");
+                }}
               >
                 {isSyncing ? "Sincronizando..." : "Sincronizar ahora"}
               </Button>
@@ -424,19 +433,16 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Banner>
           </div>
         ) : null}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span>
-            Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}
-          </span>
-          {isConsultant ? (
-            <Link
-              className="inline-flex items-center gap-1"
-              href="/shopify/diagnostico"
-            >
-              Diagnóstico técnico <IconChevronRight aria-hidden />
-            </Link>
-          ) : null}
+        {isConsultant ? (
+        <div className="mt-3 flex justify-end text-sm">
+          <Link
+            className="inline-flex items-center gap-1"
+            href="/shopify/diagnostico"
+          >
+            Diagnóstico técnico <IconChevronRight aria-hidden />
+          </Link>
         </div>
+        ) : null}
       </ChannelBand>
 
       <ClientShopify
@@ -455,31 +461,13 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <>
             {metrics && metrics.period.days === "all" ? (
               <Banner tone="warn">
-                {metrics.order_history.access_scope === "last_60_days" ? (
-                  <>
-                    Shopify solo concede acceso a pedidos de los últimos 60 días
-                    para esta conexión. Los datos locales empiezan en{" "}
-                    {metrics.order_history.earliest_imported_order_at
-                      ? new Intl.DateTimeFormat("es-ES", { dateStyle: "medium" }).format(new Date(metrics.order_history.earliest_imported_order_at))
-                      : "una fecha todavía no verificada"}
-                    ; el permiso no confirma que todo ese periodo esté importado.
-                  </>
-                ) : metrics.order_history.access_scope === "all_orders" ? (
-                  <>
-                    Los datos locales empiezan en{" "}
-                    {metrics.order_history.earliest_imported_order_at
-                      ? new Intl.DateTimeFormat("es-ES", { dateStyle: "medium" }).format(new Date(metrics.order_history.earliest_imported_order_at))
-                      : "una fecha todavía no verificada"}
-                    ; la conexión puede leer pedidos de cualquier fecha, pero eso
-                    no confirma que todo el histórico esté importado.
-                  </>
-                ) : (
-                  <>
-                    No se pudo verificar el alcance histórico del permiso. La
-                    fecha mostrada solo indica el pedido más antiguo guardado
-                    localmente.
-                  </>
-                )}
+                {/* Una frase: desde cuándo cuentan las cifras. El detalle del permiso
+                    es del diagnóstico técnico. */}
+                Las cifras cuentan desde{" "}
+                {metrics.order_history.earliest_imported_order_at
+                  ? `el ${new Intl.DateTimeFormat("es-ES", { dateStyle: "long" }).format(new Date(metrics.order_history.earliest_imported_order_at))}, el pedido más antiguo que tenemos`
+                  : "el pedido más antiguo que tenemos"}
+                .{metrics.order_history.access_scope === "last_60_days" ? " Shopify solo nos deja leer los pedidos de los últimos 60 días." : null}
               </Banner>
             ) : null}
             <ShopifyTrustStrip
@@ -491,9 +479,12 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }
       />
 
-      {/* Los tres especialistas del modulo. Las anclas apuntan a las secciones
+      {/* Los dos especialistas del modulo. Las anclas apuntan a las secciones
           de arriba que demuestran cada hallazgo. */}
-      <div id="shopify-ia" className="space-y-5 sm:space-y-6">
+      {isConsultant ? (
+      <details id="shopify-ia" className="group rounded-xl border border-separator bg-surface p-4">
+        <summary className="cursor-pointer text-base font-semibold">Análisis de los especialistas IA</summary>
+        <div className="mt-4 space-y-5">
         <AiDiagnosticSection
           organizationId={organization.id}
           title="Retención de clientes"
@@ -505,7 +496,6 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           showInternals={isConsultant}
           areas={{
             clientes: { label: "Ver los clientes", href: "#shop-cli" },
-            cohortes: { label: "Ver las cohortes", href: "#shop-cli" },
             medicion: { label: "Ver medición", href: "#shopify-medicion" },
           }}
         />
@@ -519,29 +509,15 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           days={90}
           showInternals={isConsultant}
           areas={{
-            origen: { label: "Ver de dónde vienen", href: "#shop-orig" },
             embudo: { label: "Ver el embudo", href: "#shop-conv" },
             carritos: { label: "Ver los carritos abandonados", href: "#shop-conv" },
-            promociones: { label: "Ver las promociones", href: "#shop-prod" },
+            promociones: { label: "Ver las promociones", href: "/shopify/promociones" },
             medicion: { label: "Ver medición", href: "#shopify-medicion" },
           }}
         />
-        <AiDiagnosticSection
-          organizationId={organization.id}
-          title="Entrega y devoluciones"
-          getPath="/ai/postventa-shopify"
-          runPath="/ai/postventa-shopify-run"
-          loadingLabel="Revisando plazos y devoluciones…"
-          tasksLabelSingular="tarea"
-          days={90}
-          showInternals={isConsultant}
-          areas={{
-            operativa: { label: "Ver la operativa", href: "#shop-env" },
-            ventas: { label: "Ver las ventas", href: "#shop-prod" },
-            medicion: { label: "Ver medición", href: "#shopify-medicion" },
-          }}
-        />
-      </div>
+        </div>
+      </details>
+      ) : null}
     </div>
   );
 }

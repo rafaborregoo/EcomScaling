@@ -1,4 +1,4 @@
-export type MetaVisualRepresentation = "static_image" | "video_thumbnail";
+export type MetaVisualRepresentation = "static_image" | "static_thumbnail" | "video_thumbnail";
 
 /** Returns only image URLs. A video can enter the image-analysis pipeline only via its still thumbnail. */
 export function resolveMetaVisualRepresentation(input: {
@@ -21,5 +21,7 @@ export function resolveMetaVisualRepresentation(input: {
       ? input.mediaUrl.trim()
       : null;
   const imageUrl = mediaUrl ?? thumbnailUrl;
-  return imageUrl ? { kind: "static_image", imageUrl } : null;
+  return imageUrl
+    ? { kind: mediaUrl ? "static_image" : "static_thumbnail", imageUrl }
+    : null;
 }

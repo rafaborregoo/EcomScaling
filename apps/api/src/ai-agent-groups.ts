@@ -14,23 +14,29 @@ export const AI_AGENT_GROUPS: Record<string, string[]> = {
   canales: [
     "a13_operativa_shopify",
     "a14_operativa_meta",
+    "a15_analista_imagenes",
     "a20_retencion_clientes",
     "a21_adquisicion_shopify",
     "a24_medicion_meta",
   ],
 };
 
-/** Agentes apagados por organización. Si la lectura falla, no se apaga nada. */
+/** Agentes apagados por organización. Ante fallo, los canales quedan cerrados por seguridad. */
 export async function loadDisabledAgents(
   supabase: Pick<SupabaseClient, "from">,
   organizationIds: string[],
 ): Promise<Map<string, Set<string>>> {
   const result = new Map<string, Set<string>>();
   if (organizationIds.length === 0) return result;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("organization_ai_settings")
     .select("organization_id, disabled_groups")
     .in("organization_id", organizationIds);
+  if (error) {
+    const channelAgents = new Set(AI_AGENT_GROUPS.canales);
+    for (const organizationId of organizationIds) result.set(organizationId, new Set(channelAgents));
+    return result;
+  }
   for (const row of data ?? []) {
     const agents = new Set(
       ((row.disabled_groups as string[] | null) ?? []).flatMap((group) => AI_AGENT_GROUPS[group] ?? []),

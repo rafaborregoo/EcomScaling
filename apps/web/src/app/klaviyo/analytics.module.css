@@ -1,7 +1,7 @@
 /* Piezas propias de /klaviyo. Los tokens (colores, fuente) y las piezas
    comunes (.root, .hero, .panel, .chip, .seg) vienen de client-pulse.module.css;
    aquí solo va lo que esa hoja no tiene. Color con significado: --store (verde
-   petróleo) es la serie de datos, --accent (azafrán) las campañas, y
+   grafito) es la serie de datos, --accent (azafrán) las campañas, y
    verde/ámbar/rojo solo estados. */
 
 .top {
@@ -17,6 +17,7 @@
 }
 .top p {
   margin-top: 4px;
+  white-space: nowrap;
   color: var(--ink-3);
 }
 .topR {
@@ -100,10 +101,17 @@
   font-size: 12.5px;
 }
 .flowColor {
-  background: var(--hero-series);
+  /* En el mundo Klaviyo --accent y --hero-series son el mismo negro: los
+     flujos van en un tono más claro para distinguirse de las campañas. */
+  background: color-mix(in srgb, var(--hero-series) 45%, #fff);
 }
 .campColor {
   background: var(--accent);
+}
+.okLine {
+  color: #15803d;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .chart {
@@ -198,7 +206,7 @@
 /* ---------- cifras ---------- */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -386,9 +394,7 @@
 .rowsH {
   padding-bottom: 8px;
   color: var(--ink-3);
-  font: 500 10.5px/1.2 var(--f-num);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font: 500 12px/1.2 var(--f-body);
 }
 .rowsH span:nth-child(n + 4),
 .rate {
@@ -650,7 +656,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .kpis {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .gauges {
     grid-template-columns: minmax(0, 1fr);

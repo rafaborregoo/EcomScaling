@@ -452,7 +452,7 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
               }))}
               xKey="date"
               series={[
-                { key: "Inversión", label: "Inversión", color: "#15805d" },
+                { key: "Inversión", label: "Inversión", color: "#3d3b3a" },
               ]}
               height={220}
               valueFormatter={(value) => money(value, insights.currency)}

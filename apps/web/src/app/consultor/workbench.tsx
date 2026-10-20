@@ -287,13 +287,6 @@ const DATA_KINDS: WorkbenchActionKind[] = [
   "financial_coverage",
 ];
 
-// Un CTA de la mesa casi siempre cambia de cliente al saltar de modulo. La
-// cache de paginas es por URL, no por tenant: sin vaciarla, /tareas o
-// /llamadas pintan por un instante los datos del cliente anterior. Es lo
-// mismo que hace el selector del shell al cambiar de organizacion.
-function leaveForModule() {
-  invalidateCachedQueries();
-}
 
 // `Date.now()` vive en `@/lib/elapsed`, fuera del render: llamarlo en el
 // cuerpo de un componente lo marca `react-hooks/purity`.
@@ -536,7 +529,7 @@ function ActionRow({
   const [showDetail, setShowDetail] = useState(false);
 
   return (
-    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
+    <div className="task-lift flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
       <div className="min-w-[15rem] flex-1">
         {/* El tipo (Alerta/Propuesta IA...) va siempre visible,
             no solo en la meta de abajo: sin badge de prioridad (la mayoria de
@@ -575,7 +568,6 @@ function ActionRow({
           href={action.href}
           size="sm"
           variant={action.decision ? "ghost" : "secondary"}
-          onClick={leaveForModule}
         >
           {action.decision ? "Ver detalle" : action.action_label}
         </ButtonLink>
@@ -597,10 +589,7 @@ function ActionRow({
             </Button>
             <ButtonLink
               href={action.href}
-              onClick={() => {
-                leaveForModule();
-                setShowDetail(false);
-              }}
+              onClick={() => setShowDetail(false)}
             >
               {action.action_label}
             </ButtonLink>
@@ -789,7 +778,6 @@ export function PortfolioHealthBoard({
                       href={row.next_action.href}
                       size="sm"
                       variant="ghost"
-                      onClick={leaveForModule}
                     >
                       {row.next_action.action_label}
                     </ButtonLink>
@@ -854,7 +842,7 @@ export function UpcomingWork({
                 {dayItems.map((item) => (
                   <li
                     key={item.id}
-                    className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3"
+                    className="task-lift flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3"
                   >
                     <div className="min-w-[12rem] flex-1">
                       <p className="text-sm font-medium text-foreground">
@@ -869,7 +857,6 @@ export function UpcomingWork({
                       href={item.href}
                       size="sm"
                       variant="ghost"
-                      onClick={leaveForModule}
                     >
                       Abrir
                     </ButtonLink>
@@ -1222,7 +1209,6 @@ export function ClientDesk({
                 href={primary.href}
                 size="sm"
                 variant="primary"
-                onClick={leaveForModule}
               >
                 {primary.action_label}
               </ButtonLink>

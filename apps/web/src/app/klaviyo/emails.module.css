@@ -54,9 +54,8 @@
 /* ---------- ficha: tarjeta oscura con la vista previa del email ---------- */
 .fLeft {
   display: grid;
-  align-content: space-between;
+  align-content: start;
   gap: 18px;
-  min-height: 300px;
   padding: 20px;
   border-radius: 16px;
   background: var(--hero-2);

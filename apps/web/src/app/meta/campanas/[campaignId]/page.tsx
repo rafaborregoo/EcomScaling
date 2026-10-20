@@ -7,7 +7,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { useCachedQuery } from "@/lib/use-cached-query";
+import { useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { AsyncState, Card, ErrorBlock } from "@/components/ui";
 import { cx, Empty, SectionHead } from "../../../dashboard/client-pulse";
@@ -21,6 +21,16 @@ import { adSetAlert, budgetText, campaignState, learningLabel, money, PERIODS, t
 type ShopifyFinance = { financial: { breakeven_roas: number | null; items_without_cost: number; has_settings: boolean } };
 
 const RANKING_LABEL: Record<string, string> = { ABOVE_AVERAGE: "Por encima", AVERAGE: "Media", BELOW_AVERAGE_10: "Por debajo", BELOW_AVERAGE_20: "Por debajo", BELOW_AVERAGE_35: "Muy por debajo" };
+const OBJECTIVE_LABEL: Record<string, string> = {
+  OUTCOME_SALES: "ventas",
+  OUTCOME_TRAFFIC: "tráfico",
+  OUTCOME_AWARENESS: "alcance",
+  OUTCOME_ENGAGEMENT: "interacción",
+  OUTCOME_LEADS: "clientes potenciales",
+  OUTCOME_APP_PROMOTION: "instalaciones",
+};
+const STATUS_LABEL: Record<string, string> = { ACTIVE: "Activo", PAUSED: "En pausa", ARCHIVED: "Archivado", DELETED: "Borrado" };
+
 function rankingLabel(value: string | null) {
   return value ? RANKING_LABEL[value] ?? value : "Sin veredicto";
 }
@@ -45,7 +55,7 @@ function RoasGauge({ value, breakeven, dark }: { value: number | null; breakeven
         <b style={{ width: `${pct * 100}%`, background: color }} />
         {bePct != null ? <i style={{ left: `${bePct * 100}%` }} /> : null}
       </div>
-      {dark ? <div className={m.gaugeEnds}><span>0</span><span>Equilibrio {roasText(breakeven)}</span><span>{fmtNum(max, 0)}×</span></div> : null}
+      {dark ? <div className={m.gaugeEnds}><span>0</span><span>Tu mínimo {roasText(breakeven)}</span><span>{fmtNum(max, 0)}×</span></div> : null}
     </div>
   );
 }
@@ -68,7 +78,7 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (connectionId) queryParams.set("connectionId", connectionId);
   const key = organizationId ? `/v1/organizations/${organizationId}/meta/campaigns/${encodeURIComponent(params.campaignId)}?${queryParams.toString()}` : null;
   const query = useCachedQuery<MetaCampaignDetailResponse>(key);
-  const data = query.data;
+  const data = useKeepPrevious(query.data, `${organizationId}|${connectionId}|${params.campaignId}`);
   const financeKey = organizationId ? `/v1/organizations/${organizationId}/shopify/metrics?days=${periodDays}` : null;
   const finance = useCachedQuery<ShopifyFinance>(financeKey);
   const breakeven = finance.data?.financial.has_settings && finance.data.financial.items_without_cost === 0 ? finance.data.financial.breakeven_roas : null;
@@ -105,7 +115,7 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ask({ question: `${question} (campaña «${campaign.name}», últimos ${periodDays} días)`, focusLabel, reference: { filters: { periodDays: String(periodDays) } } });
 
   return (
-    <div className={pulse.root}>
+    <div className={pulse.root} aria-busy={query.data === undefined} style={query.data === undefined ? { opacity: 0.55, transition: "opacity 0.2s" } : undefined}>
       <nav className={s.crumb} aria-label="Ruta">
         <a href="/meta">Meta Ads</a>
         <span aria-hidden="true">/</span>
@@ -117,21 +127,16 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.fHero} aria-labelledby="campaign-titulo">
         <div className={m.fLeft}>
-          <div><p className={m.fKind}>{campaign.objective ?? "Sin objetivo"} · {budgetText(campaign.budget, currency)}</p></div>
-          <div className={m.fBig}>{roasText(campaign.roas)}<small>ROAS atribuido por Meta en {periodDays} días</small></div>
+          <div><p className={m.fKind}>Objetivo: {OBJECTIVE_LABEL[campaign.objective ?? ""] ?? campaign.objective ?? "sin objetivo"}{campaign.budget ? ` · ${budgetText(campaign.budget, currency)}` : ""}</p></div>
+          <div className={m.fBig}>{roasText(campaign.roas)}<small>vuelven por cada 1 € invertido, según Meta ({periodDays} días)</small></div>
           <RoasGauge value={campaign.roas} breakeven={breakeven} dark />
         </div>
         <div className={s.info}>
-          <div className={s.heroMeta}>
-            <span>Meta Ads</span>
-            <span>Campaña</span>
-            {campaign.external_created_at ? <span>Creada {new Date(campaign.external_created_at).toLocaleDateString("es-ES")}</span> : null}
-          </div>
           <div>
             <div className={s.chips}>
               <span className={cx(pulse.chip, state.tone === "good" ? pulse.chipGood : undefined)}>{state.label}</span>
               <span className={pulse.chip}>{campaign.ad_set_count} conjunto{campaign.ad_set_count === 1 ? "" : "s"} · {campaign.ad_count} anuncio{campaign.ad_count === 1 ? "" : "s"}</span>
-              {belowBreakeven ? <span className={cx(pulse.chip, pulse.chipBad)}>Bajo el equilibrio</span> : null}
+              {belowBreakeven ? <span className={cx(pulse.chip, pulse.chipBad)}>Por debajo de tu mínimo</span> : null}
             </div>
             <h1 id="campaign-titulo">{campaign.name}</h1>
           </div>
@@ -139,34 +144,33 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             {campaign.roas == null
               ? `Sin gasto en los últimos ${periodDays} días.`
               : breakeven == null
-                ? "Completa los costes de producto en Shopify para ver el ROAS de equilibrio."
+                ? "Completa los costes de producto en Shopify para ver tu mínimo para no perder dinero."
                 : campaign.roas >= breakeven
-                  ? `Rinde por encima del equilibrio (${roasText(breakeven)}): según Meta, se paga con el margen de lo que vende.`
-                  : `Está por debajo del equilibrio (${roasText(breakeven)}): según Meta, cuesta más de lo que deja el margen.`}
+                  ? `Está por encima de tu mínimo (${roasText(breakeven)}): según Meta, se paga sola.`
+                  : `Está por debajo de tu mínimo (${roasText(breakeven)}): según Meta, cuesta más de lo que deja.`}
           </p>
           <dl className={s.dl}>
             <div><dt>Gasto</dt><dd>{money(campaign.spend, currency)}</dd><small>{avgSpendPerDay != null ? `${money(avgSpendPerDay, currency)} al día` : "sin datos"}</small></div>
-            <div><dt>Ingresos atribuidos</dt><dd>{money(campaign.purchase_value, currency)}</dd><small>según Meta</small></div>
-            <div><dt>Compras</dt><dd>{fmtNum(campaign.purchases)}</dd><small>atribuidas</small></div>
-            <div><dt>CPM</dt><dd>{campaign.cpm != null ? money(campaign.cpm, currency) : "—"}</dd><small>por 1.000 impresiones</small></div>
-            <div><dt>CPC</dt><dd>{campaign.cpc != null ? money(campaign.cpc, currency) : "—"}</dd><small>por clic</small></div>
-            <div><dt>CTR</dt><dd>{campaign.impressions ? `${fmtNum((campaign.clicks / campaign.impressions) * 100, 2)} %` : "—"}</dd><small>clics / impresiones</small></div>
+            <div><dt>Ventas</dt><dd>{money(campaign.purchase_value, currency)}</dd><small>según Meta</small></div>
+            <div><dt>Compras</dt><dd>{fmtNum(campaign.purchases)}</dd><small>según Meta</small></div>
+            <div><dt>Coste por compra</dt><dd>{campaign.purchases ? money(campaign.spend / campaign.purchases, currency) : "—"}</dd><small>gasto / compras</small></div>
           </dl>
           <div className={s.actions}>
             <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo va esta campaña y qué haría primero", "Ficha de campaña")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
-            <Link className={cx(pulse.btn, pulse.ghost)} href={backHref} onClick={returnToCampaigns}>Volver a campañas</Link>
           </div>
         </div>
       </section>
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
+      <details>
+      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Atribución</span><span className={cx(pulse.chip, pulse.chipWarn)}>de Meta</span></div>
-          <p>{campaign.purchase_action_type ? `Cuenta como compra: ${campaign.purchase_action_type}.` : "Compras según la definición de Meta."} No se suma a otras plataformas.</p>
+          <p>Compras y ventas según Meta. No se suman a otros canales.</p>
         </div>
         <div className={s.check}>
           <div className={s.checkH}><span>Aprendizaje</span><span className={cx(pulse.chip, adSets.some((row) => row.learning_stage_status === "LEARNING_LIMITED") ? pulse.chipWarn : pulse.chipGood)}>{adSets.some((row) => row.learning_stage_status === "LEARNING_LIMITED") ? "limitado" : "OK"}</span></div>
@@ -177,25 +181,19 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>{data.issues.length ? "Hay anuncios que no se publican por políticas de Meta." : "Todos los anuncios aprobados."}</p>
         </div>
         <div className={s.check}>
-          <div className={s.checkH}><span>Equilibrio</span><span className={cx(pulse.chip, breakeven == null ? pulse.chipWarn : pulse.chipGood)}>{breakeven == null ? "sin calcular" : "OK"}</span></div>
-          <p>{breakeven == null ? "Faltan costes de producto en Shopify para calcular el ROAS de equilibrio." : `Se paga sola a partir de ${roasText(breakeven)}.`}</p>
+          <div className={s.checkH}><span>Tu mínimo</span><span className={cx(pulse.chip, breakeven == null ? pulse.chipWarn : pulse.chipGood)}>{breakeven == null ? "sin calcular" : "OK"}</span></div>
+          <p>{breakeven == null ? "Faltan costes de producto en Shopify para calcular tu mínimo." : `Se paga sola a partir de ${roasText(breakeven)}.`}</p>
         </div>
       </div>
-
-      <nav className={s.snav} aria-label="Secciones">
-        <a href="#rendimiento">Rendimiento</a>
-        <a href="#conjuntos">Conjuntos</a>
-        <a href="#anuncios">Anuncios</a>
-        <a href="#cambios">Cambios</a>
-      </nav>
+      </details>
 
       {/* ------------------------------ Rendimiento ------------------------------ */}
       <section id="rendimiento" className={pulse.sec}>
         <div className={pulse.secHead} style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}>
           <h2>Rendimiento</h2>
-          <p className={pulse.aiLine}>{daily.length ? `Gasta ${money(avgSpendPerDay, currency)} al día y Meta se atribuye ${money(daily.reduce((sum, row) => sum + row.purchase_value, 0) / Math.max(daily.length, 1), currency)}.` : "Sin gasto en el periodo."}</p>
+          <p className={pulse.aiLine}>{daily.length ? `Gasta ${money(avgSpendPerDay, currency)} al día y Meta cuenta ${money(daily.reduce((sum, row) => sum + row.purchase_value, 0) / Math.max(daily.length, 1), currency)} al día en ventas.` : "Sin gasto en el periodo."}</p>
           <div className={pulse.seg} role="group" aria-label="Periodo del rendimiento">
-            {PERIODS.map((value) => <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => setPeriodDays(value)}>{value === 365 ? "1 año" : `${value} d`}</button>)}
+            {PERIODS.map((value) => <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => setPeriodDays(value)}>{value === 365 ? "1 año" : `${value} días`}</button>)}
           </div>
         </div>
         <div className={pulse.two}>
@@ -211,7 +209,7 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : <Empty>Sin gasto en el periodo.</Empty>}
           </div>
           <div className={pulse.panel}>
-            <div className={pulse.panelH}><div><h3>Ingresos atribuidos por día</h3><p className={pulse.sub}>Según Meta, misma ventana</p></div></div>
+            <div className={pulse.panelH}><div><h3>Ventas por día según Meta</h3></div></div>
             {daily.some((row) => row.purchase_value > 0) ? (
               <>
                 <div className={s.bars} role="img" aria-label="Ingresos atribuidos por día">
@@ -225,20 +223,21 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       {/* ------------------------------ Conjuntos ------------------------------ */}
+      {adSets.length > 1 ? (
       <section id="conjuntos" className={pulse.sec}>
-        <SectionHead id="conjuntos-titulo" title="Conjuntos de anuncios" ai={null} fallback="Dónde se reparte el presupuesto y en qué fase de aprendizaje está cada uno." onAsk={() => askCopilot("¿Qué conjunto de anuncios tocaría primero?", "Conjuntos de la campaña")} />
+        <SectionHead id="conjuntos-titulo" title="Conjuntos de anuncios" ai={null} fallback="Cómo se reparte el presupuesto dentro de la campaña." />
         <div className={pulse.panel}>
           {adSets.length ? (
             <div className={pulse.tblWrap}>
               <table className={pulse.tbl}>
-                <thead><tr><th>Conjunto</th><th>Estado</th><th>Aprendizaje</th><th style={{ textAlign: "right" }}>Gasto</th><th style={{ textAlign: "right" }}>ROAS</th><th>Frente al equilibrio</th></tr></thead>
+                <thead><tr><th>Conjunto</th><th>Estado</th><th>Aprendizaje</th><th style={{ textAlign: "right" }}>Gasto</th><th style={{ textAlign: "right" }}>ROAS</th><th>Frente a tu mínimo</th></tr></thead>
                 <tbody>
                   {adSets.map((row) => {
                     const alert = adSetAlert(row);
                     return (
                       <tr key={row.ad_set_id}>
                         <td><b style={{ fontWeight: 600 }}>{row.ad_set_name}</b></td>
-                        <td><span className={cx(pulse.chip, row.effective_status === "ACTIVE" ? pulse.chipGood : undefined)}>{row.effective_status ?? "—"}</span></td>
+                        <td><span className={cx(pulse.chip, row.effective_status === "ACTIVE" ? pulse.chipGood : undefined)}>{STATUS_LABEL[row.effective_status ?? ""] ?? row.effective_status ?? "—"}</span></td>
                         <td>{alert ? <span className={cx(pulse.chip, alert.tone === "warn" ? pulse.chipWarn : pulse.chipAcc)}>{alert.text}</span> : <span className={pulse.muted}>{learningLabel(row.learning_stage_status)}</span>}</td>
                         <td className={pulse.tdN}>{money(row.spend_in_period, currency)}</td>
                         <td className={pulse.tdN}>{roasText(row.roas_in_period)}</td>
@@ -252,10 +251,11 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : <Empty>Sin conjuntos con actividad en el periodo.</Empty>}
         </div>
       </section>
+      ) : null}
 
       {/* ------------------------------ Anuncios ------------------------------ */}
       <section id="anuncios" className={pulse.sec}>
-        <SectionHead id="anuncios-titulo" title="Anuncios" ai={null} fallback="Qué pieza funciona y cuál quema presupuesto, según el gasto y el veredicto de Meta." onAsk={() => askCopilot("¿Qué anuncio de esta campaña pausarías?", "Anuncios de la campaña")} />
+        <SectionHead id="anuncios-titulo" title="Anuncios" ai={null} fallback="Cuánto gasta y cuánto vuelve cada anuncio." />
         <div className={pulse.panel}>
           {ads.length ? (
             <div className={m.adGrid}>
@@ -268,13 +268,13 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <b className={pulse.num}>{roasText(ad.roas)}</b>
                   </div>
                   <div className={m.meter}><b style={{ width: `${(ad.spend / adMax) * 100}%`, background: "var(--meta)" }} /></div>
-                  {ad.enough_volume ? (
+                  {ad.enough_volume && (ad.quality_ranking || ad.engagement_rate_ranking || ad.conversion_rate_ranking) ? (
                     <div className={m.rank}>
-                      <span className={cx(pulse.chip, rankingTone(ad.quality_ranking) === "good" ? pulse.chipGood : rankingTone(ad.quality_ranking) === "bad" ? pulse.chipBad : undefined)} title="Calidad">C: {rankingLabel(ad.quality_ranking)}</span>
-                      <span className={cx(pulse.chip, rankingTone(ad.engagement_rate_ranking) === "good" ? pulse.chipGood : rankingTone(ad.engagement_rate_ranking) === "bad" ? pulse.chipBad : undefined)} title="Interacción">I: {rankingLabel(ad.engagement_rate_ranking)}</span>
-                      <span className={cx(pulse.chip, rankingTone(ad.conversion_rate_ranking) === "good" ? pulse.chipGood : rankingTone(ad.conversion_rate_ranking) === "bad" ? pulse.chipBad : undefined)} title="Conversión">V: {rankingLabel(ad.conversion_rate_ranking)}</span>
+                      <span className={cx(pulse.chip, rankingTone(ad.quality_ranking) === "good" ? pulse.chipGood : rankingTone(ad.quality_ranking) === "bad" ? pulse.chipBad : undefined)} title="Calidad">Calidad: {rankingLabel(ad.quality_ranking)}</span>
+                      <span className={cx(pulse.chip, rankingTone(ad.engagement_rate_ranking) === "good" ? pulse.chipGood : rankingTone(ad.engagement_rate_ranking) === "bad" ? pulse.chipBad : undefined)} title="Interacción">Interacción: {rankingLabel(ad.engagement_rate_ranking)}</span>
+                      <span className={cx(pulse.chip, rankingTone(ad.conversion_rate_ranking) === "good" ? pulse.chipGood : rankingTone(ad.conversion_rate_ranking) === "bad" ? pulse.chipBad : undefined)} title="Conversión">Conversión: {rankingLabel(ad.conversion_rate_ranking)}</span>
                     </div>
-                  ) : <p className={pulse.muted} style={{ fontSize: 11.5 }}>Sin volumen suficiente ({fmtNum(data.min_impressions_for_rates)} impresiones)</p>}
+                  ) : ad.enough_volume ? null : <p className={pulse.muted} style={{ fontSize: 11.5 }}>Aún pocos datos para valorarlo</p>}
                 </div>
               ))}
             </div>
@@ -283,8 +283,10 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       {/* ------------------------------ Cambios ------------------------------ */}
+      {data.changes.length || data.issues.length ? (
       <section id="cambios" className={pulse.sec}>
-        <SectionHead id="cambios-titulo" title="Cambios y su efecto" ai={null} fallback={`Compara ${data.change_window_days} días antes y después de cada cambio sobre la misma campaña, conjunto o anuncio.`} onAsk={() => askCopilot("¿Qué cambio reciente explica mejor el rendimiento?", "Cambios de la campaña")} />
+        <SectionHead id="cambios-titulo" title="Cambios y su efecto" ai={null} fallback={`Qué pasó ${data.change_window_days} días antes y después de cada cambio.`} />
+        {data.changes.length ? (
         <div className={pulse.panel}>
           {data.changes.length ? (
             <ol className={m.tl}>
@@ -303,8 +305,9 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </li>
               ))}
             </ol>
-          ) : <Empty>Sin cambios con suficiente gasto a los dos lados en el periodo.</Empty>}
+          ) : null}
         </div>
+        ) : null}
         {data.issues.length ? (
           <div className={pulse.panel}>
             <div className={pulse.panelH}><div><h3>Anuncios con incidencia</h3><p className={pulse.sub}>Motivo que da Meta</p></div></div>
@@ -319,9 +322,10 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         ) : null}
       </section>
+      ) : null}
 
       <footer className={s.foot}>
-        <span>Gasto, compras e ingresos atribuidos por Meta con su ventana; no son ventas de la tienda.</span>
+        <span>Compras y ventas según Meta: no son las ventas de tu tienda.</span>
         <Link href={backHref} onClick={returnToCampaigns}>← Volver a campañas</Link>
       </footer>
     </div>

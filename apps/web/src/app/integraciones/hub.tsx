@@ -178,6 +178,7 @@ function FixQueue({
                 <List.Item
                   as="li"
                   key={item.key}
+                  data-focus-id={item.connection?.id}
                   className={cn(
                     "flex flex-wrap items-center gap-3 border-l-4 py-3 pl-3",
                     item.severity === "bad" ? "border-l-danger" : "border-l-warning",
@@ -356,7 +357,7 @@ function LooseAccounts({
           {loose.map(({ provider, name, connection }) => {
             const attempt = classifyAuthorizationAttempt(connection);
             return (
-              <List.Item as="li" key={connection.id} className="flex flex-wrap items-center gap-3 py-3">
+              <List.Item as="li" key={connection.id} data-focus-id={connection.id} className="flex flex-wrap items-center gap-3 py-3">
                 <Logo provider={provider} small />
                 <div className="min-w-[200px] flex-1">
                   <p className="text-sm font-semibold">{connection.provider_account_name ?? connection.provider_account_id ?? name}</p>

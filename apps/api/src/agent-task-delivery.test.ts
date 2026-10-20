@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { agentOutputJsonSchema, buildA13OperationalOutputContract } from "@e-nora/ai";
 import {
+  appendA13OperationalDetails,
   appendMonthlyInitiativeDetails,
   appendWeeklyDeliveryDetails,
   readA18InitiativeChange,
@@ -76,6 +78,26 @@ test("A18 measurement and exact Camino milestone survive task materialization wi
     appendMonthlyInitiativeDetails("Reducir descuentos sin margen.", fields, "a18_plan_mensual"),
     "Reducir descuentos sin margen.\n\nMedición de la iniciativa: Margen de contribución.\nLínea base: 18.5 %; objetivo: no disponible.\nVentana de evaluación: 30 días desde la activación.\nVinculada al hito de Camino indicado en esta propuesta.",
   );
+});
+
+test("A13 preserves the reviewed Camino identity and never guesses a current milestone", () => {
+  assert.equal(shouldFallbackToCurrentMilestone("a13_operativa_shopify"), false);
+  assert.equal(
+    appendA13OperationalDetails("Revisar el checkout.", {
+      owner_role: "consultor",
+      completion_criteria: "La hipótesis queda probada con eventos de checkout.",
+      expected_metric: "Conversión checkout a pedido durante 14 días.",
+      due_hint: "Esta semana",
+    }),
+    "Revisar el checkout.\nResponsable: consultor.\nCriterio de cierre: La hipótesis queda probada con eventos de checkout.\nComprobación posterior: Conversión checkout a pedido durante 14 días.\nPlazo orientativo: Esta semana.",
+  );
+  const genericJson = agentOutputJsonSchema as unknown as { properties: { proposed_writes: { items: { required: readonly string[] } } } };
+  const a13Json = buildA13OperationalOutputContract().jsonSchema as unknown as { properties: { proposed_writes: { items: { required: readonly string[] } } } };
+  const genericWrites = genericJson.properties.proposed_writes.items;
+  const a13Writes = a13Json.properties.proposed_writes.items;
+  assert.equal(genericWrites.required.includes("plan_id"), false);
+  assert.equal(a13Writes.required.includes("phase"), true);
+  assert.equal(a13Writes.required.includes("plan_version"), true);
 });
 
 test("A17 v5 builds on the currently active v4 prompt and defines the full weekly contract", async () => {

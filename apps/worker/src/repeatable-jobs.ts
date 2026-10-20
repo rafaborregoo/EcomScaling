@@ -46,3 +46,11 @@ export function isStaleShopifyReconcileRepeatable(
     repeatable.pattern !== currentCronPattern
   );
 }
+
+// «Para hoy» y propuestas de la IA pendientes (notification-daily.ts).
+export const NOTIFICATION_DAILY_CRON = "0 8 * * *";
+export const NOTIFICATION_DAILY_TZ = "Europe/Madrid";
+
+// Eventos de la base de datos para el motor de avisos (notification-outbox.ts).
+export const NOTIFICATION_OUTBOX_CRON = "* * * * *";
+export const NOTIFICATION_OUTBOX_TZ = "Europe/Madrid";

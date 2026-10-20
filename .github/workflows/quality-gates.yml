@@ -36,6 +36,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build:packages && npm run build --workspace=@e-nora/api
 
+      - name: Typecheck web
+        run: npm run typecheck --workspace=web -- --incremental false
+
       - name: Run AI contracts, rubrics and calibration tests
         run: npm test --workspace=@e-nora/ai
 

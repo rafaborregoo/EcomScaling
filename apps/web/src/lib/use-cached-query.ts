@@ -301,3 +301,17 @@ export function useCachedQueriesSettled<T>(
     reload,
   };
 }
+
+/**
+ * Deja los últimos datos en pantalla mientras llega otra clave del MISMO
+ * ámbito (otro periodo de la misma ficha): sin esto, cambiar de 30 a 90 días
+ * vaciaba la página y la devolvía arriba. Al cambiar `scope` (otro cliente,
+ * otra tienda, otra ficha) se descartan: nunca se ven datos de otro sitio.
+ */
+export function useKeepPrevious<T>(data: T | undefined, scope: string | null): T | undefined {
+  const [kept, setKept] = useState<{ scope: string | null; data: T } | null>(null);
+  if (data !== undefined && (kept?.data !== data || kept.scope !== scope)) {
+    setKept({ scope, data });
+  }
+  return data ?? (kept?.scope === scope ? kept.data : undefined);
+}

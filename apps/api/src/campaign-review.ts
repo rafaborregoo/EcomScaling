@@ -5,6 +5,8 @@ import {
   type AuthContext,
 } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { firstNameOf, notify } from "./notify.js";
+import { renderNotification, type NotificationData } from "@e-nora/contracts";
 import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("campaign-review");
@@ -155,55 +157,38 @@ export function buildCampaignNotification(input: {
   itemTitle: string;
   /** Texto del aviso cuando el motivo lo da quien actua (por ejemplo, cuando sale). */
   detail?: string | undefined;
+  /** Nombre de pila del consultor que actua; sin el, «Tu consultor». */
+  consultantName?: string | null;
 }) {
-  const who = input.organizationName ?? "Tu cliente";
-  const title = input.itemTitle.slice(0, 120);
-  const copy: Record<CampaignEvent, { title: string; message: string }> = {
-    client_created: {
-      title: `${who} ha creado «${title}»`,
-      message: "Revísala y deja tus notas o correcciones, a mano o con IA.",
-    },
-    client_edited: {
-      title: `${who} ha editado «${title}»`,
-      message: "La campaña vuelve a estar pendiente de tu revisión.",
-    },
-    client_note: {
-      title: `${who} ha escrito en «${title}»`,
-      message: "Tiene un mensaje nuevo en el hilo de la campaña.",
-    },
-    client_resolved: {
-      title: `${who} ha marcado una corrección como hecha en «${title}»`,
-      message: "Compruébala en la campaña.",
-    },
-    consultant_note: {
-      title: `Tu consultor ha escrito en «${title}»`,
-      message: "Tienes un mensaje nuevo en el hilo de la campaña.",
-    },
-    changes_requested: {
-      title: `Tu consultor te pide cambios en «${title}»`,
-      message: "Revisa sus notas, aplica los cambios y devuélvesela a revisar.",
-    },
-    reviewed: {
-      title: `Tu consultor ha revisado «${title}»`,
-      message: "La campaña está revisada.",
-    },
-    scheduled: {
-      title: `Tu consultor ha programado «${title}»`,
-      message: input.detail ?? "Puedes cancelarla desde Campañas hasta la hora de envío.",
-    },
-    client_scheduled: {
-      title: `${who} ha programado «${title}»`,
-      message: input.detail ?? "Ya está programada en su cuenta de Klaviyo.",
-    },
-  };
+  // El texto vive en la plantilla del catálogo (ADR-0028); esto solo la
+  // presenta con la forma de fila que usan los tests.
+  const rendered = renderNotification("campaign_review", campaignData(input), input.organizationId);
   return {
     organization_id: input.organizationId,
-    type: "campaign_review",
-    title: copy[input.event].title.slice(0, 255),
-    message: copy[input.event].message,
-    action_url: `/marketing?section=campanas&organizationId=${input.organizationId}&campaign=${input.itemId}`,
-    entity_type: "campaign_calendar_item",
-    entity_id: input.itemId,
+    type: "campaign_review" as const,
+    title: rendered.title.slice(0, 255),
+    message: rendered.message,
+    action_url: rendered.url,
+    entity_type: rendered.entityType,
+    entity_id: rendered.entityId,
+  };
+}
+
+function campaignData(input: {
+  event: CampaignEvent;
+  organizationName: string | null;
+  itemId: string;
+  itemTitle: string;
+  detail?: string | undefined;
+  consultantName?: string | null;
+}): NotificationData["campaign_review"] {
+  return {
+    event: input.event,
+    itemId: input.itemId,
+    campaignTitle: input.itemTitle,
+    store: input.organizationName,
+    consultant: input.consultantName ?? null,
+    detail: input.detail ?? null,
   };
 }
 
@@ -249,26 +234,20 @@ export async function notifyCampaignEvent(
       .select("display_name")
       .eq("id", input.organizationId)
       .maybeSingle();
-    const notification = buildCampaignNotification({
-      event: input.event,
+    return await notify(supabase, {
+      type: "campaign_review",
       organizationId: input.organizationId,
-      organizationName: (organization?.display_name as string | null) ?? null,
-      itemId: input.itemId,
-      itemTitle: input.itemTitle,
-      detail: input.detail,
-    });
-    const { error } = await supabase
-      .from("notifications")
-      .insert([...recipients].map((userId) => ({ ...notification, user_id: userId })));
-    if (error) {
-      logger.error("campaign_notification_insert_failed", {
-        organization_id: input.organizationId,
+      recipients,
+      actorUserId: input.actorUserId,
+      data: campaignData({
         event: input.event,
-        error: error.message,
-      });
-      return 0;
-    }
-    return recipients.size;
+        organizationName: (organization?.display_name as string | null) ?? null,
+        itemId: input.itemId,
+        itemTitle: input.itemTitle,
+        detail: input.detail,
+        consultantName: audience === "client" ? await firstNameOf(supabase, input.actorUserId, "Tu consultor") : null,
+      }),
+    });
   } catch (error) {
     logger.error("campaign_notification_threw", {
       organization_id: input.organizationId,

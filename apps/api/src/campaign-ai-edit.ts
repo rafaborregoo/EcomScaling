@@ -676,7 +676,10 @@ export async function applyCampaignEditProposal(
     const patch = editsToDraftPatch(kind, targets);
     if (Object.keys(patch).length > 0) {
       if (!draft) return { ok: false, statusCode: 409, error: "campaign_has_no_piece" };
-      const result = await updateMarketingContentDraft(env, context, organizationId, draft.id, patch);
+      const result = await updateMarketingContentDraft(env, context, organizationId, draft.id, {
+        ...patch,
+        expected_version: draft.version,
+      });
       if (result.ok === false) return result as Failure;
       draftVersion = Number((result.data as { draft?: { version?: number } }).draft?.version ?? draftVersion ?? 0) || null;
       for (const edit of targets) if (edit.field !== "starts_at") applied.push(edit.field);

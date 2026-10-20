@@ -39,9 +39,9 @@ export function StockForecastCard({
   if (compact) {
     return (
       <div className={`${s.compact} ${tone}`} aria-label="Previsión de demanda y cobertura de stock">
-        <span className={s.compactLabel}>Demanda estimada · 30 d</span>
-        <strong>{result.forecast30d == null ? "Sin señal" : `≈ ${fmtNum(result.forecast30d)} uds.`}</strong>
-        <span>{result.coverageDays == null ? riskLabel[result.risk] : `${fmtNum(result.coverageDays, 0)} días de cobertura`}</span>
+        <span className={s.compactLabel}>Stock para</span>
+        <strong>{result.coverageDays == null ? riskLabel[result.risk] : `${fmtNum(result.coverageDays, 0)} días`}</strong>
+        {result.forecast30d == null ? null : <span>vende ≈ {fmtNum(result.forecast30d)} al mes</span>}
       </div>
     );
   }
@@ -73,7 +73,7 @@ export function StockForecastCard({
         {result.trend != null ? <span className={result.trend < -0.05 ? s.down : result.trend > 0.05 ? s.up : ""}>{result.trend > 0 ? "+" : ""}{fmtNum(result.trend * 100, 0)} % de tendencia</span> : null}
       </div>
       <p className={s.note}>
-        Estimación basada en ventas semanales recientes, ponderadas por actualidad. La cobertura de 7/14 días es una señal operativa; no calcula pedido de reposición sin plazo de proveedor ni stock de seguridad configurados. No incorpora promociones ni estacionalidad anual.
+        Estimación a partir de las ventas de las últimas semanas. No tiene en cuenta promociones ni temporada.
       </p>
     </section>
   );

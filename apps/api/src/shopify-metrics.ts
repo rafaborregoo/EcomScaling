@@ -657,6 +657,9 @@ export async function getShopifyMetrics(
             .eq("organization_id", organizationId)
             .is("store_id", null)
       )
+        // Los de hito son metas de un hito de Mi Camino, no el objetivo del
+        // negocio: sin este filtro el ultimo hito creado desplazaba al vigente.
+        .is("milestone_id", null)
         .lte("valid_from", new Date().toISOString().slice(0, 10))
         .order("store_id", { ascending: false, nullsFirst: false })
         .order("valid_from", { ascending: false }),

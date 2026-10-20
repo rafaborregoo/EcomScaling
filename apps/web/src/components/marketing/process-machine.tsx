@@ -22,9 +22,9 @@ type Painter = (k: Kit) => void;
 
 const P = { origin: [420, 170] as [number, number], scale: 1.55 };
 const c = {
-  ink: "#33403c", green: "#3d3b3a", shopify: "#3f9c6d", meta: "#2f6fe0", klaviyo: "#3a3836", coral: "#e0795b",
+  ink: "#3d3b3a", green: "#3d3b3a", shopify: "#77736f", meta: "#2f6fe0", klaviyo: "#3a3836", coral: "#e0795b",
   gold: "#e8b94a", sand: "#efe6d6", wood: "#c99a6b", paper: "#ffffff", cream: "#f6f2ea", sky: "#cfe4f2", mint: "#e6e4e2",
-  grey: "#a9b8b2", skin: "#f1d3b6", card: "#d8b48a",
+  grey: "#aaa6a2", skin: "#f1d3b6", card: "#d8b48a",
 };
 const routeColors = { shopify: c.shopify, meta: c.meta, klaviyo: c.klaviyo };
 

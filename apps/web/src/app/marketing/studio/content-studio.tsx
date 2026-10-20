@@ -63,8 +63,10 @@ import s from "./studio.module.css";
 
 type Header = { name: string; subject: string; preheader: string; fromName: string; replyTo: string };
 type Piece = { design: StudioDesign; header: Header };
-type DraftRef = { id: string; status: MarketingDraft["status"] };
+type DraftRef = { id: string; status: MarketingDraft["status"]; version: number; store_id?: string | null };
 type SaveState = { kind: "idle" | "saving" | "saved" | "error"; message?: string };
+type LocalRecovery = { schema: 1; updatedAt: number; organizationId: string; connectionId: string | null; channel: StudioChannel; piece: Piece; draftRef: DraftRef | null };
+type PendingGeneration = { schema: 1; key: string; request: Record<string, unknown>; createdAt: number };
 
 const EMPTY_HEADER: Header = { name: "", subject: "", preheader: "", fromName: "", replyTo: "" };
 
@@ -191,7 +193,7 @@ export function ContentStudio({
   const [rightTab, setRightTab] = useState<string>("email");
   const [pane, setPane] = useState<"left" | "center" | "right">("center");
   const [uploads, setUploads] = useState<ImageOption[]>([]);
-  const [suggestions, setSuggestions] = useState<{ kind: AiKind; items: string[] } | null>(null);
+  const [suggestions, setSuggestions] = useState<{ kind: AiKind; items: string[]; channel: StudioChannel; selectedId: string | null; draftId: string | null; sourcePiece: Piece } | null>(null);
   const [prompt, setPrompt] = useState("");
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
@@ -202,7 +204,10 @@ export function ContentStudio({
   const [submitting, setSubmitting] = useState(false);
   const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [localRecovery, setLocalRecovery] = useState<LocalRecovery | null>(null);
+  const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [brief, setBrief] = useState({ channel: "email_klaviyo", objective: "launch", tone: "warm", offer: "", audience: "", instructions: "" });
+  const generationIdentity = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // Copias síncronas del estado: el autoguardado corre fuera del render y
   // necesita lo último aunque React no haya pintado todavía.
@@ -210,13 +215,18 @@ export function ContentStudio({
   const refsRef = useRef(refs);
   const dirty = useRef(new Set<StudioChannel>());
   const inFlight = useRef(new Set<StudioChannel>());
+  const saveRetryCount = useRef(new Map<StudioChannel, number>());
+  const documentEpoch = useRef(0);
   const past = useRef<Piece[]>([]);
   const future = useRef<Piece[]>([]);
   const lastPush = useRef(0);
+  const pendingOperationAudit = useRef<{ draft_id: string; request_id: string | null; accepted_operations: Record<string, unknown>[]; rejected_operations: Record<string, unknown>[] } | null>(null);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
   const forceHistory = () => setHistory({ canUndo: past.current.length > 0, canRedo: future.current.length > 0 });
 
   const { design, header } = piece;
+  const recoveryKey = `e-nora:a11-studio-recovery:${organizationId}:${connectionId ?? "unscoped"}`;
+  const generationRecoveryKey = `e-nora:a11-generation-recovery:${organizationId}`;
   const selected = design.blocks.find((block) => block.id === selectedId) ?? null;
 
   // ---------------------------------------------------------------- cambios
@@ -237,6 +247,7 @@ export function ContentStudio({
       pieceRef.current = next;
       setPiece(next);
       dirty.current.add(forChannel ?? channel);
+      saveRetryCount.current.set(forChannel ?? channel, 0);
       setRevision((value) => value + 1);
     },
     [channel],
@@ -270,6 +281,7 @@ export function ContentStudio({
   }
 
   function load(next: Piece, nextRefs: Partial<Record<StudioChannel, DraftRef>>, nextChannel: StudioChannel) {
+    documentEpoch.current += 1;
     past.current = [];
     future.current = [];
     dirty.current.clear();
@@ -280,6 +292,8 @@ export function ContentStudio({
     setChannel(nextChannel);
     setSelectedId(null);
     setSuggestions(null);
+    setChat([]);
+    setChatBusy(false);
     setRightTab(nextChannel === "email" ? "email" : "pieza");
     setSave({ kind: "idle" });
     forceHistory();
@@ -300,7 +314,9 @@ export function ContentStudio({
       const d = current.design;
       const h = current.header;
       const name = h.name.trim() || h.subject.trim() || (campaignTarget?.title ?? "");
-      const base = { channel: target, name, from_name: h.fromName, reply_to: h.replyTo.trim() || null, design: d, store_id: connectionId };
+      const existing = refsRef.current[target];
+      const operationAuditMatches = pendingOperationAudit.current && (!existing || pendingOperationAudit.current.draft_id === existing.id);
+      const base = { channel: target, name, from_name: h.fromName, reply_to: h.replyTo.trim() || null, design: d, store_id: existing?.store_id ?? connectionId, ...(existing ? { expected_version: existing.version } : {}), ...(operationAuditMatches ? { operation_audit: { request_id: pendingOperationAudit.current!.request_id, accepted_operations: pendingOperationAudit.current!.accepted_operations, rejected_operations: pendingOperationAudit.current!.rejected_operations, source: "ai" as const } } : {}) };
       if (target === "email") {
         const html = renderEmailHtml(d, { preheader: h.preheader, campaign: name || "nora" });
         return { ...base, subject: h.subject, preheader: h.preheader, html, plain_text: emailPlainText(d), blocks: d.blocks, personalization_tokens: collectMergeTokens(html, h.subject, h.preheader) };
@@ -325,6 +341,7 @@ export function ContentStudio({
         return refsRef.current[target] ?? null;
       }
       if (inFlight.current.has(target)) return null;
+      const epoch = documentEpoch.current;
       inFlight.current.add(target);
       dirty.current.delete(target);
       setSave({ kind: "saving" });
@@ -337,29 +354,137 @@ export function ContentStudio({
         );
         if (!response.ok) {
           const message = await readApiError(response);
-          dirty.current.add(target);
-          setSave({ kind: "error", message });
+          if (epoch === documentEpoch.current) {
+            dirty.current.add(target);
+            setSave({ kind: "error", message });
+          }
           return null;
         }
-        const body = (await response.json()) as { draft: { id: string; status: MarketingDraft["status"] }; returned_to_draft?: boolean };
-        const ref = { id: body.draft.id, status: body.draft.status };
+        const body = (await response.json()) as { draft: { id: string; status: MarketingDraft["status"]; version: number }; returned_to_draft?: boolean; audit_warning?: string };
+        if (epoch !== documentEpoch.current) return { id: body.draft.id, status: body.draft.status, version: body.draft.version, store_id: existing?.store_id ?? connectionId };
+        const ref = { id: body.draft.id, status: body.draft.status, version: body.draft.version, store_id: existing?.store_id ?? connectionId };
+        saveRetryCount.current.delete(target);
         refsRef.current = { ...refsRef.current, [target]: ref };
+        if (pendingOperationAudit.current) pendingOperationAudit.current = null;
         setRefs(refsRef.current);
         setSave({ kind: "saved" });
+        if (body.audit_warning) toast.danger("La pieza se guardó, pero quedó pendiente registrar la auditoría del cambio. Vuelve a guardar antes de exportarla.");
+        try { window.localStorage.removeItem(recoveryKey); } catch { /* el almacenamiento local puede estar deshabilitado */ }
+        setLocalRecovery(null);
         if (!existing) onCreated(ref.id, target);
         if (body.returned_to_draft) toast.info("La pieza vuelve a borrador: lo aprobado era la versión anterior.");
         onDraftsChanged();
         return ref;
       } catch {
-        dirty.current.add(target);
-        setSave({ kind: "error", message: "Sin conexión. Se reintentará al seguir editando." });
+        if (epoch === documentEpoch.current) {
+          dirty.current.add(target);
+          saveRetryCount.current.set(target, (saveRetryCount.current.get(target) ?? 0) + 1);
+          setSave({ kind: "error", message: "Sin conexión. Se reintentará al seguir editando." });
+        }
         return null;
       } finally {
         inFlight.current.delete(target);
+        const retry = saveRetryCount.current.get(target) ?? 0;
+        if (epoch === documentEpoch.current && dirty.current.has(target) && retry < 3) {
+          window.setTimeout(() => { if (epoch === documentEpoch.current) void saveChannel(target); }, 800 * retry);
+        }
       }
     },
-    [onCreated, onDraftsChanged, organizationId, payloadFor],
+    [onCreated, onDraftsChanged, organizationId, payloadFor, recoveryKey],
   );
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(recoveryKey);
+      if (!raw) return;
+      const candidate = JSON.parse(raw) as LocalRecovery;
+      if (candidate.schema === 1 && candidate.organizationId === organizationId && candidate.connectionId === connectionId && candidate.piece?.design && candidate.piece?.header && Date.now() - candidate.updatedAt < 30 * 24 * 60 * 60 * 1000) setLocalRecovery(candidate);
+      else window.localStorage.removeItem(recoveryKey);
+    } catch { /* una copia corrupta no debe impedir abrir el estudio */ }
+  }, [connectionId, organizationId, recoveryKey]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(generationRecoveryKey);
+      if (!raw) return;
+      const candidate = JSON.parse(raw) as PendingGeneration;
+      if (candidate.schema === 1 && typeof candidate.key === "string" && candidate.request && Date.now() - candidate.createdAt < 24 * 60 * 60 * 1000) {
+        generationIdentity.current = { fingerprint: JSON.stringify(candidate.request), key: candidate.key };
+        setPendingGeneration(candidate);
+      } else window.localStorage.removeItem(generationRecoveryKey);
+    } catch { /* una clave corrupta no debe impedir usar el estudio */ }
+  }, [generationRecoveryKey]);
+
+  function clearPendingGeneration() {
+    try { window.localStorage.removeItem(generationRecoveryKey); } catch { /* no-op */ }
+    setPendingGeneration(null);
+  }
+
+  function acceptGeneratedDraft(draft: Partial<MarketingDraft> & { id: string }) {
+    const full = { template_name: "", from_name: "", reply_to: null, ...draft, request: draft.request ?? { channel: brief.channel }, blocks: draft.blocks ?? [], subject: draft.subject ?? "", preheader: draft.preheader ?? "", plain_text: draft.plain_text ?? "", html: draft.html ?? "" } as MarketingDraft;
+    openDraft(full);
+    generationIdentity.current = null;
+    clearPendingGeneration();
+    if (campaignTarget) onCreated(full.id, studioChannelOf(full));
+    setLauncher(false);
+    setRightTab("calidad");
+    onDraftsChanged();
+    return full;
+  }
+
+  async function resumePendingGeneration() {
+    if (!pendingGeneration || generating) return;
+    setGenerating(true);
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/marketing/drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...pendingGeneration.request, idempotency_key: pendingGeneration.key }),
+      }, 180_000);
+      if (response.ok) {
+        const result = (await response.json()) as { draft?: Partial<MarketingDraft> & { id: string } };
+        if (result.draft) { acceptGeneratedDraft(result.draft); toast.success("Generación recuperada. Revisa la pieza antes de continuar."); return; }
+      }
+      const statusResponse = await apiFetch(`/v1/organizations/${organizationId}/marketing/generation-status?idempotency_key=${encodeURIComponent(pendingGeneration.key)}`);
+      if (statusResponse.ok) {
+        const status = (await statusResponse.json()) as { status?: string; progress_stage?: string; draft?: (Partial<MarketingDraft> & { id: string }) | null };
+        if (status.status === "completed" && status.draft) { acceptGeneratedDraft(status.draft); toast.success("Pieza recuperada. Revísala antes de continuar."); return; }
+        if (status.status === "running") {
+          const stages: Record<string, string> = { context: "Preparando contexto de marca y campaña", model: "Redactando el email", validation: "Revisando contenido y seguridad", saving: "Guardando el borrador" };
+          toast.info(stages[status.progress_stage ?? ""] ?? "Generación en curso. Puedes comprobar el mismo trabajo más tarde.");
+        }
+      }
+      toast.info("La generación sigue en curso o aún no está disponible. Puedes volver a comprobarla sin crear otra.");
+    } catch {
+      toast.danger("No se pudo consultar la generación. La clave se conserva para reintentar sin duplicar el trabajo.");
+    } finally { setGenerating(false); }
+  }
+
+  useEffect(() => {
+    if (!dirty.current.size) return;
+    const snapshot: LocalRecovery = { schema: 1, updatedAt: Date.now(), organizationId, connectionId, channel, piece, draftRef: refsRef.current[channel] ?? null };
+    try { window.localStorage.setItem(recoveryKey, JSON.stringify(snapshot)); } catch { /* el guardado remoto sigue activo si se agota el almacenamiento */ }
+  }, [channel, connectionId, organizationId, piece, recoveryKey, revision]);
+
+  function restoreLocalRecovery() {
+    if (!localRecovery) return;
+    documentEpoch.current += 1;
+    pieceRef.current = localRecovery.piece;
+    setPiece(localRecovery.piece);
+    const nextRefs = localRecovery.draftRef ? { [localRecovery.channel]: localRecovery.draftRef } : {};
+    refsRef.current = nextRefs;
+    setRefs(nextRefs);
+    setChannel(localRecovery.channel);
+    setLocalRecovery(null);
+    dirty.current.add(localRecovery.channel);
+    setSave({ kind: "error", message: "Copia local recuperada; verificando el guardado remoto." });
+    setRevision((value) => value + 1);
+  }
+
+  function discardLocalRecovery() {
+    try { window.localStorage.removeItem(recoveryKey); } catch { /* no-op */ }
+    setLocalRecovery(null);
+  }
 
   useEffect(() => {
     if (!dirty.current.size) return;
@@ -377,8 +502,10 @@ export function ContentStudio({
       }
     };
     window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, []);
+    const reconnect = () => { for (const target of [...dirty.current]) void saveChannel(target); };
+    window.addEventListener("online", reconnect);
+    return () => { window.removeEventListener("beforeunload", handler); window.removeEventListener("online", reconnect); };
+  }, [saveChannel]);
 
   // ---------------------------------------------------------------- abrir piezas
 
@@ -392,7 +519,7 @@ export function ContentStudio({
           header: { name: draft.template_name || "", subject: draft.subject || "", preheader: draft.preheader || "", fromName: draft.from_name || "", replyTo: draft.reply_to || "" },
         },
         // Como copia: pieza nueva que parte de esta; la original no se toca.
-        asCopy ? {} : { [target]: { id: draft.id, status: draft.status } },
+        asCopy ? {} : { [target]: { id: draft.id, status: draft.status, version: draft.version, store_id: draft.request?.store_id ?? null } },
         target,
       );
       if (asCopy) {
@@ -718,13 +845,17 @@ export function ContentStudio({
       saveLabel: "Llevar al editor",
       savedLabel: "Llevado al editor.",
       saveAnswer: async (text) => {
-        setSuggestions({ kind, items: kind === "tone" ? [text.trim()] : parseSuggestions(text) });
+        setSuggestions({ kind, items: kind === "tone" ? [text.trim()] : parseSuggestions(text), channel, selectedId, draftId: refsRef.current[channel]?.id ?? null, sourcePiece: pieceRef.current });
         setRightTab("ia");
       },
     });
   }
 
   async function sendChat(text: string) {
+    const epoch = documentEpoch.current;
+    const sourcePiece = pieceRef.current;
+    const sourceRef = refsRef.current[channel];
+    const sourceDraftId = sourceRef?.id ?? null;
     const history = chat.filter((message) => !message.error).map(({ role, text: body }) => ({ role, text: body }));
     setChat((current) => [...current, { role: "user", text }]);
     setChatBusy(true);
@@ -734,7 +865,7 @@ export function ContentStudio({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(studioChatBody({ message: text, history, design: pieceRef.current.design, header: pieceRef.current.header, selectedId, connectionId })),
+          body: JSON.stringify({ ...studioChatBody({ message: text, history, design: sourcePiece.design, header: sourcePiece.header, selectedId, connectionId: sourceRef?.store_id ?? connectionId }), draft_id: sourceDraftId, draft_version: sourceRef?.version ?? null, document_revision: revision, request_id: crypto.randomUUID() }),
         },
         120_000,
       );
@@ -744,10 +875,14 @@ export function ContentStudio({
         return;
       }
       if (!response.ok) throw new Error(await readApiError(response));
-      const data = (await response.json()) as { answer: string; ops: StudioChatOp[] };
+      const data = (await response.json()) as { answer: string; ops: StudioChatOp[]; rejected_operations?: Record<string, unknown>[]; request_id?: string | null };
+      if (epoch !== documentEpoch.current || sourceDraftId !== (refsRef.current[channel]?.id ?? null) || pieceRef.current !== sourcePiece) return;
       let labels: string[] = [];
       let touched: string[] = [];
       if (data.ops.length) {
+        if (sourceDraftId) {
+          pendingOperationAudit.current = { draft_id: sourceDraftId, request_id: data.request_id ?? null, accepted_operations: data.ops as unknown as Record<string, unknown>[], rejected_operations: data.rejected_operations ?? [] };
+        }
         lastPush.current = 0; // cada respuesta es un solo paso de deshacer
         change((current) => {
           const out = applyStudioOps(current.design, current.header, data.ops);
@@ -759,14 +894,21 @@ export function ContentStudio({
       }
       setChat((current) => [...current, { role: "assistant", text: data.answer, labels }]);
     } catch (error) {
-      setChat((current) => [...current, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo hablar con la IA.", error: true }]);
+      if (epoch === documentEpoch.current) setChat((current) => [...current, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo hablar con la IA.", error: true }]);
     } finally {
-      setChatBusy(false);
+      if (epoch === documentEpoch.current) setChatBusy(false);
     }
   }
 
   function applySuggestion(text: string) {
-    const kind = suggestions?.kind;
+    const source = suggestions;
+    if (!source) return;
+    const kind = source.kind;
+    if (source.channel !== channel || source.draftId !== (refsRef.current[channel]?.id ?? null) || source.selectedId !== selectedId || source.sourcePiece !== pieceRef.current) {
+      toast.info("La pieza o el bloque cambió. Pide otra sugerencia para el contenido actual.");
+      setSuggestions(null);
+      return;
+    }
     if (kind === "subjects") {
       if (channel === "email") {
         const [subject, preheader] = text.split("|").map((part) => part.trim());
@@ -787,18 +929,25 @@ export function ContentStudio({
   async function generateFromBrief() {
     setGenerating(true);
     try {
+      const generationRequest = {
+        content_type: "campaign",
+        channel: brief.channel,
+        store_id: connectionId,
+        ...(campaignTarget ? { campaign_item_id: campaignTarget.id } : {}),
+        brief: buildMarketingBrief({ channel: brief.channel, objective: brief.objective, audience: brief.audience, offer: brief.offer, tone: brief.tone, cta: "", instructions: brief.instructions }),
+        ...(brief.channel === "email_klaviyo" ? { brand_colors: { primary: brandBase.primary, background: brandBase.bg, text: brandBase.text } } : {}),
+      };
+      const fingerprint = JSON.stringify(generationRequest);
+      if (!generationIdentity.current || generationIdentity.current.fingerprint !== fingerprint) generationIdentity.current = { fingerprint, key: `${crypto.randomUUID()}:99` };
+      const persistedGeneration = { schema: 1 as const, key: generationIdentity.current.key, request: generationRequest, createdAt: Date.now() };
+      try { window.localStorage.setItem(generationRecoveryKey, JSON.stringify(persistedGeneration)); } catch { /* la reserva en servidor sigue protegiendo el reintento en esta sesión */ }
+      setPendingGeneration(persistedGeneration);
       const response = await apiFetch(
         `/v1/organizations/${organizationId}/marketing/drafts`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content_type: "campaign",
-            channel: brief.channel,
-            store_id: connectionId,
-            brief: buildMarketingBrief({ channel: brief.channel, objective: brief.objective, audience: brief.audience, offer: brief.offer, tone: brief.tone, cta: "", instructions: brief.instructions }),
-            ...(brief.channel === "email_klaviyo" ? { brand_colors: { primary: brandBase.primary, background: brandBase.bg, text: brandBase.text } } : {}),
-          }),
+          body: JSON.stringify({ ...generationRequest, idempotency_key: generationIdentity.current.key }),
         },
         180_000,
       );
@@ -820,6 +969,8 @@ export function ContentStudio({
         html: draft.html ?? "",
       } as MarketingDraft;
       openDraft(full);
+      generationIdentity.current = null;
+      clearPendingGeneration();
       const target = studioChannelOf(full);
       if (target === "email") {
         // La IA escribe el cuerpo; cabecera, marca y pie legal los pone el estudio.
@@ -841,7 +992,34 @@ export function ContentStudio({
       onDraftsChanged();
       toast.success("Pieza escrita por la IA. Revísala bloque a bloque.");
     } catch {
-      toast.danger("La IA tardó demasiado o se cortó la conexión. Vuelve a intentarlo.");
+      const key = generationIdentity.current?.key;
+      let recoveredDraft: Partial<MarketingDraft> & { id: string } | null = null;
+      if (key) {
+        toast.info("Se perdió la respuesta de la conexión. Estoy comprobando si la generación terminó para recuperar la misma pieza.");
+        for (let attempt = 0; attempt < 40 && !recoveredDraft; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          try {
+            const statusResponse = await apiFetch(`/v1/organizations/${organizationId}/marketing/generation-status?idempotency_key=${encodeURIComponent(key)}`);
+            if (!statusResponse.ok) continue;
+            const status = (await statusResponse.json()) as { status?: string; draft?: (Partial<MarketingDraft> & { id: string }) | null };
+            if (status.status === "completed" && status.draft) recoveredDraft = status.draft;
+            if (status.status === "failed") break;
+          } catch { /* polling can resume on the next interval */ }
+        }
+      }
+      if (recoveredDraft) {
+        const full = { template_name: "", from_name: "", reply_to: null, ...recoveredDraft, request: recoveredDraft.request ?? { channel: brief.channel }, blocks: recoveredDraft.blocks ?? [], subject: recoveredDraft.subject ?? "", preheader: recoveredDraft.preheader ?? "", plain_text: recoveredDraft.plain_text ?? "", html: recoveredDraft.html ?? "" } as MarketingDraft;
+        openDraft(full);
+        generationIdentity.current = null;
+        clearPendingGeneration();
+        if (campaignTarget) onCreated(full.id, studioChannelOf(full));
+        setLauncher(false);
+        setRightTab("calidad");
+        onDraftsChanged();
+        toast.success("Pieza recuperada. Revísala antes de continuar.");
+      } else {
+        toast.danger("No se recibió la respuesta a tiempo. Puedes volver a intentarlo y se reutilizará la misma solicitud.");
+      }
     } finally {
       setGenerating(false);
     }
@@ -1128,6 +1306,8 @@ export function ContentStudio({
 
   return (
     <div className={s.studio}>
+      {localRecovery ? <div className={s.recovery} role="status"><span>Hay una copia local del {new Date(localRecovery.updatedAt).toLocaleString("es-ES")}. ¿Quieres recuperarla?</span><button type="button" onClick={restoreLocalRecovery}>Recuperar cambios</button><button type="button" onClick={discardLocalRecovery}>Descartar copia</button></div> : null}
+      {pendingGeneration ? <div className={s.recovery} role="status"><span>Hay una generación pendiente de recuperar.</span><button type="button" disabled={generating} onClick={() => void resumePendingGeneration()}>{generating ? "Comprobando…" : "Recuperar generación"}</button><button type="button" onClick={clearPendingGeneration}>Descartar referencia</button></div> : null}
       <header className={s.top}>
         <div className={s.piece}>
           <h1 className={s.crumb}>Crear contenido</h1>
@@ -1341,7 +1521,7 @@ export function ContentStudio({
         </aside>
       </div>
 
-      <Dialog isOpen={launcher} onOpenChange={setLauncher} size="xl" title="Nueva pieza">
+      <Dialog isOpen={launcher} onOpenChange={setLauncher} size="xl" title="Nueva pieza" className={s.launcherDialog}>
                 <div className={`${s.studio} ${s.dialog}`}>
                   <div className={s.starts}>
                     {(

@@ -115,6 +115,54 @@ function summarizeSpecialistOutput(code: string, value: unknown) {
   const output = record(value);
   if (!output) return null;
 
+  if (code === "a13_operativa_shopify" || code === "a14_operativa_meta") {
+    const proposals = Array.isArray(output.proposed_writes) ? output.proposed_writes : [];
+    const decisions = Array.isArray(output.proposal_decisions) ? output.proposal_decisions : [];
+    const decisionByIndex = new Map<number, Record<string, unknown>>();
+    decisions.forEach((entry, index) => {
+      const decision = record(entry);
+      const proposalIndex = typeof decision?.index === "number" ? decision.index : index;
+      if (decision) decisionByIndex.set(proposalIndex, decision);
+    });
+    return {
+      answer: shortText(output.answer, 650),
+      findings: summarizeFindings(output.findings),
+      recommendations: summarizeRecommendations(output.recommendations),
+      operational_proposals: proposals.slice(0, 5).flatMap((entry, index) => {
+        const proposal = record(entry);
+        const title = shortText(proposal?.title, 180);
+        if (!proposal || !title) return [];
+        return [{
+          title,
+          description: shortText(proposal.description, 420),
+          priority: shortText(proposal.priority, 24),
+          rationale: shortText(proposal.rationale, 300),
+          evidence: Array.isArray(proposal.evidence) ? proposal.evidence.slice(0, 3).flatMap((item) => {
+            const source = record(item);
+            const detail = shortText(source?.detail ?? source?.value ?? source?.reference, 180);
+            return detail ? [detail] : [];
+          }) : [],
+          phase: shortText(proposal.phase, 100),
+          milestone_id: shortText(proposal.milestone_id, 36),
+          alignment_rationale: shortText(proposal.alignment_rationale, 240),
+          owner_role: shortText(proposal.owner_role, 24),
+          completion_criteria: shortText(proposal.completion_criteria, 240),
+          expected_metric: shortText(proposal.expected_metric, 180),
+          delivery_status: shortText(decisionByIndex.get(index)?.status, 24),
+          task_id: shortText(decisionByIndex.get(index)?.task_id, 36),
+        }];
+      }),
+      sources: summarizeSources(output.sources),
+      confidence: shortText(output.confidence, 16),
+      warnings: Array.isArray(output.warnings)
+        ? output.warnings.slice(0, 3).flatMap((warning) => {
+            const text = shortText(warning, 180);
+            return text ? [text] : [];
+          })
+        : [],
+    };
+  }
+
   if (code === "a19_arquitecto_camino") {
     const goal = record(output.goal);
     const phases = Array.isArray(output.phases) ? output.phases : [];

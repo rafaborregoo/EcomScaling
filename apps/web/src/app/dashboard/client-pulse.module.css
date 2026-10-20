@@ -15,13 +15,13 @@
   --accent: #e0a526;
   --accent-soft: #fbefd2;
   --accent-ink: #7a5300;
-  --good: #2f7d5b;
-  --good-soft: #dcefe5;
+  --good: #286f9e;
+  --good-soft: #e5f1f8;
   --warn: #b85f17;
   --warn-soft: #f9e6d3;
   --bad: #b8364a;
   --bad-soft: #f7dde1;
-  --store: #4f8a6e;
+  --store: #bd6940;
   --meta: #3b6fd8;
   --klaviyo: #a8487c;
   /* Cabecera en blanco: la serie va en el grafito del logo y el resto son
@@ -31,8 +31,8 @@
   --hero-ink: #2b2928;
   --hero-muted: #857f7a;
   --hero-line: #e2dfdc;
-  --hero-series: #3d3b3a;
-  --hero-prev: #b3ada8;
+  --hero-series: #bd6940;
+  --hero-prev: #c3b5ad;
   --hero-3: #efedeb;
   --on-accent: #2b1d00;
   /* Una sola fuente en todo el SaaS (IBM Plex Sans, self-hosted en layout.tsx).
@@ -54,35 +54,35 @@
   font: 400 14px/1.55 var(--f-body);
 }
 
-/* Analítica: cada canal se pinta con su propia marca (Shopify verde, Meta azul, Klaviyo
-   negro sobre blanco) para saber en qué zona estás. portal-shell pone data-channel. */
+/* Analítica conserva los nombres y logos de cada canal; la interfaz de Shopify usa
+   grafito para mantener la paleta común. portal-shell pone data-channel. */
 :global(#portal-content[data-channel="shopify"]) .root {
-  --good: #008060;
-  --good-soft: #e0f2ea;
-  --paper: #e9f3ee;
+  --good: #3d3b3a;
+  --good-soft: #f0edeb;
+  --paper: #f5f4f2;
   --surface: #ffffff;
-  --surface-2: #f6f9f7;
-  --sunken: #dbe8e1;
-  --ink: #202a26;
-  --ink-2: #4a5a53;
-  --ink-3: #66756e;
-  --line: #d6e2db;
-  --line-2: #e5eee9;
-  --accent: #008060;
-  --accent-soft: #e0f2ea;
-  --accent-ink: #004c3f;
+  --surface-2: #f8f7f5;
+  --sunken: #efeeec;
+  --ink: #3d3b3a;
+  --ink-2: #57534f;
+  --ink-3: #6b6662;
+  --line: #e2dfdc;
+  --line-2: #ebe8e4;
+  --accent: #3d3b3a;
+  --accent-soft: #f0edeb;
+  --accent-ink: #3d3b3a;
   --on-accent: #ffffff;
-  --store: #008060;
-  --meta: #008060;
-  --klaviyo: #008060;
+  --store: #3d3b3a;
+  --meta: #3d3b3a;
+  --klaviyo: #3d3b3a;
   --hero: #ffffff;
-  --hero-2: #f6f9f7;
-  --hero-3: #e9f0ec;
-  --hero-ink: #202a26;
-  --hero-muted: #66756e;
-  --hero-line: #d6e2db;
-  --hero-series: #008060;
-  --hero-prev: #a9bdb3;
+  --hero-2: #f8f7f5;
+  --hero-3: #efeeec;
+  --hero-ink: #3d3b3a;
+  --hero-muted: #6b6662;
+  --hero-line: #e2dfdc;
+  --hero-series: #3d3b3a;
+  --hero-prev: #a39f9a;
 }
 :global(#portal-content[data-channel="meta"]) .root {
   --good: #0866ff;
@@ -148,7 +148,7 @@
   --brand-logo: url("/shopify-svgrepo-com.svg");
   --card-radius: 12px;
   --card-border: transparent;
-  --card-shadow: 0 1px 0 rgba(26, 31, 28, 0.07), inset 0 -1px 0 #cfdcd5;
+  --card-shadow: 0 1px 0 rgba(26, 31, 28, 0.07), inset 0 -1px 0 #dedad6;
   --btn-radius: 10px;
   --seg-radius: 10px;
   --seg-btn-radius: 7px;
@@ -260,8 +260,8 @@
   --accent-soft: #efeeec;
   --accent-ink: #292827;
   --on-accent: #ffffff;
-  --good: #216947;
-  --good-soft: #e1f1e8;
+  --good: #3d3b3a;
+  --good-soft: #f0edeb;
   --warn: #8b4c0d;
   --warn-soft: #fcf0df;
   --bad: #a72d43;
@@ -298,8 +298,8 @@
   --accent-soft: #efeeec;
   --accent-ink: #292827;
   --on-accent: #ffffff;
-  --good: #216947;
-  --good-soft: #e1f1e8;
+  --good: #3d3b3a;
+  --good-soft: #f0edeb;
   --warn: #8b4c0d;
   --bad: #a72d43;
   --hero: #ffffff;
@@ -401,9 +401,6 @@
 .chartDisclosure summary { padding: 8px 0; color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
 .chartDisclosure summary span { margin-left: 12px; color: var(--ink-3); font-size: 12px; font-weight: 400; }
 .chartDisclosure[open] summary { margin-bottom: 16px; }
-.chartControl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-top: 12px; color: var(--hero-muted); font-size: 12px; }
-.chartControl input { flex: 1; min-width: 100px; max-width: 240px; accent-color: var(--accent); cursor: pointer; }
-.chartControl output { color: var(--hero-ink); font-variant-numeric: tabular-nums; }
 .analysisDisclosure summary { cursor: pointer; color: var(--hero-ink); font-size: 13px; }
 .analysisDisclosure p { margin-top: 10px; font-size: 13px; }
 .workspace .sec { gap: 16px; }
@@ -533,9 +530,7 @@
   vertical-align: 2px;
 }
 .lbl {
-  font: 500 10.5px/1.3 var(--f-num);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font: 500 12px/1.3 var(--f-body);
   color: var(--ink-3);
 }
 
@@ -616,12 +611,12 @@
   white-space: nowrap;
 }
 .deltaGood {
-  background: var(--good-soft);
-  color: var(--good);
+  background: #e7f4eb;
+  color: #247a43;
 }
 .deltaBad {
-  background: var(--bad-soft);
-  color: var(--bad);
+  background: #fbe8eb;
+  color: #b42338;
 }
 
 /* ---------- estructura ---------- */
@@ -636,13 +631,13 @@
   gap: 8px 28px;
 }
 .secHead h2 {
-  font: 700 32px/1 var(--f-display);
-  letter-spacing: -0.03em;
+  font: 600 24px/1.2 var(--f-display);
+  letter-spacing: -0.01em;
 }
 .aiLine {
   max-width: 66ch;
   color: var(--ink-2);
-  font: italic 400 18px/1.4 var(--f-ai);
+  font: 400 15px/1.5 var(--f-body);
   text-wrap: pretty;
 }
 .panel {
@@ -669,7 +664,7 @@
 .sub {
   margin-top: 3px !important;
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 13px;
 }
 .sw {
   display: inline-block;
@@ -980,6 +975,13 @@
   justify-content: flex-end;
   height: 38px;
 }
+/* La misma tarjeta, ampliada, en el modal de comentarios (ZoneCard). El título ya va en la cabecera del modal. */
+.kpiStage .kpi { gap: 10px; padding: 0; border: 0; background: transparent; }
+.kpiStage .kpiL { display: none; }
+.kpiStage .kpiV { font-size: 44px; }
+.kpiStage .kpiD { font-size: 13px; }
+.kpiStage .slot { height: 76px; }
+.kpiStage .spark { height: 72px; }
 .spark {
   position: relative;
   height: 34px;
@@ -1619,7 +1621,7 @@
 .findingE {
   margin-top: 3px !important;
   color: var(--ink-2);
-  font: italic 400 15px/1.45 var(--f-ai);
+  font: 400 14px/1.5 var(--f-body);
 }
 
 /* ---------- Plan ---------- */
@@ -2100,13 +2102,13 @@
   --accent-soft: #fbe5da;
   --accent-ink: #8a3a17;
   --on-accent: #2b0e02;
-  --good: #2f7d5b;
-  --good-soft: #dcefe5;
+  --good: #286f9e;
+  --good-soft: #e5f1f8;
   --warn: #b85f17;
   --warn-soft: #f9e6d3;
   --bad: #b8364a;
   --bad-soft: #f7dde1;
-  --store: #4f8a6e;
+  --store: #bd6940;
   --meta: #3b6fd8;
   --klaviyo: #a8487c;
   --hero: #ffffff;
@@ -2115,8 +2117,8 @@
   --hero-ink: #262423;
   --hero-muted: #85807b;
   --hero-line: #dedad6;
-  --hero-series: #e2733f;
-  --hero-prev: #b0aaa5;
+  --hero-series: #bd6940;
+  --hero-prev: #c3b5ad;
 }
 
 /* ---------- Meta: ranking de ROAS por anuncio ---------- */
@@ -2574,6 +2576,12 @@
 .prio .pStamp {
   display: inline-flex;
   align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 .linkBtn {
   padding: 0;
@@ -2614,8 +2622,36 @@
   gap: 16px;
 }
 .prio .pKpis .kpi {
-  --store: var(--ink-3);
+  --kpi-accent: #3d3b3a;
   padding: 20px 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.prio .pKpis .kpi:nth-child(2),
+.prio .pKpis .kpi:nth-child(7) {
+  --kpi-accent: var(--meta);
+}
+.prio .pKpis .kpi:nth-child(3) {
+  --kpi-accent: #27834f;
+}
+.prio .pKpis .kpi:nth-child(5),
+.prio .pKpis .kpi:nth-child(8) {
+  --kpi-accent: var(--accent);
+}
+.prio .pKpis .kpi:nth-child(4) {
+  --kpi-accent: var(--klaviyo);
+}
+.prio .pKpis .kpiL {
+  min-height: 24px;
+  color: var(--kpi-accent);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.prio .pKpis .kpi:hover {
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--line));
+  box-shadow: 0 10px 24px rgba(39, 35, 32, 0.08);
 }
 .workspace .prio .kpiV {
   font-size: 26px;
@@ -2644,6 +2680,98 @@
 }
 .prio .pMain .qiA .btn {
   min-height: 32px;
+}
+.prio .pMainExtras {
+  display: grid;
+  gap: 16px;
+  margin-top: 28px;
+}
+.prio .agentInsights {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+}
+.prio .agentGroups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+.prio .agentGroup {
+  min-width: 0;
+}
+.prio .agentGroup > h3 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font: 600 14px/1.4 var(--f-body);
+}
+.prio .agentReadout {
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--line-2);
+}
+.prio .agentReadoutHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.prio .agentReadoutHead h4 {
+  color: var(--ink);
+  font: 600 13px/1.4 var(--f-body);
+}
+.prio .agentReadoutHead > span {
+  flex: none;
+  color: var(--ink-3);
+  font: 400 11px/1.4 var(--f-body);
+}
+.prio .agentSummary {
+  margin-top: 6px !important;
+  color: var(--ink-2);
+  font: 400 13px/1.55 var(--f-body);
+}
+.prio .agentFindingSections {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.prio .agentFindingSections h5 {
+  margin-bottom: 4px !important;
+  color: var(--ink-3);
+  font: 600 11px/1.4 var(--f-body);
+}
+.prio .agentFindingSections ul,
+.prio .agentFindingList {
+  display: grid;
+  gap: 6px;
+}
+.prio .agentFindingSections li,
+.prio .agentFindingList li {
+  display: grid;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  color: var(--ink-2);
+  font: 400 12px/1.5 var(--f-body);
+}
+.prio .agentFindingSections li strong,
+.prio .agentFindingList li strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+.prio .agentFindingSections li span,
+.prio .agentFindingList li span,
+.prio .agentEmpty {
+  color: var(--ink-3);
+}
+.prio .agentFindingList {
+  margin-top: 10px;
+}
+.prio .agentEmpty {
+  margin-top: 6px !important;
+  font-size: 12px;
+}
+@container pulse (max-width: 680px) {
+  .prio .agentGroups { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
 .qLead {
   margin: -4px 0 8px !important;
@@ -2996,10 +3124,10 @@
   gap: 6px;
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
   border-radius: 8px;
-  background-color: var(--surface);
-  color: var(--ink-2);
+  background-color: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent-ink);
   font: 500 13px/1 var(--f-body);
   text-decoration: none;
   cursor: pointer;
@@ -3018,22 +3146,7 @@
   vertical-align: 0;
 }
 
-/* Comentarios sobre la tarea: un aviso amarillo pequeño que se ve sin gritar. */
-.cmtBadge {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 8px;
-  padding: 2px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: #fdf3c4;
-  color: #7a5b00;
-  font: 600 12px/1.5 var(--f-body);
-  cursor: pointer;
-}
-.cmtBadge:hover {
-  background: #fbe9a0;
-}
+/* Comentarios sobre la tarea: el aviso va en la línea de datos (.qiToggleNote). */
 .cmtList {
   display: grid;
   gap: 8px;
@@ -3172,4 +3285,324 @@
   .cmtHint kbd {
     display: none;
   }
+}
+
+/* Acciones de cada tarea en una sola fila compacta: la acción principal con
+   texto y el resto como iconos sin borde (nombre en el tooltip y aria-label),
+   para que la tarjeta no crezca. */
+.qiA {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.qiA .btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.qiA .btn.iconBtn {
+  width: 30px;
+  padding: 0;
+  border-color: transparent;
+  color: var(--ink-3);
+}
+.qiA .btn.iconBtn:hover { background: var(--surface-2); color: var(--ink); }
+.qiA .btn.iconOk:hover { color: var(--good); }
+.qiA .btn.iconNo:hover { color: var(--bad); }
+.qiA .btnLabel,
+.qiA .cmtPlus { display: none; }
+.workspace .prio .pMain .qiA { flex-direction: row; align-items: center; }
+.workspace .prio .pMain .qiA .cmtPlus { display: block; }
+
+/* Cifras de la portada: cada tarjeta abre debajo su detalle (gráfico,
+   lectura de la IA y a dónde ir a ver más). */
+.kpiBtn {
+  position: relative;
+  cursor: pointer;
+}
+.kpiHit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.kpiHit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.kpiBtn :is(button, a):not(.kpiHit) {
+  position: relative;
+  z-index: 1;
+}
+.kpi.kpiOn,
+.prio .pKpis .kpi.kpiOn {
+  border-color: var(--kpi-accent, var(--ink));
+  box-shadow: inset 0 -3px 0 var(--kpi-accent, var(--ink));
+}
+.kpiDetail {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  animation: kpiDetailIn 200ms ease both;
+}
+.prio .kpiDetail {
+  margin-top: -16px;
+}
+@keyframes kpiDetailIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kpiDetail {
+    animation: none;
+  }
+}
+.kpiDetailH {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.kpiDetailH h2 {
+  font: 600 16px/1.3 var(--f-body);
+}
+.kpiDetailH small {
+  margin-left: 8px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+.kpiDetailX {
+  width: 32px;
+  padding: 0;
+  border-color: transparent;
+  color: var(--ink-3);
+}
+.kpiDetailF {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.kdFlow {
+  display: grid;
+  gap: 6px;
+  max-width: 44rem;
+}
+.kdFlow li {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) 7rem;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.kdFlow i {
+  height: 10px;
+  border-radius: 3px;
+  background: var(--line);
+  transition: background 150ms ease;
+}
+.kdFlow li[data-kind="total"] i { background: var(--ink-3); }
+.kdFlow li[data-kind="profit"] i { background: var(--good); }
+.kdFlow li:hover i { background: var(--ink); }
+.kdFlow li[data-kind="profit"] { font-weight: 600; }
+.kdFlow b {
+  font-weight: 500;
+  text-align: right;
+}
+
+/* Filas de tarea: círculo para cerrarla a la izquierda, una línea de datos
+   (prioridad, fecha, pasos, comentarios) y a la derecha solo iconos que se
+   avivan al pasar por la fila. */
+.qi.qiTask,
+.prio .pMain .qi.qiTask {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 4px 12px;
+}
+.qiTask .qiA,
+.prio .pMain .qiTask .qiA {
+  grid-column: 3;
+  margin-top: 0;
+  align-self: start;
+}
+.qiCheck {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  padding: 0;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 50%;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.qiCheck svg {
+  width: 10px;
+  height: 10px;
+}
+.qiCheckUrgent { border-color: var(--bad); }
+.qiCheckHigh { border-color: var(--warn); }
+.qiCheck:hover,
+.qiCheck[aria-pressed="true"] {
+  border-color: var(--good);
+  background: var(--good-soft);
+  color: var(--good);
+}
+.qiCheck:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.qiCheck:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qiTask .qiM,
+.prio .pMain .qiTask .qiM {
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+.qiToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 500 12px/1.5 var(--f-body);
+  cursor: pointer;
+}
+.qiToggle:hover,
+.qiToggle[aria-expanded="true"] {
+  color: var(--ink);
+}
+.qiToggle::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-left: 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 150ms ease;
+}
+.qiToggle[aria-expanded="true"]::after {
+  transform: translateY(1px) rotate(-135deg);
+}
+.qiToggle svg {
+  width: 12px;
+  height: 12px;
+}
+.qiToggleNote {
+  color: #7a5b00;
+}
+.qiToggleNote::after {
+  display: none;
+}
+.qiSteps {
+  max-width: 62ch;
+  margin-top: 10px !important;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+ol.qiSteps {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px !important;
+  list-style: decimal;
+}
+.qiTask .qiA .btn.iconBtn,
+.prio .pMain .qiTask .qiA .btn.iconBtn {
+  opacity: 0.55;
+  transition: opacity 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+.qiTask:hover .qiA .btn.iconBtn,
+.qiTask:focus-within .qiA .btn.iconBtn,
+.prio .pMain .qiTask:hover .qiA .btn.iconBtn,
+.prio .pMain .qiTask:focus-within .qiA .btn.iconBtn {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .qiTask .qiA .btn.iconBtn,
+  .prio .pMain .qiTask .qiA .btn.iconBtn { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qiCheck,
+  .qiToggle::after,
+  .qiTask .qiA .btn.iconBtn,
+  .prio .pMain .qiTask .qiA .btn.iconBtn { transition: none; }
+}
+
+/* Reparto por cliente o campaña en el detalle de una cifra: cada fila abre lo suyo. */
+.kdRow {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 8rem;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 8px;
+  margin-inline: -8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.kdRow > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kdRow:hover,
+.kdRow:focus-visible {
+  background: var(--surface-2);
+}
+.kdRow[data-tone="bad"] i { background: var(--bad); }
+.kdRow[data-tone="bad"] b { color: var(--bad); }
+.kdFlow li:has(> .kdRow) {
+  display: block;
+}
+@container pulse (max-width: 560px) {
+  .kdRow { grid-template-columns: minmax(0, 1fr) 6rem; }
+  .kdRow i { display: none; }
+}
+
+/* Al pasar por una tarea la fila se levanta un poco (sombra suave) en vez del
+   barrido de izquierda a derecha: dice cuál está bajo el cursor sin moverse de sitio. */
+.prio .pMain .qi,
+.prio .pMain .qi:first-child {
+  background-color: transparent;
+  background-image: none;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+.prio .pMain .qi:hover,
+.prio .pMain .qi:has(:focus-visible) {
+  transform: translateY(-2px);
+  background-color: var(--surface);
+  box-shadow: 0 8px 20px -12px rgba(39, 35, 32, 0.28), 0 0 0 1px var(--line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .prio .pMain .qi { transition: none; }
+  .prio .pMain .qi:hover,
+  .prio .pMain .qi:has(:focus-visible) { transform: none; }
+}
+/* "De quién" en una palabra: sin las iniciales delante del nombre. */
+.qiM .who i {
+  display: none;
 }

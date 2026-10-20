@@ -20,7 +20,7 @@ test("aprendizaje limitado sin rechazos", () => {
 });
 
 test("bajo el equilibrio solo si esta activa", () => {
-  assert.deepEqual(campaignAlert({ ...base, roas: 0.5 }, 1), { text: "Bajo el equilibrio", tone: "bad" });
+  assert.deepEqual(campaignAlert({ ...base, roas: 0.5 }, 1), { text: "Por debajo de tu mínimo", tone: "bad" });
   assert.equal(campaignAlert({ ...base, roas: 0.5, effective_status: "PAUSED" }, 1), null);
 });
 

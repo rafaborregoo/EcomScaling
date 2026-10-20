@@ -9,6 +9,8 @@ import { createContext, useContext } from "react";
 export type ActiveConnectionContextValue = {
   connectionId: string;
   setConnectionId: (connectionId: string) => void;
+  /** Tiendas del cliente activo, para elegir una (p. ej. la etiqueta de una tarea interna). */
+  stores?: Array<{ connectionId: string; label: string }>;
 };
 
 export const ActiveConnectionContext = createContext<ActiveConnectionContextValue | null>(null);

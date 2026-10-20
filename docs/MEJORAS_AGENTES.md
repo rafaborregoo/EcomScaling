@@ -1124,3 +1124,1066 @@ Verificación local: typecheck de `@e-nora/ai`, API y móvil; **42/42** pruebas 
 - **Reproducciones adicionales sin persistencia:** inventario efectivo de 24/23 herramientas; discrepancia entre JSON Schema y contrato de fechas de `meta_spend_detail`; devolución de filas sintéticas privadas en tres herramientas y de otra tienda en las dos de tareas; pérdida de bloques esenciales por presupuesto de contexto. No se ejecutaron herramientas sobre datos de clientes.
 - **Comprobación remota limitada a configuración:** se consultaron las versiones activas de A09 en test y producción. No se modificaron esas bases, no se llamó al modelo ni se enviaron mensajes, campañas o informes. No se crearon migraciones ni cambios de aplicación. No se han medido calidad semántica, latencia/coste bajo carga ni madurez de cada adaptador contra proveedores reales.
 - **Orden de ejecución recomendado:** corregir A09-001–006 y las garantías transversales de contexto/entrada; conectar después lecturas y operaciones nativas; ampliar por último las acciones externas y trabajos compuestos conforme se verifiquen sus adaptadores. La potencia se comprobará por tareas completadas con resultado recuperable y permisos correctos.
+
+### A11 - Cierre de mejoras restantes (2026-10-19)
+
+| ID | Cambio implementado | Estado y limite conocido |
+|---|---|---|
+| A11-016 | Resolver por ID los productos ya insertados en el email, limitado a la organizacion y tienda activas; conserva precio, imagen y URL reales. | Parcial: vision de imagen presupuestada y seleccion de variante aun pendientes. |
+| A11-018 | Persistir la etapa de contexto/modelo/validacion/guardado y estado terminal de la generacion; el estudio muestra el estado y reanuda con la misma clave idempotente. | Implementado localmente y migraciones aplicadas en test y produccion. |
+| A11-019 | Endpoint de biblioteca con filtro de tienda antes del limite, cursor estable y DTO resumido sin HTML ni bloques; la lectura del documento sigue en el endpoint existente. | Parcial: el listado principal aun usa la respuesta completa y no carga el detalle bajo demanda. |
+| A11-022 | Cache de perfiles de marca aislada por organizacion/tienda y de corta duracion, ademas del contexto de catalogo e imagenes bajo demanda. | Parcial: falta invalidacion estricta por version y medicion de latencia/tokens/coste. |
+| A11-023 | Guardar recibo de operaciones de IA al persistir el cambio, con autor, request, version base/final y operaciones aceptadas/rechazadas; una respuesta sin cambios verificados no afirma que se aplicaron. | Parcial: eventos manuales, undo y redo aun no tienen categorias y recibos propios. |
+| A11-024 | Prueba de recorrido local de producto verificado -> operacion del editor -> HTML exportable. | Parcial: falta integrar generacion/campana/aprobacion/Klaviyo y validacion visual en clientes reales. |
+
+**Verificacion:** typecheck de API y web; pruebas focales API (8/8) y editor/render HTML (13/13). Migraciones `20261231230700_a11_remaining_integrity.sql` y `20261231230800_a11_terminal_generation_progress.sql` aplicadas correctamente en test (`kopcblejsxpkxoykldyh`) y produccion (`cthjwpeygpzwdmjkxeqa`). La auditoria A11 sigue abierta en los limites indicados; no se declara terminado lo que no se ha verificado.
+
+## A12 · Analista de email marketing
+
+**Auditoría: 19 de octubre de 2026. Estado de implementación: cambios principales aplicados; integración completa aún abierta.** Esta revisión contrastó el árbol de trabajo, las consultas y la configuración remota. El cierre histórico de A12 en `REVISION_AGENTES.md:350–368` no cubría las incidencias reproducidas aquí. Se han implementado cambios locales en API, UI web/móvil y dos migraciones aplicadas a test y producción; no se ha desplegado código ni se ha ejecutado A12 contra datos de clientes.
+
+#### Estado de implementación de A12
+
+| Estado | Mejoras | Resultado |
+|---|---|---|
+| Implementadas | A12-001, 003, 004, 009, 010, 014, 017, 029 | Alcance Klaviyo por tienda en el cron y en el contexto; origen cron/manual y cuota manual separados; digest propio por tienda/cuenta/periodos/sync/reportes; comparación de meses completos no solapados; RPC con identidad y seguridad de cuenta, valores de ingresos nulos cuando falta moneda o se mezclan monedas; catálogo no se declara completo sin sync válido; muestra de campañas/flows que considera riesgo; contexto transversal con filtro de tienda y autorización previa. |
+| Parciales | A12-002, 005, 007, 008, 011–013, 015–016, 018–020, 022, 024, 026, 028 | Elegibilidad y estados UI mejorados; reserva manual atómica y clave idempotente; nulos/errores/cobertura más explícitos; bloques de evidencia prioritarios; A26/A28 y backlog mejor seleccionados; pantallas web/móvil con periodo y tienda; ficha de esta auditoría actualizada. Falta aún cerrar recuperación durable de ejecuciones, latido/motivo de cada tick, contrato único de datos, validación de evidencia, historial/revalidación de propuestas y despliegue observable. |
+| Pendientes de integración funcional | A12-006, 021, 023, 025, 027 | Buzón durable de propuestas que sobreviva a nuevos outputs; validación server-side de cada afirmación contra evidencia; handoff tipado con A11/A27 y medición posterior; permisos/estado recuperable por propuesta con revalidación de datos obsoletos; pruebas específicas del runner/UI y recorridos E2E por rol. |
+
+**Migraciones aplicadas:** `20270101110000_a12_email_analyst_integrity.sql` y `20270101120000_a12_email_activity_digest.sql`, en test (`kopcblejsxpkxoykldyh`) y producción (`cthjwpeygpzwdmjkxeqa`). La aplicación remota de SQL está verificada; el código de aplicación sigue pendiente de despliegue.
+
+### Qué hace y cómo se dispara actualmente
+
+A12 interpreta rendimiento atribuido por Klaviyo: campañas y flows, ingresos/conversiones, aperturas/clics y señales de entregabilidad. Prepara contexto, puede profundizar con herramientas de lectura y guarda un diagnóstico con recomendaciones y propuestas. La aprobación materializa trabajo interno; A12 no envía emails ni activa flows en Klaviyo. A26 analiza contenido; A27 planifica mailing; A11 redacta/diseña; A28 propone arquitectura de flows.
+
+| Entrada | Comportamiento comprobado | Límite que debe explicarse o corregirse |
+|---|---|---|
+| Worker automático | BullMQ registra `0 6,15 * * *`, zona `Europe/Madrid`: 06:00 y 15:00. Llama a `POST /v1/internal/ai/diagnostics/tick` con secreto interno. | Es el horario del evaluador, no una garantía de dos análisis diarios. Depende de worker/API activos, autorun, elegibilidad, controles y cupos. |
+| Selección en el tick | A12 está en `ORCHESTRATED_DIAGNOSTIC_AGENT_CODES`. La configuración de diseño indica una ejecución diaria si cambia la actividad; el mínimo base entre reconsideraciones es 20 horas, ajustable desde plataforma. | Solo entra por organizaciones con Shopify conectado/sincronizando y alguna sincronización previa. No comprueba primero que haya Klaviyo listo. |
+| Alcance automático | `orchestratorScopesForAgent` devuelve para A12 únicamente `{storeId:null, connectionId:null}`. El tick llama al runner sin conexión. | Genera el agregado de organización, mientras los GET de tienda exigen coincidencia exacta de `store_id`. |
+| Controles automáticos | Activación por organización/plataforma, presupuestos, circuito de proveedor, cupo general por organización —12 runs/día por defecto— y por tick —15 por defecto—. Decide según último éxito, digest, antigüedad y salida pendiente de revisión durante tres días. | Los cupos se comparten con otros agentes. Una salida pendiente puede retrasar una lectura nueva. A12 no transmite opciones de cron y acaba usando los valores manuales del runner. |
+| `GET /ai/email-analyst` | Lee el último éxito de A12 con ventana de 30 días y alcance exacto. Devuelve el histórico aunque sea antiguo; abrir una página no lanza el modelo. | Si falta resultado, distingue genéricamente entre falta de datos y primer diagnóstico pendiente; no explica la situación real de Klaviyo/A12. |
+| `POST /ai/email-analyst-run` | Ejecución síncrona manual. Acepta `connectionId`; resuelve estrictamente una tienda activa o un agregado intencional. | No acepta una identidad de petición recuperable ni periodo explícito; `days` que envían varias pantallas se ignora. |
+| Sincronización Klaviyo | Tiene su reconciliación independiente: `43 */6 * * *`, UTC, que refresca inventario/reportes. | Sincronizar no invoca inmediatamente A12. No confundir «datos sincronizados», «análisis generado» y «propuesta aprobada». |
+
+Referencias: `apps/worker/src/repeatable-jobs.ts:7–20`, `apps/worker/src/worker.ts:152,308`, `apps/api/src/server.ts:9965,9992,12220`, `apps/api/src/ai-runtime.ts:13283,15951,16001,16214,16467,16581,16913`, `apps/api/src/agent-schedule.ts:28`.
+
+### Dónde aparece y por qué resulta poco claro
+
+| Superficie | Uso de A12 observado | Mejora necesaria |
+|---|---|---|
+| `/klaviyo` | Sección «Análisis de email», después de A26, con GET y «Actualizar ahora». | Explicar cometido, alcance, periodo real, fuente, actualización automática, estado y responsable de revisar. |
+| Dashboard de Klaviyo | La lectura ejecutiva visible corresponde a A02. A12 se consulta, pero solo aparece una nota de propuestas para clientes sin consultor. | Dar a A12 un diagnóstico localizable y distinguirlo claramente de A02/A26. |
+| Pulso / Prioridades | Consume propuestas A12; el cliente con consultor no recibe las pendientes por esa vía. | Mostrar dónde está el análisis y quién revisa sus propuestas, evitando promesas de trabajo automático. |
+| Mesa del consultor | Lista «Email» con edad/propuestas o «Sin ejecutar», y botones «Lanzar/Actualizar». | Diferenciar carga, error, bloqueo, falta de conexión y ausencia real de ejecuciones. |
+| Móvil / Todo | Lee A12 global con `days=30`, sin transportar la tienda usada por las métricas vecinas. | Unificar alcance y presentar el estado, procedencia y destino del análisis. |
+
+Referencias: `apps/web/src/app/klaviyo/page.tsx:76`, `apps/web/src/components/ai-diagnostic-section.tsx:699–780,829–875`, `apps/web/src/app/dashboard/client-klaviyo.tsx:161,342,727`, `apps/web/src/app/dashboard/client-pulse.tsx:1249`, `apps/web/src/app/dashboard/consultant-desk.tsx:1061,1085,1278`, `apps/mobile/components/views.tsx:177–180`.
+
+### Configuración remota comprobada, solo lectura
+
+Comprobación realizada el **19 de octubre de 2026 a las 09:15–09:16 UTC**, sin leer cuerpos de emails ni salidas de clientes:
+
+| Comprobación | Test · `kopcblejsxpkxoykldyh` | Producción · `cthjwpeygpzwdmjkxeqa` |
+|---|---|---|
+| Versión activa de A12 | Agente v4 / prompt v4 | Agente v4 / prompt v4 |
+| Herramientas declaradas | `search_knowledge`, `klaviyo_performance_summary`, `klaviyo_entity_performance`, `klaviyo_deliverability_health` | Las mismas cuatro |
+| Modelo de la versión / aprobación | `claude-sonnet-5` / `required_before_publish` | Los mismos; el modelo efectivo puede cambiar por configuración de cliente/plataforma y routing |
+| Override de cadencia en `platform_ai_agent_settings` | Sin fila para A12; aplica diseño | Sin fila para A12; aplica diseño |
+| Runs A12 en los últimos 30 días | 7: 3 éxitos y 4 fallos; todos etiquetados `manual`. Los dos éxitos por tienda no tienen digest. | Ninguno |
+| Última ejecución A12 registrada | 13 de octubre de 2026 | 8 de septiembre de 2026 |
+| Gate logs A12 en los últimos siete días | Ninguno | Ninguno |
+| Último gate log de cualquier agente | 25 de septiembre de 2026 | 22 de septiembre de 2026 |
+| Conexiones relevantes | Hay Shopify y Klaviyo conectados con sincronización previa; también existen conexiones en otros estados. | No hay conexiones Klaviyo registradas. La única Shopify figura en error. |
+| Función `klaviyo_email_report(uuid,date,date,uuid)` | Definición con hash MD5 `207b818ee846a129bf523d58e362fa07` | Misma definición; contrastada con la última migración local de corrección del informe |
+
+**Interpretación:** la configuración de A12 sí está cargada. Esto no certifica el worker ni la versión de API desplegada. La ausencia de logs no demuestra por sí sola una caída: autorun desactivado, cero candidatos y salidas tempranas también pueden no generar filas. En producción faltan actualmente los requisitos de conexión; no se puede prometer un primer análisis en el próximo ciclo. En test hay datos de elegibilidad, pero hace falta verificar el servicio desplegado y sus controles para explicar la ausencia reciente de decisiones.
+
+### Registro de mejoras
+
+Todas las entradas siguientes son propuestas de mejora; ninguna se marca implementada por esta auditoría. Las incidencias demostradas se distinguen de ampliaciones funcionales y verificaciones de integración.
+
+### A12-001 · Generar automáticamente el mismo alcance que consume la UI
+
+- **Evidencia:** `orchestratorScopesForAgent` devuelve solo el agregado para A12 y el tick no le pasa `connectionId` (`ai-runtime.ts:16001–16055,16913`). El GET filtra exactamente por tienda o `NULL` (`6919–6931`). Reproducción con dos tiendas: A12 recibe únicamente el alcance global.
+- **Mejora:** programar las tiendas activas con cuentas Klaviyo pertinentes y el agregado solo donde exista una vista que lo necesite. Mantener identidad estable de organización/tienda/periodo y reparto del cupo entre tiendas.
+- **Aceptación:** dos tiendas con datos distintos reciben sus propios resultados sin ejecución manual; el agregado no sustituye silenciosamente a ninguna. Probar conexión inactiva y cambio de tienda.
+
+### A12-002 · Comprobar los requisitos de Klaviyo antes de programar o cobrar un análisis
+
+- **Evidencia:** los candidatos generales del tick dependen de Shopify; A12 no verifica primero cuenta Klaviyo, sincronización/reportes o métrica de conversión. El estado sin caché usa cualquier integración sincronizada (`ai-runtime.ts:16467–16500,7043–7072`). Producción no tiene Klaviyo registrado.
+- **Mejora:** definir elegibilidad específica de A12: integración habilitada, conexión/cuenta del alcance, sincronización y disponibilidad/capacidad del informe. Permitir una revisión limitada de medición si existe inventario pero falta rendimiento, declarándolo; no fabricar un informe vacío.
+- **Aceptación:** distinguir en API/UI «conecta Klaviyo», «esperando sincronización», «falta configurar medición», «datos parciales» y «listo». Tener Shopify por sí solo no autoriza gasto de A12. Definir expresamente si Klaviyo sin Shopify admite análisis agregado.
+
+### A12-003 · Registrar el origen automático y separar los límites manuales
+
+- **Evidencia:** `runEmailAnalystAgent` no admite opciones de ejecución. El cron lo llama sin ellas; el runner usa `trigger:manual` y `enforceManualRefreshCap:true` por defecto (`ai-runtime.ts:5480–5501,5889,6004,13283,16913`).
+- **Mejora:** propagar `trigger:cron`, digest e identidad de programación; aplicar cuota manual solo al POST manual. Mantener presupuestos y circuito de proveedor en ambos caminos.
+- **Aceptación:** un tick queda etiquetado `cron`, no consume refrescos manuales y conserva correlación con su decisión. Agotar la cuota manual no bloquea el automático; un presupuesto agotado sí lo hace y se explica.
+
+### A12-004 · Guardar una señal de actividad pertinente y contemplar el paso del tiempo
+
+- **Evidencia:** A12 participa en la comparación de `organization_activity_digest`, pero el runner solo persiste explícitamente ese snapshot para A04 y uno específico para A08 (`ai-runtime.ts:6118,6157,6230,16734`). En test los dos éxitos recientes por tienda tienen digest nulo. El digest general incluye actividad de otros dominios (`20261113100000_ai_feed_actividad_compartida.sql:354`).
+- **Mejora:** persistir una huella del contexto efectivamente leído: cuenta/tienda, reportes y su revisión, métrica de conversión, cobertura y ventana. Un cambio ajeno a email no debe obligar a recalcular. La rotación de periodo o caducidad debe poder justificar una revisión aunque no cambie el dato bruto.
+- **Aceptación:** mismos datos/periodo reutilizan resultado; nuevo reporte, cambio de medición o ventana vencida se reconsideran. Un fallo al leer la huella se declara como desconocido y no como «sin actividad».
+
+### A12-005 · Hacer verificable la cadencia y evitar que A12 quede siempre fuera del cupo
+
+- **Evidencia:** 06:00/15:00 son pasadas compartidas; A12 tiene base de 20 horas, tope global de 15 runs y de 12 por organización por defecto (`repeatable-jobs.ts:19`, `ai-runtime.ts:15951–15956,16581–16830`). La prioridad usa alertas y orden de candidatos; no representa explícitamente el tiempo que A12 lleva esperando. No hay gate logs recientes en ninguno de los entornos.
+- **Mejora:** exponer vencimiento, elegibilidad y causa de aplazamiento; añadir prioridad por espera/cobertura pendiente y recuperación del primer análisis después de sincronizar. Verificar registro real de BullMQ, cola/worker/API, secretos y flags sin inferir una caída a partir del silencio.
+- **Aceptación:** carga alta y varias tiendas no posponen indefinidamente A12. La próxima revisión es una estimación condicionada, con motivo del último aplazamiento. Un tick sin candidatos o con autorun apagado deja un latido operativo consultable.
+
+### A12-006 · Mantener el diagnóstico actualizado aunque haya propuestas sin revisar
+
+- **Evidencia:** una salida `pending_approval` de menos de tres días frena una ejecución nueva (`ai-runtime.ts:15960,16214,16755`). `shouldRequireHumanApproval` exige aprobación para el modo configurado incluso con cero propuestas (`:789`), por lo que «pendiente» no equivale necesariamente a trabajo pendiente. GET solo devuelve el último éxito.
+- **Mejora:** separar lectura del canal y ciclo de propuestas. El diagnóstico puede actualizarse conservando un buzón durable de propuestas pendientes, sus decisiones y su procedencia. No ocultar pendientes antiguas al llegar otro análisis.
+- **Aceptación:** una incidencia nueva de email se refleja aunque quede una propuesta anterior por revisar; una salida sin escrituras no bloquea la cadencia. No se duplican propuestas ni se pierde su revisión.
+
+### A12-007 · Explicar en la UI el funcionamiento y el estado real de A12
+
+- **Evidencia:** la sección genérica promete «Aparecerá en el próximo ciclo automático», ofrece «Actualizar ahora» y solo informa de fecha/periodo aproximados; la mesa reduce la ausencia de resultado a «Sin ejecutar» (`ai-diagnostic-section.tsx:829–875`, `consultant-desk.tsx:1278`). El dashboard de Klaviyo muestra la lectura de A02 y usa A12 principalmente como aviso de propuestas (`client-klaviyo.tsx:342,727`).
+- **Mejora:** una ficha breve «Analista de email»: qué revisa, tienda/cuenta, periodo efectivo, fecha del análisis y de las fuentes, automático/manual, último resultado, ejecución en curso, siguiente revisión estimada y motivo de bloqueo. Dar acceso al informe completo y a sus propuestas desde todas las superficies. Identificar A02, A12, A26 y A28 por función comprensible. Cancelar o descartar respuestas de GET/POST cuyo alcance haya cambiado: la sección genérica no protege actualmente esos setters frente a una respuesta anterior tardía.
+- **Aceptación:** estados visibles y accesibles para desconectado, sincronizando, pendiente, en curso, actualizado, antiguo, parcial, error y pausado. No confundir un error de GET con «nunca ejecutado». Actualizar estado al finalizar el trabajo de fondo, sin tener que abandonar la página. Una respuesta lenta de la tienda anterior no sobrescribe el análisis de la nueva ni habilita su revisión bajo otro alcance.
+
+### A12-008 · Deduplicar ejecuciones y recuperar el resultado tras una desconexión
+
+- **Evidencia:** el POST es síncrono; A12 crea un UUID nuevo por llamada y no expone una clave de petición (`server.ts:9992`, `ai-runtime.ts:6002–6024,6100`). Existe reserva de presupuesto, pero su cuota manual sigue la rama de contar runs y comprobar el límite; la reserva atómica de refrescos solo incluye A04/A05/A06/A08 (`ai-runtime.ts:5594–5650`). Dos pantallas pueden superar concurrentemente la comprobación y lanzar trabajo equivalente.
+- **Mejora:** reutilizar el mecanismo durable del proyecto para una ejecución por organización/tienda/ventana/revisión, con clave idempotente, estado y resultado consultables. Reservar atómicamente el cupo de A12. Aplicar exclusión también entre cron y manual; permitir reintentar o recuperar sin pagar otra generación ya completada.
+- **Aceptación:** doble clic, dos usuarios, reintento HTTP, cierre de pestaña y solapamiento con tick no duplican generación ni propuestas; dos peticiones por el último cupo disponible no lo consumen ambas. Probar recuperación tras fallo entre guardado del output y cierre del run. Mostrar progreso real sin inventar porcentajes.
+
+### A12-009 · Unificar las fechas del análisis, las tools y las pantallas
+
+- **Evidencia:** A12 resta 30 días al instante actual y convierte ambas fronteras a fechas. El SQL incluye el día final; el periodo anterior termina en la misma fecha donde empieza el actual (`ai-runtime.ts:13297–13328`). Esto produce 31 fechas inclusivas y un día compartido. Las tools usan otro helper que sí deriva un anterior sin solapamiento. Las rutas A12 no leen `days`, aunque varias vistas lo envían.
+- **Mejora:** un contrato canónico de ventana, zona horaria y corte de datos. O mantener A12 fijo y mostrar claramente su periodo independiente, o admitir las ventanas permitidas de UI con claves de caché explícitas. Usar la misma función para contexto, tools y API de métricas.
+- **Aceptación:** exactamente el número anunciado de días, periodos disjuntos y equivalentes, cobertura de hoy declarada y casos de cambio de mes/año y horario. Cambiar un selector no debe presentar un diagnóstico de 30 días como si perteneciera a otro periodo.
+
+### A12-010 · Comparar intervalos realmente cubiertos por los reportes
+
+- **Evidencia:** la RPC vigente selecciona filas por `rv.period_start`, agrupa por mes y elige el intervalo más ancho sin exigir que su final pertenezca a la ventana (`20261115860000_klaviyo_email_report_fix.sql:46–97`; misma definición en ambas bases). Puede excluir un mes solapado, escoger un reporte que excede el periodo anterior y descartar ventanas rodantes útiles. Un agregado mensual no permite reconstruir días arbitrarios.
+- **Mejora:** decidir la granularidad que el producto garantiza. Con la captura actual, comparar periodos mensuales compatibles y declarar cobertura real; si se necesitan 7/30/90 días exactos, capturar y conservar ese detalle antes de prometerlo. Conservar identificadores de reportes, intervalos y fecha de observación; no prorratear ingresos ni únicos suponiendo distribución uniforme.
+- **Aceptación:** fixtures con mes completo, rodante de siete días, backfill, huecos y revisiones no suman dos veces ni comparan coberturas distintas. Una reproducción SQL sintética del selector actual eligió para «anterior hasta 19/09» un reporte que terminaba el 30/09; el caso debe quedar cubierto.
+
+### A12-011 · Preservar cuenta, métrica, canal e identidad de mensaje al agregar
+
+- **Evidencia:** `picked` distingue mes/tipo/ID externo/mensaje, pero no cuenta ni `metric_id`; los joins finales resuelven campañas/flows por organización e ID externo, eligiendo la fila más reciente (`20261115860000_klaviyo_email_report_fix.sql:46–168`). No hay filtro explícito de canal en la función. El sync sí conserva cuenta en el report run y métrica en cada valor (`klaviyo-sync.ts:1600–1636`).
+- **Mejora:** particionar por la identidad completa de origen, filtrar cuentas/conexiones elegibles y métrica de conversión vigente o versión histórica explícita. Resolver metadatos en la misma cuenta. Garantizar canal email antes de atribuirle datos; mantener el tratamiento de variantes A/B separado del total.
+- **Aceptación:** cuentas con IDs externos repetidos, reconexión, cambio de métrica, email/SMS y variantes no se mezclan ni sustituyen entre sí. Un filtro por tienda no permite adjuntar el nombre/asunto de una entidad de otra tienda de la misma organización. Verificar RLS con dos organizaciones.
+
+### A12-012 · No sumar ni comparar ingresos de monedas desconocidas o incompatibles
+
+- **Evidencia:** los valores sincronizados conservan `currency_code`, pero el RPC de informe no lo devuelve y el resumidor suma revenue. A12 y sus tools no pasan por `redactKlaviyoRevenue`, que sí existe para otras lecturas (`klaviyo-sync.ts:1623`, `klaviyo.ts:919–944`, `ai-runtime.ts:13167,13352,3179`).
+- **Mejora:** transportar moneda/cobertura por cuenta y periodo. Solo agregar ingresos compatibles; omitir importes o separar monedas cuando falte verificación. Mantener las métricas no monetarias, evitando ordenar por ingresos incompatibles.
+- **Aceptación:** EUR+USD, moneda ausente y cambio de moneda no producen un total monetario aparente ni rankings engañosos. API, diagnóstico y gráficos usan las mismas unidades. No copiar el gate Shopify como sustituto de comprobar Klaviyo.
+
+### A12-013 · Conservar la diferencia entre cero, desconocido y dato no soportado
+
+- **Evidencia:** la RPC hace `coalesce(...,0)`; `num`/`addRow` vuelven a convertir nulos en cero (`klaviyo.ts:906–921`). Cuando la métrica elegida no soporta valores económicos, el sync elimina estadísticas de conversión/valor y registra un reporte `partial` (`klaviyo-sync.ts:1580–1647`), estado que A12 no incorpora al resumen. Reproducción: 100 entregados con clics e ingresos nulos produce clic 0, ingresos 0 y conversión 0.
+- **Mejora:** DTO con disponibilidad por métrica y fuente: observado, cero confirmado, ausente, parcial o no soportado. Separar ausencia de filas de ausencia de actividad. Agregar solo métricas con cobertura conocida, explicando denominadores incompletos.
+- **Aceptación:** reporte parcial, métrica sin valor, periodo vacío y cero real generan estados distintos. No proponer «arreglar una conversión del 0 %» por estadísticas que nunca se obtuvieron.
+
+### A12-014 · No certificar el catálogo por la ausencia de un mensaje de error
+
+- **Evidencia:** `loadKlaviyoCoverage` ignora el error RPC y concluye «El catálogo está al día: si un email no aparece, es que no existe» cuando `recursos_no_traidos` es falsy, aunque no haya sync, esté viejo o fallido (`ai-runtime.ts:15694–15717`). El helper solo proyecta una parte de la salud disponible; en agregado el RPC de salud selecciona el último sync, no la cobertura de cada cuenta.
+- **Mejora:** evaluar cuenta/conexión, última sincronización completa, edad, recursos esperados y fallos. Separar cobertura de inventario, contenido y reportes. Un éxito reciente de una cuenta no valida otra. La ausencia de una entidad solo justifica una hipótesis hasta verificar el inventario completo.
+- **Aceptación:** sin sync, timeout, sync en curso/fallido, parcial sin texto de error y varias cuentas con edades distintas no se etiquetan como catálogo completo. No recomendar crear un flow supuestamente inexistente con cobertura desconocida.
+
+### A12-015 · Propagar fallos de fuentes sin convertirlos en un diagnóstico normal
+
+- **Evidencia:** si falla el informe actual, el constructor devuelve solo un bloque `sin_datos` y aun así continúa el runner; se pierden los bloques ya recuperados de cobertura y A26. El fallo del anterior se convierte en ausencia genérica y el de tracking global se omite (`ai-runtime.ts:13343–13401`).
+- **Mejora:** un resultado tipado por fuente con estado, periodo, fecha, cobertura y código de fallo sanitizado. Interrumpir o producir diagnóstico limitado explícito según una política de suficiencia. Conservar las fuentes sanas y sus límites, sin tratar un timeout como cuenta sin actividad.
+- **Aceptación:** fallos independientes de actual, anterior, salud, tracking y especialista permiten identificar qué conclusiones están autorizadas. No hay propuestas estructurales apoyadas en fuentes fallidas ni mensajes internos de infraestructura en el texto del cliente.
+
+### A12-016 · Dar una única respuesta sobre la frescura del análisis y de sus datos
+
+- **Evidencia:** GET calcula `stale`, pero solo pasa ese resultado al envelope para A02/A04/A06/A08. A12 recibe el valor por defecto `fresh`, incluso con fecha de validez vencida (`ai-runtime.ts:6970–7030,7258`). La sección UI consulta el envelope. Reproducción con fecha 01/09: `status:fresh` y `validUntil:02/09`.
+- **Mejora:** una política compartida para caché, envelope y UI, alineada con la cadencia efectiva. Separar edad del análisis y de cada fuente; una generación de hoy sobre reportes antiguos no tiene datos frescos. Incorporar cambios relevantes posteriores a la generación.
+- **Aceptación:** ninguna vista anuncia fresco y antiguo a la vez. Probar cadencia configurada, fecha inválida, resultado viejo sin actividad, nuevo reporte y fuente antigua en run reciente. Mantener visible el histórico útil con su advertencia.
+
+### A12-017 · Seleccionar casos importantes además de los que más facturan
+
+- **Evidencia:** el resumen compartido ordena por revenue y A12 recibe las primeras 15 campañas y 25 flows (`klaviyo.ts:1021–1042`, `ai-runtime.ts:13148`). Los contadores de truncamiento existen, pero una campaña con quejas elevadas o un flow sin medición puede quedar fuera.
+- **Mejora:** muestra estratificada por ingresos compatibles, deterioro, entregabilidad, volumen suficiente y lagunas de medición, con identidad y motivo de selección. Comparar entidades presentes en ambos periodos y recuperar detalles bajo demanda.
+- **Aceptación:** una entidad de ingresos bajos con riesgo relevante aparece junto a los mejores resultados. La IA conoce total elegible, muestra, cobertura y lo no revisado; nunca afirma haber auditado todo el inventario a partir del top.
+
+### A12-018 · Presupuestar el contexto para que lleguen completas las evidencias esenciales
+
+- **Evidencia:** el bloque actual serializa todos los campos de las 15 campañas/25 flows y coloca límites/granularidad después de los arrays. El serializador limita a 12.000 caracteres por bloque y 48.000 en total (`untrusted-context.ts:2–3,39–66`). El runner también carga actividad, restricciones y playbooks F3–F11 (`ai-runtime.ts:6197–6227`). Reproducción sintética: bloque de 28.268 caracteres truncado antes de `flows_total` y `granularity`.
+- **Mejora:** proyección compacta con contrato de unidades/periodo/cobertura primero, particiones estructuradas acotadas y un presupuesto global específico de A12. Cargar solo contexto operativo útil para email; evitar consultar F9/F11 para después perderlos. Medir tokens/coste/latencia y cachear lecturas por revisión.
+- **Aceptación:** las restricciones, límites, fuente y fechas sobreviven a cardinalidad alta. No cortar JSON a mitad de una entidad como contexto normal. Las consultas bajo demanda amplían evidencia sin duplicar el bloque inicial.
+
+### A12-019 · Compartir una capa de lectura completa y acotada entre UI, contexto y tools
+
+- **Evidencia:** se reutiliza el resumidor, pero contexto A12, tools y `getKlaviyoEmailReport` mantienen consultas/ventanas y estados distintos. La tool de una entidad primero lee todo el informe, luego filtra en Node y corta a 12 filas (`ai-runtime.ts:3231–3285`). A12 consulta tracking global incluso para una tienda aunque luego lo descarte (`13330,13374`).
+- **Mejora:** servicio canónico de lectura con fechas, scope, identidad, cobertura, moneda y errores compartidos. Filtrar entidad/tipo/cuenta en la consulta y devolver orden/paginación/cobertura explícitos. No consultar tracking global si el alcance no permite usarlo. Reutilizar dentro del run resultados equivalentes.
+- **Aceptación:** paridad de cifras y estados entre API/UI/A12; pruebas que detecten falta de filtros y llamadas redundantes. El coste de profundizar en una campaña no crece con todo el catálogo. Límites se aplican en la base y se declaran.
+
+### A12-020 · Hacer que la herramienta de entregabilidad mida el periodo solicitado
+
+- **Evidencia:** `klaviyo_deliverability_health` devuelve salud de configuración/inventario y tracking; no calcula en esa llamada rebotes, bajas o spam del periodo (`ai-runtime.ts:3290–3341`). Además consulta dos veces salud, directamente y a través de `loadKlaviyoCoverage`.
+- **Mejora:** mantener herramientas pequeñas, pero hacer explícito si responden sobre configuración o resultados de entrega. Incorporar numeradores, denominadores, periodo y cobertura para entregabilidad, reutilizando el informe y una sola consulta de salud.
+- **Aceptación:** un catálogo bien configurado con rebotes altos no se diagnostica como entregabilidad sana. El tracking web no se presenta como prueba de llegada a bandeja. Si no hay métricas de entrega disponibles, la respuesta lo declara.
+
+### A12-021 · Vincular las conclusiones a evidencia verificable y muestras suficientes
+
+- **Evidencia:** A12 usa el contrato genérico de hallazgos/recomendaciones. El contexto lleva cifras e IDs de entidad, pero no una cadena obligatoria de referencias a reporte/métrica/versión/periodo; no existe un gate específico de A12 que valide cada afirmación numérica. El prompt base contiene benchmarks generales y propone interpretar asuntos/aperturas (`20260829140000_ai_a12_analista_email.sql:39`).
+- **Mejora:** hallazgos tipados con entidad, fuente, periodo, valor, unidad, denominador, comparación y confianza. Validar citas/cifras en servidor; separar hechos de hipótesis. Tratar porcentajes como ratios con escala explícita, y destinatarios/únicos agregados como mediciones por mensaje/periodo, sin afirmar personas distintas de toda la cuenta. Referencias metodológicas deben tener procedencia y alcance; aperturas/CTOR y cambios de asunto no prueban causalidad ni ventas incrementales.
+- **Aceptación:** muestra pequeña, cero denominador, conversión sin valor, cambio de audiencia y benchmarks no aplicables no producen certezas ni tareas injustificadas. El usuario puede abrir la entidad y la evidencia que respaldan cada conclusión.
+
+### A12-022 · Seleccionar el A26 pertinente y vigente, conservando sus límites
+
+- **Evidencia:** A12 pide hasta siete resúmenes entre varios agentes y después busca A26. La llamada no fija `maxAgeDaysByCode` ni restringe de antemano a A26 (`ai-runtime.ts:10821–10876,13340,13400`). Puede quedar fuera por otros especialistas recientes o entrar un resumen antiguo. La proyección compacta no enlaza necesariamente cada hallazgo de contenido al mensaje que explica el rendimiento.
+- **Mejora:** recuperar directamente A26 aprobado/publicado del mismo alcance, con caducidad y referencias de mensaje/plantilla/versión/fecha. Una revisión obsoleta puede servir de historial, identificada como tal. La ausencia o error de A26 no debe convertirse en ausencia de problemas de copy.
+- **Aceptación:** A26 aparece aunque haya siete especialistas más recientes; se descarta o etiqueta cuando está vencido o el email cambió. No convertir una observación visual en explicación causal del resultado agregado.
+
+### A12-023 · Conectar una mejora de rendimiento con el trabajo editorial y su seguimiento
+
+- **Evidencia:** A11/A27/A09 ya pueden consumir resúmenes de especialistas; A11 limita antigüedad de A12 a 60 días y A09 a 30, pero el resumen compartido es principalmente texto (`ai-runtime.ts:10821,11221,19171`, `consultant-specialist-context.ts:6`, `marketing-peer-history.ts`). No demuestra qué recomendación concreta originó una variante ni qué se midió después.
+- **Mejora funcional:** «Revisar con el copiloto», «Preparar variante en el Estudio» y «Llevar al plan de mailing» con contexto tipado de entidad, hipótesis, KPI, evidencia, tienda y versión. A11 diseña, A27 decide secuencia y A28 arquitectura; A12 conserva evaluación/medición. Vincular borrador aprobado, envío sincronizado y resultado posterior cuando exista evidencia suficiente.
+- **Aceptación:** una mejora llega al especialista con el alcance y datos correctos, sin volver a ejecutar agentes por abrirla. No se publica ni envía nada por el handoff. El seguimiento diferencia variante creada, aplicada, enviada y resultado observado, sin atribuir mejora causal sin experimento.
+
+### A12-024 · Evitar propuestas duplicadas y respetar la responsabilidad de A28
+
+- **Evidencia:** el prompt original permite proponer crear flows y pide no duplicar backlog; el constructor A12 no carga un inventario específico de flows/tareas abiertas del canal. El histórico común recoge principalmente propuestas previas del propio agente; la materialización deduplica por título exacto normalizado y por identidad dentro del mismo output (`ai-runtime.ts:loadPriorProposalHistory,23382–23429,23850`). Esto no identifica la misma necesidad expresada por A26/A28 con otro título.
+- **Mejora:** recuperar backlog y arquitectura aprobada del alcance antes de proponer. Clave de oportunidad por cuenta/entidad/tipo de intervención, conservando propuesta/tarea existente y resolución. A12 documenta el problema y deriva a A28 el diseño de automatización; no crea un segundo plan contradictorio.
+- **Aceptación:** la misma incidencia detectada por A12/A26/A28 no genera tres tareas, tampoco con aprobaciones concurrentes de outputs distintos. Tareas cerradas o descartadas requieren evidencia nueva y una razón antes de reaparecer. No afirmar ausencia de flow sin inventario fiable.
+
+### A12-025 · Hacer coherente y recuperable la revisión de propuestas
+
+- **Evidencia:** la sección genérica presenta controles de decisión sin conocer por sí misma el rol; el backend limita la aprobación según rol y asignación de consultor. Algunas vistas ocultan propuestas al cliente con consultor y otras montan la sección completa (`ai-diagnostic-section.tsx:786,928`, `client-pulse.tsx:1249`, `ai-runtime.ts:approvalCandidate,decideAgentOutput`). La materialización conserva claims, índices y recibos, pero una propuesta de A12 antigua no revalida sus métricas antes de aprobar.
+- **Mejora:** la API debe exponer quién puede revisar y la UI consumirlo. Mostrar por propuesta aprobada/rechazada/ya existente, tarea o handoff resultante y explicación de decisiones sin efecto. Revalidar evidencia/entidad cuando haya caducado o cambiado y permitir revisión explícita del cambio.
+- **Aceptación:** cliente con/sin consultor, colaborador y consultor asignado ven controles coherentes con backend. Un fallo parcial se recupera sin duplicar; nunca se anuncia «tarea creada» si solo se encontró una existente. Se puede abrir el resultado exacto desde el diagnóstico.
+
+### A12-026 · Alinear móvil con la tienda y las capacidades de web
+
+- **Evidencia:** `TodoView` aplica `withStore` a métricas de Shopify/Klaviyo, pero A12 usa la URL global sin tienda (`apps/mobile/components/views.tsx:163–180`). Muestra propuestas con un diagnóstico de alcance distinto al de las métricas del mismo panel.
+- **Mejora:** transportar organización/tienda al GET y a toda revisión/handoff. Compartir el contrato de estado y evidencia; ofrecer acceso al informe o una representación resumida con destino claro. Si se quiere una vista de organización, debe elegirse y etiquetarse explícitamente.
+- **Aceptación:** cambio entre dos tiendas no mezcla propuestas globales con KPIs locales; recarga, desconexión y posterior aprobación mantienen identidad y estado. Web y móvil explican el mismo análisis y responsable.
+
+### A12-027 · Añadir regresiones específicas de A12 y evaluar recorridos completos
+
+- **Evidencia:** pasan las 45 pruebas focalizadas indicadas abajo. Las de ventanas cubren el helper de tools; no ejercitan la ventana inicial del runner, SQL real, trigger cron, cron por tienda, errores de fuentes ni estados de UI. Las reproducciones de esta auditoría detectaron huecos pese al verde.
+- **Mejora:** integrar pruebas de runner/ruta con clientes simulados que fallen si faltan organización/tienda/cuenta, además de fixtures SQL y aislamiento RLS en test. E2E por rol/canal: sincronización → elegibilidad → cron → diagnóstico → revisión → tarea/brief → medición posterior. Evaluaciones de calidad con hechos etiquetados y abstención ante evidencia insuficiente.
+- **Aceptación:** cubrir las 29 mejoras, especialmente ventanas, nulabilidad, multicuentas/divisas, partial sync, cupos, concurrencia y caducidad. Medir afirmaciones soportadas, duplicados, cobertura, latencia y coste. No presentar una prueba de esquema o una suite local como calidad semántica o E2E desplegado.
+
+### A12-028 · Actualizar catálogo y observabilidad con evidencias de despliegue
+
+- **Evidencia:** `REVISION_AGENTES.md:350–368` declara cierre local y deja migración v4 como externa; esta pasada confirma v4 en ambas bases y nuevas incidencias. El horario/cadencia se describe en código, pero el usuario no tiene una explicación del último aplazamiento. Los últimos gate logs son antiguos y el código permite salidas tempranas sin filas por agente.
+- **Mejora:** actualizar la ficha maestra y una única política operativa que reutilicen UI/admin/documentación: finalidad, disparadores, requisitos, alcance, periodo, herramientas efectivas, modelo real, controles y destinos. Separar configuración DB, código local, versión API/web/worker desplegada y validación con datos. Guardar latido de cada tick, causas de bloqueo y vínculo tick/run/output sin contenido sensible.
+- **Aceptación:** un operador puede explicar por qué una tienda no tiene A12 y qué acción corresponde, sin consultar código ni prometer un cron inexistente. Todo cierre enumera evidencias verificadas y límites concretos; el hecho de tener v4 en DB no certifica el despliegue.
+
+### A12-029 · Aplicar el alcance de tienda también al contexto transversal
+
+- **Evidencia:** el runner entrega `storeId` a las fuentes directas, restricciones y actividad, pero llama a `loadDecisionPlaybookContextBlocks` sin `storeId` para A12 (`ai-runtime.ts:6210–6221`). El loader sí dispone de filtrado específico cuando recibe `options.storeId`; sin él puede cargar casos/resultados de otras tiendas de la organización (`decision-playbook-chat-context.ts:937–983,1176,1361`).
+- **Mejora:** transmitir el alcance en toda fuente transversal y seleccionar únicamente contexto global aplicable o de la tienda actual, con su procedencia. Autorizar pertenencia a la organización antes de resolver la tienda mediante service role; actualmente A12 resuelve primero y el runner/GET común comprueba membresía después (`ai-runtime.ts:13289,13419,5895,6900`).
+- **Aceptación:** las métricas de la tienda A no reciben casos F3/F9/F11 o recomendaciones de la B como si fueran locales. Organización ajena, conexión ajena/inactiva y fallos de resolución no devuelven metadatos ni amplían el ámbito. Probar el snapshot completo, además de los parámetros de las tools.
+
+### Verificación y límites de esta auditoría de A12
+
+- **45/45 pruebas locales aprobadas:** desde `apps/api`, `npx tsx --test --test-force-exit src/klaviyo-performance-tools.test.ts src/klaviyo-email-report-summary.test.ts src/marketing-peer-history.test.ts src/marketing-store-scope.test.ts src/ai-diagnostic-activity-gate.test.ts src/ai-runtime-envelope.test.ts`.
+- **Reproducciones adicionales, con datos sintéticos:** alcance automático global con dos tiendas; envelope antiguo marcado `fresh`; nulos convertidos en ceros y ausencia de filas convertida en totales cero; truncamiento de un bloque de 28.268 caracteres antes de sus contadores de cobertura/granularidad. No se llamó al modelo ni se persistieron resultados de agente.
+- **SQL sintético de solo lectura en test:** CTE `VALUES`, sin tablas de clientes ni escrituras, reprodujo el selector mensual de la función vigente. Para ventanas «19/09–19/10» y «20/08–19/09» obtuvo 31 días inclusivos en ambas y un reporte anterior hasta 30/09, fuera de la ventana solicitada. Esto demuestra el defecto de selección, no cuantifica su impacto en datos reales.
+- **Consultas remotas de solo lectura en ambos entornos:** versiones/herramientas, override de cadencia, conteos/fechas/estados de runs y gates, conteos de conexiones y definición SQL del informe. Se verificó que la corrección local vigente del informe coincide en ambas bases; no se inspeccionaron contenidos de emails, respuestas de clientes ni credenciales.
+- **Revisión estática de UI web/móvil:** rutas, componentes, botones, estados, alcance y consumidores. No se realizó un recorrido visual autenticado, una ejecución real del worker, pruebas con proveedor, carga, concurrencia Postgres ni E2E de aprobaciones; esos puntos tienen aceptación explícita en el registro.
+- **Alcance de implementación:** código local en `apps/api/src/ai-runtime.ts`, `apps/api/src/server.ts`, las superficies web/móvil relacionadas y los tipos DB; migraciones A12 aplicadas en test y producción. No se desplegó API/web/worker ni se ejecutó A12 con datos reales. Los estados parciales/pendientes de la tabla anterior requieren integración funcional antes de cerrar la auditoría.
+
+## A13 · Operativa Shopify orientada a Mi Camino
+
+**Auditoría: 19 de octubre de 2026. Estado: implementación principal completada; migraciones A13 aplicadas en test y producción.** Se ha seguido el recorrido API → contexto → modelo/contrato → caché → UI → aprobación → tarea/hito, además del orquestador y los lectores de A19. Los cierres de scheduler, buzón histórico y observabilidad de despliegue quedan indicados en la validación; esta pasada no desplegó API/web/worker.
+
+### Función que debe cumplir y relación con los demás agentes
+
+**Criterio solicitado por el propietario:** A13 analiza el estado de la tienda y prioriza trabajo operativo que contribuya al objetivo vigente de Mi Camino. Debe conocer meta, unidad, fecha, progreso verificable, hitos, restricciones y trabajo ya comprometido. Cada propuesta debe explicar el problema observado, su relación con la meta y cómo comprobar después si se ejecutó y qué ocurrió. Completar una tarea no demuestra por sí solo impacto causal.
+
+La fuente de la meta debe seguir siendo `strategic_plans.goal`; los objetivos por métrica/hito ya existen en `organization_metric_targets`. La medición determinista de progreso ya tiene un helper en `camino-goal-progress.ts` y A19 lo utiliza. A13 debe reutilizar esas fuentes, conservando tienda, moneda, periodo y versión; no crear otra pantalla de objetivos ni permitir al modelo inventar o modificar la meta. Sin Camino aprobado puede señalar mantenimiento operativo justificado, declarando que no puede vincularlo a una meta aprobada.
+
+| Agente / módulo | Responsabilidad que debe conservarse | Relación de A13 |
+|---|---|---|
+| A02 · Monitor | Lectura amplia del negocio y señales por área. | A13 concreta problemas operativos de Shopify con evidencia suficiente. |
+| A13 · Operativa Shopify | Diagnóstico operativo y propuestas de trabajo alineadas con la meta de la tienda. | Explica contribución, prioridad, entrega y siguiente comprobación. |
+| A19 / Mi Camino | Plan aprobado, objetivos, hitos, seguimiento y propuestas de revisión estratégica. | A13 lee ese plan; deriva contradicciones o cambios estratégicos a su revisión. |
+| A04 / A17 / A18 | Selección diaria, planificación semanal e iniciativas mensuales. | A13 aporta oportunidades verificadas y respeta capacidad, dependencias y backlog. |
+| A06 | Riesgo de stock y reposición con sus controles específicos. | A13 reutiliza sus señales; evita abrir otra reposición para el mismo producto. |
+| A20 / A21 / A22 | Retención, adquisición/conversión y postventa. | A13 coordina el trabajo operativo sin sustituir sus análisis ni repetir sus propuestas. |
+
+**Situación actual:** A13 carga directamente ventas actuales/anteriores, finanzas actuales, stock, hasta cinco productos de una muestra de riesgo, tareas abiertas, nombres/estados de fases y alertas. No carga directamente `goal`, objetivos vigentes, hitos, fechas de hitos ni progreso calculado. El contexto transversal puede contener una declaración de objetivo de otros motores, pero no sustituye la lectura versionada del Camino de la tienda; además llega sin el filtro de tienda específico de A13. A19 sí puede recuperar un resumen aprobado de A13, pero el resumen pierde precisamente las propuestas que constituyen su salida principal.
+
+### Disparadores y superficies comprobados
+
+| Entrada | Comportamiento actual | Límite observado |
+|---|---|---|
+| Worker | BullMQ registra `0 6,15 * * *`, `Europe/Madrid`; llama al tick interno autenticado. | Son dos oportunidades de evaluación, no dos ejecuciones garantizadas de A13. No se comprobó un worker desplegado en ejecución. |
+| Selección automática | A13 considera agregado y tiendas activas con conexión Shopify `connected`/`syncing` y `last_sync_at`; mínimo base de 20 h, escalable desde plataforma. | Cupos compartidos de 12 runs/org/día y 15 por tick por defecto; no hay prioridad específica por espera o riesgo para la meta de A13. |
+| Ejecución desde tick | Pasa `trigger:cron`, `enforceManualRefreshCap:false` y `connectionId`. | No pasa a A13 el digest calculado por el tick; el runner tampoco calcula uno específico. |
+| GET `/ai/operativa-shopify` | Lee último éxito de ventana fija de 30 días y scope exacto; no llama al modelo. | No distingue todos los estados de conexión, fuentes, pausa, ejecución y bloqueo; la frescura del envelope puede contradecir el campo `stale`. |
+| POST `/ai/operativa-shopify-run` | Ejecución síncrona manual; acepta `connectionId`. | `days` se ignora. El frontend envía `Idempotency-Key`, pero esta ruta no lo transmite al runner. |
+| Dashboard / módulo Shopify | `ClientShopify` consulta A13 solo si `asConsultant`; presenta sus propuestas en la cola de trabajo. | No muestra un diagnóstico A13 completo. La lectura de operaciones vecina sigue siendo organizativa. |
+| Cliente sin consultor | La API común permite decisiones de owner/manager según su política vigente. | La UI Shopify no consulta A13 para ese cliente, aunque el cron puede seguir gastando en el agente. |
+| Aprobación | Materializa tareas internas y puede enlazarlas a un hito; no modifica productos, precios, descuentos o configuración de Shopify. | El vínculo estratégico se resuelve con datos insuficientes y un fallback al hito actual. |
+
+Referencias: `apps/worker/src/repeatable-jobs.ts:17`, `apps/worker/src/worker.ts:161,351`, `apps/api/src/server.ts:10069–10252`, `apps/api/src/ai-runtime.ts:14098–14246,16165–16289,16840–17126,17209`, `apps/api/src/agent-schedule.ts:29`, `apps/web/src/app/dashboard/client-shopify.tsx:174,229,529–553`.
+
+### Configuración y estado remoto, solo lectura
+
+Consultas realizadas el **19 de octubre de 2026, entre 10:55 y 11:01 UTC**. No se leyeron cuerpos de pedidos, notas privadas, salidas de agentes ni contenido de clientes; se consultaron metadatos, configuración y definiciones de funciones/triggers. La consulta del prompt corresponde a configuración del agente.
+
+| Comprobación | Test · `kopcblejsxpkxoykldyh` | Producción · `cthjwpeygpzwdmjkxeqa` |
+|---|---|---|
+| Definición / versión activa | Activa; agente v2 / prompt v2 | Igual |
+| Modelo de la versión | `claude-sonnet-5` | Igual; no certifica el modelo efectivo de cada run |
+| Herramientas declaradas | Solo `search_knowledge` | Igual |
+| Aprobación | `required_before_publish` | Igual |
+| Override de cadencia A13 | Sin fila en `platform_ai_agent_settings` | Igual |
+| Runs A13 últimos 30 días | 4 éxitos manuales y 1 fallo cron; un éxito con scope de tienda | 7 fallos cron, todos agregados; ningún éxito en la ventana |
+| Último run A13 | 12/10/2026 | 22/09/2026 |
+| Digest nulo en runs de la ventana | 3 de los 4 éxitos y el fallo | Los 7 fallos |
+| Truncamiento de contexto | 3 de los 4 éxitos lo registran | Sin éxitos recientes que evaluar |
+| Identidad de despliegue en éxitos recientes | Ninguno de los cuatro tiene `deployment_version` | Sin éxitos recientes |
+| Gates A13 últimos siete días | 0 | 0 |
+| Último gate de cualquier agente | 25/09/2026 | 22/09/2026 |
+| Conexiones Shopify | Una conectada con sincronización previa; dos pendientes de eliminación | Una en error, con sincronización histórica |
+| Migraciones A13 en el historial | `20260901230000_ai_a13_operativa_shopify`, `20261115450000_ai_a13_store_scoped_operational_context` | Ambas registradas también |
+| `alerts.store_id` y objetivos por hito | Existen | Existen |
+| Triggers del enlace tarea/hito | Comprobaciones de misma organización y compatibilidad de tienda | Mismas definiciones |
+
+Las RPC consultadas tienen las mismas definiciones en ambos proyectos: `shopify_sales_summary` de cuatro argumentos, MD5 `08639d55b75cd0382cf7014ea0b3d771`; `shopify_financial_summary`, `62f44515dd1ee277944a0e2ae006b666`; `shopify_stock_risk_products`, `56adda2a1d1a81560b9b5591c75ff9f9`; `shopify_stock_summary` de tres argumentos, `316905a473c7d36be589dfb5857f2df4`. Se contrastaron mediante `pg_get_functiondef`; no se infirió el estado remoto a partir del nombre de los ficheros locales.
+
+**Interpretación operativa:** A13 está configurado, pero no se ha certificado un recorrido automático actual. La ausencia de gates no prueba por sí sola una caída: autorun apagado, cero candidatos y salidas tempranas también pueden no persistir decisiones. En producción el estado actual de Shopify impide prometer un próximo análisis automático. Los cuatro éxitos históricos de test incluyen metadatos de tokens/latencia nulos o cero en alguna fila; esa muestra no permite afirmar un coste ni una latencia representativos.
+
+### Registro de mejoras de A13
+
+Todas las entradas son mejoras propuestas a partir de esta auditoría. Ninguna se marca implementada aquí. Las garantías ya comprobadas —GET de lectura, scope estricto cuando se proporciona conexión, separación de tareas sin tienda, presupuestos, trazas y triggers de organización/tienda— deben conservarse al abordarlas.
+
+### A13-001 · Leer el objetivo y el Camino vigente mediante un contexto canónico
+
+- **Evidencia:** `loadPlanPhasesBlock` selecciona solo `id, version` y nombres/estados/posición de fases; mezcla `draft`/`active` y escoge la versión mayor. Un borrador nuevo puede desplazar al plan aprobado. A13 no lee `goal`, `organization_metric_targets` ni los hitos (`ai-runtime.ts:13928–13970,14206`). A19 ya carga esas fuentes y calcula progreso (`9690–9794`).
+- **Mejora:** un loader de la misma organización/tienda con plan activo aprobado, ID/versión, meta/unidad/moneda/plazo, objetivos vigentes, hito actual, próximos hitos, criterios de éxito y progreso calculado. Distinguir plan activo, borrador, finalizado y ausencia de plan; conservar un borrador solo como propuesta identificada. Reutilizar las reglas de medición vigentes.
+- **Aceptación:** dos tiendas y un borrador posterior no cambian la meta de referencia equivocadamente. A13 identifica la versión leída, la brecha verificable y lo desconocido; sin plan aprobado declara mantenimiento operativo sin inventar un objetivo.
+
+### A13-002 · Priorizar el trabajo por su contribución al objetivo y su factibilidad
+
+- **Evidencia:** el encargo actual pide revisar los últimos 30 días y proponer tareas; no exige justificar contribución a meta/hito, dependencias o capacidad (`ai-runtime.ts:14124`). El prompt permite propuestas amplias de mejora de Shopify sin un contrato estratégico medible.
+- **Mejora:** distinguir mantenimiento urgente, eliminación de un bloqueo y avance hacia un objetivo; explicar la relación con la meta y priorizar evidencia, urgencia, dependencia, esfuerzo y capacidad conocida. Contrastar señales de A02 y los especialistas sin repetir su trabajo. Los cambios de objetivo o ruta se proponen para revisión de A19/Mi Camino, con la evidencia que los motiva.
+- **Aceptación:** ante metas de beneficio, crecimiento o disponibilidad distintas, las prioridades se ajustan cuando los datos lo justifican. No perseguir facturación sacrificando una restricción de margen ni dejar un incidente urgente sin tratar porque no encaje en el hito. No cuantificar impacto sin soporte.
+
+### A13-003 · Conservar la identidad de fase/hito y eliminar enlaces estratégicos por defecto
+
+- **Evidencia:** el prompt v2 exige `phase`, pero `agentProposedWriteSchema` y su JSON Schema no incluyen ese campo; el parseo lo elimina (`packages/ai/src/index.ts:264–335`). A13 solo recibe nombres de fases y no IDs de hito. `shouldFallbackToCurrentMilestone(A13)` devuelve `true`, y la aprobación enlaza al hito actual si falta uno explícito (`agent-task-delivery.ts:64`, `ai-runtime.ts:24198`). Reproducción sintética confirmada.
+- **Mejora:** propuesta tipada con referencia a plan/versión, hito o tarea libre y una justificación de alineación. Resolver IDs server-side contra el contexto autorizado y conservarlos en la propuesta y tarea. `null` debe representar una tarea libre real; no sustituirlo silenciosamente por el hito actual.
+- **Aceptación:** una tarea libre sigue libre; una propuesta para otro hito conserva ese hito; nombres de fase repetidos no crean ambigüedad. El vínculo visible en Mi Camino corresponde a la intención revisada, sin asignaciones inferidas por mera cercanía.
+
+### A13-004 · Entregar a A19 un resumen útil y recibir su seguimiento vigente
+
+- **Evidencia:** A19 incluye especialistas de la misma tienda, entre ellos A13, pero el resumidor genérico solo conserva `answer/findings/recommendations/sources/warnings`; omite las propuestas (`consultant-specialist-context.ts:169–240`, `ai-runtime.ts:9670,9874`). A13 usa contrato lean: `answer` puede ser solo «1 propuesta(s) de trabajo para este ciclo» y las otras dos listas quedan vacías. Reproducción confirmada con un output aprobado.
+- **Mejora:** un resumen operativo de A13 con conclusión fundamentada, oportunidad, entidad, meta/hito, evidencia, estado de propuesta/tarea y condiciones de revisión. A13 debe recibir la revisión vigente del Camino y su decisión efectiva, con scope y frescura. Mantener análisis e instrucciones separados y no ejecutar agentes al abrir un resumen.
+- **Aceptación:** A19 puede explicar qué bloqueo detectó A13 y qué trabajo se aceptó, sin leer un mero contador ni volver a proponerlo. A13 respeta una revisión humana posterior y no usa un plan histórico como si fuese el vigente.
+
+### A13-005 · Revalidar y completar atómicamente la tarea y su vínculo con Mi Camino
+
+- **Evidencia:** la revalidación explícita de hito activo/tienda en el materializador solo incluye A04/A06 (`ai-runtime.ts:24099`). Los triggers remotos sí protegen organización y compatibilidad de tienda; no prueban versión, estado aprobado ni alineación. Tarea y enlace se escriben en pasos separados (`24126–24220`); un reintento A13 puede encontrar el título ya abierto y saltar antes de recuperar un enlace fallido (`24083`).
+- **Mejora:** validar plan/versión/hito/evidencia en la aprobación y materializar tarea, enlace y recibo de forma recuperable. Rechazar o pedir revisión explícita ante un hito cerrado, un plan reemplazado o un cambio de meta. No permitir que un output agregado se atribuya a una tienda al enlazarlo sin una decisión de alcance.
+- **Aceptación:** fallo tras crear tarea y antes del enlace se recupera sin duplicados ni aprobación incompleta. Los triggers existentes se conservan; una tarea no queda enlazada a un plan obsoleto o a un hito sin relación con su objetivo.
+
+### A13-006 · Etiquetar las tareas de A13 como Shopify
+
+- **Evidencia:** `AGENT_TASK_CATEGORY` no contiene A13; el materializador aplica el fallback `general` (`ai-runtime.ts:543–560,23630–23634`). El contrato tampoco recoge una lista `categories` para que el modelo lo compense. El agente se presenta como operativa Shopify.
+- **Mejora:** fijar la categoría base Shopify en el backend, conservar la procedencia A13 y revisar las tareas históricas por su agente de origen antes de proponer un backfill. No inferir categoría a partir del título.
+- **Aceptación:** una tarea aprobada de A13 aparece en los filtros y contadores de Shopify, mantiene tienda/hito y no altera categorías de otros agentes. Cualquier corrección histórica es idempotente y acotada a procedencia verificable.
+
+### A13-007 · Conservar diagnóstico y avisos en un contrato que coincida con el prompt y la UI
+
+- **Evidencia:** `LEAN_OUTPUT_BY_AGENT` elimina de A13 `answer`, `findings` y `recommendations` (`ai-runtime.ts:5836–5841`), pero el prompt pide un diagnóstico breve y envía avisos de poco esfuerzo a `recommendations`. El parser rellena una frase de contador y listas vacías (`packages/ai/src/index.ts:3348–3387`). La ausencia de tareas deja sin explicación operativa al usuario.
+- **Mejora:** contrato específico y breve que preserve conclusión, relación con el objetivo, limitaciones esenciales y avisos sin entregable, además de tareas. Alinear prompt, esquema, resumen para otros agentes y superficies reales; mantener compatibilidad con outputs antiguos sin rellenar conclusiones inexistentes.
+- **Aceptación:** «no hay trabajo nuevo», «falta evidencia», «fuente fallida» y «solo hay un aviso» producen resultados distintos y visibles. Un aviso útil no desaparece ni se transforma en una tarea para sobrevivir al contrato.
+
+### A13-008 · Comprobar elegibilidad y cobertura Shopify antes de gastar o presentar un primer análisis
+
+- **Evidencia:** el cron exige una sincronización histórica en alguna conexión Shopify, pero no cobertura/frescura de cada bloque. El POST A13 puede continuar con una tienda activa sin comprobar estado de conexión ni sincronización. El GET sin caché usa `organizationHasIngestedData` sobre cualquier proveedor, sin scope Shopify/tienda (`ai-runtime.ts:7080–7147,14098,16703`).
+- **Mejora:** política específica de conexión, permisos, tienda, bloques sincronizados y cobertura temporal. Admitir análisis limitado explícito cuando haya evidencia suficiente; distinguir desconectado, sincronizando, permisos pendientes, datos parciales y listo. No cobrar una lectura vacía como diagnóstico normal.
+- **Aceptación:** Klaviyo sincronizado no habilita un A13 sin Shopify. Un sync reciente de otra tienda no valida la actual; una conexión en error conserva el histórico con su aviso y no se anuncia lista para el próximo cron.
+
+### A13-009 · Autorizar antes de resolver scope y exponer capacidades coherentes
+
+- **Evidencia:** GET y runner A13 llaman a `resolveStrictStoreScope` mediante service role antes de la comprobación de membresía del helper común (`ai-runtime.ts:14098,14225,7858,5920,6918`). Las rutas no aplican una guarda específica de consultor, mientras la UI marca A13 `consultantOnly`. La política actual de decisiones permite owner/manager; ocultar un botón no define esa autorización (`server.ts:10069–10252`, `dashboard-ai-agents.ts:88–99`, `ai-runtime.ts:23336`).
+- **Mejora:** membresía/organización operativa antes de lecturas privilegiadas; validar UUID y vínculo conexión/tienda. Definir `can_read`, `can_run`, `can_review` por rol y asignación, conforme a la política de producto vigente, y consumirlas en la UI. No usar `consultantOnly` como control de seguridad.
+- **Aceptación:** organización ajena o conexión ajena/inactiva no revelan existencia ni amplían el ámbito. Cliente autorizado, colaborador y consultor asignado ven capacidades que el backend respeta. Referencia: [autorización y RLS de Supabase](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
+### A13-010 · Aplicar tienda y procedencia a todo el contexto transversal
+
+- **Evidencia:** las métricas directas reciben `storeId`, pero la llamada común a `loadDecisionPlaybookContextBlocks` solo pasa opciones de tienda para A04/A12, no A13 (`ai-runtime.ts:6227–6241`). El loader sin opciones lee contexto/resultados organizativos F3–F9/F11; su rama con `storeId` sí acota casos relacionados (`decision-playbook-chat-context.ts:937–985,1176`).
+- **Mejora:** propagar la tienda a todas las lecturas y seleccionar contexto global aplicable o de la tienda, con procedencia y vigencia. El agregado debe identificarse como agregado y no adjuntar fases/objetivos locales como si fueran un plan único.
+- **Aceptación:** métricas de A no reciben casos, recomendaciones o restricciones operativas de B como evidencia local. Validar el snapshot completo y lo efectivamente serializado, además de los argumentos de las RPC.
+
+### A13-011 · Aprovechar la atribución de tienda que ya existe en las alertas
+
+- **Evidencia:** A13 consulta alertas por organización sin seleccionar/filtrar `store_id` y las etiqueta todas como no atribuidas (`ai-runtime.ts:14164–14172,14209`, `shopify-operational-context.ts:38`). En ambos esquemas remotos `alerts.store_id` ya existe; `listOperations` también la selecciona.
+- **Mejora:** cargar alertas de la tienda y separar las realmente organizativas, con ID, métrica, periodo, estado y última observación. Respetar desconocidos sin perder señales locales válidas. Retirar la suposición obsoleta de que la tabla carece de tienda.
+- **Aceptación:** la alerta de stock de A puede fundamentar una revisión de A; una de B queda fuera; una global se conserva solo con sus límites. El comentario, el DTO y las dos superficies describen el mismo alcance.
+
+### A13-012 · Condicionar los veredictos financieros a cobertura y comparabilidad reales
+
+- **Evidencia:** A13 incorpora el guard de moneda, pero entrega el resumen financiero bruto con beneficio/margen aunque existan `has_settings=false` o costes de producto ausentes. No carga un periodo financiero anterior ni toda la cobertura de líneas netas que usa la UI (`ai-runtime.ts:14143–14150,14187`, `shopify-metrics.ts:742–1001`). La RPC devuelve cifras derivadas aun con componentes incompletos.
+- **Mejora:** DTO financiero con cobertura de ajustes, costes, líneas netas, IVA, reembolsos y ads; declarar estimado/parcial/no disponible por métrica. Reutilizar la política de fiabilidad del producto y obtener comparables previos solo cuando se vayan a interpretar tendencias. Una instrucción al modelo no sustituye ese contrato.
+- **Aceptación:** costes o ajustes ausentes no producen beneficio aparentemente firme ni una tendencia inventada. Un margen actual no se compara con ventas anteriores como si fuera el margen anterior. Moneda verificada y cobertura económica se comprueban por separado.
+
+### A13-013 · Separar costes organizativos, economía de tienda y monedas
+
+- **Evidencia:** la RPC desplegada `shopify_financial_summary` filtra pedidos por tienda, pero usa ajustes, reglas de envío y gastos fijos por organización. Su CTE de fijos no reparte esos gastos entre tiendas. El agregado puede sumar ventas de varias tiendas; el guard monetario común informa al modelo, pero no transforma estos datos en una economía de tienda atribuida.
+- **Mejora:** identificar costes propios, compartidos, asignados y sin asignar; aplicar una regla explícita de reparto cuando exista o declarar que no hay beneficio neto atribuible a la tienda. No sumar monedas desconocidas/incompatibles ni fijar umbrales comerciales con esos derivados. Conservar métricas no monetarias.
+- **Aceptación:** el mismo gasto fijo no se presenta como coste exclusivo completo de cada tienda. EUR/USD y gastos de moneda desconocida no generan un total aparente; API/UI/A13 coinciden en unidad, scope y cobertura.
+
+### A13-014 · Respaldar cada intervención con evidencia suficiente y lecturas bajo demanda
+
+- **Evidencia:** el prompt permite rehacer fichas que convierten mal, bundles y umbrales de envío gratis, pero el contexto base no contiene embudo por producto, contenido/precios del catálogo, configuración completa de promociones ni economía específica de esas decisiones. La versión efectiva solo permite `search_knowledge`; existen lectores reutilizables como `get_shopify_product_catalog` y `shopify_funnel_health` fuera de su allowlist (`tool-layer.ts:275,281`, `ai-runtime.ts:2938,3416`).
+- **Mejora:** matriz de capacidad/evidencia por intervención; incluir contexto determinista indispensable y habilitar solo lecturas acotadas que permitan profundizar cuando haga falta. Vincular entidad, fuente, periodo, valor, unidad, denominador y confianza; validar referencias/cifras server-side. Coordinar conversión/stock/postventa con sus especialistas.
+- **Aceptación:** sin sesiones atribuibles no afirmar que una ficha convierte mal; sin costes/reglas suficientes no fijar un umbral rentable; sin compra conjunta observada no afirmar que un bundle aumentará el ticket. La ausencia de datos puede originar una propuesta de verificación, identificada como tal.
+
+### A13-015 · Unificar ventanas, cortes y etiquetas de periodo
+
+- **Evidencia:** A13 usa 30×24 h desde el instante actual; el anterior termina exactamente donde empieza el actual. Las RPC de ventas aceptan ambas fronteras inclusivas. Un fixture SQL de solo lectura confirmó que un pedido en ese instante entra en ambos intervalos. Las rutas ignoran `days`, aunque la UI lo envía y los gráficos vecinos cambian de periodo (`ai-runtime.ts:14111–14144`, `client-shopify.tsx:167–174,211`).
+- **Mejora:** contrato canónico con cortes disjuntos, zona/cobertura declaradas y semántica compartida por fuentes. Mantener A13 fijo y etiquetarlo claramente o admitir ventanas explícitas con caché propia; no relacionarlo visualmente con otro selector sin aclaración.
+- **Aceptación:** el pedido del corte se cuenta una vez; se prueban cambio de mes/año, horario y día parcial. Un gráfico de siete días no presenta el A13 de 30 como diagnóstico de esos siete días.
+
+### A13-016 · Seleccionar productos por riesgo y declarar la cobertura de la muestra
+
+- **Evidencia:** la RPC desplegada devuelve como máximo 30 productos, prioriza estado seguido de unidades vendidas, y A13 enriquece pero corta los primeros cinco sin reordenar por cobertura (`ai-runtime.ts:14190–14203`). Una reproducción con seis productos dejó fuera al sexto agotado y mostró cinco con miles de días de cobertura.
+- **Mejora:** selección estratificada por rotura/cobertura, impacto, muestra suficiente y huecos de medición; preservar identidad, motivo, universo elegible y truncamiento antes de limitar. Reutilizar el criterio de riesgo de A06 y recuperar detalle bajo demanda, sin prometer auditar todo el inventario.
+- **Aceptación:** un producto de menos ventas agotado aparece frente a otro abundante cuando el riesgo lo justifica. Estado desconocido no equivale a seguro y no desaparece por el ranking. Los límites SQL y de contexto se declaran.
+
+### A13-017 · Distinguir stock desconocido, no gestionado y cero confirmado
+
+- **Evidencia:** `shopify_stock_summary` desplegada cuenta `coalesce(available_quantity,0)<=0` como agotado y no exige `inventory_items.tracked`. En el fixture `NULL,3,0` devuelve dos agotados aunque solo haya un cero confirmado. `tracked_items` cuenta filas de estado de inventario, lo que puede representar ubicaciones, no productos o variantes únicos.
+- **Mejora:** estados separados para cantidad conocida, sin sync, parcial, no gestionado y agotado confirmado; definir y conservar el grano por producto/variante/ubicación. Alinear resumen y lector de riesgo; no recomendar compra por una cantidad ausente.
+- **Aceptación:** `NULL` no dispara una reposición; dos ubicaciones no se anuncian como dos productos distintos. Resumen UI, A06 y A13 muestran contadores equivalentes y cobertura explícita.
+
+### A13-018 · Medir la frescura del conjunto de inventario que respalda el riesgo
+
+- **Evidencia:** la definición remota de `shopify_stock_risk_products` usa `max(s.updated_at)` para el producto; el enriquecedor evalúa ese único valor contra 48 h (`stock-risk-evidence.ts:73–111`). Dos filas, una del 1/10 y otra del 19/10, producen como fecha de referencia 19/10; una fila reciente puede ocultar otra antigua.
+- **Mejora:** cobertura por variante/ubicación y edad de la parte más antigua pertinente, junto con sync completo/parcial y expectativa de recursos. Mantener el umbral como política compartida; no confundir fecha de modificación de una fila con una reconciliación integral correcta.
+- **Aceptación:** una variante o ubicación antigua impide cuantificar cobertura precisa del conjunto hasta validarla. Una fila nueva no certifica todo el producto; se mantienen las abstenciones sobre compra, lead time y cantidad.
+
+### A13-019 · Aplicar suficiencia de datos y estados por fuente sin ocultar fallos
+
+- **Evidencia:** `operationalMetricValue` diferencia error de lista vacía, pero las RPC agregadas suelen devolver una fila de ceros aun sin observaciones. Riesgo vacío se etiqueta `no_sales_in_period`, y `loadSharedActivityBlocks` omite errores como si no hubiera feed (`ai-runtime.ts:5449–5460,14189–14195`). El prompt manda muchas limitaciones a `warnings`, que la cola no presenta.
+- **Mejora:** resultado tipado por fuente con observaciones/cobertura, fechas, scope y error sanitizado; política que aborte o limite conclusiones según evidencia mínima. Conservar fuentes sanas y comunicar las limitaciones relevantes donde se toma la decisión.
+- **Aceptación:** caída RPC, permisos faltantes, sync parcial, periodo vacío y cero real son distintos. Fallar el feed no autoriza afirmar ausencia de trabajo previo; un fallo actual no se transforma en una tarea comercial basada en ceros.
+
+### A13-020 · Persistir un digest pertinente a la tienda, la ventana y el objetivo
+
+- **Evidencia:** el tick calcula `organization_activity_digest`, pero la llamada cron A13 no pasa `activityDigest` y el runner no guarda otro para A13 (`ai-runtime.ts:6135,6250,17209–17216`). El digest general mezcla sincronizaciones/tareas/alertas/eventos de toda la organización y no versiona directamente el Camino. Los runs remotos recientes muestran huecos de digest.
+- **Mejora:** huella de fuentes efectivamente usadas, tienda, revisiones, cobertura, ventana, plan/objetivos e hitos vigentes; guardar el mismo snapshot que emplean caché y scheduler. Diferenciar lectura de digest fallida de ausencia de cambio y contemplar caducidad temporal aunque no cambien filas.
+- **Aceptación:** no se regenera A por actividad ajena de B; un cambio de meta/hito o un nuevo dato pertinente provoca reconsideración conforme a la cadencia. Dos lecturas del mismo contexto reproducen la misma huella.
+
+### A13-021 · Hacer verificable la programación y repartir el cupo entre tiendas
+
+- **Evidencia:** A13 se planifica después de varios agentes y del gate Meta; recorre agregado y tiendas sin un límite/reparto equivalente al especial de A02/A12. Comparte cupos y prioridad organizativa sin antigüedad de espera específica (`ai-runtime.ts:16173–16288,16808–17126`). No hay gates A13 de los últimos siete días en ninguno de los proyectos.
+- **Mejora:** elegibilidad por scope, prioridad por espera y riesgo relevante para la meta, recuperación del primer análisis y reparto justo entre tiendas. Hacer observables cola/worker/tick, activación, cupos, circuito y motivo del aplazamiento; verificar la ejecución desplegada sin interpretar el silencio como prueba de caída.
+- **Aceptación:** una tienda pequeña no queda indefinidamente detrás de tiendas/agentes previos; no se promete un análisis a las 06:00/15:00 si los controles lo impiden. Autorun apagado o tick sin candidatos deja un estado operativo explicable.
+
+### A13-022 · Alinear frescura de caché, envelope, fuentes y cadencia efectiva
+
+- **Evidencia:** el GET calcula `stale` para A13, pero solo sobrescribe la frescura del envelope para A02/A04/A06/A08/A12; A13 conserva el default `fresh` (`ai-runtime.ts:6998–7067,7326`). Reproducción: caché del 1/10 consultada el 19/10 da `stale:true` y envelope `fresh` válido hasta el 2/10. Tampoco aplica la cadencia escalada de plataforma a esta presentación.
+- **Mejora:** política única por agente/scope que separe edad del análisis y de cada fuente, considere revisión de objetivos/evidencia y exponga `fresh/stale/partial/unavailable` coherentes. Conservar histórico útil con advertencia; una nueva generación no rejuvenece fuentes antiguas.
+- **Aceptación:** ninguna superficie presenta simultáneamente fresco y vencido. Un cambio pertinente puede invalidar evidencia antes del TTL; se prueban fecha inválida, override de cadencia y desconexión posterior al run.
+
+### A13-023 · Deduplicar ejecuciones, reservar cupo manual atómicamente y recuperar resultados
+
+- **Evidencia:** la UI envía `Idempotency-Key` en cada POST, pero la ruta A13 no lo lee ni lo propaga. La reserva atómica de refrescos incluye A04/A05/A06/A08/A12 y excluye A13; A13 cuenta runs y comprueba cupo en pasos separados (`client-shopify.tsx:211–224`, `server.ts:10244`, `ai-runtime.ts:5599–5657`). El POST es síncrono y genera un UUID nuevo por petición.
+- **Mejora:** identidad durable por organización/tienda/ventana/revisión, exclusión de trabajo equivalente entre cron y manual, reserva manual atómica y consulta de estado/resultado. Reutilizar una clave estable en reintentos y recuperar una generación completada después de una desconexión.
+- **Aceptación:** doble clic, dos usuarios, dos pantallas y solapamiento con el tick no pagan dos generaciones equivalentes. Dos llamadas concurrentes por el último cupo no lo consumen ambas; fallo entre guardar output y cerrar run se recupera con resultado verificable.
+
+### A13-024 · Separar actualización del diagnóstico y buzón durable de propuestas
+
+- **Evidencia:** una salida pendiente de menos de tres días puede frenar un nuevo run; `shouldRequireHumanApproval(required_before_publish, {proposed_writes:[]})` también devuelve `true`. GET recupera solo el último éxito, por lo que una nueva salida puede desplazar propuestas previas aún sin decidir (`ai-runtime.ts:16445–16480,17020–17045,6931`).
+- **Mejora:** separar diagnóstico vigente y ciclo de propuesta; buzón durable por oportunidad, con autoría, evidencia, decisiones y tareas resultantes. Una salida sin escrituras no debe fingir trabajo pendiente; una señal nueva debe poder analizarse preservando revisión previa.
+- **Aceptación:** aparece una incidencia nueva aunque quede otra por revisar; las propuestas anteriores siguen accesibles y no se duplican. Cero tareas no congela el análisis ni se interpreta como aprobación pendiente de una acción inexistente.
+
+### A13-025 · Evitar duplicados entre A13, otros agentes y trabajo ya resuelto
+
+- **Evidencia:** el contexto A13 recibe hasta 100 tareas con título/estado/categorías y sin ID/hito/entidad ni contador de truncamiento. El materializador deduplica títulos normalizados; la exclusión específica de reposición por producto solo se aplica a A06 (`ai-runtime.ts:14064–14095,23654–23707,24083`). Un nombre distinto de la misma necesidad escapa a la comparación.
+- **Mejora:** identidad de oportunidad por tienda/entidad/tipo de intervención, enlace a propuesta/tarea existente y deduplicación atómica entre outputs/agentes. Incorporar backlog pertinente, tareas pendientes de aceptación y resoluciones recientes con su razón. No repetir una tarea rechazada o cerrada sin evidencia nueva explícita.
+- **Aceptación:** A06 y A13 no crean dos reposiciones del mismo producto, ni A04/A17/A13 tres versiones de una corrección. Cambiar el título no elude la deduplicación; los recortes de backlog se declaran y no autorizan asumir que no hay trabajo previo.
+
+### A13-026 · Entregar tareas ejecutables, con responsable y criterio de medición
+
+- **Evidencia:** el prompt A13 pide título/descripción/prioridad/rationale, sin contrato obligatorio de propietario, esfuerzo, dependencias, criterio de cierre o métrica. La cola infiere de `owner_role` quién debería actuar, pero A13 no lo exige; la asignación final usa candidatos de carga común (`client-pulse.tsx:690`, `ai-runtime.ts:23704,24126–24177`).
+- **Mejora:** propuesta con propietario verificable, entrega concreta, criterio de aceptación, entidad, restricción/dependencia y métrica/ventana de seguimiento cuando pueda medirse. Explicar contribución al hito y estimar esfuerzo solo con evidencia; mantener plazos orientativos separados de fechas comprometidas.
+- **Aceptación:** el usuario sabe quién hace qué y cuándo puede considerarse terminado. La cola no atribuye por defecto al cliente el trabajo del consultor; aprobar no inventa una fecha límite, horas disponibles o una mejora económica garantizada.
+
+### A13-027 · Revalidar la evidencia al aprobar y mostrar el resultado exacto de cada decisión
+
+- **Evidencia:** A13 no revalida stock, costes, entidad ni objetivo antes de materializar propuestas antiguas. Un título ya existente se salta sin un recibo `existing` explícito; la cola anuncia tantas tareas creadas como propuestas aprobadas, sin usar el conteo devuelto (`ai-runtime.ts:24083,24413`, `client-pulse.tsx:790–808`). Hay claim por output y upsert por índice, pero no cubren todos los efectos posteriores.
+- **Mejora:** decisiones por propuesta con `created/existing/rejected/skipped/failed`, enlace al resultado y explicación; revalidar evidencia/versiones caducadas y recuperar escrituras parciales. Mantener permisos y condiciones de revisión expuestos por API, sin traducir un éxito HTTP en una creación que no ocurrió.
+- **Aceptación:** stock repuesto o meta cambiada desde el diagnóstico requieren revisar la propuesta; no se anuncia creación si solo había una tarea existente. Tras un fallo de enlace, reintentar completa el efecto pendiente y conserva el recibo exacto.
+
+### A13-028 · Dar a A13 una presentación visible de función, objetivo y estado
+
+- **Evidencia:** el frontend Shopify consulta A13 únicamente como consultor y utiliza propuestas; el botón solo aparece si no hay `data`. No presenta su conclusión, periodo real, objetivo/hito, fuentes, bloqueo o error de forma propia. Además omite todas las propuestas A13 cuando la cobertura monetaria no es compatible, incluidas las no financieras (`client-shopify.tsx:174,232–234,529–553`).
+- **Mejora:** ficha breve de operativa con meta/hito de referencia, periodo, última generación/sync, estado, siguiente revisión estimada y propuestas. Acceso según capacidades, también para cliente autorizado sin consultor; conservar avisos no monetarios cuando fallen divisas y explicar qué análisis queda limitado.
+- **Aceptación:** el usuario entiende para qué existe A13 frente a A02/A06 y dónde revisar su trabajo. Error de GET no se presenta como «nunca ejecutado»; resultado antiguo, agente pausado o falta de conexión son estados distintos. El histórico se puede consultar y refrescar cuando corresponda.
+
+### A13-029 · Mantener el scope de tienda y las decisiones recuperables en la cola de trabajo
+
+- **Evidencia:** `ClientShopify` pasa scope a A13, pero consulta `${base}/operations` sin tienda; `listOperations` devuelve tareas/alertas organizativas y `WorkQueue` no las filtra por tienda. La cola no transporta al ítem de propuesta su periodo, frescura, evidencia estructurada o hito; varias aceptaciones quedan en estado local hasta decidir el lote (`client-shopify.tsx:175,539`, `operations.ts:733–843`, `client-pulse.tsx:651–808`).
+- **Mejora:** scope consistente en cola/operaciones/propuestas, con atribución visible para trabajo global. Conservar evidencia, meta/hito, estado por propuesta y recibos durables; recuperar decisiones parciales tras recargar. Revisar también las superficies de tareas/móvil que consumen las tareas resultantes, respetando el alcance reducido del móvil.
+- **Aceptación:** al cambiar A→B no se aprueba ni presenta trabajo de A como de B. Recargar no pierde una decisión anunciada como guardada; el usuario puede abrir el diagnóstico y el hito de origen. La caché por URL existente no se confunde con un filtro de las operaciones organizativas.
+
+### A13-030 · Presupuestar contexto y reutilizar una capa de lectura consistente
+
+- **Evidencia:** A13 carga métricas directas, historial, feed, restricciones y decenas de lecturas transversales; F9/F11 no se excluyen para A13. El serializador limita a 12.000 caracteres/bloque y 48.000 totales y corta cadenas JSON (`ai-runtime.ts:6151–6244`, `untrusted-context.ts:2–3,39–66`). Tres de cuatro éxitos de test registran contexto truncado. A02/A06/A13 leen por separado parte de las mismas fuentes.
+- **Mejora:** DTO compacto con meta/cobertura/limitaciones primero, particiones estructuradas acotadas, presupuesto explícito A13 y consultas bajo demanda. Compartir cálculos y cobertura con API/UI/especialistas; reutilizar lecturas equivalentes por revisión y paralelizar solo fuentes independientes. Medir coste/latencia/tokens de esa composición.
+- **Aceptación:** objetivo, restricciones y límites sobreviven a cardinalidad alta, sin JSON cortado como representación normal. Menos consultas o tokens conservan el mismo diagnóstico verificable; no se cachean datos entre organizaciones/tiendas ni por una clave que omita la versión del objetivo.
+
+### A13-031 · Distinguir herramientas declaradas, herramientas disponibles y metodología aplicable
+
+- **Evidencia:** la DB declara `search_knowledge`, pero su construcción requiere `VOYAGE_API_KEY`; sin ella la herramienta no se incorpora (`ai-runtime.ts:4590–4595`). El prompt A13 no establece una búsqueda metodológica dirigida ni cómo tratar benchmarks/capacidades ausentes. El RAG actual sí fija organización/tienda/audiencias en servidor y neutraliza instrucciones recuperadas; debe preservarse.
+- **Mejora:** manifest de capacidades efectivas y razón de indisponibilidad, recuperación metodológica pertinente a la intervención y fuentes con procedencia/alcance. Reutilizar lectores concretos cuando sean necesarios, con límites y cobertura; no habilitar herramientas externas de escritura por el mero deseo de ampliar potencia.
+- **Aceptación:** embeddings ausentes no se presentan como ausencia de conocimiento del cliente. Benchmarks de otra vertical/país/muestra no se convierten en objetivos de la tienda. Ningún documento recuperado cambia el tenant, el rol o los controles de aprobación.
+
+### A13-032 · Cerrar el seguimiento entre oportunidad, tarea, objetivo y resultado observado
+
+- **Evidencia:** hay historial de propuestas propias y feed general, y las tareas pueden guardar resultados; A13 no carga una cadena tipada oportunidad→decisión→tarea/hito→medición posterior. El resumen para A19 pierde sus propuestas y la lectura base no calcula la brecha del objetivo.
+- **Mejora:** conservar esa cadena con IDs y versiones, separar ejecución/completitud/resultado y programar una revisión cuando exista evidencia comparable. Aprovechar resultados declarados sin convertirlos en hechos independientes; compartir con A19 cambios verificados y limitaciones, incluidos intentos descartados y sus razones.
+- **Aceptación:** una tarea completada no vuelve como nueva por falta de seguimiento. A13 puede explicar qué se hizo, qué cambió y qué sigue desconocido; no atribuye una subida de ventas a la tarea sin evidencia causal adecuada.
+
+### A13-033 · Unificar política operativa, observabilidad y prueba de despliegue
+
+- **Evidencia:** el catálogo/documentación histórica declara cierres locales; la cadencia de diseño y los límites efectivos viven en capas distintas. El tick puede salir por autorun/presupuesto sin persistir gates y `loadDisabledAgents` ignora errores (`ai-runtime.ts:16619–16678`, `ai-agent-groups.ts:24–40`). No hay gates recientes y los éxitos auditados carecen de `deployment_version`.
+- **Mejora:** ficha operativa reutilizable con propósito, disparadores, requisitos, capacidades, scope, periodo y destinatario; registro durable de tick/decision/run/output y versión API/web/worker. Tratar una lectura fallida de preferencias como estado desconocido que no habilite gasto contrario a una desactivación. Comprobar migraciones por historial y definición real, siguiendo el flujo del repositorio.
+- **Aceptación:** un operador explica por qué no hay A13 de una tienda y qué debe ocurrir para generarlo. Se distingue código local, configuración DB, despliegue y recorrido probado; un error al leer preferencias no reactiva silenciosamente un agente apagado.
+
+### A13-034 · Añadir regresiones de A13 y verificar el recorrido completo por rol y tienda
+
+- **Evidencia:** las 73 pruebas focalizadas existentes pasan, pero se reprodujeron pérdida de `phase`, resumen A19 sin diagnóstico, fallback de hito, frescura contradictoria y selección que omite stock agotado. Las tres pruebas específicas de `shopify-operational-context.test.ts` cubren helpers, no el runner completo ni la aprobación real.
+- **Mejora:** regresiones de loader/contrato/ruta/runner con clientes simulados, fixtures SQL y pruebas de organización/tienda/plan/hito. Recorridos aislados sincronización→cron→diagnóstico alineado→decisión→tarea/hito→seguimiento, con roles y fallos parciales; evaluaciones de hechos/abstención y cargas acotadas, sin ejecutar acciones comerciales reales para auditar.
+- **Aceptación:** se verifican objetivos/versiones, borrador versus activo, nulos, divisas, cobertura, caducidad, cuotas/concurrencia y recuperación. Las afirmaciones soportadas y los duplicados se evalúan separadamente de un esquema válido o una suite local en verde.
+
+### Verificación y límites de esta auditoría de A13
+
+- **Implementado:** lectura del Camino aprobado y sus métricas por tienda; progreso calculado con periodos no solapados; contrato de propuesta con fase, versión, evidencia, responsable y criterio de éxito; contexto de A02/A06/A19/A20/A21/A22; resumen útil de A13 para A19; filtrado de alertas/tareas por tienda; selección priorizada de riesgo; estados de frescura/cobertura en API y UI; comprobación de membresía y sincronización; recuperación de reintentos y reserva manual por tienda; clasificación Shopify; revalidación del plan y materialización atómica de tarea+hito. A13 también recibe tareas cerradas de su tienda/plan y resultados declarados como no verificados para evitar repetir trabajo sin atribuir causalidad.
+- **Migraciones aplicadas:** `20270102100000_a13_scoped_manual_refresh.sql` y `20270102110000_a13_atomic_task_materialization.sql`, primero en test y luego en producción mediante `npm run db:push` con `--only` para no incluir migraciones ajenas.
+- **Validación local:** `npm run typecheck -w @e-nora/api` y 28 pruebas focalizadas aprobadas (`agent-task-delivery`, `consultant-specialist-context`, `shopify-operational-context`, `ai-runtime-envelope`, `ai-runtime-plan-auth`). `git diff --check` no encontró errores. Las cuatro previsualizaciones de migración confirmaron que únicamente se aplicarían las dos migraciones A13.
+- **Limitaciones de esta pasada:** no se ejecutó una sesión autenticada de UI, cron/worker, llamada al proveedor, prueba de carga ni carrera concurrente de aprobaciones. No se desplegó API/web/worker. Permanecen por cerrar el reparto justo/prioridad del scheduler entre tiendas, un buzón de propuestas visible que conserve varias decisiones pendientes a la vez y la trazabilidad durable de gates/versiones desplegadas. La cadena oportunidad→tarea→resultado ya conserva la identidad Camino y añade resultados declarados al contexto, pero aún necesita E2E autenticado y comparación posterior de métricas para demostrar el recorrido completo.
+- **Typecheck web:** sigue bloqueado por un error preexistente ajeno a A13 en `apps/web/src/app/marketing/studio/content-studio.tsx:883` (`string | null` asignado a `string`).
+
+## A14 · Operativa Meta Ads y sostenibilidad de la inversión
+
+**Auditoría: 19 de octubre de 2026. Estado: las 32 mejoras se han implementado en el código local y en la migración A14; la migración y A14 v3 están verificadas en test y producción.** Revisión original de código local, grafo MCP, configuración y definiciones SQL de ambos entornos. Las referencias de la auditoría corresponden al árbol de trabajo de esa revisión; no identifican por sí solas el código desplegado.
+
+### Función y límites que debe conservar
+
+A14 debe explicar si la inversión Meta de una tienda es sostenible, qué evidencia permite esa conclusión y qué trabajo conviene ejecutar para contribuir al objetivo aprobado de Mi Camino. El resultado debe conectar gasto, atribución, costes, cobertura, restricciones, capacidad y seguimiento. Una compra atribuida por Meta no acredita un cliente nuevo ni una venta incremental.
+
+| Agente o módulo | Responsabilidad | Relación de A14 |
+|---|---|---|
+| A02 | Lectura general del negocio. | A14 concreta el diagnóstico económico de Meta y evita repetir trabajo. |
+| A13 | Operativa Shopify y relación con el Camino. | Comparte señales de oferta, conversión, margen y disponibilidad que condicionan la inversión. |
+| A14 | Sostenibilidad económica de adquisición Meta y propuestas operativas. | Prioriza problemas e hipótesis verificables, con límites y criterio de revisión. |
+| A24 | Fiabilidad y cobertura de la medición. | Condiciona qué conclusiones puede extraer A14 de compras, CPA y ROAS. |
+| A23 / A25 | Creatividad y subasta / cambios y comparación temporal. | Aportan evidencia específica; A14 no deduce sus diagnósticos desde un agregado de gasto. |
+| A19 / Mi Camino | Meta aprobada, hitos y revisión estratégica. | A14 conserva la identidad del plan y deriva cambios de estrategia a revisión humana. |
+| A04 / A17 / A18 | Trabajo diario, semanal y mensual. | Reciben oportunidades y decisiones de A14 con procedencia y estado. |
+
+La aprobación de A14 crea tareas internas; el recorrido auditado no pausa anuncios, cambia presupuestos ni publica en Meta. Las mejoras deben mantener esa frontera. Las acciones económicas sugeridas necesitan la misma calidad de evidencia aunque aparezcan como recomendaciones de texto.
+
+### Disparadores, datos y superficies observados
+
+| Entrada | Comportamiento local | Límite que debe corregirse |
+|---|---|---|
+| Worker | Tick BullMQ `0 6,15 * * *`, `Europe/Madrid`. | Son oportunidades de evaluación, no dos generaciones garantizadas de A14. |
+| Orquestador | A14 detrás de planes y A24; cadencia base 20 h; agregado organizativo y tiendas Shopify elegibles. | No exige conexión/cobertura Meta de esa tienda; el agregado no tiene un gate A24 por tienda. |
+| GET `/ai/operativa-meta` | Lee el último éxito de 30 días y scope exacto; no llama al modelo. | No aplica a A14 la cobertura por fuente ni la misma presentación de frescura/cadencia que a otros agentes. |
+| POST `/ai/operativa-meta-run` | Generación manual síncrona con `connectionId`. | `days` no modifica los 30 días; la ruta valida una clave de idempotencia y luego no la pasa al runner A14. |
+| Contexto específico | Meta actual/anterior, finanzas Shopify actuales, cuentas Meta no asignadas, tareas abiertas, Camino, alertas y gate A24. | No ofrece investigación económica por campaña, periodo financiero anterior ni estados completos de cobertura/divisa. |
+| Contexto compartido | Restricciones, historial propio, actividad y motores de decisión. | A14 no pasa el filtro de tienda al playbook ni excluye los grandes bloques F9/F11. |
+| UI `ClientMeta` | Consulta A14 solo con `asConsultant`; muestra propuestas en `WorkQueue`. | No presenta una ficha completa del diagnóstico A14 y las operaciones vecinas se consultan sin `connectionId`. |
+| Aprobación | Materializa tareas; conserva rationale/evidence genéricos y puede enlazar hitos. | A14 conserva el fallback al hito actual y no usa la revalidación/operación atómica específica de A13. |
+
+Referencias: `apps/worker/src/repeatable-jobs.ts:19`, `apps/api/src/server.ts:10070–10300`, `apps/api/src/ai-runtime.ts:14858–15017,16452–16545,16966,17490`, `apps/web/src/app/dashboard/client-meta.tsx:230–260,513–541`, `apps/web/src/lib/dashboard-ai-agents.ts:102`.
+
+### Estado remoto comprobado, solo lectura
+
+Consultas realizadas el **19/10/2026; corte de referencia 15:25 UTC**. Se leyeron configuración del agente, definiciones SQL, índices y agregados de estado/estructura. No se inspeccionaron textos de anuncios, cuerpos de pedidos, credenciales ni contenidos narrativos de salidas de clientes.
+
+| Comprobación | Test · `kopcblejsxpkxoykldyh` | Producción · `cthjwpeygpzwdmjkxeqa` |
+|---|---|---|
+| Agente / prompt activo | A14 v2 / prompt v2 | Igual |
+| Modelo configurado | `claude-sonnet-5` | Igual; no certifica el modelo efectivo de cada ejecución |
+| Tools declaradas | `search_knowledge` | Igual |
+| Modo de aprobación | `required_before_publish` | Igual |
+| Migraciones base y alcance | `20260901240000`, `20261115460000` registradas | Igual |
+| Override de plataforma A14 | Sin fila | Sin fila |
+| Runs A14 registrados | 3 éxitos manuales, último 12/10 | 28 fallos cron, entre 08/09 y 22/09; sin éxitos registrados |
+| Metadatos de esos runs | 2/3 con contexto truncado; 2/3 sin digest; 3/3 sin versión de despliegue | 28/28 sin digest; 2/28 sin versión de despliegue |
+| Gates A14 últimos siete días | 0 | 0 |
+| Cache A24 | 1 fila, ninguna vigente al consultar | 0 filas |
+| Cuentas Meta activas / sin tienda | 1 / 0 | 2 / 1 |
+| Divisas observadas de cuentas | EUR | EUR |
+| Conexiones Meta | 1 `connected`, con sincronización previa | 2 `error`, con sincronización previa |
+| Variantes duplicadas por cuenta/anuncio/día sin breakdown | 0 grupos observados | 0 grupos observados |
+
+Los 28 fallos históricos de producción corresponden a saldo insuficiente del proveedor Anthropic; no prueban el saldo actual ni que el worker esté detenido. En test, dos éxitos registran OpenAI/`gpt-6-luna` efectivo, con 13.065–64.319 tokens de entrada; el tercer éxito declara cero tokens/coste/latencia y no debe usarse como prueba de una generación real. Las tres salidas están pendientes de aprobación; dos no contienen tareas y aun así requieren aprobación. Las salidas históricas sí incluyen `answer`; esto no demuestra que el contrato local actual lo solicite.
+
+`meta_spend_summary` y `shopify_financial_summary` coinciden en ambos entornos por firma y hash de definición (`8bbf423fa534a2a05c4202224fc0d81f` y `62f44515dd1ee277944a0e2ae006b666`, respectivamente). Son funciones `STABLE` sin `SECURITY DEFINER`; esa propiedad no sustituye una prueba de aislamiento con roles/tenants.
+
+### A14-001 · Calcular y explicar el equilibrio económico con una base comparable
+
+- **Evidencia:** el prompt activo propone aproximadamente `1 / margen bruto`, mientras `shopify_financial_summary` calcula `breakeven_roas` descontando producto, comisiones, envío y fijos. Meta aporta valor de compra atribuido y la referencia financiera usa ingresos sin impuestos. Un fixture con ingreso 100, producto 40, comisiones 3, envío 7 y fijos 10 produce 1,67 con la aproximación y 2,50 con la fórmula completa. No cuantifica impacto real en clientes.
+- **Mejora:** regla determinista y versionada que declare qué costes incluye cada umbral, base fiscal, descuentos/devoluciones, grano y limitaciones de aplicar la economía media de tienda al canal. No comparar automáticamente valor Meta bruto con una referencia calculada sobre ingreso neto.
+- **Aceptación:** A14 usa el umbral sustentado o se abstiene; margen nulo/negativo, costes ausentes o bases incompatibles no generan un ROAS objetivo inventado ni una recomendación de escalar.
+
+### A14-002 · Aplicar cobertura de moneda a todas las decisiones económicas
+
+- **Evidencia:** A14 no figura en `SHOPIFY_FINANCIAL_AGENT_CODES` ni en el mapa Shopify (`ai-runtime.ts:545–575,6186`). Por tanto, no recibe por esa vía la cobertura ni las instrucciones de divisas. `meta_spend_summary` suma importes y devuelve ROAS/CPA sin moneda; admite varias cuentas. Actualmente las monedas observadas son EUR, no se demostró una mezcla real.
+- **Mejora:** validar moneda por cuenta y fuente financiera; separar importes incompatibles o convertir componentes con tipo/fecha/procedencia antes de calcular derivados. Moneda desconocida no equivale a EUR ni queda resuelta rotulando el total después de sumarlo.
+- **Aceptación:** EUR/USD o moneda ausente impiden conclusiones monetarias mezcladas, conservando métricas no monetarias útiles. UI, contexto y tarea aprobada mantienen la misma cobertura.
+
+### A14-003 · Separar CPA atribuido, CAC de adquisición y CAC blended
+
+- **Evidencia:** `metaSpendForAgent` renombra correctamente `cac` a `cpa_atribuido_meta`, pero el prompt sigue describiendo CAC y su sostenibilidad. La RPC divide gasto entre compras atribuidas; no identifica clientes nuevos de Meta. `cac_blended` financiero usa todos los anuncios y nuevos clientes Shopify. Con gasto 200, diez compras atribuidas y cuatro nuevos clientes, los cocientes son 20 y 50 y responden a preguntas diferentes.
+- **Mejora:** tipar definición, denominador, canal y atribución en cada métrica; conservar nombres claros en prompt, tools, UI, evidencia y juez. Derivar CAC de canal solo cuando exista una fuente que identifique adquisición elegible de ese canal.
+- **Aceptación:** ninguna propuesta presenta CPA de repetición como coste de adquirir un cliente nuevo ni adjudica el CAC blended exclusivamente a Meta.
+
+### A14-004 · Unificar ventanas, zona horaria y días completos
+
+- **Evidencia:** A14 convierte timestamps a fecha UTC y consulta límites inclusivos `>=`/`<=`; el periodo anterior acaba en el mismo día en que empieza el actual (`ai-runtime.ts:14872–14909`). El fixture 19/09–19/10 y 20/08–19/09 contiene 31 días por ventana y comparte el 19/09. Finanzas usa timestamps parciales, Meta usa días.
+- **Mejora:** una política temporal compartida por cuenta/tienda para dos ventanas no solapadas y comparables; declarar fecha de corte, día parcial, timezone y fecha de extracción. Definir en la API si el periodo es fijo o parametrizable y reflejarlo en pantalla.
+- **Aceptación:** se prueban cambio de mes, horario de verano y cuentas con distinto timezone; ningún dato del día límite participa en ambas ventanas y no se compara un día parcial como completo.
+
+### A14-005 · Canonizar las filas Meta antes de sumar gasto y conversiones
+
+- **Evidencia:** la clave única admite variantes por `attribution_hash` y `action_report_time`. `meta_spend_summary` filtra nivel anuncio/sin breakdown pero no elige una única variante por cuenta/anuncio/día. Dos filas sintéticas de gasto 100 devuelven suma 200 frente a 100 canónico. No se observaron grupos duplicados en los datos remotos consultados.
+- **Mejora:** seleccionar una fila canónica determinista antes de agregar, coherente con la política de importación y las demás RPC del módulo; publicar versión, cobertura y variantes descartadas. No resolverlo con un `DISTINCT` sobre importes iguales de anuncios distintos.
+- **Aceptación:** reimportación, cambio de ventana o `action_report_time` no duplican gasto; dos anuncios legítimos de igual importe siguen contando por separado.
+
+### A14-006 · Conservar ventana y definición de conversión en cada comparación
+
+- **Evidencia:** la RPC devuelve `purchase_action_types` pero no la ventana elegida ni `action_report_time`. Selecciona acciones y valores por `metric_name` de forma independiente con `meta_attribution_window_rank`; si la disponibilidad difiere pueden proceder de ventanas distintas. Usa la selección canónica actual de cada cuenta para leer el histórico.
+- **Mejora:** identidad de evento, ventana, modo de reporte y versión de selección, con cobertura de compras/valor por separado. Comparar ventanas equivalentes y señalar cuándo una nueva selección modifica la interpretación histórica.
+- **Aceptación:** cambiar evento/ventana no se presenta como mejora de rendimiento; ROAS y CPA usan numeradores/denominadores compatibles y no suman atribución de plataformas como ventas adicionales.
+
+### A14-007 · Distinguir cobertura financiera completa de una cifra disponible
+
+- **Evidencia:** A14 recibe la fila financiera sin un dictamen específico de suficiencia. La función devuelve `has_settings`, `items_without_cost` y cifras derivadas, pero su firma no incluye todos los contadores de cobertura neta que usa la UI Shopify. Ajustes o costes ausentes pueden caer en valores cero; solo se carga el periodo financiero actual.
+- **Mejora:** un resultado financiero tipado con observaciones, costes conocidos/estimados/desconocidos, cobertura de líneas, devoluciones, sincronización y comparabilidad temporal. Reutilizar la política determinista de disponibilidad de rentabilidad y aportar el periodo anterior cuando se juzgue evolución económica.
+- **Aceptación:** ajustes inexistentes, coste cero confirmado, coste desconocido y cobertura parcial son estados distintos. A14 no declara rentable una adquisición cuyo coste todavía no conoce.
+
+### A14-008 · Separar costes organizativos y economía atribuible a la tienda
+
+- **Evidencia:** `shopify_financial_summary` limita pedidos por tienda, pero ajustes, reglas y gastos fijos se leen por organización; el cálculo de fijos no incorpora `target_store_id`. Usar toda la estructura de costes en cada tienda puede repetirla en las referencias de equilibrio.
+- **Mejora:** política explícita de costes propios, compartidos y no asignados; presentar sensibilidad o abstención cuando no exista reparto defendible. Mantener separados equilibrio de tienda, contribución marginal del canal y objetivo comercial aprobado.
+- **Aceptación:** dos tiendas no absorben cada una el 100 % de los mismos fijos sin advertencia. Una caída de gasto/ingreso no prueba por sí sola que el negocio haya ganado o perdido rentabilidad.
+
+### A14-009 · Hacer efectivo el control A24 sobre las recomendaciones de gasto
+
+- **Evidencia:** A14 adjunta el veredicto A24, con `unknown` cuando falta tienda/cache vigente, pero conserva el contrato genérico. La restricción estructurada de acciones según ese estado está implementada específicamente para A23 (`ai-runtime.ts:5870`), no para A14. El prompt A14 v2 no incorpora una política equivalente. Al consultar, no había veredictos vigentes en ninguno de los entornos.
+- **Mejora:** control A14 propio, con estado A24 fijado por el servidor y acciones permitidas por calidad de evidencia. Con medición desconocida/restrictiva puede describir gasto o pedir investigación, pero no justificar recorte/escalado por compras/ROAS no fiables. Revalidar al aprobar.
+- **Aceptación:** ausencia, expiración, fallo RPC o gate restrictivo impiden una decisión económica dependiente de conversiones, aunque el modelo la ponga en `recommendations` en vez de `proposed_writes`.
+
+### A14-010 · Comprobar elegibilidad Meta por tienda antes de gastar
+
+- **Evidencia:** `runOperativaMetaAgent` resuelve la tienda y llama al runner sin comprobar previamente conexión Meta, cuenta asignada/seleccionada, sync de recursos ni observaciones del periodo. El orquestador general parte de conexiones Shopify/Klaviyo; no selecciona A14 a partir de la cobertura Meta. La existencia de pedidos Shopify no demuestra que Meta sea analizable.
+- **Mejora:** capacidades por scope: conexión, estado de cuenta, asignación, recursos importados, fechas y permisos; admitir lectura histórica advertida cuando proceda y explicar qué falta para el primer análisis. No lanzar el modelo solo para comunicar un requisito conocido por el backend.
+- **Aceptación:** tienda sin Meta, sincronización inicial o conexión en error no consume una generación de rendimiento actual; un fallo de lectura de elegibilidad no se interpreta como conexión válida.
+
+### A14-011 · Exigir selección de tienda coherente con los especialistas Meta
+
+- **Evidencia:** A14 usa `resolveStrictStoreScope`, que sin `connectionId` permite agregado. A23/A24/A25 usan otro resolver que exige selección cuando hay varias tiendas. El cron encola agregado A14 además de tiendas (`ai-runtime.ts:16492–16545`); en agregado, el gate A24 devuelve `store_scope_missing`.
+- **Mejora:** política común de scope para Meta: tienda explícita o selección automática si solo hay una; si se conserva agregado, tratarlo como cartera, con moneda/cuentas separadas y sin proponer tareas estratégicas de una tienda implícita. Cuentas no asignadas se gestionan como cobertura pendiente.
+- **Aceptación:** dos tiendas/cuentas no se mezclan silenciosamente. La selección del header, API, tools, cache, cola y aprobación identifica el mismo scope.
+
+### A14-012 · Autorizar antes de resolver el alcance con service role
+
+- **Evidencia:** los wrappers A14 de GET y POST llaman al resolver de `shopify_stores` mediante service role antes de `requireMembership`, que llega después en el runner/cache compartido. No se demostró acceso al resultado de otro tenant, pero el orden permite trabajar sobre un scope antes de autorizarlo y distinguir errores previos.
+- **Mejora:** comprobar organización/capacidad antes de toda resolución privilegiada; unificar quién puede consultar, ejecutar y decidir, según rol y activación del agente. Mantener respuestas de scope sanitizadas y autorización equivalente en GET/POST/aprobación.
+- **Aceptación:** un usuario ajeno no provoca lecturas privilegiadas de otra organización; los recorridos de cliente con/sin consultor, consultor y administrador siguen la política prevista.
+
+### A14-013 · Comunicar estados de cada fuente y suficiencia de observaciones
+
+- **Evidencia:** A14 diferencia errores RPC de ausencia de fila, pero los agregados de acciones usan `coalesce(sum(...),0)` sin cobertura de medición equivalente. Un periodo con gasto y evento/valor sin importar puede parecer cero compras. El aviso de backfill solo aparece en estado `running`; que desaparezca no demuestra integridad de todos los recursos.
+- **Mejora:** por fuente, observaciones elegibles/esperadas, filas importadas, eventos disponibles, fechas, backfill completo/parcial/fallido, consulta fallida y nulos. Conservar fuentes sanas y limitar conclusiones según evidencia mínima.
+- **Aceptación:** cero real, evento no observado, evento no importado, permisos insuficientes y fallo de consulta no generan la misma tarea. Un aviso de backfill de otra cuenta no certifica la tienda seleccionada.
+
+### A14-014 · Restituir diagnóstico y avisos en el contrato visible
+
+- **Evidencia:** `LEAN_OUTPUT_BY_AGENT.a14_operativa_meta` elimina `answer`, `findings` y `recommendations` (`ai-runtime.ts:5856`). El prompt exige explicación y manda a recomendaciones avisos como revisar un CPM o proponer una pausa. La reproducción del contrato confirma esos tres campos ausentes. Las salidas históricas con answer no permiten atribuirles el contrato local actual.
+- **Mejora:** contrato A14 que conserve conclusión, evidencia, avisos, límites y propuestas sin contradicciones entre prompt/schema/parser. Conclusión económica y acciones sugeridas deben permanecer visibles aunque no haya tareas.
+- **Aceptación:** A14 puede decir «seguir observando» o «faltan datos» de forma útil, sin inventar una tarea para hacerse visible. Las recomendaciones económicas mantienen gates y necesidad de revisión humana.
+
+### A14-015 · Conectar las prioridades con el objetivo vigente de Mi Camino
+
+- **Evidencia:** el cargador compartido actual, mejorado en A13, ya ofrece a A14 plan aprobado, `goal`, objetivos e hitos de la tienda (`ai-runtime.ts:13977`). A14 no calcula progreso/brecha ni explica sistemáticamente contribución y factibilidad frente a esa meta; su encargo sigue centrado en equilibrio económico agregado.
+- **Mejora:** reutilizar progreso determinista y objetivos vigentes, con fecha, unidad, restricciones, capacidad y dependencias. Distinguir mantenimiento del canal de avance estratégico y derivar contradicciones de meta/presupuesto a A19.
+- **Aceptación:** una acción puede ser sostenible pero no prioritaria para el objetivo; A14 lo explica. Sin plan aprobado solo propone mantenimiento sustentado, sin crear una meta paralela.
+
+### A14-016 · Conservar identidad de plan/fase/hito y eliminar el fallback
+
+- **Evidencia:** el prompt pide `phase` y `categories`, pero el JSON Schema genérico no los admite; la reproducción confirma también ausencia de `plan_id`. Aunque Zod ahora permite `phase` para A13, el contrato enviado a A14 no la declara. `shouldFallbackToCurrentMilestone` continúa devolviendo `true` para A14 (`agent-task-delivery.ts:86`).
+- **Mejora:** contrato propio con plan/version, fase exacta, hito y razón de alineación; `null` real para tarea libre. Vincular únicamente el hito revisado y no elegir el actual por defecto.
+- **Aceptación:** tarea libre permanece libre; nombres repetidos no sustituyen UUID/versiones y aprobar no mueve la tarea a una rama que el revisor nunca vio.
+
+### A14-017 · Materializar atómicamente y revalidar la propuesta al aprobar
+
+- **Evidencia:** la revalidación de identidad/estado Camino y la RPC atómica recién incorporadas se aplican a A13. A14 sigue por la creación genérica de tarea y posterior vínculo, y no revalida A24, economía o cuenta objetivo al decidir (`ai-runtime.ts:24390–24570`). Los triggers existentes no equivalen a comprobar la versión analizada.
+- **Mejora:** transacción idempotente tarea+vínculo+decisión, verificando organización, tienda, plan aprobado/versionado, hito activo y vigencia material de la evidencia. Si cambió, informar la causa y permitir reanalizar, sin transformar silenciosamente la propuesta.
+- **Aceptación:** fallo de enlace no deja una tarea estratégica huérfana; reintentos no duplican. Una aprobación antigua no se fundamenta en un gate A24 expirado o un plan sustituido.
+
+### A14-018 · Etiquetar las tareas como Meta de forma determinista
+
+- **Evidencia:** A14 falta en `AGENT_TASK_CATEGORY`; el fallback es `general` (`ai-runtime.ts:545,23905`). Pedir `categories:[meta]` en el prompt no lo resuelve cuando el JSON Schema genérico excluye ese campo.
+- **Mejora:** asignar la categoría base `meta` por código de agente y conservar categorías adicionales solo mediante contrato validado. Comprobar filtros y contadores de todos los consumidores.
+- **Aceptación:** tarea A14 aprobada aparece en Meta y en el backlog correcto; no depende de que el modelo consiga devolver una propiedad no declarada.
+
+### A14-019 · Dar herramientas de investigación suficientes y acotadas
+
+- **Evidencia:** ambos entornos solo declaran `search_knowledge`. El contexto A14 contiene gasto agregado, sin desglose de campaña/ad set/anuncio, clientes de canal ni prueba directa de falta de CAPI o fatiga. El prompt sugiere reestructurar, separar públicos, renovar piezas y consolidar conjuntos, decisiones que esos agregados no justifican por sí solos.
+- **Mejora:** reutilizar lecturas de campaña/cuenta y evidencia de especialistas bajo demanda, acotadas por tienda, periodo, moneda, paginación, calidad y presupuesto. Vincular cada afirmación a la entidad y al recibo de herramienta; recuperar metodología aplicable cuando se calcule o recomiende una intervención.
+- **Aceptación:** puede investigar dónde se concentra el problema sin leer toda la base ni proponer nombres/importes inventados. No se habilitan tools de mutación de Meta para ampliar su capacidad analítica.
+
+### A14-020 · Coordinar A24/A23/A25/A13 y entregar oportunidades útiles a A19
+
+- **Evidencia:** A14 carga el gate A24, pero no consulta explícitamente un resumen fresco de A23/A25/A13/A19 como hace A13 con sus especialistas. El resumen genérico de `consultant-specialist-context.ts` no conserva las propuestas A14; su rama específica de propuestas solo contempla A13. Una salida lean puede perder precisamente el contenido útil para A19 y los planificadores.
+- **Mejora:** intercambio acotado y fresco por tienda con run/output/periodo/estado, propuesta, decisión y tarea resultante. La aprobación de una tarea no convierte las hipótesis económicas del análisis en hechos verificados.
+- **Aceptación:** A19 y A17 conocen la oportunidad económica y si ya tiene trabajo asignado; A14 no prescribe otra investigación de tracking o creatividad ya abierta y no recibe análisis de otra tienda.
+
+### A14-021 · Aplicar tienda y procedencia al contexto compartido y las alertas
+
+- **Evidencia:** A14 no pasa `storeId` al playbook compartido (`ai-runtime.ts:6250`), aunque el cargador lo soporta. La consulta de alertas omite `store_id` y su helper afirma que la atribución no existe (`shopify-operational-context.ts:43`), cuando esa columna ya existe y A13 la usa. Se pierde evidencia válida y se arrastra contexto no atribuible.
+- **Mejora:** filtrar todos los bloques por tienda/entidad y separar explícitamente contexto organizativo sin atribución. Usar alertas de la tienda como evidencia elegible y las legacy solo como contexto; limitar muestras por pertinencia y declarar truncamiento.
+- **Aceptación:** una alerta o decisión de B no justifica intervenir en A; la ausencia de alertas de A en una muestra organizativa no se anuncia como tienda sin incidencias.
+
+### A14-022 · Evitar trabajo repetido y conservar el seguimiento posterior
+
+- **Evidencia:** A14 recibe títulos de tareas abiertas y su historial propio, pero no una cadena estructurada oportunidad→decisión→tarea/entidad→resultado por plan. La consulta de tareas tiene límite 100 y ordena prioridad textual. La deduplicación por título no cubre reformulaciones, diferentes agentes ni tareas completadas/ignoradas con el mismo problema.
+- **Mejora:** identidad de oportunidad por tienda/cuenta/entidad/métrica/ventana; reutilizar trabajo existente, resultados declarados y razones de descarte. Prioridad semántica explícita y cobertura del backlog. Revisar posteriormente métricas comparables sin atribuir causalidad solo porque una tarea se cerró.
+- **Aceptación:** A14 no vuelve a proponer lo ejecutado o rechazado sin evidencia nueva; explica qué cambió y qué sigue sin comprobar, conservando enlaces auditables.
+
+### A14-023 · Conservar responsable, criterio de cierre y revisión de la tarea
+
+- **Evidencia:** el esquema genérico permite owner, criterio de cierre y métrica, pero la descripción/metadata de entrega se enriquecen específicamente para A13/A17/A18; A14 no usa esos contratos (`agent-task-delivery.ts:100`, `ai-runtime.ts:24430`). La misión del prompt es «trabajo del consultor», sin un contrato de entrega equivalente.
+- **Mejora:** persistir responsable adecuado, entidad afectada, evidencia de partida, entrega comprobable, criterio de medición, dependencia A24/A19 y revisión relativa. No convertir una sugerencia temporal en fecha dura inventada ni repartir automáticamente presupuesto entre campañas.
+- **Aceptación:** la tarea es ejecutable sin reabrir el análisis para reconstruir su razón, y completar una configuración no acredita haber mejorado el ROAS.
+
+### A14-024 · Hacer visible la función, el diagnóstico y el scope en la UI
+
+- **Evidencia:** `consultantOnly:true`, GET condicionado por `asConsultant` y `WorkQueue` sustituyen una ficha de diagnóstico. Si hay output, no aparece el botón local de lanzamiento, reservado a ausencia de resultado. La cola usa `/operations` sin conexión y el texto promete propuestas sobre «esta cuenta» aunque el scope puede ser agregado.
+- **Mejora:** presentación por capacidades reales: función, objetivo/tienda/cuentas, periodo, fecha del análisis y de fuentes, gate A24, cobertura, conclusión, avisos, actualización y motivo de bloqueo. Definir visibilidad y decisión para cliente con/sin consultor; pasar scope a operaciones y contexto del copiloto.
+- **Aceptación:** el usuario distingue diagnóstico de propuesta y tarea materializada, sabe cómo/cuándo se ejecuta A14 y ve únicamente trabajo del alcance presentado. No se oculta un análisis útil solo por carecer de consultor.
+
+### A14-025 · Separar diagnóstico actualizado y buzón durable de propuestas
+
+- **Evidencia:** `shouldRequireHumanApproval` devuelve true con `required_before_publish` incluso con cero propuestas (`ai-runtime.ts:791`). En test hay dos salidas A14 sin tareas pendientes de aprobación. El gate compartido puede frenar nuevos análisis durante tres días y el GET solo recupera el último éxito.
+- **Mejora:** cero escrituras no equivale a acciones pendientes; mantener diagnóstico vigente y todas las propuestas sin resolver en un buzón durable, con sus decisiones/tareas, sin que unas bloqueen la observación de una señal nueva.
+- **Aceptación:** una incidencia nueva puede analizarse mientras queda otra propuesta por revisar; refrescar no oculta propuestas antiguas y una salida sin tareas no congela A14.
+
+### A14-026 · Deduplicar ejecuciones y reservar cuota manual por tienda
+
+- **Evidencia:** la ruta valida `Idempotency-Key` pero pasa `undefined` a las opciones A14 (`server.ts:10259`); `ClientMeta` ni siquiera envía esa cabecera. A14 no participa en la reserva atómica incorporada a otros agentes (`ai-runtime.ts:5606`) y su cuota se comprueba contando runs antes de crear otro.
+- **Mejora:** clave durable de petición y trabajo equivalente por organización/tienda/ventana/revisión, reserva atómica, exclusión cron/manual y recuperación verificable de run/output tras desconexión. El cliente debe conservar la clave al reintentar la misma operación.
+- **Aceptación:** doble clic, dos pantallas/usuarios o solapamiento cron/manual no pagan generaciones equivalentes; el último cupo no se concede dos veces y una respuesta perdida permite recuperar el resultado.
+
+### A14-027 · Repartir la programación por elegibilidad, espera y relevancia
+
+- **Evidencia:** A14 comparte cupos y prioridad organizativa, detrás de agentes previos, sin reparto específico entre tiendas; prioriza agregado antes de tiendas. La cadencia declarada de dos runs no garantiza ejecuciones por scope y puede convivir con conexiones Meta indisponibles. No hay gates A14 de los últimos siete días en los entornos consultados.
+- **Mejora:** candidatos desde cobertura Meta por tienda, primer diagnóstico recuperable y prioridad por antigüedad de espera/riesgo económico para la meta; evitar que el agregado o una tienda agote los cupos. Hacer explícita la dependencia A24 y el motivo de aplazamiento.
+- **Aceptación:** una tienda pequeña no queda indefinidamente pospuesta; los horarios UI se describen como evaluaciones y el operador puede distinguir pausa, cuota, espera, error de datos y falta de worker.
+
+### A14-028 · Persistir un digest del contexto económico realmente utilizado
+
+- **Evidencia:** el cron calcula un digest organizativo pero no lo pasa al runner A14 (`ai-runtime.ts:17490`); A14 tampoco calcula uno propio. En test faltan 2/3 y en producción 28/28. Un digest organizativo mezcla tiendas y no identifica directamente revisiones de objetivo, coste, atribución o A24.
+- **Mejora:** huella determinista de scope, fuentes/versiones, ventana, costes, evento/atribución, sync, objetivos/hitos y gate A24 efectivamente usados. Guardarla junto al snapshot y usarla en cache/scheduler; distinguir fallo al calcularla de ausencia de cambios.
+- **Aceptación:** actividad ajena de B no regenera A; cambios relevantes de A reconsideran el análisis conforme a la cadencia. La caducidad temporal de la evidencia sigue funcionando aunque no se modifique ninguna fila.
+
+### A14-029 · Alinear frescura de cache, envelope y fuentes
+
+- **Evidencia:** A14 no entra en la lista que adapta TTL a cadencia efectiva ni en la que sobrescribe la frescura del envelope (`ai-runtime.ts:7023,7097`). Tampoco consulta cobertura Meta/financiera/A24 al servir su cache. Puede conservar un último éxito tras desconexión o cambio material de evidencia.
+- **Mejora:** política única por scope con edad del análisis, fuente, gate, objetivo y cadencia configurada. Mantener histórico útil advertido y separar `fresh`, `stale`, `partial` y `unavailable` sin rejuvenecer datos antiguos por una generación reciente.
+- **Aceptación:** `stale:true` no coexiste con envelope fresco; fecha inválida, fuentes antiguas, conexión en error y A24 vencido producen un estado coherente en todas las superficies.
+
+### A14-030 · Reducir contexto y medir el coste de investigación útil
+
+- **Evidencia:** A14 mantiene F9/F11 completos y playbook sin scope mientras A13 ya los filtra. Dos de los tres runs de test tienen `context_truncated`; los dos éxitos medidos OpenAI usan hasta 64.319 tokens de entrada. El dato no permite atribuir todo el coste a esos bloques, pero justifica revisar qué se pierde al truncar.
+- **Mejora:** presupuesto por bloque, prioridad para evidencia económica/gates/objetivo y resúmenes de historial acotados; detalle bajo demanda con recibos. Conservar cobertura, fechas y advertencias antes de truncar; registrar tamaños enviados y modelo/proveedor efectivo.
+- **Aceptación:** una organización con mucho historial no pierde los límites financieros relevantes. Medir tokens/latencia/calidad de la tarea antes y después; optimizar contexto sin quitar evidencia necesaria.
+
+### A14-031 · Unificar observabilidad, preferencias y configuración versionada
+
+- **Evidencia:** los errores de `loadDisabledAgents` se convierten en mapa vacío (`ai-agent-groups.ts:24`); algunas salidas tempranas del tick no persisten gates. Los éxitos de test carecen de `deployment_version`, mientras la configuración histórica documentada como «cerrada» no acredita el recorrido actual. Los checksums de prompts A14 se generan desde etiquetas literales, no desde el contenido completo.
+- **Mejora:** ficha operativa con activación, capacidades y dependencias; tick/gate/run/output/decisión enlazados y versión efectiva de API/worker/UI/prompt/schema/tools. Fallo de lectura de preferencias debe impedir habilitar gasto por omisión. Versionar cambios canónicos en repositorio/migraciones y comprobar historial+definición real en ambos entornos.
+- **Aceptación:** se explica por qué una tienda no tiene A14 y qué debe ocurrir para generarlo; se distingue modelo configurado/efectivo y código local/desplegado. No se necesita una edición manual de prompt que otro proceso pueda sobrescribir.
+
+### A14-032 · Probar el recorrido propio de A14 y evaluar sus afirmaciones
+
+- **Evidencia:** pasan 88 pruebas focalizadas y un contrato estático A14 v2, pero la prueba A14 busca patrones de texto y no ejecuta el runner/aprobación. La suite A24 comprueba la presencia del loader y su `unknown`, lo que no demuestra que A14 bloquee una recomendación de inversión. El catálogo eval declara que las tareas llevan fase, aunque el JSON Schema A14 no la ofrece.
+- **Mejora:** regresiones del contrato real, autorización/scope, loader, SQL y materialización con fixtures; casos de moneda/nulos/costes/ventanas/atribución/A24, idempotencia/concurrencia/fallos parciales y roles. Evaluar por separado exactitud de afirmaciones, abstención, duplicados, proporcionalidad de acción y alineación con Camino, enlazando snapshot y recibos exactos.
+- **Aceptación:** recorrido aislado sync→tick→diagnóstico→decisión→tarea/hito→seguimiento, sin acciones comerciales reales; cero escalados por datos no comparables y cero enlaces a plan distinto del revisado. Una suite verde o un éxito sin tokens no acredita calidad semántica ni un E2E desplegado.
+
+### Verificación y límites de esta auditoría A14
+
+- **89/89 pruebas aprobadas:** 88 desde `apps/api` con `npx tsx --test --test-force-exit src/marketing-store-scope.test.ts src/shopify-operational-context.test.ts src/meta-measurement-verdict.test.ts src/meta-diagnostic-evidence.test.ts src/meta-cost-rates.test.ts src/meta-purchase-action-type.test.ts src/meta-insight-numbers.test.ts src/a24-meta-scope.test.ts src/agent-task-delivery.test.ts src/consultant-specialist-context.test.ts src/ai-runtime-envelope.test.ts src/agent-schedule.test.ts src/ai-diagnostic-activity-gate.test.ts`; y una prueba desde `packages/ai` con `npx tsx --test --test-name-pattern='A14 v2' src/agent-canonical-prompts.test.ts`.
+- **Reproducción local del contrato efectivo:** `buildLeanOutputContract` con los campos omitidos de A14 confirma ausencia de answer/findings/recommendations y de phase/categories/plan_id en las propuestas; milestone_id sí existe. No se llamó al modelo.
+- **Fixtures sintéticos, sin persistir:** SQL `VALUES` reproduce 31 días inclusivos y un día compartido, y suma de gasto 200 frente a 100 al existir dos variantes de atribución. Ejemplo aritmético local diferencia aproximación de equilibrio y fórmula con costes, además de CPA/CAC. Los duplicados de gasto no se observaron en los datos remotos y los ejemplos no cuantifican perjuicio real.
+- **Lecturas remotas:** agente/prompt/tools, overrides, historial de las dos migraciones A14, hashes/definiciones de RPC, índices, agregados de runs/gates, estados de conexiones/cuentas/cache A24 y contadores estructurales de output. Los fallos de proveedor leídos son históricos; no se consultaron claves, se generaron salidas ni se aprobaron tareas.
+- **Grafo MCP:** utilizado para descubrir runner, scope, herramientas y lectores; los snippets de `ai-runtime.ts` tenían offsets antiguos y se contrastaron con el archivo actual. No se reconstruyó el grafo.
+- **Límites:** no se hizo sesión autenticada de navegador, llamada real al LLM/Meta, ejecución del worker, carga, carrera Postgres ni prueba RLS con tenants impersonados. Las pruebas actuales no sustituyen esos recorridos y la auditoría no afirma que la build local esté desplegada.
+- **Implementación posterior:** cambios A14 en `ai-runtime.ts`, contratos de `packages/ai`, UI Meta, worker y materialización de tareas; migración `20270102120000_a14_operational_integrity.sql` registrada en test y producción. En ambos entornos se confirmó A14 v3 activo, checksum idéntico, reserva manual por tienda, materialización atómica y deduplicación canónica de gasto Meta.
+- **Verificación de implementación:** TypeScript sin emisión pasa en `packages/ai`, `apps/api` y `apps/web`; el build de `@e-nora/ai` pasó. No se ejecutó una generación real del modelo, un tick de worker ni un recorrido autenticado en navegador; esos límites siguen aplicando a la validación del comportamiento desplegado.
+
+## A15 · Análisis visual y mejora de creativos de Instagram y Meta Ads
+
+**Auditoría: 19 de octubre de 2026. Estado: 34 mejoras registradas, pendientes de implementación. Esta pasada solo modifica documentación.** Incluye código local, descubrimiento y trazado con el grafo MCP, definiciones y metadatos de test y producción, pruebas existentes y una reproducción sintética sin persistencia. Los hallazgos de código describen el worktree; no certifican qué build de API, worker o web está desplegada.
+
+El alcance solicitado cubre **Instagram y Meta Ads**, con la misma importancia o mayor para los creativos publicitarios. A15 ya se llama «Analista visual multicanal» en las dos bases. El nombre antiguo de Instagram permanece en contratos, rutas y UI; cambiar etiquetas no basta para completar el soporte de Meta.
+
+La capacidad debe separar tres resultados: **observaciones de la pieza**, **diagnóstico de diseño aplicado a un brief** e **hipótesis apoyadas en resultados del canal**. A15 puede describir y detectar problemas visuales; A16/A11 materializan texto y borradores; A23 aporta la lectura de rendimiento pagado y A24 su fiabilidad. Ninguno puede deducir ventas, causalidad o una creatividad «ganadora» solo mirando píxeles. Esta separación permite ampliar A15 sin duplicar agentes ni convertir cada análisis de una imagen en una llamada con herramientas innecesarias.
+
+### Recorrido observado y puntos de integración
+
+| Entrada o consumidor | Comportamiento comprobado | Mejora que debe cubrir |
+|---|---|---|
+| Subida manual | POST de imagen base64; deduplicación por organización/checksum; fuente `instagram/manual_upload`; almacenamiento público. | Elegir destino y tienda, originales privados, validación de imagen completa y atribución correcta de procedencia. |
+| Importación Meta | Lista hasta 100 activos `image/video` con URL; copia imágenes o miniaturas a un bucket privado; guarda enlace al activo. | Medio recuperable en creatividades simples, identidad estable entre sincronizaciones, alcance de cuenta/tienda y conservación del tipo de representación. |
+| Worker | Evalúa la cola cada minuto; reclama hasta tres filas globales y procesa en serie. | Lease recuperable, reparto entre organizaciones, pausas explícitas y confirmación de persistencia. El tick no garantiza una ficha en un minuto. |
+| Runner A15 | Lee prompt v2, adjunta una imagen, devuelve descripción/composición/OCR/colores/uso/inferencias/alt text/confianza; sin tools. | Contrato creativo más útil, evidencia reproducible, tipo de medio y políticas de coste efectivas. |
+| RAG | Convierte la ficha a markdown, genera embeddings y crea un documento `visual_asset`. | Confianza y procedencia completas, revisión humana real, scope y reemplazo recuperable. |
+| A16 y A11 | El editor usa imagen y markdown; el caption se genera como `instagram_organic`. | Handoff con IDs/revisiones, brief de canal y producto, incluyendo el recorrido específico de Meta. |
+| A23 | Busca vínculos Meta en el banco y adjunta bytes privados directamente. | Reutilizar atributos A15 con versión y conservar la relación muchos-a-muchos anuncio/creativo/activo/periodo. Hoy adjuntar la imagen a A23 no equivale a reutilizar la ficha A15. |
+| Copiloto del estudio | Busca fichas de imágenes analizadas del bucket público por organización. | Acceso autorizado a referencias privadas y tienda seleccionada; una URL firmada temporal no debe guardarse como URL pública de una pieza. |
+| Biblioteca web | Filtros locales sobre 300 imágenes, importador Meta, ficha y edición markdown; polling mientras hay trabajo. | Paginación, contexto de tienda, confianza, recuperación de previews y estados de A15 correctamente nombrados. |
+
+Referencias principales: `apps/api/src/meta-sync.ts:995,1050,1411`; `apps/api/src/instagram-image-bank.ts:70,154,283,348,526,702,775,841,888,938,1090,1229,1450,1560`; `apps/api/src/ai-runtime.ts:15324,15474,21114`; `apps/api/src/studio-ai-chat.ts:348`; `packages/ai/src/index.ts:2637`; `apps/web/src/app/marketing/imagenes/page.tsx:145`; `apps/worker/src/repeatable-jobs.ts:25`; `apps/api/src/server.ts:10876,12218`.
+
+### Estado remoto leído en esta auditoría
+
+Se consultaron configuración, estructura, restricciones, políticas, estados y agregados. No se leyeron imágenes de clientes, OCR, textos narrativos de fichas, anuncios ni credenciales; no se generaron análisis ni se modificaron datos.
+
+| Comprobación | Test · `kopcblejsxpkxoykldyh` | Producción · `cthjwpeygpzwdmjkxeqa` |
+|---|---|---|
+| Nombre / agente / prompt activos | Analista visual multicanal / v2 / v2 | Igual |
+| Modelo declarado / tools / aprobación | `claude-sonnet-5` / `[]` / `none` | Igual |
+| Checksum del prompt igual al hash de su contenido | No | No |
+| Migración de procedencias `20261115470000` | Registrada | Registrada |
+| Banco visual | Una imagen analizada, pública, con RAG y fingerprint | Cero filas |
+| Procedencias | Una subida manual Instagram; ninguna Meta | Cero filas |
+| Activos `image/video` en `meta_creative_assets` | Cero | Cero |
+| Runs A15 | Siete éxitos OpenAI/`gpt-6-luna` entre 09/10 y 12/10; otro éxito histórico con cero tokens/coste | Ninguno registrado |
+| Metadatos de runs | Los ocho carecen de tienda y versión de despliegue; siete tienen hash de prompt | Sin runs que comprobar |
+| Origen del documento visual | `human_approved_ai` | Sin documentos visuales |
+| Buckets | `marketing-assets` público; `marketing-source-assets` privado; 5 MiB | Igual |
+| RLS de banco/procedencias | SELECT por acceso a organización; no filtro de tienda en esas políticas | Igual |
+| FK procedencia → activo Meta | `ON DELETE CASCADE` | Igual, comprobada por definición remota |
+
+Los siete runs de test con consumo suman 11.383 tokens de entrada, 1.987 de salida y 0,002131 USD **registrados**. No son un benchmark de calidad/coste de Meta ni explican por sí solos por qué se generaron siete veces. El éxito sin consumo no demuestra una llamada real. La ausencia de activos/runs en producción tampoco demuestra que el worker esté caído: solo limita lo que puede certificarse con esos registros.
+
+### A15-001 · Conservar la identidad de los activos Meta entre sincronizaciones
+
+- **Evidencia:** `syncAdAccountStructure` borra todas las filas de `meta_creative_assets` de cada creativo y vuelve a insertarlas (`meta-sync.ts:1050–1078`). La FK desde `marketing_visual_asset_sources` tiene `ON DELETE CASCADE`, confirmado en producción. Por tanto, ese recorrido elimina los enlaces de procedencia antes de recrear activos con nuevos IDs; la copia del banco puede sobrevivir sin vínculo Meta.
+- **Mejora y aceptación:** definir una identidad natural estable por creativo/tipo/referencia/posición cuando corresponda; actualizar in-place y reconciliar bajas sin destruir procedencias históricas. Ejecutar dos sincronizaciones del mismo creativo y comprobar que conserva IDs, vínculos, análisis y evidencia de A23; una variante retirada queda distinguible de una vigente. No limitar la corrección a quitar el cascade ni usar el texto o la posición como única identidad universal.
+
+### A15-002 · Hacer importables las creatividades simples de Meta
+
+- **Evidencia:** `buildMetaCreativeAssetRows` crea la fila `image` solo con hash o `video` solo con ID, y guarda `creative.thumbnail_url` en otra fila `thumbnail`. El listado/importador acepta `image/video` con URL, pero no relaciona esa miniatura separada. Con fixtures de creatividad simple imagen+miniatura y vídeo+miniatura, el pipeline actual produce respectivamente `[image,thumbnail]` y `[video,thumbnail]`, con **cero representaciones importables en ambos casos**.
+- **Mejora y aceptación:** resolver el medio de la creatividad fija con referencias fiables y permisos actuales, asociar la miniatura al activo correcto y distinguir original de preview. Si solo hay hash/ID, recuperar la representación por el adaptador Meta autorizado o declarar su indisponibilidad. Pruebas desde normalización/sync hasta candidato/importación para imagen fija, vídeo con miniatura, feed dinámico y creativo sin medio; el enlace no debe depender de que una variante traiga casualmente `entry.url`.
+
+### A15-003 · Aplicar scope de tienda y cuenta a toda la biblioteca
+
+- **Evidencia:** banco y procedencias no tienen `store_id`; las consultas del importador/listado y los consumidores filtran organización, no tienda. `requireBankAccess` comprueba organización/rol y las políticas remotas son organizativas. La UI dice «El banco de imágenes es de cada tienda» sin seleccionar ese scope. No se ha demostrado una fuga real entre clientes; sí falta una frontera explícita entre tiendas de una misma organización.
+- **Mejora y aceptación:** asociaciones de activo a tienda/cuenta y compartición organizativa explícita; comprobar permisos al listar, importar, firmar, editar, borrar y utilizar en agentes/RAG. Resolver cuenta Meta → tienda desde servidor. Un usuario restringido a A no ve ni utiliza B; un recurso compartido aparece como tal y no hereda silenciosamente otro producto, marca u objetivo. Mantener deduplicación física sin deduplicar permisos.
+
+### A15-004 · Separar procedencia, representación y destino de uso
+
+- **Evidencia:** toda subida manual se registra como `instagram/manual_upload`, aunque pueda destinarse a Meta. La importación guarda `asset_type` e `imported_representation` en `source_metadata`, pero `attachVisualAssetSources` solo devuelve canal/tipo de fuente y el runner recibe únicamente `sourceChannels`. Añadir Meta a una imagen ya analizada no modifica el fingerprint ni asegura un análisis actualizado de esa procedencia.
+- **Mejora y aceptación:** DTO común con fuente verificada, destinos autorizados, tienda/cuenta, versión del activo y `static_image/video_thumbnail/frame/...`; separar percepción reutilizable de contexto de uso. Una subida destinada a ambos canales no se presenta como publicación real de Instagram; una miniatura sigue identificada como miniatura en input, análisis, markdown, UI y handoffs, incluso tras deduplicación o sincronización.
+
+### A15-005 · Explicar A15 y ambos canales en las superficies del producto
+
+- **Evidencia:** la UI muestra «A11 la está describiendo» en estados, detalle y vacío (`imagenes/page.tsx:141,766,1079`), aunque el procesador llama a A15. No presenta una ficha de capacidad/estado que explique qué analiza, cuándo se dispara y qué significa estar en cola. La confianza está en el tipo recibido pero no se muestra en el detalle leído.
+- **Mejora y aceptación:** nombrar A15 y cubrir Instagram/Meta en biblioteca, importador, ficha y accesos desde campañas; distinguir describir, revisar diseño y generar una variante. Mostrar estado, fecha, revisión, confianza y límites del medio; explicar «en espera por cuota/configuración» y worker sin actividad frente a «analizando». No prometer análisis de vídeo completo desde una miniatura.
+
+### A15-006 · Incorporar un diagnóstico creativo estructurado y accionable
+
+- **Evidencia:** el contrato actual ofrece descripción, objetos, colores, estilo, composición, proporción estimada, OCR, uso, inferencias, alt text y confianza. No identifica de forma estructurada producto protagonista, mensaje visible, oferta, CTA, jerarquía, legibilidad, demostración, prueba social o problemas concretos de diseño. `suggested_use` es texto libre.
+- **Mejora y aceptación:** mantener observaciones neutrales y añadir una evaluación aplicada opcional: elemento observado, ubicación, problema, evidencia, gravedad de diseño, cambio sugerido e incertidumbre. Clasificar recursos creativos solo cuando sean visibles; separar ausencia, ilegibilidad y desconocido. Una recomendación debe permitir crear un brief concreto de variante; no producir notas arbitrarias de «potencial de ventas» ni declarar autenticidad de testimonios o claims a partir de la imagen.
+
+### A15-007 · Medir formato y calidad técnica antes de pedir inferencias al modelo
+
+- **Evidencia:** se guarda MIME/tamaño en bytes y el modelo estima `aspect_ratio_estimate`; el banco no conserva dimensiones, orientación, resolución útil o geometría de recorte. El editor usa ratios solicitados sin que A15 disponga del recorte final ni del placement real.
+- **Mejora y aceptación:** calcular dimensiones, orientación y ratio real mediante decodificación controlada; evaluar recorte, nitidez/tamaño útil y zonas de texto sobre la composición renderizada. Reglas de placement documentadas y versionadas por adaptador, sin fijar especificaciones externas no comprobadas. Una estimación visual no contradice la medida física; los avisos diferencian original, recorte y export final y permiten ver qué quedaría cortado.
+
+### A15-008 · Conservar OCR, evidencia y confianza por hallazgo
+
+- **Evidencia:** OCR es una cadena única y confianza un enum global. No se localizan fragmentos ilegibles ni se asocia incertidumbre a un objeto, producto o claim. El markdown exportado omite `confidence`; una extracción dudosa puede llegar a otro agente sin esa advertencia.
+- **Mejora y aceptación:** OCR por fragmentos/regiones con texto literal, ubicación y legibilidad; observaciones e inferencias diferenciadas y confianza/advertencia por hallazgo. Conservar también la confianza global en DTO, UI, markdown y contexto reducido. Precio parcialmente visible, texto pequeño, multilingüe y claims ambiguos no se completan ni convierten en hechos de catálogo; OCR vacío no equivale automáticamente a ausencia de texto.
+
+### A15-009 · Ampliar el soporte de vídeo con un contrato temporal propio
+
+- **Evidencia:** la implementación de vídeo solo utiliza `thumbnail_url`; no descarga ni analiza secuencias, audio o montaje. Es una limitación explícita, no soporte de vídeo completo. Para creativos publicitarios esta representación no permite analizar hook, demostración, ritmo o cierre.
+- **Mejora y aceptación:** flujo asíncrono y acotado de vídeo autorizado: duración/tamaño, fotogramas o escenas con timestamps, OCR temporal y transcripción cuando esté disponible, advertencias y presupuesto previo. Describir únicamente segmentos observados; un muestreo no se presenta como cobertura integral. Permitir miniatura como modo económico separado. Probar fallo parcial, vídeo sin audio, escenas repetidas, duración excesiva y permisos; no introducir publicación ni cambios de gasto como efecto de analizar.
+
+### A15-010 · Representar carruseles y creatividades dinámicas como conjuntos
+
+- **Evidencia:** A15 recibe una sola imagen por run; los activos del feed se analizan de forma independiente y el banco no representa el orden/historia del carrusel ni combinaciones realmente servidas. El editor sí admite varias diapositivas, por lo que existe un consumidor que necesita continuidad entre piezas.
+- **Mejora y aceptación:** entidad de conjunto con orden, portada, variantes, textos y reglas conocidas; análisis individual reutilizable más síntesis de secuencia. Diferenciar combinaciones posibles de piezas entregadas por el proveedor. Revisar continuidad, repetición, progresión y CTA sin atribuir el resultado del anuncio a cada componente; reordenar un carrusel invalida la síntesis y conserva los análisis individuales válidos.
+
+### A15-011 · Aplicar marca, producto y objetivo sin contaminar la observación
+
+- **Evidencia:** el runner visual solo recibe metadatos de archivo/canales y asignación de consultor; no carga marca, producto, brief, público o finalidad. La descripción neutral es apropiada, pero no puede resolver por sí sola coherencia con una campaña ni veracidad de un precio o atributo.
+- **Mejora y aceptación:** dos niveles explícitos: extracción visual del activo y revisión de su adecuación a un brief autorizado de la misma tienda. Resolver producto/variante y claims desde fuentes reales, con IDs y fecha; objetivo/público como contexto declarado, no como hechos percibidos. Cambiar el objetivo no debe pagar otra extracción idéntica, pero sí reconsiderar el diagnóstico aplicado. Si falta contexto, solicitarlo en el flujo y conservar el análisis visual útil.
+
+### A15-012 · Hacer reutilizable la biblioteca mediante búsqueda autorizada
+
+- **Evidencia:** A15 no necesita tools para ver la imagen ya adjunta; esa decisión sigue siendo válida. Sin embargo, la búsqueda de biblioteca es local y el estudio usa una consulta propia sobre fichas públicas. No hay un contrato común de descubrimiento por producto, atributos, medio, tienda, revisión y disponibilidad que puedan reutilizar los agentes consumidores.
+- **Mejora y aceptación:** servicio de búsqueda y resolución de activos con filtros y paginación; exponer herramientas de lectura pequeñas a los consumidores que deban buscar referencias, con IDs/recibos, cobertura y autorización. El modelo no recibe URLs arbitrarias ni un catálogo completo. Encontrar una pieza privada no la publica: su uso en una exportación requiere una referencia válida y una decisión explícita del flujo de publicación.
+
+### A15-013 · Conectar atributos A15 con A23 sin perder relaciones ni periodos
+
+- **Evidencia:** A23 adjunta imágenes desde las procedencias Meta, pero no consulta el análisis/fingerprint A15 en ese recorrido. `assetIdToAd` es un `Map<assetId,adId>`: si varios anuncios usan el mismo activo, la asignación posterior pisa la anterior. El loader limita además a una imagen por anuncio; no demuestra que un atributo concreto explique el rendimiento de un conjunto dinámico.
+- **Mejora y aceptación:** referencias muchos-a-muchos entre anuncio, creativo, activo, análisis y periodo de asignación; reutilizar atributos A15 compatibles y mantener bytes como evidencia cuando corresponda. Declarar si representan todo el periodo o solo un snapshot. A23/A24 conservan métricas, muestra y atribución; comparación de estilos como hipótesis contrastable, con confusores visibles. Dos anuncios que comparten imagen mantienen ambos vínculos y sus resultados separados.
+
+### A15-014 · Materializar mejoras como briefs y variantes de Instagram o Meta
+
+- **Evidencia:** la integración directa lleva al editor A16 y al caption A11 con `channel: instagram_organic`. No se encuentra en ese recorrido un handoff equivalente de la ficha A15 a una variante Meta con campaña/producto/revisión identificados.
+- **Mejora y aceptación:** acción desde un hallazgo que construya un brief revisable con activo base, objetivo, destino/placement, restricciones y cambios exactos; enviarlo a A16/A11 o al generador adecuado. Devolver borrador/editor real e IDs, con idempotencia y revisión esperada. El brief no cuenta como variante terminada; generar no publica anuncios, no sobrescribe el original y no cambia presupuesto.
+
+### A15-015 · Cerrar el ciclo entre original, edición, export y aprendizaje
+
+- **Evidencia:** el banco conserva una ficha actual y los overlays tienen sus propios datos; A15 no identifica en su contrato qué cambios se aplicaron ni qué export final terminó usándose. Una ficha del original no prueba cómo queda el texto sobreimpreso o el recorte final.
+- **Mejora y aceptación:** linaje de variantes con revisión del brief, activo origen, render/export y vínculo al borrador/publicación/anuncio si existe; volver a comprobar la pieza final y registrar qué hallazgos se resolvieron. Incorporar aprobación/corrección humana y resultados por canal con ventana/muestra sin autovalidar inferencias. Poder comparar original y variante y recuperar la evidencia exacta que sustenta una conclusión.
+
+### A15-016 · Validar imágenes completas y acotar recursos de ingestión
+
+- **Evidencia:** subida manual y descarga Meta verifican cabeceras de bytes/MIME y hasta 5 MiB, pero no decodifican para verificar integridad, número de fotogramas o tamaño descomprimido. La subida admite GIF; Meta usa solo PNG/JPEG/WebP. `Buffer.from(...,'base64')` es tolerante y el `try/catch` no garantiza una validación estricta del contenido.
+- **Mejora y aceptación:** validación de base64 y decodificación segura con límites de píxeles, frames, memoria y tiempo; identificar animaciones y normalizar una representación compatible cuando sea necesario. Conservar hash del original y de la representación; eliminar metadatos no necesarios de la copia de trabajo sin alterar el significado visual. Archivos truncados, falsos positivos de magic bytes y animaciones no se envían como imágenes estáticas completas ni provocan consumo ilimitado.
+
+### A15-017 · Separar originales privados de assets publicados
+
+- **Evidencia:** las subidas manuales se guardan en el bucket público `marketing-assets`; las copias de Meta en uno privado. Si una imagen pública ya existe por checksum, importarla desde Meta reutiliza esa fila. A23 exige metadatos de almacenamiento privado y puede rechazar esa misma imagen pese a tener procedencia Meta; el estudio, en sentido inverso, solo busca el bucket público.
+- **Mejora y aceptación:** originales y análisis privados por defecto, con un resolver común; publicar/copiar derivados durables solo en el paso autorizado que los necesita. Migrar referencias sin romper emails o piezas ya publicadas. Probar subir primero/importar después y el orden inverso: misma evidencia visual, permisos correctos y reutilización equivalente en A16/A23/estudio. Una URL conocida de original privado no da acceso público. La diferencia entre buckets y acceso por URL está documentada por [Supabase](https://supabase.com/docs/guides/storage/buckets/fundamentals).
+
+### A15-018 · Resolver disponibilidad y renovación del medio Meta
+
+- **Evidencia:** `available` solo indica que existe una cadena de URL; la importación intenta la URL persistida y, si falla, devuelve 502 con invitación a sincronizar. No recupera una representación actual por referencia. La descarga ya protege hosts HTTPS, DNS fijado a IP pública, redirecciones y bytes; conviene conservar esas barreras.
+- **Mejora y aceptación:** estados de disponibilidad con fecha/cobertura; refresco autorizado por ID/hash ante URL vencida, fallback de preview identificado y fallo tipado cuando no sea recuperable. Deadline global del download con límites agregados de redirección y reintentos, sin exponer tokens de URL. Una conexión inactiva o un permiso revocado no se describe como «sin creatividades»; renovar el medio no debe perder la procedencia ni duplicar análisis iguales.
+
+### A15-019 · Recuperar trabajos reclamados sin duplicar gasto
+
+- **Evidencia:** la cola pasa hasta tres filas de `queued` a `analyzing` y procesa en serie. No hay lease, heartbeat, identificador de reclamación ni recuperación de `analyzing` abandonados. Una caída del proceso o excepción antes de terminar deja filas que el selector y el botón de retry no recuperan.
+- **Mejora y aceptación:** claim atómico con propietario, vencimiento y límite de concurrencia; renovación durante operaciones largas y recuperación segura. Finalizar solo con el token vigente, comprobando borrado/cancelación y revisión del activo. Simular caída antes/durante/después de la llamada y dos workers: recuperar trabajo, reutilizar un resultado ya persistido y evitar que una respuesta tardía sobrescriba otra revisión.
+
+### A15-020 · Repartir la cola y programar esperas entre organizaciones
+
+- **Evidencia:** se eligen las tres imágenes globalmente más antiguas. Si su organización está sin presupuesto o con circuito abierto, vuelven a `queued` sin cambiar orden ni fecha de próximo intento; pueden ocupar siempre el lote y posponer trabajo elegible de otros clientes.
+- **Mejora y aceptación:** `next_attempt_at`, razones de bloqueo persistidas, selección justa por organización y límites por tick/cliente; excluir temporalmente trabajo inelegible. Una organización con tres trabajos antiguos bloqueados no impide que otra procese su imagen. Medir edad de espera y distinguir cola, cuota, pausa, fallo de proveedor y ausencia de worker; evitar reconsultas costosas cada minuto para la misma pausa.
+
+### A15-021 · Clasificar reintentos, pausas y reparación de indexación
+
+- **Evidencia:** el runner convierte cualquier excepción en `retriable:true`; la cola corta a tres intentos. Fallos permanentes de imagen, salida inválida, agente desactivado o fallo transitorio pueden consumir la misma política. El retry de una imagen ya analizada vuelve a generar visión aunque el problema sea únicamente RAG.
+- **Mejora y aceptación:** errores tipados con backoff/jitter y estados distintos para permanente, transitorio, cuota/configuración y cancelación. Indexar/reparar RAG y refrescar preview sin volver a pagar análisis; una reextracción voluntaria tiene clave propia y limitación de frecuencia. Agente desactivado queda pausado, archivo corrupto falla de forma explicable y timeout transitorio conserva sus intentos y programación recuperables.
+
+### A15-022 · Confirmar persistencia antes de anunciar éxito
+
+- **Evidencia:** el error del `update` que reclama trabajo se ignora; varios updates de cola y el guardado final no comprueban `error` ni filas afectadas, pero se incrementa `processed`. El runner marca el run como completado antes de que la ficha se guarde en el banco. Un fallo de DB puede devolver «procesado» sin un artefacto utilizable.
+- **Mejora y aceptación:** distinguir generación del modelo y materialización del análisis; almacenar el resultado recuperable y finalizar banco/run mediante operación idempotente con revisión/claim. Confirmar errores y filas afectadas en cada transición. Inyectar fallo tras la llamada y recuperar el resultado sin volver a generarlo; no emitir éxito de materialización ni contadores falsos cuando la fila ya no existe o el write falla.
+
+### A15-023 · Hacer importación y deduplicación idempotentes por origen
+
+- **Evidencia:** se descarga Meta antes de comprobar si esa referencia ya fue importada; la deduplicación opera por checksum. `ensureMetaImageSource` usa `ignoreDuplicates:true`: si el mismo origen entrega bytes distintos, el vínculo único puede seguir apuntando a la imagen anterior y la importación nueva devolver éxito. Subida/copia, fila y procedencia se guardan en operaciones separadas; no todos los fallos de inserción limpian storage.
+- **Mejora y aceptación:** identidad/versionado de origen más checksum, idempotencia por solicitud y reconciliación transaccional de filas, con compensación/reparación del objeto de storage. Detectar origen sin cambios antes de descargar cuando la referencia fiable lo permita. Probar importaciones simultáneas, un origen cuyo contenido cambia y error en cada etapa: una vinculación correcta por revisión, sin huérfanos ni éxito que conserve silenciosamente bytes antiguos.
+
+### A15-024 · Invalidar análisis por su contrato y configuración efectiva
+
+- **Evidencia:** el fingerprint contiene versión de agente, modelo declarado y referencias de prompt; no incluye hash del contenido, schema, representación ni configuración/modelo efectivo del wrapper. Remotamente ambos prompts v2 tienen un checksum que no corresponde al contenido; test ejecutó `gpt-6-luna` aunque el modelo declarado es `claude-sonnet-5`. La revisión de stale solo se activa al volver a subir/importar el checksum.
+- **Mejora y aceptación:** fingerprint canónico de bytes/representación y contrato de extracción, hash real del prompt/schema y política de modelo solicitada/efectiva con su recibo; separar la revisión aplicada al brief. Detectar automáticamente cambios relevantes y programar actualización acotada, conservando versión válida anterior y evitando bucles por fallback. Cambiar una etiqueta de origen no exige pagar otra percepción; cambiar contenido del prompt o representación sí se reconsidera. Nuevas versiones mediante repositorio/migración y promoción canónica, sin ediciones manuales que otro proceso sobrescriba.
+
+### A15-025 · Preservar revisiones y correcciones humanas
+
+- **Evidencia:** hay una sola columna `analysis/markdown`; el retry la puede sobrescribir. `queueImageIfAnalysisIsStale` borra documento RAG y limpia la ficha antes de tener reemplazo. La edición markdown no verifica revisión esperada ni bloquea un análisis concurrente; usa `created_by` de la subida, sin separar autor de la corrección.
+- **Mejora y aceptación:** historial de análisis y correcciones con actor, motivo y revisión; comparar-and-swap en editar/reanalizar y referencia explícita a la versión vigente. Mantener disponible la última ficha válida durante regeneración y conservar correcciones humanas sin mezclarlas con observaciones nuevas. Prueba de edición mientras llega un resultado y fallo de reanálisis: conflicto visible, sin pérdida silenciosa ni atribución al usuario equivocado.
+
+### A15-026 · Reparar RAG sin destruir la versión utilizable
+
+- **Evidencia:** `reindexImageMarkdown` elimina el documento anterior antes de verificar proveedor, generar embeddings o insertar el nuevo. La cola captura errores de indexación y guarda `knowledge_document_id:null`; no existe una cola de reparación independiente en ese flujo. La UI detecta «sin indexar», pero volver a analizar puede repetir visión.
+- **Mejora y aceptación:** crear/indexar la nueva revisión, comprobar chunks y publicar el puntero solo cuando esté lista; retirar la anterior después. Estado y reintentos independientes de indexación con outbox/idempotencia. Si embeddings no están disponibles, el análisis sigue consultable y el índice anterior no desaparece prematuramente; recuperar el servicio indexa exactamente esa revisión sin una nueva llamada visual.
+
+### A15-027 · Preservar la autoridad real y los límites de la ficha en RAG
+
+- **Evidencia:** el documento automático se guarda como `origin: human_approved_ai` y `status:active` sin aprobación humana en ese recorrido. Carece de tienda, identidad de imagen/run/revisión como fuente y no guarda el contenido completo en el insert de documento. El markdown omite confianza; el caption recorta cada ficha a 1.800 caracteres, pudiendo perder las advertencias posteriores.
+- **Mejora y aceptación:** origen real de extracción automática y aprobación solo al existir decisión; fuente exacta imagen/representación/análisis/run y scope; conservar contenido/revisión verificables. Resumen de contexto que priorice incertidumbre, restricciones y procedencia antes de truncar, con enlace al detalle. Fichas con baja confianza o corregidas no se convierten en conocimiento confirmado por cambiar de consumidor. Tratar nombre de archivo, OCR y notas como datos no fiables, también ante instrucciones embebidas en una imagen.
+
+### A15-028 · Borrar con consistencia y respetar piezas dependientes
+
+- **Evidencia:** el borrado elimina primero storage y documento, sin comprobar sus errores, y después la fila del banco. Puede dejar una fila rota si falla el último paso o un objeto/documento huérfano si falla uno previo. No se cancela la tarea de análisis ya reclamada ni se coordina con overlays, exports o borradores que usan la imagen.
+- **Mejora y aceptación:** marcar/cancelar con revisión, resolver referencias y ejecutar una limpieza idempotente/reintentable; definir qué se conserva en piezas ya publicadas frente a originales retirados. Invalidar cachés firmadas y evitar que un job tardío recree RAG. Probar borrado durante análisis, fallo de storage/DB y activo usado por una pieza: resultado coherente y dependencias visibles, sin prometer que una URL ya distribuida se revoca instantáneamente.
+
+### A15-029 · Aislar el estado de UI al cambiar organización o tienda
+
+- **Evidencia:** `ImageBankContent` mantiene imágenes, candidatos Meta, detalle, edición y operaciones en estado React. `base` cambia con organización, pero los fetch no se cancelan ni validan su scope al resolver y los candidatos previos no se reinician explícitamente. Una respuesta tardía puede repoblar el estado del contexto anterior.
+- **Mejora y aceptación:** reinicio de estado ligado a scope, abort/generation guard para lecturas y escrituras, y protección de selección/edición pendiente. Cambiar A→B durante listado, importación o subida no presenta datos de A en B ni dispara una operación con IDs conservados de otro contexto. El mismo criterio debe cubrir el selector de tienda que se incorpore.
+
+### A15-030 · Renovar previews firmadas y aislar fallos por activo
+
+- **Evidencia:** las URLs privadas duran cinco minutos y la caché cuatro; la biblioteca solo refresca periódicamente si hay trabajos pendientes. Una sesión estable con imágenes ya analizadas puede conservar URLs vencidas; el listado falla completo si una firma/metadato no es válido. No hay recuperación `onError` del preview en la vista leída.
+- **Mejora y aceptación:** renovar al vencer, al volver a foco o por error acotado del medio, con resolver autorizado común para biblioteca y editor; no persistir URLs firmadas como identidad. Informar fallo por activo y permitir ver el resto de la biblioteca. Una ficha abierta más de cinco minutos recupera el preview sin reanalizar y sin bucle; un objeto perdido no inutiliza todas las fichas.
+
+### A15-031 · Paginar y buscar sobre el catálogo completo
+
+- **Evidencia:** biblioteca limitada a 300 filas y candidatos Meta a 100, sin cursor; los filtros/búsqueda de biblioteca se aplican a ese subconjunto. El estudio mantiene una búsqueda diferente de hasta 40 filas públicas. No se informa claramente qué parte queda fuera.
+- **Mejora y aceptación:** paginación estable y búsqueda/filtros en servidor con scope, atributos/medio/producto, estado, revisión y origen; totales/cobertura y consulta específica por ID. Evitar generar y transferir cientos de previews firmadas cuando solo se muestran unas pocas. Un activo antiguo fuera de las primeras 300 filas y uno Meta fuera de las primeras 100 siguen localizables y reutilizables, sin duplicarlos al importar de nuevo.
+
+### A15-032 · Resolver cuotas y configuración antes de consumir un intento
+
+- **Evidencia:** A15 usa `resolveAgentBudget` sin la política de plan que reciben otros runners y reserva contra el límite diario por defecto. El wrapper compartido sí comprueba activación/modelo de cliente y plataforma; no debe afirmarse que A15 los ignore. Sin embargo, esas decisiones pueden ocurrir después de reclamar la imagen, reservar presupuesto y crear el run; el catch genérico las trata como reintentables. El retry manual de una ficha analizada no tiene en este recorrido una reserva/idempotencia específica por solicitud.
+- **Mejora y aceptación:** preflight común de entitlement, activación, capacidades visuales del modelo efectivo, cuota/plan y presupuesto, con razones de pausa. Reserva concurrente e idempotente por trabajo/revisión; conocer el coste registrado de extracción, indexación y revisión aplicada. Cambiar de modelo global no evade límites ni deja un fingerprint engañoso; una pausa de configuración no consume los tres intentos ni bloquea a otras organizaciones.
+
+### A15-033 · Unir tick, activo, análisis y consumo mediante recibos verificables
+
+- **Evidencia:** A15 usa `trigger_type:cron` incluso cuando el origen es una subida/importación manual; no guarda tienda ni `entity_ids` del activo en el run. El snapshot solo congela evidencia visual si el juez está habilitado y no añade sistemáticamente checksum/representación del input. Los ocho runs leídos de test carecen de deployment; el endpoint interno devuelve HTTP 200 también cuando el procesador devuelve `status:error` y el worker comprueba principalmente HTTP.
+- **Mejora y aceptación:** diferenciar origen y transporte del disparo; enlazar job/claim, solicitud, activo/revisión, scope, run, bytes exactos, prompt/schema/modelo efectivos, persistencia e indexación. No guardar secretos de URLs. Heartbeat/resultado de tick y fallo semántico propagado a worker; métricas de espera, repetición, coste y fallos con motivo. Poder explicar qué falta cuando no existe una ficha y reproducir la evidencia sin depender de que el juez estuviera activado.
+
+### A15-034 · Probar los recorridos de ambos canales y la calidad visual real
+
+- **Evidencia:** pasan las pruebas focalizadas de URL/MIME, fingerprint, representación, migración, schema/markdown y normalización de creativos, pero no ejecutan sync→importación→cola→persistencia→consumo. El catálogo offline tiene un caso A15 que declara separar hipótesis y rendimiento; su existencia no acredita OCR, composición, aislamiento, recuperación ni calidad del modelo con imágenes reales. No hay activos ni runs A15 en producción con los que certificar ese recorrido.
+- **Mejora y aceptación:** regresiones de comportamiento para creatividades simples, resync sin pérdida de vínculos, origen mutable, dos tiendas/organizaciones/roles, deduplicación en ambos órdenes, lease/concurrencia, fallos parciales y reparación RAG sin regenerar. Dataset visual autorizado de Instagram y Meta con OCR literal/ilegible, productos ambiguos, claims, instrucciones dentro de imágenes, recortes, miniatura frente a vídeo, carruseles y exports. Evaluar observaciones, abstención, utilidad del cambio sugerido y handoff por separado, sobre el modelo efectivo. E2E aislado de biblioteca→análisis→edición→variante→consulta A23, sin publicaciones o gasto publicitario reales; registrar lo que solo puede validarse después del despliegue.
+
+### Verificación y límites de la auditoría A15
+
+- **14 pruebas focalizadas aprobadas:** diez con `npx tsx --test --test-force-exit src/visual-asset-sources.test.ts src/meta-static-image.test.ts src/meta-visual-asset.test.ts src/a15-migration-contract.test.ts` desde `apps/api`; tres con `--test-name-pattern="creatividad|variantes dinamicas" src/meta-sync-blocks.test.ts`; una con `npx tsx --test --test-reporter=dot --test-name-pattern="extracción de imagen de Instagram" src/index.test.ts` desde `packages/ai`. No se amplió a suites ajenas ni se añadieron tests de implementación.
+- **Reproducción sintética sin persistir:** invocadas las funciones reales `buildMetaCreativeAssetRows` y `resolveMetaVisualRepresentation` con una creatividad fija imagen+miniatura y otra vídeo+miniatura. Ambas producen cero activos importables en ese recorrido. No se llamó a Meta, a un modelo ni a embeddings.
+- **Lecturas remotas:** agente/prompt/configuración, comprobación del hash de contenido, historial de migración, columnas, políticas, FK, buckets y agregados de banco/procedencias/activos/runs/documentos. Test y producción coinciden en estructura/configuración inspeccionada; no se certifica equivalencia de sus builds desplegadas.
+- **Grafo:** utilizado para descubrir runner, procesador, importador, normalización Meta y relaciones. El snippet de `analyzeInstagramImage` tenía offsets desactualizados y devolvía código de A01; se contrastaron todos los hallazgos con los archivos actuales. No se reconstruyó el grafo.
+- **Documentación de proveedor:** contrastados [modelo de acceso de buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals) y [acceso con RLS/service key](https://supabase.com/docs/guides/storage/security/access-control). El changelog de Supabase se leyó como contexto; no se diagnosticó ningún hallazgo A15 como efecto de un cambio del proveedor.
+- **Límites:** sin sesión de navegador, nueva llamada real de visión, importación desde Meta, ejecución del worker desplegado, prueba de carrera Postgres, prueba RLS con usuarios impersonados ni medición de calidad/coste con dataset visual. No se descargaron medios de clientes ni se alteraron datos para fabricar cobertura. Las extensiones de vídeo, revisión aplicada y aprendizaje son oportunidades de capacidad, diferenciadas de fallos del recorrido ya existente.
+- **Alcance de la auditoría original:** esa pasada solo añadió esta auditoría. La implementación posterior queda registrada a continuación.
+
+### Implementación A15 · 20 de octubre de 2026
+
+Se amplió A15 para el banco compartido de Instagram y Meta Ads. La versión de análisis separa observaciones visuales de rendimiento, describe texto visible por región, conserva evidencia/confianza y etiqueta explícitamente las miniaturas de vídeo. Meta conserva identidad de activos en sincronizaciones, deja importables imágenes fijas y miniaturas, y ya no borra las filas anteriores que sirven de procedencia. Se añadieron scope por tienda, fuentes multicanal, subidas privadas y soporte de overlays/copies para ambos canales.
+
+La sincronización también desglosa las tarjetas `object_story_spec.link_data.child_attachments` como activos ordenados de Meta, manteniendo su procedencia y posición al importar. En el banco se pueden seleccionar de 2 a 10 imágenes analizadas para crear un carrusel ordenado y elegir Instagram o Meta Ads; el brief admite objetivo y contexto de campaña para abrirlo como borrador en el editor. Esto prepara la pieza para edición, pero no afirma que el modelo haya evaluado la secuencia ni genera automáticamente el diseño.
+
+Para vídeos Meta con `source` accesible, la API extrae con FFmpeg hasta ocho fotogramas repartidos durante el vídeo (máximo 180 segundos y 100 MiB), conserva el tiempo aproximado de cada fotograma en la procedencia y elimina el temporal local al terminar. Los fotogramas entran en la cola A15 existente; el original no se persiste de nuevo. Meta puede denegar el archivo fuente aunque haya miniatura, en cuyo caso la UI indica que use esa alternativa. La imagen Docker de API instala FFmpeg; la prueba real con permisos/datos de una cuenta Meta sigue pendiente.
+
+**Verificación de la extracción:** typecheck de API y web aprobado. No se pudo construir/ejecutar la imagen Docker para el smoke test porque Docker Desktop no tenía activo su motor Linux en este entorno. No se llamó a Meta ni se probó la extracción con un vídeo real.
+
+La cola usa leases con fencing token, heartbeat, reintentos diferidos, recuperación de reclamaciones caducadas, reparto entre organizaciones y propagación de fallos al worker. El análisis conserva el checksum, representación, tienda, run y trigger en el snapshot; la persistencia final precede al éxito. La indexación RAG tiene estado propio y botón de reparación sin repetir visión. Ediciones con revisión esperada dejan historial de IA/corrección y no sustituyen la ficha vigente hasta completar la nueva indexación. Previews firmadas se renuevan bajo demanda; los fallos se aíslan por imagen. La búsqueda del banco incluye nombre y ficha, y ambos catálogos usan cursores. El copiloto del estudio puede resolver imágenes privadas dentro del scope de tienda, incluso cuando la procedencia Meta asocia la imagen a esa tienda.
+
+| Mejoras | Estado de implementación |
+|---|---|
+| A15-001 a A15-006 | Implementadas para identidad/sync Meta, importación de piezas fijas, scope, procedencia multicanal, UI de ambos canales y diagnóstico accionable. |
+| A15-007 y A15-008 | Parciales: se registran dimensiones y OCR/evidencia/confianza; la lectura de dimensiones no cubre todos los perfiles de WebP ni sustituye a un decodificador completo. |
+| A15-009 | Parcial: para vídeos Meta cuyo token permite descargar el archivo, A15 extrae hasta 8 fotogramas uniformes (vídeos de hasta 180 s y archivos de hasta 100 MiB), los guarda privados y los analiza en la cola visual. Si Meta no entrega `source`, queda disponible la miniatura. Falta OCR/transcripción temporal consolidada y análisis de secuencia como una sola unidad. |
+| A15-010 | Parcial: Meta sincroniza tarjetas de `child_attachments` con posición/metadatos y permite importarlas; el banco permite seleccionar 2–10 imágenes analizadas en orden y crear un carrusel con destino y brief de campaña. Aún falta la entidad de conjunto sincronizada con síntesis de secuencia y distinguir el conjunto realmente servido de sus combinaciones posibles. |
+| A15-011 | Parcial: editor y carrusel aceptan un brief explícito de objetivo, producto, audiencia, placement y límites; se mantiene separado de la observación A15. Falta resolver marca/producto desde datos autorizados de la tienda y recalcular la adecuación cuando cambie el brief. |
+| A15-012 y A15-013 | Parciales: biblioteca paginada/buscable y relación A15→A23 conservada para varios anuncios por activo; faltan filtros/totales y cobertura completa por periodo/representación. |
+| A15-014 | Parcial ampliada: hallazgos y selecciones múltiples llevan a un borrador revisable con canal y brief de campaña; todavía no se genera automáticamente una variante gráfica ni se enlaza con campaña/producto/placement de origen. |
+| A15-015 | Pendiente: se conserva historial, pero no existe ciclo de revisión/aprobación de variantes ni aprendizaje basado en resultados medidos. |
+| A15-016 a A15-018 | Parciales: MIME, bytes, checksum, dimensiones y descarga Meta validada con límites; no hay decodificador completo ni renovación/recuperación del origen remoto cuando Meta invalida su URL. |
+| A15-019 a A15-024 | Implementadas en recuperación/fencing, reparto, espera/reparación RAG, persistencia antes de éxito, procedencia idempotente y fingerprint de prompt/schema/contenido/representación. |
+| A15-025 a A15-027 | Implementadas en revisión CAS, historial de análisis/corrección, reemplazo RAG seguro y origen/contexto automático con scope verificable. |
+| A15-028 a A15-030 | Parciales: el tombstone bloquea jobs tardíos y permite reintentar limpieza; las referencias a overlays se ponen a null por FK. Falta una vista de dependencias y una garantía de revocación de URLs ya distribuidas. UI reinicia scope y previews se renuevan por error; faltan abortar/invalidar todas las mutaciones en vuelo. |
+| A15-031 | Parcial: banco y recursos Meta tienen cursores estables y búsqueda del banco; faltan filtros avanzados y agregados de cobertura del catálogo. |
+| A15-032 y A15-033 | Parciales: A15 respeta la configuración de presupuesto por plan, presupuesto diario de organización, activación por organización, run/snapshot y errores del tick; no reserva cuota por plan concurrente ni ofrece recibo único de extremo a extremo. |
+| A15-034 | Pendiente de verificación con regresiones de flujo, Postgres concurrente, usuarios impersonados y dataset visual autorizado; no se ejecutó la suite de tests en esta implementación. |
+
+**Migración:** `20270103100000_a15_multichannel_creative_integrity.sql` aplicada y registrada en desarrollo/test y producción mediante `npm run db:push` y `npm run db:push:prod`, limitada a esa versión. El push completo mostraba además 17 migraciones anteriores de A09–A12 y no se ejecutó para evitar subir cambios ajenos al alcance.
+
+**Verificación de esta implementación:** `npm run typecheck` completo, más typecheck independiente de API y web tras los últimos cambios. Ambos entornos registran la migración; no se desplegó el código de aplicación ni se certificó Meta, el worker remoto o la calidad con medios reales.

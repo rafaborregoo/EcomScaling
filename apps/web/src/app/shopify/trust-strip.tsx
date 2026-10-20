@@ -155,29 +155,35 @@ function CostForm({ organizationId, onSaved }: { organizationId: string; onSaved
   );
 }
 
+function metricsAllOk({ margin, stock, funnel }: TrustMetrics) {
+  return margin.items_without_cost === 0 && margin.lines_without_metrics === 0 && Boolean(funnel?.has_sessions) && stock.tracked_items > 0;
+}
+
 export function ShopifyTrustStrip({ organizationId, metrics, onCostsChanged }: { organizationId: string; metrics: TrustMetrics | null; onCostsChanged: () => void }) {
   return (
     <>
       {metrics ? (
-        <section className={s.trust} aria-labelledby="shopify-medicion-h">
-          <div id="shopify-medicion">
-            <h2 id="shopify-medicion-h" className={s.title}>
-              ¿Puedo fiarme de estas cifras?
-            </h2>
+        metricsAllOk(metrics) ? (
+          <details className={s.trustOk}>
+            <summary>✓ Cifras fiables: costes, visitas, inventario e importes completos</summary>
             <TrustChecks metrics={metrics} />
-          </div>
-          <CostForm organizationId={organizationId} onSaved={onCostsChanged} />
-        </section>
+          </details>
+        ) : (
+          <section
+            className={s.trust}
+            style={metrics.margin.items_without_cost > 0 ? undefined : { gridTemplateColumns: "minmax(0, 1fr)" }}
+            aria-labelledby="shopify-medicion-h"
+          >
+            <div id="shopify-medicion">
+              <h2 id="shopify-medicion-h" className={s.title}>
+                Revisa estas cifras antes de decidir
+              </h2>
+              <TrustChecks metrics={metrics} />
+            </div>
+            {metrics.margin.items_without_cost > 0 ? <CostForm organizationId={organizationId} onSaved={onCostsChanged} /> : null}
+          </section>
+        )
       ) : null}
-      <nav className={s.nav} aria-label="Secciones de Shopify">
-        <a href="#shop-pendiente">Pendiente</a>
-        <a href="#shop-conv">Conversión</a>
-        <a href="#shop-prod">Productos</a>
-        <a href="#shop-cli">Clientes</a>
-        <a href="#shop-orig">Origen</a>
-        <a href="#shop-env">Envíos</a>
-        <a href="#shopify-ia">Análisis IA</a>
-      </nav>
     </>
   );
 }

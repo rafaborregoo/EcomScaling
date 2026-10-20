@@ -2,9 +2,10 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch, invalidateApiGetCache, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { useUrlSection } from "@/lib/use-url-section";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -16,15 +17,22 @@ import {
   Delta,
   Empty,
   Kpi,
+  KpiBars,
+  KpiDetail,
+  SalesChart,
   SectionHead,
   ago,
   cx,
   dayLabel,
+  findingFor,
   type Diagnostic,
+  type KpiDetailData,
   type MetaMetrics,
   type Metrics,
 } from "./client-pulse";
-import { fmtCurrency, fmtNum } from "./client-pulse-model";
+import { clientReadable, evidenceText, fmtCurrency, fmtNum } from "./client-pulse-model";
+import { AiExplanation, useMetricAnalysis } from "@/components/metric-verdict";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import { formatMoney } from "@/lib/money";
 import { salesChangePct } from "./store-pulse";
 import { ClientShopify } from "./client-shopify";
@@ -187,9 +195,6 @@ const initials = (name: string) =>
     .toUpperCase();
 const clock = (iso: string) => new Date(iso).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
-// Un CTA de la mesa casi siempre cambia de cliente al saltar de módulo; la
-// caché es por URL, no por tenant (igual que hace /consultor).
-const leaveForModule = () => invalidateCachedQueries();
 
 // ---------------------------------------------------------------------------
 // Router del consultor
@@ -270,7 +275,7 @@ function ActionRow({ action, onClient }: { action: WorkbenchAction; onClient?: (
           ? s.kindHigh
           : undefined;
   return (
-    <li className={s.act}>
+    <li className={cx(s.act, "task-lift")}>
       <span className={cx(s.kind, kindClass)}>{KIND_LABEL[action.kind]}</span>
       <div>
         <p className={s.actT}>
@@ -295,9 +300,9 @@ function ActionRow({ action, onClient }: { action: WorkbenchAction; onClient?: (
           </div>
         ) : null}
       </div>
-      <a className={cx(p.btn, p.ghost, p.sm)} href={action.href} onClick={leaveForModule}>
+      <Link className={cx(p.btn, p.ghost, p.sm)} href={action.href}>
         {action.action_label}
-      </a>
+      </Link>
     </li>
   );
 }
@@ -375,16 +380,16 @@ function Upcoming({ items, showClient }: { items: UpcomingItem[]; showClient: bo
           {items.slice(0, 8).map((item) => {
             const at = new Date(item.at);
             return (
-              <li key={`${item.kind}-${item.id}`} className={s.ag}>
+              <li key={`${item.kind}-${item.id}`} className={cx(s.ag, "task-lift")}>
                 <span className={s.day}>
                   <small>{at.toLocaleDateString("es-ES", { weekday: "short" })}</small>
                   <b>{at.getDate()}</b>
                 </span>
                 <div>
                   <p className={s.agT}>
-                    <a href={item.href} onClick={leaveForModule} style={{ color: "inherit", textDecoration: "none" }}>
+                    <Link href={item.href} style={{ color: "inherit", textDecoration: "none" }}>
                       {item.title}
-                    </a>
+                    </Link>
                   </p>
                   <p className={s.agM}>
                     <span className={p.chip}>{UPCOMING_LABEL[item.kind]}</span>
@@ -447,6 +452,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<{ key: MatrixKey; dir: 1 | -1 } | null>(null);
   const [today] = useState(() => new Date());
+  // Cifra de la cartera abierta: reparto por cliente, lectura y a dónde ir.
+  const [openKpi, setOpenKpi] = useState<string | null>(null);
 
   const wb = workbench.data;
   const threadList = useMemo(
@@ -565,6 +572,127 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
   const maxStoreOrders = Math.max(1, ...stores.map((st) => st.orders_count));
   const planMix = Object.entries(overview.data?.plan_mix ?? {}).sort((a, b) => b[1] - a[1]);
   const withoutStore = (overview.data?.portfolio ?? []).filter((r) => r.store_count === 0).length;
+
+  // ---- detalle de las cifras de la cartera ----
+  // No hay un agente sobre la cartera entera: la lectura sale de los datos
+  // (concentración, quién está por debajo) y "Preguntar a la IA" lleva al copiloto.
+  const toggleKpi = (key: string) => () => setOpenKpi((current) => (current === key ? null : key));
+  const shopifyCurrency = business?.shopify_currency_code ?? null;
+  const metaCurrency = business?.meta_currency_code ?? null;
+  const nameOf = new Map(wb.portfolio.map((row) => [row.organization_id, row.organization_name]));
+  // Las barras solo comparan importes en la misma moneda; el resto se lista sin barra.
+  const sameCurrency = (code: string | null, base: string | null) => !base || !code || code === base;
+  const bySales = matrix.filter((r) => r.sales != null).sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0));
+  const byOrders = matrix.filter((r) => r.orders != null).sort((a, b) => (b.orders ?? 0) - (a.orders ?? 0));
+  const byRoas = matrix.filter((r) => r.roas != null).sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0));
+  const metaSpend = (meta.data?.clients ?? []).filter((c) => (c.spend ?? 0) > 0).sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
+  const share = (part: number | null | undefined, total: number | null | undefined) =>
+    part != null && total ? Math.round((part / total) * 100) : null;
+  const reading = (text: string | null) =>
+    text ? <p className={p.aiLine}>{text}</p> : <p className={p.aiLine}>Sin datos suficientes para leer esta cifra todavía.</p>;
+  const belowBreakEven = byRoas.filter((r) => r.breakEven !== null && (r.roas ?? 0) < r.breakEven);
+  const withoutOrders = matrix.filter((r) => r.orders === 0);
+  const topSalesShare = bySales[0] && sameCurrency(bySales[0].salesCurrencyCode, shopifyCurrency) ? share(bySales[0].sales, business?.net_sales) : null;
+  const topSpendShare = metaSpend[0] && sameCurrency(metaSpend[0].currency_code, metaCurrency) ? share(metaSpend[0].spend, business?.meta_spend) : null;
+  const storeAov = (orders.data?.stores ?? []).filter((st) => st.aov != null).sort((a, b) => (b.aov ?? 0) - (a.aov ?? 0));
+  const portfolioDetails: Record<string, KpiDetailData> = {
+    sales: {
+      title: "Ventas netas",
+      chart: (
+        <KpiBars
+          rows={bySales.map((r) => ({ key: r.id, id: r.id, name: r.name, value: sameCurrency(r.salesCurrencyCode, shopifyCurrency) ? r.sales : null, text: sourceMoney(r.sales, r.salesCurrencyCode) }))}
+          onSelect={onSelectClient}
+        />
+      ),
+      ai: reading(topSalesShare !== null ? `${bySales[0].name} concentra el ${topSalesShare} % de las ventas de la cartera.` : null),
+      href: "/panel",
+      action: "Ver la rentabilidad de la cartera",
+    },
+    orders: {
+      title: "Pedidos",
+      chart: (
+        <KpiBars
+          rows={byOrders.map((r) => ({ key: r.id, id: r.id, name: r.name, value: r.orders, text: fmtNum(r.orders ?? 0), tone: r.orders === 0 ? ("bad" as const) : undefined }))}
+          onSelect={onSelectClient}
+        />
+      ),
+      ai: reading(
+        withoutOrders.length
+          ? `${plural(withoutOrders.length, "cliente", "clientes")} sin pedidos en 30 días: ${withoutOrders.slice(0, 3).map((r) => r.name).join(", ")}.`
+          : byOrders[0] && business?.orders
+            ? `${byOrders[0].name} trae el ${share(byOrders[0].orders, business.orders)} % de los pedidos.`
+            : null,
+      ),
+      href: "#mesa-tiendas",
+      action: "Ver pedidos por tienda",
+    },
+    aov: {
+      title: "Ticket medio",
+      chart: (
+        <KpiBars
+          rows={storeAov.slice(0, 12).map((st) => ({
+            key: st.store_id,
+            id: st.organization_id,
+            name: `${st.shop_name} · ${st.organization_name}`,
+            value: sameCurrency(st.currency_code, shopifyCurrency) ? st.aov : null,
+            text: sourceMoney(st.aov, st.currency_code),
+          }))}
+          onSelect={onSelectClient}
+        />
+      ),
+      ai: reading(
+        storeAov.length > 1
+          ? `El ticket va de ${sourceMoney(storeAov[storeAov.length - 1].aov, storeAov[storeAov.length - 1].currency_code)} en ${storeAov[storeAov.length - 1].shop_name} a ${sourceMoney(storeAov[0].aov, storeAov[0].currency_code)} en ${storeAov[0].shop_name}.`
+          : null,
+      ),
+      href: "/tiendas",
+      action: "Ver tiendas",
+    },
+    spend: {
+      title: "Inversión Meta",
+      chart: (
+        <KpiBars
+          rows={metaSpend.map((c) => ({
+            key: c.organization_id,
+            id: c.organization_id,
+            name: nameOf.get(c.organization_id) ?? "Cliente",
+            value: sameCurrency(c.currency_code, metaCurrency) ? c.spend : null,
+            text: sourceMoney(c.spend, c.currency_code),
+          }))}
+          onSelect={onSelectClient}
+        />
+      ),
+      ai: reading(topSpendShare !== null ? `${nameOf.get(metaSpend[0].organization_id) ?? "Un cliente"} se lleva el ${topSpendShare} % de la inversión en Meta.` : null),
+      href: "#mesa-canales",
+      action: "Ver canales por cliente",
+    },
+    roas: {
+      title: "ROAS Meta",
+      chart: (
+        <KpiBars
+          rows={byRoas.map((r) => ({
+            key: r.id,
+            id: r.id,
+            name: r.name,
+            value: r.roas,
+            text: `${fmtNum(r.roas ?? 0, 2)}×${r.breakEven !== null ? ` / ${fmtNum(r.breakEven, 2)}×` : ""}`,
+            tone: r.breakEven !== null && (r.roas ?? 0) < r.breakEven ? ("bad" as const) : undefined,
+          }))}
+          onSelect={onSelectClient}
+        />
+      ),
+      ai: reading(
+        byRoas.length
+          ? belowBreakEven.length
+            ? `${plural(belowBreakEven.length, "cliente está", "clientes están")} por debajo de su ROAS de equilibrio: ${belowBreakEven.slice(0, 3).map((r) => r.name).join(", ")}.`
+            : "Todos los clientes con Meta están por encima de su ROAS de equilibrio."
+          : null,
+      ),
+      href: "#mesa-canales",
+      action: "Ver canales por cliente",
+    },
+  };
+  const portfolioDetail = openKpi ? portfolioDetails[openKpi] : null;
 
   function jump(next: InboxFilter) {
     setFilter(next);
@@ -710,6 +838,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
       {business ? (
         <div className={p.kpis} aria-label="Cifras de la cartera, últimos 30 días">
           <Kpi
+            open={openKpi === "sales"}
+            onOpen={toggleKpi("sales")}
             label="Ventas netas"
             value={sourceMoney(business.net_sales, business.shopify_currency_code)}
             delta={<Delta change={business.net_sales != null && business.prev_net_sales != null ? salesChangePct(business.net_sales, business.prev_net_sales) : null} />}
@@ -717,6 +847,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>Todas las tiendas, 30 días</p>}
           />
           <Kpi
+            open={openKpi === "orders"}
+            onOpen={toggleKpi("orders")}
             label="Pedidos"
             value={fmtNum(business.orders)}
             delta={<Delta change={salesChangePct(business.orders, business.prev_orders)} />}
@@ -724,6 +856,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>Pedidos de Shopify</p>}
           />
           <Kpi
+            open={openKpi === "aov"}
+            onOpen={toggleKpi("aov")}
             label="Ticket medio"
             value={business.orders && business.net_sales != null ? sourceMoney(business.net_sales / business.orders, business.shopify_currency_code) : "—"}
             delta={
@@ -738,12 +872,16 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>Media de la cartera</p>}
           />
           <Kpi
+            open={openKpi === "spend"}
+            onOpen={toggleKpi("spend")}
             label="Inversión Meta"
             value={sourceMoney(business.meta_spend, business.meta_currency_code)}
             vs={sourceMoney(business.prev_meta_spend, business.meta_currency_code)}
             slot={<p className={p.trackTxt}>Suma de todas las cuentas</p>}
           />
           <Kpi
+            open={openKpi === "roas"}
+            onOpen={toggleKpi("roas")}
             label="ROAS Meta"
             value={business.roas !== null ? `${fmtNum(business.roas, 2)}×` : "—"}
             slot={<p className={p.trackTxt}>{sourceMoney(business.meta_purchase_value, business.meta_currency_code)} atribuidos por Meta</p>}
@@ -759,6 +897,19 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             }
           />
         </div>
+      ) : null}
+
+      {portfolioDetail ? (
+        <KpiDetail
+          {...portfolioDetail}
+          onClose={() => setOpenKpi(null)}
+          onAsk={() =>
+            ask({
+              question: `¿Cómo va la cifra «${portfolioDetail.title}» en mi cartera estos 30 días? ¿Qué clientes destacan, para bien o para mal, y qué haría con ellos?`,
+              focusLabel: portfolioDetail.title,
+            })
+          }
+        />
       ) : null}
 
       {/* ------------------------------ Hoy ------------------------------ */}
@@ -785,9 +936,9 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                     {summary.unread_threads ? `${plural(summary.unread_threads, "chat", "chats")} sin leer` : "Todo leído"}
                   </p>
                 </div>
-                <a className={cx(p.btn, p.ghost, p.sm)} href="/mensajes">
+                <Link className={cx(p.btn, p.ghost, p.sm)} href="/mensajes">
                   Abrir chats
-                </a>
+                </Link>
               </div>
               {threads.error && !threads.data ? (
                 <p className={p.error}>No se pudieron cargar los chats.</p>
@@ -1024,18 +1175,6 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
 // Un cliente (o una de sus tiendas)
 // ---------------------------------------------------------------------------
 
-// Agentes que solo lanza el consultor; sus propuestas entran en Prioridades.
-const CONSULTANT_AGENTS = [
-  { key: "task-planner", label: "Plan diario", getPath: "/ai/task-planner", runPath: "/ai/task-planner-run" },
-  { key: "plan-week", label: "Plan semanal", getPath: "/ai/plan/week", runPath: "/ai/plan/week/run" },
-  { key: "plan-month", label: "Plan mensual", getPath: "/ai/plan/month", runPath: "/ai/plan/month/run" },
-  { key: "stock", label: "Stock", getPath: "/ai/stock-planner", runPath: "/ai/stock-planner-run" },
-  { key: "email", label: "Email", getPath: "/ai/email-analyst", runPath: "/ai/email-analyst-run" },
-] as const;
-
-const signed = (n: number | null, format: (v: number) => string) =>
-  n === null ? "—" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${format(Math.abs(n))}`;
-
 // La portada de un cliente vista por su consultor es la misma que ve el
 // cliente (ClientPulse): titular, cifras, Prioridades, Vigilar y Canales, con
 // los mismos estilos y los textos dichos desde su lado. Encima, lo que solo
@@ -1054,18 +1193,18 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
   // Mismas claves que ClientPulse: comparten caché, no se piden dos veces.
   const metrics = useCachedQuery<Metrics>(`${base}/shopify/metrics?days=30${scope}`);
   const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30`);
-  const planner = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[0].getPath}?days=30${scope}`);
-  const week = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[1].getPath}?days=30${scope}`);
-  const month = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[2].getPath}?days=30${scope}`);
-  const stockAi = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[3].getPath}?days=30${scope}`);
-  const emailAi = useCachedQuery<Diagnostic>(`${base}${CONSULTANT_AGENTS[4].getPath}?days=30${scope}`);
-  const agentQueries = [planner, week, month, stockAi, emailAi];
+  // Mismas claves que ClientPulse para A02 y A06: la lectura del detalle no cuesta otra llamada.
+  const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=overview${scope}`);
+  const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
+  const verdictOf = useMetricAnalysis(organizationId, 30, connectionId);
+  const router = useRouter();
+  const week = useCachedQuery<Diagnostic>(`${base}/ai/plan/week?days=30${scope}`);
+  const month = useCachedQuery<Diagnostic>(`${base}/ai/plan/month?days=30${scope}`);
   const extraProposals = useMemo(
     () => [week.data, month.data].filter((d): d is Diagnostic => Boolean(d)),
     [week.data, month.data],
   );
 
-  const [running, setRunning] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const [savingReview, setSavingReview] = useState(false);
@@ -1074,7 +1213,6 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
   const row = workbench.data?.portfolio.find((r) => r.organization_id === organizationId);
   const tier = tierOf(row?.status);
   const relationship = client?.relationship;
-  const changes = client?.changes;
   const camino = client?.camino;
 
   const data = metrics.data;
@@ -1083,24 +1221,6 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
   const acquisition = meta.data?.acquisition;
   const hasMeta = Boolean(acquisition && acquisition.days_with_data > 0);
   const breakeven = data?.financial_currency_coverage?.status === "compatible" ? data.financial?.breakeven_roas ?? null : null;
-
-  async function runAgent(runPath: string, label: string, reload: () => void) {
-    setRunning(runPath);
-    try {
-      const response = await apiFetch(`${base}${runPath}?days=30${scope}`, { method: "POST" });
-      if (!response.ok) {
-        toast.danger(await readApiError(response));
-        return;
-      }
-      toast.success(`${label} actualizado.`);
-      invalidateApiGetCache();
-      reload();
-    } catch (cause) {
-      toast.danger(cause instanceof Error && cause.message ? `No se pudo lanzar el análisis: ${cause.message}` : "No se pudo lanzar el análisis.");
-    } finally {
-      setRunning(null);
-    }
-  }
 
   // "Marcar como revisado" es explícito a propósito: abrir la ficha no puede
   // mover el corte, o el consultor perdería la comparación justo al entrar.
@@ -1129,9 +1249,86 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
     }
   }
 
-  const extraKpis = data ? (
+  // Lectura de un agente sobre una cifra: hallazgo de A02 o de A06 (stock).
+  const agentLine = (tag: string, diagnostic: Diagnostic | undefined, pattern: RegExp | null) => {
+    const finding = pattern ? findingFor(diagnostic, pattern) : null;
+    const text = finding ? clientReadable(finding.title) ?? finding.title : clientReadable(diagnostic?.output.headline ?? diagnostic?.output.answer);
+    if (!text) return <p className={p.aiLine}>La IA no ha señalado nada sobre esta cifra en su último análisis.</p>;
+    const evidence = finding?.evidence ? clientReadable(evidenceText(finding.evidence)) : null;
+    return (
+      <p className={p.aiLine}>
+        <span className={p.ia}>{tag}</span>
+        {text}
+        {evidence ? <span className={p.muted}> · {evidence}</span> : null}
+      </p>
+    );
+  };
+  const route = (href: string) => withPortalRouteContext(href, organizationId, connectionId);
+  const roasAnalysis = verdictOf("meta_roas");
+  const daily = data?.daily ?? [];
+  const extraKpiDetails: Record<string, KpiDetailData> = {
+    aov: {
+      title: "Ticket medio",
+      chart: (
+        <SalesChart
+          daily={daily.filter((d) => d.orders_count > 0).map((d) => ({ date: d.date, value: d.net_sales / d.orders_count, detail: `${fmtNum(d.orders_count)} pedidos` }))}
+          previousAverage={previous?.sales.aov ?? null}
+          averageLabel="Ticket del periodo anterior"
+          pins={[]}
+          active={null}
+          onPin={() => undefined}
+          currencyCode={data?.currency_code}
+          label="Ticket medio por día"
+        />
+      ),
+      ai: agentLine("A02", monitor.data, /ticket|aov|pedido medio|cesta/i),
+      href: route("/shopify"),
+      action: "Ver ventas en Shopify",
+    },
+    roas: {
+      title: "ROAS Meta",
+      chart: (
+        <KpiBars
+          rows={(meta.data?.campaigns ?? [])
+            .map((c) => ({ c, roas: c.roas == null ? null : Number(c.roas), spend: Number(c.spend ?? 0) }))
+            .filter((row) => row.spend > 0)
+            .sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1))
+            .slice(0, 8)
+            .map(({ c, roas }) => ({
+              key: c.campaign_id,
+              id: c.campaign_id,
+              name: c.campaign_name ?? "Campaña sin nombre",
+              value: roas,
+              text: roas != null ? `${fmtNum(roas, 2)}×` : "—",
+              tone: roas != null && breakeven !== null && roas < breakeven ? ("bad" as const) : undefined,
+            }))}
+          onSelect={(id) => router.push(route(`/meta/campanas/${encodeURIComponent(id)}`))}
+        />
+      ),
+      ai: roasAnalysis && roasAnalysis.verdict !== "insufficient"
+        ? <AiExplanation path={roasAnalysis.explain_path} />
+        : agentLine("A02", monitor.data, /roas|meta|anunc|campa/i),
+      href: route(hasMeta ? "/meta" : "/integraciones/meta"),
+      action: hasMeta ? "Ver campañas en Meta" : "Conectar Meta",
+    },
+    stock: {
+      title: "Stock",
+      chart: data ? (
+        <p className={p.trackTxt}>
+          {plural(data.stock.out_of_stock_items, "producto agotado", "productos agotados")} y {plural(data.stock.low_stock_items, "producto", "productos")} con poco stock de {fmtNum(data.stock.tracked_items)} con inventario.
+        </p>
+      ) : null,
+      ai: agentLine("A06", stockAi.data, null),
+      href: route(data?.stock.out_of_stock_items ? "/shopify/inventario?filter=out" : "/shopify/inventario?filter=low"),
+      action: "Ver inventario",
+    },
+  };
+
+  const extraKpis = (open: string | null, toggle: (key: string) => () => void) => data ? (
     <>
       <Kpi
+        open={open === "aov"}
+        onOpen={toggle("aov")}
         label="Ticket medio"
         value={money(data.sales.aov, 2)}
         delta={<Delta change={salesChangePct(data.sales.aov, previous?.sales.aov ?? null)} />}
@@ -1139,6 +1336,8 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
         slot={<p className={p.trackTxt}>Por pedido</p>}
       />
       <Kpi
+        open={open === "roas"}
+        onOpen={toggle("roas")}
         label="ROAS Meta"
         value={hasMeta && acquisition?.roas != null ? `${fmtNum(acquisition.roas, 2)}×` : "—"}
         tag={hasMeta && acquisition?.roas != null && breakeven !== null && acquisition.roas < breakeven ? "bajo equilibrio" : undefined}
@@ -1149,6 +1348,8 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
         }
       />
       <Kpi
+        open={open === "stock"}
+        onOpen={toggle("stock")}
         label="Stock"
         value={`${fmtNum(data.stock.out_of_stock_items)} agotados`}
         tag={data.stock.out_of_stock_items ? "agotados" : undefined}
@@ -1157,8 +1358,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
     </>
   ) : null;
 
-  const sideTop = (
-    <>
+  const seguimiento = (
       <section className={p.pBlock} aria-labelledby="desk-seguimiento">
         <h2 id="desk-seguimiento" className={p.pBlockT}>Seguimiento</h2>
         <ul className={p.pList}>
@@ -1243,65 +1443,10 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
           </button>
         )}
       </section>
+  );
 
-      {changes ? (
-        <section className={p.pBlock} aria-labelledby="desk-cambios">
-          <h2 id="desk-cambios" className={p.pBlockT}>
-            {changes.since_kind === "review" ? "Desde tu revisión" : "Últimos 30 días"}
-          </h2>
-          <ul className={p.pList}>
-            {[
-              { key: "alerts", label: "Alertas nuevas", value: fmtNum(changes.new_alerts) },
-              { key: "tasks", label: "Tareas cerradas", value: fmtNum(changes.closed_tasks) },
-              { key: "sales", label: "Ventas netas", value: signed(changes.net_sales_delta, (v) => money(v)) },
-              { key: "orders", label: "Pedidos", value: signed(changes.orders_delta, (v) => fmtNum(v)) },
-              { key: "meta", label: "Inversión Meta", value: signed(changes.meta_spend_delta, (v) => money(v)) },
-            ].map((item) => (
-              <li key={item.key}>
-                <span className={p.pRow}>
-                  <span className={p.pRowT}>{item.label}</span>
-                  <span className={cx(p.pRowV, p.num)}>{item.value}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          {changes.since_kind === "review" ? <p className={p.pFoot}>Desde el {dayLabel(changes.since, true)}.</p> : null}
-        </section>
-      ) : null}
-
-      <section className={p.pBlock} aria-labelledby="desk-agentes">
-        <h2 id="desk-agentes" className={p.pBlockT}>Agentes IA</h2>
-        <ul className={p.pList}>
-          {CONSULTANT_AGENTS.map((agent, i) => {
-            const query = agentQueries[i];
-            const output = query.data;
-            const pending = output?.output_status === "pending_approval" ? output.output.proposed_writes.length : 0;
-            return (
-              <li key={agent.key}>
-                <span className={p.pRow}>
-                  <span className={cx(p.dot, pending ? p.dotWarn : p.dotMuted)} aria-hidden="true" />
-                  <span className={p.pRowT}>
-                    {agent.label}
-                    <small>
-                      {output ? `${ago(output.generated_at)}${pending ? ` · ${plural(pending, "propuesta", "propuestas")}` : ""}` : "Sin ejecutar"}
-                    </small>
-                  </span>
-                  <button
-                    type="button"
-                    className={p.linkBtn}
-                    disabled={running !== null}
-                    onClick={() => void runAgent(agent.runPath, agent.label, query.reload)}
-                  >
-                    {running === agent.runPath ? "Analizando…" : output ? "Actualizar" : "Lanzar"}
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-        <p className={p.pFoot}>Sus propuestas entran en Prioridades.</p>
-      </section>
-    </>
+  const sideTop = (
+    <>{seguimiento}</>
   );
 
   return (
@@ -1314,6 +1459,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
       asConsultant
       extraProposals={extraProposals}
       extraKpis={extraKpis}
+      extraKpiDetails={extraKpiDetails}
       sideTop={sideTop}
       onReload={() => {
         week.reload();

@@ -69,18 +69,26 @@ export function serializeUntrustedContextBlocks(
 
 export type UntrustedToolResult = { text: string; blockedPatterns: number };
 
+
 /**
  * AI-30: devuelve tambien cuantos patrones se neutralizaron. Antes solo
  * devolvia el texto y el dato se perdia: un resultado de herramienta que
  * intentaba inyectar instrucciones se limpiaba en silencio y nadie se enteraba
  * de que habia pasado.
  */
-export function serializeUntrustedToolResult(result: unknown): UntrustedToolResult {
+export function serializeUntrustedToolResult(
+  result: unknown,
+  maxChars?: number,
+): UntrustedToolResult {
   let serialized: string;
   try { serialized = JSON.stringify(result ?? null); } catch { serialized = "[tool_result_no_serializable]"; }
   const neutralized = neutralize(serialized);
+  const truncated = maxChars !== undefined && neutralized.text.length > maxChars;
+  const bounded = truncated
+    ? `${neutralized.text.slice(0, Math.max(0, maxChars! - 180))}\n[RESULTADO_TRUNCADO: se excedió el límite de ${maxChars} caracteres; solicita una consulta más específica o una página posterior]`
+    : neutralized.text;
   return {
-    text: `<tool_result_no_confiable>\n${neutralized.text}\n</tool_result_no_confiable>`,
+    text: `<tool_result_no_confiable>\n${bounded}\n</tool_result_no_confiable>`,
     blockedPatterns: neutralized.blocked,
   };
 }

@@ -67,6 +67,47 @@ test("solo ofrece la salida más reciente, aprobada y vigente del ámbito exacto
   assert.deepEqual(rows[0]?.period, { start: "2026-09-01", end: "2026-09-26" });
 });
 
+test("A19 recibe oportunidades y alineación de A13, no solo el contador de propuestas", () => {
+  const row = candidate({
+    agent_versions: { version: "v2", agent_definitions: { code: "a13_operativa_shopify" } },
+    agent_outputs: {
+      id: "output-a13",
+      status: "approved",
+      output: {
+        answer: "La conversión móvil es el principal bloqueo medido.",
+        confidence: "medium",
+        findings: [{ title: "Caída en checkout", severity: "high", evidence: "8% menos pedidos en 30 días", area: "shopify" }],
+        recommendations: [],
+        proposed_writes: [{
+          title: "Probar checkout móvil",
+          description: "Corregir el error de validación.",
+          priority: "high",
+          rationale: "Reduce el bloqueo observado en la métrica del Camino.",
+          evidence: [{ label: "Conversión", value: "8% menos", period: "30 días", source: "shopify" }],
+          phase: "Conversión",
+          milestone_id: "83000000-0000-4000-8000-000000000013",
+          alignment_rationale: "Avanza hacia la meta aprobada de pedidos rentables.",
+        }],
+        warnings: [],
+        sources: [],
+      },
+    },
+  });
+  const [summary] = summarizeRecentSpecialistOutputs([row], {
+    organizationId: "org-1",
+    storeId: "store-1",
+    now,
+  });
+  assert.ok(summary);
+  assert.equal(summary.agent_code, "a13_operativa_shopify");
+  assert.equal(summary.summary.answer, "La conversión móvil es el principal bloqueo medido.");
+  const proposal = (summary.summary.operational_proposals as Array<Record<string, unknown>>)[0];
+  assert.ok(proposal);
+  assert.equal(proposal.title, "Probar checkout móvil");
+  assert.equal(proposal.phase, "Conversión");
+  assert.equal(proposal.alignment_rationale, "Avanza hacia la meta aprobada de pedidos rentables.");
+});
+
 test("sin tienda seleccionada, no mezcla diagnósticos que pertenecen a tiendas concretas", () => {
   const rows = summarizeRecentSpecialistOutputs([
     candidate({ id: "store-bound" }),

@@ -813,3 +813,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Sin foto: franja baja con el aviso, no un cuadrado vacío. */
+.imgEmpty {
+  aspect-ratio: auto;
+  min-height: 44px;
+}
+
+/* Por ancho del panel, no de la ventana: con el Consultor IA abierto la
+   columna se estrecha sin que cambie la ventana y la ficha se solapaba. */
+@container pulse (max-width: 620px) {
+  .fHero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .checks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

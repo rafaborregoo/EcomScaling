@@ -972,9 +972,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   async function linkStudioDraft(draftId: string) {
     if (!organizationId || !campaignTarget) return;
     const target = campaignTarget;
-    setCampaignTarget(null);
     const linked = await linkDraftToCampaign(organizationId, target.id, draftId).catch(() => null);
     if (linked?.ok) {
+      setCampaignTarget(null);
       await reloadCampaignItems();
       toast.success(`Pieza enlazada a «${target.title}»`);
     } else {
@@ -1013,6 +1013,11 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     reason: string,
   ) {
     if (!organizationId) return;
+    const expectedVersion = drafts.find((draft) => draft.id === draftId)?.version;
+    if (!expectedVersion) {
+      setError("Recarga la pieza antes de decidir: falta su versión actual.");
+      return;
+    }
     setBusyDraftId(draftId);
     try {
       const response = await apiFetch(
@@ -1023,6 +1028,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           body: JSON.stringify({
             decision,
             reason: reason.trim() || undefined,
+            expected_version: expectedVersion,
           }),
         },
       );
@@ -2119,6 +2125,7 @@ function ConsultantMarketingDraftPanel({
         body: JSON.stringify({
           decision,
           reason: decision === "rejected" ? noteDraft.trim() || null : null,
+          expected_version: draft.version,
         }),
       });
       if (!response.ok) {

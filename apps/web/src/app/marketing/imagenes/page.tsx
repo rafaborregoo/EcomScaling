@@ -47,6 +47,10 @@ type ImageAnalysis = {
   inferences?: string[];
   alt_text: string;
   confidence: "low" | "medium" | "high";
+  visible_message?: string;
+  visible_call_to_action?: string;
+  design_findings?: Array<{ category: string; evidence: string; location: string; severity: "low" | "medium" | "high"; recommendation: string; confidence: "low" | "medium" | "high" }>;
+  ocr_segments?: Array<{ text: string; location: string; legibility: "clear" | "partial" | "illegible"; confidence: "low" | "medium" | "high" }>;
 };
 
 type BankImage = {
@@ -55,6 +59,12 @@ type BankImage = {
   original_filename: string;
   content_type: string;
   byte_size: number;
+  pixel_width?: number | null;
+  pixel_height?: number | null;
+  representation_kind?: string;
+  content_revision?: number;
+  index_status?: string;
+  preview_error?: string | null;
   status: ImageStatus;
   analysis: ImageAnalysis | null;
   markdown: string | null;
@@ -72,15 +82,17 @@ type MetaImageCandidate = {
   creative_name: string | null;
   position: number;
   asset_type: "image" | "video";
-  visual_kind: "static_image" | "video_thumbnail";
+  visual_kind: "static_image" | "static_thumbnail" | "video_thumbnail";
   label: string | null;
   asset_hash: string | null;
   created_at: string;
   available: boolean;
+  can_extract_video?: boolean;
 };
+type VisualStore = { id: string; shop_name: string; myshopify_domain: string };
 
 /** Filtros de estado. "sinindexar" es el único que no se deduce de `status`:
- *  la imagen está analizada pero todavía no entró en el contexto de A11. */
+ *  la imagen está analizada pero todavía no entró en el contexto del estudio. */
 type StatusFilter = "all" | "working" | "failed" | "unindexed";
 
 const statusLabel: Record<ImageStatus, string> = {
@@ -130,7 +142,7 @@ function StatusBadge({ status }: { status: ImageStatus }) {
   );
 }
 
-/** Texto bajo el nombre en la rejilla: lo que A11 vio, o por qué todavía no. */
+/** Texto bajo el nombre en la rejilla: lo que A15 observó, o por qué no está disponible. */
 function cardSummary(image: BankImage): string {
   if (image.status === "analyzed") {
     return image.analysis?.description ?? "Ficha lista.";
@@ -138,7 +150,7 @@ function cardSummary(image: BankImage): string {
   if (image.status === "failed") {
     return image.error_reason ?? "No se pudo analizar.";
   }
-  if (image.status === "analyzing") return "A11 la está describiendo…";
+  if (image.status === "analyzing") return "A15 está analizando el creativo…";
   return "En cola; se analiza en segundo plano.";
 }
 
@@ -165,16 +177,30 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     Array<{ id: string; name: string; updated_at: string }>
   >([]);
   const [creatingPiece, setCreatingPiece] = useState(false);
+  const [selectedCarouselImageIds, setSelectedCarouselImageIds] = useState<string[]>([]);
+  const [carouselBrief, setCarouselBrief] = useState("");
+  const [imageCreativeBrief, setImageCreativeBrief] = useState("");
   const [metaCandidates, setMetaCandidates] = useState<MetaImageCandidate[] | null>(null);
+  const [metaNextCursor, setMetaNextCursor] = useState<string | null>(null);
   const [loadingMetaCandidates, setLoadingMetaCandidates] = useState(false);
   const [importingMetaAssetId, setImportingMetaAssetId] = useState<string | null>(null);
+  const [extractingMetaVideoId, setExtractingMetaVideoId] = useState<string | null>(null);
   const [metaImportError, setMetaImportError] = useState<string | null>(null);
+  const [stores, setStores] = useState<VisualStore[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState("");
+  const [uploadChannel, setUploadChannel] = useState<"both" | "instagram" | "meta">("both");
   const [sourceFilter, setSourceFilter] = useState<"all" | "instagram" | "meta">("all");
+  const [creativeChannel, setCreativeChannel] = useState<"instagram_organic" | "meta_ads">("instagram_organic");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [query, setQuery] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [reindexingId, setReindexingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
+  const requestVersion = useRef(0);
+  const refreshedPreviewIds = useRef(new Set<string>());
   const router = useRouter();
 
   const base = organizationId
@@ -185,45 +211,90 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     : null;
 
   const load = useCallback(async () => {
+    const requestId = ++requestVersion.current;
     if (!base || !canView) {
       setImages([]);
       setIsLoading(false);
       return;
     }
     try {
-      const response = await apiFetch(base);
+      const url = new URL(base, window.location.origin);
+      if (query.trim()) url.searchParams.set("search", query.trim());
+      if (selectedStoreId) url.searchParams.set("store_id", selectedStoreId);
+      const response = await apiFetch(`${url.pathname}${url.search}`);
       if (!response.ok) {
-        setError(await readApiError(response));
+        if (requestId === requestVersion.current) setError(await readApiError(response));
         return;
       }
-      const payload = (await response.json()) as { images?: BankImage[] };
+      const payload = (await response.json()) as { images?: BankImage[]; next_cursor?: string | null };
+      if (requestId !== requestVersion.current) return;
       setImages(payload.images ?? []);
+      setNextCursor(payload.next_cursor ?? null);
       setError(null);
     } catch {
-      setError("No se pudo cargar el banco de imágenes. Reintenta.");
+      if (requestId === requestVersion.current) setError("No se pudo cargar el banco de imágenes. Reintenta.");
     } finally {
       setIsLoading(false);
     }
-  }, [base, canView]);
+  }, [base, canView, query, selectedStoreId]);
 
-  const loadMetaCandidates = useCallback(async () => {
+  const loadMore = useCallback(async () => {
+    if (!base || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const url = new URL(base, window.location.origin);
+      url.searchParams.set("cursor", nextCursor);
+      if (query.trim()) url.searchParams.set("search", query.trim());
+      if (selectedStoreId) url.searchParams.set("store_id", selectedStoreId);
+      const response = await apiFetch(`${url.pathname}${url.search}`);
+      if (!response.ok) { setError(await readApiError(response)); return; }
+      const payload = (await response.json()) as { images?: BankImage[]; next_cursor?: string | null };
+      setImages((current) => [...current, ...(payload.images ?? []).filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setNextCursor(payload.next_cursor ?? null);
+    } catch {
+      setError("No se pudieron cargar más creativos.");
+    } finally { setLoadingMore(false); }
+  }, [base, loadingMore, nextCursor, query, selectedStoreId]);
+
+  const refreshPreview = useCallback(async (imageId: string) => {
+    if (!base || refreshedPreviewIds.current.has(imageId)) return;
+      refreshedPreviewIds.current.add(imageId);
+    try {
+      const response = await apiFetch(`${base}/${imageId}/preview`);
+      if (!response.ok) throw new Error("preview_refresh_failed");
+      const payload = (await response.json()) as { url?: string };
+      if (payload.url) {
+        setImages((current) => current.map((item) => item.id === imageId ? { ...item, public_url: payload.url!, preview_error: null } : item));
+        setTimeout(() => refreshedPreviewIds.current.delete(imageId), 4 * 60_000);
+      }
+    } catch {
+      setImages((current) => current.map((item) => item.id === imageId ? { ...item, preview_error: "No se pudo recuperar la vista previa." } : item));
+    }
+  }, [base]);
+
+  const loadMetaCandidates = useCallback(async (cursor?: string) => {
     if (!base || !canView) return;
     setLoadingMetaCandidates(true);
     setMetaImportError(null);
     try {
-      const response = await apiFetch(`${base}/meta-assets`);
+      const params = new URLSearchParams();
+      if (selectedStoreId) params.set("store_id", selectedStoreId);
+      if (cursor) params.set("cursor", cursor);
+      const suffix = params.size ? `?${params.toString()}` : "";
+      const response = await apiFetch(`${base}/meta-assets${suffix}`);
       if (!response.ok) {
         setMetaImportError(await readApiError(response));
         return;
       }
-      const payload = (await response.json()) as { candidates?: MetaImageCandidate[] };
-      setMetaCandidates(payload.candidates ?? []);
+      const payload = (await response.json()) as { candidates?: MetaImageCandidate[]; next_cursor?: string | null };
+      setMetaCandidates((current) => cursor ? [...(current ?? []), ...(payload.candidates ?? [])] : payload.candidates ?? []);
+      setMetaNextCursor(payload.next_cursor ?? null);
     } catch {
       setMetaImportError("No se pudieron cargar las creatividades de Meta.");
     } finally {
       setLoadingMetaCandidates(false);
     }
-  }, [base, canView]);
+  }, [base, canView, selectedStoreId]);
 
   const importMetaCandidate = useCallback(async (candidate: MetaImageCandidate) => {
     if (!base) return;
@@ -233,7 +304,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       const response = await apiFetch(`${base}/meta-import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ asset_id: candidate.id }),
+        body: JSON.stringify({ asset_id: candidate.id, ...(selectedStoreId ? { store_id: selectedStoreId } : {}) }),
       });
       if (!response.ok) {
         setMetaImportError(await readApiError(response));
@@ -248,11 +319,61 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     } finally {
       setImportingMetaAssetId(null);
     }
-  }, [base, load]);
+  }, [base, load, selectedStoreId]);
+
+  const extractMetaVideo = useCallback(async (candidate: MetaImageCandidate) => {
+    if (!base) return;
+    setExtractingMetaVideoId(candidate.id);
+    setMetaImportError(null);
+    try {
+      const response = await apiFetch(`${base}/meta-video-frames`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asset_id: candidate.id, ...(selectedStoreId ? { store_id: selectedStoreId } : {}) }),
+      }, 120_000);
+      if (!response.ok) {
+        setMetaImportError(await readApiError(response));
+        return;
+      }
+      const payload = await response.json() as { frames?: Array<{ timestamp_seconds: number }> };
+      await load();
+      toast.success(`Se extrajeron ${payload.frames?.length ?? 0} fotogramas. A15 los analizará en segundo plano.`);
+    } catch {
+      setMetaImportError("No se pudieron extraer los fotogramas. Puedes importar la miniatura de vídeo disponible.");
+    } finally {
+      setExtractingMetaVideoId(null);
+    }
+  }, [base, load, selectedStoreId]);
 
   useEffect(() => {
+    if (!base || !canView) { setStores([]); setSelectedStoreId(""); return; }
+    let cancelled = false;
+    void apiFetch(`/v1/organizations/${organizationId}/instagram/image-bank-stores`).then(async (response) => {
+      if (!response.ok || cancelled) return;
+      const payload = await response.json() as { stores?: VisualStore[] };
+      if (cancelled) return;
+      const allowed = payload.stores ?? [];
+      setStores(allowed);
+      setSelectedStoreId((current) => current && allowed.some((store) => store.id === current) ? current : allowed.length === 1 ? allowed[0]!.id : "");
+    }).catch(() => { if (!cancelled) setStores([]); });
+    return () => { cancelled = true; };
+  }, [base, canView, organizationId]);
+
+  useEffect(() => {
+    requestVersion.current += 1;
+    setIsLoading(true);
+    setImages([]);
+    setExpandedId(null);
+    setMetaCandidates(null);
+    setMetaNextCursor(null);
+    setNextCursor(null);
+    refreshedPreviewIds.current.clear();
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setSelectedCarouselImageIds([]);
+  }, [organizationId, selectedStoreId]);
 
   // La cola se procesa en segundo plano: refresca mientras haya trabajo vivo.
   const hasPending =
@@ -286,7 +407,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       if (statusFilter === "failed" && image.status !== "failed") return false;
       if (
         statusFilter === "unindexed" &&
-        !(image.status === "analyzed" && !image.knowledge_document_id)
+        !(image.status === "analyzed" && image.index_status !== "indexed")
       ) {
         return false;
       }
@@ -348,11 +469,14 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   function openDetail(image: BankImage) {
     setExpandedId(image.id);
     setMarkdownDraft(image.markdown ?? "");
+    setImageCreativeBrief("");
   }
 
   async function createPiece(
     imageId: string,
     format: "single" | "carousel" | "story",
+    creativeBrief = "",
+    channel: "instagram_organic" | "meta_ads" = creativeChannel,
   ) {
     if (!overlayBase) return;
     setCreatingPiece(true);
@@ -364,6 +488,8 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           image_ids: [imageId],
           format,
           name: "Pieza sin título",
+          creative_brief: creativeBrief,
+          channel,
         }),
       });
       if (!response.ok) {
@@ -372,6 +498,47 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       }
       const { overlay } = (await response.json()) as { overlay: { id: string } };
       router.push(`/marketing/imagenes/${overlay.id}`);
+    } catch {
+      toast.danger("No se pudo crear la pieza. Inténtalo de nuevo.");
+    } finally {
+      setCreatingPiece(false);
+    }
+  }
+
+  function toggleCarouselImage(imageId: string) {
+    setSelectedCarouselImageIds((current) => {
+      if (current.includes(imageId)) return current.filter((id) => id !== imageId);
+      if (current.length >= 10) {
+        toast.danger("Un carrusel admite un máximo de 10 imágenes.");
+        return current;
+      }
+      return [...current, imageId];
+    });
+  }
+
+  async function createCarousel() {
+    if (!overlayBase || selectedCarouselImageIds.length < 2) return;
+    setCreatingPiece(true);
+    try {
+      const response = await apiFetch(overlayBase, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_ids: selectedCarouselImageIds,
+          format: "carousel",
+          name: "Carrusel sin título",
+          creative_brief: carouselBrief,
+          channel: creativeChannel,
+        }),
+      });
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      const { overlay } = (await response.json()) as { overlay: { id: string } };
+      router.push(`/marketing/imagenes/${overlay.id}`);
+    } catch {
+      toast.danger("No se pudo crear el carrusel. Inténtalo de nuevo.");
     } finally {
       setCreatingPiece(false);
     }
@@ -385,6 +552,10 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const uploadFiles = useCallback(
     async (files: File[]) => {
       if (!base) return;
+      if (activeMembership?.access_scope === "store" && !selectedStoreId) {
+        toast.danger("Selecciona la tienda antes de subir los creativos.");
+        return;
+      }
       const valid = files.filter((file) => {
         if (!ACCEPT.split(",").includes(file.type)) {
           toast.danger(`${file.name}: formato no soportado`);
@@ -410,6 +581,8 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               body: JSON.stringify({
                 filename: file.name,
                 content_base64: dataUrl,
+                destination_channels: uploadChannel === "both" ? ["instagram", "meta"] : [uploadChannel],
+                ...(selectedStoreId ? { store_id: selectedStoreId } : {}),
               }),
             },
             60_000,
@@ -429,7 +602,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         await load();
       }
     },
-    [base, load],
+    [activeMembership?.access_scope, base, load, selectedStoreId, uploadChannel],
   );
 
   async function saveMarkdown(imageId: string) {
@@ -439,7 +612,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       const response = await apiFetch(`${base}/${imageId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown: markdownDraft }),
+        body: JSON.stringify({ markdown: markdownDraft, expected_revision: images.find((image) => image.id === imageId)?.content_revision ?? 1 }),
       });
       if (!response.ok) {
         toast.danger(await readApiError(response));
@@ -469,6 +642,17 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function reindexImage(imageId: string) {
+    if (!base) return;
+    setReindexingId(imageId);
+    try {
+      const response = await apiFetch(`${base}/${imageId}/reindex`, { method: "POST" });
+      if (!response.ok) { toast.danger(await readApiError(response)); return; }
+      toast.success("Ficha reindexada sin volver a analizar la imagen");
+      await load();
+    } finally { setReindexingId(null); }
   }
 
   async function deleteImage(imageId: string) {
@@ -505,7 +689,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const unindexedCount = useMemo(
     () =>
       images.filter(
-        (image) => image.status === "analyzed" && !image.knowledge_document_id,
+        (image) => image.status === "analyzed" && image.index_status !== "indexed",
       ).length,
     [images],
   );
@@ -554,7 +738,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className={styles.page}>
       <header className={styles.top}>
         <div className="min-w-0">
-          <h1 className={styles.title}>Banco de imágenes</h1>
+          <h1 className={styles.title}>Creativos de Instagram y Meta Ads</h1>
         </div>
         {images.length > 0 ? (
           <p className={styles.count}>
@@ -576,6 +760,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {images.length > 0 || isFiltered ? (
         <div className={styles.toolbar}>
+          {stores.length > 1 ? <Field label="Tienda"><select className="rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}><option value="">Todas las tiendas autorizadas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.shop_name}</option>)}</select></Field> : null}
           <div className={styles.search}>
             <SearchIcon aria-hidden className={styles.searchIcon} />
             <Input
@@ -630,6 +815,10 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {importOpen ? (
         <div className={styles.importPanel}>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            {stores.length > 0 ? <Field label="Tienda del creativo"><select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}><option value="">Organización / compartido</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.shop_name}</option>)}</select></Field> : null}
+            <Field label="Destino de las imágenes que subas"><select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={uploadChannel} onChange={(event) => setUploadChannel(event.target.value === "instagram" || event.target.value === "meta" ? event.target.value : "both")}><option value="both">Instagram y Meta Ads</option><option value="instagram">Instagram</option><option value="meta">Meta Ads</option></select></Field>
+          </div>
           <button
             type="button"
             aria-label="Importar imágenes: suelta archivos aquí o pulsa para elegir"
@@ -690,8 +879,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   : "Cerrar lista de Meta"}
             </Button>
             <span className="text-xs text-muted">
-              Imágenes y fotogramas de portada ya sincronizados. El vídeo completo no se
-              importa: solo la imagen fija.
+              Los vídeos permiten extraer hasta 8 fotogramas uniformes (máximo 3 minutos). Si Meta no autoriza el archivo, se puede importar la miniatura.
             </span>
           </div>
 
@@ -711,8 +899,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ) : (
                 <>
                   <p className="text-xs text-muted">
-                    Hasta 100 recursos sincronizados más recientes. Meta no expone una
-                    miniatura estable, así que aquí van por nombre; al importar, la imagen se
+                    Creativos sincronizados de Meta, cargados por páginas. Al importar, la imagen se
                     copia a tu almacenamiento y ya se ve en el banco.
                   </p>
                   <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2 xl:grid-cols-3">
@@ -732,18 +919,38 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             · pieza {candidate.position + 1}
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => void importMetaCandidate(candidate)}
-                          disabled={!candidate.available || importingMetaAssetId !== null}
-                        >
-                          {importingMetaAssetId === candidate.id ? "Importando…" : "Importar"}
-                        </Button>
+                        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                          {candidate.can_extract_video ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void extractMetaVideo(candidate)}
+                              disabled={importingMetaAssetId !== null || extractingMetaVideoId !== null}
+                            >
+                              {extractingMetaVideoId === candidate.id ? "Extrayendo…" : "Extraer fotogramas"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void importMetaCandidate(candidate)}
+                            disabled={!candidate.available || importingMetaAssetId !== null || extractingMetaVideoId !== null}
+                          >
+                            {importingMetaAssetId === candidate.id ? "Importando…" : "Importar"}
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>
+                  {metaNextCursor ? (
+                    <div className="flex justify-center">
+                      <Button type="button" size="sm" variant="secondary" disabled={loadingMetaCandidates} onClick={() => void loadMetaCandidates(metaNextCursor)}>
+                        {loadingMetaCandidates ? "Cargando…" : "Cargar más creativos de Meta"}
+                      </Button>
+                    </div>
+                  ) : null}
                 </>
               )}
             </div>
@@ -763,7 +970,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div className="mx-auto max-w-xl py-12">
               <EmptyState
                 title="Sin imágenes todavía"
-                hint="Cada imagen que subas se copia a tu almacenamiento, A11 la describe (qué se ve, colores, texto dentro de la imagen) y queda buscable para escribir con ella."
+                hint="Sube creativos de Instagram o impórtalos de Meta Ads. A15 describe la pieza y su texto visible, y señala problemas de diseño para preparar variantes revisables."
               />
               <div className="mt-4 flex justify-center">
                 <Button type="button" onClick={() => setImportOpen(true)}>
@@ -785,6 +992,33 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </Button>
                 ) : null}
               </div>
+
+              {images.some((image) => image.status === "analyzed") ? (
+                <div className="mb-4 grid gap-3 rounded-md border border-edge bg-surface p-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end">
+                  <div>
+                    <p className="text-sm font-medium">Montar carrusel</p>
+                    <p className="text-xs text-muted">Selecciona de 2 a 10 imágenes analizadas. Se conservará el orden de selección.</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Destino">
+                      <select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={creativeChannel} onChange={(event) => setCreativeChannel(event.target.value === "meta_ads" ? "meta_ads" : "instagram_organic")}>
+                        <option value="instagram_organic">Instagram</option>
+                        <option value="meta_ads">Meta Ads</option>
+                      </select>
+                    </Field>
+                    <Field label="Objetivo / contexto de campaña">
+                      <Input value={carouselBrief} maxLength={2000} onChange={(event) => setCarouselBrief(event.target.value)} placeholder="Producto, audiencia, objetivo y límites del mensaje" />
+                    </Field>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted">{selectedCarouselImageIds.length}/10</span>
+                    <Button type="button" variant="secondary" size="sm" disabled={creatingPiece || selectedCarouselImageIds.length < 2} onClick={() => void createCarousel()}>
+                      {creatingPiece ? "Preparando…" : "Crear carrusel"}
+                    </Button>
+                    {selectedCarouselImageIds.length > 0 ? <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedCarouselImageIds([])}>Limpiar</Button> : null}
+                  </div>
+                </div>
+              ) : null}
 
               {visibleImages.length === 0 && uploading.length === 0 ? (
                 <EmptyState
@@ -817,9 +1051,20 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 {visibleImages.map((image) => {
                   const selected = expandedId === image.id;
                   const needsIndex =
-                    image.status === "analyzed" && !image.knowledge_document_id;
+                    image.status === "analyzed" && image.index_status !== "indexed";
                   return (
-                    <li key={image.id}>
+                    <li key={image.id} className="relative">
+                      {image.status === "analyzed" ? (
+                        <button
+                          type="button"
+                          aria-pressed={selectedCarouselImageIds.includes(image.id)}
+                          aria-label={`${selectedCarouselImageIds.includes(image.id) ? "Quitar" : "Añadir"} ${image.original_filename} ${selectedCarouselImageIds.includes(image.id) ? "del" : "al"} carrusel`}
+                          onClick={() => toggleCarouselImage(image.id)}
+                          className="absolute left-2 top-2 z-10 rounded-md border border-edge bg-white/95 px-2 py-1 text-xs font-medium shadow-sm hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                        >
+                          {selectedCarouselImageIds.includes(image.id) ? `✓ ${selectedCarouselImageIds.indexOf(image.id) + 1}` : "＋ Carrusel"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         aria-expanded={selected}
@@ -834,6 +1079,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             src={image.public_url}
                             alt={image.analysis?.alt_text ?? image.original_filename}
                             loading="lazy"
+                            onError={() => void refreshPreview(image.id)}
                           />
                           {image.status === "analyzing" ? (
                             <span className={styles.mediaBusy}>
@@ -879,6 +1125,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   );
                 })}
               </ul>
+              {nextCursor ? <div className="flex justify-center py-4"><Button type="button" variant="secondary" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Cargando…" : "Cargar más creativos"}</Button></div> : null}
             </>
           )}
         </section>
@@ -921,6 +1168,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <img
                 src={expanded.public_url}
                 alt={expanded.analysis?.alt_text ?? expanded.original_filename}
+                onError={() => void refreshPreview(expanded.id)}
               />
             </div>
 
@@ -972,6 +1220,34 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
               {expanded.analysis ? (
                 <>
+                    <div className="rounded-md border border-edge p-3">
+                      <p className={EYEBROW}>Lectura A15</p>
+                      <p className="mt-1 text-[13px] text-muted">Confianza global: {expanded.analysis.confidence}{expanded.pixel_width && expanded.pixel_height ? ` · ${expanded.pixel_width} × ${expanded.pixel_height}px` : ""}{expanded.representation_kind === "static_thumbnail" ? " · miniatura de vídeo; no es análisis del vídeo completo" : ""}</p>
+                      {expanded.analysis.visible_message ? <p className="mt-2 text-[13px]"><span className="font-medium">Mensaje visible:</span> {expanded.analysis.visible_message}</p> : null}
+                      {expanded.analysis.visible_call_to_action ? <p className="mt-1 text-[13px]"><span className="font-medium">CTA visible:</span> {expanded.analysis.visible_call_to_action}</p> : null}
+                    </div>
+                    <Field label="Preparar variante para">
+                      <select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={creativeChannel} onChange={(event) => setCreativeChannel(event.target.value === "meta_ads" ? "meta_ads" : "instagram_organic")}>
+                        <option value="instagram_organic">Instagram orgánico</option>
+                        <option value="meta_ads">Meta Ads</option>
+                      </select>
+                    </Field>
+                    <Field label="Brief de campaña (opcional)">
+                      <Textarea value={imageCreativeBrief} maxLength={2000} onChange={(event) => setImageCreativeBrief(event.target.value)} placeholder="Objetivo, producto, audiencia, placement y límites del mensaje. Se enviará al editor junto al creativo base." />
+                    </Field>
+                    {(expanded.analysis.design_findings ?? []).length > 0 ? (
+                      <div className="space-y-2">
+                        <p className={EYEBROW}>Mejoras de diseño observadas</p>
+                        {(expanded.analysis.design_findings ?? []).map((finding, index) => (
+                          <div key={`${finding.category}-${index}`} className="rounded-md border border-edge p-3">
+                            <p className="text-xs font-semibold">{finding.category} · {finding.severity} · confianza {finding.confidence}</p>
+                            <p className="mt-1 text-[13px] text-muted">{finding.evidence}{finding.location ? ` (${finding.location})` : ""}</p>
+                            <p className="mt-1 text-[13px]">Sugerencia: {finding.recommendation}</p>
+                            <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={() => void createPiece(expanded.id, "single", [`Variante ${creativeChannel === "meta_ads" ? "para Meta Ads" : "para Instagram"} basada en hallazgo A15: ${finding.recommendation}. Evidencia: ${finding.evidence}. Mantén los datos visibles sin inventar claims.`, imageCreativeBrief.trim() ? `Contexto de campaña aportado por el usuario: ${imageCreativeBrief.trim()}` : ""].filter(Boolean).join("\n\n"), creativeChannel)}>Crear variante para {creativeChannel === "meta_ads" ? "Meta Ads" : "Instagram"}</Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   <div>
                     <p className={EYEBROW}>Qué se ve</p>
                     <p className="mt-1 text-[13px] leading-relaxed">
@@ -1076,7 +1352,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ) : expanded.status !== "failed" ? (
                 <p className="text-[13px] text-muted">
                   {expanded.status === "analyzing"
-                    ? "A11 la está describiendo. La ficha aparece aquí en cuanto termine."
+                    ? "A15 está analizando el creativo. La ficha aparece aquí al finalizar."
                     : "En cola. Se analiza en segundo plano; puedes seguir trabajando."}
                 </p>
               ) : null}
@@ -1084,7 +1360,18 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               {expanded.markdown !== null ? (
                 <div className="space-y-2 border-t border-edge pt-4">
                   <div className="flex items-center justify-between gap-2">
-                    <p className={EYEBROW}>Ficha que lee A11</p>
+                    <p className={EYEBROW}>Ficha visual de A15</p>
+                    {!editingMarkdown ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={reindexingId === expanded.id}
+                        onClick={() => void reindexImage(expanded.id)}
+                      >
+                        {reindexingId === expanded.id ? "Reparando índice…" : "Reindexar"}
+                      </Button>
+                    ) : null}
                     {!editingMarkdown ? (
                       <Button
                         type="button"
@@ -1172,7 +1459,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           size="sm"
                           variant="secondary"
                           disabled={creatingPiece}
-                          onClick={() => void createPiece(expanded.id, value)}
+                          onClick={() => void createPiece(expanded.id, value, imageCreativeBrief)}
                         >
                           {label}
                         </Button>

@@ -170,6 +170,7 @@ export async function getConsultantProfitability(
       .from("organization_metric_targets")
       .select("organization_id, store_id, metric_key, target_value, period, valid_from, valid_until")
       .in("organization_id", orgIds)
+      .is("milestone_id", null)
       .lte("valid_from", today)
       .order("store_id", { ascending: false, nullsFirst: false })
       .order("valid_from", { ascending: false }),

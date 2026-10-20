@@ -74,6 +74,18 @@ test("fingerprint changes when the requested email meaning changes", () => {
   );
 });
 
+test("fingerprint distinguishes campaign source and mailing step", () => {
+  const campaignSource = { campaign_id: "campaign-1", title: "Lanzamiento", starts_at: "2026-11-01T10:00:00Z" };
+  assert.notEqual(
+    fingerprintMarketingDraftRequest({ ...base, campaignSource }),
+    fingerprintMarketingDraftRequest({ ...base, campaignSource: { ...campaignSource, campaign_id: "campaign-2" } }),
+  );
+  assert.notEqual(
+    fingerprintMarketingDraftRequest({ ...base, mailingSequenceContext: { sequence_id: "sequence-1", email_number: 1 } }),
+    fingerprintMarketingDraftRequest({ ...base, mailingSequenceContext: { sequence_id: "sequence-1", email_number: 2 } }),
+  );
+});
+
 test("migration enforces one durable sequence/email key per organization", () => {
   const migration = readFileSync(
     resolve(

@@ -1,5 +1,6 @@
 "use client";
 
+import { notificationTypesIn, type NotificationCategory } from "@e-nora/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -149,7 +150,7 @@ type NotificationSettingsResponse = {
 const CLIENT_LABELS: Record<string, { label: string; hint: string }> = {
   alert_critical: { label: "Alertas críticas de tu tienda", hint: "Ventas que se hunden, stock agotado de lo que más vendes." },
   alert: { label: "Otras alertas", hint: "Cambios de tendencia y avisos de menor importancia." },
-  task_assigned: { label: "Tareas que te asignan", hint: "De tu consultor, de tu equipo o propuestas por la IA." },
+  task_assigned: { label: "Tareas y Mi Camino", hint: "Tareas nuevas, comentarios, el «Para hoy» y cambios de objetivos." },
   message: { label: "Mensajes de tu consultor", hint: "Uno por conversación hasta que lo leas." },
   campaign_review: { label: "Campañas para revisar", hint: "Borradores que esperan tu visto bueno." },
   integration: { label: "Integraciones que dejan de sincronizar", hint: "Shopify, Meta Ads, Klaviyo o Instagram." },
@@ -159,11 +160,11 @@ const CLIENT_LABELS: Record<string, { label: string; hint: string }> = {
 const CONSULTANT_LABELS: Record<string, { label: string; hint: string }> = {
   alert_critical: { label: "Alertas críticas de tus clientes", hint: "Ventas que se hunden, stock agotado de lo que más venden." },
   alert: { label: "Otras alertas de tus clientes", hint: "Cambios de tendencia y avisos de menor importancia." },
-  task_assigned: { label: "Tareas que te asignan", hint: "Del reparto, de alertas o propuestas por la IA." },
+  task_assigned: { label: "Tareas, IA y Mi Camino", hint: "Tareas que tus clientes cierran o comentan, el «Para hoy» y propuestas de la IA pendientes." },
   message: { label: "Mensajes de tus clientes", hint: "Uno por cliente hasta que lo leas." },
   campaign_review: { label: "Campañas y piezas para revisar", hint: "Lo que tus clientes o la IA te piden revisar." },
   integration: { label: "Integraciones caídas en tu cartera", hint: "Incluye tus tiendas propias." },
-  client: { label: "Altas y cambios de tus clientes", hint: "Alguien usa tu código o cambia lo que puedes hacer en su cuenta." },
+  client: { label: "Altas y decisiones de tus clientes", hint: "Altas con tu código, cambios de tus permisos y lo que deciden sobre la IA." },
   other: { label: "Otros avisos", hint: "Todo lo que no entra arriba." },
 };
 
@@ -240,8 +241,14 @@ export function NotificationsSection({ bootstrap }: { bootstrap: BootstrapRespon
         <div className="grid gap-0">
           {data.preferences.map((pref) => {
             const label = labels[pref.category] ?? { label: pref.category, hint: "" };
+            // Qué avisos concretos entran en este interruptor (catálogo único).
+            const audience = labels === CONSULTANT_LABELS ? "consultor" : "cliente";
+            const included = notificationTypesIn(pref.category as NotificationCategory)
+              .filter((type) => type.audience === "ambos" || type.audience === audience)
+              .map((type) => type.label);
+            const hint = included.length > 1 ? `${label.hint} Incluye: ${included.join(", ")}.` : label.hint;
             return (
-              <SettingRow key={pref.category} label={label.label} hint={label.hint}>
+              <SettingRow key={pref.category} label={label.label} hint={hint}>
                 <Switch
                   aria-label={`${label.label} en la app`}
                   isSelected={pref.in_app}

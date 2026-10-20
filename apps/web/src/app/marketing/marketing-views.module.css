@@ -14,8 +14,8 @@
   --mk-warn-soft: #f9e6d3;
   --mk-bad: #b8364a;
   --mk-bad-soft: #f7dde1;
-  --mk-good: var(--tw-good, #2f7d5b);
-  --mk-good-soft: #dcefe5;
+  --mk-good: var(--tw-good, #3d3b3a);
+  --mk-good-soft: #f0edeb;
   --mk-line: var(--tw-line, #e2dfdc);
   --mk-surface-2: var(--tw-surface-2, #f8f7f5);
   --mk-ink: var(--tw-ink, #3d3b3a);

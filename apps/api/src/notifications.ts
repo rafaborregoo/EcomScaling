@@ -8,22 +8,46 @@ type ApiEnv = {
 /** RLS (`notifications_select_own`/`_update_own`) ya filtra por
  * `user_id = auth.uid()` -- no hace falta chequeo de organizacion aqui, el
  * cliente user-scoped es suficiente y evita duplicar esa regla en Node. */
+export type NotificationListQuery = {
+  status?: string;
+  /** Historial: página de hasta 100, anteriores a `before` (created_at). */
+  limit?: string;
+  before?: string;
+  organizationId?: string;
+  /** Tipos separados por comas (los del catálogo). */
+  types?: string;
+};
+
 export async function listNotifications(
   env: ApiEnv,
   authorization: string,
   statusFilter: string | undefined,
+  options: Omit<NotificationListQuery, "status"> = {},
 ) {
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
+  const limit = Math.min(100, Math.max(1, Number(options.limit) || 50));
 
   let query = supabase
     .from("notifications")
     .select("id, organization_id, type, title, message, action_url, entity_type, entity_id, status, read_at, archived_at, created_at")
     .order("created_at", { ascending: false })
-    .limit(50);
+    .order("id", { ascending: false })
+    // Uno de más para saber si hay otra página sin contar toda la tabla.
+    .limit(limit + 1);
+  if (options.before && Number.isFinite(Date.parse(options.before))) {
+    query = query.lt("created_at", new Date(options.before).toISOString());
+  }
+  if (options.organizationId && /^[0-9a-f-]{36}$/i.test(options.organizationId)) {
+    query = query.eq("organization_id", options.organizationId);
+  }
+  const types = (options.types ?? "").split(",").map((type) => type.trim()).filter((type) => /^[a-z_]{1,60}$/.test(type));
+  if (types.length > 0) query = query.in("type", types);
 
   if (statusFilter === "unread") {
     query = query.eq("status", "unread");
+  } else if (statusFilter === "archived") {
+    query = query.eq("status", "archived");
   } else if (statusFilter !== "all") {
     // Por defecto se ocultan las archivadas -- "todas" es el unico caso que las incluye.
     query = query.neq("status", "archived");
@@ -44,7 +68,17 @@ export async function listNotifications(
     return { ok: false as const, statusCode: 500, error: "notifications_count_failed", detail: countError.message };
   }
 
-  return { ok: true as const, data: { notifications: data ?? [], unread_count: unreadCount ?? 0 } };
+  const rows = data ?? [];
+  const page = rows.slice(0, limit);
+  return {
+    ok: true as const,
+    data: {
+      notifications: page,
+      unread_count: unreadCount ?? 0,
+      // Cursor de la página siguiente (historial); null si no hay más.
+      next_before: rows.length > limit ? (page[page.length - 1]?.created_at ?? null) : null,
+    },
+  };
 }
 
 const NOTIFICATION_STATUSES = ["unread", "read", "archived"];

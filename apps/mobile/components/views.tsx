@@ -177,7 +177,7 @@ export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   // Los tres agentes que proponen tareas (igual que el Dashboard de la web). Son lecturas de su último análisis.
   const monitor = useApi<Diagnostic>(`${base}/ai/monitor?days=30&view=overview`);
   const stockAi = useApi<Diagnostic>(`${base}/ai/stock-planner?days=30`);
-  const emailAi = useApi<Diagnostic>(`${base}/ai/email-analyst?days=30`);
+  const emailAi = useApi<Diagnostic>(withStore(org, `${base}/ai/email-analyst`));
   const reloadProposals = () => void Promise.all([monitor.reload(), stockAi.reload(), emailAi.reload(), ops.reload()]);
 
   const ms = meta.data?.summary ?? null;

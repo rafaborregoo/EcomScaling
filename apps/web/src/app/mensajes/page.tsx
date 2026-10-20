@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { MessageThread } from "@/components/consultant-messages";
@@ -73,10 +74,12 @@ function ago(iso: string, now: number): string {
 function MensajesContent({ isClient }: { isClient: boolean }) {
   const [threads, setThreads] = useState<Thread[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // ?chat=<organizacion> abre esa conversación: los avisos de mensaje llevan aquí.
+  const linkedChat = useSearchParams().get("chat");
+  const [activeId, setActiveId] = useState<string | null>(linkedChat);
   const [filter, setFilter] = useState<ChatFilter | null>(null);
   const [query, setQuery] = useState("");
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(Boolean(linkedChat));
   const [counterpartReadAt, setCounterpartReadAt] = useState<string | null>(null);
   // `Date.now()` no es puro: se fija una vez por visita.
   const [now] = useState(() => Date.now());

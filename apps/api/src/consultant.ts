@@ -55,6 +55,7 @@ import {
 import { leerHechos } from "./maturity-engine.js";
 import { createLogger } from "@e-nora/observability";
 import { sendInviteMail } from "./invite-mailer.js";
+import { loadStoreNames } from "./operations.js";
 
 const logger = createLogger("consultant");
 
@@ -1731,7 +1732,7 @@ export async function listConsultantOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, created_at, updated_at, organization_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, store_id, created_at, updated_at, organization_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .in("organization_id", safeIds)
       .order("created_at", { ascending: false })
@@ -1768,6 +1769,12 @@ export async function listConsultantOperations(
       nameByAssignee.set(profile.id as string, profile.full_name as string | null);
     }
   }
+
+  const storeNameById = await loadStoreNames(
+    env,
+    safeIds,
+    [...new Set((tasksResult.data ?? []).map((task) => task.store_id as string | null).filter((id): id is string => Boolean(id)))],
+  );
 
   const withName = <T extends { organization_id: string }>(row: T) => ({
     ...row,
@@ -1819,6 +1826,9 @@ export async function listConsultantOperations(
           ...task,
           assignee_name: row.assigned_to
             ? nameByAssignee.get(row.assigned_to as string) ?? null
+            : null,
+          store: row.store_id
+            ? { id: row.store_id as string, name: storeNameById.get(row.store_id as string) ?? null }
             : null,
         };
       }),
@@ -2162,6 +2172,130 @@ export async function addAgentOutputNote(
     action: "agent_output_note.added", entityType: "agent_output", entityId: outputId,
     oldData: null, newData: { note_id: note.id, author_kind: authorKind } });
   return { ok: true as const, data: { note } };
+}
+
+/** Seguimiento de escalados A09; solo consultores asignados y plataforma. */
+export async function listAgentEscalations(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  status?: string,
+) {
+  const actorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!actorKind || actorKind === "client" || actorKind === "ai") {
+    return { ok: false as const, statusCode: 403, error: "agent_escalations_access_required" };
+  }
+  const statuses = ["open", "acknowledged", "resolved", "dismissed"];
+  if (status && !statuses.includes(status)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_escalation_status" };
+  }
+  const supabase = createServiceClient(env);
+  let query = supabase.from("agent_escalations")
+    .select("id, run_id, organization_id, reason, risk, blocking_questions, status, owner_user_id, resolution, created_at, updated_at, resolved_at")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false }).limit(100);
+  if (status) query = query.eq("status", status);
+  const { data, error } = await query;
+  if (error) return { ok: false as const, statusCode: 500, error: "agent_escalations_load_failed", detail: error.message };
+  return { ok: true as const, data: { escalations: data ?? [] } };
+}
+
+/** Consultores a los que el escalado se puede asignar sin ampliar el tenant. */
+export async function listAgentEscalationOwners(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const actorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!actorKind || actorKind === "client" || actorKind === "ai") {
+    return { ok: false as const, statusCode: 403, error: "agent_escalations_access_required" };
+  }
+  const supabase = createServiceClient(env);
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("consultant_assignments")
+    .select("consultant_user_id")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true);
+  if (assignmentsError) {
+    return { ok: false as const, statusCode: 503, error: "agent_escalation_owners_load_failed" };
+  }
+  const assignedIds = [...new Set((assignments ?? []).map((row) => row.consultant_user_id as string))];
+  let query = supabase.from("profiles")
+    .select("id, full_name, platform_role")
+    .eq("is_active", true)
+    .in("platform_role", ["consultant", "platform_admin"])
+    .order("full_name", { ascending: true });
+  if (actorKind !== "platform") {
+    if (assignedIds.length === 0) return { ok: true as const, data: { owners: [] } };
+    query = query.in("id", assignedIds);
+  }
+  const { data, error } = await query;
+  if (error) return { ok: false as const, statusCode: 503, error: "agent_escalation_owners_load_failed" };
+  return {
+    ok: true as const,
+    data: {
+      owners: (data ?? []).map((profile) => ({
+        id: profile.id,
+        name: profile.full_name || "Consultor",
+        platform_role: profile.platform_role,
+      })),
+    },
+  };
+}
+
+export async function updateAgentEscalation(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  escalationId: string,
+  body: { status?: string; owner_user_id?: string | null; resolution?: string | null },
+) {
+  const actorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!actorKind || actorKind === "client" || actorKind === "ai") {
+    return { ok: false as const, statusCode: 403, error: "agent_escalations_access_required" };
+  }
+  const statuses = ["open", "acknowledged", "resolved", "dismissed"];
+  if (body.status !== undefined && !statuses.includes(body.status)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_escalation_status" };
+  }
+  if (body.resolution !== undefined && body.resolution !== null && (typeof body.resolution !== "string" || body.resolution.trim().length > 4000)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_escalation_resolution" };
+  }
+  const supabase = createServiceClient(env);
+  const { data: existing, error: loadError } = await supabase.from("agent_escalations")
+    .select("id, status, owner_user_id, updated_at").eq("id", escalationId).eq("organization_id", organizationId).maybeSingle();
+  if (loadError) return { ok: false as const, statusCode: 500, error: "agent_escalation_load_failed", detail: loadError.message };
+  if (!existing) return { ok: false as const, statusCode: 404, error: "agent_escalation_not_found" };
+  const ownerUserId = body.owner_user_id === "self" ? context.user.id : body.owner_user_id;
+  if (ownerUserId) {
+    const { data: assignment, error: assignmentError } = await supabase.from("consultant_assignments")
+      .select("organization_id").eq("organization_id", organizationId)
+      .eq("consultant_user_id", ownerUserId).eq("is_active", true).maybeSingle();
+    if (assignmentError) return { ok: false as const, statusCode: 503, error: "agent_escalation_owner_check_failed" };
+    const { data: owner, error: ownerError } = await supabase.from("profiles")
+      .select("id, platform_role, is_active").eq("id", ownerUserId).maybeSingle();
+    if (ownerError) return { ok: false as const, statusCode: 503, error: "agent_escalation_owner_check_failed" };
+    if (!owner?.is_active || !["consultant", "platform_admin"].includes(owner.platform_role) || (actorKind !== "platform" && !assignment)) {
+      return { ok: false as const, statusCode: 400, error: "invalid_agent_escalation_owner" };
+    }
+  }
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { updated_at: now };
+  if (body.status !== undefined) patch.status = body.status;
+  if (body.owner_user_id !== undefined) patch.owner_user_id = ownerUserId;
+  if (body.resolution !== undefined) patch.resolution = body.resolution?.trim() || null;
+  if (["resolved", "dismissed"].includes(String(patch.status ?? existing.status))) patch.resolved_at = now;
+  else if (patch.status === "open" || patch.status === "acknowledged") patch.resolved_at = null;
+  const { data: updated, error } = await supabase.from("agent_escalations")
+    .update(patch).eq("id", escalationId).eq("organization_id", organizationId)
+    .eq("updated_at", existing.updated_at).select("id, status, owner_user_id, resolution, updated_at, resolved_at").maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "agent_escalation_update_failed", detail: error.message };
+  if (!updated) return { ok: false as const, statusCode: 409, error: "agent_escalation_changed_retry" };
+  await recordAuditLog(supabase, { organizationId, actorUserId: context.user.id,
+    action: "agent_escalation.updated", entityType: "agent_escalation", entityId: escalationId,
+    oldData: { status: existing.status, owner_user_id: existing.owner_user_id },
+    newData: { status: updated.status, owner_user_id: updated.owner_user_id } });
+  return { ok: true as const, data: { escalation: updated } };
 }
 
 const DRAFT_SCHEDULE_TZ = "Europe/Madrid";
@@ -7137,6 +7271,7 @@ export type WorkTaskRow = {
   due_at: string | null;
   created_at: string;
   organization_id: string;
+  store_name?: string | null;
 };
 
 /**
@@ -7302,7 +7437,7 @@ export async function listConsultantWork(
     supabase
       .from("tasks")
       .select(
-        "id, title, status, priority, due_at, created_at, organization_id",
+        "id, title, status, priority, due_at, created_at, organization_id, store_id",
       )
       .in("organization_id", safeIds)
       .eq("is_visible_to_client", false)
@@ -7319,6 +7454,13 @@ export async function listConsultantWork(
       detail: callsResult.error?.message ?? tasksResult.error?.message,
     };
   }
+
+  // Las tareas internas llevan la tienda a la que se etiquetaron.
+  const storeNames = await loadStoreNames(
+    env,
+    ids,
+    [...new Set((tasksResult.data ?? []).map((task) => task.store_id as string | null).filter((id): id is string => Boolean(id)))],
+  );
 
   const calls: WorkCallRow[] = (
     (callsResult.data ?? []) as Array<Record<string, unknown>>
@@ -7369,7 +7511,10 @@ export async function listConsultantWork(
       ...buildConsultantWork({
         organizations,
         calls,
-        tasks: (tasksResult.data ?? []) as WorkTaskRow[],
+        tasks: ((tasksResult.data ?? []) as Array<WorkTaskRow & { store_id?: string | null }>).map((task) => ({
+          ...task,
+          store_name: task.store_id ? (storeNames.get(task.store_id) ?? null) : null,
+        })),
         nowMs: Date.now(),
       }),
       organizations,

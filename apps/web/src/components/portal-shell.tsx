@@ -59,7 +59,7 @@ import {
   type ModuleSummaryData,
 } from "@/components/module-summary";
 import { NotificationsBell } from "@/components/notifications-bell";
-import { InsightsMenu } from "@/components/insights-menu";
+import { FocusTarget } from "@/components/focus-target";
 import { PortalFeedback } from "@/components/portal-feedback";
 import { InsightsProvider } from "@/components/insights-context";
 import { SettingsNavStatus } from "@/app/configuracion/settings-status";
@@ -770,9 +770,9 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   function selectOrganization(organizationId: string) {
     setActiveOrganizationId(organizationId);
-    // Los datos cacheados de las páginas son del tenant anterior: se descartan
-    // para que la vista nueva no muestre por un instante datos de otro cliente.
-    invalidateCachedQueries();
+    // La caché de páginas NO se vacía: cada clave lleva el id de la
+    // organización en la URL, así que la vista nueva no puede pintar datos del
+    // cliente anterior, y volver a un cliente ya visto es instantáneo.
     if (organizationId) {
       window.localStorage.setItem(
         ACTIVE_ORGANIZATION_STORAGE_KEY,
@@ -799,7 +799,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   if (isLoading) {
     return (
-      <main className="min-h-dvh bg-white p-6 text-foreground">
+      <main className="min-h-dvh p-6 text-foreground">
         <AsyncState status="loading" loadingLabel="Cargando cuenta..." />
       </main>
     );
@@ -807,7 +807,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   if (error || !bootstrap || !token) {
     return (
-      <main className="grid min-h-dvh place-content-center gap-4 bg-white p-6 text-foreground">
+      <main className="grid min-h-dvh place-content-center gap-4 p-6 text-foreground">
         <ErrorBlock>
           {/* "Failed to fetch" es el error crudo del navegador cuando la API no responde. */}
           {!error ? "No se pudo resolver la sesión." : /failed to fetch|networkerror|load failed/i.test(error) ? "No hemos podido conectar con E-NORA. Comprueba tu conexión y vuelve a intentarlo." : error}
@@ -885,6 +885,9 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const showAddStoreAction =
     navigationRole === "client" && Boolean(activeOrganizationId);
   const activeModule = getActivePortalModule(navigationModules, pathname);
+  // Un módulo con una sola sección no abre la segunda columna: esa opción
+  // solo repetiría el nombre del módulo.
+  const hasSectionNav = activeModule.items.length > 1;
 
   // Numeritos por ruta del nav. El rail los agrega por módulo y el segundo
   // nivel los deja junto a la opción concreta.
@@ -1167,6 +1170,15 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     isConsultant &&
     ownMemberships.length > 0 &&
     ownMemberships.length < bootstrap.memberships.length;
+  // El consultor ve las notificaciones agrupadas por tienda.
+  const notificationStoreNames = isConsultant
+    ? Object.fromEntries(
+        bootstrap.memberships.map((membership) => [
+          membership.organization_id,
+          membership.organization?.display_name ?? membership.organization_id,
+        ]),
+      )
+    : undefined;
   const clientSelectOptions = [
     ...(isConsultant
       ? [{ value: GENERAL_VIEW_KEY, label: "Vista general" }]
@@ -1298,7 +1310,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             isConsultant,
           }}
         >
-        <main className={`min-h-dvh bg-white text-foreground${isPlatformAdmin ? " admin-portal" : ""}`}>
+        <main className={`min-h-dvh text-foreground${isPlatformAdmin ? " admin-portal" : ""}`}>
           <OverlayRole role={navigationRole === "platform_admin" ? "admin" : navigationRole} />
           <a className="skip-link" href="#portal-content">
             Saltar al contenido principal
@@ -1342,8 +1354,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </p>
               <div className="flex shrink-0 items-center">
                 {bootstrap.memberships.length > 0 ? copilotToggle(true) : null}
-                <InsightsMenu />
-                <NotificationsBell token={token} />
+                <NotificationsBell token={token} storeNames={notificationStoreNames} />
                 {profileMenu}
               </div>
             </div>
@@ -1422,8 +1433,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               arranca en la misma vertical que los iconos del rail, y el
               borde derecho continúa el de la columna de secciones. */}
             <div
-              className={`flex h-full shrink-0 items-center border-r border-separator pl-7 pr-5 ${
-                primaryNavMode === "expanded" ? "w-[28.5rem]" : "w-[20.25rem]"
+              className={`flex h-full shrink-0 items-center border-r border-separator ${
+                hasSectionNav
+                  ? primaryNavMode === "expanded" ? "w-[28.5rem] pl-7 pr-5" : "w-[20.25rem] pl-7 pr-5"
+                  : primaryNavMode === "expanded" ? "w-[13rem] pl-7 pr-5" : "w-[4.75rem] justify-center"
               }`}
             >
               <Link
@@ -1431,7 +1444,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 aria-label="E-NORA, ir al inicio"
                 className="flex items-center no-underline hover:no-underline"
               >
-                <BrandLogo variant="full" alt="" className="h-5 w-auto" />
+                {/* Sin columna de secciones y con el rail plegado no cabe el logo entero. */}
+                {hasSectionNav || primaryNavMode === "expanded" ? (
+                  <BrandLogo variant="full" alt="" className="h-5 w-auto" />
+                ) : (
+                  <BrandLogo variant="simple" alt="" className="size-7" />
+                )}
               </Link>
             </div>
             <div className="flex h-full min-w-0 flex-1 items-center gap-3 px-6 lg:px-10">
@@ -1458,8 +1476,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 {ownStoreSelectNode}
                 {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
                 {bootstrap.memberships.length > 0 ? copilotToggle(false) : null}
-                <InsightsMenu />
-                <NotificationsBell token={token} />
+                <NotificationsBell token={token} storeNames={notificationStoreNames} />
                 {profileMenu}
               </div>
             </div>
@@ -1468,7 +1485,15 @@ function PortalShellContent({ title, children }: PortalShellProps) {
           <div
             className={[
               "relative grid min-h-dvh lg:min-h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] admin-shell-grid",
-              isCopilotOpen
+              !hasSectionNav
+                ? isCopilotOpen
+                  ? primaryNavMode === "expanded"
+                    ? "lg:grid-cols-[13rem_minmax(0,1fr)_26rem]"
+                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)_26rem]"
+                  : primaryNavMode === "expanded"
+                    ? "lg:grid-cols-[13rem_minmax(0,1fr)]"
+                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)]"
+                : isCopilotOpen
                   ? primaryNavMode === "expanded"
                     ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
                     : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)_26rem]"
@@ -1750,7 +1775,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </div>
             </aside>
 
-            {contextPanel}
+            {hasSectionNav ? contextPanel : null}
 
             <section
               id="portal-content"
@@ -1762,7 +1787,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               )}
               data-role={navigationRole === "client" ? "client" : "consultant"}
               className={`min-w-0${isPlatformAdmin ? " admin-portal-content" : ""}${
-                // Marketing, Integraciones y Cartera comparten los colores de Trabajo e Inicio (petróleo +
+                // Marketing, Integraciones y Cartera comparten los colores de Trabajo e Inicio (grafito +
                 // azafrán en cliente, grafito + mandarina en consultor).
                 // Comunicación y Conocimiento, solo en el consultor: el cliente las sigue viendo con la paleta base.
                   activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "comunicacion" || activeModule?.id === "configuracion" || activeModule?.id === "cartera" ||
@@ -1771,6 +1796,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   : ""
                 }${activeModule?.id === "analitica" ? " analytics-theme" : ""}${activeModule?.id === "comunicacion" ? " communication-theme" : ""}`}
             >
+              <FocusTarget />
               {activeOrganization ? (
                 <AccountStateBanner
                   organizationStatus={activeOrganization.status}
@@ -1823,6 +1849,13 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                     value={{
                       connectionId: activeConnectionId,
                       setConnectionId: selectConnection,
+                      stores: shopifyConnections.map((connection) => ({
+                        connectionId: connection.id,
+                        label:
+                          connection.provider_account_id ??
+                          connection.provider_account_name ??
+                          connection.id,
+                      })),
                     }}
                   >
                     {consultantOnlyRoute ? (
@@ -1871,6 +1904,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             {isCopilotOpen ? (
               <CopilotPanel
                 organizationId={activeOrganizationId}
+                canManageEscalations={isConsultant}
                 organizations={bootstrap.memberships.map((membership) => ({
                   id: membership.organization_id,
                   name:

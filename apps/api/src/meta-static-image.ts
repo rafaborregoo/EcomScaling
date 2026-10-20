@@ -162,3 +162,67 @@ export async function downloadMetaStaticImage(value: string) {
   }
   throw new Error("meta_asset_too_many_redirects");
 }
+
+const META_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+
+/** Descarga acotada del vídeo fuente de Meta; solo acepta los mismos CDN
+ * oficiales verificados por DNS/IP que la ingesta de imágenes. */
+export async function downloadMetaVideo(value: string) {
+  let url = validateMetaStaticImageUrl(value);
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    const addresses = await resolvePublicAddresses(url.hostname);
+    const selected = addresses[0]!;
+    const response = await new Promise<ResponsePayload>((resolve, reject) => {
+      const request = https.get(url, {
+        headers: { accept: "video/mp4,video/quicktime,video/webm,application/octet-stream" },
+        lookup: ((_hostname: string, options: { all?: boolean }, callback: (...args: unknown[]) => void) => {
+          if (options?.all) callback(null, addresses);
+          else callback(null, selected.address, selected.family);
+        }) as never,
+      }, (incoming) => {
+        const statusCode = incoming.statusCode ?? 0;
+        const location = incoming.headers.location ?? null;
+        const contentType = incoming.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() ?? null;
+        if (statusCode >= 300 && statusCode < 400 && location) {
+          incoming.resume();
+          resolve({ statusCode, location, body: Buffer.alloc(0), contentType });
+          return;
+        }
+        if (statusCode !== 200) {
+          incoming.resume();
+          reject(new Error(`meta_video_http_${statusCode}`));
+          return;
+        }
+        if (Number(incoming.headers["content-length"] ?? 0) > META_VIDEO_MAX_BYTES) {
+          incoming.destroy();
+          reject(new Error("meta_video_too_large"));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let total = 0;
+        incoming.on("data", (chunk: Buffer | string) => {
+          const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          total += part.length;
+          if (total > META_VIDEO_MAX_BYTES) {
+            incoming.destroy(new Error("meta_video_too_large"));
+            return;
+          }
+          chunks.push(part);
+        });
+        incoming.on("end", () => resolve({ statusCode, location: null, body: Buffer.concat(chunks), contentType }));
+        incoming.on("error", reject);
+      });
+      const deadline = setTimeout(() => request.destroy(new Error("meta_video_request_timeout")), 30_000);
+      request.on("close", () => clearTimeout(deadline));
+      request.on("error", reject);
+    });
+    if (response.location) {
+      if (redirects === MAX_REDIRECTS) throw new Error("meta_video_too_many_redirects");
+      url = validateMetaStaticImageUrl(new URL(response.location, url).toString());
+      continue;
+    }
+    if (!response.body.length) throw new Error("meta_video_empty");
+    return { buffer: response.body, originHost: url.hostname, contentType: response.contentType };
+  }
+  throw new Error("meta_video_too_many_redirects");
+}

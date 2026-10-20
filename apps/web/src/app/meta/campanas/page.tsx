@@ -39,7 +39,7 @@ function RoasGauge({ value, breakeven }: { value: number | null; breakeven: numb
   const bePct = breakeven != null ? Math.min(breakeven / max, 1) : null;
   const color = value == null ? "var(--ink-3)" : breakeven != null && value < breakeven ? "var(--bad)" : "var(--good)";
   return (
-    <div className={m.gauge} title={breakeven != null ? `Equilibrio ${roasText(breakeven)}` : undefined}>
+    <div className={m.gauge} title={breakeven != null ? `Tu mínimo ${roasText(breakeven)}` : undefined}>
       <b style={{ width: `${pct * 100}%`, background: color }} />
       {bePct != null ? <i style={{ left: `${bePct * 100}%` }} /> : null}
     </div>
@@ -56,22 +56,21 @@ function CampaignCard({ row, href, breakeven, currency }: { row: MetaCampaignLis
         <span className={cx(pulse.chip, state.tone === "good" ? pulse.chipGood : undefined, m.st)}>{state.label}</span>
         {alert ? <span className={cx(pulse.chip, alert.tone === "bad" ? pulse.chipBad : alert.tone === "warn" ? pulse.chipWarn : alert.tone === "acc" ? pulse.chipAcc : undefined, m.warn)}>{alert.text}</span> : null}
         <span className={m.big}>{roasText(row.roas)}</span>
-        <span className={m.kind}>ROAS atribuido</span>
+        <span className={m.kind}>vuelven por cada 1 € (según Meta)</span>
         <RoasGauge value={row.roas} breakeven={breakeven} />
       </div>
       <div className={s.body}>
         <div>
           <p className={s.name}>{row.name}</p>
-          <p className={s.meta}>{row.ad_set_count} conjunto{row.ad_set_count === 1 ? "" : "s"} · {row.ad_count} anuncio{row.ad_count === 1 ? "" : "s"} · {budgetText(row.budget, currency)}</p>
+          <p className={s.meta}>{row.ad_set_count} conjunto{row.ad_set_count === 1 ? "" : "s"} · {row.ad_count} anuncio{row.ad_count === 1 ? "" : "s"}{row.budget ? ` · ${budgetText(row.budget, currency)}` : ""}</p>
         </div>
         <div className={s.price}>
           <b>{row.spend ? money(row.spend, currency) : "—"}</b>
-          <span className={pulse.chip}>{row.spend ? `${money(row.purchase_value, currency)} atribuidos` : "sin gasto en el periodo"}</span>
+          <span className={pulse.chip}>{row.spend ? `${money(row.purchase_value, currency)} en ventas según Meta` : "sin gasto en el periodo"}</span>
         </div>
-        <div className={s.stats}>
+        <div className={s.stats} style={{ gridTemplateColumns: "1fr 1fr" }}>
           <div><span>Compras</span><span>{row.purchases ? fmtNum(row.purchases) : "—"}</span></div>
-          <div><span>CPM</span><span>{row.cpm != null ? money(row.cpm, currency) : "—"}</span></div>
-          <div><span>CPC</span><span>{row.cpc != null ? money(row.cpc, currency) : "—"}</span></div>
+          <div><span>Coste por compra</span><span>{row.spend && row.purchases ? money(row.spend / row.purchases, currency) : "—"}</span></div>
         </div>
         {row.daily_spend.some((d) => d.spend > 0) ? <Spark values={row.daily_spend.map((d) => d.spend)} /> : null}
       </div>
@@ -92,7 +91,8 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const [draftSearch, setDraftSearch] = useState(requestedSearch);
   const [search, setSearch] = useState(requestedSearch);
-  const [status, setStatus] = useState("ACTIVE");
+  // Todas por defecto: con "Activas" y todo en pausa la página se abría vacía.
+  const [status, setStatus] = useState("");
   const [filter, setFilter] = useState<Filter>("");
   const [sort, setSort] = useState<Sort>("spend");
   const [view, setView] = useState<View>("grid");
@@ -134,10 +134,11 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const tiles: Array<{ key: Filter; label: string; value: string; hint: string; tone?: string; pressable: boolean }> = summary
     ? [
         { key: "", label: "Inversión", value: money(summary.spend, data?.currency ?? null), hint: `${summary.active} activas · ${summary.paused} en pausa`, pressable: false },
-        { key: "rejected", label: "Con rechazos", value: fmtNum(summary.rejected), hint: "anuncios que no se publican", tone: summary.rejected ? "var(--bad)" : undefined, pressable: true },
-        { key: "learning", label: "En aprendizaje", value: fmtNum(summary.learning), hint: "limitado o aprendiendo", tone: summary.learning ? "var(--warn)" : undefined, pressable: true },
-        { key: "", label: "Atribuido", value: money(summary.purchase_value, data?.currency ?? null), hint: "lo que Meta se atribuye", pressable: false },
-        { key: "", label: "ROAS de la cartera", value: summary.spend ? roasText(summary.purchase_value / summary.spend) : "—", hint: breakeven != null ? `equilibrio ${roasText(breakeven)}` : "sin costes para el equilibrio", pressable: false },
+        // Rechazos y aprendizaje son avisos: solo ocupan sitio cuando hay alguno
+        ...(summary.rejected ? [{ key: "rejected" as Filter, label: "Con rechazos", value: fmtNum(summary.rejected), hint: "anuncios que no se publican", tone: "var(--bad)", pressable: true }] : []),
+        ...(summary.learning ? [{ key: "learning" as Filter, label: "Aprendiendo", value: fmtNum(summary.learning), hint: "resultados aún inestables", tone: "var(--warn)", pressable: true }] : []),
+        { key: "", label: "Ventas según Meta", value: money(summary.purchase_value, data?.currency ?? null), hint: "no son las ventas de tu tienda", pressable: false },
+        { key: "", label: "ROAS", value: summary.spend ? roasText(summary.purchase_value / summary.spend) : "—", hint: breakeven != null ? `tu mínimo: ${roasText(breakeven)}` : "faltan costes para tu mínimo", pressable: false },
       ]
     : [];
 
@@ -145,20 +146,8 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className={pulse.root}>
       <header className={s.top}>
         <div>
-          <nav className={s.crumb} aria-label="Ruta" style={{ padding: 0 }}>
-            <a href="/shopify">Analítica</a>
-            <span aria-hidden="true">/</span>
-            <a href="/meta">Meta Ads</a>
-            <span aria-hidden="true">/</span>
-            <span>Campañas</span>
-          </nav>
           <h1>Campañas</h1>
-          <div className={s.topMeta}>
-            <span className={pulse.chip}>{connectionId ? "Tienda seleccionada" : "Todas las tiendas"}</span>
-            {data ? <span className={pulse.chip}>{fmtNum(data.total)} campañas</span> : null}
-          </div>
         </div>
-        <a className={cx(pulse.btn, pulse.ghost)} href="/meta">Volver a Meta Ads</a>
       </header>
 
       {!organizationId ? (
@@ -166,7 +155,7 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : (
         <>
           {tiles.length ? (
-            <div className={s.sum} role="group" aria-label="Resumen de campañas">
+            <div className={s.sum} style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }} role="group" aria-label="Resumen de campañas">
               {tiles.map((tile, index) => (
                 <button key={`${tile.label}-${index}`} type="button" className={s.sumC} disabled={!tile.pressable} style={tile.pressable ? undefined : { cursor: "default" }} aria-pressed={tile.pressable && filter === tile.key} onClick={() => tile.pressable && pickFilter(tile.key)}>
                   <span className={pulse.lbl}>{tile.label}</span>
@@ -203,7 +192,7 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <div className={pulse.seg} role="group" aria-label="Periodo">
                 {PERIODS.map((value) => (
                   <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => { setPeriodDays(value); setPage(1); }}>
-                    {value === 365 ? "1 año" : `${value} d`}
+                    {value === 365 ? "1 año" : `${value} días`}
                   </button>
                 ))}
               </div>
@@ -219,12 +208,12 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
           {data && rows.length === 0 ? (
             <div className={pulse.panel}>
-              <p className={pulse.empty}>No hay campañas con estos filtros.</p>
+              <p className={pulse.empty}>{search ? `Ninguna campaña con «${search}».` : status === "ACTIVE" ? "Ahora mismo no tienes ninguna campaña activa." : status === "PAUSED" ? "No tienes campañas en pausa." : "No hay campañas en este periodo."}</p>
             </div>
           ) : null}
 
           {data && rows.length && view === "grid" ? (
-            <div className={s.grid}>
+            <div className={s.grid} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
               {rows.map((row) => <CampaignCard key={row.campaign_id} row={row} breakeven={breakeven ?? null} currency={data.currency} href={campaignHref(row.campaign_id, organizationId, connectionId)} />)}
             </div>
           ) : null}
@@ -238,10 +227,10 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <th>Campaña</th>
                       <th>Estado</th>
                       <th style={{ textAlign: "right" }}>Gasto</th>
-                      <th style={{ textAlign: "right" }}>Atribuido</th>
+                      <th style={{ textAlign: "right" }}>Ventas según Meta</th>
                       <th style={{ textAlign: "right" }}>ROAS</th>
                       <th style={{ textAlign: "right" }}>Compras</th>
-                      <th style={{ textAlign: "right" }}>CTR</th>
+                      <th style={{ textAlign: "right" }}>Coste por compra</th>
                       <th>Aviso</th>
                     </tr>
                   </thead>
@@ -257,7 +246,7 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               <span>
                                 <b style={{ fontWeight: 600 }}>{row.name}</b>
                                 <br />
-                                <span className={pulse.muted} style={{ fontSize: 12 }}>{row.objective ?? "Sin objetivo"} · {row.ad_set_count} conjuntos</span>
+                                <span className={pulse.muted} style={{ fontSize: 12 }}>{row.ad_set_count} conjunto{row.ad_set_count === 1 ? "" : "s"}</span>
                               </span>
                             </a>
                           </td>
@@ -266,7 +255,7 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           <td className={pulse.tdN}>{money(row.purchase_value, data.currency)}</td>
                           <td className={pulse.tdN} style={{ color: belowBreakeven ? "var(--bad)" : undefined }}>{roasText(row.roas)}</td>
                           <td className={pulse.tdN}>{fmtNum(row.purchases)}</td>
-                          <td className={pulse.tdN}>{row.impressions ? `${fmtNum((row.clicks / row.impressions) * 100, 2)} %` : "—"}</td>
+                          <td className={pulse.tdN}>{row.purchases ? money(row.spend / row.purchases, data.currency) : "—"}</td>
                           <td>{alert ? <span className={cx(pulse.chip, alert.tone === "bad" ? pulse.chipBad : pulse.chipWarn)}>{alert.text}</span> : null}</td>
                         </tr>
                       );
@@ -277,7 +266,7 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
           ) : null}
 
-          {data ? (
+          {data && totalPages > 1 ? (
             <div className={s.pager}>
               <span className={pulse.muted} style={{ fontSize: 12.5 }}>
                 {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}
@@ -290,7 +279,7 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
 
           <footer className={s.foot}>
-            <span>Gasto, compras e ingresos son los que Meta se atribuye con su ventana; no son ventas de la tienda y no se suman a otras plataformas.</span>
+            <span>Compras y ventas según Meta: no son las ventas de tu tienda ni se suman a otros canales.</span>
           </footer>
         </>
       )}

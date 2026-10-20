@@ -160,8 +160,8 @@
   justify-content: flex-end;
 }
 .allok {
-  background: var(--mk-good-soft, #dcefe5);
-  color: var(--mk-good, #2f7d5b);
+  background: var(--mk-good-soft, #f0edeb);
+  color: var(--mk-good, #3d3b3a);
   border-radius: 10px;
   padding: 12px 16px;
   font-weight: 600;
@@ -505,8 +505,8 @@
   color: var(--ct-accent-ink);
 }
 .status[data-tone="success"] {
-  background: var(--mk-good-soft, #dcefe5);
-  color: var(--mk-good, #2f7d5b);
+  background: var(--mk-good-soft, #f0edeb);
+  color: var(--mk-good, #3d3b3a);
 }
 .block {
   display: grid;

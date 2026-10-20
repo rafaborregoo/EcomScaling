@@ -24,6 +24,7 @@ import {
 } from "./stripe-webhook.js";
 import { createHmac } from "node:crypto";
 import { stripeForm } from "./stripe-checkout.js";
+import { handleStripeWebhookRequest } from "./stripe-webhook-handler.js";
 
 const SUSCRIPCION = {
   id: "sub_1234",
@@ -202,6 +203,97 @@ test("las fechas de Stripe son epoch en segundos", () => {
   assert.equal(stripeTimestampToIso(null), null);
   assert.equal(stripeTimestampToIso(0), null);
   assert.equal(stripeTimestampToIso("1757930400"), null);
+});
+
+function memoryWebhookClient() {
+  let event: Record<string, unknown> | null = null;
+  const updates: Array<Record<string, unknown>> = [];
+  let nextId = 0;
+
+  const client = {
+    schema: () => client,
+    from: () => {
+      let operation: "select" | "insert" | "update" = "select";
+      let values: Record<string, unknown> = {};
+      const filters: Record<string, unknown> = {};
+      const execute = async (single: boolean) => {
+        if (operation === "insert") {
+          if (event) return { data: null, error: { code: "23505" } };
+          event = { ...values, id: `webhook-${++nextId}` };
+          return { data: { id: event.id }, error: null };
+        }
+        const matches = event && Object.entries(filters).every(([key, value]) => event?.[key] === value);
+        if (operation === "update") {
+          if (!matches) return { data: null, error: null };
+          event = { ...event, ...values };
+          updates.push({ ...values });
+          return { data: single ? { id: event.id } : null, error: null };
+        }
+        return { data: matches ? event : null, error: null };
+      };
+      const builder: any = {
+        insert: (payload: Record<string, unknown>) => { operation = "insert"; values = payload; return builder; },
+        update: (payload: Record<string, unknown>) => { operation = "update"; values = payload; return builder; },
+        select: () => builder,
+        eq: (key: string, value: unknown) => { filters[key] = value; return builder; },
+        maybeSingle: () => execute(true),
+        then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => execute(false).then(resolve, reject),
+      };
+      return builder;
+    },
+  };
+
+  return { client, readEvent: () => event, updates };
+}
+
+function signedInvoicePaidEvent() {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const body = JSON.stringify({
+    id: "evt_invoice_paid_retry",
+    type: "invoice.paid",
+    created: timestamp,
+    data: { object: { id: "in_retry_123", customer: "cus_retry_123" } },
+  });
+  return { rawBody: Buffer.from(body), headers: { "stripe-signature": firmar(body, timestamp) } };
+}
+
+test("invoice.paid recupera el mismo event ID tras un fallo transitorio y conserva idempotencia", async () => {
+  const database = memoryWebhookClient();
+  const event = signedInvoicePaidEvent();
+  let invoiceAttempts = 0;
+  let emailAttempts = 0;
+  const dependencies = {
+    createServiceClient: () => database.client as never,
+    createInvoiceForStripePayment: (async () => {
+      invoiceAttempts++;
+      return invoiceAttempts === 1
+        ? { ok: false as const, error: "billing_settings_not_configured", statusCode: 503 }
+        : { ok: true as const, invoice_id: "local_invoice_123" };
+    }) as never,
+    retryInvoiceEmailForStripePayment: async () => {
+      emailAttempts++;
+      return { status: "sent" } as never;
+    },
+  };
+  const env = { STRIPE_WEBHOOK_SECRET: SECRETO } as never;
+
+  const first = await handleStripeWebhookRequest(env, event.headers, event.rawBody, dependencies);
+  assert.equal(first.statusCode, 503);
+  assert.equal(database.readEvent()?.status, "failed");
+
+  const retried = await handleStripeWebhookRequest(env, event.headers, event.rawBody, dependencies);
+  assert.equal(retried.statusCode, 200);
+  assert.equal(retried.body.status, "processed");
+  assert.equal(database.readEvent()?.status, "processed");
+  assert.equal(database.readEvent()?.id, "webhook-1");
+  assert.equal(invoiceAttempts, 2);
+
+  const duplicate = await handleStripeWebhookRequest(env, event.headers, event.rawBody, dependencies);
+  assert.equal(duplicate.statusCode, 200);
+  assert.equal(duplicate.body.status, "duplicate");
+  assert.equal(invoiceAttempts, 2);
+  assert.equal(emailAttempts, 1);
+  assert.equal(database.updates.filter((update) => update.status === "received").length, 1);
 });
 
 // --- firma ----------------------------------------------------------------

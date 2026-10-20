@@ -9,6 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { sanitizeGeneratedEmailHtml } from "@e-nora/ai";
+import { sanitizeMarketingEmailHtml, reviewMarketingEmailHtml } from "./marketing-email-safety.js";
 import {
   requireOperationalOrganization,
   requireOwnOrganizationAccess,
@@ -1099,6 +1100,10 @@ export async function getKlaviyoEmailReport(
 
   const dayMs = 24 * 60 * 60 * 1000;
   const periodEnd = new Date();
+  // "Todo" = desde el principio y sin periodo anterior con el que comparar.
+  // Antes caia en los 90 dias por defecto y la UI mostraba lo mismo que "90 dias".
+  const isAll = daysInput === "all";
+  if (isAll) periodDays = Math.ceil((periodEnd.getTime() - Date.UTC(2000, 0, 1)) / dayMs);
   const periodStart = new Date(periodEnd.getTime() - periodDays * dayMs);
   const previousStart = new Date(periodStart.getTime() - periodDays * dayMs);
   const toDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -1204,7 +1209,7 @@ export async function getKlaviyoEmailReport(
     (currentResult.data ?? []) as KlaviyoEmailReportRow[],
   );
   const previous =
-    !previousResult.error && Array.isArray(previousResult.data)
+    !isAll && !previousResult.error && Array.isArray(previousResult.data)
       ? summariseKlaviyoEmailRows(
           previousResult.data as KlaviyoEmailReportRow[],
         ).totals
@@ -1632,7 +1637,7 @@ export async function pushDraftToKlaviyoTemplate(
   const supabase = serviceClient(env);
   const { data: draft, error: draftError } = await supabase
     .from("marketing_content_drafts")
-    .select("id, status, html, plain_text, template_name, subject, request")
+    .select("id, status, version, html, plain_text, template_name, subject, from_name, reply_to, request")
     .eq("id", draftId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -1658,7 +1663,7 @@ export async function pushDraftToKlaviyoTemplate(
   // Sin puerta del consultor: el cliente aprueba y envia por su cuenta. La revision del consultor es opinion
   // (apuntes), no veto (decision de Rafa, 2026-10-16; sustituye la parada de ADR-0025 en este punto).
 
-  const html = sanitizeGeneratedEmailHtml(
+  const html = sanitizeMarketingEmailHtml(
     typeof draft.html === "string" ? draft.html : "",
   );
   if (!html) {
@@ -1690,11 +1695,62 @@ export async function pushDraftToKlaviyoTemplate(
   }
 
   const request = (draft.request ?? {}) as Record<string, unknown>;
+  const requestedStoreConnectionId = typeof request.store_id === "string" ? request.store_id : null;
+  const { data: storeRows, error: storesError } = await supabase.from("shopify_stores").select("id, connection_id").eq("organization_id", organizationId).limit(100);
+  if (storesError) return { ok: false, statusCode: 503, error: "marketing_store_scope_unavailable" };
+  const selectedStore = requestedStoreConnectionId ? storeRows?.find((store) => store.connection_id === requestedStoreConnectionId) : null;
+  if (requestedStoreConnectionId && !selectedStore) return { ok: false, statusCode: 409, error: "marketing_draft_store_invalid", message: "La tienda de esta pieza ya no está disponible." };
+  if (!requestedStoreConnectionId && (storeRows?.length ?? 0) > 1) return { ok: false, statusCode: 409, error: "marketing_draft_store_required", message: "Selecciona en el estudio la tienda de esta pieza antes de exportarla." };
+  const brandStoreId = selectedStore?.id ?? null;
+  const brandQueryBase = supabase.from("marketing_brand_profiles").select("required_texts").eq("organization_id", organizationId);
+  const brandQuery = brandStoreId ? await brandQueryBase.eq("store_id", brandStoreId).maybeSingle() : await brandQueryBase.is("store_id", null).maybeSingle();
+  if (brandQuery.error) return { ok: false, statusCode: 503, error: "marketing_brand_quality_unavailable" };
+  const requiredTexts = Array.isArray(brandQuery.data?.required_texts) ? brandQuery.data.required_texts.filter((value): value is string => typeof value === "string") : [];
+  const quality = reviewMarketingEmailHtml({ html, subject: draft.subject, fromName: draft.from_name, replyTo: draft.reply_to, requiredTexts });
+  const blocking = quality.filter((check) => check.blocking);
+  if (blocking.length) return { ok: false, statusCode: 422, error: "marketing_email_quality_failed", message: blocking.map((check) => check.message).join(" ") };
+  const { data: accountRows, error: accountsError } = await supabase.from("klaviyo_accounts").select("external_account_id").eq("organization_id", organizationId).eq("connection_id", connectionId).limit(1);
+  if (accountsError) return { ok: false, statusCode: 503, error: "klaviyo_account_scope_unavailable" };
+  const accountId = accountRows?.[0]?.external_account_id;
+  if (typeof accountId === "string") {
+    try {
+      const link = await resolveKlaviyoStoreLink(supabase, { organizationId, connectionId, externalAccountId: accountId });
+      if (selectedStore && (!link.storeScopeAvailable || link.storeId !== selectedStore.id)) return { ok: false, statusCode: 409, error: "klaviyo_store_scope_mismatch", message: "La cuenta Klaviyo conectada no corresponde a la tienda de este email." };
+      if (!selectedStore && (storeRows?.length ?? 0) === 1 && link.storeScopeAvailable && link.storeId && link.storeId !== storeRows?.[0]?.id) return { ok: false, statusCode: 409, error: "klaviyo_store_scope_mismatch" };
+    } catch {
+      return { ok: false, statusCode: 503, error: "klaviyo_store_scope_unavailable" };
+    }
+  } else if (selectedStore) {
+    return { ok: false, statusCode: 409, error: "klaviyo_store_scope_unverified", message: "No puedo verificar que la cuenta Klaviyo pertenezca a la tienda seleccionada." };
+  }
+
+  const htmlHash = crypto.createHash("sha256").update(html).digest("hex");
+  const { data: operation, error: operationError } = await supabase.from("marketing_draft_export_operations").insert({
+    organization_id: organizationId, draft_id: draftId, draft_version: Number(draft.version ?? 1), connection_id: connectionId,
+    html_sha256: htmlHash, status: "running", created_by: context.user.id,
+  }).select("id, status, klaviyo_template_id").single();
+  let exportOperationId = operation?.id as string | undefined;
+  let previousTemplateId = operation?.klaviyo_template_id as string | null | undefined;
+  if (operationError?.code === "23505") {
+    const { data: previous, error: previousError } = await supabase.from("marketing_draft_export_operations").select("id, status, klaviyo_template_id, html_sha256, updated_at").eq("organization_id", organizationId).eq("draft_id", draftId).eq("draft_version", Number(draft.version ?? 1)).eq("connection_id", connectionId).maybeSingle();
+    if (previousError || !previous) return { ok: false, statusCode: 503, error: "klaviyo_export_receipt_unavailable" };
+    if (previous.html_sha256 !== htmlHash) return { ok: false, statusCode: 409, error: "klaviyo_export_version_hash_mismatch" };
+    if (previous.status === "completed" && previous.klaviyo_template_id) return { ok: true, data: { klaviyo_template_id: previous.klaviyo_template_id, created: false } };
+    if (previous.status === "running" && Date.now() - new Date(previous.updated_at).getTime() < 15 * 60_000) return { ok: false, statusCode: 409, error: "klaviyo_export_in_progress", message: "La exportación de esta versión ya está en curso." };
+    exportOperationId = previous.id;
+    previousTemplateId = previous.klaviyo_template_id;
+    const { error: retryError } = await supabase.from("marketing_draft_export_operations").update({ status: "running", error_code: null, updated_at: new Date().toISOString() }).eq("id", previous.id).eq("status", previous.status);
+    if (retryError) return { ok: false, statusCode: 503, error: "klaviyo_export_retry_reservation_failed" };
+  } else if (operationError || !operation) return { ok: false, statusCode: 503, error: "klaviyo_export_reservation_failed", detail: operationError?.message };
+  const finishExport = async (status: "completed" | "failed", templateId?: string, errorCode?: string) => {
+    if (!exportOperationId) return;
+    await supabase.from("marketing_draft_export_operations").update({ status, ...(templateId ? { klaviyo_template_id: templateId } : {}), error_code: errorCode ?? null, updated_at: new Date().toISOString() }).eq("id", exportOperationId).eq("status", "running");
+  };
   const existingId =
     typeof request.klaviyo_template_id === "string" &&
     request.klaviyo_template_id.trim()
       ? request.klaviyo_template_id
-      : null;
+      : previousTemplateId ?? null;
   // `editor_type: CODE` es lo unico que acepta HTML propio; con el editor
   // visual Klaviyo ignora el cuerpo y guarda una plantilla vacia.
   const attributes: KlaviyoTemplateAttributes = {
@@ -1741,6 +1797,7 @@ export async function pushDraftToKlaviyoTemplate(
       created = true;
     }
   } catch (error) {
+    await finishExport("failed", undefined, "klaviyo_write_failed");
     const message = error instanceof Error ? error.message : "unknown_error";
     // 403 aqui es casi siempre el scope: la conexion se autorizo solo de
     // lectura y hay que reconectar con `templates:write`.
@@ -1767,10 +1824,13 @@ export async function pushDraftToKlaviyoTemplate(
 
   const { error: persistError } = await supabase
     .from("marketing_content_drafts")
-    .update({ request: { ...request, klaviyo_template_id: templateId } })
+    .update({ request: { ...request, klaviyo_template_id: templateId, klaviyo_export_version: draft.version, klaviyo_export_hash: crypto.createHash("sha256").update(html).digest("hex"), klaviyo_exported_at: new Date().toISOString(), klaviyo_export_connection_id: connectionId } })
     .eq("id", draftId)
-    .eq("organization_id", organizationId);
+    .eq("organization_id", organizationId)
+    .eq("version", Number(draft.version ?? 1))
+    .eq("status", "approved");
   if (persistError) {
+    await finishExport("failed", templateId, "draft_receipt_update_failed");
     return {
       ok: false,
       statusCode: 500,
@@ -1778,6 +1838,8 @@ export async function pushDraftToKlaviyoTemplate(
       detail: persistError.message,
     };
   }
+
+  await finishExport("completed", templateId);
 
   await recordAuditLog(supabase, {
     organizationId,

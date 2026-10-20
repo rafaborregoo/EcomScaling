@@ -23,6 +23,7 @@ import { MarketingModule } from "./marketing";
 import { MensajesModule, WriteToClient } from "./mensajes";
 import { METRICAS_SECTIONS, MetricasModule, type MetricasSection } from "./metricas";
 import { ContextBar, type ClientRef } from "./selector-contexto";
+import { NavPill } from "./nav-pill";
 import { SettingsModal } from "./settings";
 import { SubNav } from "./ui";
 import type { Org } from "./views";
@@ -278,27 +279,17 @@ export function ConsultantShell({ boot, onSignOut }: { boot: Bootstrap; onSignOu
       </WriteToClient.Provider>
 
       {!keyboard && (
-        <View style={{ flexDirection: "row", paddingTop: 8, paddingBottom: insets.bottom + 6, borderTopWidth: 1, borderTopColor: c.edge, backgroundColor: c.bg }}>
-          {MODULES.map((m) => {
-            const { key } = m;
+        <NavPill
+          active={module === "copiloto" ? "mensajes" : module}
+          onPress={(k) => goTo(k as ModuleKey)}
+          items={MODULES.map((m) => ({
+            key: m.key,
             // Con un cliente abierto, «Clientes» es su ficha de métricas: la pestaña lo dice.
-            const { label, Icon } = key === "clientes" && org ? { label: "Métricas", Icon: ChartColumn } : m;
-            const on = key === module || (key === "mensajes" && module === "copiloto");
-            return (
-              <Pressable key={key} onPress={() => goTo(key)} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: on }} style={{ flex: 1, alignItems: "center", gap: 3 }}>
-                <View>
-                  <Icon size={22} color={on ? c.accent : c.muted} strokeWidth={on ? 2.4 : 1.9} />
-                  {!!badges[key] && (
-                    <View style={{ position: "absolute", top: -5, left: 14, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: "center", justifyContent: "center", backgroundColor: key === "hoy" ? c.danger : c.accent, borderWidth: 2, borderColor: c.bg }}>
-                      <Text style={{ fontSize: 10, fontFamily: font.semibold, color: "#fff" }}>{badges[key]! > 99 ? "99+" : badges[key]}</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={{ fontSize: 11, fontFamily: on ? font.semibold : font.regular, color: on ? c.accent : c.muted }}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+            ...(m.key === "clientes" && org ? { label: "Métricas", Icon: ChartColumn } : { label: m.label, Icon: m.Icon }),
+            badge: badges[m.key],
+            danger: m.key === "hoy",
+          }))}
+        />
       )}
 
       <SettingsModal visible={settings} onClose={() => setSettings(false)} boot={boot} org={org} isConsultant onSignOut={onSignOut} onStore={(id) => org && pick(client, id)} />

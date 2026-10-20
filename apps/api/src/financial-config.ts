@@ -20,7 +20,7 @@ type ApiEnv = {
  * Los costes entran en las métricas de Shopify, en los LTV y en la rentabilidad de la cartera, y esas respuestas se
  * guardan 60 s en Redis. Sin esto, tras cambiar un coste las cifras seguían viejas hasta un minuto.
  */
-async function refreshCostDependentCaches(env: ApiEnv, organizationId: string) {
+export async function refreshCostDependentCaches(env: ApiEnv, organizationId: string) {
   await deleteCachedByPattern(env.REDIS_URL, [
     `shopify:metrics:v4:${organizationId}:*`,
     `shopify:insights:${organizationId}:*`,
@@ -123,10 +123,16 @@ export async function getFinancialConfig(
         .eq("is_active", true)
         .order("created_at", { ascending: true })
         .limit(200),
+      // Solo lectura: los objetivos se fijan en Mi Camino. Aqui los vigentes de
+      // la organizacion, sin los de hito (son metas de un hito, no del negocio).
       supabase
         .from("organization_metric_targets")
         .select("id, metric_key, target_value, period, valid_from, valid_until")
         .eq("organization_id", organizationId)
+        .is("store_id", null)
+        .is("milestone_id", null)
+        .lte("valid_from", new Date().toISOString().slice(0, 10))
+        .or(`valid_until.is.null,valid_until.gte.${new Date().toISOString().slice(0, 10)}`)
         .order("valid_from", { ascending: false })
         .limit(200),
     ]);
@@ -557,191 +563,6 @@ export async function deactivateShippingRule(
     actorUserId: context.user.id,
     action: "financial_config.deactivate_shipping_rule",
     entityType: "shipping_cost_rule",
-    entityId: data.id,
-  });
-
-  await refreshCostDependentCaches(env, organizationId);
-  return { ok: true as const, data: { id: data.id } };
-}
-
-// ---------------------------------------------------------------------------
-// Objetivos por metrica (F3b del panel del manager)
-// ---------------------------------------------------------------------------
-// `organization_metric_targets` existia desde DB-03 y nunca tuvo escritura: se
-// cargaba en la pantalla y no se pintaba. Sin objetivo, una cifra no dice si va
-// bien o mal, que es la mitad de su utilidad -- el panel de referencia enseña
-// "recurrencia 22% (objetivo 30%)", no "recurrencia 22%".
-
-// Las claves las fija el producto, no el usuario: el panel busca el objetivo
-// por esta clave exacta para pintarlo junto a su cifra. Un campo de texto libre
-// dejaria escribir "recurrencia " o "Recurrencia" y el objetivo no aparecería
-// en ningun sitio, sin error que lo delate.
-export const METRIC_TARGET_KEYS = [
-  "net_revenue_ex_tax",
-  "net_profit",
-  "net_margin_pct",
-  "aov_ex_tax",
-  "orders_count",
-  "conversion_rate",
-  "recurrence_pct",
-  "cac_blended",
-  "roas",
-  "email_attributed_pct",
-] as const;
-
-export type MetricTargetKey = (typeof METRIC_TARGET_KEYS)[number];
-
-const METRIC_TARGET_PERIODS = ["monthly", "quarterly", "yearly"] as const;
-
-type MetricTargetInput = {
-  metricKey?: string;
-  targetValue?: number;
-  period?: string;
-  storeId?: string | null;
-};
-
-export async function upsertMetricTarget(
-  env: ApiEnv,
-  context: AuthContext,
-  organizationId: string,
-  input: MetricTargetInput,
-) {
-  const authz = assertCanManage(context, organizationId);
-  if (authz.ok === false) {
-    return authz;
-  }
-
-  if (
-    !input.metricKey ||
-    !(METRIC_TARGET_KEYS as readonly string[]).includes(input.metricKey)
-  ) {
-    return { ok: false as const, statusCode: 400, error: "invalid_metric_key" };
-  }
-
-  if (!isValidAmount(input.targetValue)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_target_value" };
-  }
-
-  const period = input.period ?? "monthly";
-
-  if (!(METRIC_TARGET_PERIODS as readonly string[]).includes(period)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_period" };
-  }
-
-  const supabase = createServiceClient(env);
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Insertar y, si choca, actualizar. NO se usa `upsert`/`onConflict`: la
-  // unicidad de esta tabla la da un indice sobre una EXPRESION
-  // -- organization_metric_targets_unique_scope, sobre
-  // coalesce(store_id, '000...'::uuid) -- y Postgres no puede inferir ese
-  // indice desde una lista de columnas. Comprobado contra la base: el
-  // `on conflict (organization_id, metric_key, period, valid_from)` devuelve
-  // 42P10 "no unique or exclusion constraint matching", o sea un 500 en cada
-  // guardado. El duplicado real llega como 23505 y es el que se captura aqui.
-  //
-  // Solo choca al fijar dos veces el mismo objetivo EL MISMO DIA (te
-  // equivocas y lo corriges). Otro dia crea fila nueva y el historico entero.
-  const row = {
-    organization_id: organizationId,
-    store_id: input.storeId ?? null,
-    metric_key: input.metricKey,
-    target_value: input.targetValue,
-    period,
-    valid_from: today,
-    valid_until: null,
-    created_by: context.user.id,
-  };
-
-  let { data, error } = await supabase
-    .from("organization_metric_targets")
-    .insert(row)
-    .select("id")
-    .single();
-
-  if (error?.code === "23505") {
-    const update = supabase
-      .from("organization_metric_targets")
-      .update({ target_value: input.targetValue, valid_until: null })
-      .eq("organization_id", organizationId)
-      .eq("metric_key", input.metricKey)
-      .eq("period", period)
-      .eq("valid_from", today);
-
-    ({ data, error } = await (input.storeId
-      ? update.eq("store_id", input.storeId)
-      : update.is("store_id", null)
-    )
-      .select("id")
-      .single());
-  }
-
-  if (error || !data) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "metric_target_upsert_failed",
-      detail: error?.message,
-    };
-  }
-
-  await recordAuditLog(supabase, {
-    organizationId,
-    actorUserId: context.user.id,
-    action: "financial_config.upsert_metric_target",
-    entityType: "organization_metric_target",
-    entityId: data.id,
-    newData: input,
-  });
-
-  await refreshCostDependentCaches(env, organizationId);
-  return { ok: true as const, data: { id: data.id } };
-}
-
-export async function retireMetricTarget(
-  env: ApiEnv,
-  context: AuthContext,
-  organizationId: string,
-  targetId: string,
-) {
-  const authz = assertCanManage(context, organizationId);
-  if (authz.ok === false) {
-    return authz;
-  }
-
-  const supabase = createServiceClient(env);
-
-  // Se borra, no se cierra con `valid_until`. Dos razones: el CHECK
-  // `valid_until > valid_from` hace imposible retirar un objetivo el mismo dia
-  // que se fijo (el caso mas frecuente: te equivocas y lo quitas), y el trigger
-  // `audit_organization_metric_targets` ya guarda el old_data completo en
-  // audit_logs, asi que el historico no se pierde por borrar la fila.
-  const { data, error } = await supabase
-    .from("organization_metric_targets")
-    .delete()
-    .eq("id", targetId)
-    .eq("organization_id", organizationId)
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "metric_target_retire_failed",
-      detail: error.message,
-    };
-  }
-
-  if (!data) {
-    return { ok: false as const, statusCode: 404, error: "metric_target_not_found" };
-  }
-
-  await recordAuditLog(supabase, {
-    organizationId,
-    actorUserId: context.user.id,
-    action: "financial_config.retire_metric_target",
-    entityType: "organization_metric_target",
     entityId: data.id,
   });
 

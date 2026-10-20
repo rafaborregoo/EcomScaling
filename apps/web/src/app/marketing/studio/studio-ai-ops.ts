@@ -26,7 +26,20 @@ function cleanProps(type: BlockType, props: Record<string, unknown>): Record<str
     if (!(key in base)) continue;
     const want = base[key];
     if (Array.isArray(want)) {
-      if (Array.isArray(value)) clean[key] = value;
+      if (!Array.isArray(value) || value.length > 6) continue;
+      if (type === "products" && key === "items") {
+        const items = value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) as Array<Record<string, unknown>>;
+        if (items.length !== value.length || items.some((item) => typeof item.id !== "string" || typeof item.title !== "string" || typeof item.price !== "string" || typeof item.image !== "string" || typeof item.url !== "string" || (item.url && !/^https?:\/\//i.test(item.url)) || (item.image && !/^https?:\/\//i.test(item.image)))) continue;
+        clean[key] = items;
+      } else if (type === "columns" && key === "items") {
+        const items = value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) as Array<Record<string, unknown>>;
+        if (items.length !== value.length || items.some((item) => Object.keys(item).some((field) => !["t", "d"].includes(field)) || Object.values(item).some((part) => typeof part !== "string" || part.length > 1000))) continue;
+        clean[key] = items;
+      } else if (type === "social" && key === "links") {
+        const links = value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) as Array<Record<string, unknown>>;
+        if (links.length !== value.length || links.some((item) => Object.keys(item).some((field) => !["name", "url"].includes(field)) || typeof item.name !== "string" || typeof item.url !== "string" || !/^https?:\/\//i.test(String(item.url)))) continue;
+        clean[key] = links;
+      }
     } else if (typeof want === "number" && typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
       clean[key] = Number(value);
     } else if (typeof value === typeof want) {
@@ -40,7 +53,9 @@ const isType = (type: string): type is BlockType => type in BLOCK_LABEL;
 
 function place(blocks: StudioBlock[], block: StudioBlock, afterId: string | null): StudioBlock[] {
   const rest = blocks.filter((item) => item.id !== block.id);
-  const index = afterId === "inicio" ? 0 : afterId === null ? rest.length : rest.findIndex((item) => item.id === afterId) + 1;
+  const anchor = afterId === null || afterId === "inicio" ? -1 : rest.findIndex((item) => item.id === afterId);
+  if (afterId !== null && afterId !== "inicio" && anchor < 0) return blocks;
+  const index = afterId === "inicio" ? 0 : afterId === null ? rest.length : anchor + 1;
   return [...rest.slice(0, index), block, ...rest.slice(index)];
 }
 

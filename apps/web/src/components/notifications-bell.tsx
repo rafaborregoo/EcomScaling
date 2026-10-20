@@ -3,36 +3,69 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { notificationTypeInfo } from "@e-nora/contracts";
+import { useInsights } from "@/components/insights-context";
+import { totalInsightCount, type InsightSpot } from "@/lib/insights-registry";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import {
+  Accordion,
   ArchiveIcon,
   BellIcon,
   Button,
   CheckAllIcon,
   cn,
   ErrorBlock,
+  IconChevronRight,
+  insightBadgeCount,
   LoadingBlock,
   Link,
   List,
   Sheet,
   Popover,
   RetryIcon,
+  SparklesIcon,
   toast,
 } from "@/components/ui";
 
-type Notification = {
+export type Notification = {
   id: string;
   organization_id: string | null;
   type: string;
   title: string;
   message: string | null;
   action_url: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
   status: string;
   created_at: string;
 };
 
-function safeActionUrl(actionUrl: string | null): string {
+/** Enlace de la notificacion con su contexto: muchas filas guardan solo
+ * "/tareas", y el consultor aterrizaba en la lista de toda la cartera sin
+ * ver que habia pasado. Se le anade la tienda y, si la fila apunta a una
+ * tarea o alerta concreta, su id para que /tareas la abra directamente. */
+export function notificationHref(notification: Notification): string {
+  const actionUrl = notification.action_url;
   if (!actionUrl) return "#";
-  return /^(https?:|\/)/i.test(actionUrl) ? actionUrl : "#";
+  if (!actionUrl.startsWith("/")) {
+    return /^https?:/i.test(actionUrl) ? actionUrl : "#";
+  }
+  const url = new URL(actionUrl, "http://local");
+  if (url.pathname === "/tareas" && notification.entity_id) {
+    if (notification.entity_type === "task" && !url.searchParams.has("task")) {
+      url.searchParams.set("task", notification.entity_id);
+    } else if (notification.entity_type === "alert" && !url.searchParams.has("alert")) {
+      url.searchParams.set("alert", notification.entity_id);
+    }
+  }
+  // El destino resalta lo que ha cambiado (components/focus-target.tsx).
+  if (notification.entity_id && !url.searchParams.has("focus")) {
+    url.searchParams.set("focus", notification.entity_id);
+  }
+  const href = `${url.pathname}${url.search}${url.hash}`;
+  return notification.organization_id
+    ? withPortalRouteContext(href, notification.organization_id)
+    : href;
 }
 
 function formatRelativeTime(isoDate: string) {
@@ -46,6 +79,38 @@ function formatRelativeTime(isoDate: string) {
   return `hace ${diffDays} d`;
 }
 
+const COUNT_CHIP =
+  "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-semibold leading-5";
+
+/** Agrupa por tienda: primero las que tienen no leidas; dentro, el orden de
+ * la API (de la mas reciente a la mas antigua). */
+function groupByStore(
+  notifications: Notification[],
+  storeNames: Record<string, string>,
+) {
+  const groups = new Map<
+    string,
+    { id: string; name: string; items: Notification[]; unread: number }
+  >();
+  for (const notification of notifications) {
+    const id = notification.organization_id ?? "general";
+    const group = groups.get(id) ?? {
+      id,
+      name: notification.organization_id
+        ? (storeNames[notification.organization_id] ?? "Otra tienda")
+        : "General",
+      items: [],
+      unread: 0,
+    };
+    group.items.push(notification);
+    if (notification.status === "unread") group.unread += 1;
+    groups.set(id, group);
+  }
+  return [...groups.values()].sort(
+    (a, b) => Number(b.unread > 0) - Number(a.unread > 0),
+  );
+}
+
 // El panel de notificaciones se muestra como Popover anclado a la campana en
 // desktop y como hoja inferior en movil -- la misma lista, el contenedor
 // cambia con el ancho. Ambos son primitivos de HeroUI.
@@ -56,9 +121,19 @@ function formatRelativeTime(isoDate: string) {
  * `notification_status` nunca pasaba de `unread`. Cliente, consultor y admin
  * comparten este componente; solo cambia lo que cada uno recibe (RLS ya
  * filtra por `user_id`). */
-export function NotificationsBell({ token }: { token: string }) {
+export function NotificationsBell({
+  token,
+  storeNames,
+}: {
+  token: string;
+  /** Solo para el consultor: nombre por organization_id. Si llega, la lista
+   * se agrupa por tienda en desplegables. */
+  storeNames?: Record<string, string>;
+}) {
   const isDesktop = useIsDesktop();
+  const { spots } = useInsights();
   const [isOpen, setIsOpen] = useState(false);
+  const [filter, setFilter] = useState<"all" | "notifications" | "ai">("all");
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,6 +143,8 @@ export function NotificationsBell({ token }: { token: string }) {
   // sin mostrar el bloque "Cargando..." -- ese spinner solo aparece la primera
   // vez, nunca al abrir.
   const [hasLoaded, setHasLoaded] = useState(false);
+  const aiCount = totalInsightCount(spots);
+  const activityCount = unreadCount + aiCount;
 
   const load = useCallback(async () => {
     if (!hasLoaded) setIsLoading(true);
@@ -170,54 +247,92 @@ export function NotificationsBell({ token }: { token: string }) {
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Notificaciones${
-        unreadCount > 0 ? ` (${unreadCount} sin leer)` : ""
+      aria-label={`Centro de actividad${
+        activityCount > 0
+          ? ` (${activityCount} elementos)`
+          : ""
       }`}
       className={cn(
-        // La campana es un <button> propio, no el Button del catalogo: el
-        // minimo tactil hay que ponerlo aqui tambien.
-        "relative inline-flex size-9 items-center justify-center bg-transparent transition-colors pointer-coarse:size-11",
-        unreadCount > 0
-          ? "text-foreground"
+        "group relative inline-flex size-9 items-center justify-center rounded-full bg-transparent transition-colors hover:bg-[#f0efed] pointer-coarse:size-11",
+        unreadCount > 0 || spots.length > 0
+          ? "text-[#3d3b3a]"
           : "text-muted hover:text-foreground",
       )}
     >
-      <BellIcon aria-hidden="true" className="size-[1.2rem]" />
-      {unreadCount > 0 ? (
+      <BellIcon aria-hidden="true" className="size-[1.2rem] transition-transform group-hover:-rotate-6" />
+      {spots.length > 0 ? (
+        <span className="absolute bottom-1 right-1 grid size-3 place-items-center rounded-full bg-[#3d3b3a] text-white" aria-hidden="true">
+          <SparklesIcon className="size-2" />
+        </span>
+      ) : null}
+      {activityCount > 0 ? (
         <span
-          className="absolute -right-0.5 -top-0.5 flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[0.65rem] font-semibold leading-none text-white"
+          className="absolute -right-1 -top-1 flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-[#3d3b3a] px-1 text-[0.65rem] font-semibold leading-none text-white ring-2 ring-white"
           aria-hidden="true"
         >
-          {unreadCount > 99 ? "99+" : unreadCount}
+          {activityCount > 99
+            ? "99+"
+            : activityCount}
         </span>
       ) : null}
     </button>
   );
 
   const header = (
-    <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
-      <div className="flex items-center gap-2">
-        <p className="text-sm font-semibold tracking-[-0.01em]">
-          Notificaciones
-        </p>
-        {unreadCount > 0 ? (
-          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[0.7rem] font-semibold leading-5 text-white">
-            {unreadCount}
+    <div className="border-b border-separator bg-white px-5 py-5 text-foreground">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-[#3d3b3a] text-white">
+            <SparklesIcon aria-hidden="true" className="size-5" />
           </span>
+          <div>
+            <p className="text-base font-semibold tracking-[-0.02em]">Centro de actividad</p>
+            <p className="mt-1 text-xs text-muted">Avisos de tu cuenta y señales de IA</p>
+          </div>
+        </div>
+        {unreadCount > 0 ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            className="min-w-0 gap-1.5 px-2 text-xs text-muted hover:bg-[#f0efed] hover:text-foreground"
+            onClick={() => void markAllRead()}
+          >
+            <CheckAllIcon aria-hidden="true" className="size-3.5" />
+            Marcar leídas
+          </Button>
         ) : null}
       </div>
-      {unreadCount > 0 ? (
-        <Button
-          variant="ghost"
-          size="sm"
+      <div className="mt-4 flex gap-4 text-[0.7rem] font-medium text-muted">
+        <span>{unreadCount} {unreadCount === 1 ? "aviso sin leer" : "avisos sin leer"}</span>
+        <span className="size-1 self-center rounded-full bg-[#aaa6a2]" aria-hidden="true" />
+        <span>{aiCount} {aiCount === 1 ? "señal de IA" : "señales de IA"}</span>
+      </div>
+    </div>
+  );
+
+  const filterBar = (
+    <div className="flex gap-1 border-b border-separator bg-white px-4 py-2.5" role="group" aria-label="Filtrar actividad">
+      {([
+        ["all", "Todo", notifications.length + aiCount],
+        ["notifications", "Avisos", notifications.length],
+        ["ai", "IA", aiCount],
+      ] as const).map(([value, label, count]) => (
+        <button
+          key={value}
           type="button"
-          className="min-w-0 gap-1.5 px-2 text-xs text-muted hover:text-foreground"
-          onClick={() => void markAllRead()}
+          aria-pressed={filter === value}
+          onClick={() => setFilter(value)}
+          className={cn(
+            "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3d3b3a] focus-visible:ring-offset-2",
+            filter === value ? "bg-[#3d3b3a] text-white" : "text-muted hover:bg-[#f0efed] hover:text-foreground",
+          )}
         >
-          <CheckAllIcon aria-hidden="true" className="size-3.5" />
-          Marcar todas
-        </Button>
-      ) : null}
+          {value === "ai" ? <SparklesIcon aria-hidden="true" className="size-3.5" /> : null}
+          {label}
+          <span className={cn("tabular-nums", filter === value ? "text-white/70" : "text-muted")}>{count}</span>
+        </button>
+      ))}
     </div>
   );
 
@@ -225,7 +340,7 @@ export function NotificationsBell({ token }: { token: string }) {
     isLoading && notifications.length === 0 ? (
       <LoadingBlock label="Cargando notificaciones..." />
     ) : loadError ? (
-      <div className="p-3">
+      <div className="space-y-4 p-4">
         <ErrorBlock>{loadError}</ErrorBlock>
         <Button
           className="mt-3 gap-1.5"
@@ -236,31 +351,136 @@ export function NotificationsBell({ token }: { token: string }) {
           <RetryIcon aria-hidden="true" className="size-3.5" />
           Reintentar
         </Button>
+        {(filter === "all" || filter === "ai") && spots.length > 0 ? (
+          <section aria-labelledby="activity-ai-heading">
+            <h3 id="activity-ai-heading" className="mb-2 flex items-center gap-1.5 px-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#3d3b3a]">
+              <SparklesIcon aria-hidden="true" className="size-3.5" />
+              Lecturas de IA
+            </h3>
+            {renderInsights(spots)}
+          </section>
+        ) : null}
       </div>
-    ) : notifications.length === 0 ? (
+    ) : notifications.length === 0 && spots.length === 0 ? (
       <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
         <BellIcon aria-hidden="true" className="size-5 text-muted" />
-        <p className="text-sm text-muted">Sin notificaciones.</p>
+        <p className="text-sm text-muted">Sin actividad por ahora.</p>
       </div>
     ) : (
-      <List as="ul">
-        {notifications.map((notification) => {
+      <div className="space-y-5 p-4">
+        {(filter === "all" || filter === "notifications") && notifications.length > 0 ? (
+          <section aria-labelledby="activity-notifications-heading">
+            {filter === "all" ? <h3 id="activity-notifications-heading" className="mb-2 px-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-muted">Avisos recientes</h3> : null}
+            {storeNames ? (
+      <Accordion
+        className="-mx-1"
+        items={groupByStore(notifications, storeNames).map((group) => ({
+          id: group.id,
+          title: (
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="truncate text-sm font-semibold">
+                {group.name}
+              </span>
+              <span
+                className={cn(
+                  COUNT_CHIP,
+                  group.unread > 0
+                    ? "bg-foreground text-white"
+                    : "bg-black/[0.06] text-muted",
+                )}
+              >
+                {group.unread > 0 ? group.unread : group.items.length}
+              </span>
+            </span>
+          ),
+          content: renderList(group.items),
+        }))}
+      />
+            ) : renderList(notifications)}
+          </section>
+        ) : null}
+        {(filter === "all" || filter === "ai") && spots.length > 0 ? (
+          <section aria-labelledby="activity-ai-heading">
+            {filter === "all" ? <h3 id="activity-ai-heading" className="mb-2 flex items-center gap-1.5 px-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#3d3b3a]"><SparklesIcon aria-hidden="true" className="size-3.5" />Lecturas de IA</h3> : null}
+            {renderInsights(spots)}
+          </section>
+        ) : null}
+        {filter === "notifications" && notifications.length === 0 ? <EmptyActivity label="No hay avisos" /> : null}
+        {filter === "ai" && spots.length === 0 ? <EmptyActivity label="No hay señales de IA ahora mismo" /> : null}
+      </div>
+    );
+
+  function EmptyActivity({ label }: { label: string }) {
+    return (
+      <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
+        <SparklesIcon aria-hidden="true" className="size-5 text-muted" />
+        <p className="text-sm text-muted">{label}</p>
+      </div>
+    );
+  }
+
+  function renderInsights(items: InsightSpot[]) {
+    return (
+      <List as="ul" className="w-full overflow-hidden rounded-xl border border-separator bg-white">
+        {items.map((spot) => {
+          const spotCount = insightBadgeCount(spot.insights);
+          return (
+            <List.Item as="li" key={spot.id} className="w-full border-b border-separator last:border-b-0">
+              <Link href={spot.href} className="group hover-sweep flex min-h-16 w-full items-center gap-3 rounded-lg px-3.5 py-3 text-foreground no-underline [--hover-sweep-color:#f0efed]" onClick={() => setIsOpen(false)}>
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#f0efed] text-[#3d3b3a]"><SparklesIcon aria-hidden="true" className="size-4" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{spot.label}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted">{spot.location}</span>
+                </span>
+                {spotCount > 0 ? <span className="shrink-0 rounded-full bg-[#f0efed] px-2 py-0.5 text-[0.7rem] font-semibold tabular-nums text-[#3d3b3a]">{spotCount}</span> : null}
+                <IconChevronRight aria-hidden="true" className="size-3.5 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </Link>
+            </List.Item>
+          );
+        })}
+      </List>
+    );
+  }
+
+  // Tarjetas blancas con borde fino y esquinas redondeadas; la no leida se
+  // marca con el punto y el titulo en negrita, sin fondo de color.
+  function renderList(items: Notification[]) {
+    return (
+      <List as="ul" className="flex w-full flex-col gap-2">
+        {items.map((notification) => {
           const isUnread = notification.status === "unread";
           return (
             <List.Item
               as="li"
               key={notification.id}
               className={cn(
-                "group flex gap-3 px-4 py-3 transition-colors",
-                isUnread
-                  ? "border border-accent/30 bg-accent-soft/30"
-                  : "border border-transparent hover:bg-black/[0.02]",
+                "group hover-sweep flex w-full gap-3 rounded-xl border px-3.5 py-3 transition-colors [--hover-sweep-color:#f0efed] hover:border-[#aaa6a2]",
+                isUnread ? "border-[#c9c6c3] bg-[#f0efed]" : "border-separator bg-white",
               )}
             >
+              {isUnread ? (
+                <span
+                  className="mt-[0.45rem] size-2 shrink-0 rounded-full bg-foreground"
+                  aria-label="Sin leer"
+                />
+              ) : (
+                <span className="size-2 shrink-0" aria-hidden="true" />
+              )}
               <div className="min-w-0 flex-1">
+                {/* Qué clase de aviso es, con su explicación al pasar el ratón
+                  (catálogo en packages/contracts/notification-catalog.ts). */}
+                <p
+                  className="mb-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted"
+                  title={notificationTypeInfo(notification.type).explanation}
+                >
+                  {notificationTypeInfo(notification.type).label}
+                </p>
                 <Link
-                  href={safeActionUrl(notification.action_url)}
-                  className="block max-w-full text-sm font-medium text-foreground no-underline hover:underline"
+                  href={notificationHref(notification)}
+                  className={cn(
+                    "block max-w-full text-sm text-foreground no-underline hover:underline",
+                    isUnread ? "font-semibold" : "font-normal",
+                  )}
                   onClick={() => {
                     if (isUnread) void markStatus(notification.id, "read");
                     setIsOpen(false);
@@ -275,15 +495,9 @@ export function NotificationsBell({ token }: { token: string }) {
                     {notification.message}
                   </p>
                 ) : null}
-                <div className="mt-1.5 flex items-center gap-2 text-[0.7rem] text-muted">
-                  {isUnread ? (
-                    <span
-                      className="size-1.5 shrink-0 rounded-full bg-accent"
-                      aria-hidden="true"
-                    />
-                  ) : null}
-                  <span>{formatRelativeTime(notification.created_at)}</span>
-                </div>
+                <p className="mt-1.5 text-[0.7rem] text-muted">
+                  {formatRelativeTime(notification.created_at)}
+                </p>
               </div>
               <Button
                 variant="ghost"
@@ -301,6 +515,20 @@ export function NotificationsBell({ token }: { token: string }) {
         })}
       </List>
     );
+  }
+
+  // La campana enseña lo último; el historial completo, con filtros, en su página.
+  const historyLink = (
+    <div className="border-t border-separator bg-white px-4 py-2.5 text-center">
+      <Link
+        href="/notificaciones"
+        className="text-xs font-semibold text-foreground no-underline hover:underline"
+        onClick={() => setIsOpen(false)}
+      >
+        Ver todo el historial
+      </Link>
+    </div>
+  );
 
   if (isDesktop) {
     return (
@@ -308,16 +536,20 @@ export function NotificationsBell({ token }: { token: string }) {
         <Popover.Trigger>{renderBell()}</Popover.Trigger>
         <Popover.Content
           placement="bottom end"
-          className="w-[24rem] overflow-hidden rounded-xl p-0 shadow-lg"
+          // Borde + sombra marcada: sobre el fondo blanco del shell el panel
+          // no se distinguia de la pagina.
+          className="w-[26rem] overflow-hidden rounded-2xl border border-black/10 bg-white p-0 shadow-[0_20px_56px_-16px_rgba(10,45,44,0.42),0_6px_16px_-8px_rgba(0,0,0,0.16)]"
         >
           <Popover.Dialog
-            aria-label="Notificaciones"
+            aria-label="Centro de actividad"
             className="flex max-h-[min(34rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col p-0"
           >
             {header}
+            {filterBar}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {body}
             </div>
+            {historyLink}
           </Popover.Dialog>
         </Popover.Content>
       </Popover>
@@ -335,8 +567,8 @@ export function NotificationsBell({ token }: { token: string }) {
         onOpenChange={handleOpenChange}
         placement="bottom"
         flush
-        title="Notificaciones"
-        meta={unreadCount > 0 ? <span>{unreadCount} sin leer</span> : undefined}
+        title="Centro de actividad"
+        meta={<span>{unreadCount} avisos · {aiCount} de IA</span>}
         headerActions={
           unreadCount > 0 ? (
             <Button
@@ -352,7 +584,9 @@ export function NotificationsBell({ token }: { token: string }) {
           ) : undefined
         }
       >
+        {filterBar}
         {body}
+        {historyLink}
       </Sheet>
     </>
   );

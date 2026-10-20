@@ -37,6 +37,13 @@ function stripeObjectId(value: unknown): string | null {
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
+type StripeWebhookDependencies = {
+  createServiceClient?: (env: LoadedApiEnv) => ServiceClient;
+  createInvoiceForStripePayment?: typeof createInvoiceForStripePayment;
+  retryInvoiceEmailForStripePayment?: typeof retryInvoiceEmailForStripePayment;
+  createRectifyingInvoiceForStripeRefund?: typeof createRectifyingInvoiceForStripeRefund;
+};
+
 type Subject =
   | { user_id: string; organization_id?: undefined }
   | { organization_id: string; user_id?: undefined };
@@ -185,6 +192,7 @@ export async function handleStripeWebhookRequest(
   env: LoadedApiEnv,
   headers: StripeWebhookHeaders,
   rawBody: Buffer,
+  dependencies: StripeWebhookDependencies = {},
 ) {
   if (!env.STRIPE_WEBHOOK_SECRET) {
     return {
@@ -227,7 +235,7 @@ export async function handleStripeWebhookRequest(
     };
   }
 
-  const supabase = createServiceClient(env);
+  const supabase = (dependencies.createServiceClient ?? createServiceClient)(env);
   const { data: event, error: insertError } = await supabase
     .schema("private")
     .from("webhook_events")
@@ -243,35 +251,76 @@ export async function handleStripeWebhookRequest(
     })
     .select("id")
     .maybeSingle();
+  let eventId = event?.id ?? "";
 
   if (insertError) {
-    const { data: duplicate } = await supabase
+    const { data: duplicate, error: duplicateError } = await supabase
       .schema("private")
       .from("webhook_events")
-      .select("id")
+      .select("id, status")
       .eq("provider", "stripe")
       .eq("external_event_id", envelope.id)
       .maybeSingle();
-    if (duplicate) {
-      if (envelope.type === "invoice.paid") {
-        const email = await retryInvoiceEmailForStripePayment(
-          env,
-          typeof envelope.object.id === "string" ? envelope.object.id : "",
-        );
-        return {
-          statusCode: 200,
-          body: { status: "duplicate", event_id: duplicate.id, email },
-        };
-      }
+    if (duplicateError) {
       return {
-        statusCode: 200,
-        body: { status: "duplicate", event_id: duplicate.id },
+        statusCode: 503,
+        body: { error: "stripe_webhook_persist_failed" },
       };
     }
-    return {
-      statusCode: 503,
-      body: { error: "stripe_webhook_persist_failed" },
-    };
+    if (duplicate) {
+      if (duplicate.status === "failed") {
+        // Stripe conserva el mismo event ID cuando reintenta. Reclamar el
+        // registro fallido de forma condicional permite reejecutar los casos
+        // transitorios sin duplicar el trabajo si llegan dos reintentos juntos.
+        const { data: claimed, error: claimError } = await supabase
+          .schema("private")
+          .from("webhook_events")
+          .update({ status: "received", processed_at: null, error_message: null })
+          .eq("id", duplicate.id)
+          .eq("status", "failed")
+          .select("id")
+          .maybeSingle();
+        if (claimError) {
+          return {
+            statusCode: 503,
+            body: { error: "stripe_webhook_retry_claim_failed" },
+          };
+        }
+        if (claimed) eventId = claimed.id;
+        else {
+          return {
+            statusCode: 200,
+            body: { status: "duplicate", event_id: duplicate.id },
+          };
+        }
+      } else {
+        if (envelope.type === "invoice.paid" && duplicate.status === "processed") {
+          const email = await (dependencies.retryInvoiceEmailForStripePayment ?? retryInvoiceEmailForStripePayment)(
+            env,
+            typeof envelope.object.id === "string" ? envelope.object.id : "",
+          );
+          return {
+            statusCode: 200,
+            body: { status: "duplicate", event_id: duplicate.id, email },
+          };
+        }
+        if (duplicate.status === "received" || duplicate.status === "processing") {
+          return {
+            statusCode: 503,
+            body: { error: "stripe_webhook_event_in_progress" },
+          };
+        }
+        return {
+          statusCode: 200,
+          body: { status: "duplicate", event_id: duplicate.id },
+        };
+      }
+    } else {
+      return {
+        statusCode: 503,
+        body: { error: "stripe_webhook_persist_failed" },
+      };
+    }
   }
 
   let applied:
@@ -297,7 +346,7 @@ export async function handleStripeWebhookRequest(
           processed_at: new Date().toISOString(),
           error_message: detail,
         })
-        .eq("id", event?.id ?? "");
+        .eq("id", eventId);
       return { statusCode: 400, body: { error: detail } };
     }
 
@@ -326,7 +375,7 @@ export async function handleStripeWebhookRequest(
         },
       };
     } else {
-      const invoiceResult = await createInvoiceForStripePayment(
+      const invoiceResult = await (dependencies.createInvoiceForStripePayment ?? createInvoiceForStripePayment)(
         env,
         envelope.object,
         envelope.id,
@@ -411,7 +460,7 @@ export async function handleStripeWebhookRequest(
         },
       };
     } else {
-      const refundResult = await createRectifyingInvoiceForStripeRefund(
+      const refundResult = await (dependencies.createRectifyingInvoiceForStripeRefund ?? createRectifyingInvoiceForStripeRefund)(
         env,
         envelope.object,
         envelope.id,
@@ -433,7 +482,7 @@ export async function handleStripeWebhookRequest(
       processed_at: new Date().toISOString(),
       error_message: applied.ok ? null : applied.error.slice(0, 500),
     })
-    .eq("id", event?.id ?? "");
+    .eq("id", eventId);
 
   if (!applied.ok) {
     // 200 cuando el fallo es de datos (una metadata que apunta a una

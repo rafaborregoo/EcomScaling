@@ -992,7 +992,7 @@ async function syncAdAccountStructure(
     accessToken,
     {
       fields:
-        "id,name,object_type,object_story_id,effective_object_story_id,call_to_action_type,body,title,link_url,thumbnail_url,image_hash,video_id,url_tags,object_story_spec,asset_feed_spec,degrees_of_freedom_spec",
+        "id,name,object_type,object_story_id,effective_object_story_id,call_to_action_type,body,title,link_url,image_url,thumbnail_url,image_hash,video_id,url_tags,object_story_spec,asset_feed_spec,degrees_of_freedom_spec",
     },
     env.META_APP_SECRET,
   );
@@ -1043,16 +1043,16 @@ async function syncAdAccountStructure(
     written += 1;
     creativeIdMap.set(creative.id, data.id);
 
-    // Derivado puro de la creatividad que acaba de llegar: no cuesta una
-    // peticion mas. La tabla no tiene clave natural (una creatividad puede
-    // repetir el mismo texto en dos posiciones), asi que se reescribe
-    // entera: es un retrato, no un historico.
+    // Conservar los IDs estables evita romper las procedencias A15 al
+    // resincronizar. Los activos retirados quedan como historial y dejan de
+    // aparecer en el importador.
     const assetRows = buildMetaCreativeAssetRows(creative);
 
     const { error: assetDeleteError } = await supabase
       .from("meta_creative_assets")
-      .delete()
-      .eq("creative_id", data.id);
+      .update({ is_current: false })
+      .eq("creative_id", data.id)
+      .eq("organization_id", organizationId);
 
     if (assetDeleteError) {
       throw new Error(
@@ -1063,12 +1063,15 @@ async function syncAdAccountStructure(
     if (assetRows.length > 0) {
       const { error: assetError } = await supabase
         .from("meta_creative_assets")
-        .insert(
+        .upsert(
           assetRows.map((row) => ({
             ...row,
             organization_id: organizationId,
             creative_id: data.id,
+            is_current: true,
+            last_seen_at: now,
           })),
+          { onConflict: "creative_id,identity_key" },
         );
 
       if (assetError) {
@@ -1361,6 +1364,7 @@ function asBool(value: unknown): boolean | null {
 const META_LEARNING_PHASE_CONVERSIONS = 50;
 
 type MetaCreativeAssetRow = {
+  identity_key: string;
   asset_type:
     | "image"
     | "video"
@@ -1418,7 +1422,7 @@ export function buildMetaCreativeAssetRows(
     isPrimary: boolean,
     fields: Partial<MetaCreativeAssetRow>,
   ) => {
-    rows.push({
+    const normalized = {
       asset_type: type,
       position,
       external_asset_id: null,
@@ -1431,15 +1435,31 @@ export function buildMetaCreativeAssetRows(
       is_primary: isPrimary,
       metadata: null,
       ...fields,
+    };
+    const identity = normalized.external_asset_id ?? normalized.asset_hash ?? normalized.media_url ?? normalized.thumbnail_url ?? normalized.text_value ?? normalized.link_url ?? `position-${position}`;
+    const metadata = normalized.metadata && typeof normalized.metadata === "object"
+      ? normalized.metadata as Record<string, unknown>
+      : null;
+    const identityNamespace = metadata?.representation === "carousel_slide" ? "carousel_slide:" : "";
+    rows.push({
+      ...normalized,
+      identity_key: `${type}:${crypto.createHash("sha256").update(`${identityNamespace}${identity}\u0000${position}`).digest("hex")}`,
     });
   };
 
   // La creatividad fija: lo que se ve si no hay variantes.
   if (asText(creative.image_hash)) {
-    push("image", 0, true, { asset_hash: asText(creative.image_hash) });
+    push("image", 0, true, {
+      asset_hash: asText(creative.image_hash),
+      media_url: asText(creative.image_url),
+      thumbnail_url: asText(creative.thumbnail_url),
+    });
   }
   if (creative.video_id != null) {
-    push("video", 0, true, { external_asset_id: String(creative.video_id) });
+    push("video", 0, true, {
+      external_asset_id: String(creative.video_id),
+      thumbnail_url: asText(creative.thumbnail_url),
+    });
   }
   if (asText(creative.body)) {
     push("primary_text", 0, true, { text_value: asText(creative.body) });
@@ -1450,14 +1470,40 @@ export function buildMetaCreativeAssetRows(
   if (asText(creative.link_url)) {
     push("link_url", 0, true, { link_url: asText(creative.link_url) });
   }
-  if (asText(creative.thumbnail_url)) {
-    push("thumbnail", 0, true, {
-      thumbnail_url: asText(creative.thumbnail_url),
-    });
-  }
   if (asText(creative.call_to_action_type)) {
     push("call_to_action", 0, true, {
       text_value: asText(creative.call_to_action_type),
+    });
+  }
+
+  // Los anuncios de colección/carrusel publican sus tarjetas dentro de
+  // object_story_spec.link_data.child_attachments. Guardar cada tarjeta con
+  // su posición permite importarlas y reconstruir el orden original.
+  const storySpec = creative.object_story_spec;
+  const linkData = storySpec && typeof storySpec === "object" && !Array.isArray(storySpec)
+    ? (storySpec as Record<string, unknown>).link_data
+    : null;
+  const attachments = linkData && typeof linkData === "object" && !Array.isArray(linkData)
+    ? (linkData as Record<string, unknown>).child_attachments
+    : null;
+  if (Array.isArray(attachments)) {
+    attachments.slice(0, 50).forEach((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      const child = raw as Record<string, unknown>;
+      const videoId = asText(child.video_id);
+      const imageHash = asText(child.image_hash) ?? asText(child.hash);
+      const picture = asText(child.image_url) ?? asText(child.picture) ?? asText(child.url);
+      const thumbnail = asText(child.thumbnail_url) ?? picture;
+      if (!videoId && !imageHash && !picture && !thumbnail) return;
+      push(videoId ? "video" : "image", index, false, {
+        external_asset_id: videoId,
+        asset_hash: imageHash,
+        media_url: videoId ? null : picture,
+        thumbnail_url: thumbnail,
+        link_url: asText(child.link) ?? asText(child.website_url),
+        asset_label: asText(child.name) ?? asText(child.title),
+        metadata: { ...child, representation: "carousel_slide", carousel_position: index },
+      });
     });
   }
 

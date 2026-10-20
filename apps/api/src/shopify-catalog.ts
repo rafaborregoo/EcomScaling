@@ -21,6 +21,13 @@ type CatalogQuery = {
   filter?: string;
 };
 
+type InventoryListQuery = {
+  connectionId?: string;
+  q?: string;
+  page?: string;
+  filter?: string;
+};
+
 type CatalogDiscountRow = {
   id: string;
   store_id: string;
@@ -77,6 +84,8 @@ const IN_FILTER_BATCH_SIZE = 100;
 const PRODUCT_STATUSES = new Set(["ACTIVE", "DRAFT", "ARCHIVED", "DELETED"]);
 const PRODUCT_SORTS = new Set(["sales", "stock", "margin", "updated", "name"]);
 const PRODUCT_FILTERS = new Set(["out", "low", "no_cost", "no_sales"]);
+const INVENTORY_FILTERS = new Set(["", "out", "low", "untracked"]);
+const INVENTORY_PAGE_SIZE = 50;
 const SPARK_WEEKS = 12;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -593,6 +602,67 @@ export async function listShopifyCatalogProducts(
     };
   } catch (error) {
     return { ok: false as const, statusCode: 500, error: "shopify_catalog_load_failed", detail: error instanceof Error ? error.message : "unknown_error" };
+  }
+}
+
+export async function listShopifyInventory(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+  input: InventoryListQuery,
+) {
+  const page = pageNumber(input.page);
+  if (page === null) return { ok: false as const, statusCode: 400, error: "invalid_page" };
+  if (input.connectionId && !UUID_PATTERN.test(input.connectionId)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_connection_id" };
+  }
+  const filter = input.filter ?? "";
+  if (!INVENTORY_FILTERS.has(filter)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_inventory_filter" };
+  }
+
+  try {
+    const scope = await catalogScope(env, authorization, context, organizationId, input.connectionId);
+    if (!scope.ok) return scope;
+    const { client, stores } = scope;
+    if (!stores.length) {
+      return { ok: true as const, data: { organization_id: organizationId, page, page_size: INVENTORY_PAGE_SIZE, total: 0, rows: [], coverage: "available" as const } };
+    }
+    const result = await (client as any).rpc("shopify_catalog_inventory_page", {
+      target_organization_id: organizationId,
+      target_store_ids: stores.map((store) => store.id),
+      search_term: input.q?.trim().slice(0, 120) ?? "",
+      target_filter: filter,
+      page_size: INVENTORY_PAGE_SIZE,
+      page_offset: (page - 1) * INVENTORY_PAGE_SIZE,
+    });
+    if (result.error) {
+      if (isInventoryStateSchemaMissing(result.error) || result.error.code === "PGRST202" || result.error.message?.includes("shopify_catalog_inventory_page")) {
+        return { ok: true as const, data: { organization_id: organizationId, page, page_size: INVENTORY_PAGE_SIZE, total: 0, rows: [], coverage: "migration_pending" as const } };
+      }
+      throw new Error(`shopify_inventory_page_failed: ${result.error.message}`);
+    }
+    const rows = (result.data ?? []) as Array<Record<string, any>>;
+    const storeById = new Map(stores.map((store) => [store.id, store]));
+    return {
+      ok: true as const,
+      data: {
+        organization_id: organizationId,
+        page,
+        page_size: INVENTORY_PAGE_SIZE,
+        total: Number(rows[0]?.total_count ?? 0),
+        coverage: "available" as const,
+        rows: rows.map((row) => ({
+          ...row,
+          store_name: storeById.get(row.store_id)?.shop_name ?? "Tienda Shopify",
+          currency_code: storeById.get(row.store_id)?.currency_code ?? null,
+          is_stale: row.updated_at ? Date.now() - new Date(row.updated_at).getTime() > 24 * 60 * 60 * 1000 : null,
+        })),
+      },
+    };
+  } catch (error) {
+    return { ok: false as const, statusCode: 500, error: "shopify_inventory_load_failed", detail: error instanceof Error ? error.message : "unknown_error" };
   }
 }
 

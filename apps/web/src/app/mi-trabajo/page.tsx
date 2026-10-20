@@ -411,7 +411,7 @@ function MyWorkContent() {
             {myTasks.map((task) => (
               <List.Item
                 key={task.id}
-                className="flex flex-wrap items-start justify-between gap-3 py-3"
+                className="task-lift flex flex-wrap items-start justify-between gap-3 py-3"
               >
                 <div className="min-w-[15rem] flex-1">
                   <div className="flex flex-wrap items-center gap-2">

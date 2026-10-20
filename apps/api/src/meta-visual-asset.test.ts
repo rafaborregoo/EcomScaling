@@ -17,7 +17,7 @@ test("Meta static images use image media with thumbnail fallback", () => {
       mediaUrl: null,
       thumbnailUrl: "https://cdn.test/thumb.jpg",
     }),
-    { kind: "static_image", imageUrl: "https://cdn.test/thumb.jpg" },
+    { kind: "static_thumbnail", imageUrl: "https://cdn.test/thumb.jpg" },
   );
 });
 

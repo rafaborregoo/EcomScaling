@@ -2,6 +2,72 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getToolContract } from "./tool-layer.js";
 
+test("A09 can retrieve one knowledge document by UUID without model-controlled scope", () => {
+  const contract = getToolContract("get_knowledge_document");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.inputSchema.safeParse({ document_id: "550e8400-e29b-41d4-a716-446655440000" }).success, true);
+  assert.equal(contract.inputSchema.safeParse({ document_id: "550e8400-e29b-41d4-a716-446655440000", organization_id: "otra" }).success, false);
+  assert.equal(contract.inputSchema.safeParse({ document_id: "no-es-uuid" }).success, false);
+  assert.equal(contract.outputSchema.safeParse({
+    data: { document: { id: "550e8400-e29b-41d4-a716-446655440000", organization_id: "550e8400-e29b-41d4-a716-446655440001", title: "Política", content: "contenido autorizado" } },
+    provenance: { source: "get_knowledge_document", as_of: "2026-10-19T10:00:00.000Z", freshness_seconds: 0 },
+  }).success, true);
+});
+
+test("A09 can deepen one visible specialist result inside the selected tenant and store", () => {
+  const contract = getToolContract("get_specialist_run_detail");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.inputSchema.safeParse({ run_id: "550e8400-e29b-41d4-a716-446655440000" }).success, true);
+  assert.equal(contract.inputSchema.safeParse({ run_id: "550e8400-e29b-41d4-a716-446655440000", store_id: "otra" }).success, false);
+  assert.equal(contract.inputSchema.safeParse({ run_id: "no-es-uuid" }).success, false);
+  assert.equal(contract.outputSchema.safeParse({
+    data: {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      organization_id: "550e8400-e29b-41d4-a716-446655440001",
+      store_id: null,
+      status: "succeeded",
+      finished_at: "2026-10-19T10:00:00.000Z",
+      agent_versions: { version: "v1" },
+      agent_outputs: [{ id: "550e8400-e29b-41d4-a716-446655440002", status: "approved" }],
+    },
+    provenance: { source: "get_specialist_run_detail", as_of: "2026-10-19T10:00:00.000Z", freshness_seconds: 0 },
+  }).success, true);
+});
+
+test("A09 can inspect one campaign calendar item by UUID without model-supplied tenant or store", () => {
+  const contract = getToolContract("get_campaign_item_detail");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.inputSchema.safeParse({ campaign_item_id: "550e8400-e29b-41d4-a716-446655440000" }).success, true);
+  assert.equal(contract.inputSchema.safeParse({ campaign_item_id: "550e8400-e29b-41d4-a716-446655440000", store_id: "otra" }).success, false);
+  assert.equal(contract.inputSchema.safeParse({ campaign_item_id: "no-es-uuid" }).success, false);
+});
+
+test("A09 can inspect one marketing draft only through the strict draft ID contract", () => {
+  const contract = getToolContract("get_marketing_draft_detail");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.inputSchema.safeParse({ draft_id: "550e8400-e29b-41d4-a716-446655440000" }).success, true);
+  assert.equal(contract.inputSchema.safeParse({ draft_id: "550e8400-e29b-41d4-a716-446655440000", organization_id: "otra" }).success, false);
+  assert.equal(contract.inputSchema.safeParse({ draft_id: "no-es-uuid" }).success, false);
+});
+
+test("A09 can read one historical Camino version only through a strict plan ID", () => {
+  const contract = getToolContract("get_strategic_plan_version");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.inputSchema.safeParse({ plan_id: "550e8400-e29b-41d4-a716-446655440000" }).success, true);
+  assert.equal(contract.inputSchema.safeParse({ plan_id: "550e8400-e29b-41d4-a716-446655440000", organization_id: "otra" }).success, false);
+  assert.equal(contract.inputSchema.safeParse({ plan_id: "no-es-uuid" }).success, false);
+});
+
 test("A21 tiene contratos estrictos para embudo y margen Shopify", () => {
   for (const name of ["shopify_funnel_health", "shopify_margin_health"]) {
     const contract = getToolContract(name);

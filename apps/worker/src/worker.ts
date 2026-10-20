@@ -34,6 +34,10 @@ import {
   NOTIFICATION_EMAIL_TZ,
   MOBILE_PUSH_CRON,
   MOBILE_PUSH_TZ,
+  NOTIFICATION_DAILY_CRON,
+  NOTIFICATION_DAILY_TZ,
+  NOTIFICATION_OUTBOX_CRON,
+  NOTIFICATION_OUTBOX_TZ,
   isStaleShopifyReconcileRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
@@ -183,7 +187,9 @@ async function runInstagramImageQueue(
   );
   if (!response.ok)
     throw new Error(`instagram_image_queue_trigger_failed_${response.status}`);
-  return response.json();
+  const result = await response.json() as { status?: string; detail?: string };
+  if (result.status === "error") throw new Error(`instagram_image_queue_failed_${result.detail ?? "unknown"}`);
+  return result;
 }
 
 async function runNotificationEmailTick(
@@ -220,6 +226,42 @@ async function runMobilePushTick(
     },
   );
   if (!response.ok) throw new Error(`mobile_push_tick_failed_${response.status}`);
+  return response.json();
+}
+
+async function runNotificationOutboxTick(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/notifications/outbox-tick`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`notification_outbox_tick_failed_${response.status}`);
+  return response.json();
+}
+
+async function runNotificationDailyTick(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/notifications/daily-tick`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`notification_daily_tick_failed_${response.status}`);
   return response.json();
 }
 
@@ -345,6 +387,24 @@ if (env.INTERNAL_API_SECRET) {
     },
   );
   logger.info(`Scheduled mobile-push every 2 minutes (${MOBILE_PUSH_TZ})`);
+  await queue.add(
+    "notification-daily",
+    {},
+    {
+      repeat: { pattern: NOTIFICATION_DAILY_CRON, tz: NOTIFICATION_DAILY_TZ },
+      jobId: "notification-daily-repeat",
+    },
+  );
+  logger.info(`Scheduled notification-daily at 08:00 (${NOTIFICATION_DAILY_TZ})`);
+  await queue.add(
+    "notification-outbox",
+    {},
+    {
+      repeat: { pattern: NOTIFICATION_OUTBOX_CRON, tz: NOTIFICATION_OUTBOX_TZ },
+      jobId: "notification-outbox-repeat",
+    },
+  );
+  logger.info(`Scheduled notification-outbox every minute (${NOTIFICATION_OUTBOX_TZ})`);
 } else {
   logger.info(
     "Not scheduling shopify-reconcile - INTERNAL_API_SECRET not configured",
@@ -391,6 +451,17 @@ const worker = new Worker(
     }
     if (job.name === "notification-email") {
       return runNotificationEmailTick(context);
+    }
+    // Estaba programado pero sin rama aqui: el job caia en el "ok" de abajo y
+    // nunca se mandaba ningun push.
+    if (job.name === "mobile-push") {
+      return runMobilePushTick(context);
+    }
+    if (job.name === "notification-outbox") {
+      return runNotificationOutboxTick(context);
+    }
+    if (job.name === "notification-daily") {
+      return runNotificationDailyTick(context);
     }
 
     return {

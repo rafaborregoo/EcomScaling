@@ -8,7 +8,7 @@ import s from "./campanas.module.css";
  * Piezas compartidas por todas las pantallas de Campañas (cartera, cliente,
  * tienda, campaña abierta y vista del cliente). Misma gramática visual que el
  * panel: hero oscuro, tira de KPIs pegados, paneles blancos, un único acento.
- * El cliente usa su propia paleta (petróleo y azafrán): `client` en <Stage>.
+ * El cliente usa su propia paleta (grafito y azafrán): `client` en <Stage>.
  */
 
 export { s as css };

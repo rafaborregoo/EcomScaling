@@ -17581,6 +17581,17 @@ export type Database = {
           version_superseded_at: string | null
         }[]
       }
+      klaviyo_email_activity_digest: {
+        Args: {
+          current_end: string
+          current_start: string
+          previous_end: string
+          previous_start: string
+          target_organization_id: string
+          target_store_id: string | null
+        }
+        Returns: string
+      }
       klaviyo_email_report: {
         Args: {
           period_end: string
@@ -17694,6 +17705,7 @@ export type Database = {
           period_end: string
           period_start: string
           target_organization_id: string
+          target_store_id?: string | null
         }
         Returns: {
           event_count: number

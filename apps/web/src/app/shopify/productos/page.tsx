@@ -7,7 +7,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
 import { AsyncState, EmptyState, ErrorBlock } from "@/components/ui";
-import { cx, Spark } from "../../dashboard/client-pulse";
+import { cx } from "../../dashboard/client-pulse";
 import { fmtNum } from "../../dashboard/client-pulse-model";
 import pulse from "../../dashboard/client-pulse.module.css";
 import s from "./catalogo.module.css";
@@ -106,14 +106,14 @@ function ProductCard({ product, href, periodDays }: { product: CatalogProduct; h
   const stockTone = m && m.stock_available != null ? ((m.tracked_variants > 0 && m.stock_available <= 0) ? "var(--bad)" : m.stock_available <= 5 ? "var(--warn)" : undefined) : undefined;
   return (
     <a className={s.card} href={href} aria-label={`Abrir ficha de ${product.title}`}>
-      <div className={s.img}>
+      <div className={cx(s.img, !product.primary_image_url && s.imgEmpty)}>
         {product.primary_image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={product.primary_image_url} alt={product.primary_image_alt || product.title} loading="lazy" decoding="async" />
         ) : (
           "Sin foto"
         )}
-        <span className={cx(pulse.chip, statusChip(product.status), s.imgSt)}>{statusLabel(product.status)}</span>
+        {product.status === "ACTIVE" ? null : <span className={cx(pulse.chip, statusChip(product.status), s.imgSt)}>{statusLabel(product.status)}</span>}
         {alert ? <span className={cx(pulse.chip, alert.tone, s.imgWarn)}>{alert.text}</span> : null}
       </div>
       <div className={s.body}>
@@ -131,12 +131,11 @@ function ProductCard({ product, href, periodDays }: { product: CatalogProduct; h
           <div><span>Vendidas</span><span>{sold}</span></div>
           <div><span>Stock</span><span style={{ color: stockTone }}>{stockText}</span></div>
           <div>
-            <span>Devol.</span>
+            <span>Devoluciones</span>
             <span style={{ color: m?.return_rate != null && m.return_rate >= 0.1 ? "var(--bad)" : undefined }}>{m?.return_rate != null ? `${fmtNum(m.return_rate * 100, 1)} %` : "—"}</span>
           </div>
         </div>
         <StockForecastCard compact history={product.weekly_units} available={m?.stock_available ?? null} tracked={(m?.tracked_variants ?? 0) > 0} />
-        {product.weekly_units && product.weekly_units.some((value) => value > 0) ? <Spark values={product.weekly_units} /> : null}
         {product.status === "DRAFT" ? <p className={s.meta}>Sin publicar: no recibe ventas todavía.</p> : null}
       </div>
     </a>
@@ -156,6 +155,10 @@ function CatalogContent() {
   const [page, setPage] = useState(1);
 
   useEffect(() => setPage(1), [organizationId, connectionId]);
+  useEffect(() => {
+    const requestedFilter = new URLSearchParams(window.location.search).get("filter");
+    if (requestedFilter === "out" || requestedFilter === "low") setFilter(requestedFilter);
+  }, []);
 
   const params = new URLSearchParams({ page: String(page), sort, periodDays: String(periodDays) });
   if (connectionId) params.set("connectionId", connectionId);
@@ -199,22 +202,8 @@ function CatalogContent() {
     <div className={pulse.root}>
       <header className={s.top}>
         <div>
-          <nav className={s.crumb} aria-label="Ruta" style={{ padding: 0 }}>
-            <a href="/shopify">Analítica</a>
-            <span aria-hidden="true">/</span>
-            <a href="/shopify">Shopify</a>
-            <span aria-hidden="true">/</span>
-            <span>Productos</span>
-          </nav>
-          <h1>Catálogo</h1>
-          <div className={s.topMeta}>
-            <span className={pulse.chip}>{connectionId ? "Tienda seleccionada" : "Todas las tiendas"}</span>
-            {data ? <span className={pulse.chip}>{fmtNum(data.total)} productos</span> : null}
-          </div>
+          <h1>Productos</h1>
         </div>
-        <a className={cx(pulse.btn, pulse.ghost)} href="/shopify">
-          Volver a Shopify
-        </a>
       </header>
 
       {!organizationId ? (
@@ -261,7 +250,7 @@ function CatalogContent() {
               <div className={pulse.seg} role="group" aria-label="Periodo de ventas">
                 {PERIODS.map((p) => (
                   <button key={p} type="button" aria-pressed={periodDays === p} onClick={() => { setPeriodDays(p); setPage(1); }}>
-                    {p === 365 ? "1 año" : `${p} d`}
+                    {p === 365 ? "1 año" : `${p} días`}
                   </button>
                 ))}
               </div>
@@ -355,7 +344,7 @@ function CatalogContent() {
             </div>
           ) : null}
 
-          {data ? (
+          {data && totalPages > 1 ? (
             <div className={s.pager}>
               <span className={pulse.muted} style={{ fontSize: 12.5 }}>
                 {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}

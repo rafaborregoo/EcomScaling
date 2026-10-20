@@ -21,6 +21,12 @@ import { caminoReviewCycleStart, canRetryCaminoReview } from "./camino-review-sc
 import { occurrenceTitle, recurrenceDates } from "./camino-recurrence.js";
 import { assessMilestoneCompletion, type MilestoneTaskReadiness } from "./camino-milestone-readiness.js";
 import { createLogger } from "@e-nora/observability";
+import type { LoadedApiEnv } from "@e-nora/config";
+import {
+  recordObjectiveChange,
+  scheduleObjectiveChangeReview,
+} from "./camino-objective-changes.js";
+import { refreshCostDependentCaches } from "./financial-config.js";
 import {
   assigneeForOwner,
   categoryForKind,
@@ -46,10 +52,15 @@ type ApiEnv = {
 // la app YA calcula (shopify-metrics.ts / meta-metrics.ts), asi el objetivo
 // nunca queda "sin dato real": nada de metric_key libre ni pipeline nuevo.
 // direction "up" = mas es mejor, "down" = menos es mejor (CAC, agotados).
+//
+// Las claves son las del panel (Inicio, Panel, Rentabilidad): Mi Camino es la
+// unica fuente de objetivos y el panel los busca por clave exacta. Antes el
+// Camino usaba net_sales/aov/cac (con IVA, CAC solo de Meta) y el panel
+// net_revenue_ex_tax/aov_ex_tax/cac_blended: el mismo objetivo con dos cifras.
 export const OBJECTIVE_CATALOG = [
   {
-    key: "net_sales",
-    label: "Ingresos netos",
+    key: "net_revenue_ex_tax",
+    label: "Ingresos sin IVA",
     unit: "money",
     direction: "up",
     source: "shopify",
@@ -76,9 +87,16 @@ export const OBJECTIVE_CATALOG = [
     source: "shopify",
   },
   {
-    key: "aov",
-    label: "Ticket medio (AOV)",
+    key: "aov_ex_tax",
+    label: "Ticket medio sin IVA",
     unit: "money",
+    direction: "up",
+    source: "shopify",
+  },
+  {
+    key: "conversion_rate",
+    label: "Conversión",
+    unit: "pct",
     direction: "up",
     source: "shopify",
   },
@@ -90,11 +108,11 @@ export const OBJECTIVE_CATALOG = [
     source: "meta",
   },
   {
-    key: "cac",
-    label: "CAC Meta Ads",
+    key: "cac_blended",
+    label: "CAC (todas las plataformas)",
     unit: "money",
     direction: "down",
-    source: "meta",
+    source: "shopify",
   },
   {
     key: "out_of_stock_items",
@@ -324,7 +342,7 @@ export async function getStrategicPlan(
   if (plan?.status === "active") {
     const { data: reviews, error: reviewsError } = await supabase
       .from("strategic_plan_weekly_reviews")
-      .select("id, review_week_start, period_start, period_end, status, updated_at, output_id, created_at, agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
+      .select("id, review_week_start, trigger_kind, period_start, period_end, status, updated_at, output_id, created_at, agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
       .eq("plan_id", plan.id)
       .order("created_at", { ascending: false })
       .limit(8);
@@ -341,7 +359,11 @@ export async function getStrategicPlan(
         period_end: row.period_end,
         created_at: row.created_at,
         status: row.status,
-        can_retry: row.review_week_start === caminoReviewCycleStart(new Date()) &&
+        trigger_kind: row.trigger_kind ?? "scheduled",
+        // Solo la periodica se reintenta: la de un cambio de objetivo se
+        // vuelve a disparar con el siguiente cambio o entra en la periodica.
+        can_retry: (row.trigger_kind ?? "scheduled") === "scheduled" &&
+          row.review_week_start === caminoReviewCycleStart(new Date()) &&
           canRetryCaminoReview(String(row.status), typeof row.updated_at === "string" ? row.updated_at : null),
         output: outputRow?.output ?? null,
         proposals: (proposals ?? []).map((proposal) => {
@@ -2246,19 +2268,22 @@ export async function getObjectives(
   ]);
 
   const actuals: Record<string, number | null> = {};
+  // Mismas cifras que pinta el panel para cada clave, para que el "real" del
+  // Camino y el del panel no discrepen.
   if (shopifyResult.ok) {
     const data = shopifyResult.data as any;
-    actuals.net_sales = data.sales?.net_sales ?? null;
+    actuals.net_revenue_ex_tax = data.financial?.net_revenue_ex_tax ?? null;
     actuals.orders_count = data.sales?.orders_count ?? null;
-    actuals.aov = data.sales?.aov ?? null;
+    actuals.aov_ex_tax = data.financial?.aov_ex_tax ?? null;
     actuals.net_profit = data.financial?.net_profit ?? null;
     actuals.net_margin_pct = data.financial?.net_margin_pct ?? null;
+    actuals.conversion_rate = data.funnel?.conversion_rate_own ?? null;
+    actuals.cac_blended = data.financial?.cac_blended ?? null;
     actuals.out_of_stock_items = data.stock?.out_of_stock_items ?? null;
   }
   if (metaResult.ok) {
     const data = metaResult.data as any;
     actuals.roas = data.acquisition?.roas ?? null;
-    actuals.cac = data.acquisition?.cac ?? null;
   }
 
   const objectives = (targets ?? [])
@@ -2331,7 +2356,7 @@ type ObjectiveInput = {
 };
 
 export async function createObjective(
-  env: ApiEnv,
+  env: LoadedApiEnv,
   context: AuthContext,
   organizationId: string,
   input: ObjectiveInput,
@@ -2380,40 +2405,66 @@ export async function createObjective(
     }
   }
   const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const catalogEntry = catalog.find((entry) => entry.key === input.metricKey)!;
 
-  // Un objetivo nuevo para la misma metrica reemplaza al anterior en vez de
-  // apilarse -- cierra el que estuviera vigente (mismo patron que "editar"
-  // en el resto de configuracion financiera de esta organizacion).
-  let closeQuery = supabase
+  // Un objetivo nuevo para la misma metrica en el mismo alcance (tienda + hito)
+  // es una edicion: se cambia la cifra de la fila vigente. Antes se cerraba la
+  // anterior con valid_until = ayer, que el CHECK valid_until > valid_from
+  // rechazaba si se habia creado hoy o ayer -- y el error se ignoraba, asi que
+  // el insert chocaba con el unico y "editar" fallaba. El historial de cifras
+  // queda en camino_objective_changes y en audit_logs.
+  let currentQuery = supabase
     .from("organization_metric_targets")
-    .update({ valid_until: yesterday })
+    .select("id, target_value, period")
     .eq("organization_id", organizationId)
-    .eq("metric_key", input.metricKey);
-  closeQuery = input.storeId
-    ? closeQuery.eq("store_id", input.storeId)
-    : closeQuery.is("store_id", null);
-  closeQuery = milestoneId
-    ? closeQuery.eq("milestone_id", milestoneId)
-    : closeQuery.is("milestone_id", null);
-  await closeQuery.is("valid_until", null);
+    .eq("metric_key", input.metricKey)
+    .lte("valid_from", today)
+    .or(`valid_until.is.null,valid_until.gte.${today}`);
+  currentQuery = input.storeId
+    ? currentQuery.eq("store_id", input.storeId)
+    : currentQuery.is("store_id", null);
+  currentQuery = milestoneId
+    ? currentQuery.eq("milestone_id", milestoneId)
+    : currentQuery.is("milestone_id", null);
+  const { data: current, error: currentError } = await currentQuery
+    .order("valid_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (currentError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_save_failed",
+      detail: currentError.message,
+    };
+  }
 
-  const { data, error } = await supabase
-    .from("organization_metric_targets")
-    .insert({
-      organization_id: organizationId,
-      store_id: input.storeId ?? null,
-      milestone_id: milestoneId,
-      metric_key: input.metricKey,
-      target_value: input.targetValue,
-      period,
-      valid_from: today,
-      created_by: context.user.id,
-    })
-    .select("id")
-    .single();
+  const previousValue = current ? Number(current.target_value) : null;
+  if (current && previousValue === input.targetValue && current.period === period) {
+    return { ok: true as const, data: { id: current.id as string } };
+  }
+
+  const { data, error } = current
+    ? await supabase
+        .from("organization_metric_targets")
+        .update({ target_value: input.targetValue, period })
+        .eq("id", current.id)
+        .select("id")
+        .single()
+    : await supabase
+        .from("organization_metric_targets")
+        .insert({
+          organization_id: organizationId,
+          store_id: input.storeId ?? null,
+          milestone_id: milestoneId,
+          metric_key: input.metricKey,
+          target_value: input.targetValue,
+          period,
+          valid_from: today,
+          created_by: context.user.id,
+        })
+        .select("id")
+        .single();
 
   if (error || !data) {
     return {
@@ -2431,14 +2482,32 @@ export async function createObjective(
     "strategic_plan.set_objective",
     "organization_metric_target",
     data.id,
-    { metric_key: input.metricKey, target_value: input.targetValue, period, milestone_id: milestoneId },
+    { metric_key: input.metricKey, target_value: input.targetValue, previous_value: previousValue, period, milestone_id: milestoneId },
   );
+
+  await recordObjectiveChange(supabase, context, {
+    organizationId,
+    storeId: input.storeId ?? null,
+    targetId: data.id,
+    milestoneId,
+    scope: "objective",
+    metricKey: input.metricKey,
+    metricLabel: catalogEntry.label,
+    unit: catalogEntry.unit,
+    period,
+    action: current ? "updated" : "created",
+    previousValue,
+    newValue: input.targetValue,
+  });
+  scheduleObjectiveChangeReview(env, context, organizationId, input.storeId ?? null);
+  // El panel lee los objetivos con las metricas, cacheadas 60 s.
+  await refreshCostDependentCaches(env, organizationId);
 
   return { ok: true as const, data: { id: data.id } };
 }
 
 export async function deactivateObjective(
-  env: ApiEnv,
+  env: LoadedApiEnv,
   context: AuthContext,
   organizationId: string,
   targetId: string,
@@ -2449,20 +2518,16 @@ export async function deactivateObjective(
   }
 
   const supabase = createServiceClient(env);
-  // Cerrar en "ayer", no "hoy": getObjectives incluye las filas con
-  // valid_until >= hoy, asi que valid_until = hoy dejaba el objetivo visible
-  // hasta el dia siguiente y "Quitar objetivo" parecia no hacer nada. Mismo
-  // criterio con el que createObjective cierra el objetivo que reemplaza.
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
+  // Se borra, no se cierra con valid_until: el CHECK valid_until > valid_from
+  // impedia quitar un objetivo creado hoy o ayer (el caso tipico: te equivocas
+  // y lo quitas). El trigger de auditoria guarda la fila entera y el cambio
+  // queda en camino_objective_changes.
   const { data, error } = await supabase
     .from("organization_metric_targets")
-    .update({ valid_until: yesterday })
+    .delete()
     .eq("id", targetId)
     .eq("organization_id", organizationId)
-    .select("id")
+    .select("id, store_id, milestone_id, metric_key, target_value, period")
     .maybeSingle();
 
   if (error) {
@@ -2489,6 +2554,25 @@ export async function deactivateObjective(
     "organization_metric_target",
     data.id,
   );
+
+  const catalog = await resolveObjectiveCatalog(env, organizationId);
+  const catalogEntry = catalog.find((entry) => entry.key === data.metric_key);
+  await recordObjectiveChange(supabase, context, {
+    organizationId,
+    storeId: (data.store_id as string | null) ?? null,
+    targetId: data.id,
+    milestoneId: (data.milestone_id as string | null) ?? null,
+    scope: "objective",
+    metricKey: data.metric_key as string,
+    metricLabel: catalogEntry?.label ?? (data.metric_key as string),
+    unit: catalogEntry?.unit ?? null,
+    period: data.period as string,
+    action: "removed",
+    previousValue: Number(data.target_value),
+    newValue: null,
+  });
+  scheduleObjectiveChangeReview(env, context, organizationId, (data.store_id as string | null) ?? null);
+  await refreshCostDependentCaches(env, organizationId);
 
   return { ok: true as const, data: { id: data.id } };
 }
@@ -2557,6 +2641,103 @@ export async function setObjectiveActual(
   );
 
   return { ok: true as const, data: { id: data.id } };
+}
+
+/**
+ * Nueva cifra para la meta del Camino. Mismo criterio que al ajustar la
+ * propuesta antes de aprobarla (adjustCaminoProposal): cambia la meta y el
+ * objetivo mensual que la llevaba; el resto de meses no se reescala a ojo, la
+ * revision del Camino propone como repartirlos.
+ */
+export function withGoalTarget(
+  goal: Record<string, unknown>,
+  target: number | null,
+): Record<string, unknown> {
+  const monthly = Array.isArray(goal.monthly_targets)
+    ? (goal.monthly_targets as Array<Record<string, unknown>>)
+    : null;
+  if (!monthly?.length) return { ...goal, target };
+  const match = monthly.findIndex((checkpoint) => checkpoint.target_value === goal.target);
+  const goalIndex = match >= 0 ? match : monthly.length - 1;
+  return {
+    ...goal,
+    target,
+    monthly_targets: monthly.map((checkpoint, index) =>
+      index === goalIndex ? { ...checkpoint, target_value: target } : checkpoint,
+    ),
+  };
+}
+
+export async function updatePlanGoalTarget(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  planId: string,
+  input: { target?: unknown; reason?: unknown },
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+
+  const target = input.target;
+  if (target !== null && (typeof target !== "number" || !Number.isFinite(target) || target < 0)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_goal_target" };
+  }
+  const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 500) : null;
+
+  const supabase = createServiceClient(env);
+  const { data: plan, error: planError } = await supabase
+    .from("strategic_plans")
+    .select("id, status, store_id, goal")
+    .eq("id", planId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (planError) {
+    return { ok: false as const, statusCode: 503, error: "plan_load_failed", detail: planError.message };
+  }
+  if (!plan) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  if (["archived", "completed"].includes(plan.status as string)) {
+    return { ok: false as const, statusCode: 409, error: "plan_not_editable" };
+  }
+  const goal = plan.goal && typeof plan.goal === "object" && !Array.isArray(plan.goal)
+    ? (plan.goal as Record<string, unknown>)
+    : null;
+  if (!goal) return { ok: false as const, statusCode: 409, error: "camino_plan_has_no_goal" };
+
+  const previousValue = typeof goal.target === "number" ? goal.target : null;
+  if (previousValue === target) return { ok: true as const, data: { id: planId } };
+
+  const { error } = await supabase
+    .from("strategic_plans")
+    .update({ goal: withGoalTarget(goal, target as number | null) })
+    .eq("id", planId)
+    .eq("organization_id", organizationId);
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "plan_goal_update_failed", detail: error.message };
+  }
+
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.set_goal_target", "strategic_plan", planId, {
+    previous_value: previousValue,
+    target,
+    reason,
+  });
+  await recordObjectiveChange(supabase, context, {
+    organizationId,
+    storeId: (plan.store_id as string | null) ?? null,
+    planId,
+    scope: "plan_goal",
+    metricKey: typeof goal.metric_key === "string" ? goal.metric_key : "goal",
+    metricLabel: typeof goal.metric_label === "string" ? goal.metric_label : "Meta del Camino",
+    unit: typeof goal.unit === "string" ? goal.unit : null,
+    action: previousValue === null ? "created" : target === null ? "removed" : "updated",
+    previousValue,
+    newValue: target as number | null,
+    reason,
+  });
+  if (plan.status === "active") {
+    scheduleObjectiveChangeReview(env, context, organizationId, (plan.store_id as string | null) ?? null);
+  }
+
+  return { ok: true as const, data: { id: planId } };
 }
 
 // --- Tipos de objetivo (objective_definitions): CRUD del consultor --------

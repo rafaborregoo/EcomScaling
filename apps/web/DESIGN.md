@@ -2,34 +2,34 @@
 name: "E-NORA — escritorio de revisión"
 description: "Sistema implementado de Dashboard/Inicio, Informes, Rentabilidad, Trabajo, Marketing, Comunicación y Analítica."
 colors:
-  primary: "#176b64"
-  primary-hover: "#135c55"
-  primary-soft: "#e3f1ee"
-  shopify-accent: "#008060"
-  shopify-paper: "#e9f3ee"
+  primary: "#3d3b3a"
+  primary-hover: "#292827"
+  primary-soft: "#f0edeb"
+  shopify-accent: "#3d3b3a"
+  shopify-paper: "#f5f4f2"
   meta-accent: "#0866ff"
   meta-paper: "#e6effc"
   klaviyo-accent: "#232426"
   klaviyo-paper: "#efefef"
   graphite: "#3d3b3a"
-  text-secondary: "#495858"
-  text-muted: "#5c6b6b"
-  neutral-bg: "#f3f6f6"
+  text-secondary: "#57534f"
+  text-muted: "#6b6662"
+  neutral-bg: "#f5f4f2"
   surface: "#ffffff"
-  surface-secondary: "#f4f7f7"
-  surface-sunken: "#e5ecec"
-  border: "#d5dfdf"
-  divider: "#e6eded"
-  chart-previous: "#899c9c"
-  success: "#216947"
-  success-soft: "#e1f1e8"
+  surface-secondary: "#f8f7f5"
+  surface-sunken: "#efeeec"
+  border: "#e2dfdc"
+  divider: "#ebe8e4"
+  chart-previous: "#a39f9a"
+  success: "#3d3b3a"
+  success-soft: "#f0edeb"
   warning: "#8b4c0d"
   warning-soft: "#fcf0df"
   danger: "#a72d43"
   danger-soft: "#fbe7ec"
-  panel-success: "#0f7455"
-  panel-success-soft: "#dcefe5"
-  panel-success-bar: "#2aa17f"
+  panel-success: "#3d3b3a"
+  panel-success-soft: "#f0edeb"
+  panel-success-bar: "#6b6662"
   panel-warning: "#8f4c07"
   panel-warning-soft: "#f9e6d3"
   panel-warning-bar: "#e0a030"
@@ -123,11 +123,11 @@ components:
 
 **Creative North Star: "Libro de revisión operativa"**
 
-Una mesa sobria de lectura y decisión. La identidad del logo aparece en títulos, cifras relevantes y la serie principal; las superficies claras separan el resultado, el trabajo pendiente y la evidencia. El petróleo concentra la selección y las acciones.
+Una mesa sobria de lectura y decisión. La identidad del logo aparece en títulos, cifras relevantes y la serie principal; las superficies claras separan el resultado, el trabajo pendiente y la evidencia. El grafito concentra la selección y las acciones.
 
 Este documento captura el sistema implementado en Dashboard/Inicio, Informes y Rentabilidad. Sus reglas se aplican a esas superficies y no declaran una migración de todo el SaaS. Inicio usa un wrapper de ruta; las extensiones autorizadas aplican la identidad mediante sus propios ámbitos. Informes reutiliza el catálogo HeroUI existente; los estilos de ese catálogo siguen siendo su fuente de verdad.
 
-La extensión autorizada a Trabajo aplica la misma identidad a Mi camino (`/camino`), Mi negocio (`/contexto`), Agenda (`/planificacion/calendario`) y Tareas (`/tareas`). No introduce una nueva dirección visual. El wrapper `.trabajo-theme` adapta los tokens del catálogo en esas rutas para cliente y consultor; los overlays abiertos desde Trabajo heredan petróleo, grafito y blanco mediante variables `--ov-*` en el body. Se conservan los permisos, los estados de negocio y las secciones propias de cada rol.
+La extensión autorizada a Trabajo aplica la misma identidad a Mi camino (`/camino`), Mi negocio (`/contexto`), Agenda (`/planificacion/calendario`) y Tareas (`/tareas`). No introduce una nueva dirección visual. El wrapper `.trabajo-theme` adapta los tokens del catálogo en esas rutas para cliente y consultor; los overlays abiertos desde Trabajo heredan grafito y blanco mediante variables `--ov-*` en el body. Se conservan los permisos, los estados de negocio y las secciones propias de cada rol.
 
 Marketing extiende esta identidad a sus once entradas: Hoy, Campañas, Flows, Plantillas, Audiencias, Rendimiento, Crear contenido, Revisión de piezas, Biblioteca de plantillas, Banco de imágenes y Guía de marca. Incluye los editores de campañas, flows y piezas del banco. La identidad de la interfaz permanece separada de la marca de cada tienda y del contenido creado.
 
@@ -148,13 +148,13 @@ Las rampas OKLCH del sidecar son muestras interpoladas para el panel de document
 
 ### Primary
 
-- **Petróleo operativo** (`primary`): acciones destacadas, selección de segmentos, control de gráficos y foco. Su variante oscura (`primary-hover`) responde al hover; la suave (`primary-soft`) acompaña notas y selecciones.
+- **Grafito operativo** (`primary`): acciones destacadas, selección de segmentos, control de gráficos y foco. Su variante oscura (`primary-hover`) responde al hover; la suave (`primary-soft`) acompaña notas y selecciones.
 
 ### Secondary
 
-Analítica conserva la identidad de cada aplicación por petición del usuario: **verde Shopify** (`shopify-accent`) sobre `shopify-paper`, **azul Meta** (`meta-accent`) sobre `meta-paper` y **negro Klaviyo** (`klaviyo-accent`) sobre `klaviyo-paper`. Sus variantes locales `--ch-hover`, `--ch-soft` y `--ch-ink` sostienen hover, selección y lectura. Esta excepción incluye filtros, foco y serie principal; no altera IBM Plex Sans, el grafito de títulos y cifras, la geometría compartida ni los estados semánticos. Comunicación mantiene el petróleo operativo.
+Analítica conserva la identidad de cada aplicación: Shopify y Meta mantienen sus colores de proveedor, y Klaviyo mantiene el negro. Sus variantes locales `--ch-hover`, `--ch-soft` y `--ch-ink` sostienen hover, selección y lectura. Esta excepción incluye filtros, foco y serie principal; no altera IBM Plex Sans, el grafito de títulos y cifras, ni la geometría compartida. Comunicación mantiene el grafito operativo.
 
-**The Identidad de canal Rule.** En Analítica, conservar el acento y papel de Shopify, Meta y Klaviyo; no uniformarlos en petróleo.
+**The Identidad de canal Rule.** En Analítica, conservar la identificación de cada proveedor; las acciones comunes de producto usan grafito.
 
 ### Neutral
 
@@ -165,7 +165,7 @@ Analítica conserva la identidad de cada aplicación por petición del usuario: 
 
 Los tokens `success`, `warning` y `danger` representan los estados de Inicio, acompañados de texto. Rentabilidad conserva sus variantes `panel-*`, incluidas las barras de estado: no se sustituyen por la paleta de Inicio al extraer este sistema. Los colores de proveedor y las series auxiliares existentes siguen siendo contextuales, no un segundo acento de acción.
 
-Trabajo reutiliza los colores de identidad del frontmatter mediante `--tw-*`: papel frío, panel blanco, grafito en títulos y cifras, y petróleo en acciones, selección y foco. Sus matices de estado permanecen locales: por ejemplo, `--tw-good: #2f7d5b`; no sustituyen a `success` ni a las variantes de Rentabilidad. La metadata sobre ilustraciones del modo Aventura de Camino lleva fondo blanco opaco para mantener la lectura del gris de contexto.
+Trabajo reutiliza los colores de identidad del frontmatter mediante `--tw-*`: papel frío, panel blanco y grafito en títulos, cifras, acciones, selección y foco. Los estados positivos también usan grafito y texto explícito, sin verde de producto. La metadata sobre ilustraciones del modo Aventura de Camino lleva fondo blanco opaco para mantener la lectura del gris de contexto.
 
 Marketing hereda esos tokens mediante el mismo wrapper y sus variables locales. Los colores de canal y las series de flows y campañas siguen siendo contextuales. Los colores de emails, imágenes y vistas previas de marca pertenecen al contenido: los títulos de esas vistas no reciben una imposición global de grafito.
 
@@ -208,7 +208,7 @@ La profundidad principal proviene de superficies y bordes, con paneles planos y 
 
 Los botones de Inicio cambian color sin elevación por transform. Sus transiciones de fondo y borde duran 160ms con easing `ease`; las animaciones heredadas se desactivan dentro del wrapper de Inicio.
 
-Las tarjetas de Trabajo son blancas, con borde y sin sombra; sus selecciones se distinguen por fondo petróleo suave y borde. El calendario marca el día actual con borde interior petróleo. Estos tratamientos locales no redefinen la elevación del catálogo compartido.
+Las tarjetas de Trabajo son blancas, con borde y sin sombra; sus selecciones se distinguen por fondo gris suave y borde. El calendario marca el día actual con borde interior grafito. Estos tratamientos locales no redefinen la elevación del catálogo compartido.
 
 ## Shapes
 
@@ -220,7 +220,7 @@ Trabajo aplica el radio existente de 16px a sus tarjetas del catálogo, `HeroBlo
 
 ### Buttons
 
-Acciones claras con estado explícito. El botón petróleo destaca una acción; grafito permite acciones ordinarias y el ghost aporta una alternativa con borde. En Inicio el mínimo general es 40px, con compactos de 36px; los botones generales y segmentos del contenedor móvil de 680px pasan a 44px. Los compactos conservan su regla específica y la navegación local conserva 36px. Rentabilidad usa botones de 40px y segmentos de 36px; Informes mantiene un mínimo local de 36px. No se afirma una altura universal de 44px.
+Acciones claras con estado explícito. El botón grafito destaca una acción; el ghost aporta una alternativa con borde. En Inicio el mínimo general es 40px, con compactos de 36px; los botones generales y segmentos del contenedor móvil de 680px pasan a 44px. Los compactos conservan su regla específica y la navegación local conserva 36px. Rentabilidad usa botones de 40px y segmentos de 36px; Informes mantiene un mínimo local de 36px. No se afirma una altura universal de 44px.
 
 El foco local usa outline de 3px con offset de 3px; los enlaces locales usan 2px hacia dentro. Los controles deshabilitados reducen opacidad y muestran cursor de indisponibilidad.
 
@@ -238,7 +238,7 @@ Campos del catálogo existente con etiqueta visible en Informes. El gráfico dia
 
 ### Navigation
 
-Accesos locales contextuales a secciones existentes: tareas, resultado y evidencia. Enlaces con hover petróleo suave, foco visible y destino válido. El menú general del portal conserva su implementación compartida.
+Accesos locales contextuales a secciones existentes: tareas, resultado y evidencia. Enlaces con hover gris suave, foco visible y destino válido. El menú general del portal conserva su implementación compartida.
 
 ### Lectura de evidencia
 
@@ -246,10 +246,10 @@ En el cliente, el gráfico diario vive en un `details` nativo para que la primer
 
 ### Trabajo
 
-`WorkPageHeader`, `StatusStrip` y `HeroBlock` componen la cabecera, estado y siguiente acción sin crear otro catálogo de controles. El bloque destacado usa padding de 24px, reducido a 18px bajo 600px; sus acciones usan petróleo o blanco con borde, altura mínima de 40px y 44px en móvil, con foco visible de 2px y offset de 3px. Los filtros de Mi negocio y Tareas expresan selección con `aria-pressed`, fondo petróleo suave y borde petróleo; su mínimo también pasa de 40px a 44px bajo 600px.
+`WorkPageHeader`, `StatusStrip` y `HeroBlock` componen la cabecera, estado y siguiente acción sin crear otro catálogo de controles. El bloque destacado usa padding de 24px, reducido a 18px bajo 600px; sus acciones usan grafito o blanco con borde, altura mínima de 40px y 44px en móvil, con foco visible de 2px y offset de 3px. Los filtros de Mi negocio y Tareas expresan selección con `aria-pressed`, fondo gris suave y borde grafito; su mínimo también pasa de 40px a 44px bajo 600px.
 
 - **Mi camino:** conserva los modos IA, manual y plantilla y la distinción entre camino propuesto y activo; cambiar de modo no guarda datos. Formularios, paneles y mapa reutilizan la identidad común sin ocultar estados o avisos.
-- **Mi negocio:** progreso petróleo sobre superficie hundida; rasgos vacíos con borde discontinuo, discrepancias con aviso escrito y trayectoria con fechas y procedencia.
+- **Mi negocio:** progreso grafito sobre superficie hundida; rasgos vacíos con borde discontinuo, discrepancias con aviso escrito y trayectoria con fechas y procedencia.
 - **Agenda:** cabecera con fechas y acciones; región del calendario accesible por teclado, eventos con títulos completos y foco explícito. Los eventos tienen mínimo de 44px; añadir pasa de 36px a 44px bajo 600px.
 - **Tareas:** siguiente acción, filtros seleccionables y filas con estados escritos; las vencidas conservan un matiz semántico suave y las completadas, superficie secundaria.
 
@@ -269,7 +269,7 @@ La evidencia está en `.impeccable/review/comunicacion-analitica/`: capturas de 
 
 ### Do:
 
-- **Do** usar grafito para identidad y cifras importantes, y petróleo para selección y acción.
+- **Do** usar grafito para identidad, cifras, selección y acción; reservar el color para los estados y marcas que aportan información propia.
 - **Do** conservar etiquetas, unidades, atribución, frescura y estados incompletos junto a los datos.
 - **Do** reutilizar el catálogo UI existente y aplicar este sistema dentro de las rutas documentadas.
 - **Do** mantener foco visible, controles nativos y scroll de tablas dentro de regiones nombradas.

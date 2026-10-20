@@ -355,6 +355,16 @@ function turnAlreadyAnswered(messages: ChatMessage[], question: string) {
   );
 }
 type ChatError = { message: string; status: "warning" | "danger"; code?: string };
+type CopilotEscalation = {
+  id: string;
+  reason: string;
+  risk: string;
+  blocking_questions: string[];
+  status: "open" | "acknowledged" | "resolved" | "dismissed";
+  owner_user_id: string | null;
+  created_at: string;
+};
+type CopilotEscalationOwner = { id: string; name: string; platform_role: string };
 type Conversation = { id: string; title: string; updated_at: string };
 
 const messageKey = (message: ChatMessage, index: number) => message.messageId ?? `local-${index}`;
@@ -671,6 +681,7 @@ async function readError(response: Response): Promise<ChatError> {
 export function CopilotPanel({
   organizationId,
   organizations = [],
+  canManageEscalations = false,
   view,
   ask: pending,
   onClose,
@@ -679,6 +690,7 @@ export function CopilotPanel({
   organizationId: string;
   /** Cartera, para poder elegir cliente sin salir de la vista general. */
   organizations?: Array<{ id: string; name: string }>;
+  canManageEscalations?: boolean;
   view?: CopilotView;
   /** Pregunta con la que se abrió el panel desde un módulo (ver copilot-ask.tsx). */
   ask?: CopilotAsk | null;
@@ -721,6 +733,11 @@ export function CopilotPanel({
   const turnStartedAtRef = useRef(0);
   const [elapsed, setElapsed] = useState(0);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isEscalationInboxOpen, setIsEscalationInboxOpen] = useState(false);
+  const [escalations, setEscalations] = useState<CopilotEscalation[]>([]);
+  const [escalationOwners, setEscalationOwners] = useState<CopilotEscalationOwner[]>([]);
+  const [isLoadingEscalations, setIsLoadingEscalations] = useState(false);
+  const [updatingEscalationId, setUpdatingEscalationId] = useState<string | null>(null);
   // Las cifras de la pantalla viajan con la pregunta salvo que el consultor
   // las quite: a veces quiere preguntar sin que el periodo visible condicione.
   const [sendScreenFigures, setSendScreenFigures] = useState(true);
@@ -854,7 +871,87 @@ export function CopilotPanel({
     setSavedIndexes([]);
     setDegraded(false);
     setEffectiveModel(null);
+    setEscalations([]);
+    setEscalationOwners([]);
+    setIsEscalationInboxOpen(false);
   }, [targetOrganizationId, targetStoreId]);
+
+  useEffect(() => {
+    if (!targetOrganizationId || !canManageEscalations) return;
+    let active = true;
+    setIsLoadingEscalations(true);
+    void apiFetch(
+      `/v1/organizations/${targetOrganizationId}/consultant-chat/escalations`,
+    )
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as { escalations?: CopilotEscalation[] };
+        if (active) setEscalations((payload.escalations ?? []).filter((item) => ["open", "acknowledged"].includes(item.status)));
+      })
+      .catch(() => {
+        // La bandeja es secundaria al chat; un fallo temporal no bloquea A09.
+      })
+      .finally(() => {
+        if (active) setIsLoadingEscalations(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [targetOrganizationId, canManageEscalations]);
+
+  useEffect(() => {
+    if (!targetOrganizationId || !canManageEscalations) return;
+    let active = true;
+    void apiFetch(`/v1/organizations/${targetOrganizationId}/consultant-chat/escalations/owners`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as { owners?: CopilotEscalationOwner[] };
+        if (active) setEscalationOwners(payload.owners ?? []);
+      })
+      .catch(() => {
+        if (active) setEscalationOwners([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [targetOrganizationId, canManageEscalations]);
+
+  async function updateEscalation(
+    escalation: CopilotEscalation,
+    status: "open" | "acknowledged" | "resolved" | "dismissed",
+    ownerUserId?: string | null,
+  ) {
+    setUpdatingEscalationId(escalation.id);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${targetOrganizationId}/consultant-chat/escalations/${escalation.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status,
+            ...(ownerUserId !== undefined ? { owner_user_id: ownerUserId } : {}),
+            ...(status === "resolved" ? { resolution: "Resuelto desde el Consultor IA." } : {}),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readError(response));
+        return;
+      }
+      setEscalations((current) =>
+        status === "resolved"
+            ? current.filter((item) => item.id !== escalation.id)
+          : current.map((item) => item.id === escalation.id
+            ? { ...item, status, ...(ownerUserId !== undefined ? { owner_user_id: ownerUserId } : {}) }
+            : item),
+      );
+    } catch {
+      setError({ message: "No se pudo actualizar el escalado. Vuelve a cargarlo e inténtalo otra vez.", status: "danger" });
+    } finally {
+      setUpdatingEscalationId(null);
+    }
+  }
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 1024px)");
@@ -1529,6 +1626,12 @@ export function CopilotPanel({
     if (askedKeyRef.current === pending.key) return;
     askedKeyRef.current = pending.key;
     void ask(pending.question, pending.reference as CopilotEvidenceReference | undefined);
+    // Si el efecto se desmonta (StrictMode en desarrollo lo monta dos veces y
+    // el reinicio de alcance aborta el turno), la pregunta se vuelve a mandar:
+    // sin esto el panel se abría con "pregunta sin respuesta" y no preguntaba.
+    return () => {
+      askedKeyRef.current = null;
+    };
     // `ask` se redefine en cada render (cierra sobre el estado del chat); la
     // guarda de arriba es lo que hace que esto corra una vez por pregunta.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2101,6 +2204,22 @@ export function CopilotPanel({
           )
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {canManageEscalations ? (
+            <button
+              type="button"
+              className="mr-1 flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-foreground"
+              aria-expanded={isEscalationInboxOpen}
+              onClick={() => setIsEscalationInboxOpen((open) => !open)}
+              title="Escalados humanos"
+            >
+              Escalados
+              {escalations.length > 0 ? (
+                <span className="flex min-w-5 items-center justify-center rounded-full bg-danger px-1.5 py-0.5 text-[0.65rem] font-semibold text-white">
+                  {escalations.length}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
           <button
             ref={historyButtonRef}
             type="button"
@@ -2135,6 +2254,81 @@ export function CopilotPanel({
           </button>
         </div>
       </header>
+
+      {isEscalationInboxOpen && canManageEscalations ? (
+        <section aria-label="Bandeja de escalados" className="max-h-[38vh] shrink-0 overflow-y-auto border-b border-separator bg-surface/50 px-4 py-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground">Escalados pendientes</h3>
+            <button
+              type="button"
+              className="text-xs font-medium text-accent hover:underline disabled:opacity-50"
+              disabled={isLoadingEscalations}
+              onClick={() => {
+                if (!targetOrganizationId) return;
+                setIsLoadingEscalations(true);
+                void apiFetch(`/v1/organizations/${targetOrganizationId}/consultant-chat/escalations`)
+                  .then(async (response) => {
+                    if (!response.ok) throw new Error("No se pudo actualizar la bandeja.");
+                    const payload = (await response.json()) as { escalations?: CopilotEscalation[] };
+                    setEscalations((payload.escalations ?? []).filter((item) => ["open", "acknowledged"].includes(item.status)));
+                  })
+                  .catch(() => setError({ message: "No se pudo actualizar la bandeja de escalados.", status: "warning" }))
+                  .finally(() => setIsLoadingEscalations(false));
+              }}
+            >
+              {isLoadingEscalations ? "Cargando…" : "Actualizar"}
+            </button>
+          </div>
+          {isLoadingEscalations && escalations.length === 0 ? (
+            <p className="py-3 text-xs text-muted">Cargando escalados…</p>
+          ) : escalations.length === 0 ? (
+            <p className="py-3 text-xs text-muted">No hay escalados abiertos para este cliente.</p>
+          ) : (
+            <ul className="grid gap-2">
+              {escalations.map((escalation) => (
+                <li key={escalation.id} className="rounded-lg border border-separator bg-white p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[0.68rem] font-semibold text-danger">
+                      Riesgo {escalation.risk}
+                    </span>
+                    <span className="text-[0.68rem] text-muted">
+                      {new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(escalation.created_at))}
+                    </span>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-foreground">{escalation.reason}</p>
+                  {escalation.blocking_questions.length > 0 ? (
+                    <ul className="mt-2 grid gap-1 pl-4 text-xs text-muted [list-style:disc]">
+                      {escalation.blocking_questions.map((question, index) => <li key={index}>{question}</li>)}
+                    </ul>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap justify-end gap-2">
+                    <select
+                      aria-label="Responsable del escalado"
+                      value={escalation.owner_user_id ?? ""}
+                      disabled={updatingEscalationId === escalation.id || escalationOwners.length === 0}
+                      onChange={(event) => void updateEscalation(escalation, escalation.status, event.target.value || null)}
+                      className="h-8 max-w-44 rounded-md border border-separator bg-white px-2 text-xs text-foreground disabled:opacity-50"
+                    >
+                      <option value="">Sin responsable</option>
+                      {escalationOwners.map((owner) => (
+                        <option key={owner.id} value={owner.id}>{owner.name}</option>
+                      ))}
+                    </select>
+                    {escalation.status === "open" ? (
+                      <Button size="sm" variant="secondary" disabled={updatingEscalationId === escalation.id} onClick={() => void updateEscalation(escalation, "acknowledged")}>
+                        Reconocer
+                      </Button>
+                    ) : null}
+                    <Button size="sm" disabled={updatingEscalationId === escalation.id} onClick={() => void updateEscalation(escalation, "resolved")}>
+                      {updatingEscalationId === escalation.id ? "Guardando…" : "Resolver"}
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       <div
         ref={scrollRef}

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
-import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import type { BootstrapResponse } from "@/lib/bootstrap";
 import { PortfolioAttention } from "@/components/portfolio-attention";
 import { KlaviyoAnalytics } from "./klaviyo-analytics";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
@@ -41,9 +41,8 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page grid gap-5 sm:gap-6">
-      {/* Informe completo. El Dashboard solo muestra sus cuatro señales
-          decisivas; campañas, flujos, asuntos y entregabilidad viven aquí, en
-          la zona de Analítica. */}
+      {/* Lo esencial del email: ingresos, tasas, fiabilidad, flujos y asuntos.
+          Crear y programar vive en Marketing. */}
       <KlaviyoAnalytics
         organizationId={organizationId}
         organizationName={organization?.display_name ?? "Klaviyo"}
@@ -51,28 +50,11 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         isConsultant={isConsultant}
       />
 
-      {/* Dos agentes y en este orden, por la misma razón que las secciones de
-          arriba: primero qué DICEN los emails (que es lo que se puede leer hoy
-          aunque no haya envíos), después cómo VAN (que necesita rendimiento). */}
-      <AiDiagnosticSection
-        organizationId={organizationId}
-        title="Contenido de los emails"
-        getPath="/ai/contenido-email"
-        runPath="/ai/contenido-email-run"
-        loadingLabel="Leyendo los asuntos y los cuerpos…"
-        tasksLabelSingular="tarea"
-        days={30}
-        showInternals={isConsultant}
-        renderPreview
-        // Sin `rendimiento` a proposito: este agente no recibe cifras de
-        // rendimiento y su propio prompt le prohibe juzgar con ellas. Darle el
-        // area le abriria la puerta a mandar al lector a una tabla que no ha
-        // mirado.
-        areas={{
-          emails: { label: "Ver los emails", href: "#klaviyo-emails" },
-          medicion: { label: "Ver medición", href: "#klaviyo-medicion" },
-        }}
-      />
+      {/* Los especialistas, como en Shopify y Meta: del consultor y plegados. */}
+      {isConsultant ? (
+      <details id="klaviyo-ia" className="rounded-xl border border-separator bg-surface p-4">
+      <summary className="cursor-pointer text-base font-semibold">Análisis de los especialistas IA</summary>
+      <div className="mt-4 grid gap-5 sm:gap-6">
       <AiDiagnosticSection
         organizationId={organizationId}
         title="Análisis de email"
@@ -80,14 +62,12 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         runPath="/ai/email-analyst-run"
         loadingLabel="Revisando el email marketing de esta tienda…"
         tasksLabelSingular="tarea"
-        days={30}
         showInternals={isConsultant}
         areas={{
           rendimiento: {
             label: "Ver el rendimiento",
             href: "#klaviyo-rendimiento",
           },
-          emails: { label: "Ver los emails", href: "#klaviyo-emails" },
           medicion: { label: "Ver medición", href: "#klaviyo-medicion" },
         }}
       />
@@ -101,6 +81,9 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         days={90}
         showInternals={isConsultant}
       />
+      </div>
+      </details>
+      ) : null}
     </div>
   );
 }

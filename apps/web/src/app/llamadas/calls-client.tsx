@@ -34,7 +34,7 @@ import {
 import p from "../dashboard/client-pulse.module.css";
 import s from "./llamadas.module.css";
 
-// Llamadas usa el lenguaje del panel: .root trae los tokens (petróleo +
+// Llamadas usa el lenguaje del panel: .root trae los tokens (grafito +
 // azafrán para el cliente) y .consultant los cambia a grafito + mandarina.
 export function CallsTheme({
   isConsultant,

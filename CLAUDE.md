@@ -47,3 +47,10 @@ Otras decisiones arquitectonicas en `docs/decisions/`.
 
 No replica la web: solo lo más importante. Toda función nueva pasa primero por el *juez de alcance* de
 [apps/mobile/README.md](apps/mobile/README.md) (urgente, <1 min, valor real, sin pantalla grande); ante la duda va a la web.
+
+## Notificaciones
+
+Todo aviso nuevo sigue **[docs/decisions/ADR-0028-motor-de-notificaciones.md](docs/decisions/ADR-0028-motor-de-notificaciones.md)**:
+tipo y plantilla en el catálogo (`packages/contracts/src/notification-catalog.ts` y `notification-templates.ts`) y en `private.notification_category`,
+emisión con `notify()` (`apps/api/src/notify.ts`, nunca un `insert` directo) y `data-focus-id` en la
+pantalla destino.

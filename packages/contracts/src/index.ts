@@ -386,3 +386,5 @@ export * from "./panel-profitability.js";
 export * from "./campaigns-overview.js";
 export * from "./mailing-campaign-graph.js";
 export * from "./metric-analyst.js";
+export * from "./notification-catalog.js";
+export * from "./notification-templates.js";

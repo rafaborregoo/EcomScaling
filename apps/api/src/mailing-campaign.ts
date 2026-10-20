@@ -160,6 +160,8 @@ function realDeps(env: Env, context: AuthContext, sequence: SequenceRow): Mailin
       const result = await runMarketingContentDraft(env as LoadedApiEnv, context, organizationId, {
         content_type: "campaign",
         channel: "email_klaviyo",
+        mailing_sequence_id: sequence.id,
+        mailing_email_number: email.sequence_number,
         idempotency_key: email.attempt === 0
           ? `${sequence.id}:${email.sequence_number}`
           : `${sequence.id}:${email.sequence_number}:r${email.attempt}`,

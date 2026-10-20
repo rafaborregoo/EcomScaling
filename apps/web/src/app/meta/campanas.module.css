@@ -127,8 +127,10 @@
   border: 1px solid var(--line);
   border-radius: 14px;
 }
+/* Sin miniatura real del anuncio: una etiqueta del formato, no un cartel vacío. */
 .adImg {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: auto;
+  min-height: 28px;
   max-width: 100%;
   border-radius: 10px;
   display: grid;

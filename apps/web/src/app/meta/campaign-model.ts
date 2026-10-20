@@ -1,5 +1,4 @@
-import { formatMoney } from "@/lib/money";
-import { fmtNum } from "../dashboard/client-pulse-model";
+import { fmtCurrency, fmtNum } from "../dashboard/client-pulse-model";
 import type { CampaignBudget, MetaAdSetRow, MetaCampaignListRow } from "./campaign-types";
 
 export const PERIODS = [7, 30, 90, 365] as const;
@@ -23,7 +22,9 @@ export function campaignState(status: string | null) {
 
 export function money(value: number | null | undefined, currency: string | null) {
   if (value == null) return "—";
-  return currency ? formatMoney(value, currency) : `${fmtNum(value, 2)} (moneda no informada)`;
+  // Sin céntimos a partir de 100 y con miles agrupados: "4.002 €", no "4002,49 €".
+  const decimals = Math.abs(value) >= 100 ? 0 : 2;
+  return currency ? fmtCurrency(value, currency, decimals) : `${fmtNum(value, decimals)} (moneda no informada)`;
 }
 
 export function roasText(value: number | null) {
@@ -42,7 +43,7 @@ export function budgetText(budget: CampaignBudget, currency: string | null) {
 export function campaignAlert(row: MetaCampaignListRow, breakevenRoas: number | null): { text: string; tone: Tone } | null {
   if (row.rejected_ad_count > 0) return { text: row.rejected_ad_count === 1 ? "1 anuncio rechazado" : `${row.rejected_ad_count} anuncios rechazados`, tone: "bad" };
   if (row.learning_limited_ad_set_count > 0) return { text: "Aprendizaje limitado", tone: "warn" };
-  if (row.effective_status === "ACTIVE" && breakevenRoas != null && row.roas != null && row.roas < breakevenRoas) return { text: "Bajo el equilibrio", tone: "bad" };
+  if (row.effective_status === "ACTIVE" && breakevenRoas != null && row.roas != null && row.roas < breakevenRoas) return { text: "Por debajo de tu mínimo", tone: "bad" };
   if (row.learning_ad_set_count > 0) return { text: "Aprendiendo", tone: "acc" };
   return null;
 }

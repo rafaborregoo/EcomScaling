@@ -3,10 +3,12 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
-import { ZoneNoteMark, zoneAnchor } from "@/components/zone-notes";
+import { AiExplanation, MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
+import { ZoneCard, ZoneNoteMark, zoneAnchor } from "@/components/zone-notes";
 import { useCopilotAsk } from "@/components/copilot-ask";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArchiveIcon, CheckIcon, CloseIcon, MessageIcon, PlusIcon, Skeleton, toast } from "@/components/ui";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
@@ -14,12 +16,15 @@ import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
 import {
   changeText,
   clientReadable,
+  evidenceText,
   fmtCurrency,
   fmtEur,
   fmtNum,
   MIN_NEW_CUSTOMERS_FOR_CAC,
+  moneyFlow,
   monthlyWithProjection,
   pickFinding,
+  type Evidence,
   type PulseFinancial,
 } from "./client-pulse-model";
 import s from "./client-pulse.module.css";
@@ -152,7 +157,7 @@ export type Alert = {
 };
 export type Operations = { tasks: Task[]; alerts: Alert[] };
 
-export type Finding = { title: string; severity: string; evidence: string; area?: string };
+export type Finding = { title: string; severity: string; evidence: Evidence; area?: string };
 export type Diagnostic = {
   output_id: string;
   output_status: string;
@@ -163,13 +168,14 @@ export type Diagnostic = {
     sections?: Array<{ key: string; label: string; findings: Finding[] }>;
     findings: Finding[];
     recommendations: Array<{ action: string; priority: string }>;
+    warnings?: string[];
     proposed_writes: Array<{
       title: string;
       description: string;
       priority: string;
       related_product_id?: string | null;
       rationale?: string;
-      evidence?: string[];
+      evidence?: Evidence[];
       owner_role?: "cliente" | "consultor";
       due_hint?: string | null;
     }>;
@@ -234,7 +240,7 @@ export function Delta({ change, invert = false, suffix }: { change: number | nul
   );
 }
 
-export function Spark({ values }: { values: number[] }) {
+export function Spark({ values, color = "var(--store)" }: { values: number[]; color?: string }) {
   if (values.length < 2) return null;
   const width = 200;
   const height = 34;
@@ -250,16 +256,16 @@ export function Spark({ values }: { values: number[] }) {
   return (
     <div className={s.spark}>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-        <path className={s.sparkArea} d={`${d}L${width} ${height}L0 ${height}Z`} style={{ fill: "var(--store)", opacity: 0.12 }} />
+        <path className={s.sparkArea} d={`${d}L${width} ${height}L0 ${height}Z`} style={{ fill: color, opacity: 0.12 }} />
         <path
           className={s.sparkLine}
           d={d}
           pathLength={1}
-          style={{ fill: "none", stroke: "var(--store)", strokeWidth: 1.6, strokeLinejoin: "round" }}
+          style={{ fill: "none", stroke: color, strokeWidth: 1.6, strokeLinejoin: "round" }}
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <i style={{ top: `${((last[1] / height) * 100).toFixed(1)}%` }} />
+      <i style={{ top: `${((last[1] / height) * 100).toFixed(1)}%`, background: color }} />
     </div>
   );
 }
@@ -313,7 +319,7 @@ export type ChartPoint = { date: string; value: number; detail?: string };
 
 export type Pin = { index: number; title: string; source: string; date: string };
 
-export function SalesChart({ daily, previousAverage, averageLabel = "Media diaria del periodo anterior", pins, active, onPin, currencyCode, label = "Ventas netas por día" }: {
+export function SalesChart({ daily, previousAverage, averageLabel = "Media diaria del periodo anterior", pins, active, onPin, currencyCode, label = "Ventas netas por día", format }: {
   daily: ChartPoint[];
   previousAverage: number | null;
   averageLabel?: string;
@@ -322,6 +328,8 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
   onPin: (k: number) => void;
   currencyCode?: string | null;
   label?: string;
+  /** Formato de los valores cuando la serie no es dinero (pedidos, %). */
+  format?: (value: number) => string;
 }) {
   const chartId = useId();
   const ref = useRef<HTMLDivElement>(null);
@@ -351,7 +359,7 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
   const ticks = [...new Set(Array.from({ length: tickCount }, (_, k) => Math.round((k * (n - 1)) / Math.max(tickCount - 1, 1))))];
   const selectedIndex = hover ?? (active !== null ? pins[active]?.index ?? null : null);
   const shown = selectedIndex !== null && n > 0 ? Math.max(0, Math.min(n - 1, selectedIndex)) : null;
-  const formatChartMoney = (value: number) => currencyCode ? fmtCurrency(value, currencyCode) : fmtEur(value);
+  const formatChartMoney = format ?? ((value: number) => currencyCode ? fmtCurrency(value, currencyCode) : fmtEur(value));
 
   return (
     <div ref={ref} className={s.chart} role="group" aria-label={label}>
@@ -432,26 +440,6 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
           })}
         </svg>
       ) : null}
-      {n > 1 ? (
-        <div className={s.chartControl}>
-          <label htmlFor={`${chartId}-day`}>Explorar por día</label>
-          <input
-            id={`${chartId}-day`}
-            type="range"
-            min={0}
-            max={n - 1}
-            value={shown ?? n - 1}
-            onChange={(event) => setHover(Number(event.target.value))}
-            onFocus={() => setHover(shown ?? n - 1)}
-            onBlur={() => setHover(null)}
-            aria-valuetext={`${dayLabel(daily[shown ?? n - 1].date, true)}: ${formatChartMoney(daily[shown ?? n - 1].value)}`}
-          />
-          <output htmlFor={`${chartId}-day`}>
-            {dayLabel(daily[shown ?? n - 1].date, true)} · <b>{formatChartMoney(daily[shown ?? n - 1].value)}</b>
-            {daily[shown ?? n - 1].detail ? ` · ${daily[shown ?? n - 1].detail}` : ""}
-          </output>
-        </div>
-      ) : null}
       {shown !== null && width > 0 ? (
         <div
           className={s.tip}
@@ -518,6 +506,81 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
   );
 }
 
+function ConsultantAgentInsights({ monitor, stock, email, loading }: {
+  monitor?: Diagnostic;
+  stock?: Diagnostic;
+  email?: Diagnostic;
+  loading: { monitor: boolean; stock: boolean; email: boolean };
+}) {
+  const groups = [
+    { key: "store", label: "Tienda", agents: [{ key: "monitor", label: "Salud del negocio", diagnostic: monitor, loading: loading.monitor }, { key: "stock", label: "Stock", diagnostic: stock, loading: loading.stock }] },
+    { key: "email", label: "Correos", agents: [{ key: "email-analyst", label: "Análisis de email", diagnostic: email, loading: loading.email }] },
+  ];
+
+  return (
+    <section className={s.agentInsights} aria-labelledby="pulse-agent-insights">
+      <h2 className={s.pBlockT} id="pulse-agent-insights">Qué ha detectado la IA</h2>
+      <div className={s.agentGroups}>
+        {groups.map((group) => (
+          <section className={s.agentGroup} key={group.key} aria-label={group.label}>
+            <h3>{group.label}</h3>
+            {group.agents.map((agent) => {
+              const diagnostic = agent.diagnostic;
+              if (!diagnostic) return (
+                <article className={s.agentReadout} key={agent.key}>
+                  <header className={s.agentReadoutHead}>
+                    <h4>{agent.label}</h4>
+                    <span>{agent.loading ? "Cargando" : "Sin análisis"}</span>
+                  </header>
+                  <p className={s.agentEmpty}>{agent.loading ? "Cargando la última lectura automática…" : "Todavía no hay una lectura automática disponible."}</p>
+                </article>
+              );
+              const summary = clientReadable(diagnostic.output.headline ?? diagnostic.output.answer);
+              const sections = diagnostic.output.sections?.filter((section) => section.findings.length) ?? [];
+              const findings = diagnostic.output.findings ?? [];
+              return (
+                <article className={s.agentReadout} key={agent.key}>
+                  <header className={s.agentReadoutHead}>
+                    <h4>{agent.label}</h4>
+                    <span>{ago(diagnostic.generated_at)}{diagnostic.stale ? " · Datos antiguos" : ""}</span>
+                  </header>
+                  {summary ? <p className={s.agentSummary}>{summary}</p> : null}
+                  {sections.length ? (
+                    <div className={s.agentFindingSections}>
+                      {sections.map((section) => (
+                        <section key={section.key}>
+                          <h5>{clientReadable(section.label) ?? section.label}</h5>
+                          <ul>
+                            {section.findings.slice(0, 3).map((finding, index) => (
+                              <li key={`${finding.title}-${index}`}>
+                                <strong>{clientReadable(finding.title) ?? finding.title}</strong>
+                                {finding.evidence ? <span>{clientReadable(evidenceText(finding.evidence)) ?? evidenceText(finding.evidence)}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      ))}
+                    </div>
+                  ) : findings.length ? (
+                    <ul className={s.agentFindingList}>
+                      {findings.slice(0, 4).map((finding, index) => (
+                        <li key={`${finding.title}-${index}`}>
+                          <strong>{clientReadable(finding.title) ?? finding.title}</strong>
+                          {finding.evidence ? <span>{clientReadable(evidenceText(finding.evidence)) ?? evidenceText(finding.evidence)}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : !summary ? <p className={s.agentEmpty}>El análisis no ha generado un resumen legible.</p> : null}
+                </article>
+              );
+            })}
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // "Qué hacer": propuestas de la IA + avisos + tareas en una sola lista
 // ---------------------------------------------------------------------------
@@ -581,6 +644,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   const [commenting, setCommenting] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
   const [openComments, setOpenComments] = useState<string | null>(null);
+  const [openSteps, setOpenSteps] = useState<string | null>(null);
   const [outcome, setOutcome] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
@@ -816,7 +880,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             {laterCount ? (
               <>
                 {" · "}
-                <a href="/tareas">{laterCount} más a largo plazo</a>
+                <Link href="/tareas">{laterCount} más a largo plazo</Link>
               </>
             ) : null}
             {urgent ? (
@@ -853,7 +917,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
               const decided = decisions[item.outputId]?.[item.index];
               const pendingOthers = item.total - Object.keys(decisions[item.outputId] ?? {}).length;
               return (
-                <li key={item.key} className={cx(s.qi, s.qiProposal, "hover-sweep")}>
+                <li key={item.key} className={cx(s.qi, s.qiProposal, "task-lift")}>
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                   <div>
                     <p className={s.qiK}>
@@ -891,7 +955,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             }
             if (item.kind === "alert") {
               return (
-                <li key={item.key} className={cx(s.qi, "hover-sweep")}>
+                <li key={item.key} className={cx(s.qi, "task-lift")}>
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                   <div>
                     <p className={s.qiK} style={{ color: "var(--warn)" }}>Aviso</p>
@@ -907,9 +971,33 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             const overdue = Boolean(task.due_at && Date.parse(task.due_at.slice(0, 10)) < Date.parse(new Date(now).toISOString().slice(0, 10)));
             const rank = PRIORITY_RANK[item.priority] ?? 2;
             const proposed = task.status === "proposed";
+            // Cerrar es la acción principal de una tarea propia (del cliente o del
+            // consultor): el círculo de la izquierda. Las del otro no se cierran desde aquí.
+            const canClose = !proposed && item.mine;
+            const steps = task.description ? splitSteps(task.description) : [];
+            const notes = (task.task_comments ?? []).filter((c) => !c.is_internal && !c.body.startsWith("Resultado:"));
+            const stepsOpen = openSteps === task.id;
+            const notesOpen = openComments === task.id;
             return (
-              <li key={item.key} className={cx(s.qi, proposed && s.qiProposal, "hover-sweep")}>
-                <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
+              <li key={item.key} className={cx(s.qi, s.qiTask, proposed && s.qiProposal, "task-lift")}>
+                {canClose ? (
+                  <button
+                    type="button"
+                    className={cx(s.qiCheck, rank === 0 ? s.qiCheckUrgent : rank === 1 ? s.qiCheckHigh : undefined)}
+                    aria-label="Marcar como hecha"
+                    title="Marcar como hecha"
+                    aria-pressed={closing === task.id}
+                    disabled={busy === task.id}
+                    onClick={() => {
+                      setClosing(closing === task.id ? null : task.id);
+                      setOutcome("");
+                    }}
+                  >
+                    <CheckIcon aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span aria-hidden="true" />
+                )}
                 <div>
                   {proposed ? (
                     <p className={s.qiK}>
@@ -917,6 +1005,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                     </p>
                   ) : null}
                   <p className={s.qiT}>{task.title}</p>
+                  {/* Una sola línea de datos: prioridad, fecha, de quién, pasos y comentarios. */}
                   <div className={s.qiM}>
                     {/* Solo se nombra la prioridad cuando cambia algo: urgente o alta. */}
                     {rank <= 1 ? (
@@ -933,43 +1022,42 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                     {item.mine ? null : who(false, task.assignee_name)}
                     {task.status === "in_progress" ? <span className={cx(s.chip, s.chipAcc)}>En curso</span> : null}
                     {asConsultant && task.is_visible_to_client === false ? <span className={s.chip}>Interna · el cliente no la ve</span> : null}
-                    {item.mine && !asConsultant && task.status === "pending" ? (
-                      <button type="button" className={s.linkBtn} disabled={busy === task.id} onClick={() => void setStatus(task, "in_progress")}>
-                        Empezar
+                    {steps.length ? (
+                      <button type="button" className={s.qiToggle} aria-expanded={stepsOpen} onClick={() => setOpenSteps(stepsOpen ? null : task.id)}>
+                        {steps.length > 1 ? `${steps.length} pasos` : "Detalle"}
+                      </button>
+                    ) : null}
+                    {notes.length ? (
+                      <button type="button" className={cx(s.qiToggle, s.qiToggleNote)} aria-expanded={notesOpen} onClick={() => setOpenComments(notesOpen ? null : task.id)}>
+                        <MessageIcon aria-hidden="true" />
+                        {notes.length}
                       </button>
                     ) : null}
                   </div>
-                  {task.description ? <TaskDetail text={task.description} label="Ver pasos" /> : null}
-                  {(() => {
-                    const notes = (task.task_comments ?? []).filter((c) => !c.is_internal && !c.body.startsWith("Resultado:"));
-                    if (!notes.length) return null;
-                    const open = openComments === task.id;
-                    return (
-                      <>
-                        <button
-                          type="button"
-                          className={s.cmtBadge}
-                          aria-expanded={open}
-                          onClick={() => setOpenComments(open ? null : task.id)}
-                        >
-                          {notes.length === 1 ? "Comentario" : "Comentarios"} ({notes.length})
-                        </button>
-                        {open ? (
-                          <ul className={s.cmtList}>
-                            {notes
-                              .slice()
-                              .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
-                              .map((c, i) => (
-                                <li key={`${c.created_at}-${i}`}>
-                                  {c.body}
-                                  <small>{dayLabel(c.created_at, true)}</small>
-                                </li>
-                              ))}
-                          </ul>
-                        ) : null}
-                      </>
-                    );
-                  })()}
+                  {stepsOpen ? (
+                    steps.length > 1 ? (
+                      <ol className={s.qiSteps}>
+                        {steps.map((step, index) => (
+                          <li key={index}>{step}</li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className={s.qiSteps}>{steps[0]}</p>
+                    )
+                  ) : null}
+                  {notesOpen ? (
+                    <ul className={s.cmtList}>
+                      {notes
+                        .slice()
+                        .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+                        .map((c, i) => (
+                          <li key={`${c.created_at}-${i}`}>
+                            {c.body}
+                            <small>{dayLabel(c.created_at, true)}</small>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : null}
                   {commenting === task.id ? (
                     <form className={s.cmtBox} onSubmit={(event) => void submitComment(event, task)}>
                       <label className="sr-only" htmlFor={`pulse-comment-${task.id}`}>Comentario sobre la tarea</label>
@@ -1033,21 +1121,16 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                   {proposed && !asConsultant ? (
                   <>
                     <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Aceptar tarea" title="Aceptar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "pending")}>
-                      <CheckIcon aria-hidden="true" />
+                      <CheckIcon aria-hidden="true" /><span className={s.btnLabel}>Aceptar</span>
                     </button>
                     <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconNo)} aria-label="Rechazar tarea" title="Rechazar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
-                      <CloseIcon aria-hidden="true" />
+                      <CloseIcon aria-hidden="true" /><span className={s.btnLabel}>Descartar</span>
                     </button>
                   </>
-                  ) : proposed ? null : item.mine && !asConsultant ? (
-                  <>
-                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Marcar como hecha" title="Marcar como hecha" disabled={busy === task.id} onClick={() => { setClosing(task.id); setOutcome(""); }}>
-                      <CheckIcon aria-hidden="true" />
-                    </button>
+                  ) : canClose ? (
                     <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn)} aria-label="Archivar: ya no me interesa" title="Archivar: ya no me interesa" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
-                      <ArchiveIcon aria-hidden="true" />
+                      <ArchiveIcon aria-hidden="true" /><span className={s.btnLabel}>No me interesa</span>
                     </button>
-                  </>
                   ) : null}
                   {consultant || asConsultant ? (
                     <button
@@ -1058,7 +1141,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                       onClick={() => { setCommenting(commenting === task.id ? null : task.id); setCommentText(""); }}
                     >
                       <MessageIcon aria-hidden="true" />
-                      <PlusIcon aria-hidden="true" className={s.cmtPlus} />
+                      <PlusIcon aria-hidden="true" className={s.cmtPlus} /><span className={s.btnLabel}>Comentar</span>
                     </button>
                   ) : null}
                 </div>
@@ -1203,9 +1286,9 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
         </button>
       </form>
       <div className={s.linkRow}>
-        <a className={cx(s.btn, s.ghost, s.sm)} href="/mensajes">
+        <Link className={cx(s.btn, s.ghost, s.sm)} href="/mensajes">
           Abrir el chat con adjuntos
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -1215,7 +1298,7 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
 // Vista
 // ---------------------------------------------------------------------------
 
-export function ClientPulse({ userId, organizationId, organizationName, connectionId, consultant, asConsultant = false, extraProposals = [], onReload, extraKpis, sideTop }: {
+export function ClientPulse({ userId, organizationId, organizationName, connectionId, consultant, asConsultant = false, extraProposals = [], onReload, extraKpis, extraKpiDetails, sideTop }: {
   userId: string;
   organizationId: string;
   organizationName: string;
@@ -1226,8 +1309,10 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   /** Propuestas de agentes que solo ve el consultor (planes semanal y mensual). */
   extraProposals?: Diagnostic[];
   onReload?: () => void;
-  /** Cifras de más que solo necesita el consultor, al final de la fila de KPIs. */
-  extraKpis?: ReactNode;
+  /** Cifras de más que solo necesita el consultor, al final de la fila de KPIs. Reciben qué cifra está abierta y cómo abrir la suya. */
+  extraKpis?: (open: string | null, toggle: (key: string) => () => void) => ReactNode;
+  /** Detalle de esas cifras de más, por la misma clave que usan en `toggle`. */
+  extraKpiDetails?: Record<string, KpiDetailData>;
   /** Tarjetas propias del consultor, arriba de la columna derecha. */
   sideTop?: ReactNode;
 }) {
@@ -1248,12 +1333,14 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const plannerOrgAi = useCachedQuery<Diagnostic>(scope ? `${base}/ai/task-planner?days=30` : null);
   // Sin consultor, el análisis de email es parte del acompañamiento; con
   // consultor lo filtra él.
-  const emailAi = useCachedQuery<Diagnostic>(consultant && !asConsultant ? null : `${base}/ai/email-analyst?days=30${scope}`);
+  const emailAi = useCachedQuery<Diagnostic>(consultant && !asConsultant ? null : `${base}/ai/email-analyst${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`);
   const integrations = useCachedQuery<IntegrationsPayload>(`${base}/integrations`);
 
   const ask = useCopilotAsk();
   const router = useRouter();
   const [today] = useState(() => new Date());
+  // Cifra abierta: su gráfico, la lectura de la IA y a dónde ir a ver más.
+  const [openKpi, setOpenKpi] = useState<string | null>(null);
 
   function askCopilot(question: string, focusLabel: string) {
     ask({ question, focusLabel, reference: { period_label: "Últimos 30 días", filters: { days: "30" } } });
@@ -1357,12 +1444,18 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         data.stock.out_of_stock_items ? `${fmtNum(data.stock.out_of_stock_items)} agotados` : null,
         data.stock.low_stock_items ? `${fmtNum(data.stock.low_stock_items)} con stock bajo` : null,
       ].filter(Boolean).join(" · "),
-      href: "/dashboard?tab=shopify",
+      href: withPortalRouteContext(
+        data.stock.out_of_stock_items > 0
+          ? "/shopify/inventario?filter=out"
+          : "/shopify/inventario?filter=low",
+        organizationId,
+        connectionId,
+      ),
       action: "Ver stock",
     });
   }
   if (data && !financialCurrencyComparable) {
-    signals.push({ key: "currency", tone: "warn", text: "Rentabilidad pendiente de validar la moneda", href: "/configuracion?section=rentabilidad", action: "Revisar" });
+    signals.push({ key: "currency", tone: "warn", text: "Rentabilidad pendiente de validar la moneda", href: withPortalRouteContext("/configuracion?section=rentabilidad", organizationId, connectionId), action: "Revisar" });
   } else if (financial && !showProfit) {
     signals.push({
       key: "profit",
@@ -1372,12 +1465,12 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         : financial.has_settings
         ? `Beneficio sin calcular: faltan costes de ${fmtNum(financial.items_without_cost)} producto(s)`
         : "Beneficio sin calcular: faltan costes y gastos",
-      href: financial.has_settings ? "/dashboard?tab=shopify" : "/configuracion?section=rentabilidad",
+      href: withPortalRouteContext(financial.has_settings ? "/shopify" : "/configuracion?section=rentabilidad", organizationId, connectionId),
       action: "Completar",
     });
   }
   if (revenueTarget !== null && december && december.value < revenueTarget) {
-    signals.push({ key: "goal", tone: "warn", text: `Por debajo del ritmo para ${formatStoreMoney(revenueTarget)} al mes`, href: "/informes", action: "Ver informe" });
+    signals.push({ key: "goal", tone: "warn", text: `Por debajo del ritmo para ${formatStoreMoney(revenueTarget)} al mes`, href: withPortalRouteContext("/informes", organizationId, connectionId), action: "Ver informe" });
   }
 
   const channels = [
@@ -1385,7 +1478,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       key: "shopify",
       name: "Tienda online",
       color: "var(--store)",
-      href: "/dashboard?tab=shopify",
+      href: withPortalRouteContext("/shopify", organizationId, connectionId),
       value: data?.funnel?.has_sessions ? `${fmtNum(data.funnel.sessions)} sesiones` : `${fmtNum(data?.sales.orders_count ?? 0)} pedidos`,
       detail: `Ticket medio ${formatStoreMoney(data?.sales.aov ?? 0, 2)}`,
     },
@@ -1393,7 +1486,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       key: "meta",
       name: "Meta Ads",
       color: "var(--meta)",
-      href: hasMeta ? "/dashboard?tab=meta" : "/integraciones/meta",
+      href: withPortalRouteContext(hasMeta ? "/meta" : "/integraciones/meta", organizationId, connectionId),
       value: hasMeta && metaAcq && financialCurrencyComparable && metaAcq.roas != null ? `ROAS ${fmtNum(metaAcq.roas, 2)}×` : hasMeta ? "Conectado" : "Sin conectar",
       detail: hasMeta && metaAcq && financialCurrencyComparable ? `${formatStoreMoney(metaAcq.spend)} invertidos · atribuido por Meta` : hasMeta ? "Importes pendientes de validar la moneda" : "Conecta tu cuenta publicitaria",
     },
@@ -1401,11 +1494,124 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       key: "klaviyo",
       name: "Klaviyo",
       color: "var(--klaviyo)",
-      href: hasKlaviyo ? "/dashboard?tab=klaviyo" : "/integraciones/klaviyo",
+      href: withPortalRouteContext(hasKlaviyo ? "/klaviyo" : "/integraciones/klaviyo", organizationId, connectionId),
       value: hasKlaviyo && klaviyo.data && klaviyoCurrencyComparable ? formatStoreMoney(klaviyo.data.totals.revenue) : hasKlaviyo ? "Conectado" : "Sin conectar",
       detail: hasKlaviyo && klaviyoCurrencyComparable ? "Atribuidos por Klaviyo" : hasKlaviyo ? "Importes pendientes de validar la moneda" : "Conecta tu email",
     },
   ];
+
+  // ---- detalle de la cifra abierta ----
+  const toggleKpi = (key: string) => () => setOpenKpi((current) => (current === key ? null : key));
+  const route = (href: string) => withPortalRouteContext(href, organizationId, connectionId);
+  const iaTag = asConsultant ? "A02" : "IA";
+  // A02 (salud del negocio) no tiene una ficha por cifra: se busca su hallazgo sobre el tema.
+  const a02Reading = (pattern: RegExp) => {
+    const finding = findingFor(diagnostic, pattern);
+    if (!finding) return null;
+    const evidence = finding.evidence ? clientReadable(evidenceText(finding.evidence)) : null;
+    return (
+      <p className={s.aiLine}>
+        <span className={s.ia}>{iaTag}</span>
+        {clientReadable(finding.title) ?? finding.title}
+        {evidence ? <span className={s.muted}> · {evidence}</span> : null}
+      </p>
+    );
+  };
+  // A29 (analista de métricas) cuando la cifra tiene ficha; si no, A02.
+  const a29Reading = (id: "conversion" | "cac_new", fallback: RegExp) => {
+    const analysis = verdictOf(id);
+    return analysis && analysis.verdict !== "insufficient" ? <AiExplanation path={analysis.explain_path} /> : a02Reading(fallback);
+  };
+  const perDay = (total: number | null | undefined) => (total != null && daily.length ? total / daily.length : null);
+  const flow = showProfit && financial ? moneyFlow(financial) : [];
+  const flowBase = Math.max(...flow.map((row) => Math.abs(row.value)), 1);
+  const kpiDetails: Record<string, KpiDetailData> = {
+    sales: {
+      title: "Ventas netas",
+      chart: (
+        <SalesChart
+          daily={daily.map((d) => ({ date: d.date, value: d.net_sales, detail: `${fmtNum(d.orders_count)} pedidos` }))}
+          previousAverage={perDay(previous?.sales.net_sales)}
+          pins={[]}
+          active={null}
+          onPin={() => undefined}
+          currencyCode={data?.currency_code}
+        />
+      ),
+      ai: a02Reading(/ventas|ingres|factur|ticket/i),
+      href: route("/shopify"),
+      action: "Ver ventas en Shopify",
+    },
+    orders: {
+      title: "Pedidos",
+      chart: (
+        <SalesChart
+          daily={daily.map((d) => ({ date: d.date, value: d.orders_count }))}
+          previousAverage={perDay(previous?.sales.orders_count)}
+          pins={[]}
+          active={null}
+          onPin={() => undefined}
+          label="Pedidos por día"
+          format={(value) => fmtNum(value, value % 1 ? 1 : 0)}
+        />
+      ),
+      ai: a02Reading(/pedido|compra|ticket/i),
+      href: route("/shopify"),
+      action: "Ver pedidos en Shopify",
+    },
+    profit: {
+      title: "Beneficio neto",
+      // Sin serie diaria de beneficio: la cascada de ventas a beneficio del periodo.
+      chart: flow.length ? (
+        <ul className={s.kdFlow} aria-label="De las ventas al beneficio">
+          {flow.map((row) => (
+            <li key={row.label} data-kind={row.kind}>
+              <span>{row.label}</span>
+              <i style={{ width: `${(Math.abs(row.value) / flowBase) * 100}%` }} aria-hidden="true" />
+              <b className={s.num}>{formatStoreMoney(row.value)}</b>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={s.trackTxt}>Completa los costes para ver de dónde sale el beneficio.</p>
+      ),
+      ai: a02Reading(/benefic|margen|rentab|coste/i),
+      href: route(showProfit ? "/informes" : "/configuracion?section=rentabilidad"),
+      action: showProfit ? "Ver el informe de rentabilidad" : "Completar costes",
+    },
+    conversion: {
+      title: "Conversión",
+      chart: data?.funnel?.has_sessions ? (
+        <SalesChart
+          daily={(data.funnel_daily ?? []).map((d) => ({ date: d.date, value: (d.conversion_rate_own ?? 0) * 100 }))}
+          previousAverage={previous?.conversion_rate_own != null ? previous.conversion_rate_own * 100 : null}
+          averageLabel="Periodo anterior"
+          pins={[]}
+          active={null}
+          onPin={() => undefined}
+          label="Conversión por día"
+          format={(value) => `${fmtNum(value, 2)} %`}
+        />
+      ) : (
+        <p className={s.trackTxt}>Sin datos de sesiones todavía.</p>
+      ),
+      ai: a29Reading("conversion", /conversi|embudo|carrito|checkout/i),
+      href: route("/shopify"),
+      action: "Ver el embudo en Shopify",
+    },
+    cac: {
+      title: "CAC combinado",
+      chart: financial ? (
+        <p className={s.trackTxt}>
+          {formatStoreMoney(financial.ads_spend)} en publicidad entre {fmtNum(financial.new_customers ?? 0)} clientes nuevos.
+        </p>
+      ) : null,
+      ai: a29Reading("cac_new", /cac|adquisi|captaci|nuevos/i),
+      href: route(hasMeta ? "/meta" : "/informes"),
+      action: hasMeta ? "Ver campañas en Meta" : "Ver informes",
+    },
+  };
+  const detail = openKpi ? kpiDetails[openKpi] ?? extraKpiDetails?.[openKpi] ?? null : null;
 
   return (
     <div className={cx(s.root, s.prio)}>
@@ -1459,7 +1665,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           {staleSources.every((p) => ["connected", "syncing"].includes(p.connection?.status ?? ""))
             ? `sin sincronizar ${ago(staleSources[0].connection?.last_sync_at ?? null)}: las cifras pueden no estar al día.`
             : "necesita reconectarse."}
-          <a href="/integraciones" className="hover-sweep">Revisar</a>
+          <Link href="/integraciones" className="hover-sweep">Revisar</Link>
         </p>
       ) : null}
 
@@ -1467,20 +1673,26 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       {data ? (
         <div className={s.pKpis} aria-label="Cifras clave" id={showCac ? undefined : "insight-metric-cac_new"}>
           <Kpi
+            open={openKpi === "sales"}
+            onOpen={toggleKpi("sales")}
             label="Ventas netas"
             value={formatStoreMoney(data.sales.net_sales)}
             delta={<Delta change={salesChangePct(data.sales.net_sales, previous?.sales.net_sales ?? null)} />}
             vs={previous ? formatStoreMoney(previous.sales.net_sales) : null}
-            slot={<Spark values={daily.map((d) => d.net_sales)} />}
+            slot={<Spark values={daily.map((d) => d.net_sales)} color="var(--kpi-accent)" />}
           />
           <Kpi
+            open={openKpi === "orders"}
+            onOpen={toggleKpi("orders")}
             label="Pedidos"
             value={fmtNum(data.sales.orders_count)}
             delta={<Delta change={salesChangePct(data.sales.orders_count, previous?.sales.orders_count ?? null)} />}
             vs={previous ? fmtNum(previous.sales.orders_count) : null}
-            slot={<Spark values={daily.map((d) => d.orders_count)} />}
+            slot={<Spark values={daily.map((d) => d.orders_count)} color="var(--kpi-accent)" />}
           />
           <Kpi
+            open={openKpi === "profit"}
+            onOpen={toggleKpi("profit")}
             label="Beneficio neto"
             value={showProfit && financial ? formatStoreMoney(financial.net_profit) : "—"}
             delta={showProfit && financial && previous?.financial.lines_without_metrics === 0 ? <Delta change={salesChangePct(financial.net_profit, previous.financial.net_profit)} /> : null}
@@ -1499,6 +1711,8 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             }
           />
           <Kpi
+            open={openKpi === "conversion"}
+            onOpen={toggleKpi("conversion")}
             verdict={<MetricVerdict analysis={verdictOf("conversion")} />}
             anchorId="insight-metric-conversion"
             label="Conversión"
@@ -1511,7 +1725,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             vs={previous?.conversion_rate_own != null ? `${fmtNum(previous.conversion_rate_own * 100, 2)} %` : null}
             slot={
               data.funnel?.has_sessions ? (
-                <Spark values={data.funnel_daily.map((d) => d.conversion_rate_own ?? 0)} />
+                <Spark values={data.funnel_daily.map((d) => d.conversion_rate_own ?? 0)} color="var(--kpi-accent)" />
               ) : (
                 <p className={s.trackTxt}>Sin datos de sesiones todavía</p>
               )
@@ -1519,6 +1733,8 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           />
           {showCac && financial?.cac_blended != null ? (
             <Kpi
+              open={openKpi === "cac"}
+              onOpen={toggleKpi("cac")}
               verdict={<MetricVerdict analysis={verdictOf("cac_new")} />}
               anchorId="insight-metric-cac_new"
               label="CAC combinado"
@@ -1526,8 +1742,22 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               slot={<p className={s.trackTxt}>Publicidad entre clientes nuevos</p>}
             />
           ) : null}
-          {extraKpis}
+          {extraKpis?.(openKpi, toggleKpi)}
         </div>
+      ) : null}
+
+      {detail ? (
+        <KpiDetail
+          {...detail}
+          ai={detail.ai ?? <p className={s.aiLine}>La IA no ha señalado nada sobre esta cifra en su último análisis.</p>}
+          onClose={() => setOpenKpi(null)}
+          onAsk={() =>
+            askCopilot(
+              `¿Cómo va ${detail.title.toLowerCase()} en ${yourStore} estos 30 días y qué haría para mejorar esta cifra?`,
+              detail.title,
+            )
+          }
+        />
       ) : null}
 
       {/* ------------------------------ Prioridades ------------------------------ */}
@@ -1549,6 +1779,16 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               titleId="pulse-hoy"
             />
           )}
+          {asConsultant && connectionId ? (
+            <div className={s.pMainExtras}>
+              <ConsultantAgentInsights
+                monitor={monitor.data}
+                stock={stockAi.data}
+                email={emailAi.data}
+                loading={{ monitor: monitor.isLoading, stock: stockAi.isLoading, email: emailAi.isLoading }}
+              />
+            </div>
+          ) : null}
         </section>
 
         <aside className={s.pSide} aria-label="Vigilar y canales">
@@ -1561,10 +1801,10 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               <ul className={s.pList}>
                 {signals.map((signal) => (
                   <li key={signal.key}>
-                    <a className={cx(s.pRow, "hover-sweep")} href={signal.href}>
+                    <Link className={cx(s.pRow, "hover-sweep")} href={signal.href}>
                       <span className={cx(s.dot, signal.tone === "bad" ? s.dotBad : s.dotWarn)} aria-hidden="true" />
                       <span className={s.pRowT}>{signal.text}</span>
-                    </a>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -1579,14 +1819,14 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               <ul className={s.pList}>
                 {channels.map((channel) => (
                   <li key={channel.key}>
-                    <a className={cx(s.pRow, "hover-sweep")} href={channel.href}>
+                    <Link className={cx(s.pRow, "hover-sweep")} href={channel.href}>
                       <span className={s.dot} style={{ background: channel.color }} aria-hidden="true" />
                       <span className={s.pRowT}>
                         {channel.name}
                         <small>{channel.detail}</small>
                       </span>
                       <span className={cx(s.pRowV, s.num)}>{channel.value}</span>
-                    </a>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -1596,7 +1836,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 
           <section className={s.pBlock} aria-label={asConsultant ? "Tu cliente" : consultant ? "Tu consultor" : "Tu copiloto"}>
             {asConsultant ? (
-              <a className={cx(s.pRow, "hover-sweep")} href="/mensajes">
+              <Link className={cx(s.pRow, "hover-sweep")} href="/mensajes">
                 <span className={s.pAvatar} aria-hidden="true">
                   {organizationName.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
                 </span>
@@ -1604,9 +1844,9 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                   {organizationName}
                   <small>Hablar con el cliente</small>
                 </span>
-              </a>
+              </Link>
             ) : consultant ? (
-              <a className={cx(s.pRow, "hover-sweep")} href="/mensajes">
+              <Link className={cx(s.pRow, "hover-sweep")} href="/mensajes">
                 <span className={s.pAvatar} aria-hidden="true">
                   {(consultant.full_name ?? "C").split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
                 </span>
@@ -1614,7 +1854,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                   {consultant.full_name ?? "Tu consultor"}
                   <small>Tu consultor en E-NORA</small>
                 </span>
-              </a>
+              </Link>
             ) : (
               <button
                 type="button"
@@ -1655,7 +1895,69 @@ export function usePins(daily: Array<{ date: string }> | undefined, alerts: Aler
   }, [daily, alerts]);
 }
 
-export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId }: {
+export type KpiDetailData = { title: string; chart: ReactNode; ai: ReactNode; href: string; action: string };
+
+/** Detalle de una cifra abierta: gráfico, lectura (IA o datos) y a dónde ir a ver más. */
+export function KpiDetail({ title, chart, ai, href, action, onClose, onAsk }: {
+  title: string;
+  chart: ReactNode;
+  ai: ReactNode;
+  href: string;
+  action: string;
+  onClose: () => void;
+  onAsk: () => void;
+}) {
+  return (
+    <section id="pulse-kpi-detail" className={s.kpiDetail} aria-label={`Detalle de ${title}`}>
+      <header className={s.kpiDetailH}>
+        <h2>
+          {title}
+          <small>Últimos 30 días</small>
+        </h2>
+        <button type="button" className={cx(s.btn, s.ghost, s.sm, s.kpiDetailX)} aria-label="Cerrar detalle" onClick={onClose}>
+          <CloseIcon aria-hidden="true" />
+        </button>
+      </header>
+      {chart}
+      {ai}
+      <div className={s.kpiDetailF}>
+        <Link className={cx(s.btn, s.sm)} href={href}>
+          {action}
+        </Link>
+        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={onAsk}>
+          Preguntar a la IA
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** Barras por cliente o tienda: pasar el ratón resalta, pulsar abre ese cliente. */
+export function KpiBars({ rows, onSelect }: {
+  rows: Array<{ key: string; id: string; name: string; value: number | null; text: string; tone?: "bad" }>;
+  onSelect: (id: string) => void;
+}) {
+  const max = Math.max(...rows.map((row) => Math.abs(row.value ?? 0)), 1);
+  if (!rows.length) return <p className={s.trackTxt}>Sin datos de los clientes todavía.</p>;
+  return (
+    <ul className={s.kdFlow} aria-label="Por cliente">
+      {rows.map((row) => (
+        <li key={row.key}>
+          <button type="button" className={s.kdRow} data-tone={row.tone} onClick={() => onSelect(row.id)}>
+            <span>{row.name}</span>
+            <i style={{ width: `${row.value != null ? (Math.abs(row.value) / max) * 100 : 0}%` }} aria-hidden="true" />
+            <b className={s.num}>{row.text}</b>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId, open = false, onOpen }: {
+  /** Con `onOpen`, toda la tarjeta abre su detalle (gráfico, IA y acción) debajo de la fila. */
+  open?: boolean;
+  onOpen?: () => void;
   label: string;
   value: string;
   delta?: ReactNode;
@@ -1668,7 +1970,18 @@ export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId }: {
   anchorId?: string;
 }) {
   return (
-    <div id={anchorId} className={cx(s.kpi, "zone-card")} role="group" aria-label={label}>
+    <ZoneCard anchor={zoneAnchor("kpi", label)} label={label} id={anchorId} className={cx(s.kpi, onOpen && s.kpiBtn, open && s.kpiOn)} previewClassName={cx(s.root, s.kpiStage)} role="group" aria-label={label}>
+      {/* Capa clicable bajo los botones propios de la tarjeta (punto del analista, notas). */}
+      {onOpen ? (
+        <button
+          type="button"
+          className={s.kpiHit}
+          aria-expanded={open}
+          aria-controls={open ? "pulse-kpi-detail" : undefined}
+          aria-label={`${open ? "Cerrar" : "Ver"} el detalle de ${label}`}
+          onClick={onOpen}
+        />
+      ) : null}
       {/* div y no p: `verdict` es un Popover con botón y capa, que dentro de un <p> rompe la hidratación. */}
       <div className={s.kpiL}>
         {verdict}
@@ -1688,6 +2001,6 @@ export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId }: {
         )}
       </p>
       <div className={s.slot}>{slot}</div>
-    </div>
+    </ZoneCard>
   );
 }

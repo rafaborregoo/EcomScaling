@@ -264,7 +264,7 @@ function LifetimeMetrics({
             series={[
               { key: "Ingresos", label: "Ingresos", color: "#2563eb" },
               ...(hasCompleteContribution
-                ? [{ key: "Margen", label: "Margen", color: "#15805d" }]
+                ? [{ key: "Margen", label: "Margen", color: "#3d3b3a" }]
                 : []),
             ]}
             height={220}

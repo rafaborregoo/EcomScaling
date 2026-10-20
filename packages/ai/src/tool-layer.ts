@@ -139,6 +139,7 @@ const readTools = [
   "get_organization_profile",
   "get_brand_profile",
   "get_strategic_plan",
+  "get_strategic_plan_version",
   "get_current_milestone",
   "list_open_tasks",
   "list_open_alerts",
@@ -146,6 +147,10 @@ const readTools = [
   "get_task_detail",
   "get_call_history",
   "get_call_detail",
+  "get_knowledge_document",
+  "get_specialist_run_detail",
+  "get_campaign_item_detail",
+  "get_marketing_draft_detail",
   "get_campaign_calendar",
   "get_consultant_workbench",
   "get_financial_settings",
@@ -200,7 +205,18 @@ const readTools = [
   "klaviyo_entity_performance",
   "klaviyo_deliverability_health",
   "search_internal_email_design_playbook",
+  // Va con las de lectura, como report_confidence: no toca el dominio del
+  // cliente ni pide aprobación; escribe en la bandeja interna del
+  // platform_admin (agent_capability_proposals).
+  "propose_capability",
 ] as const;
+
+/**
+ * Tools que el runtime declara a todo agente aunque su versión no las liste en
+ * allowed_tools: son de la plataforma, no del agente, y pedir una migración
+ * por agente para cada una es justo lo que hacía que nadie las tuviera.
+ */
+export const ALWAYS_GRANTED_TOOLS = ["propose_capability"] as const;
 
 const proposedTools = [
   "propose_task",
@@ -284,11 +300,13 @@ export const TOOL_DESCRIPTIONS = {
   klaviyo_measurement_health: "Si se puede creer lo que mide el email de esta tienda: cuantos emails no llevan UTM, no tienen cuerpo o no siguen clics, mas el inventario de flujos, campanas, listas y segmentos y el estado del ultimo sync. recursos_no_traidos con valor significa que el catalogo esta INCOMPLETO: que un flujo no aparezca no prueba que no exista.",
   klaviyo_performance_summary: "Resumen de rendimiento Klaviyo para un periodo y su periodo inmediatamente anterior, con KPIs, entidades destacadas y granularidad mensual. Es atribucion reportada por Klaviyo, no ventas incrementales; una fila mensual no equivale a un envio individual.",
   klaviyo_entity_performance: "Rendimiento mensual de una campaña o flow Klaviyo concreto, con IDs y tienda fijados por el backend. Si no hay filas devuelve sin_datos, no ceros. El informe disponible es mensual y no permite inferir métricas por envío.",
-  klaviyo_deliverability_health: "Salud de medición y entregabilidad Klaviyo, cobertura de sync e inventario incompleto. El tracking conductual agregado solo está disponible en alcance global; para tienda concreta se marca explícitamente como no disponible y nunca se mezcla con otras tiendas.",
+    klaviyo_deliverability_health: "Estado de la configuración de medición, cobertura de sincronización e inventario Klaviyo, más eventos de tracking observados en el periodo solicitado y alcance de tienda aplicado. No es una tasa oficial de entrega del proveedor; las métricas disponibles se declaran por separado y los fallos nunca se convierten en ceros.",
+  propose_capability: "Propone al administrador de E-NORA una función SQL o un dato que te falta para calcular algo, o que has tenido que montar a mano con sql_select y repetirías en otras ejecuciones. No sustituye a calcular: si puedes calcularlo, calcúlalo. Una llamada por necesidad; reutiliza el mismo slug para la misma necesidad.",
   search_internal_email_design_playbook: "Busca principios privados de composición de E-NORA para inspirar un email. Devuelve como máximo cuatro resúmenes sin IDs, nombres de fichas, ejemplos literales ni HTML; adapta las ideas, no reveles el playbook.",
   get_organization_profile: "Lee el perfil operativo de la organizacion activa, sin credenciales ni secretos.",
   get_brand_profile: "Lee la guia de marca de la organizacion y, si se selecciono una tienda, aplica sus overrides sin mezclar tiendas. Solo devuelve campos de marca; nunca el playbook interno de E-NORA.",
   get_strategic_plan: "Lee el plan estrategico activo y sus fases/hitos de la organizacion activa.",
+  get_strategic_plan_version: "Lee una versión histórica concreta del Camino por ID. Solo se ofrece al consultor autorizado; no mezcla organizaciones ni tiendas.",
   get_current_milestone: "Lee el hito pendiente actual del plan estrategico activo de la organizacion.",
   list_open_tasks: "Lista hasta 50 tareas pendientes o en curso de la organizacion activa, ordenadas por vencimiento.",
   list_open_alerts: "Lista hasta 50 alertas abiertas o reconocidas de la organizacion activa.",
@@ -296,6 +314,10 @@ export const TOOL_DESCRIPTIONS = {
   get_task_detail: "Lee una tarea concreta por ID dentro de la organización, tienda y audiencia autorizadas; incluye su estado y fecha de actualización.",
   get_call_history: "Lee hasta 50 llamadas de consultoria de la organizacion activa sin notas internas ni transcripciones completas.",
   get_call_detail: "Lee una llamada concreta y su último resumen autorizado. Las llamadas no tienen tienda propia: consulta el ámbito de organización.",
+  get_knowledge_document: "Lee el contenido de un documento de conocimiento concreto por ID, solo si pertenece a la organización activa y su audiencia está permitida.",
+  get_specialist_run_detail: "Recupera un análisis concreto de un especialista por ID, limitado a la organización y tienda activas y al estado visible para el actor.",
+  get_campaign_item_detail: "Lee un elemento concreto del calendario por ID, con tenant, tienda y visibilidad fijados por el servidor.",
+  get_marketing_draft_detail: "Lee un borrador de marketing concreto por ID solo para actores con acceso al espacio de marketing de la organización activa.",
   get_campaign_calendar: "Lee los calendarios y elementos de campaña del año indicado con la tienda y visibilidad autorizadas. La planificación no equivale a publicación externa.",
   get_consultant_workbench: "Lee la cartera diaria autorizada del consultor: prioridades, próximas llamadas y alertas. Puede incluir varias organizaciones; cada elemento conserva su organización. Solo disponible para consultor o administrador.",
   get_financial_settings: "Lee los parametros financieros configurados para la organizacion activa, sin ejecutar calculos ni escrituras.",
@@ -352,6 +374,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "get_organization_profile",
         "get_brand_profile",
         "get_strategic_plan",
+        "get_strategic_plan_version",
         "get_current_milestone",
         "list_open_tasks",
         "list_open_alerts",
@@ -359,6 +382,10 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "get_task_detail",
         "get_call_history",
         "get_call_detail",
+        "get_knowledge_document",
+        "get_specialist_run_detail",
+        "get_campaign_item_detail",
+        "get_marketing_draft_detail",
         "get_campaign_calendar",
         "get_consultant_workbench",
         "get_financial_settings",
@@ -385,6 +412,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "klaviyo_entity_performance",
         "klaviyo_deliverability_health",
         "search_internal_email_design_playbook",
+        "propose_capability",
       ].includes(name)
         ? "implemented_partial"
         : "planned",
@@ -451,6 +479,33 @@ const domainReadOutputSchema = z
     provenance: provenanceSchema,
   })
   .or(z.object({ error: toolErrorSchema }));
+const knowledgeDocumentOutputSchema = z
+  .object({
+    data: z.object({
+      document: z.object({
+        id: z.string().uuid(),
+        organization_id: z.string().uuid().nullable(),
+        title: z.string(),
+        content: z.string().nullable(),
+      }).passthrough(),
+    }),
+    provenance: provenanceSchema,
+  })
+  .or(z.object({ error: toolErrorSchema }));
+const specialistRunOutputSchema = z
+  .object({
+    data: z.object({
+      id: z.string().uuid(),
+      organization_id: z.string().uuid(),
+      store_id: z.string().uuid().nullable(),
+      status: z.string(),
+      finished_at: z.string().nullable(),
+      agent_versions: z.unknown(),
+      agent_outputs: z.unknown(),
+    }).passthrough(),
+    provenance: provenanceSchema,
+  })
+  .or(z.object({ error: toolErrorSchema }));
 const proposalProvenanceSchema = z.object({
   provenance: provenanceSchema,
 });
@@ -486,6 +541,8 @@ const escalateToHumanOutputSchema = z
     reason: z.string(),
     risk: z.enum(["low", "medium", "high", "critical"]),
     blocking_questions: z.array(z.string()),
+    escalation_id: z.string().uuid().optional(),
+    status: z.enum(["open", "acknowledged", "resolved", "dismissed"]).optional(),
     approval_required: z.literal(false),
   })
   .merge(proposalProvenanceSchema)
@@ -521,6 +578,25 @@ const reportConfidenceOutputSchema = z
     confidence: z.enum(["low", "medium", "high"]),
     rationale: z.string(),
     evidence_gaps: z.array(z.string()),
+  })
+  .merge(proposalProvenanceSchema)
+  .or(z.object({ error: toolErrorSchema }));
+export const proposeCapabilityInputSchema = z
+  .object({
+    kind: z.enum(["sql_function", "missing_data"]),
+    slug: z.string().regex(/^[a-z0-9_]{3,80}$/),
+    title: z.string().min(1).max(160),
+    need: z.string().min(1).max(2000),
+    benefit: z.string().min(1).max(2000),
+    sql_draft: z.string().min(1).max(8000).optional(),
+  })
+  .strict();
+const proposeCapabilityOutputSchema = z
+  .object({
+    status: z.literal("recorded"),
+    proposal_id: z.string().uuid(),
+    occurrences: z.number().int().positive(),
+    proposal_status: z.string(),
   })
   .merge(proposalProvenanceSchema)
   .or(z.object({ error: toolErrorSchema }));
@@ -656,6 +732,11 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },
+  get_strategic_plan_version: {
+    definition: getDefinition("get_strategic_plan_version"),
+    inputSchema: z.object({ plan_id: z.string().uuid() }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
   get_current_milestone: {
     definition: getDefinition("get_current_milestone"),
     inputSchema: emptyInputSchema,
@@ -689,6 +770,26 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   get_call_detail: {
     definition: getDefinition("get_call_detail"),
     inputSchema: z.object({ call_id: z.string().uuid() }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
+  get_knowledge_document: {
+    definition: getDefinition("get_knowledge_document"),
+    inputSchema: z.object({ document_id: z.string().uuid() }).strict(),
+    outputSchema: knowledgeDocumentOutputSchema,
+  },
+  get_specialist_run_detail: {
+    definition: getDefinition("get_specialist_run_detail"),
+    inputSchema: z.object({ run_id: z.string().uuid() }).strict(),
+    outputSchema: specialistRunOutputSchema,
+  },
+  get_campaign_item_detail: {
+    definition: getDefinition("get_campaign_item_detail"),
+    inputSchema: z.object({ campaign_item_id: z.string().uuid() }).strict(),
+    outputSchema: domainReadOutputSchema,
+  },
+  get_marketing_draft_detail: {
+    definition: getDefinition("get_marketing_draft_detail"),
+    inputSchema: z.object({ draft_id: z.string().uuid() }).strict(),
     outputSchema: domainReadOutputSchema,
   },
   get_campaign_calendar: {
@@ -887,6 +988,11 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     definition: getDefinition("report_confidence"),
     inputSchema: reportConfidenceInputSchema,
     outputSchema: reportConfidenceOutputSchema,
+  },
+  propose_capability: {
+    definition: getDefinition("propose_capability"),
+    inputSchema: proposeCapabilityInputSchema,
+    outputSchema: proposeCapabilityOutputSchema,
   },
   dry_run_write: {
     definition: getDefinition("dry_run_write"),

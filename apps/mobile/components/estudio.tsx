@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
+import * as FileSystem from "expo-file-system/legacy";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Copy, Layers, Palette, Plus, Sparkles, Trash2, Undo2, X } from "lucide-react-native";
 import { apiGet, apiSend, type ApiError } from "../lib/api";
@@ -42,13 +43,15 @@ import type { Org } from "./views";
 
 type Header = { name: string; subject: string; preheader: string; fromName: string; replyTo: string };
 type Piece = { design: StudioDesign; header: Header };
-type Ref = { id: string; status: DraftStatus };
+type LocalRecovery = { schema: 1; updatedAt: number; organizationId: string; piece: Piece; draftRef: Ref | null };
+type Ref = { id: string; status: DraftStatus; version: number; store_id?: string | null };
 type DraftStatus = "draft" | "pending_approval" | "approved" | "rejected" | "published";
 type Draft = {
   id: string;
   status: DraftStatus;
+  version: number;
   content_type: string;
-  request: { channel?: string; design?: unknown } | null;
+  request: { channel?: string; design?: unknown; store_id?: string | null } | null;
   template_name: string;
   subject: string;
   preheader: string;
@@ -81,6 +84,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
   const insets = useSafeAreaInsets();
   const swipe = useSwipeDown(() => void close());
   const base = `/v1/organizations/${org.id}`;
+  const recoveryUri = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}a11-studio-recovery-${org.id}.json` : null;
   const brandQ = useApi<{ profile: Record<string, unknown> | null }>(`${base}/marketing/brand-profile`);
   const bestQ = useApi<{ products: ApiProduct[] }>(`${base}/marketing/studio/products?source=best`);
   const draftsQ = useApi<{ drafts?: Draft[] }>(`${base}/marketing/drafts`);
@@ -113,11 +117,14 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
   const refRef = useRef<Ref | null>(null);
   const dirty = useRef(false);
   const inFlight = useRef(false);
+  const saveRetries = useRef(0);
+  const documentEpoch = useRef(0);
   const past = useRef<Piece[]>([]);
   const lastPush = useRef(0);
   const [canUndo, setCanUndo] = useState(false);
 
   const setAll = (next: Piece | null, nextRef: Ref | null) => {
+    documentEpoch.current += 1;
     pieceRef.current = next;
     refRef.current = nextRef;
     past.current = [];
@@ -127,6 +134,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
     setSelectedId(null);
     setCanUndo(false);
     setChat([]);
+    setChatBusy(false);
     setAiOpen(false);
     setSave("idle");
     setTab("diseno");
@@ -145,6 +153,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
     lastPush.current = now;
     pieceRef.current = next;
     dirty.current = true;
+    saveRetries.current = 0;
     setPiece(next);
     setRev((r) => r + 1);
   }, []);
@@ -178,7 +187,8 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
       from_name: p.header.fromName,
       reply_to: p.header.replyTo.trim() || null,
       design: p.design,
-      store_id: null,
+      store_id: refRef.current?.store_id ?? null,
+      ...(refRef.current ? { expected_version: refRef.current.version } : {}),
       subject: p.header.subject,
       preheader: p.header.preheader,
       html,
@@ -192,34 +202,70 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
     const cur = pieceRef.current;
     if (!cur || cur.design.blocks.length === 0) return refRef.current;
     if (inFlight.current) return null;
+    const epoch = documentEpoch.current;
     inFlight.current = true;
     dirty.current = false;
     setSave("saving");
     const existing = refRef.current;
     try {
-      const body = await apiSend<{ draft: { id: string; status: DraftStatus } }>(existing ? "PUT" : "POST", `${base}/marketing/studio/drafts${existing ? `/${existing.id}` : ""}`, payload(cur), 30_000);
-      const next = { id: body.draft.id, status: body.draft.status };
+      const body = await apiSend<{ draft: { id: string; status: DraftStatus; version: number; request?: { store_id?: string | null } } }>(existing ? "PUT" : "POST", `${base}/marketing/studio/drafts${existing ? `/${existing.id}` : ""}`, payload(cur), 30_000);
+      if (epoch !== documentEpoch.current) return { id: body.draft.id, status: body.draft.status, version: body.draft.version, store_id: body.draft.request?.store_id ?? existing?.store_id ?? null };
+      const next = { id: body.draft.id, status: body.draft.status, version: body.draft.version, store_id: body.draft.request?.store_id ?? existing?.store_id ?? null };
+      saveRetries.current = 0;
       refRef.current = next;
       setRef(next);
       setSave("saved");
       setSaveError(null);
+      if (recoveryUri) void FileSystem.deleteAsync(recoveryUri, { idempotent: true }).catch(() => {});
       return next;
     } catch (e) {
-      dirty.current = true;
-      setSave("error");
-      setSaveError(e instanceof Error ? e.message : "No se pudo guardar.");
+      if (epoch === documentEpoch.current) {
+        dirty.current = true;
+        saveRetries.current += 1;
+        setSave("error");
+        setSaveError(e instanceof Error ? e.message : "No se pudo guardar.");
+      }
       return null;
     } finally {
       inFlight.current = false;
+      if (epoch === documentEpoch.current && dirty.current && saveRetries.current < 3) setTimeout(() => { if (epoch === documentEpoch.current) void saveNow(); }, 800 * saveRetries.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base]);
+  }, [base, recoveryUri]);
 
   useEffect(() => {
     if (!dirty.current) return;
     const t = setTimeout(() => void saveNow(), 1200);
     return () => clearTimeout(t);
   }, [rev, saveNow]);
+
+  useEffect(() => {
+    if (!recoveryUri) return;
+    if (piece && dirty.current) {
+      const snapshot: LocalRecovery = { schema: 1, updatedAt: Date.now(), organizationId: org.id, piece, draftRef: refRef.current };
+      void FileSystem.writeAsStringAsync(recoveryUri, JSON.stringify(snapshot)).catch(() => {});
+      return;
+    }
+    if (openDraftId) return;
+    let active = true;
+    void FileSystem.readAsStringAsync(recoveryUri).then((raw) => {
+      if (!active) return;
+      const recovery = JSON.parse(raw) as LocalRecovery;
+      if (recovery.schema !== 1 || recovery.organizationId !== org.id || !recovery.piece?.design || Date.now() - recovery.updatedAt > 30 * 24 * 60 * 60 * 1000) {
+        void FileSystem.deleteAsync(recoveryUri, { idempotent: true }).catch(() => {});
+        return;
+      }
+      Alert.alert("Cambios recuperables", "Hay cambios locales del estudio que no llegaron al servidor. ¿Quieres recuperarlos?", [
+        { text: "Descartar", style: "destructive", onPress: () => { void FileSystem.deleteAsync(recoveryUri, { idempotent: true }).catch(() => {}); } },
+        { text: "Recuperar", onPress: () => {
+          setAll(recovery.piece, recovery.draftRef);
+          dirty.current = true;
+          setRev((value) => value + 1);
+        } },
+      ]);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [openDraftId, org.id, piece, recoveryUri, rev]);
 
   async function close() {
     if (dirty.current) await saveNow();
@@ -241,7 +287,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
       const design = normalizeDesign(d.request?.design, { aiBlocks: d.blocks, html: d.html, brand: brandBase });
       setAll(
         { design, header: { name: asCopy ? `${d.template_name || d.subject} (copia)` : d.template_name || "", subject: d.subject || "", preheader: d.preheader || "", fromName: d.from_name || fromLabel, replyTo: d.reply_to || "" } },
-        asCopy ? null : { id: d.id, status: d.status },
+        asCopy ? null : { id: d.id, status: d.status, version: d.version, store_id: d.request?.store_id ?? null },
       );
       if (asCopy) {
         dirty.current = true;
@@ -309,11 +355,15 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
   const sendChat = async (text: string, model: string) => {
     const cur = pieceRef.current;
     if (!cur) return;
+    const epoch = documentEpoch.current;
+    const sourceRef = refRef.current;
+    const requestId = crypto.randomUUID();
     const history = chat.filter((m) => !m.error).map(({ role, text: body }) => ({ role, text: body }));
     setChat((m) => [...m, { role: "user", text }]);
     setChatBusy(true);
     try {
-      const data = await apiSend<{ answer: string; ops: StudioChatOp[] }>("POST", `${base}/marketing/studio/ai-chat`, studioChatBody({ message: text, history, design: cur.design, header: cur.header, selectedId, connectionId: null, model }), 120_000);
+      const data = await apiSend<{ answer: string; ops: StudioChatOp[] }>("POST", `${base}/marketing/studio/ai-chat`, { ...studioChatBody({ message: text, history, design: cur.design, header: cur.header, selectedId, connectionId: sourceRef?.store_id ?? null, model }), draft_id: sourceRef?.id ?? null, draft_version: sourceRef?.version ?? null, document_revision: rev, request_id: requestId }, 120_000);
+      if (epoch !== documentEpoch.current || pieceRef.current !== cur || refRef.current?.id !== sourceRef?.id) return;
       let labels: string[] = [];
       let touched: string[] = [];
       if (data.ops.length) {
@@ -329,9 +379,9 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
       setChat((m) => [...m, { role: "assistant", text: data.answer, labels }]);
     } catch (e) {
       const err = e as ApiError;
-      setChat((m) => [...m, { role: "assistant", text: e instanceof Error ? e.message : "No se pudo hablar con la IA.", error: true, ...(err.status === 402 ? { upgrade: err.canUpgrade ? ("yes" as const) : ("ask" as const) } : {}) }]);
+      if (epoch === documentEpoch.current) setChat((m) => [...m, { role: "assistant", text: e instanceof Error ? e.message : "No se pudo hablar con la IA.", error: true, ...(err.status === 402 ? { upgrade: err.canUpgrade ? ("yes" as const) : ("ask" as const) } : {}) }]);
     } finally {
-      setChatBusy(false);
+      if (epoch === documentEpoch.current) setChatBusy(false);
     }
   };
 
@@ -563,7 +613,7 @@ export function EstudioModal({ org, workspace, openDraftId, onClose, onDone }: {
                   r = { ...r, status: "pending_approval" };
                 }
                 if (r.status === "pending_approval") {
-                  await apiSend("POST", `${base}/marketing/drafts/${r.id}/decision`, { decision: "approved" }, 20_000);
+                  await apiSend("POST", `${base}/marketing/drafts/${r.id}/decision`, { decision: "approved", expected_version: r.version }, 20_000);
                   r = { ...r, status: "approved" };
                 }
                 refRef.current = r;
@@ -751,6 +801,7 @@ function Launcher({ org, best, brandBase, storeUrl, drafts, loading, start, open
   const [brief, setBrief] = useState({ objective: "launch", tone: "warm", offer: "", audience: "", instructions: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const generationIdentity = useRef<{ fingerprint: string; key: string } | null>(null);
   void org;
   const [importOpen, setImportOpen] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
@@ -774,23 +825,27 @@ function Launcher({ org, best, brandBase, storeUrl, drafts, loading, start, open
     setBusy(true);
     setError(null);
     try {
+      const generationRequest = {
+        content_type: "campaign",
+        channel: "email_klaviyo",
+        store_id: null,
+        brief: buildMarketingBrief({ channel: "email_klaviyo", objective: brief.objective, audience: brief.audience, offer: brief.offer, tone: brief.tone, cta: "", instructions: brief.instructions }),
+        brand_colors: { primary: brandBase.primary, background: brandBase.bg, text: brandBase.text },
+      };
+      const fingerprint = JSON.stringify(generationRequest);
+      if (!generationIdentity.current || generationIdentity.current.fingerprint !== fingerprint) generationIdentity.current = { fingerprint, key: `${crypto.randomUUID()}:99` };
       const res = await apiSend<{ draft: Draft }>(
         "POST",
         `${base}/marketing/drafts`,
-        {
-          content_type: "campaign",
-          channel: "email_klaviyo",
-          store_id: null,
-          brief: buildMarketingBrief({ channel: "email_klaviyo", objective: brief.objective, audience: brief.audience, offer: brief.offer, tone: brief.tone, cta: "", instructions: brief.instructions }),
-          brand_colors: { primary: brandBase.primary, background: brandBase.bg, text: brandBase.text },
-        },
+        { ...generationRequest, idempotency_key: generationIdentity.current.key },
         180_000,
       );
       const d = res.draft;
+      generationIdentity.current = null;
       const design = normalizeDesign(d.request?.design, { aiBlocks: d.blocks, html: d.html, brand: brandBase });
       // La IA escribe el cuerpo; cabecera, marca y pie legal los pone el estudio.
       const blocks = [...(design.blocks[0]?.type === "header" ? [] : [newBlock("header", { logo: design.brand.logo })]), ...design.blocks, ...(design.blocks.some((b) => b.type === "footer") ? [] : [newBlock("footer")])];
-      setAll({ design: { ...design, blocks }, header: { name: d.template_name || "", subject: d.subject || "", preheader: d.preheader || "", fromName: d.from_name || fromLabel, replyTo: d.reply_to || "" } }, { id: d.id, status: d.status });
+      setAll({ design: { ...design, blocks }, header: { name: d.template_name || "", subject: d.subject || "", preheader: d.preheader || "", fromName: d.from_name || fromLabel, replyTo: d.reply_to || "" } }, { id: d.id, status: d.status, version: d.version, store_id: d.request?.store_id ?? null });
       markDirty();
       setAiOpen(false);
     } catch {

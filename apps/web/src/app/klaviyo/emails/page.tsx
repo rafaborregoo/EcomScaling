@@ -14,7 +14,7 @@ import pulse from "../../dashboard/client-pulse.module.css";
 import s from "../../shopify/productos/catalogo.module.css";
 import k from "../emails.module.css";
 import type { KlaviyoEmailListRow, KlaviyoEmailsResponse } from "../email-types";
-import { alertTone, emailHref, kindLabel, money, PERIODS, type Period, pct, sentLabel } from "../email-model";
+import { alertTone, emailHref, kindLabel, money, PERIODS, type Period, periodLabel, pct, sentLabel } from "../email-model";
 
 type View = "grid" | "table";
 type Kind = "" | "campaign" | "flow";
@@ -27,9 +27,9 @@ const KINDS: Array<{ value: Kind; label: string; count: (summary: NonNullable<Kl
 ];
 
 const SORTS: Array<{ value: Sort; label: string }> = [
-  { value: "revenue", label: "Más importe atribuido" },
-  { value: "open_rate", label: "Más apertura" },
-  { value: "revenue_per_recipient", label: "Más importe por destinatario" },
+  { value: "revenue", label: "Más ventas" },
+  { value: "open_rate", label: "Más abiertos" },
+  { value: "revenue_per_recipient", label: "Más ventas por email enviado" },
 ];
 
 function EmailCard({ row, href, currency }: { row: KlaviyoEmailListRow; href: string; currency: string | null }) {
@@ -41,7 +41,7 @@ function EmailCard({ row, href, currency }: { row: KlaviyoEmailListRow; href: st
         {row.alert ? <span className={cx(pulse.chip, alertTone(row.alert) === "bad" ? pulse.chipBad : pulse.chipWarn, k.warn)}>{row.alert.text}</span> : null}
         <div className={k.inbox}>
           <b>{row.subject || "Sin asunto"}</b>
-          <span>{row.trigger_type && row.kind === "flow" ? row.trigger_type : "Sin texto de vista previa"}</span>
+          {row.trigger_type && row.kind === "flow" ? <span>{row.trigger_type}</span> : null}
         </div>
       </div>
       <div className={s.body}>
@@ -51,12 +51,12 @@ function EmailCard({ row, href, currency }: { row: KlaviyoEmailListRow; href: st
         </div>
         <div className={s.price}>
           <b>{row.revenue ? money(row.revenue, currency) : "—"}</b>
-          <span className={pulse.chip}>{currency ?? "Importe"} atribuidos · ventana 5 d</span>
+          <span className={pulse.muted} style={{ fontSize: 12 }}>en ventas, según Klaviyo</span>
         </div>
         <div className={s.stats}>
           <div><span>Apertura</span><span>{pct(row.open_rate)}</span></div>
           <div><span>Clic</span><span>{pct(row.click_rate)}</span></div>
-          <div><span>Por dest.</span><span>{row.revenue_per_recipient != null ? money(row.revenue_per_recipient, currency) : "—"}</span></div>
+          <div><span>Por email</span><span>{row.revenue_per_recipient != null ? money(row.revenue_per_recipient, currency) : "—"}</span></div>
         </div>
       </div>
     </a>
@@ -107,11 +107,12 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const tiles = summary
     ? [
-        { label: `${currency ?? "Importe"} atribuidos`, value: money(summary.revenue, currency), hint: summary.flow_share_pct != null ? `${fmtNum(summary.flow_share_pct * 100)} % de flujos` : "" },
-        { label: "Apertura media", value: pct(summary.account_open_rate), hint: "ponderada de la cuenta" },
-        { label: "Clic medio", value: pct(summary.account_click_rate), hint: "sobre entregados" },
-        { label: "Por destinatario", value: summary.account_revenue_per_recipient != null ? money(summary.account_revenue_per_recipient, currency) : "—", hint: "media de la cuenta" },
-        { label: "Con aviso", value: fmtNum(summary.alerts), hint: "apertura baja, bajas o spam altos", tone: summary.alerts ? "var(--warn)" : undefined },
+        { label: "Ventas según Klaviyo", value: money(summary.revenue, currency), hint: periodLabel(periodDays) },
+        { label: "Apertura", value: pct(summary.account_open_rate), hint: "de media" },
+        { label: "Clic", value: pct(summary.account_click_rate), hint: "de media" },
+        ...(summary.alerts
+          ? [{ label: "Para revisar", value: fmtNum(summary.alerts), hint: "pocos abren o muchos se dan de baja", tone: "var(--warn)" }]
+          : []),
       ]
     : [];
 
@@ -119,20 +120,8 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className={pulse.root}>
       <header className={s.top}>
         <div>
-          <nav className={s.crumb} aria-label="Ruta" style={{ padding: 0 }}>
-            <a href="/shopify">Analítica</a>
-            <span aria-hidden="true">/</span>
-            <a href="/klaviyo">Klaviyo</a>
-            <span aria-hidden="true">/</span>
-            <span>Emails</span>
-          </nav>
           <h1>Emails</h1>
-          <div className={s.topMeta}>
-            <span className={pulse.chip}>{connectionId ? "Tienda seleccionada" : "Todas las tiendas"}</span>
-            {data ? <span className={pulse.chip}>{fmtNum(data.total)} emails</span> : null}
-          </div>
         </div>
-        <a className={cx(pulse.btn, pulse.ghost)} href="/klaviyo">Volver a Klaviyo</a>
       </header>
 
       {!organizationId ? (
@@ -142,7 +131,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : (
         <>
           {tiles.length ? (
-            <div className={s.sum} role="group" aria-label="Resumen de emails">
+            <div className={s.sum} role="group" aria-label="Resumen de emails" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
               {tiles.map((tile) => (
                 <div key={tile.label} className={s.sumC}>
                   <span className={pulse.lbl}>{tile.label}</span>
@@ -162,6 +151,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <input type="search" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} maxLength={120} placeholder="Buscar por nombre o asunto" aria-label="Buscar emails" />
             </form>
             <div className={s.barR}>
+              {summary && summary.campaigns && summary.flows ? (
               <div className={pulse.seg} role="group" aria-label="Tipo">
                 {KINDS.map((item) => (
                   <button key={item.value || "all"} type="button" aria-pressed={kind === item.value} onClick={() => { setKind(item.value); setPage(1); }}>
@@ -170,6 +160,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </button>
                 ))}
               </div>
+              ) : null}
               <label className={s.selectL}>
                 Ordenar
                 <select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setPage(1); }} aria-label="Ordenar por">
@@ -179,7 +170,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <div className={pulse.seg} role="group" aria-label="Periodo">
                 {PERIODS.map((value) => (
                   <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => { setPeriodDays(value); setPage(1); }}>
-                    {value === 365 ? "1 año" : value === 180 ? "6 meses" : `${value} d`}
+                    {periodLabel(value)}
                   </button>
                 ))}
               </div>
@@ -195,12 +186,12 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
           {data && rows.length === 0 ? (
             <div className={pulse.panel}>
-              <p className={pulse.empty}>No hay emails con estos filtros.</p>
+              <p className={pulse.empty}>{search ? `Ningún email con «${search}».` : "No salió ningún email en este periodo."}</p>
             </div>
           ) : null}
 
           {data && rows.length && view === "grid" ? (
-            <div className={s.grid}>
+            <div className={s.grid} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
               {rows.map((row) => <EmailCard key={row.id} row={row} currency={currency} href={emailHref(row.id, organizationId, connectionId)} />)}
             </div>
           ) : null}
@@ -217,7 +208,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <th style={{ textAlign: "right" }}>Envíos</th>
                       <th style={{ textAlign: "right" }}>Apertura</th>
                       <th style={{ textAlign: "right" }}>Clic</th>
-                      <th style={{ textAlign: "right" }}>EUR atribuidos</th>
+                      <th style={{ textAlign: "right" }}>Ventas</th>
                       <th>Aviso</th>
                     </tr>
                   </thead>
@@ -248,7 +239,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
           ) : null}
 
-          {data ? (
+          {data && totalPages > 1 ? (
             <div className={s.pager}>
               <span className={pulse.muted} style={{ fontSize: 12.5 }}>
                 {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}
@@ -261,7 +252,7 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
 
           <footer className={s.foot}>
-            <span>EUR atribuidos por Klaviyo con su ventana de 5 días tras abrir o hacer clic. No se suman a lo que atribuye Meta.</span>
+            <span>Ventas según Klaviyo: las de los 5 días después de abrir o pulsar el email. No son las ventas de tu tienda.</span>
           </footer>
         </>
       )}

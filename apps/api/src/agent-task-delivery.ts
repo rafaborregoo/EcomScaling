@@ -7,6 +7,28 @@ type ProposedDeliveryFields = {
   initiative_measurement?: unknown;
 };
 
+export function appendA13OperationalDetails(
+  description: unknown,
+  fields: Record<string, unknown>,
+): string | null {
+  const base = trimBounded(description, 4000);
+  const details = [
+    fields.owner_role === "cliente" || fields.owner_role === "consultor"
+      ? `Responsable: ${fields.owner_role}.`
+      : null,
+    trimBounded(fields.completion_criteria, 500)
+      ? `Criterio de cierre: ${trimBounded(fields.completion_criteria, 500)}`
+      : null,
+    trimBounded(fields.expected_metric, 240)
+      ? `Comprobación posterior: ${trimBounded(fields.expected_metric, 240)}`
+      : null,
+    trimBounded(fields.due_hint, 100)
+      ? `Plazo orientativo: ${trimBounded(fields.due_hint, 100)}.`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+  return details.length ? [base, ...details].filter(Boolean).join("\n").slice(0, 5000) : base;
+}
+
 export type WeeklyDeliveryContract = {
   owner_role: "cliente" | "consultor" | null;
   completion_criteria: string | null;
@@ -62,7 +84,7 @@ export function readProposedMilestoneId(value: unknown): string | null {
 }
 
 export function shouldFallbackToCurrentMilestone(agentCode: string | null): boolean {
-  return agentCode !== "a04_generador_tareas" && agentCode !== "a06_planificador_stock" && agentCode !== "a18_plan_mensual";
+  return agentCode !== "a04_generador_tareas" && agentCode !== "a06_planificador_stock" && agentCode !== "a13_operativa_shopify" && agentCode !== "a14_operativa_meta" && agentCode !== "a18_plan_mensual";
 }
 
 const trimBounded = (value: unknown, max: number): string | null =>

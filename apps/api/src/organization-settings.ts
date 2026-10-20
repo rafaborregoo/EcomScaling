@@ -11,10 +11,14 @@ import {
 import { recordAuditLog } from "./audit-log.js";
 import { internalSecretMatches } from "./internal-auth.js";
 import { runNotificationEmails } from "./notification-email.js";
+import { runDailyNotifications } from "./notification-daily.js";
+import { runNotificationOutbox } from "./notification-outbox.js";
 import { registerPushToken, removePushToken, runMobilePush } from "./mobile-push.js";
-import { getNotificationSettings, insertNotifications, setNotificationSettings } from "./notification-settings.js";
+import { getNotificationSettings, setNotificationSettings } from "./notification-settings.js";
+import { consultantsOf, notify } from "./notify.js";
 import {
   CONSULTANT_PERMISSION_KEYS,
+  type ConsultantPermissionKey,
   type ConsultantPermissions,
   DEFAULT_CONSULTANT_PERMISSIONS,
   consultantPermissionFor,
@@ -63,6 +67,15 @@ const denied = (message: string): Failure => ({
 
 // --- Permisos del consultor ------------------------------------------------
 
+/** Lo que permite cada permiso, dicho al consultor («Ya no puedes …»). */
+const PERMISSION_COPY: Record<ConsultantPermissionKey, string> = {
+  edit_config: "editar costes, objetivos y alertas",
+  manage_tasks: "crear, asignar y cerrar tareas",
+  marketing_drafts: "preparar campañas y piezas en borrador",
+  marketing_publish: "programar y enviar campañas en Klaviyo",
+  invite_members: "invitar personas a su cuenta",
+};
+
 export async function loadConsultantPermissions(
   env: ApiEnv,
   organizationId: string,
@@ -99,6 +112,57 @@ export async function getConsultantPermissions(env: ApiEnv, context: AuthContext
       updated_at: row?.updated_at ?? null,
     },
   };
+}
+
+/**
+ * Lo que el consultor puede hacer en cada cliente asignado (no en sus tiendas
+ * propias, donde es miembro y no aplica). Sin fila = valores por defecto.
+ * Es la pantalla a la que lleva el aviso «X ha cambiado tus permisos».
+ */
+export async function listMyConsultantPermissions(env: ApiEnv, context: AuthContext) {
+  const supabase = createServiceClient(env);
+  const { data: assignments, error } = await supabase
+    .from("consultant_assignments")
+    .select("organization_id, organizations(display_name)")
+    .eq("consultant_user_id", context.user.id)
+    .eq("is_active", true);
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "consultant_permissions_load_failed", detail: error.message };
+  }
+  const rows = (assignments ?? []) as Array<{ organization_id: string; organizations: { display_name?: string | null } | Array<{ display_name?: string | null }> | null }>;
+  const ids = rows.map((row) => row.organization_id);
+  const { data: stored } = ids.length
+    ? await supabase
+        .from("organization_consultant_permissions")
+        .select(`organization_id, ${CONSULTANT_PERMISSION_KEYS.join(", ")}, updated_at, updated_by`)
+        .in("organization_id", ids)
+    : { data: [] };
+  const byOrg = new Map(((stored ?? []) as unknown as Array<Record<string, unknown>>).map((row) => [row.organization_id as string, row]));
+  const editorIds = [...new Set([...byOrg.values()].map((row) => row.updated_by).filter((id): id is string => typeof id === "string"))];
+  const { data: editors } = editorIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", editorIds)
+    : { data: [] };
+  const editorName = new Map((editors ?? []).map((row) => [row.id as string, (row.full_name as string | null) ?? null]));
+
+  const clients = rows
+    .map((row) => {
+      const saved = byOrg.get(row.organization_id);
+      const permissions = { ...DEFAULT_CONSULTANT_PERMISSIONS };
+      for (const key of CONSULTANT_PERMISSION_KEYS) {
+        if (typeof saved?.[key] === "boolean") permissions[key] = saved[key] as boolean;
+      }
+      const organization = Array.isArray(row.organizations) ? row.organizations[0] : row.organizations;
+      return {
+        organization_id: row.organization_id,
+        name: organization?.display_name ?? "Cliente",
+        permissions,
+        is_default: !saved,
+        updated_at: (saved?.updated_at as string | undefined) ?? null,
+        updated_by_name: typeof saved?.updated_by === "string" ? (editorName.get(saved.updated_by) ?? null) : null,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return { ok: true as const, data: { clients, defaults: DEFAULT_CONSULTANT_PERMISSIONS } };
 }
 
 export async function setConsultantPermissions(
@@ -141,26 +205,21 @@ export async function setConsultantPermissions(
     oldData: previous,
     newData: next,
   });
-  // El consultor se entera de lo que ya no puede hacer antes de chocar con un 403.
-  const { data: consultants } = await supabase
-    .from("consultant_assignments")
-    .select("consultant_user_id")
-    .eq("organization_id", organizationId)
-    .eq("is_active", true);
-  const organizationName = membershipOf(context, organizationId)?.organization?.display_name ?? "Un cliente";
-  await insertNotifications(
-    supabase,
-    (consultants ?? []).map((row) => ({
-      organization_id: organizationId,
-      user_id: row.consultant_user_id as string,
+  // El consultor se entera de QUÉ ya no puede (o ya puede) hacer antes de
+  // chocar con un 403. Varios cambios seguidos se juntan en un solo aviso.
+  const changed = CONSULTANT_PERMISSION_KEYS.filter((key) => previous[key] !== next[key]);
+  if (changed.length > 0) {
+    await notify(supabase, {
       type: "client_settings",
-      title: `${organizationName} ha cambiado lo que puedes hacer en su cuenta`,
-      message: null,
-      action_url: "/configuracion?section=resumen",
-      entity_type: "organization",
-      entity_id: organizationId,
-    })),
-  ).catch(() => undefined);
+      organizationId,
+      recipients: await consultantsOf(supabase, organizationId),
+      actorUserId: context.user.id,
+      data: {
+        store: membershipOf(context, organizationId)?.organization?.display_name ?? "Tu cliente",
+        changes: changed.map((key) => ({ key, label: PERMISSION_COPY[key], granted: next[key] })),
+      },
+    });
+  }
   return { ok: true as const, data: { permissions: next } };
 }
 
@@ -451,6 +510,10 @@ export function registerOrganizationSettingsRoutes(app: FastifyInstance, env: Ap
   app.get(`${base}/consultant-permissions`, withAuth<OrgParams, unknown>((context, params) =>
     getConsultantPermissions(env, context, params.organizationId),
   ));
+  // El consultor: lo que puede hacer en cada cliente de su cartera, de un vistazo.
+  app.get("/v1/consultant/permissions", withAuth<Record<string, string>, unknown>((context) =>
+    listMyConsultantPermissions(env, context),
+  ));
   app.put(`${base}/consultant-permissions`, withAuth<OrgParams, Record<string, unknown>>((context, params, body) =>
     setConsultantPermissions(env, context, params.organizationId, body),
   ));
@@ -504,6 +567,26 @@ export function registerOrganizationSettingsRoutes(app: FastifyInstance, env: Ap
     } catch (error) {
       return reply.code(503).send({ error: "mobile_push_failed", detail: error instanceof Error ? error.message : "unknown_error" });
     }
+  });
+  // Eventos que deja la base de datos (integraciones): cada minuto.
+  app.post("/v1/internal/notifications/outbox-tick", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    try {
+      return await runNotificationOutbox(env);
+    } catch (error) {
+      return reply.code(503).send({ error: "notification_outbox_failed", detail: error instanceof Error ? error.message : "unknown_error" });
+    }
+  });
+  // «Para hoy» y propuestas de la IA pendientes: una vez al dia, a las 8:00.
+  app.post("/v1/internal/notifications/daily-tick", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+    if (!internalSecretMatches(request.headers["x-internal-secret"], env.INTERNAL_API_SECRET)) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    return runDailyNotifications(env);
   });
   app.get(`${base}/activity`, withAuth<OrgParams, unknown>((context, params, _body, query) =>
     getOrganizationActivity(env, context, params.organizationId, query),

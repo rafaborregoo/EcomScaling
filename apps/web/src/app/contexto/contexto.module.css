@@ -1,5 +1,5 @@
 /* /contexto — colores del panel del cliente: tokens --tw-* que pone
-   .trabajo-theme (petróleo + azafrán). Aquí solo layout y los matices
+   .trabajo-theme (grafito + azafrán). Aquí solo layout y los matices
    semánticos (aviso) que el tema no define. */
 
 .page {
@@ -72,7 +72,7 @@
   color: var(--tw-ink-3);
 }
 .pill[data-state="ok"] {
-  background: #daf0e9;
+  background: #f0edeb;
   color: var(--tw-good);
 }
 .pill[data-state="off"] {

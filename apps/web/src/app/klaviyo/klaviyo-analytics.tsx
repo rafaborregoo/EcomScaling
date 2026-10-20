@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useCachedQuery } from "@/lib/use-cached-query";
+import { useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import { cx, Delta, Empty, Kpi, MONTHS, ago, niceStep } from "../dashboard/client-pulse";
 import { fmtEur, fmtNum } from "../dashboard/client-pulse-model";
 import { salesChangePct } from "../dashboard/store-pulse";
@@ -10,15 +10,12 @@ import k from "./analytics.module.css";
 import {
   clickTone,
   DELIVERY_RATES,
-  groupInventory,
-  linkLabel,
   openTone,
   rateState,
   rateZones,
   type Entity,
   type EmailReport,
   type Insights,
-  type InventoryGroup,
   type Tone,
 } from "./analytics-model";
 
@@ -26,7 +23,7 @@ import {
  * Analítica de email de un cliente (/klaviyo).
  *
  * Mismo lenguaje que Pulso y /meta (tokens de client-pulse.module.css); el color
- * lleva significado: verde petróleo = serie de datos, azafrán = campañas,
+ * lleva significado: verde grafito = serie de datos, azafrán = campañas,
  * verde/ámbar/rojo = solo estado. Todo ingreso es "atribuido por Klaviyo"
  * (ADR-0021): nunca se suma a lo que atribuye otra plataforma.
  *
@@ -76,7 +73,7 @@ function SecHead({ id, title, line }: { id: string; title: string; line: string 
   );
 }
 
-function Hero({ report, organizationName, periodLabel }: { report: EmailReport; organizationName: string; periodLabel: string }) {
+function Hero({ report, periodLabel }: { report: EmailReport; periodLabel: string }) {
   const { totals, previous } = report;
   const trend = report.trend.slice(-12);
   const channel = totals.flow_revenue + totals.campaign_revenue;
@@ -90,13 +87,11 @@ function Hero({ report, organizationName, periodLabel }: { report: EmailReport; 
     <section id="klaviyo-rendimiento" className={pulse.hero} aria-label="Ingresos atribuidos por Klaviyo">
       <div className={k.heroGrid}>
         <div>
-          <p className={pulse.heroMeta}>
-            {organizationName} · EUR atribuidos por Klaviyo · {periodLabel}
-          </p>
+          <p className={pulse.heroMeta}>Ventas que Klaviyo atribuye a tus emails · {periodLabel}</p>
           <p className={k.heroBig}>{fmtEur(totals.revenue)}</p>
           <p className={k.heroRow}>
-            <Delta change={previous ? salesChangePct(totals.revenue, previous.revenue) : null} />
-            {previous ? <span>frente a {fmtEur(previous.revenue)} del periodo anterior</span> : null}
+            <Delta change={previous?.revenue ? salesChangePct(totals.revenue, previous.revenue) : null} />
+            {previous?.revenue ? <span>frente a {fmtEur(previous.revenue)} del periodo anterior</span> : null}
           </p>
           {flowShare !== null ? (
             <>
@@ -120,7 +115,7 @@ function Hero({ report, organizationName, periodLabel }: { report: EmailReport; 
               </div>
             </>
           ) : null}
-          <p className={k.caveat}>Atribución de Klaviyo en su propia ventana de conversión. No es venta Shopify y no se suma a Meta ni a Google.</p>
+          <p className={k.caveat}>Es la cuenta de Klaviyo, no la de tu tienda: no la sumes a lo que dice Meta.</p>
         </div>
 
         {trend.length > 1 ? (
@@ -176,45 +171,38 @@ function Figures({ report }: { report: EmailReport }) {
   return (
     <div className={k.kpis} role="group" aria-label="Cifras de email">
       <Kpi
-        label="€ por destinatario"
+        label="Ventas por email"
         value={t.revenue_per_recipient != null ? fmtEur(t.revenue_per_recipient, 2) : "—"}
         delta={<Delta change={p ? salesChangePct(t.revenue_per_recipient ?? 0, p.revenue_per_recipient) : null} />}
         vs={p?.revenue_per_recipient != null ? fmtEur(p.revenue_per_recipient, 2) : null}
-        slot={<p className={pulse.trackTxt}>Lo que vale cada envío</p>}
+        slot={<p className={pulse.trackTxt}>Lo que vende cada email enviado</p>}
       />
       <Kpi
         label="Apertura"
         value={pct(t.open_rate)}
         delta={<Delta change={ppChange(t.open_rate, p?.open_rate)} suffix="pp" />}
         vs={p ? pct(p.open_rate) : null}
-        slot={<p className={pulse.trackTxt}>Aperturas únicas / entregados</p>}
+        slot={<p className={pulse.trackTxt}>De cada 100 que lo reciben, cuántos lo abren</p>}
       />
       <Kpi
         label="Clic"
         value={pct(t.click_rate, 2)}
         delta={<Delta change={ppChange(t.click_rate, p?.click_rate)} suffix="pp" />}
         vs={p ? pct(p.click_rate, 2) : null}
-        slot={<p className={pulse.trackTxt}>Clics únicos / entregados</p>}
+        slot={<p className={pulse.trackTxt}>De cada 100 que lo reciben, cuántos pulsan un enlace</p>}
       />
       <Kpi
-        label="Clic sobre apertura"
-        value={pct(t.ctor)}
-        delta={<Delta change={ppChange(t.ctor, p?.ctor)} suffix="pp" />}
-        vs={p ? pct(p.ctor) : null}
-        slot={<p className={pulse.trackTxt}>Calidad del contenido</p>}
-      />
-      <Kpi
-        label="Conversiones"
+        label="Compras"
         value={fmtNum(t.conversions)}
         delta={<Delta change={p ? salesChangePct(t.conversions, p.conversions) : null} />}
         vs={p ? fmtNum(p.conversions) : null}
-        slot={<p className={pulse.trackTxt}>{fmtNum(t.recipients)} destinatarios</p>}
+        slot={<p className={pulse.trackTxt}>{fmtNum(t.recipients)} emails enviados</p>}
       />
     </div>
   );
 }
 
-function Reliability({ insights, loading }: { insights: Insights | undefined; loading: boolean }) {
+function Reliability({ insights, loading, isConsultant }: { insights: Insights | undefined; loading: boolean; isConsultant: boolean }) {
   const h = insights?.health ?? null;
   return (
     <section id="klaviyo-medicion" className={pulse.panel} aria-labelledby="kl-rel">
@@ -232,23 +220,23 @@ function Reliability({ insights, loading }: { insights: Insights | undefined; lo
               tone: h.emails_sin_utm === h.emails_total ? "bad" : "warn",
               title:
                 h.emails_sin_utm === h.emails_total
-                  ? "Ninguno de estos emails añade UTM a sus enlaces."
-                  : `${fmtNum(h.emails_sin_utm)} de ${fmtNum(h.emails_total)} emails no añaden UTM a sus enlaces.`,
-              text: "Su tráfico llega a Shopify y a Analytics sin atribuir: la venta existe, pero nadie sabe que la trajo el email. Se activa en las opciones de seguimiento de cada campaña o flujo.",
+                  ? "Tus emails no marcan sus enlaces (UTM)."
+                  : `${fmtNum(h.emails_sin_utm)} de ${fmtNum(h.emails_total)} emails no marcan sus enlaces (UTM).`,
+              text: "Las ventas que traen llegan a tu tienda sin firma: nadie sabe que vinieron del email. Se activa en Klaviyo, en el seguimiento de cada campaña o flujo.",
             });
           }
           if (h.emails_sin_seguimiento_clics > 0) {
             alerts.push({
               tone: "warn",
-              title: `${fmtNum(h.emails_sin_seguimiento_clics)} de ${fmtNum(h.emails_total)} emails sin seguimiento de clics.`,
-              text: "Sus clics no se registran, así que sus ventas no se pueden atribuir.",
+              title: `${fmtNum(h.emails_sin_seguimiento_clics)} de ${fmtNum(h.emails_total)} emails no cuentan los clics.`,
+              text: "Sin clics contados, sus ventas no se pueden atribuir al email.",
             });
           }
           if (h.emails_sin_cuerpo > 0) {
             alerts.push({
               tone: "warn",
-              title: `${fmtNum(h.emails_sin_cuerpo)} email${h.emails_sin_cuerpo === 1 ? "" : "s"} sin cuerpo descargado.`,
-              text: "Suele significar que su plantilla se borró en Klaviyo.",
+              title: `No vemos el contenido de ${fmtNum(h.emails_sin_cuerpo)} email${h.emails_sin_cuerpo === 1 ? "" : "s"}.`,
+              text: "Suele pasar cuando su plantilla se borró en Klaviyo.",
             });
           }
           if (h.emails_sin_asunto > 0) {
@@ -257,16 +245,19 @@ function Reliability({ insights, loading }: { insights: Insights | undefined; lo
           if (h.recursos_no_traidos) {
             alerts.push({
               tone: "warn",
-              title: `El último sync dejó recursos sin traer (${h.recursos_no_traidos}).`,
-              text: "El inventario puede estar incompleto: que algo no aparezca no prueba que no exista.",
+              title: "La última sincronización no trajo todo.",
+              text: "Si echas algo en falta, puede que aún no haya llegado.",
             });
+          }
+          if (!alerts.length && !isConsultant) {
+            return <p id="kl-rel" className={k.okLine}>✓ Tus emails están bien preparados para medir lo que venden.</p>;
           }
           return (
             <>
               <div className={pulse.panelH}>
                 <div>
-                  <h3 id="kl-rel">Fiabilidad de las cifras</h3>
-                  <p className={pulse.sub}>Si esto está roto, lo de abajo mide otra cosa.</p>
+                  <h3 id="kl-rel">Revisa esto en Klaviyo</h3>
+                  <p className={pulse.sub}>Mientras siga así, las cifras de arriba se quedan cortas.</p>
                 </div>
                 {alerts.length ? (
                   <span className={cx(pulse.chip, pulse.chipWarn)}>
@@ -276,7 +267,8 @@ function Reliability({ insights, loading }: { insights: Insights | undefined; lo
                   <span className={cx(pulse.chip, pulse.chipGood)}>sin avisos</span>
                 )}
               </div>
-              <div className={k.rel}>
+              <div className={isConsultant ? k.rel : undefined}>
+                {isConsultant ? (
                 <div className={k.counts}>
                   <div className={k.count}>
                     <span className={pulse.lbl}>Emails</span>
@@ -295,6 +287,7 @@ function Reliability({ insights, loading }: { insights: Insights | undefined; lo
                     <b>{fmtNum(h.segmentos)}</b>
                   </div>
                 </div>
+                ) : null}
                 <div className={k.alerts}>
                   {alerts.length ? (
                     alerts.map((alert) => <AlertRow key={alert.title} {...alert} />)
@@ -303,10 +296,12 @@ function Reliability({ insights, loading }: { insights: Insights | undefined; lo
                   )}
                 </div>
               </div>
+              {isConsultant ? (
               <p className={k.foot}>
                 Métrica de conversión: {h.metrica_conversion ?? "sin elegir"}.
                 {h.ultimo_sync ? ` Última sincronización ${new Date(h.ultimo_sync).toLocaleString("es-ES")}.` : " Sin sincronizar todavía."}
               </p>
+              ) : null}
             </>
           );
         })()
@@ -372,9 +367,9 @@ function Subjects({ report, isConsultant }: { report: EmailReport; isConsultant:
     <section className={pulse.panel} aria-labelledby="kl-subjects">
       <div className={pulse.panelH}>
         <div>
-          <h3 id="kl-subjects">Asuntos de campaña</h3>
+          <h3 id="kl-subjects">Tus campañas</h3>
           <p className={pulse.sub}>
-            Media del periodo: apertura {pct(avgOpen)} · clic {pct(avgClick)}
+            Lo que vendió cada envío. De media, abren el {pct(avgOpen)} y pulsan el {pct(avgClick)}.
           </p>
         </div>
         {isConsultant ? (
@@ -396,7 +391,7 @@ function Subjects({ report, isConsultant }: { report: EmailReport; isConsultant:
             <div className={k.rowsH}>
               <span>#</span>
               <span>Asunto</span>
-              <span>{mode === "rev" ? "Ingresos" : "Apertura vs. media"}</span>
+              <span>{mode === "rev" ? "Ventas" : "Apertura vs. media"}</span>
               <span>Apertura</span>
               <span>Clic</span>
             </div>
@@ -438,105 +433,7 @@ function Subjects({ report, isConsultant }: { report: EmailReport; isConsultant:
   );
 }
 
-function Traits({ report }: { report: EmailReport }) {
-  const traits = report.subject_traits;
-  const max = Math.max(...(traits ?? []).flatMap((t) => [t.with_open_rate ?? 0, t.without_open_rate ?? 0]), 0.01);
-  return (
-    <section className={pulse.panel} aria-labelledby="kl-traits">
-      <div className={pulse.panelH}>
-        <div>
-          <h3 id="kl-traits">Qué funciona en el asunto</h3>
-          <p className={pulse.sub}>Apertura con y sin cada rasgo.</p>
-        </div>
-      </div>
-      {traits == null ? (
-        <p className={pulse.error}>No se pudo analizar los asuntos.</p>
-      ) : traits.length === 0 ? (
-        <Empty>Hace falta más variedad de envíos para comparar asuntos.</Empty>
-      ) : (
-        <div>
-          {traits.map((t) => {
-            const diff = t.with_open_rate != null && t.without_open_rate != null ? (t.with_open_rate - t.without_open_rate) * 100 : null;
-            const tone: Tone = t.better === "con" ? "good" : t.better === "sin" ? "bad" : "";
-            return (
-              <div key={t.trait} className={k.trait}>
-                <b>{t.label}</b>
-                {t.better && diff != null ? (
-                  <span className={cx(pulse.chip, toneChip(tone))}>
-                    abre {diff >= 0 ? "+" : "−"}
-                    {fmtNum(Math.abs(diff))} pp
-                  </span>
-                ) : (
-                  <span className={pulse.chip}>pocos envíos</span>
-                )}
-                <div className={k.pair}>
-                  <div className={k.pr}>
-                    <span className={k.w}>Con</span>
-                    <div className={k.tr}>
-                      <i className={tone || "mute"} style={{ width: `${((t.with_open_rate ?? 0) / max) * 100}%` }} />
-                    </div>
-                    <span className={k.n}>
-                      {pct(t.with_open_rate)} <small>· {t.with_emails}</small>
-                    </span>
-                  </div>
-                  <div className={k.pr}>
-                    <span className={k.w}>Sin</span>
-                    <div className={k.tr}>
-                      <i className="mute" style={{ width: `${((t.without_open_rate ?? 0) / max) * 100}%` }} />
-                    </div>
-                    <span className={k.n}>
-                      {pct(t.without_open_rate)} <small>· {t.without_emails}</small>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Links({ report }: { report: EmailReport }) {
-  const links = report.top_links;
-  const max = Math.max(...(links ?? []).map((l) => l.clicks), 1);
-  return (
-    <section className={pulse.panel} aria-labelledby="kl-links">
-      <div className={pulse.panelH}>
-        <h3 id="kl-links">Enlaces más pulsados</h3>
-      </div>
-      {links == null ? (
-        <p className={pulse.error}>No se pudieron cargar los enlaces.</p>
-      ) : links.length === 0 ? (
-        <Empty>Todavía no hay clics registrados en este periodo.</Empty>
-      ) : (
-        <>
-          <div className={k.lh}>
-            <span>Enlace</span>
-            <span />
-            <span>Clics</span>
-            <span>Pers.</span>
-          </div>
-          {links.slice(0, 6).map((l, i) => (
-            <div key={l.url} className={k.link}>
-              <span className={k.lk} title={l.url}>
-                {linkLabel(l.url)}
-              </span>
-              <div className={k.tr}>
-                <i className={i ? "soft" : undefined} style={{ width: `${(l.clicks / max) * 100}%` }} />
-              </div>
-              <span className={k.c}>{fmtNum(l.clicks)}</span>
-              <span className={cx(k.c, k.m)}>{fmtNum(l.personas)}</span>
-            </div>
-          ))}
-        </>
-      )}
-    </section>
-  );
-}
-
-function Flows({ report }: { report: EmailReport }) {
+function Flows({ report, activeFlows }: { report: EmailReport; activeFlows: number | null }) {
   const flows = report.flows.slice().sort((a, b) => b.revenue - a.revenue);
   const max = Math.max(...flows.map((f) => f.revenue), 1);
   return (
@@ -544,11 +441,15 @@ function Flows({ report }: { report: EmailReport }) {
       <div className={pulse.panelH}>
         <div>
           <h3 id="kl-flows">Flujos automáticos</h3>
-          <p className={pulse.sub}>Por ingresos atribuidos.</p>
+          <p className={pulse.sub}>Emails que salen solos. Ordenados por lo que venden.</p>
         </div>
       </div>
       {flows.length === 0 ? (
-        <Empty>No hay flujos sincronizados con datos.</Empty>
+        <Empty>
+          {activeFlows === 0
+            ? "Aún no tienes ninguno. Bienvenida, carrito abandonado o después de la compra: salen solos y suelen ser lo que más vende del email."
+            : "Tus flujos no han enviado nada en este periodo."}
+        </Empty>
       ) : (
         <div>
           {flows.map((f) => (
@@ -571,63 +472,6 @@ function Flows({ report }: { report: EmailReport }) {
                 )}
               </span>
             </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Issues({ group }: { group: InventoryGroup }) {
-  if (!group.sinUtm && !group.sinCuerpo) return <span className={cx(pulse.chip, pulse.chipGood)}>todo en orden</span>;
-  return (
-    <>
-      {group.sinUtm ? <span className={cx(pulse.chip, pulse.chipBad)}>{group.sinUtm} sin UTM</span> : null}
-      {group.sinCuerpo ? <span className={cx(pulse.chip, pulse.chipWarn)}>{group.sinCuerpo} sin cuerpo</span> : null}
-    </>
-  );
-}
-
-function Inventory({ insights, loading }: { insights: Insights | undefined; loading: boolean }) {
-  const groups = groupInventory(insights?.emails ?? []);
-  return (
-    <section id="klaviyo-emails" className={pulse.sec} aria-labelledby="kl-inv">
-      <SecHead id="kl-inv" title="Qué emails hay" line="El problema se ve en el título de cada bloque, sin abrirlo." />
-      {insights?.unavailable.includes("emails") ? (
-        <p className={pulse.error}>No se ha podido calcular el inventario de emails. El resto de la página sí es fiable.</p>
-      ) : groups.length === 0 ? (
-        <div className={pulse.panel}>
-          <Empty>{loading ? "Cargando los emails…" : "Todavía no hay emails sincronizados. Aparecerán tras la primera sincronización con contenido en Klaviyo."}</Empty>
-        </div>
-      ) : (
-        <div className={k.inv}>
-          {groups.map((group) => (
-            <details key={group.key}>
-              <summary>
-                <b>{group.name}</b>
-                {group.status ? <span className={cx(pulse.chip, group.status === "live" ? pulse.chipGood : undefined)}>{group.status === "live" ? "activo" : group.status}</span> : null}
-                {group.trigger ? <span className={k.tg}>se dispara con: {group.trigger}</span> : null}
-                <span className={k.sp}>
-                  <span className={pulse.chip}>
-                    {group.emails.length} email{group.emails.length === 1 ? "" : "s"}
-                  </span>
-                  <Issues group={group} />
-                </span>
-              </summary>
-              {group.emails.map((email) => (
-                <div key={email.message_id} className={k.em}>
-                  <span className={k.o}>{email.source === "flow" ? `${email.position_in_parent}º` : group.source === "campaign" ? "—" : ""}</span>
-                  <div className={k.s}>
-                    <b title={email.subject ?? undefined}>{email.subject ?? "sin asunto"}</b>
-                    {email.source === "campaign" ? <span>{email.parent_name}</span> : email.preview_text ? <span>{email.preview_text}</span> : null}
-                  </div>
-                  <span className={cx(k.kb, !email.body_chars && k.none)}>{email.body_chars ? `${Math.round(email.body_chars / 1024)} KB` : "sin cuerpo"}</span>
-                  <span className={k.u}>
-                    <span className={cx(pulse.chip, email.adds_utm ? pulse.chipGood : pulse.chipBad)}>UTM {email.adds_utm ? "sí" : "no"}</span>
-                  </span>
-                </div>
-              ))}
-            </details>
           ))}
         </div>
       )}
@@ -683,16 +527,37 @@ export function KlaviyoAnalytics({
   const query = `days=${period}${connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : ""}`;
   const reportQuery = useCachedQuery<EmailReport>(`${base}/email-report?${query}`);
   const insightsQuery = useCachedQuery<Insights>(`${base}/insights?${query}`);
-  const report = reportQuery.data;
+  const report = useKeepPrevious(reportQuery.data, `${organizationId}|${connectionId}`);
   const insights = insightsQuery.data;
   const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? "";
+  const lastSync = insights?.health?.ultimo_sync ?? null;
+  const header = (
+    <header className={k.top}>
+      <div>
+        <h1>Klaviyo</h1>
+        <p>Lo que venden tus emails.</p>
+      </div>
+      <div className={k.topR}>
+        {insights?.health ? (
+          <span className={cx(pulse.chip, lastSync ? pulse.chipGood : pulse.chipWarn)}>{lastSync ? `Sincronizado ${ago(lastSync)}` : "Sin sincronizar"}</span>
+        ) : null}
+        <div className={pulse.seg} role="group" aria-label="Periodo">
+          {PERIODS.map((p) => (
+            <button key={p.key} type="button" aria-pressed={p.key === period} onClick={() => setPeriod(p.key)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </header>
+  );
 
   if (!report) {
     return (
       <div className={pulse.root}>
+        {header}
         <div className={pulse.hero}>
-          <p className={pulse.heroMeta}>{organizationName} · Klaviyo</p>
-          <p className={pulse.headline}>{reportQuery.error ? "No hemos podido cargar Klaviyo." : "Cargando el email marketing…"}</p>
+          <p className={pulse.headline}>{reportQuery.error ? "No hemos podido cargar Klaviyo." : "Cargando tus emails…"}</p>
         </div>
       </div>
     );
@@ -721,45 +586,20 @@ export function KlaviyoAnalytics({
     );
   }
 
-  const lastSync = insights?.health?.ultimo_sync ?? null;
-
   return (
-    <div className={pulse.root}>
-      <header className={k.top}>
-        <div>
-          <h1>Klaviyo</h1>
-          <p>Qué emails salen, qué dicen y qué se puede medir de ellos.</p>
-        </div>
-        <div className={k.topR}>
-          {insights?.health ? (
-            <span className={cx(pulse.chip, lastSync ? pulse.chipGood : pulse.chipWarn)}>{lastSync ? `Sincronizado ${ago(lastSync)}` : "Sin sincronizar"}</span>
-          ) : null}
-          <div className={pulse.seg} role="group" aria-label="Periodo">
-            {PERIODS.map((p) => (
-              <button key={p.key} type="button" aria-pressed={p.key === period} onClick={() => setPeriod(p.key)}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+    <div className={pulse.root} aria-busy={reportQuery.data === undefined} style={reportQuery.data === undefined ? { opacity: 0.55, transition: "opacity 0.2s" } : undefined}>
+      {header}
 
-      <Hero report={report} organizationName={organizationName} periodLabel={periodLabel} />
+      <Hero report={report} periodLabel={periodLabel} />
       <Figures report={report} />
       {isConsultant ? <KlaviyoWork organizationId={organizationId} connectionId={connectionId} /> : null}
-      <Reliability insights={insights} loading={insightsQuery.isLoading} />
+      <Reliability insights={insights} loading={insightsQuery.isLoading} isConsultant={isConsultant} />
       {isConsultant ? <Delivery report={report} /> : null}
 
-      <div className={k.two}>
+      <div className={cx(k.two, k.twoEven)}>
+        <Flows report={report} activeFlows={insights?.health?.flujos_activos ?? null} />
         <Subjects report={report} isConsultant={isConsultant} />
-        <Traits report={report} />
       </div>
-      <div className={cx(k.two, isConsultant ? k.twoEven : k.one)}>
-        <Links report={report} />
-        {isConsultant ? <Flows report={report} /> : null}
-      </div>
-
-      <Inventory insights={insights} loading={insightsQuery.isLoading} />
     </div>
   );
 }

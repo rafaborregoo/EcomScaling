@@ -18,6 +18,8 @@ export type MarketingDraftIdempotencyInput = {
   brandColors: Record<string, string>;
   verbatimTexts: string[];
   caminoTaskContext?: Record<string, unknown>;
+  campaignSource?: Record<string, unknown>;
+  mailingSequenceContext?: Record<string, unknown>;
 };
 
 function stableValue(value: unknown): unknown {
@@ -55,6 +57,10 @@ export function fingerprintMarketingDraftRequest(
     verbatimTexts: input.verbatimTexts,
     ...(input.caminoTaskContext
       ? { caminoTaskContext: input.caminoTaskContext }
+      : {}),
+    ...(input.campaignSource ? { campaignSource: input.campaignSource } : {}),
+    ...(input.mailingSequenceContext
+      ? { mailingSequenceContext: input.mailingSequenceContext }
       : {}),
   }));
   return crypto.createHash("sha256").update(canonical).digest("hex");

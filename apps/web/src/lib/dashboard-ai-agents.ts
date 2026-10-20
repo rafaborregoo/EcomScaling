@@ -88,13 +88,13 @@ export const SHOPIFY_DASHBOARD_AI_AGENTS: DashboardAiAgentConfig[] = [
   {
     key: "operativa-shopify",
     label: "Operativa de Shopify",
-    description: "Trabajo operativo detectado en la tienda.",
+    description: "Diagnóstico Shopify, prioridades y tareas conectadas con el objetivo vigente de Mi Camino.",
     getPath: "/ai/operativa-shopify",
     runPath: "/ai/operativa-shopify-run",
     loadingLabel: "Revisando la operativa de Shopify...",
     tasksLabelSingular: "tarea de Shopify",
     variant: "tasks",
-    consultantOnly: true,
+    consultantOnly: false,
   },
   STOCK_PLANNER_AI_AGENT,
 ];

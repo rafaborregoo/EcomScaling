@@ -358,7 +358,7 @@ test("A12 v4 habilita lecturas de rendimiento con fechas, tienda y granularidad 
     runtime,
     /parseKlaviyoPerformanceWindow\([\s\S]{0,100}input\.period_start[\s\S]{0,100}input\.period_end/,
   );
-  assert.match(runtime, /no_disponible_por_tienda/);
+  assert.match(runtime, /no_disponible/);
 });
 
 test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
@@ -372,7 +372,7 @@ test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
   assert.match(migration, /Las alertas actuales son organizativas/);
   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
-  assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
+  assert.match(runtime, /scope: alert\.store_id === storeId && storeId \? "selected_store" : "organization_unattributed"/);
   assert.match(runtime, /runOperativaShopifyAgent[\s\S]{0,500}resolveStrictStoreScope/);
   assert.match(runtime, /operationalMetricValue\(sales\.data, sales\.error\)/);
   assert.match(runtime, /operationalMetricValue\(prevSales\.data, prevSales\.error\)/);
@@ -394,7 +394,7 @@ test("A14 v2 mantiene ROAS, plan, tareas y alertas dentro del alcance correcto",
   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
   assert.match(runtime, /meta_spend_query_failed/);
-  assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
+  assert.match(runtime, /attribution: alert\.store_id === storeId \? "selected_store" : "organization_unattributed"/);
 });
 
 test("las migraciones de agentes usan la columna checksum del esquema prompt_versions", () => {

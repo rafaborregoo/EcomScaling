@@ -15,7 +15,7 @@ import { Banner, Btn, Chip, Hero, Kpis, Panel, Section, Seg, Stage, css as s } f
 import { QuickActionsBar } from "./quick-actions";
 
 /**
- * Campañas del CLIENTE, con su propia paleta (petróleo y azafrán) y su propia voz.
+ * Campañas del CLIENTE, con su propia paleta (grafito y azafrán) y su propia voz.
  *
  * Con consultor: lo que su consultor le prepara llega aquí para que lo
  * apruebe, y lo que crea él le llega al consultor para que lo revise. Sin

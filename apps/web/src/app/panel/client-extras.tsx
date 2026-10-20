@@ -92,7 +92,7 @@ export function ClientActions({ organizationId }: { organizationId: string }) {
       ) : null}
       <ul>
         {open.map((task) => (
-          <li key={task.id} className={s.qi}>
+          <li key={task.id} className={`${s.qi} task-lift`}>
             <span className={s.qn}>{task.status === "in_progress" ? "▶" : "·"}</span>
             <b>{task.title}</b>
             <span className={s.liR}>

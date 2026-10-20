@@ -16,7 +16,7 @@ import pulse from "../../../dashboard/client-pulse.module.css";
 import s from "../../productos/catalogo.module.css";
 import p from "../promociones.module.css";
 import type { CatalogDiscount, CatalogDiscountApplication, CatalogDiscountDetailResponse } from "../../catalog-types";
-import { benefitBig, classLabel, discountAlerts, discountState, money, PERIODS, type Period, validity } from "../promo-model";
+import { benefitBig, classLabel, discountAlerts, discountState, money, PERIODS, type Period } from "../promo-model";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKS = 12;
@@ -167,7 +167,6 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.fHero} aria-labelledby="promo-titulo">
         <div className={p.ticket}>
-          <p className={p.kind}>{classLabel(discount)}</p>
           <div className={p.ticketBig}>{benefitBig(discount)}<small>{ticketSub}</small></div>
           <Timeline discount={discount} />
           <div className={p.tCodes}>
@@ -180,41 +179,41 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         </div>
         <div className={s.info}>
-          <div className={s.heroMeta}>
-            <span>{discount.store_name}</span>
-            <span>{classLabel(discount)}</span>
-            {discount.external_updated_at ? <span>Actualizada {new Date(discount.external_updated_at).toLocaleDateString("es-ES")}</span> : null}
-          </div>
           <div>
             <div className={s.chips}>
               <span className={cx(pulse.chip, state.tone === "good" ? pulse.chipGood : state.tone === "warn" ? pulse.chipWarn : undefined)}>{state.label}</span>
-              <span className={pulse.chip}>{discount.codes.length ? `${discount.codes.length} código${discount.codes.length === 1 ? "" : "s"}` : "Automática"}</span>
-              <span className={pulse.chip}>{validity(discount)}</span>
               {alerts.filter((alert) => alert.kind !== "idle").map((alert) => <span key={alert.kind} className={cx(pulse.chip, alert.tone === "bad" ? pulse.chipBad : alert.tone === "warn" ? pulse.chipWarn : alert.tone === "acc" ? pulse.chipAcc : undefined)}>{alert.text}</span>)}
               {discount.codes_coverage === "partial" ? <span className={cx(pulse.chip, pulse.chipWarn)}>Códigos parciales</span> : null}
             </div>
             <h1 id="promo-titulo">{title}</h1>
           </div>
           <p className={p.lead}>{discount.summary ?? (appManaged ? "Shopify no expone la regla porque la gestiona una app. Se muestran los usos y los pedidos donde aparece." : "Shopify no devuelve un resumen de esta regla.")}</p>
+          {!m?.orders ? (
+            <p className={pulse.sub}>
+              Usada {fmtNum(discount.usage_count)} {discount.usage_count === 1 ? "vez" : "veces"}{discount.usage_limit != null ? ` de ${fmtNum(discount.usage_limit)}` : ""}. Todavía no hay pedidos con esta promoción en los últimos {periodDays} días.
+            </p>
+          ) : (
           <dl className={s.dl}>
-            <div><dt>Usos (Shopify)</dt><dd>{fmtNum(discount.usage_count)}<small>{discount.usage_limit == null ? "sin límite informado" : `de ${fmtNum(discount.usage_limit)} · ${fmtNum((discount.usage_count / discount.usage_limit) * 100)} %`}</small></dd></div>
+            <div><dt>Usos</dt><dd>{fmtNum(discount.usage_count)}<small>{discount.usage_limit == null ? "sin límite informado" : `de ${fmtNum(discount.usage_limit)} · ${fmtNum((discount.usage_count / discount.usage_limit) * 100)} %`}</small></dd></div>
             <div><dt>Pedidos observados</dt><dd>{m ? fmtNum(m.orders) : "—"}<small>{m ? (m.orders ? `de ${fmtNum(discount.usage_count)} usos totales` : "sin pedidos en el periodo") : "sin métricas"}</small></dd></div>
             <div><dt>Descuento concedido</dt><dd>{m ? (m.orders === 0 ? "—" : m.discount_amount == null ? "parcial" : money(m.discount_amount, currency)) : "—"}<small>{share != null ? `${fmtNum(share * 100, 1)} % de lo que vende` : m?.discount_amount == null && m?.orders ? "falta algún importe" : "sin pedidos"}</small></dd></div>
             <div><dt>Ventas con la promo</dt><dd>{m?.orders ? money(m.net_revenue, currency) : "—"}<small>{m?.orders ? "importe neto de esos pedidos" : "sin pedidos"}</small></dd></div>
-            <div><dt>Ticket medio</dt><dd>{m?.aov != null ? money(m.aov, currency) : "—"}<small>{lift != null ? `${lift > 0 ? "+" : ""}${fmtNum(lift * 100)} % vs. pedidos sin promo` : m?.aov != null ? "pocos pedidos sin promo para comparar" : "sin pedidos"}</small></dd></div>
-            <div><dt>Clientes nuevos</dt><dd>{m?.new_customer_share != null ? `${fmtNum(m.new_customer_share * 100)} %` : "—"}<small>{m?.new_customer_share != null ? "primer pedido en la tienda" : "sin dato de cliente"}</small></dd></div>
+            {m?.aov == null ? null : <div><dt>Gasto medio por pedido</dt><dd>{m?.aov != null ? money(m.aov, currency) : "—"}<small>{lift != null ? `${lift > 0 ? "+" : ""}${fmtNum(lift * 100)} % vs. pedidos sin promo` : m?.aov != null ? "pocos pedidos sin promo para comparar" : "sin pedidos"}</small></dd></div>}
+            {m?.new_customer_share == null ? null : <div><dt>Clientes nuevos</dt><dd>{fmtNum(m.new_customer_share * 100)} %<small>primer pedido en la tienda</small></dd></div>}
           </dl>
+          )}
           <div className={s.actions}>
             <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo funciona esta promoción y qué haría primero", "Ficha de promoción")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
-            <Link className={cx(pulse.btn, pulse.ghost)} href={backHref} onClick={returnToPromotions}>Volver a promociones</Link>
           </div>
         </div>
       </section>
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
+      <details>
+      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Regla</span><span className={cx(pulse.chip, appManaged || data.details_coverage === "migration_pending" ? pulse.chipWarn : pulse.chipGood)}>{appManaged ? "no visible" : data.details_coverage === "migration_pending" ? "pendiente" : "leída"}</span></div>
@@ -233,14 +232,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>Solo pedidos sincronizados. Shopify cuenta {fmtNum(discount.usage_count)} usos{m ? `; aquí se ven ${fmtNum(m.orders)} en ${periodDays} días` : ""}.</p>
         </div>
       </div>
-
-      <nav className={s.snav} aria-label="Secciones">
-        <a href="#rendimiento">Rendimiento</a>
-        <a href="#regla">Regla</a>
-        <a href="#productos">Productos</a>
-        <a href="#pedidos">Pedidos</a>
-        {showCodes ? <a href="#codigos">Códigos</a> : null}
-      </nav>
+      </details>
 
       {/* ------------------------------ Rendimiento ------------------------------ */}
       <section id="rendimiento" className={pulse.sec}>
@@ -274,7 +266,6 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ) : (
                 <Empty>{discount.status?.toUpperCase() === "SCHEDULED" ? "Todavía no ha empezado. Aquí verás los pedidos semana a semana desde el primer día." : "Sin pedidos con esta promoción en las últimas 12 semanas."}</Empty>
               )}
-              <p className={pulse.sub} style={{ marginTop: 12 }}>La semana actual, en amarillo. El contador de usos de Shopify puede cubrir otro periodo.</p>
             </div>
             <div className={s.minis}>
               <div className={s.mini}><span className={pulse.lbl}>Ritmo actual</span><span>{pace != null ? `${fmtNum(pace, 1)}/día` : "—"}</span><small>últimos 14 días</small></div>
@@ -283,10 +274,9 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <span style={{ color: daysToLimit != null && daysToLimit < 7 ? "var(--bad)" : undefined }}>{discount.usage_limit == null ? "Sin límite" : daysToLimit != null ? `≈ ${fmtNum(daysToLimit, daysToLimit < 10 ? 1 : 0)} días` : `${fmtNum(left ?? 0)} restantes`}</span>
                 <small>{discount.usage_limit == null ? "no hay tope de usos" : daysToLimit != null ? `${fmtNum(left ?? 0)} usos restantes al ritmo actual` : "sin ritmo reciente para estimar"}</small>
               </div>
-              <div className={s.mini}><span className={pulse.lbl}>Descuento por pedido</span><span>{m?.orders && m.discount_amount != null ? money(m.discount_amount / m.orders, currency) : "—"}</span><small>media de lo concedido</small></div>
-              <div className={s.mini}><span className={pulse.lbl}>Usos por pedido</span><span>{discount.uses_per_order_limit == null ? "—" : fmtNum(discount.uses_per_order_limit)}</span><small>{discount.uses_per_order_limit == null ? "sin límite informado" : "máximo que permite la regla"}</small></div>
-              <div className={cx(s.mini, s.wide)}>
-                <span className={pulse.lbl}>Ticket medio con y sin la promo</span>
+              {m?.orders ? <div className={s.mini}><span className={pulse.lbl}>Descuento por pedido</span><span>{m?.orders && m.discount_amount != null ? money(m.discount_amount / m.orders, currency) : "—"}</span><small>media de lo concedido</small></div> : null}
+              {m?.orders ? <div className={cx(s.mini, s.wide)}>
+                <span className={pulse.lbl}>Gasto medio con y sin la promo</span>
                 {m?.aov != null && m.aov_baseline != null ? (
                   <>
                     <div className={p.cmp}>
@@ -296,7 +286,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <small>{lift != null && lift > 0 ? "Los pedidos con la promoción son más grandes que los demás." : "Los pedidos con la promoción son más pequeños que los demás."}</small>
                   </>
                 ) : <small>{m?.aov != null ? "Hay pocos pedidos sin promoción en el periodo para comparar." : "Se calculará con los primeros pedidos."}</small>}
-              </div>
+              </div> : null}
             </div>
           </div>
         ) : (
@@ -308,7 +298,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {/* ------------------------------ Regla ------------------------------ */}
       <section id="regla" className={pulse.sec}>
-        <SectionHead id="regla-titulo" title="Regla" ai={null} fallback="Qué tiene que hacer el cliente y qué recibe, según la configuración de Shopify." onAsk={() => askCopilot("¿Mejorarías esta regla?", "Regla de la promoción")} />
+        <SectionHead id="regla-titulo" title="Regla" ai={null} fallback="Qué compra el cliente y qué recibe a cambio." />
         {data.details_coverage === "migration_pending" ? <p className={s.note}>La tienda no tiene el esquema ampliado de reglas y códigos. Los campos que faltan no se interpretan como vacíos.</p> : null}
         <div className={pulse.panel}>
           {appManaged ? (
@@ -317,89 +307,55 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div className={p.rule}>
               <div className={p.side}>
                 <h3>El cliente compra</h3>
-                {buys.length ? <ul className={p.list}>{buys.map((target) => <li key={`${target.target_type}:${target.external_target_id}`}><span className={pulse.chip}>{targetLabel(target.target_type)}</span>{target.target_title || target.external_target_id}</li>)}</ul> : <p className={pulse.sub}>Sin requisito de productos guardado.</p>}
+                {buys.length ? <ul className={p.list}>{buys.map((target) => <li key={`${target.target_type}:${target.external_target_id}`}>{target.target_title && target.target_title !== targetLabel(target.target_type) ? <><span className={pulse.chip}>{targetLabel(target.target_type)}</span>{target.target_title}</> : <span>{targetLabel(target.target_type)}</span>}</li>)}</ul> : <p className={pulse.sub}>Sin requisito de productos guardado.</p>}
               </div>
               <div className={p.arrow} aria-hidden="true">→</div>
               <div className={cx(p.side, p.gets)}>
                 <h3>Y recibe {benefitBig(discount)}</h3>
-                {gets.length ? <ul className={p.list}>{gets.map((target) => <li key={`${target.target_type}:${target.external_target_id}`}><span className={pulse.chip}>{targetLabel(target.target_type)}</span>{target.target_title || target.external_target_id}</li>)}</ul> : <p className={pulse.sub}>Sin objetivos de beneficio guardados.</p>}
+                {gets.length ? <ul className={p.list}>{gets.map((target) => <li key={`${target.target_type}:${target.external_target_id}`}>{target.target_title && target.target_title !== targetLabel(target.target_type) ? <><span className={pulse.chip}>{targetLabel(target.target_type)}</span>{target.target_title}</> : <span>{targetLabel(target.target_type)}</span>}</li>)}</ul> : <p className={pulse.sub}>Sin objetivos de beneficio guardados.</p>}
               </div>
             </div>
           )}
           <div className={p.conds}>
-            <div className={p.cond}><span className={pulse.lbl}>Límite de usos</span><span>{discount.usage_limit == null ? "Sin límite informado" : fmtNum(discount.usage_limit)}</span></div>
-            <div className={p.cond}><span className={pulse.lbl}>Usos por pedido</span><span>{discount.uses_per_order_limit == null ? "Sin límite informado" : fmtNum(discount.uses_per_order_limit)}</span></div>
+            <div className={p.cond}><span className={pulse.lbl}>Límite de usos</span><span>{discount.usage_limit == null ? "Sin límite" : fmtNum(discount.usage_limit)}</span></div>
+            {discount.uses_per_order_limit == null ? null : <div className={p.cond}><span className={pulse.lbl}>Usos por pedido</span><span>{fmtNum(discount.uses_per_order_limit)}</span></div>}
             <div className={p.cond}><span className={pulse.lbl}>Inicio</span><span>{discount.starts_at ? new Date(discount.starts_at).toLocaleString("es-ES") : "Sin fecha"}</span></div>
             <div className={p.cond}><span className={pulse.lbl}>Fin</span><span>{discount.ends_at ? new Date(discount.ends_at).toLocaleString("es-ES") : "Sin fecha"}</span></div>
           </div>
-          <p className={pulse.sub} style={{ marginTop: 12 }}>Un objetivo confirma a qué productos apunta la regla; no confirma elegibilidad de cliente, carrito, mínimos ni combinaciones.</p>
+          {targetTotalPages > 1 ? (
+            <div className={s.pager} style={{ marginTop: 14 }}>
+              <span className={pulse.muted} style={{ fontSize: 12.5 }}>Productos de la regla · página {targetsPage} de {targetTotalPages}</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={targetsPage <= 1} onClick={() => setTargetsPage((value) => value - 1)}>Anterior</button>
+                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={targetsPage >= targetTotalPages} onClick={() => setTargetsPage((value) => value + 1)}>Siguiente</button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
 
       {/* ------------------------------ Productos ------------------------------ */}
+      {data.top_products?.length ? (
       <section id="productos" className={pulse.sec}>
-        <SectionHead id="productos-titulo" title="Productos" ai={null} fallback="A qué apunta la regla y qué se vende de verdad en los pedidos donde se usó." onAsk={() => askCopilot("¿Debería incluir otros productos en esta promoción?", "Productos de la promoción")} />
-        <div className={pulse.two}>
-          <div className={pulse.panel}>
-            <div className={pulse.panelH}>
-              <div>
-                <h3>Más vendidos en pedidos con la promo</h3>
-                <p className={pulse.sub}>Unidades en pedidos sincronizados de los últimos {periodDays} días, todas las líneas del pedido</p>
-              </div>
-              {data.top_products ? <span className={pulse.chip}>{data.top_products.length}</span> : null}
-            </div>
-            {data.top_products?.length ? (
-              <ul className={p.list}>
-                {data.top_products.map((item) => (
-                  <li key={item.product_id ?? item.title} className={p.prodRow}>
-                    {item.product_id ? <Link href={`/shopify/productos/${item.product_id}?organizationId=${organizationId}${connectionId ? `&connectionId=${connectionId}` : ""}`} style={{ fontWeight: 600 }}>{item.title}</Link> : <span style={{ fontWeight: 600 }}>{item.title}</span>}
-                    <span className={pulse.num} style={{ fontWeight: 600 }}>{fmtNum(item.units)} uds.</span>
-                    <i className={p.meter}><b style={{ width: `${(item.units / topMax) * 100}%`, background: "var(--store)" }} /></i>
-                  </li>
-                ))}
-              </ul>
-            ) : <Empty>{data.top_products ? "Aparecerán cuando haya pedidos con esta promoción." : "Disponible al aplicar la migración de métricas de promociones."}</Empty>}
-          </div>
-          <div className={pulse.panel}>
-            <div className={pulse.panelH}>
-              <div>
-                <h3>Objetivos de la regla</h3>
-                <p className={pulse.sub}>Lo que Shopify declara en la regla</p>
-              </div>
-              {data.targets_total != null ? <span className={pulse.chip}>{fmtNum(data.targets_total)}</span> : null}
-            </div>
-            {data.target_coverage.status !== "available" ? <p className={s.note} style={{ marginBottom: 12 }}>{data.target_coverage.status === "migration_pending" ? "La asociación de objetivos estará disponible al aplicar su migración." : "No se pudo consultar la cobertura de objetivos."}</p> : null}
-            {data.target_coverage.by_rule_side.length ? <div className={s.chips} style={{ marginBottom: 12 }}>{data.target_coverage.by_rule_side.map((coverage) => <span key={coverage.rule_side} className={cx(pulse.chip, coverage.status === "complete" ? pulse.chipGood : pulse.chipWarn)}>{coverage.rule_side === "gets" ? "Beneficio" : "Requisito"}: {coverage.status}</span>)}</div> : null}
-            {data.targets.length ? (
-              <div style={{ display: "grid", gap: 14 }}>
-                {(["buys", "gets"] as const).map((side) => {
-                  const targets = data.targets.filter((target) => target.rule_side === side);
-                  if (!targets.length) return null;
-                  return (
-                    <div key={side}>
-                      <p className={pulse.lbl} style={{ marginBottom: 6 }}>{side === "buys" ? "Requisito" : "Beneficio"}</p>
-                      <ul className={p.list}>{targets.map((target) => <li key={`${target.rule_side}:${target.target_type}:${target.external_target_id}`} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}><span className={pulse.chip}>{targetLabel(target.target_type)}</span>{target.target_title || target.external_target_id}</li>)}</ul>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : data.target_coverage.status === "available" ? <Empty>No hay objetivos concretos guardados. Una regla administrada por una app puede no exponerlos.</Empty> : null}
-            {data.targets_total != null && data.targets_total > data.targets_page_size ? (
-              <div className={s.pager} style={{ marginTop: 14 }}>
-                <span className={pulse.muted} style={{ fontSize: 12.5 }}>Página {targetsPage} de {targetTotalPages}</span>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={targetsPage <= 1} onClick={() => setTargetsPage((value) => value - 1)}>Anterior</button>
-                  <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={targetsPage >= targetTotalPages} onClick={() => setTargetsPage((value) => value + 1)}>Siguiente</button>
-                </div>
-              </div>
-            ) : null}
-          </div>
+        <SectionHead id="productos-titulo" title="Qué se vende con la promo" ai={null} fallback={`Unidades en pedidos con la promoción, últimos ${periodDays} días.`} />
+        <div className={pulse.panel}>
+          <ul className={p.list}>
+            {data.top_products.map((item) => (
+              <li key={item.product_id ?? item.title} className={p.prodRow}>
+                {item.product_id ? <Link href={`/shopify/productos/${item.product_id}?organizationId=${organizationId}${connectionId ? `&connectionId=${connectionId}` : ""}`} style={{ fontWeight: 600 }}>{item.title}</Link> : <span style={{ fontWeight: 600 }}>{item.title}</span>}
+                <span className={pulse.num} style={{ fontWeight: 600 }}>{fmtNum(item.units)} uds.</span>
+                <i className={p.meter}><b style={{ width: `${(item.units / topMax) * 100}%`, background: "var(--store)" }} /></i>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
+      ) : null}
 
       {/* ------------------------------ Pedidos ------------------------------ */}
+      {data.applications.length ? (
       <section id="pedidos" className={pulse.sec}>
-        <SectionHead id="pedidos-titulo" title="Pedidos" ai={null} fallback="Pedidos sincronizados donde se aplicó. El contador de Shopify puede cubrir otro periodo." onAsk={() => askCopilot("¿Qué patrón ves en los pedidos donde se usó esta promoción?", "Pedidos de la promoción")} />
+        <SectionHead id="pedidos-titulo" title="Pedidos donde se usó" ai={null} />
         <div className={pulse.panel}>
           <div className={pulse.panelH}>
             <div>
@@ -436,11 +392,12 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
         </div>
       </section>
+      ) : null}
 
       {/* ------------------------------ Códigos ------------------------------ */}
       {showCodes ? (
         <section id="codigos" className={pulse.sec}>
-          <SectionHead id="codigos-titulo" title="Códigos" ai={null} fallback="Qué código aparece en más pedidos. Útil para decidir qué códigos mantener." onAsk={() => askCopilot("¿Qué códigos de esta promoción funcionan mejor y cuáles retiraría?", "Códigos de la promoción")} />
+          <SectionHead id="codigos-titulo" title="Códigos" ai={null} fallback="Qué código aparece en más pedidos. Útil para decidir qué códigos mantener." />
           <div className={pulse.panel}>
             {discount.codes_coverage === "partial" ? <p className={s.note} style={{ marginBottom: 12 }}>Shopify no ha devuelto todos los códigos. Los que falten no aparecen aquí.</p> : null}
             {codesUsage.length ? (
@@ -465,7 +422,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       <footer className={s.foot}>
-        <span>Regla y contador de usos: Shopify. Pedidos, importes y ticket medio: pedidos sincronizados, no necesariamente todo el historial.</span>
+        <span>Regla y usos: Shopify. Pedidos e importes: pedidos sincronizados.</span>
         <Link href={backHref} onClick={returnToPromotions}>← Volver a promociones</Link>
       </footer>
     </div>

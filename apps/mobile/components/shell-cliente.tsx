@@ -13,6 +13,7 @@ import { DashboardSelector, HeaderSelect, HomeContent, type DashTab } from "./da
 import { MarketingModule } from "./marketing";
 import { MensajesModule } from "./mensajes";
 import { METRICAS_SECTIONS, MetricasModule, type MetricasSection } from "./metricas";
+import { NavPill } from "./nav-pill";
 import { SettingsModal } from "./settings";
 import { Note } from "./ui";
 import type { Org } from "./views";
@@ -125,17 +126,7 @@ export function ClientShell({ boot, onSignOut }: { boot: Bootstrap; onSignOut: (
       </AskCopilot.Provider>
 
       {!keyboard && (
-        <View style={{ flexDirection: "row", paddingTop: 8, paddingBottom: insets.bottom + 6, borderTopWidth: 1, borderTopColor: c.edge, backgroundColor: c.bg }}>
-          {MODULES.map(({ key, label, Icon }) => {
-            const on = key === module;
-            return (
-              <Pressable key={key} onPress={() => goTo(key)} style={{ flex: 1, alignItems: "center", gap: 3 }}>
-                <Icon size={22} color={on ? c.accent : c.muted} strokeWidth={on ? 2.4 : 1.9} />
-                <Text style={{ fontSize: 11, fontFamily: on ? font.semibold : font.regular, color: on ? c.accent : c.muted }}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <NavPill active={module} onPress={(k) => goTo(k as ModuleKey)} items={[...MODULES]} />
       )}
 
       <SettingsModal visible={settings} onClose={() => setSettings(false)} boot={boot} org={org} isConsultant={false} onSignOut={onSignOut} onStore={pickStore} />

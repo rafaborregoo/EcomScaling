@@ -38,10 +38,6 @@ const dashboardItems: PortalNavItem[] = [
     label: "Prioridades",
     defaultForPath: true,
   },
-  { href: "/dashboard?tab=shopify", label: "Shopify" },
-  { href: "/dashboard?tab=meta", label: "Meta Ads" },
-  { href: "/dashboard?tab=klaviyo", label: "Klaviyo" },
-  { href: "/informes", label: "Informes" },
 ];
 
 // Marketing: el trabajo diario arriba (Hoy, Campañas, Flows, Plantillas,
@@ -102,6 +98,7 @@ function settingsItems(role: PortalRole, context: SettingsNavContext): PortalNav
       { href: "/integraciones?vista=cartera", label: "Integraciones de la cartera", group: own },
       { href: section("accesos"), label: "Equipo y reparto", group: own },
       { href: section("consultora"), label: "Plan, plazas y marca", group: own },
+      { href: section("permisos"), label: "Tus permisos", group: own },
       ...(org
         ? [
             { href: section("resumen"), label: "Resumen", group: store, defaultForPath: true },
@@ -117,6 +114,9 @@ function settingsItems(role: PortalRole, context: SettingsNavContext): PortalNav
             { href: section("objetivos"), label: "Objetivos", group: store },
             { href: section("alertas"), label: "Alertas", group: store },
             { href: section("copiloto"), label: "Copiloto IA", group: store },
+            ...(context.activeIsOwnStore
+              ? []
+              : [{ href: section("consultor"), label: "Tus permisos aquí", group: store }]),
             ...(context.canManageClientAccess
               ? [{ href: section("equipo"), label: "Personas y roles", group: store }]
               : []),
@@ -139,7 +139,7 @@ function settingsItems(role: PortalRole, context: SettingsNavContext): PortalNav
           ...(context.canManageClientAccess
             ? [{ href: section("equipo"), label: "Personas y roles", group: "Equipo" }]
             : []),
-          { href: section("consultor"), label: "Tu consultor", group: "Equipo" },
+          { href: section("consultor"), label: "Tu consultor y sus permisos", group: "Equipo" },
         ]
       : []),
     { href: section("notificaciones"), label: "Notificaciones", group: "Avisos e IA" },
@@ -230,20 +230,47 @@ function sharedModules(
       ],
     },
     {
-      id: "analitica",
-      label: "Analítica",
-      description: "Datos por canal y fuente",
-      icon: ChartIcon,
-      matchPrefixes: ["/shopify", "/meta", "/klaviyo"],
+      id: "shopify",
+      label: "Shopify",
+      description: "Catálogo, inventario y promociones",
+      icon: ActivityIcon,
+      matchPrefixes: ["/shopify"],
       items: [
-        { href: "/shopify", label: "Shopify" },
+        { href: "/shopify", label: "Resumen" },
         { href: "/shopify/productos", label: "Productos", matchPrefixes: ["/shopify/productos/"] },
+        { href: "/shopify/inventario", label: "Inventario" },
         { href: "/shopify/promociones", label: "Promociones", matchPrefixes: ["/shopify/promociones/"] },
-        { href: "/meta", label: "Meta Ads" },
+      ],
+    },
+    {
+      id: "meta",
+      label: "Meta",
+      description: "Campañas y anuncios",
+      icon: MegaphoneIcon,
+      matchPrefixes: ["/meta"],
+      items: [
+        { href: "/meta", label: "Resumen" },
         { href: "/meta/campanas", label: "Campañas", matchPrefixes: ["/meta/campanas/"] },
-        { href: "/klaviyo", label: "Klaviyo" },
+      ],
+    },
+    {
+      id: "klaviyo",
+      label: "Klaviyo",
+      description: "Campañas y automatizaciones email",
+      icon: MessageSquareIcon,
+      matchPrefixes: ["/klaviyo"],
+      items: [
+        { href: "/klaviyo", label: "Resumen" },
         { href: "/klaviyo/emails", label: "Emails", matchPrefixes: ["/klaviyo/emails/"] },
       ],
+    },
+    {
+      id: "analitica",
+      label: "Analítica",
+      description: "Informes de negocio y comparación de canales",
+      icon: ChartIcon,
+      matchPrefixes: ["/informes"],
+      items: [{ href: "/informes", label: "Informes" }],
     },
     ...(consultant
       ? [

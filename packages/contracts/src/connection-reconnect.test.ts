@@ -20,8 +20,9 @@ test("solo el permiso caído pide reconectar; un fallo de sync no", () => {
 });
 
 test("el trigger de avisos usa el mismo patrón", () => {
+  // La última versión del trigger (ADR-0028 lo pasó al outbox del motor).
   const sql = readFileSync(
-    new URL("../../../supabase/migrations/20261221100000_avisos_solo_reconectar.sql", import.meta.url),
+    new URL("../../../supabase/migrations/20270102090000_avisos_integracion_por_el_motor.sql", import.meta.url),
     "utf8",
   );
   assert.ok(sql.includes(`'${RECONNECT_ERROR_PATTERN}'`), "copia el patrón tal cual en la migración");

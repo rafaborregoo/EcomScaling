@@ -6,12 +6,12 @@ import { AlertRulesSection } from "./alert-rules-section";
 import { ClientAccessSection } from "./client-access-section";
 import { WorkSplitSection } from "./work-split-section";
 import { ConsultantSection } from "./consultant-section";
+import { ConsultantOwnPermissions, ConsultantPortfolioPermissions } from "./consultant-permissions";
 import { ActivityCard, TeamSecurityCard } from "./team-security-section";
 import { ROLE_LABEL, ROLE_MATRIX, MEMBER_ROLES } from "./role-permissions";
 import { BillingSection } from "./billing-section";
 import { NotificationsSection } from "./notifications-section";
 import { ObjectivesProgress } from "./objectives-progress";
-import { useMetricAnalysis } from "@/components/metric-verdict";
 import { PrivacySection } from "./privacy-section";
 import { SecuritySection } from "./security-section";
 import { SummarySection } from "./summary-section";
@@ -97,9 +97,8 @@ type FinancialConfigResponse = {
   metric_targets: MetricTarget[];
 };
 
-// Mismas claves que `METRIC_TARGET_KEYS` en la API: el panel busca el objetivo
-// por la clave exacta para pintarlo junto a su cifra. La etiqueta y el sufijo
-// son de aquí; la clave manda y no se traduce.
+// Etiquetas de las claves de `OBJECTIVE_CATALOG` (strategic-plans.ts), que son
+// las del panel. Los objetivos se fijan en Mi Camino; aquí solo se leen.
 const METRIC_TARGET_OPTIONS: Array<{
   value: string;
   label: string;
@@ -115,6 +114,7 @@ const METRIC_TARGET_OPTIONS: Array<{
   { value: "cac_blended", label: "CAC (todas las plataformas)", unit: "eur" },
   { value: "roas", label: "ROAS", unit: "num" },
   { value: "email_attributed_pct", label: "Facturación vía email", unit: "pct" },
+  { value: "out_of_stock_items", label: "Productos agotados", unit: "num" },
 ];
 
 const FINANCIAL_CURRENCIES = ["EUR", "USD", "GBP", "MXN", "COP", "ARS", "CLP", "BRL"];
@@ -189,9 +189,6 @@ function FinancialConfigSection({
   const membership = bootstrap.memberships.find(
     (item) => item.organization_id === organizationId,
   );
-  // Objetivo sugerido por el analista de métricas (ADR-0027): sale de los costes de la
-  // tienda y del margen neto objetivo. Solo en Objetivos, donde se usa.
-  const analysisOf = useMetricAnalysis(organizationId, part === "targets" ? 30 : "all");
   // Mismo criterio que `assertCanManage` en el backend: el consultor asesora
   // sobre el margen, así que también lo configura.
   const isConsultantRole = ["platform_admin", "consultant"].includes(
@@ -236,14 +233,6 @@ function FinancialConfigSection({
   const [expensePeriod, setExpensePeriod] = useState<"monthly" | "yearly">(
     "monthly",
   );
-
-  const [targetMetricKey, setTargetMetricKey] = useState(
-    METRIC_TARGET_OPTIONS[0]!.value,
-  );
-  const [targetValue, setTargetValue] = useState("");
-  const [targetPeriod, setTargetPeriod] = useState("monthly");
-  const [isAddingTarget, setIsAddingTarget] = useState(false);
-  const [busyTargetId, setBusyTargetId] = useState<string | null>(null);
 
   const [ruleName, setRuleName] = useState("");
   const [ruleCostPerOrder, setRuleCostPerOrder] = useState("");
@@ -355,60 +344,6 @@ function FinancialConfigSection({
       setError("No se pudo quitar el gasto por un error de red. Reintenta.");
     } finally {
       setBusyExpenseId(null);
-    }
-  }
-
-  async function addMetricTarget(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setIsAddingTarget(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/financial-config/metric-targets`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            metricKey: targetMetricKey,
-            targetValue: Number(targetValue),
-            period: targetPeriod,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-
-      setTargetValue("");
-      void loadConfig();
-    } catch {
-      setError("No se pudo guardar el objetivo por un error de red. Reintenta.");
-    } finally {
-      setIsAddingTarget(false);
-    }
-  }
-
-  async function removeMetricTarget(targetId: string) {
-    setError(null);
-    setBusyTargetId(targetId);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/financial-config/metric-targets/${targetId}`,
-        { method: "DELETE" },
-      );
-
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-
-      void loadConfig();
-    } catch {
-      setError("No se pudo quitar el objetivo por un error de red. Reintenta.");
-    } finally {
-      setBusyTargetId(null);
     }
   }
 
@@ -700,21 +635,6 @@ function FinancialConfigSection({
           labelFor={(key) =>
             METRIC_TARGET_OPTIONS.find((option) => option.value === key)?.label ?? key
           }
-          action={
-            canManage
-              ? (target) => (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    type="button"
-                    onClick={() => void removeMetricTarget(target.id)}
-                    disabled={busyTargetId === target.id}
-                  >
-                    {busyTargetId === target.id ? "Quitando..." : "Quitar"}
-                  </Button>
-                )
-              : undefined
-          }
         />
         {(config?.metric_targets ?? []).length === 0 ? (
           <EmptyState
@@ -722,76 +642,13 @@ function FinancialConfigSection({
             hint="Sin objetivo, una cifra no dice si va bien o mal."
           />
         ) : null}
-        {canManage ? (
-          <form
-            className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_9rem_auto] md:items-end"
-            onSubmit={addMetricTarget}
-          >
-            <Field label="Métrica">
-              <Select
-                value={targetMetricKey}
-                onChange={(value) => setTargetMetricKey(value)}
-                options={METRIC_TARGET_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-              />
-            </Field>
-            <Field
-              label={`Objetivo${
-                METRIC_TARGET_OPTIONS.find((option) => option.value === targetMetricKey)?.unit === "eur"
-                  ? ` (${currency})`
-                  : METRIC_TARGET_OPTIONS.find((option) => option.value === targetMetricKey)?.unit === "pct"
-                    ? " (%)"
-                    : ""
-              }`}
-            >
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={targetValue}
-                onChange={(event) => setTargetValue(event.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Periodicidad">
-              <Select
-                value={targetPeriod}
-                onChange={(value) => setTargetPeriod(value)}
-                options={[
-                  { value: "monthly", label: "al mes" },
-                  { value: "quarterly", label: "al trimestre" },
-                  { value: "yearly", label: "al año" },
-                ]}
-              />
-            </Field>
-            <Button type="submit" disabled={isAddingTarget}>
-              {isAddingTarget ? "Guardando..." : "Fijar objetivo"}
-            </Button>
-          </form>
-        ) : null}
-        {canManage
-          ? (() => {
-              const suggestion =
-                targetMetricKey === "roas"
-                  ? analysisOf("meta_roas")?.suggested_target ?? analysisOf("mer")?.suggested_target
-                  : targetMetricKey === "cac_blended"
-                    ? analysisOf("cac_new")?.suggested_target
-                    : null;
-              if (!suggestion) return null;
-              return (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator p-3">
-                  <p className="max-w-prose text-sm leading-snug text-foreground">{suggestion.text}</p>
-                  {suggestion.value ? (
-                    <Button variant="secondary" size="sm" type="button" onClick={() => setTargetValue(String(suggestion.value))}>
-                      Usar {suggestion.value.toLocaleString("es-ES")}
-                    </Button>
-                  ) : null}
-                </div>
-              );
-            })()
-          : null}
+        {/* Mi Camino es la única fuente de objetivos (decisión 2026-10-19):
+            fijarlos aquí y allí daba dos cifras para la misma métrica. */}
+        <p className="mt-4 border-t border-separator pt-4 text-sm">
+          Los objetivos se fijan en{" "}
+          <Link href={`/camino?organizationId=${organizationId}`}>Mi Camino</Link>
+          {canManage ? ", junto a la meta y los hitos que los persiguen." : "."}
+        </p>
       </Card>
       ) : null}
 
@@ -1134,6 +991,7 @@ type SettingsTab =
   | "plan"
   | "accesos"
   | "consultora"
+  | "permisos"
   | "perfil"
   | "seguridad"
   | "privacidad";
@@ -1151,6 +1009,7 @@ const SETTINGS_SECTIONS = [
   "plan",
   "accesos",
   "consultora",
+  "permisos",
   "perfil",
   "seguridad",
   "privacidad",
@@ -1315,6 +1174,8 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : tab === "consultor" ? (
         organization && !isConsultant ? (
           <ConsultantSection organizationId={organization.id} canSeeActivity={canManageTeam} />
+        ) : organization ? (
+          <ConsultantOwnPermissions organizationId={organization.id} storeName={organization.display_name ?? "esta tienda"} />
         ) : null
       ) : tab === "seguridad" ? (
         <div className="space-y-6">
@@ -1345,6 +1206,8 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             canManage={canManageOrganization}
           />
         ) : null
+      ) : tab === "permisos" && isConsultant ? (
+        <ConsultantPortfolioPermissions />
       ) : tab === "consultora" ? (
         <div className="space-y-6">
           <ConsultoraSection />

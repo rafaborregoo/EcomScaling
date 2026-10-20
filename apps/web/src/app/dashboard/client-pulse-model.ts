@@ -14,6 +14,15 @@ export function fmtNum(value: number, decimals = 0) {
   return `${negative ? "−" : ""}${grouped}${frac ? `,${frac}` : ""}`;
 }
 
+/** Evidencia de un agente: texto antiguo o el objeto estructurado actual. */
+export type Evidence = string | { label: string; value: string; period?: string | null; source?: string | null };
+
+export function evidenceText(item: Evidence | null | undefined): string {
+  if (!item) return "";
+  if (typeof item === "string") return item;
+  return `${item.label}: ${item.value}${item.period ? ` (${item.period})` : ""}`;
+}
+
 export function fmtEur(value: number, decimals = 0) {
   return `${fmtNum(value, decimals)} €`;
 }
@@ -162,7 +171,7 @@ export function monthlyWithProjection(
 // Lo que la IA dice en el panel del cliente
 // ---------------------------------------------------------------------------
 
-export type PulseFinding = { title: string; severity: string; evidence: string; area?: string };
+export type PulseFinding = { title: string; severity: string; evidence: Evidence; area?: string };
 
 /**
  * El hallazgo que acompaña a una sección.

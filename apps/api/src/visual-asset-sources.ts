@@ -8,12 +8,20 @@ export function buildVisualAnalysisFingerprint(input: {
   model: string;
   promptCode: string;
   promptVersion: string;
+  promptSha256?: string;
+  schemaVersion?: string;
+  contentChecksum?: string;
+  representationKind?: string;
 }): string {
   return [
     input.agentVersion,
     input.model,
     input.promptCode,
     input.promptVersion,
+    input.promptSha256 ?? "legacy-prompt-hash",
+    input.schemaVersion ?? "visual-schema-v2",
+    input.contentChecksum ?? "content-unbound",
+    input.representationKind ?? "static_image",
   ].map((part) => encodeURIComponent(part)).join("|");
 }
 

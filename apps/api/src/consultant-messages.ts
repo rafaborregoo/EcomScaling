@@ -11,6 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { notify } from "./notify.js";
 import { createLogger } from "@e-nora/observability";
 import { sniffImageMime, MARKETING_ASSET_EXT } from "./ai-runtime.js";
 
@@ -595,38 +596,22 @@ async function notifyNewMessage(
               .eq("organization_id", organizationId)
               .eq("is_active", true)
           ).data?.map((row) => row.user_id as string) ?? [];
-    const targets = [...new Set(recipients)].filter((userId) => userId !== context.user.id);
-    if (targets.length === 0) return;
-
-    const { data: pending } = await supabase
-      .from("notifications")
-      .select("user_id")
-      .eq("organization_id", organizationId)
-      .eq("type", "message")
-      .eq("status", "unread")
-      .in("user_id", targets);
-    const alreadyNotified = new Set((pending ?? []).map((row) => row.user_id as string));
-    const fresh = targets.filter((userId) => !alreadyNotified.has(userId));
-    if (fresh.length === 0) return;
-
     const organizationName =
       context.memberships.find((item) => item.organization_id === organizationId)?.organization
         ?.display_name ?? "tu cliente";
-    const title =
-      authorKind === "client"
-        ? `Mensaje nuevo de ${organizationName}`
-        : `Mensaje nuevo de ${context.profile.full_name ?? "tu consultor"}`;
-    await supabase.from("notifications").insert(
-      fresh.map((userId) => ({
-        organization_id: organizationId,
-        user_id: userId,
-        type: "message",
-        title: title.slice(0, 255),
-        message: body ? body.slice(0, 280) : "Te ha enviado un archivo.",
-        action_url: "/mensajes",
-        entity_type: "consultant_client_message",
-      })),
-    );
+    await notify(supabase, {
+      type: "message",
+      organizationId,
+      recipients,
+      actorUserId: context.user.id,
+      data: {
+        who:
+          authorKind === "client"
+            ? organizationName
+            : context.profile.full_name?.trim().split(/\s+/)[0] || "Tu consultor",
+        text: body || null,
+      },
+    });
   } catch (error) {
     logger.error("message_notification_failed", {
       organization_id: organizationId,

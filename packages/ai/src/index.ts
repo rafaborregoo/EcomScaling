@@ -54,6 +54,7 @@ export * from "./resilience.js";
 export * from "./untrusted-context.js";
 export * from "./agent-evals.js";
 export * from "./agent-eval-catalog.js";
+export * from "./delegated-analysis.js";
 export * from "./agent-judge.js";
 export * from "./agent-judge-calibration.js";
 export * from "./evidence-evals.js";
@@ -269,6 +270,13 @@ export const agentProposedWriteSchema = z.object({
   // An exact active milestone may be linked after approval; unknown IDs are
   // still revalidated against the same organization/store by the server.
   milestone_id: z.string().uuid().nullable().optional(),
+  // Human-readable phase is retained for review; the API resolves it to an
+  // active milestone only when the exact Camino plan snapshot still matches.
+  phase: z.string().trim().min(1).max(120).nullable().optional(),
+  plan_id: z.string().uuid().nullable().optional(),
+  plan_version: z.number().int().positive().nullable().optional(),
+  alignment_rationale: z.string().trim().min(1).max(500).nullable().optional(),
+  categories: z.array(z.enum(["shopify", "meta", "klaviyo", "general"])).max(4).optional(),
   // Internal entity link used for deterministic A06 restock-task dedupe.
   related_product_id: z.string().uuid().nullable().optional(),
   effort_estimate: z
@@ -794,6 +802,12 @@ export const caminoTaskSchema = z.object({
   definition_of_done: z.string().default(""),
   /** Datos de esta tienda que la justifican. */
   evidence: z.array(agentEvidenceItemSchema).default([]),
+  /**
+   * Cálculo que la tarea necesita y E-NORA aún no da (solo lo pide el
+   * detallador). El runtime lo manda a la bandeja de capacidades del
+   * platform_admin en vez de convertirlo en un paso para el cliente.
+   */
+  analysis_gap: z.string().trim().max(500).nullish(),
 });
 
 export const caminoMilestoneSchema = z.object({
@@ -2303,6 +2317,7 @@ export const klaviyoEmailDraftPatchSchema = z
     reply_to: z.string().email().nullable().optional(),
     plain_text: z.string().min(1).max(100000).optional(),
     html: z.string().min(1).max(200000).optional(),
+  expected_version: z.number().int().positive().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -2645,6 +2660,22 @@ export const instagramImageAnalysisSchema = z.object({
   inferences: z.array(z.string().min(1).max(300)).max(12),
   alt_text: z.string().min(1).max(1000),
   confidence: z.enum(["low", "medium", "high"]),
+  visible_message: z.string().max(600),
+  visible_call_to_action: z.string().max(240),
+  design_findings: z.array(z.object({
+    category: z.enum(["legibility", "hierarchy", "cropping", "product_focus", "message", "cta", "contrast", "consistency", "other"]),
+    evidence: z.string().min(1).max(400),
+    location: z.string().max(160),
+    severity: z.enum(["low", "medium", "high"]),
+    recommendation: z.string().min(1).max(400),
+    confidence: z.enum(["low", "medium", "high"]),
+  })).max(12),
+  ocr_segments: z.array(z.object({
+    text: z.string().max(500),
+    location: z.string().max(160),
+    legibility: z.enum(["clear", "partial", "illegible"]),
+    confidence: z.enum(["low", "medium", "high"]),
+  })).max(20),
 });
 
 export type InstagramImageAnalysis = z.infer<
@@ -2666,6 +2697,10 @@ export const instagramImageAnalysisJsonSchema = {
     "inferences",
     "alt_text",
     "confidence",
+    "visible_message",
+    "visible_call_to_action",
+    "design_findings",
+    "ocr_segments",
   ],
   properties: {
     description: { type: "string" },
@@ -2693,6 +2728,33 @@ export const instagramImageAnalysisJsonSchema = {
     inferences: { type: "array", items: { type: "string" } },
     alt_text: { type: "string" },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
+    visible_message: { type: "string", maxLength: 600 },
+    visible_call_to_action: { type: "string", maxLength: 240 },
+    design_findings: {
+      type: "array", maxItems: 12, items: {
+        type: "object", additionalProperties: false,
+        required: ["category", "evidence", "location", "severity", "recommendation", "confidence"],
+        properties: {
+          category: { type: "string", enum: ["legibility", "hierarchy", "cropping", "product_focus", "message", "cta", "contrast", "consistency", "other"] },
+          evidence: { type: "string", minLength: 1, maxLength: 400 },
+          location: { type: "string", maxLength: 160 },
+          severity: { type: "string", enum: ["low", "medium", "high"] },
+          recommendation: { type: "string", minLength: 1, maxLength: 400 },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+        },
+      },
+    },
+    ocr_segments: {
+      type: "array", maxItems: 20, items: {
+        type: "object", additionalProperties: false,
+        required: ["text", "location", "legibility", "confidence"],
+        properties: {
+          text: { type: "string", maxLength: 500 }, location: { type: "string", maxLength: 160 },
+          legibility: { type: "string", enum: ["clear", "partial", "illegible"] },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+        },
+      },
+    },
   },
 } as const;
 
@@ -2702,7 +2764,7 @@ export const instagramImageAnalysisJsonSchema = {
  */
 export function instagramImageAnalysisToMarkdown(
   analysis: InstagramImageAnalysis,
-  meta: { filename: string },
+  meta: { filename: string; width?: number | null; height?: number | null; representationKind?: string },
 ): string {
   const lines = [
     `# Activo visual: ${meta.filename}`,
@@ -2714,6 +2776,8 @@ export function instagramImageAnalysisToMarkdown(
     `**Composición:** ${analysis.composition}`,
     "",
     `**Proporción estimada:** ${analysis.aspect_ratio_estimate}`,
+    `**Medición del archivo:** ${meta.width && meta.height ? `${meta.width} × ${meta.height}px` : "no disponible"}`,
+    `**Representación analizada:** ${meta.representationKind ?? "static_image"}`,
     "",
     `**Objetos / elementos:** ${
       analysis.objects.length > 0 ? analysis.objects.join(", ") : "—"
@@ -2732,6 +2796,16 @@ export function instagramImageAnalysisToMarkdown(
     `**Inferencias (no verificadas):** ${analysis.inferences.length > 0 ? analysis.inferences.join("; ") : "—"}`,
     "",
     `**Alt text:** ${analysis.alt_text}`,
+    "",
+    `**Confianza global:** ${analysis.confidence}`,
+    `**Mensaje visible:** ${analysis.visible_message || "No identificado"}`,
+    `**CTA visible:** ${analysis.visible_call_to_action || "No identificado"}`,
+    "",
+    "**Hallazgos de diseño (observaciones, no predicción de rendimiento):**",
+    ...(analysis.design_findings.length ? analysis.design_findings.map((finding) => `- [${finding.severity}/${finding.confidence}] ${finding.category} · ${finding.location || "ubicación no clara"}: ${finding.evidence} → ${finding.recommendation}`) : ["- No se identificaron problemas de diseño con suficiente confianza."]),
+    "",
+    "**OCR por región:**",
+    ...(analysis.ocr_segments.length ? analysis.ocr_segments.map((segment) => `- [${segment.legibility}/${segment.confidence}] ${segment.location || "región no localizada"}: ${segment.text || "texto ilegible"}`) : ["- Sin fragmentos OCR adicionales."]),
   ];
   return lines.join("\n");
 }
@@ -3279,8 +3353,9 @@ function serializeToolResultWithSecurityEvents(
   result: unknown,
   toolName: string,
   onSecurityEvent: AgentSecurityEventSink | undefined,
+  maxChars?: number,
 ): string {
-  const serialized = serializeUntrustedToolResult(result);
+  const serialized = serializeUntrustedToolResult(result, maxChars);
 
   if (serialized.blockedPatterns > 0) {
     onSecurityEvent?.({
@@ -3331,6 +3406,64 @@ const defaultOutputContract: OutputContract<AgentOutput> = {
   jsonSchema: agentOutputJsonSchema as unknown as Record<string, unknown>,
   schema: agentOutputSchema,
 };
+
+/** A13's plan identity is required only for its own output contract. */
+export function buildA13OperationalOutputContract(): OutputContract<AgentOutput> {
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
+    properties: Record<string, unknown>;
+  };
+  const writes = jsonSchema.properties.proposed_writes as {
+    items: { required: string[]; properties: Record<string, unknown> };
+  };
+  writes.items.required.push("phase", "plan_id", "plan_version", "alignment_rationale");
+  Object.assign(writes.items.properties, {
+    phase: { type: ["string", "null"], minLength: 1, maxLength: 120 },
+    plan_id: { type: ["string", "null"], format: "uuid" },
+    plan_version: { type: ["integer", "null"], minimum: 1 },
+    alignment_rationale: { type: ["string", "null"], minLength: 1, maxLength: 500 },
+  });
+  return { jsonSchema: jsonSchema as unknown as Record<string, unknown>, schema: agentOutputSchema };
+}
+
+/** A14 keeps its diagnosis visible and binds every proposal to the Camino snapshot. */
+export function buildA14OperationalOutputContract(
+  measurementStatus: "usable_with_attribution_limits" | "restricted" | "not_assessable" | "unknown",
+): OutputContract<AgentOutput> {
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
+    properties: Record<string, unknown>;
+  };
+  const writes = jsonSchema.properties.proposed_writes as {
+    items: { required: string[]; properties: Record<string, unknown> };
+  };
+  writes.items.required.push("phase", "plan_id", "plan_version", "alignment_rationale", "categories");
+  Object.assign(writes.items.properties, {
+    phase: { type: ["string", "null"], minLength: 1, maxLength: 120 },
+    plan_id: { type: ["string", "null"], format: "uuid" },
+    plan_version: { type: ["integer", "null"], minimum: 1 },
+    alignment_rationale: { type: ["string", "null"], minLength: 1, maxLength: 500 },
+    categories: { type: "array", maxItems: 4, items: { type: "string", enum: ["shopify", "meta", "klaviyo", "general"] } },
+  });
+  const schema = agentOutputSchema.transform((output) => {
+    if (measurementStatus === "usable_with_attribution_limits") return output;
+    const allowed = output.proposed_writes.filter(isA14MeasurementInvestigationWrite);
+    const filtered = allowed.length !== output.proposed_writes.length;
+    return {
+      ...output,
+      proposed_writes: allowed,
+      warnings: filtered
+        ? [...output.warnings, "A24 o la cobertura económica no permiten decisiones de inversión; se conservaron únicamente tareas explícitas de investigación de medición."]
+        : output.warnings,
+    };
+  });
+  return { jsonSchema: jsonSchema as unknown as Record<string, unknown>, schema: schema as z.ZodType<AgentOutput> };
+}
+
+export function isA14MeasurementInvestigationWrite(write: { title?: unknown; description?: unknown }): boolean {
+  const text = `${typeof write.title === "string" ? write.title : ""} ${typeof write.description === "string" ? write.description : ""}`.toLocaleLowerCase("es");
+  const investigatesMeasurement = /\b(pixel|capi|conversions api|medici[oó]n|tracking|evento de compra|atribuci[oó]n|diagn[oó]stico de eventos|verificar eventos)\b/i.test(text);
+  const recommendsSpendAction = /\b(presupuesto|recortar|escalar|pausar|aumentar|reducir|gasto|inversi[oó]n|roas|\bcpa\b|\bcac\b|campaña|anuncio)\b/i.test(text);
+  return investigatesMeasurement && !recommendsSpendAction;
+}
 
 /**
  * Campos que se le pueden dejar de pedir al modelo cuando la interfaz que
@@ -3528,6 +3661,8 @@ export type AgentToolDefinition = {
   description: string;
   inputSchema: Record<string, unknown>;
   execute: (input: Record<string, unknown>) => Promise<unknown>;
+  /** Optional bounded serialization for tools that return large collections. */
+  maxResultChars?: number;
 };
 
 // 16 rondas, no 8. Con 8 los agentes de operativa se quedaban cortos: a04
@@ -4119,6 +4254,7 @@ async function executeModelToolCall(
         result,
         tool.name,
         onSecurityEvent,
+        tool.maxResultChars,
       ),
       isError: false,
     };
@@ -4131,6 +4267,7 @@ async function executeModelToolCall(
         },
         tool.name,
         onSecurityEvent,
+        tool.maxResultChars,
       ),
       isError: true,
     };

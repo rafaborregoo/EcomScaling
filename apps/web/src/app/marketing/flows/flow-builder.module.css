@@ -17,8 +17,8 @@
   --fb-on-accent: var(--tw-on-accent, #ffffff);
   --fb-accent-soft: var(--tw-accent-soft, #efeeec);
   --fb-accent-ink: var(--tw-accent-ink, #3d3b3a);
-  --fb-good: var(--tw-good, #2f7d5b);
-  --fb-good-soft: #dcf1ec;
+  --fb-good: var(--tw-good, #3d3b3a);
+  --fb-good-soft: #efeeec;
   --fb-warn: #9a5b00;
   --fb-warn-soft: #fbead0;
   --fb-bad: #b3361f;

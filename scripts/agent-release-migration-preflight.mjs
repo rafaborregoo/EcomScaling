@@ -1,7 +1,6 @@
-/** Guards db-push against activating an agent version unless the hardened
- * database gate is already installed in that target project. The trigger is
- * the authority; this preflight prevents a deployment path from silently
- * running an activation migration against a database without that trigger.
+/** Guards agent activation migrations with the release policy installed in the
+ * target database. The project removed its evaluation gate on 2026-10-16, but
+ * still requires promotion through the serialized SECURITY DEFINER RPC.
  */
 export function migrationActivatesAgentVersion(sql) {
   const withoutComments = sql
@@ -73,11 +72,19 @@ export async function assertHardenedAgentReleaseGate(client) {
     "holdout_manifest_sha256",
   ];
   const missing = requiredEvidenceChecks.filter((marker) => !evidenceGate.includes(marker));
-  if (state?.trigger_ready !== true || missing.length > 0 || !promotionRpc.includes("agent_version_has_release_evidence")) {
+  const evidencePolicyReady = state?.trigger_ready === true && missing.length === 0 &&
+    promotionRpc.includes("agent_version_has_release_evidence");
+  const serializedPromotionReady = [
+    "security definer",
+    "set search_path",
+    "for update",
+    "pg_advisory_xact_lock",
+    "set is_active = false",
+    "set is_active = true",
+  ].every((marker) => promotionRpc.toLowerCase().includes(marker));
+  if (!evidencePolicyReady && !serializedPromotionReady) {
     throw new Error(`agent_release_gate_preflight_failed:${[
-      state?.trigger_ready === true ? null : "trigger_missing_or_disabled",
-      ...missing.map((marker) => `gate_missing_${marker}`),
-      promotionRpc.includes("agent_version_has_release_evidence") ? null : "promotion_rpc_not_hardened",
+      evidencePolicyReady || serializedPromotionReady ? null : "promotion_rpc_not_atomic_or_hardened",
     ].filter(Boolean).join(",")}`);
   }
 }

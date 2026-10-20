@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { TOOL_REGISTRY, type ToolDefinition } from "@e-nora/ai";
+import { ALWAYS_GRANTED_TOOLS, TOOL_REGISTRY, type ToolDefinition } from "@e-nora/ai";
 import { type AuthContext } from "./auth-context.js";
 
 /**
@@ -89,7 +89,9 @@ export async function getToolCatalog(
 
   const tools: ToolCatalogRow[] = TOOL_REGISTRY.map((definicion) => ({
     ...definicion,
-    granted_to: (porTool.get(definicion.name) ?? []).sort(),
+    granted_to: (ALWAYS_GRANTED_TOOLS as readonly string[]).includes(definicion.name)
+      ? ["todos los agentes"]
+      : (porTool.get(definicion.name) ?? []).sort(),
   }));
 
   return {

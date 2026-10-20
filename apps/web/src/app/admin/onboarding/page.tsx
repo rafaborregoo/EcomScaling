@@ -979,7 +979,7 @@ function OnboardingPreview() {
                       </Field>
                     ) : null}
                     {consultantCodePreview ? (
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+                      <div className="rounded-xl border border-separator bg-[#f5f4f2] p-4 text-sm text-foreground">
                         <div className="flex items-center gap-2 font-semibold"><Check size={17} aria-hidden /> Código válido</div>
                         {consultantCodePreview.organization ? (
                           <p className="mt-1">Organización: <span className="font-medium">{consultantCodePreview.organization.display_name}</span>. La prueba y sus conexiones usarán esta organización.</p>
@@ -1262,7 +1262,7 @@ function OnboardingPreview() {
       ) : (
         <div className="grid gap-5">
           <Card title="Resumen de la prueba" description="Revisa la información que habría recopilado este onboarding.">
-            <div className="mt-4 flex items-center gap-3 rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900">
+            <div className="mt-4 flex items-center gap-3 rounded-lg bg-[#f5f4f2] p-4 text-sm text-foreground">
               <Check size={18} aria-hidden />
               <span>Vista previa completada para {role === "consultant" ? "consultor" : "cliente"}. Las respuestas del cuestionario no se guardaron.</span>
             </div>

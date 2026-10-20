@@ -74,9 +74,9 @@
   border-radius: 11px;
   background: var(--surface-2);
 }
-.compact strong { color: var(--ink); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.compact > span:last-child { color: var(--ink-3); font-size: 10.5px; }
-.compact .compactLabel { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.compact strong { color: inherit; font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.compact > span:last-child { color: var(--ink-3); font-size: 12px; }
+.compact .compactLabel { font-size: 11px; }
 
 @media (max-width: 640px) {
   .metrics { grid-template-columns: 1fr; }

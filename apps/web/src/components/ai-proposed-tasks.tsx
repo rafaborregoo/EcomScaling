@@ -160,7 +160,7 @@ export function ProposedTaskRow({
   ].filter(Boolean);
 
   return (
-    <div className="py-3">
+    <div className="task-lift py-3">
       <div className="flex items-start justify-between gap-4">
         {/* Toda la fila abre el detalle: pulsar en cualquier sitio, no en un
             enlace concreto. Los botones de decidir van fuera del boton para no

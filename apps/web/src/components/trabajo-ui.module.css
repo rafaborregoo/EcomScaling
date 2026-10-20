@@ -93,7 +93,7 @@
 }
 
 .good b {
-  color: var(--tw-good, #1a7f37);
+  color: var(--tw-good, #3d3b3a);
 }
 .strip span.hint {
   font-size: 12px;

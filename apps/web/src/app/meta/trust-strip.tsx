@@ -54,17 +54,7 @@ export function MetaTrustStrip({ organizationId, connectionId, days }: { organiz
   const shopInsights = useCachedQuery<ShopifyAttribution>(`${base}/shopify/insights?days=${days}${scope}`).data;
 
   const summary = insights?.summary;
-  const nav = (
-    <nav className={s.nav} aria-label="Secciones de Meta Ads">
-      <a href="#meta-pendiente">Pendiente</a>
-      <a href="#meta-ads">Anuncios</a>
-      <a href="#meta-learn">Aprendizaje</a>
-      <a href="#meta-measure">Píxel y públicos</a>
-      <a href="#meta-changes">Cambios</a>
-      <a href="#meta-ia">Análisis IA</a>
-    </nav>
-  );
-  if (!insights || !summary) return nav;
+  if (!insights || !summary) return null;
 
   const pixels = [...new Map(insights.pixels.map((row) => [row.pixel_id, row])).values()];
   const silentPixels = pixels.filter((p) => p.is_unavailable || p.hours_since_last_fire == null || p.hours_since_last_fire > PIXEL_SILENT_HOURS);
@@ -94,7 +84,8 @@ export function MetaTrustStrip({ organizationId, connectionId, days }: { organiz
     <>
       <section
         className={s.trust}
-        style={sameCurrency && shopifyFromMeta != null ? undefined : { gridTemplateColumns: "minmax(0, 1fr)" }}
+        // Una columna: al lado de "Dos formas de contarlo" las cuatro comprobaciones no cabían y se cortaban.
+        style={{ gridTemplateColumns: "minmax(0, 1fr)" }}
         aria-labelledby="meta-medicion-h"
       >
         <div id="meta-medicion">
@@ -105,20 +96,21 @@ export function MetaTrustStrip({ organizationId, connectionId, days }: { organiz
             <Check title="Píxel" ok={pixelOk} status={pixels.length === 0 ? "Sin píxel" : pixelOk ? "OK" : "Sin señal"} ratio={pixelCoverage}>
               <p>
                 {pixels.length === 0
-                  ? "No hay píxel conectado: las compras y el ROAS no tienen de dónde salir."
+                  ? "Tu cuenta de Meta no tiene píxel: las compras y el ROAS no tienen de dónde salir. Se conecta en Shopify, desde la app Facebook e Instagram."
                   : pixelOk
                     ? `Último evento hace ${freshest != null ? n(Math.round(freshest)) : "—"} h.`
                     : `${silentPixels.length === 1 ? "Un píxel lleva" : `${silentPixels.length} píxeles llevan`} más de un día sin disparar: el gasto es real, las compras se quedan cortas.`}
               </p>
-              {pixelOk ? null : <a href="#meta-measure">Ver el píxel</a>}
+              {/* Sin píxel no hay enlace: no se conecta desde NORA y llevar a Integraciones dejaba al usuario sin saber qué hacer. */}
+              {pixelOk || pixels.length === 0 ? null : <a href="#meta-measure">Ver el píxel</a>}
             </Check>
             <Check
               title="Días con datos"
               ok={daysOk}
-              status={expectedDays == null ? n(summary.days_with_data) : `${summary.days_with_data}/${expectedDays}`}
+              status={expectedDays == null ? `${n(summary.days_with_data)} días` : `${Math.min(summary.days_with_data, expectedDays)}/${expectedDays}`}
               ratio={expectedDays ? summary.days_with_data / expectedDays : null}
             >
-              <p>{daysOk ? "Insights completos para el periodo elegido." : "Faltan días de insights: las cifras del periodo son parciales."}</p>
+              <p>{daysOk ? "Hay datos de todos los días del periodo." : "Faltan días: las cifras del periodo están incompletas."}</p>
             </Check>
             <Check title="Definición de compra" ok={!mixedPurchases} status={mixedPurchases ? "Varias" : "Una"} ratio={null}>
               <p>
@@ -133,7 +125,6 @@ export function MetaTrustStrip({ organizationId, connectionId, days }: { organiz
                   ? "Parte del gasto va a conjuntos que aún aprenden: su CPA todavía no es definitivo."
                   : "Ningún conjunto con gasto está en fase de aprendizaje."}
               </p>
-              {learningSpend > 0 ? <a href="#meta-learn">Ver conjuntos</a> : null}
             </Check>
           </div>
         </div>
@@ -165,7 +156,6 @@ export function MetaTrustStrip({ organizationId, connectionId, days }: { organiz
           </div>
         ) : null}
       </section>
-      {nav}
     </>
   );
 }

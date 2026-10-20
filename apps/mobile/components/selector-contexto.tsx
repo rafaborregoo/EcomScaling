@@ -11,8 +11,8 @@ import type { Org } from "./views";
 type Connection = { id: string; provider_account_name: string | null; provider_account_id: string | null };
 export type ClientRef = { id: string; name: string };
 
-const storeName = (s: Connection) => s.provider_account_name ?? s.provider_account_id ?? "Tienda";
-const useStores = (orgId: string | null) => useApi<{ connections: Connection[] }>(orgId ? `/v1/organizations/${orgId}/shopify/connections` : null).data?.connections ?? [];
+export const storeName = (s: Connection) => s.provider_account_name ?? s.provider_account_id ?? "Tienda";
+export const useStores = (orgId: string | null) => useApi<{ connections: Connection[] }>(orgId ? `/v1/organizations/${orgId}/shopify/connections` : null).data?.connections ?? [];
 
 /**
  * Dónde estás: "Todos los clientes" o "Cliente · Tienda". Va fijo en la cabecera del consultor; tocarlo abre la

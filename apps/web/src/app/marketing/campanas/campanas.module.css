@@ -6,7 +6,7 @@
   --ink: #3d3b3a; --ink-2: #55514e; --ink-3: #6b6662;
   --line: #e2dfdc; --line-2: #eeebe8;
   --accent: #3d3b3a; --accent-soft: #efeeec; --accent-ink: #3d3b3a; --on-accent: #ffffff;
-  --good: #0f7455; --good-soft: #dcefe5; --good-bar: #2aa17f;
+  --good: #3d3b3a; --good-soft: #f0edeb; --good-bar: #6b6662;
   --warn: #8f4c07; --warn-soft: #f9e6d3; --warn-bar: #e0a030;
   --bad: #b62a45; --bad-soft: #f7dde1; --bad-bar: #d9475f;
   --meta: #3b6fd8; --meta-soft: #dce9fb; --today: #efeeec;
@@ -216,7 +216,7 @@
 .formF { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line-2); }
 .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border-radius: 12px; background: var(--bad-soft); color: var(--bad); font-size: 13px; font-weight: 500; }
 
-/* ---------- tema del cliente: petróleo + azafrán (mismo que Mi Camino y el panel Pulso) ---------- */
+/* ---------- tema del cliente: grafito + azafrán (mismo que Mi Camino y el panel Pulso) ---------- */
 .stage.client {
   color: var(--ink);
 }

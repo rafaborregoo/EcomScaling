@@ -1,0 +1,428 @@
+{
+  "audit_date": "2026-10-19",
+  "method": "Inventario estático de archivos actuales; enlaces literales href JSX y objetos. No incluye enlaces dinámicos, parámetros, permisos ni ejecución en navegador.",
+  "page_count": 90,
+  "route_handler_count": 1,
+  "groups": {
+    "(raíz)": 1,
+    "acceso": 1,
+    "admin": 22,
+    "agenda": 1,
+    "agentes": 1,
+    "aviso-legal": 1,
+    "ayuda": 2,
+    "camino": 2,
+    "condiciones": 1,
+    "configuracion": 1,
+    "conoce-e-nora": 1,
+    "conocimiento": 1,
+    "consultor": 2,
+    "contexto": 1,
+    "cookies": 1,
+    "dashboard": 1,
+    "dpa": 1,
+    "eliminacion-de-datos": 1,
+    "informes": 1,
+    "integraciones": 7,
+    "klaviyo": 3,
+    "legal": 1,
+    "llamadas": 2,
+    "login": 1,
+    "marketing": 5,
+    "mensajes": 1,
+    "meta": 3,
+    "mi-trabajo": 1,
+    "notificaciones": 1,
+    "nueva-contrasena": 1,
+    "onboarding": 1,
+    "panel": 1,
+    "perfil": 1,
+    "planes": 1,
+    "planificacion": 4,
+    "politica-privacidad": 1,
+    "propuestas": 1,
+    "recuperar": 1,
+    "registro": 1,
+    "shopify": 6,
+    "subencargados": 1,
+    "tareas": 1,
+    "tiendas": 1
+  },
+  "test_file_counts": {
+    "apps/web/src": 116,
+    "apps/api/src": 323,
+    "apps/worker/src": 5,
+    "apps/mobile": 0,
+    "packages": 122,
+    "scripts": 2
+  },
+  "pages": [
+    {
+      "route": "/",
+      "file": "apps/web/src/app/page.tsx"
+    },
+    {
+      "route": "/acceso",
+      "file": "apps/web/src/app/acceso/page.tsx"
+    },
+    {
+      "route": "/admin",
+      "file": "apps/web/src/app/admin/page.tsx"
+    },
+    {
+      "route": "/admin/agentes",
+      "file": "apps/web/src/app/admin/agentes/page.tsx"
+    },
+    {
+      "route": "/admin/clientes",
+      "file": "apps/web/src/app/admin/clientes/page.tsx"
+    },
+    {
+      "route": "/admin/clientes/[clientId]",
+      "file": "apps/web/src/app/admin/clientes/[clientId]/page.tsx"
+    },
+    {
+      "route": "/admin/conocimiento",
+      "file": "apps/web/src/app/admin/conocimiento/page.tsx"
+    },
+    {
+      "route": "/admin/consultores",
+      "file": "apps/web/src/app/admin/consultores/page.tsx"
+    },
+    {
+      "route": "/admin/consultores/[consultantId]",
+      "file": "apps/web/src/app/admin/consultores/[consultantId]/page.tsx"
+    },
+    {
+      "route": "/admin/costes-ia",
+      "file": "apps/web/src/app/admin/costes-ia/page.tsx"
+    },
+    {
+      "route": "/admin/facturacion",
+      "file": "apps/web/src/app/admin/facturacion/page.tsx"
+    },
+    {
+      "route": "/admin/finanzas",
+      "file": "apps/web/src/app/admin/finanzas/page.tsx"
+    },
+    {
+      "route": "/admin/informes",
+      "file": "apps/web/src/app/admin/informes/page.tsx"
+    },
+    {
+      "route": "/admin/infraestructura",
+      "file": "apps/web/src/app/admin/infraestructura/page.tsx"
+    },
+    {
+      "route": "/admin/laboratorio-mailing",
+      "file": "apps/web/src/app/admin/laboratorio-mailing/page.tsx"
+    },
+    {
+      "route": "/admin/logs",
+      "file": "apps/web/src/app/admin/logs/page.tsx"
+    },
+    {
+      "route": "/admin/logs/auditoria",
+      "file": "apps/web/src/app/admin/logs/auditoria/page.tsx"
+    },
+    {
+      "route": "/admin/logs/errores-agentes",
+      "file": "apps/web/src/app/admin/logs/errores-agentes/page.tsx"
+    },
+    {
+      "route": "/admin/logs/errores-sync",
+      "file": "apps/web/src/app/admin/logs/errores-sync/page.tsx"
+    },
+    {
+      "route": "/admin/observabilidad",
+      "file": "apps/web/src/app/admin/observabilidad/page.tsx"
+    },
+    {
+      "route": "/admin/onboarding",
+      "file": "apps/web/src/app/admin/onboarding/page.tsx"
+    },
+    {
+      "route": "/admin/programa-consultores",
+      "file": "apps/web/src/app/admin/programa-consultores/page.tsx"
+    },
+    {
+      "route": "/admin/programa-consultores/[consultantUserId]",
+      "file": "apps/web/src/app/admin/programa-consultores/[consultantUserId]/page.tsx"
+    },
+    {
+      "route": "/admin/tools",
+      "file": "apps/web/src/app/admin/tools/page.tsx"
+    },
+    {
+      "route": "/agenda",
+      "file": "apps/web/src/app/agenda/page.tsx"
+    },
+    {
+      "route": "/agentes",
+      "file": "apps/web/src/app/agentes/page.tsx"
+    },
+    {
+      "route": "/aviso-legal",
+      "file": "apps/web/src/app/aviso-legal/page.tsx"
+    },
+    {
+      "route": "/ayuda/conectar-klaviyo",
+      "file": "apps/web/src/app/ayuda/conectar-klaviyo/page.tsx"
+    },
+    {
+      "route": "/ayuda/pruebas-klaviyo",
+      "file": "apps/web/src/app/ayuda/pruebas-klaviyo/page.tsx"
+    },
+    {
+      "route": "/camino",
+      "file": "apps/web/src/app/camino/page.tsx"
+    },
+    {
+      "route": "/camino/nuevo",
+      "file": "apps/web/src/app/camino/nuevo/page.tsx"
+    },
+    {
+      "route": "/condiciones",
+      "file": "apps/web/src/app/condiciones/page.tsx"
+    },
+    {
+      "route": "/configuracion",
+      "file": "apps/web/src/app/configuracion/page.tsx"
+    },
+    {
+      "route": "/conoce-e-nora",
+      "file": "apps/web/src/app/conoce-e-nora/page.tsx"
+    },
+    {
+      "route": "/conocimiento",
+      "file": "apps/web/src/app/conocimiento/page.tsx"
+    },
+    {
+      "route": "/consultor",
+      "file": "apps/web/src/app/consultor/page.tsx"
+    },
+    {
+      "route": "/consultor/referidos",
+      "file": "apps/web/src/app/consultor/referidos/page.tsx"
+    },
+    {
+      "route": "/contexto",
+      "file": "apps/web/src/app/contexto/page.tsx"
+    },
+    {
+      "route": "/cookies",
+      "file": "apps/web/src/app/cookies/page.tsx"
+    },
+    {
+      "route": "/dashboard",
+      "file": "apps/web/src/app/dashboard/page.tsx"
+    },
+    {
+      "route": "/dpa",
+      "file": "apps/web/src/app/dpa/page.tsx"
+    },
+    {
+      "route": "/eliminacion-de-datos",
+      "file": "apps/web/src/app/eliminacion-de-datos/page.tsx"
+    },
+    {
+      "route": "/informes",
+      "file": "apps/web/src/app/informes/page.tsx"
+    },
+    {
+      "route": "/integraciones",
+      "file": "apps/web/src/app/integraciones/page.tsx"
+    },
+    {
+      "route": "/integraciones/cuentas",
+      "file": "apps/web/src/app/integraciones/cuentas/page.tsx"
+    },
+    {
+      "route": "/integraciones/instagram",
+      "file": "apps/web/src/app/integraciones/instagram/page.tsx"
+    },
+    {
+      "route": "/integraciones/klaviyo",
+      "file": "apps/web/src/app/integraciones/klaviyo/page.tsx"
+    },
+    {
+      "route": "/integraciones/meta",
+      "file": "apps/web/src/app/integraciones/meta/page.tsx"
+    },
+    {
+      "route": "/integraciones/shopify",
+      "file": "apps/web/src/app/integraciones/shopify/page.tsx"
+    },
+    {
+      "route": "/integraciones/tienda/[connectionId]",
+      "file": "apps/web/src/app/integraciones/tienda/[connectionId]/page.tsx"
+    },
+    {
+      "route": "/klaviyo",
+      "file": "apps/web/src/app/klaviyo/page.tsx"
+    },
+    {
+      "route": "/klaviyo/emails",
+      "file": "apps/web/src/app/klaviyo/emails/page.tsx"
+    },
+    {
+      "route": "/klaviyo/emails/[emailId]",
+      "file": "apps/web/src/app/klaviyo/emails/[emailId]/page.tsx"
+    },
+    {
+      "route": "/legal",
+      "file": "apps/web/src/app/legal/page.tsx"
+    },
+    {
+      "route": "/llamadas",
+      "file": "apps/web/src/app/llamadas/page.tsx"
+    },
+    {
+      "route": "/llamadas/[callId]",
+      "file": "apps/web/src/app/llamadas/[callId]/page.tsx"
+    },
+    {
+      "route": "/login",
+      "file": "apps/web/src/app/login/page.tsx"
+    },
+    {
+      "route": "/marketing",
+      "file": "apps/web/src/app/marketing/page.tsx"
+    },
+    {
+      "route": "/marketing/guia",
+      "file": "apps/web/src/app/marketing/guia/page.tsx"
+    },
+    {
+      "route": "/marketing/imagenes",
+      "file": "apps/web/src/app/marketing/imagenes/page.tsx"
+    },
+    {
+      "route": "/marketing/imagenes/[overlayId]",
+      "file": "apps/web/src/app/marketing/imagenes/[overlayId]/page.tsx"
+    },
+    {
+      "route": "/marketing/plantillas",
+      "file": "apps/web/src/app/marketing/plantillas/page.tsx"
+    },
+    {
+      "route": "/mensajes",
+      "file": "apps/web/src/app/mensajes/page.tsx"
+    },
+    {
+      "route": "/meta",
+      "file": "apps/web/src/app/meta/page.tsx"
+    },
+    {
+      "route": "/meta/campanas",
+      "file": "apps/web/src/app/meta/campanas/page.tsx"
+    },
+    {
+      "route": "/meta/campanas/[campaignId]",
+      "file": "apps/web/src/app/meta/campanas/[campaignId]/page.tsx"
+    },
+    {
+      "route": "/mi-trabajo",
+      "file": "apps/web/src/app/mi-trabajo/page.tsx"
+    },
+    {
+      "route": "/notificaciones",
+      "file": "apps/web/src/app/notificaciones/page.tsx"
+    },
+    {
+      "route": "/nueva-contrasena",
+      "file": "apps/web/src/app/nueva-contrasena/page.tsx"
+    },
+    {
+      "route": "/onboarding",
+      "file": "apps/web/src/app/onboarding/page.tsx"
+    },
+    {
+      "route": "/panel",
+      "file": "apps/web/src/app/panel/page.tsx"
+    },
+    {
+      "route": "/perfil",
+      "file": "apps/web/src/app/perfil/page.tsx"
+    },
+    {
+      "route": "/planes",
+      "file": "apps/web/src/app/planes/page.tsx"
+    },
+    {
+      "route": "/planificacion",
+      "file": "apps/web/src/app/planificacion/page.tsx"
+    },
+    {
+      "route": "/planificacion/calendario",
+      "file": "apps/web/src/app/planificacion/calendario/page.tsx"
+    },
+    {
+      "route": "/planificacion/recomendaciones",
+      "file": "apps/web/src/app/planificacion/recomendaciones/page.tsx"
+    },
+    {
+      "route": "/planificacion/tracking",
+      "file": "apps/web/src/app/planificacion/tracking/page.tsx"
+    },
+    {
+      "route": "/politica-privacidad",
+      "file": "apps/web/src/app/politica-privacidad/page.tsx"
+    },
+    {
+      "route": "/propuestas/[outputId]",
+      "file": "apps/web/src/app/propuestas/[outputId]/page.tsx"
+    },
+    {
+      "route": "/recuperar",
+      "file": "apps/web/src/app/recuperar/page.tsx"
+    },
+    {
+      "route": "/registro",
+      "file": "apps/web/src/app/registro/page.tsx"
+    },
+    {
+      "route": "/shopify",
+      "file": "apps/web/src/app/shopify/page.tsx"
+    },
+    {
+      "route": "/shopify/diagnostico",
+      "file": "apps/web/src/app/shopify/diagnostico/page.tsx"
+    },
+    {
+      "route": "/shopify/productos",
+      "file": "apps/web/src/app/shopify/productos/page.tsx"
+    },
+    {
+      "route": "/shopify/productos/[productId]",
+      "file": "apps/web/src/app/shopify/productos/[productId]/page.tsx"
+    },
+    {
+      "route": "/shopify/promociones",
+      "file": "apps/web/src/app/shopify/promociones/page.tsx"
+    },
+    {
+      "route": "/shopify/promociones/[discountId]",
+      "file": "apps/web/src/app/shopify/promociones/[discountId]/page.tsx"
+    },
+    {
+      "route": "/subencargados",
+      "file": "apps/web/src/app/subencargados/page.tsx"
+    },
+    {
+      "route": "/tareas",
+      "file": "apps/web/src/app/tareas/page.tsx"
+    },
+    {
+      "route": "/tiendas",
+      "file": "apps/web/src/app/tiendas/page.tsx"
+    }
+  ],
+  "route_handlers": [
+    {
+      "route": "/r/[code]",
+      "file": "apps/web/src/app/r/[code]/route.ts"
+    }
+  ],
+  "unresolved_literal_hrefs": []
+}

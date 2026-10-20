@@ -1,14 +1,11 @@
-/* /tareas — tokens --tw-* de .trabajo-theme (petróleo + azafrán en cliente). */
+/* /tareas — tokens --tw-* de .trabajo-theme (grafito + azafrán en cliente). */
 
 .row {
   border: 1px solid var(--tw-line);
   border-radius: 12px;
   padding: 16px;
-  transition: background-color 0.15s ease;
 }
-.row:hover {
-  background: var(--tw-surface-2);
-}
+/* Al pasar el ratón la fila se levanta (task-lift-card, globals.css). */
 .row[data-done] {
   background: var(--tw-surface-2);
 }

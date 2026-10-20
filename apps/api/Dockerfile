@@ -41,7 +41,7 @@ ENV NODE_ENV=production
 
 # Parches de seguridad del sistema base (Trivy marcaba libcrypto3/libssl3
 # HIGH en la imagen node:24-alpine sin actualizar).
-RUN apk upgrade --no-cache
+RUN apk upgrade --no-cache && apk add --no-cache ffmpeg
 
 RUN addgroup -S ecomscaling && adduser -S ecomscaling -G ecomscaling
 

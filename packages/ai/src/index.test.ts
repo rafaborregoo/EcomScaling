@@ -1275,6 +1275,10 @@ test("la extracción de imagen de Instagram valida hex y arma el markdown de con
     inferences: [],
     alt_text: "Vela encendida sobre una superficie de mármol claro.",
     confidence: "high" as const,
+    visible_message: "",
+    visible_call_to_action: "",
+    design_findings: [],
+    ocr_segments: [],
   };
   assert.equal(instagramImageAnalysisSchema.safeParse(base).success, true);
   assert.equal(

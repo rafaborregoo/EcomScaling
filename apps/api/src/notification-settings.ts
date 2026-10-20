@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
+import { NOTIFICATION_CATEGORIES, type NotificationCategory } from "@e-nora/contracts";
 
 /**
  * Preferencias de aviso de cada persona: por categoría, campana sí/no y email
@@ -12,17 +13,8 @@ import type { AuthContext } from "./auth-context.js";
 
 type ApiEnv = LoadedApiEnv;
 
-export const NOTIFICATION_CATEGORIES = [
-  "alert_critical",
-  "alert",
-  "task_assigned",
-  "message",
-  "campaign_review",
-  "integration",
-  "client",
-  "other",
-] as const;
-export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+// Tipos y categorías viven en el catálogo (packages/contracts/notification-catalog.ts).
+export { NOTIFICATION_CATEGORIES, notificationCategory, type NotificationCategory } from "@e-nora/contracts";
 
 export const EMAIL_MODES = ["instant", "digest", "off"] as const;
 export type EmailMode = (typeof EMAIL_MODES)[number];
@@ -38,16 +30,6 @@ export const DEFAULT_EMAIL: Record<NotificationCategory, EmailMode> = {
   client: "digest",
   other: "off",
 };
-
-/** Mismo mapeo que `private.notification_category` en SQL. */
-export function notificationCategory(type: string): NotificationCategory {
-  if (["alert", "alert_critical", "task_assigned", "message", "campaign_review"].includes(type)) {
-    return type as NotificationCategory;
-  }
-  if (type === "integration_error" || type === "integration_expiring") return "integration";
-  if (type === "client_linked" || type === "client_settings") return "client";
-  return "other";
-}
 
 export type NotificationSettings = {
   digest_frequency: "daily" | "weekly" | "never";
@@ -214,24 +196,4 @@ export async function setNotificationSettings(
   }
 
   return getNotificationSettings(env, context);
-}
-
-/** Inserta avisos (el trigger de preferencias los filtra). Best-effort. */
-export async function insertNotifications(
-  supabase: Pick<ReturnType<typeof createServiceClient>, "from">,
-  rows: Array<{
-    organization_id: string | null;
-    user_id: string;
-    type: string;
-    title: string;
-    message?: string | null;
-    action_url?: string | null;
-    entity_type?: string | null;
-    entity_id?: string | null;
-  }>,
-) {
-  if (rows.length === 0) return;
-  await supabase
-    .from("notifications")
-    .insert(rows.map((row) => ({ ...row, title: row.title.slice(0, 255) })));
 }

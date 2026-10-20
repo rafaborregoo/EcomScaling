@@ -73,6 +73,7 @@ type Overlay = {
   ratio: Ratio;
   slides: Slide[];
   creative_brief?: string;
+  channel?: "instagram_organic" | "meta_ads";
 };
 
 type BankImage = {
@@ -150,6 +151,7 @@ function OverlayEditor() {
   const [current, setCurrent] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [objective, setObjective] = useState("");
+  const [channel, setChannel] = useState<"instagram_organic" | "meta_ads">("instagram_organic");
   const [bankImages, setBankImages] = useState<BankImage[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -159,6 +161,7 @@ function OverlayEditor() {
     "save" | "ai" | "ai-all" | "caption" | null
   >(null);
   const [dirty, setDirty] = useState(false);
+  const captionGeneration = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(360);
@@ -219,6 +222,7 @@ function OverlayEditor() {
       setFormat(overlay.format);
       setRatio(overlay.ratio);
       setObjective(overlay.creative_brief ?? "");
+      setChannel(overlay.channel === "meta_ads" ? "meta_ads" : "instagram_organic");
       setSlides(
         (overlay.slides ?? []).map((slide) => ({
           image_id: slide.image_id ?? null,
@@ -483,7 +487,7 @@ function OverlayEditor() {
       const response = await apiFetch(`${base}/overlays/${overlayId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, format, ratio, slides, creative_brief: objective }),
+        body: JSON.stringify({ name, format, ratio, slides, creative_brief: objective, channel }),
       });
       if (!response.ok) {
         setError(await readApiError(response));
@@ -498,6 +502,10 @@ function OverlayEditor() {
 
   async function generateCaption() {
     if (!base) return;
+    const fingerprint = JSON.stringify({ overlayId, objective, slides });
+    if (!captionGeneration.current || captionGeneration.current.fingerprint !== fingerprint) {
+      captionGeneration.current = { fingerprint, key: `${crypto.randomUUID()}:99` };
+    }
     setBusy("caption");
     setError(null);
     try {
@@ -506,7 +514,7 @@ function OverlayEditor() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ objective }),
+          body: JSON.stringify({ objective, idempotency_key: captionGeneration.current.key }),
         },
         180_000,
       );
@@ -514,6 +522,7 @@ function OverlayEditor() {
         setError(await readApiError(response));
         return;
       }
+      captionGeneration.current = null;
       toast.success("Caption generado; revísalo en Marketing → Borradores");
     } finally {
       setBusy(null);
@@ -583,7 +592,7 @@ function OverlayEditor() {
           <Link href="/marketing/imagenes" className="text-sm">
             ← Banco de imágenes
           </Link>
-          <Heading size="lg">Editor de pieza</Heading>
+          <Heading size="lg">Creativo de {channel === "meta_ads" ? "Meta Ads" : "Instagram"}</Heading>
           {dirty ? <Badge tone="warn">Sin guardar</Badge> : null}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -617,7 +626,7 @@ function OverlayEditor() {
             disabled={busy !== null || slides.every((s) => !s.image_id)}
             onClick={() => void generateCaption()}
           >
-            {busy === "caption" ? "Redactando…" : "Generar caption"}
+            {busy === "caption" ? "Redactando…" : channel === "meta_ads" ? "Generar texto de anuncio" : "Generar caption"}
           </Button>
           <Button
             type="button"
@@ -964,7 +973,7 @@ function OverlayEditor() {
                   Las historias son verticales 9:16.
                 </p>
               )}
-              <Field label="Brief compartido (overlay y caption)">
+              <Field label={`Brief compartido (${channel === "meta_ads" ? "anuncio Meta Ads" : "Instagram"})`}>
                 <Textarea
                   className="mt-1 min-h-20"
                   placeholder="Objetivo, público, tono, mensaje clave, CTA y afirmaciones permitidas"

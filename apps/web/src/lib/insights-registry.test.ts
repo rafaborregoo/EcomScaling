@@ -6,6 +6,7 @@ import {
   insightSpotForAnchor,
   insightSpotsFromAiAssessments,
   insightSpotsFromPlaybookAssessments,
+  resolveCopilotUiAction,
 } from "./insights-registry";
 
 test("el feed transversal de playbooks crea un insight con enlace a la card exacta", () => {
@@ -194,4 +195,32 @@ test("ninguna etiqueta visible del registro lleva el codigo de fase", () => {
   ].map((m) => m[1] ?? "");
   const conCodigo = visibles.filter((texto) => /\bF\d+(\.\d+)?\b|\bF3\.D\d+\b/.test(texto));
   assert.deepEqual(conCodigo, []);
+});
+
+test("las acciones del copiloto resuelven destinos del catálogo e ignoran rutas libres", () => {
+  const action = resolveCopilotUiAction({
+    kind: "open_insight",
+    insight_slug: "d12-adversarial",
+    label: "Ver evidencia",
+    reason: "Hay evidencia pendiente.",
+    href: "https://example.invalid/",
+  });
+
+  assert.ok(action);
+  assert.equal(action.href, "/shopify/diagnostico#insight-d12-adversarial");
+  assert.equal(action.target_label.length > 0, true);
+  assert.equal(action.location, "Diagnóstico");
+  assert.equal(resolveCopilotUiAction({
+    kind: "open_insight",
+    insight_slug: "unknown-target",
+    label: "Abrir card",
+    reason: "Destino no catalogado.",
+    href: "/admin/delete-all",
+  }), null);
+  assert.equal(resolveCopilotUiAction({
+    kind: "open_insight",
+    insight_slug: "d12-adversarial",
+    label: "Abrir cualquier ruta",
+    reason: "Etiqueta fuera del contrato.",
+  }), null);
 });

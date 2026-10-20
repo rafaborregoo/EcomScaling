@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 
 export type ShopifyOverview = {
@@ -128,9 +128,15 @@ export function useShopifyOverview(
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Al entrar se pide primero sin tienda y enseguida con la tienda elegida: si
+  // la primera llega tarde (o falla), pisaba a la buena y la página se quedaba
+  // en error. Solo cuenta la respuesta de la última petición.
+  const requestRef = useRef(0);
 
   const load = useCallback(
     async (options: { initial?: boolean } = {}) => {
+      const requestId = ++requestRef.current;
+      const isLatest = () => requestId === requestRef.current;
       if (!organizationId) {
         setError("No hay organización activa.");
         setIsLoading(false);
@@ -154,6 +160,7 @@ export function useShopifyOverview(
           options.initial ? undefined : { cache: "no-store" },
         );
       } catch (loadError) {
+        if (!isLatest()) return;
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -164,12 +171,14 @@ export function useShopifyOverview(
         return;
       }
 
+      if (!isLatest()) return;
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as {
           error?: string;
           message?: string;
           detail?: string;
         } | null;
+        if (!isLatest()) return;
         setError(
           [
             body?.error ?? `HTTP ${response.status}`,
@@ -184,16 +193,18 @@ export function useShopifyOverview(
         return;
       }
 
-      setOverview((await response.json()) as ShopifyOverview);
+      const next = (await response.json()) as ShopifyOverview;
+      if (!isLatest()) return;
+      setOverview(next);
       setIsLoading(false);
       setIsRefreshing(false);
     },
     [organizationId, connectionId],
   );
 
-  const triggerSync = useCallback(async () => {
+  const triggerSync = useCallback(async (): Promise<boolean> => {
     if (!organizationId) {
-      return;
+      return false;
     }
 
     setIsSyncing(true);
@@ -215,7 +226,7 @@ export function useShopifyOverview(
           : "No se pudo iniciar la sincronización de Shopify.",
       );
       setIsSyncing(false);
-      return;
+      return false;
     }
 
     if (!response.ok) {
@@ -230,11 +241,12 @@ export function useShopifyOverview(
           .join(" - "),
       );
       setIsSyncing(false);
-      return;
+      return false;
     }
 
     setIsSyncing(false);
     void load();
+    return true;
   }, [connectionId, load, organizationId]);
 
   useEffect(() => {

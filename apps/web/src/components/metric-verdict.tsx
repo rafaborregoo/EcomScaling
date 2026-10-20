@@ -11,7 +11,7 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 // Mismo endpoint y mismas etiquetas que la app móvil (apps/mobile/components/analista.tsx).
 
 const VERDICT: Record<Verdict, { label: string; color: string }> = {
-  good: { label: "Va bien", color: "var(--good, #15805d)" },
+  good: { label: "Va bien", color: "var(--good, #3d3b3a)" },
   watch: { label: "Vigilar", color: "var(--warn, #b45309)" },
   bad: { label: "Mal", color: "var(--bad, #dc2626)" },
   insufficient: { label: "Sin datos suficientes", color: "var(--ink-3, #8a8a8a)" },
@@ -92,7 +92,7 @@ export function MetricVerdict({ analysis: a }: { analysis: AnalysisWithPath | nu
                     </span>
                     <span
                       className="font-semibold tabular-nums"
-                      style={{ color: d.effect === "hurts" ? "var(--bad, #dc2626)" : d.effect === "helps" ? "var(--good, #15805d)" : "var(--ink-3, #8a8a8a)" }}
+                      style={{ color: d.effect === "hurts" ? "var(--bad, #dc2626)" : d.effect === "helps" ? "var(--good, #3d3b3a)" : "var(--ink-3, #8a8a8a)" }}
                     >
                       {d.change_pct! >= 0 ? "▲" : "▼"} {Math.abs(d.change_pct!).toFixed(0)} %
                     </span>
@@ -135,7 +135,7 @@ type Explained = { output: { answer: string; recommendations: Array<{ action: st
  * A29 al abrir el popover (el contenido solo se monta abierto). El POST devuelve la
  * explicación guardada si tiene menos de una hora; si no, la genera con el modelo.
  */
-function AiExplanation({ path }: { path: string }) {
+export function AiExplanation({ path }: { path: string }) {
   const [state, setState] = useState<{ data?: Explained; error?: string }>({});
   useEffect(() => {
     let stale = false;

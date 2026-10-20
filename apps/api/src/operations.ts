@@ -11,6 +11,7 @@ import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 import { resolveTaskAssignee } from "./task-assignment.js";
 import { parseTaskOutcomeInput } from "./task-outcome.js";
+import { clientManagersOf, consultantsOf, firstNameOf, notify, organizationName } from "./notify.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -334,32 +335,28 @@ async function notifyAlertCreated(
     );
     if (assigneeId) recipients.add(assigneeId);
 
-    if (recipients.size === 0) {
-      return;
+    const title = interpolate(template.alert_title_template, detection.templateValues);
+    const message = interpolate(template.alert_message_template, detection.templateValues);
+    // Las críticas van aparte: son las que llegan al momento y saltan el
+    // horario de silencio (notification-email.ts).
+    const critical = ["critical", "high"].includes(template.default_severity);
+    const type = critical ? ("alert_critical" as const) : ("alert" as const);
+    await notify(supabase, {
+      type,
+      organizationId,
+      recipients,
+      data: { alertId, title, message, store: null },
+    });
+    // Al consultor solo le llegan las críticas (decisión 2026-10-19): con varios
+    // clientes, todas serían ruido. La plantilla pone el nombre de la tienda delante.
+    if (critical) {
+      await notify(supabase, {
+        type,
+        organizationId,
+        recipients: (await consultantsOf(supabase, organizationId)).filter((userId) => !recipients.has(userId)),
+        data: { alertId, title, message, store: await organizationName(supabase, organizationId) },
+      });
     }
-
-    const title = interpolate(
-      template.alert_title_template,
-      detection.templateValues,
-    ).slice(0, 255);
-
-    await supabase.from("notifications").insert(
-      [...recipients].map((userId) => ({
-        organization_id: organizationId,
-        user_id: userId,
-        // Las críticas van aparte: son las que llegan al momento y saltan el
-        // horario de silencio (notification-email.ts).
-        type: ["critical", "high"].includes(template.default_severity) ? "alert_critical" : "alert",
-        title,
-        message: interpolate(
-          template.alert_message_template,
-          detection.templateValues,
-        ),
-        action_url: `/tareas?organizationId=${organizationId}`,
-        entity_type: "alert",
-        entity_id: alertId,
-      })),
-    );
   } catch {
     // Notificar es secundario frente a registrar la alerta.
   }
@@ -738,6 +735,7 @@ export async function listOperations(
   authorization: string,
   context: AuthContext,
   organizationId: string,
+  connectionId?: string | null,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -746,25 +744,45 @@ export async function listOperations(
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
+  let selectedStoreId: string | null = null;
+  if (connectionId) {
+    const { data: store, error: storeError } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("connection_id", connectionId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (storeError || !store) return {
+      ok: false as const,
+      statusCode: storeError ? 503 : 404,
+      error: storeError ? "operations_store_scope_unavailable" : "shopify_store_not_found",
+      detail: storeError?.message,
+    };
+    selectedStoreId = store.id as string;
+  }
 
-  const [tasksResult, alertsResult] = await Promise.all([
-    supabase
+  let tasksQuery = supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, created_at, updated_at, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, store_id, created_at, updated_at, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
-      .limit(200),
-    supabase
+      .limit(200);
+  let alertsQuery = supabase
       .from("alerts")
       .select(
         "id, status, severity, title, message, metric_value, threshold_value, fingerprint, first_detected_at, last_detected_at, resolved_at, store_id",
       )
       .eq("organization_id", organizationId)
       .order("last_detected_at", { ascending: false })
-      .limit(200),
-  ]);
+      .limit(200);
+  if (selectedStoreId) {
+    tasksQuery = tasksQuery.eq("store_id", selectedStoreId);
+    alertsQuery = alertsQuery.eq("store_id", selectedStoreId);
+  }
+  const [tasksResult, alertsResult] = await Promise.all([tasksQuery, alertsQuery]);
 
   if (tasksResult.error || alertsResult.error) {
     return {
@@ -809,6 +827,11 @@ export async function listOperations(
     }
   }
 
+  // Tienda a la que va etiquetada la tarea (las internas del consultor la llevan
+  // para saber de que tienda son). Mismo motivo que los perfiles: aparte.
+  const storeIds = [...new Set((tasksResult.data ?? []).map((task) => task.store_id as string | null).filter((id): id is string => Boolean(id)))];
+  const storeNameById = await loadStoreNames(env, organizationId, storeIds);
+
   const tasks = (tasksResult.data ?? []).map((task) => {
     const { milestone_task_links: rawLinks, ...rest } = task as Record<
       string,
@@ -825,6 +848,9 @@ export async function listOperations(
       assignee_name: task.assigned_to
         ? (nameByAssignee.get(task.assigned_to as string) ?? null)
         : null,
+      store: task.store_id
+        ? { id: task.store_id as string, name: storeNameById.get(task.store_id as string) ?? null }
+        : null,
       milestone: ms
         ? {
             id: ms.id as string,
@@ -839,6 +865,7 @@ export async function listOperations(
     ok: true as const,
     data: {
       organization_id: organizationId,
+      store_id: selectedStoreId,
       tasks,
       alerts: alertsResult.data ?? [],
     },
@@ -846,6 +873,19 @@ export async function listOperations(
 }
 
 const logger = createLogger("operations");
+
+/** Nombre (shop_name) de las tiendas de una organizacion, por id de shopify_stores. */
+export async function loadStoreNames(env: ApiEnv, organizationId: string | string[], storeIds: string[]) {
+  const names = new Map<string, string | null>();
+  if (storeIds.length === 0) return names;
+  const { data } = await createServiceClient(env)
+    .from("shopify_stores")
+    .select("id, shop_name")
+    .in("organization_id", Array.isArray(organizationId) ? organizationId : [organizationId])
+    .in("id", storeIds);
+  for (const store of data ?? []) names.set(store.id as string, (store.shop_name as string | null) ?? null);
+  return names;
+}
 
 const TASK_STATUSES = [
   "pending",
@@ -935,6 +975,8 @@ export async function createTask(
     isVisibleToClient?: boolean;
     assignedTo?: string | null;
     milestoneId?: string | null;
+    /** Tienda (connection_id de Shopify) a la que se etiqueta la tarea. */
+    connectionId?: string | null;
     agentOutputId?: string | null;
     agentProposalIndex?: number | null;
   },
@@ -995,6 +1037,17 @@ export async function createTask(
   const assignedTo = input.assignedTo?.trim() || (proposedToClient ? null : context.user.id);
   if (assignedTo && !(await validateTaskAssignee(supabase, organizationId, assignedTo, context.user.id))) {
     return { ok: false as const, statusCode: 400, error: "invalid_task_assignee", message: "El responsable debe tener acceso activo a esta tienda." };
+  }
+
+  // Etiqueta de tienda: se guarda el id de shopify_stores de esa conexion.
+  let storeId: string | null = null;
+  const connectionId = input.connectionId?.trim() || null;
+  if (connectionId) {
+    const { data: store, error: storeError } = await supabase.from("shopify_stores")
+      .select("id").eq("organization_id", organizationId).eq("connection_id", connectionId).eq("is_active", true).maybeSingle();
+    if (storeError) return { ok: false as const, statusCode: 503, error: "task_store_lookup_failed", detail: storeError.message };
+    if (!store) return { ok: false as const, statusCode: 400, error: "invalid_task_store", message: "Esa tienda no pertenece a este cliente." };
+    storeId = store.id as string;
   }
 
   // La tarea puede nacer ya colgada de un hito de Mi Camino (misma tabla
@@ -1070,6 +1123,7 @@ export async function createTask(
       // Por defecto visible: una tarea manual sin marcar como interna es
       // igual de visible para el cliente que cualquier otra de la lista.
       is_visible_to_client: input.isVisibleToClient ?? true,
+      ...(storeId ? { store_id: storeId } : {}),
       ...(agentOutputId && agentProposalIndex !== null
         ? { agent_output_id: agentOutputId, agent_proposal_index: agentProposalIndex }
         : {}),
@@ -1128,13 +1182,17 @@ export async function createTask(
   });
 
   if (proposedToClient) {
-    await notifyTaskProposal(supabase, {
+    await notify(supabase, {
+      type: "task_assigned",
       organizationId,
-      taskId: data.id,
+      recipients: await clientManagersOf(supabase, organizationId),
       actorUserId: context.user.id,
-      audience: "client",
-      title: `Tu consultor te propone una tarea: «${data.title}»`.slice(0, 255),
-      message: "Acéptala para añadirla a tu lista o recházala si no te encaja.",
+      data: {
+        kind: "proposed",
+        who: await firstNameOf(supabase, context.user.id, "Tu consultor"),
+        taskId: data.id,
+        taskTitle: data.title,
+      },
     });
   }
 
@@ -1144,59 +1202,27 @@ export async function createTask(
   };
 }
 
-/**
- * Aviso de una propuesta de tarea entre consultor y cliente. Best-effort: un
- * aviso que falla no puede tumbar la accion que lo origina, y nunca avisa a
- * quien la hace.
- */
-async function notifyTaskProposal(
-  supabase: ReturnType<typeof createServiceClient>,
-  input: {
-    organizationId: string;
-    taskId: string;
-    actorUserId: string;
-    audience: "client" | "consultants";
-    title: string;
-    message: string;
-  },
-) {
-  try {
-    const recipients = new Set<string>();
-    if (input.audience === "consultants") {
-      const { data } = await supabase
-        .from("consultant_assignments")
-        .select("consultant_user_id")
-        .eq("organization_id", input.organizationId)
-        .eq("is_active", true);
-      for (const row of data ?? []) recipients.add(row.consultant_user_id as string);
-    } else {
-      const { data } = await supabase
-        .from("organization_members")
-        .select("user_id")
-        .eq("organization_id", input.organizationId)
-        .eq("is_active", true)
-        .in("role", ["owner", "manager"]);
-      for (const row of data ?? []) recipients.add(row.user_id as string);
-    }
-    recipients.delete(input.actorUserId);
-    if (!recipients.size) return;
-    const { error } = await supabase.from("notifications").insert(
-      [...recipients].map((userId) => ({
-        organization_id: input.organizationId,
-        user_id: userId,
-        type: "task_assigned",
-        title: input.title,
-        message: input.message,
-        action_url: "/tareas",
-        entity_type: "task",
-        entity_id: input.taskId,
-      })),
-    );
-    if (error) logger.error("task_proposal_notification_failed", { organization_id: input.organizationId, task_id: input.taskId, error: error.message });
-  } catch (error) {
-    logger.error("task_proposal_notification_threw", { organization_id: input.organizationId, task_id: input.taskId, error: error instanceof Error ? error.message : "unknown_error" });
-  }
+/** «Conversión: 1,8 → 2,4 %» o el resumen que haya escrito el cliente. */
+function describeOutcome(outcome: {
+  metric_name: string;
+  before_value?: number | null;
+  after_value?: number | null;
+  unit?: string | null;
+  summary?: string | null;
+}) {
+  const unit = outcome.unit ? ` ${outcome.unit}` : "";
+  const fmt = (value: number) => value.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+  const values =
+    outcome.after_value != null
+      ? outcome.before_value != null
+        ? `${fmt(outcome.before_value)} → ${fmt(outcome.after_value)}${unit}`
+        : `${fmt(outcome.after_value)}${unit}`
+      : null;
+  return [values ? `${outcome.metric_name}: ${values}` : outcome.metric_name, outcome.summary]
+    .filter(Boolean)
+    .join(". ");
 }
+
 
 export async function updateTaskAssignment(
   env: ApiEnv,
@@ -1257,16 +1283,10 @@ export async function updateTaskStatus(
   // se pierde porque las dos mitades las escribiria la misma mano. Solo
   // cuenta como "ser el cliente" una membership real (o platform_admin, igual
   // que en el resto del programa); la membership sintetica de
-  // consultant_assignment no.
-  if (access.membership.accessSource === "consultant_assignment") {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "consultant_cannot_resolve_client_task",
-      message:
-        "Solo el cliente puede completar, ignorar o cambiar el estado de sus tareas. El consultor puede proponerlas, no resolverlas.",
-    };
-  }
+  // consultant_assignment no. Excepcion: el trabajo interno (no visible al
+  // cliente) y la tarea asignada al propio consultor son suyos, no una
+  // decision del cliente; esos si los cierra el.
+  const viaAssignment = access.membership.accessSource === "consultant_assignment";
 
   if (
     !statusInput ||
@@ -1294,7 +1314,7 @@ export async function updateTaskStatus(
 
   const { data: previousTask, error: previousTaskError } = await supabase
     .from("tasks")
-    .select("id, status, completed_at, title")
+    .select("id, status, completed_at, title, assigned_to, is_visible_to_client")
     .eq("id", taskId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -1302,6 +1322,15 @@ export async function updateTaskStatus(
     return { ok: false as const, statusCode: 500, error: "task_load_failed", detail: previousTaskError.message };
   }
   if (!previousTask) return { ok: false as const, statusCode: 404, error: "task_not_found" };
+  if (viaAssignment && previousTask.is_visible_to_client !== false && previousTask.assigned_to !== context.user.id) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_cannot_resolve_client_task",
+      message:
+        "Solo el cliente puede completar, ignorar o cambiar el estado de sus tareas. El consultor puede proponerlas, no resolverlas.",
+    };
+  }
   // Una propuesta solo se acepta (-> pending) o se rechaza (-> ignored).
   if (previousTask.status === "proposed" && !["pending", "ignored"].includes(statusInput)) {
     return {
@@ -1357,18 +1386,36 @@ export async function updateTaskStatus(
 
   // El consultor propuso, el cliente ha decidido: se le avisa del resultado.
   if (previousTask.status === "proposed") {
-    const accepted = statusInput === "pending";
-    await notifyTaskProposal(supabase, {
+    await notify(supabase, {
+      type: "task_assigned",
       organizationId,
-      taskId: data.id,
+      recipients: await consultantsOf(supabase, organizationId),
       actorUserId: context.user.id,
-      audience: "consultants",
-      title: `Tu cliente ha ${accepted ? "aceptado" : "rechazado"} la tarea «${previousTask.title}»`.slice(0, 255),
-      message: accepted
-        ? "Ya está en su lista de tareas."
-        : reason
-          ? `Motivo: ${reason}`
-          : "La encontrarás en Tareas, en «Descartadas y archivadas por el cliente».",
+      data: {
+        kind: "decided",
+        store: await organizationName(supabase, organizationId),
+        accepted: statusInput === "pending",
+        taskId: data.id,
+        taskTitle: previousTask.title as string,
+        reason: reason ?? null,
+      },
+    });
+  }
+
+  // El cliente cierra una tarea: es justo lo que el consultor quiere saber.
+  // Solo la primera vez (registrar el resultado despues no vuelve a avisar).
+  if (statusInput === "completed" && previousTask.status !== "completed" && !viaAssignment) {
+    await notify(supabase, {
+      type: "task_completed",
+      organizationId,
+      recipients: await consultantsOf(supabase, organizationId),
+      actorUserId: context.user.id,
+      data: {
+        store: await organizationName(supabase, organizationId),
+        taskId: data.id,
+        taskTitle: previousTask.title as string,
+        outcome: parsedOutcome.data ? describeOutcome(parsedOutcome.data) : null,
+      },
     });
   }
 
@@ -1465,7 +1512,7 @@ export async function addTaskComment(
 
   const { data: task, error: taskError } = await supabase
     .from("tasks")
-    .select("id, title")
+    .select("id, title, assigned_to")
     .eq("id", taskId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -1520,6 +1567,27 @@ export async function addTaskComment(
       authority: "operational",
       title: `Nota interna en tarea: ${task.title ?? taskId}`,
       content: body.trim(),
+    });
+  }
+
+  // Comentario -> la otra parte. Los internos solo los ve el equipo consultor.
+  // Varios comentarios seguidos en la misma tarea se juntan en un aviso.
+  {
+    const fromConsultant = access.membership.accessSource === "consultant_assignment" || isConsultantOrAdmin(context);
+    const recipients = new Set<string>(await consultantsOf(supabase, organizationId));
+    if (!isInternal) {
+      for (const userId of await clientManagersOf(supabase, organizationId)) recipients.add(userId);
+      if (task.assigned_to) recipients.add(task.assigned_to as string);
+    }
+    const who = fromConsultant
+      ? await firstNameOf(supabase, context.user.id, "Tu consultor")
+      : await organizationName(supabase, organizationId);
+    await notify(supabase, {
+      type: "task_comment",
+      organizationId,
+      recipients,
+      actorUserId: context.user.id,
+      data: { who, taskId, taskTitle: task.title as string, text: body.trim() },
     });
   }
 

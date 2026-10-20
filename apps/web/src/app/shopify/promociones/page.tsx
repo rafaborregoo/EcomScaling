@@ -36,9 +36,10 @@ const SORTS: Array<{ value: Sort; label: string }> = [
 ];
 
 function CodeLine({ discount }: { discount: CatalogDiscount }) {
+  const codeIsTitle = discount.codes[0] != null && discount.codes[0] === discount.title;
   return (
     <p className={p.metaRow}>
-      {discount.codes.length ? <span className={p.code}>{discount.codes[0]}</span> : <span>Automática</span>}
+      {discount.codes.length ? (codeIsTitle ? <span>Código</span> : <span className={p.code}>{discount.codes[0]}</span>) : <span>Automática</span>}
       {discount.codes.length > 1 ? <span>+{discount.codes.length - 1}</span> : null}
       {discount.codes_coverage === "partial" ? <span className={cx(pulse.chip, pulse.chipWarn)}>Códigos parciales</span> : null}
       <span aria-hidden="true">·</span>
@@ -59,21 +60,22 @@ function PromoCard({ discount, href, metricsOn }: { discount: CatalogDiscount; h
         <span className={cx(pulse.chip, state.tone === "good" ? pulse.chipGood : state.tone === "warn" ? pulse.chipWarn : undefined, p.st)}>{state.label}</span>
         {alert ? <span className={cx(pulse.chip, alert.tone === "bad" ? pulse.chipBad : alert.tone === "warn" ? pulse.chipWarn : alert.tone === "acc" ? pulse.chipAcc : undefined, p.warn)}>{alert.text}</span> : null}
         <span className={p.big}>{benefitBig(discount)}</span>
-        <span className={p.kind}>{classLabel(discount)}</span>
       </div>
       <div className={s.body}>
         <div>
           <p className={s.name}>{discount.title || discount.code || "Promoción sin título"}</p>
           <CodeLine discount={discount} />
         </div>
-        <div className={s.price}>
-          <b>{m ? (m.orders ? (m.discount_amount == null ? "parcial" : money(m.discount_amount, discount.currency_code)) : "—") : "—"}</b>
-          <span className={pulse.chip}>{m ? (m.orders && m.net_revenue ? `${fmtNum(((m.discount_amount ?? 0) / (m.net_revenue + (m.discount_amount ?? 0))) * 100, 1)} % de lo que vende` : "sin pedidos aún") : "sin métricas"}</span>
-        </div>
+        {m?.orders ? (
+          <div className={s.price}>
+            <b>{m.discount_amount == null ? "parcial" : money(m.discount_amount, discount.currency_code)}</b>
+            <span className={pulse.chip}>{m.net_revenue ? `${fmtNum(((m.discount_amount ?? 0) / (m.net_revenue + (m.discount_amount ?? 0))) * 100, 1)} % de lo que vende` : "descontado"}</span>
+          </div>
+        ) : null}
         <div className={s.stats}>
           <div><span>Usos</span><span>{usageText(discount)}</span></div>
           <div><span>Pedidos</span><span>{m?.orders ? fmtNum(m.orders) : "—"}</span></div>
-          <div><span>Ticket</span><span>{m?.aov != null ? money(m.aov, discount.currency_code) : "—"}</span></div>
+          <div><span>Gasto medio</span><span>{m?.aov != null ? money(m.aov, discount.currency_code) : "—"}</span></div>
         </div>
         {discount.usage_limit ? (
           <div className={p.limit}>
@@ -142,7 +144,7 @@ function PromotionsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         { key: "", label: "Promociones", value: fmtNum(summary.total), hint: `${summary.active} activas · ${summary.scheduled} programadas · ${summary.closed} cerradas`, pressable: false },
         { key: "ending", label: "Acaban en 7 días", value: fmtNum(summary.ending_soon), hint: "revisa si renovarlas", tone: summary.ending_soon ? "var(--warn)" : undefined, pressable: true },
         { key: "limit", label: "Cerca del límite", value: fmtNum(summary.near_limit), hint: "80 % o más de los usos", tone: summary.near_limit ? "var(--bad)" : undefined, pressable: true },
-        { key: "app", label: "Regla no visible", value: fmtNum(summary.app_managed), hint: "gestionadas por una app", tone: summary.app_managed ? "var(--warn)" : undefined, pressable: true },
+        ...(summary.app_managed ? [{ key: "app" as Filter, label: "Gestionadas por una app", value: fmtNum(summary.app_managed), hint: "sus reglas no se ven aquí", tone: "var(--warn)", pressable: true }] : []),
         {
           key: "",
           label: "Descuento concedido",
@@ -157,20 +159,8 @@ function PromotionsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className={pulse.root}>
       <header className={s.top}>
         <div>
-          <nav className={s.crumb} aria-label="Ruta" style={{ padding: 0 }}>
-            <a href="/shopify">Analítica</a>
-            <span aria-hidden="true">/</span>
-            <a href="/shopify">Shopify</a>
-            <span aria-hidden="true">/</span>
-            <span>Promociones</span>
-          </nav>
           <h1>Promociones</h1>
-          <div className={s.topMeta}>
-            <span className={pulse.chip}>{connectionId ? "Tienda seleccionada" : "Todas las tiendas"}</span>
-            {data ? <span className={pulse.chip}>{fmtNum(data.total)} promociones</span> : null}
-          </div>
         </div>
-        <a className={cx(pulse.btn, pulse.ghost)} href="/shopify">Volver a Shopify</a>
       </header>
 
       {!organizationId ? (
@@ -178,7 +168,7 @@ function PromotionsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : (
         <>
           {tiles.length ? (
-            <div className={s.sum} role="group" aria-label="Resumen de promociones">
+            <div className={s.sum} style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }} role="group" aria-label="Resumen de promociones">
               {tiles.map((tile) => (
                 <button key={tile.label} type="button" className={s.sumC} disabled={!tile.pressable} style={tile.pressable ? undefined : { cursor: "default" }} aria-pressed={tile.pressable && filter === tile.key} onClick={() => tile.pressable && pickFilter(tile.key)}>
                   <span className={pulse.lbl}>{tile.label}</span>
@@ -215,7 +205,7 @@ function PromotionsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <div className={pulse.seg} role="group" aria-label="Periodo de pedidos">
                 {PERIODS.map((value) => (
                   <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => { setPeriodDays(value); setPage(1); }}>
-                    {value === 365 ? "1 año" : `${value} d`}
+                    {value === 365 ? "1 año" : `${value} días`}
                   </button>
                 ))}
               </div>
@@ -299,7 +289,7 @@ function PromotionsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
           ) : null}
 
-          {data ? (
+          {data && totalPages > 1 ? (
             <div className={s.pager}>
               <span className={pulse.muted} style={{ fontSize: 12.5 }}>
                 {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}
@@ -312,7 +302,7 @@ function PromotionsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
 
           <footer className={s.foot}>
-            <span>Reglas importadas de Shopify; una promoción importada no demuestra que sea elegible para un producto. Usos: contador de Shopify. Pedidos, descuento y ticket medio: pedidos sincronizados de los últimos {periodDays} días, no necesariamente todo el historial.</span>
+            <span>Usos: contador de Shopify. Pedidos y gasto medio: últimos {periodDays} días.</span>
           </footer>
         </>
       )}

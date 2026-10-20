@@ -6,7 +6,7 @@ import type { AuthContext } from "./auth-context.js";
 import { assignPartnersToOrganization } from "./consultant-partners.js";
 import { resolveInvite } from "./consultant.js";
 import { attachReferral } from "./referidos.js";
-import { insertNotifications } from "./notification-settings.js";
+import { notify } from "./notify.js";
 import { applyClientDefaults } from "./consultora-settings.js";
 
 const logger = createLogger("registro");
@@ -233,18 +233,12 @@ export async function ensureOwnOrganization(
             }),
           );
         }
-        await insertNotifications(supabase, [
-          {
-            organization_id: organization.id,
-            user_id: resolved.invite.consultant_user_id,
-            type: "client_linked",
-            title: `${organization.display_name} se ha dado de alta con tu código`,
-            message: "Ya está en tu cartera. Empieza por su configuración.",
-            action_url: "/consultor",
-            entity_type: "organization",
-            entity_id: organization.id,
-          },
-        ]).catch(() => undefined);
+        await notify(supabase, {
+          organizationId: organization.id,
+          recipients: [resolved.invite.consultant_user_id],
+          type: "client_linked",
+          data: { store: organization.display_name },
+        });
         await recordAuditLog(supabase, {
           organizationId: organization.id,
           actorUserId: context.user.id,

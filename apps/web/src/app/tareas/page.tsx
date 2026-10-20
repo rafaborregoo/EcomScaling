@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -78,6 +79,8 @@ type Task = {
   outcome_measured_at?: string | null;
   outcome_recorded_at?: string | null;
   task_comments: TaskComment[];
+  // Tienda a la que va etiquetada (las internas del consultor la llevan).
+  store?: { id: string; name: string | null } | null;
   // Fase/hito de Mi Camino al que cuelga esta tarea (misma tabla `tasks`).
   milestone: { id: string; name: string; phase_name: string | null } | null;
 };
@@ -403,6 +406,7 @@ function TaskDetail({
       ? assigneeLabel(task.assigned_to, task.assignee_name, viewerUserId)
       : null,
     showVisibility && !task.is_visible_to_client ? "interna" : null,
+    task.store?.name ? `tienda ${task.store.name}` : null,
   ].filter(Boolean);
 
   return (
@@ -566,8 +570,12 @@ function NewTaskForm({
     dueAt: string;
     isVisibleToClient: boolean;
     milestoneId: string;
+    connectionId: string;
   }) => Promise<boolean>;
 }) {
+  // Una tarea interna se etiqueta con una tienda del cliente (por defecto, la activa del selector).
+  const { connectionId: activeConnectionId, stores = [] } = useActiveConnection();
+  const [storeConnectionId, setStoreConnectionId] = useState(activeConnectionId);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
@@ -587,6 +595,7 @@ function NewTaskForm({
       dueAt,
       isVisibleToClient: !isInternal,
       milestoneId,
+      connectionId: isInternal ? storeConnectionId : "",
     });
     if (created) {
       setTitle("");
@@ -681,6 +690,17 @@ function NewTaskForm({
           <Checkbox checked={isInternal} onChange={setIsInternal}>
             Tarea interna (el cliente no la verá)
           </Checkbox>
+        ) : null}
+        {canMarkInternal && isInternal && stores.length > 0 ? (
+          <Select
+            aria-label="Tienda de la tarea"
+            value={storeConnectionId}
+            onChange={setStoreConnectionId}
+            options={[
+              { value: "", label: "Sin tienda" },
+              ...stores.map((store) => ({ value: store.connectionId, label: store.label })),
+            ]}
+          />
         ) : null}
         <div className="flex gap-2">
           <Button type="submit" disabled={isSubmitting || !title.trim()}>
@@ -790,11 +810,13 @@ function TaskRow({
       ? assigneeLabel(task.assigned_to, task.assignee_name, viewerUserId)
       : null,
     showVisibility && !task.is_visible_to_client ? "interna" : null,
+    task.store?.name ? `tienda ${task.store.name}` : null,
   ].filter(Boolean);
 
   return (
     <div
-      className={`${s.row} flex flex-wrap items-start gap-x-4 gap-y-2 py-3`}
+      className={`${s.row} task-lift-card flex flex-wrap items-start gap-x-4 gap-y-2 py-3`}
+      data-focus-id={task.id}
       data-priority={task.priority}
       data-overdue={isTaskOverdue(task) ? "" : undefined}
       data-done={
@@ -1003,7 +1025,7 @@ function AlertRow({
   onCreateTask?: () => void;
 }) {
   return (
-    <List.Item className="flex flex-wrap items-start justify-between gap-3 py-3">
+    <List.Item data-focus-id={alert.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
       <div className="min-w-[15rem] flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>
@@ -1749,6 +1771,25 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [tab, setTab] = useState<"tasks" | "alerts">("tasks");
   const [discussTask, setDiscussTask] = useState<Task | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  // Enlaces desde una notificacion: ?task= abre esa tarea y ?alert= deja a la
+  // vista solo esa alerta. Sin esto se aterrizaba en la lista entera.
+  const searchParams = useSearchParams();
+  const linkedTaskId = searchParams.get("task");
+  const linkedAlertId = searchParams.get("alert");
+  const focusIds = new Set((searchParams.get("focus") ?? "").split(",").filter(Boolean));
+  const [focusAlertId, setFocusAlertId] = useState<string | null>(null);
+  useEffect(() => {
+    if (linkedTaskId) {
+      setTab("tasks");
+      setDetailTaskId(linkedTaskId);
+    }
+  }, [linkedTaskId]);
+  useEffect(() => {
+    if (linkedAlertId) {
+      setTab("alerts");
+      setFocusAlertId(linkedAlertId);
+    }
+  }, [linkedAlertId]);
   const [completionTask, setCompletionTask] = useState<{ taskId: string; title: string; mode: "complete" | "record" } | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
@@ -1984,6 +2025,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     dueAt: string;
     isVisibleToClient: boolean;
     milestoneId: string;
+    connectionId?: string;
   }) {
     if (!organization) {
       return false;
@@ -2005,6 +2047,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             dueAt: input.dueAt || null,
             isVisibleToClient: input.isVisibleToClient,
             milestoneId: input.milestoneId || null,
+            connectionId: input.connectionId || null,
           }),
         },
       );
@@ -2103,7 +2146,11 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // importar prioridad ni vencimiento -- una tarea urgente podia quedar
   // enterrada en la pagina 3. Vencidas primero, luego por prioridad, luego la
   // que vence antes; a igualdad, la mas reciente arriba (orden original).
+  // Antes que todo, las que señala un aviso (?focus=): si no, podían quedar en
+  // otra página y el resaltado no las encontraba.
   const sortedTasks = filteredTasks.slice().sort((a, b) => {
+    const focusDelta = Number(focusIds.has(b.id)) - Number(focusIds.has(a.id));
+    if (focusDelta !== 0) return focusDelta;
     const overdueDelta = Number(isTaskOverdue(b)) - Number(isTaskOverdue(a));
     if (overdueDelta !== 0) return overdueDelta;
 
@@ -2126,9 +2173,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     sortedTasks.find((task) => ["pending", "in_progress"].includes(task.status)) ??
     null;
 
+  // Busca en todas, no solo en las filtradas: una tarea enlazada desde una
+  // notificacion puede estar ya completada o descartada.
   const detailTask = detailTaskId
-    ? (filteredTasks.find((task) => task.id === detailTaskId) ?? null)
+    ? ((payload?.tasks ?? []).find((task) => task.id === detailTaskId) ?? null)
     : null;
+  const shownAlerts = focusAlertId
+    ? (payload?.alerts ?? []).filter((alert) => alert.id === focusAlertId)
+    : activeAlerts;
 
   // Estado real del backlog de este cliente. Antes había que contar a ojo
   // entre pestañas y filtros para responder "¿voy tarde con este cliente?".
@@ -2404,15 +2456,38 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Button>
           </div>
 
+          {focusAlertId ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-medium text-foreground">
+                La alerta de tu notificación
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setFocusAlertId(null)}
+              >
+                Ver todas las alertas
+              </Button>
+            </div>
+          ) : null}
+
           <Card>
-            {activeAlerts.length === 0 ? (
-              <EmptyState
-                title="Sin alertas activas"
-                hint="Pulsa «Evaluar reglas ahora» para comprobar los datos actuales."
-              />
+            {shownAlerts.length === 0 ? (
+              focusAlertId ? (
+                <EmptyState
+                  title="Esta alerta ya no está disponible"
+                  hint="Puede que se haya resuelto y archivado. Revisa el resto de alertas."
+                />
+              ) : (
+                <EmptyState
+                  title="Sin alertas activas"
+                  hint="Pulsa «Evaluar reglas ahora» para comprobar los datos actuales."
+                />
+              )
             ) : (
               <List>
-                {activeAlerts.map((alert) => (
+                {shownAlerts.map((alert) => (
                   <AlertRow
                     key={alert.id}
                     alert={alert}

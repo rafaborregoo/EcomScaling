@@ -170,10 +170,10 @@ function esc(text: string) {
 // Dibujo del mapa (SVG como cadena: son decenas de formas estáticas)
 // ---------------------------------------------------------------------------
 
-// Cliente: petróleo + azafrán. Consultor: grafito + mandarina, como su mesa.
+// Cliente: grafito + azafrán. Consultor: grafito + mandarina, como su mesa.
 export type MapVariant = "client" | "consultant";
 export type DiscussTopic = { code: string; name: string; targetDate: string | null; doneTasks: number; totalTasks: number; late: boolean };
-const WORK_MAP_PALETTE = { goodPill: "#efeeec", acc: "#3d3b3a", dk: "#3d3b3a", onAcc: "#ffffff", ink: "#3d3b3a", good: "#2f7d5b", p1: "#efeeec", p2: "#f8f7f5", l1: "#3d3b3a", l2: "#e2dfdc", mu: "#6b6662", lock: "#ebe8e5", lockIcon: "#6b6662" };
+const WORK_MAP_PALETTE = { goodPill: "#efeeec", acc: "#3d3b3a", dk: "#3d3b3a", onAcc: "#ffffff", ink: "#3d3b3a", good: "#3d3b3a", p1: "#efeeec", p2: "#f8f7f5", l1: "#3d3b3a", l2: "#e2dfdc", mu: "#6b6662", lock: "#ebe8e5", lockIcon: "#6b6662" };
 const PALETTES = { client: WORK_MAP_PALETTE, consultant: WORK_MAP_PALETTE };
 // ponytail: paleta de módulo que fija renderSvg antes de dibujar (render síncrono).
 let P = PALETTES.client;
@@ -195,9 +195,9 @@ function goalMarker(x: number, y: number, done: boolean, final: boolean) {
 }
 
 function castle(x: number, y: number, done: boolean, final: boolean) {
-  const flag = done ? "#2f9e44" : final ? P.acc : "#e03131";
+  const flag = done ? "#3d3b3a" : final ? P.acc : "#e03131";
   const merlons = [-24, -12, 0, 12].map((cx) => `<rect x="${cx}" y="-37" width="8" height="8" fill="#c2703d" stroke="#7a3e0c"/>`).join("");
-  return `<g transform="translate(${x} ${y + 6})" aria-hidden="true"><line x1="0" y1="-54" x2="0" y2="-30" stroke="#343a40" stroke-width="2"/><path d="M0 -54 L18 -48 L0 -42 Z" fill="${flag}"/><rect x="-24" y="-30" width="48" height="36" fill="#c2703d" stroke="#7a3e0c"/>${merlons}<path d="M-7 6 V-6 A7 7 0 0 1 7 -6 V6 Z" fill="${done ? "#2f9e44" : "#212529"}"/></g>`;
+  return `<g transform="translate(${x} ${y + 6})" aria-hidden="true"><line x1="0" y1="-54" x2="0" y2="-30" stroke="#343a40" stroke-width="2"/><path d="M0 -54 L18 -48 L0 -42 Z" fill="${flag}"/><rect x="-24" y="-30" width="48" height="36" fill="#c2703d" stroke="#7a3e0c"/>${merlons}<path d="M-7 6 V-6 A7 7 0 0 1 7 -6 V6 Z" fill="${done ? "#3d3b3a" : "#212529"}"/></g>`;
 }
 
 function scene(x0: number, width: number, index: number, locked: boolean) {
@@ -208,12 +208,12 @@ function scene(x0: number, width: number, index: number, locked: boolean) {
   const cloud = (cx: number, cy: number, k = 1) =>
     `<g transform="translate(${X(cx)} ${cy}) scale(${k})"><ellipse cx="0" cy="0" rx="26" ry="11" fill="#fff"/><ellipse cx="-14" cy="-6" rx="13" ry="10" fill="#fff"/><ellipse cx="10" cy="-9" rx="16" ry="12" fill="#fff"/></g>`;
   const hill = (cx: number, r: number, c: string) => `<ellipse cx="${X(cx)}" cy="${gy}" rx="${r}" ry="${r * 0.75}" fill="${c}"/>`;
-  const bush = (cx: number) => `<ellipse cx="${X(cx)}" cy="${gy - 2}" rx="18" ry="11" fill="#2f9e44"/><ellipse cx="${X(cx + 14)}" cy="${gy - 4}" rx="14" ry="12" fill="#37b24d"/>`;
+  const bush = (cx: number) => `<ellipse cx="${X(cx)}" cy="${gy - 2}" rx="18" ry="11" fill="#8b8681"/><ellipse cx="${X(cx + 14)}" cy="${gy - 4}" rx="14" ry="12" fill="#a39f9a"/>`;
   let bricks = "";
   for (let bx = 10; bx < width - 10; bx += 24) {
     bricks += `<rect x="${X(bx)}" y="${gy}" width="23" height="15" fill="#b5651d" stroke="#7a3e0c"/><rect x="${X(bx - 12)}" y="${gy + 16}" width="23" height="15" fill="#b5651d" stroke="#7a3e0c"/>`;
   }
-  return `<g opacity="${locked ? 0.55 : 1}" clip-path="url(#camino-clip-${index})"><rect x="${X(10)}" y="${top}" width="${width - 20}" height="${bottom - top}" fill="url(#camino-sky)"/>${cloud(width * 0.18, 104)}${cloud(width * 0.58, 88, 0.8)}${cloud(width * 0.84, 118, 1.1)}${hill(width * 0.24, 90, "#51cf66")}${hill(width * 0.7, 120, "#40c057")}${hill(width * 0.48, 60, "#69db7c")}${bush(40)}${bush(width * 0.42)}${bush(width - 60)}${bricks}</g>`;
+  return `<g opacity="${locked ? 0.55 : 1}" clip-path="url(#camino-clip-${index})"><rect x="${X(10)}" y="${top}" width="${width - 20}" height="${bottom - top}" fill="url(#camino-sky)"/>${cloud(width * 0.18, 104)}${cloud(width * 0.58, 88, 0.8)}${cloud(width * 0.84, 118, 1.1)}${hill(width * 0.24, 90, "#c7c3be")}${hill(width * 0.7, 120, "#a39f9a")}${hill(width * 0.48, 60, "#dedad6")}${bush(40)}${bush(width * 0.42)}${bush(width - 60)}${bricks}</g>`;
 }
 
 type Layout = {
@@ -711,7 +711,7 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                 const late = !isDone && OPEN_TASK.includes(task.status) && task.due_at !== null && Date.parse(task.due_at) < today.getTime();
                 const marketingAsset = marketingAssetsByTask.get(task.id) ?? null;
                 return (
-                  <li key={task.id} className={`${s.task} ${isDone ? s.taskDone : ""}`}>
+                  <li key={task.id} className={`${s.task} task-lift ${isDone ? s.taskDone : ""}`}>
                     <input
                       type="checkbox"
                       id={`camino-task-${task.id}`}

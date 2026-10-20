@@ -16,7 +16,6 @@ import {
   Badge,
   Banner,
   Button,
-  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
@@ -257,9 +256,8 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className="portal-page grid gap-5 sm:gap-6">
       <ChannelBand
-        eyebrow="Tu publicidad · Meta Ads"
+        eyebrow="Tu publicidad en Facebook e Instagram"
         title={organization?.display_name ?? "Meta Ads"}
-        actions={<ButtonLink href="/meta/campanas" variant="secondary">Ver campañas</ButtonLink>}
       />
       {connected === false ? (
         <Banner tone="warn" className="text-sm">
@@ -288,13 +286,16 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }
       />
 
-      {/* Los tres especialistas, en el mismo orden que los bloques de arriba y
+      {/* Los dos especialistas, en el mismo orden que los bloques de arriba y
           por la misma razon: si la medicion esta rota, lo que diga el de
           creatividad describe otra cosa.
 
           `areas` cierra el circulo: cada hallazgo vuelve al bloque de datos que
           lo prueba. */}
-      <div id="meta-ia" className="grid gap-5 sm:gap-6">
+      {isConsultant ? (
+      <details id="meta-ia" className="rounded-xl border border-separator bg-surface p-4">
+      <summary className="cursor-pointer text-base font-semibold">Análisis de los especialistas IA</summary>
+      <div className="mt-4 grid gap-5 sm:gap-6">
       <AiDiagnosticSection
         organizationId={organizationId}
         title="Medición y entrega"
@@ -306,10 +307,6 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         showInternals={isConsultant}
         areas={{
           medicion: { label: "Ver el píxel", href: "#meta-measure" },
-          aprendizaje: {
-            label: "Ver los conjuntos en aprendizaje",
-            href: "#meta-learn",
-          },
           general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
         }}
       />
@@ -331,22 +328,9 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
         }}
       />
-      <AiDiagnosticSection
-        organizationId={organizationId}
-        title="Cambios de la cuenta"
-        getPath="/ai/cambios-meta"
-        runPath="/ai/cambios-meta-run"
-        loadingLabel="Revisando qué se tocó y qué pasó después…"
-        tasksLabelSingular="tarea"
-        days={30}
-        showInternals={isConsultant}
-        areas={{
-          cambios: { label: "Ver qué se tocó", href: "#meta-changes" },
-          publicos: { label: "Ver los públicos", href: "#meta-measure" },
-          general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
-        }}
-      />
       </div>
+      </details>
+      ) : null}
     </div>
   );
 }

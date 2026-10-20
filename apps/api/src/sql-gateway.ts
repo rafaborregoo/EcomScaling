@@ -286,6 +286,9 @@ export async function executeGatewayQuery(
   runId: string,
   organizationId: string,
   sql: string,
+  // Tienda de la ejecución: las vistas ai.* la aplican además de la
+  // organización. null = toda la organización.
+  storeId: string | null = null,
 ): Promise<GatewayExecutionResult> {
   const startedAt = Date.now();
   const validation = validateGatewaySql(sql);
@@ -325,6 +328,7 @@ export async function executeGatewayQuery(
         target_organization_id: organizationId,
         query_sql: sql.trim().replace(/;+\s*$/, ""),
         max_rows: GATEWAY_MAX_ROWS,
+        target_store_id: storeId,
       })
       .abortSignal(controller.signal);
 
@@ -419,7 +423,7 @@ export async function executeGatewayQuery(
 // tool sql_select. Solo describe las vistas del esquema `ai`.
 export const SQL_GATEWAY_SCHEMA_DOC = `## Tool sql_select: esquema disponible
 
-Puedes ejecutar UNA sentencia SELECT (o WITH) por llamada sobre estas vistas, ya filtradas a la organizacion activa. Sin esquemas cualificados, maximo 200 filas por consulta y guard de coste estimado (usa agregaciones), sin DDL/DML.
+Puedes ejecutar UNA sentencia SELECT (o WITH) por llamada sobre estas vistas, ya filtradas a la organizacion activa y, si la ejecucion es de una tienda, a esa tienda (tareas, alertas y objetivos incluyen tambien los de toda la organizacion; configuracion financiera y gastos fijos son de la organizacion). No filtres tu por store_id: ya lo hace la vista. Sin esquemas cualificados, maximo 200 filas por consulta y guard de coste estimado (usa agregaciones), sin DDL/DML.
 
 - shopify_stores(id, shop_name, myshopify_domain, currency_code, timezone, is_active)
 - shopify_products(id, store_id, external_product_id, title, handle, vendor, product_type, status, published_at, external_created_at)

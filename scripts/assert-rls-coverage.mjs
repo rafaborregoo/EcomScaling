@@ -64,6 +64,10 @@ const serviceOnlyTables = new Set([
   "agent_output_decision_claims",
   "agent_manual_refresh_reservations",
   "a06_restock_decision_claims",
+  "a11_marketing_generation_requests",
+  "marketing_draft_export_operations",
+  "a11_studio_chat_requests",
+  "marketing_studio_operation_audits",
 ]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));

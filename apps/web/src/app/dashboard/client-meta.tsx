@@ -1,16 +1,15 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { invalidateCachedQueries, useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { Skeleton, toast } from "@/components/ui";
-import { DIMENSION_LABEL, ENTITY_LABEL, RANKING_PRESENTATION, ROAS_SHIFT_PCT } from "../meta/insights-sections";
-import { groupRankingRowsByDimensionCurrency } from "../meta/creative-currency";
-import { fmtEur, fmtNum } from "./client-pulse-model";
+import { ENTITY_LABEL } from "../meta/insights-sections";
+import { evidenceText, fmtEur, fmtNum } from "./client-pulse-model";
 import {
   cx,
   Empty,
@@ -26,7 +25,6 @@ import {
   type Pin,
 } from "./client-pulse";
 import s from "./client-pulse.module.css";
-import { DashboardSections } from "./dashboard-sections";
 import { metaAttributionLabel } from "./dashboard-labels";
 
 /**
@@ -46,7 +44,6 @@ const PERIODS: Period[] = [7, 30, 90];
 const periodButton = (p: Period) => (p === "all" ? "Todo" : p === 180 ? "6 meses" : p === 365 ? "1 año" : `${p} días`);
 const periodPhrase = (p: Period) => (p === "all" ? "todo el histórico" : `los últimos ${p} días`);
 
-type AdFilter = "all" | "good" | "bad" | "low";
 
 function formatMetaAmount(value: number | null | undefined, currency: string | null) {
   if (value == null) return "—";
@@ -166,26 +163,7 @@ type MetaMetrics = {
 
 type ShopifyFinance = { financial: { breakeven_roas: number | null; mbee: number; has_settings: boolean; items_without_cost: number } };
 
-const pct = (ratio: number | null | undefined, digits = 1) => (ratio == null ? "—" : `${fmtNum(ratio * 100, digits)} %`);
 const roasText = (v: number | null | undefined) => (v == null ? "—" : `${fmtNum(v, 2)}×`);
-
-const STATUS_LABEL: Record<string, string> = {
-  ACTIVE: "Activo",
-  PAUSED: "Pausado",
-  CAMPAIGN_PAUSED: "Campaña pausada",
-  ADSET_PAUSED: "Conjunto pausado",
-  DELETED: "Borrado",
-  ARCHIVED: "Archivado",
-  WITH_ISSUES: "Con problemas",
-  DISAPPROVED: "Rechazado",
-  PENDING_REVIEW: "En revisión",
-};
-
-function rankingChip(value: string | null) {
-  const presentation = RANKING_PRESENTATION[value ?? "SIN_VEREDICTO"] ?? RANKING_PRESENTATION.SIN_VEREDICTO;
-  const tone = presentation.tone === "success" ? s.chipGood : presentation.tone === "warn" ? s.chipWarn : presentation.tone === "danger" ? s.chipBad : undefined;
-  return <span className={cx(s.chip, tone)}>{presentation.label}</span>;
-}
 
 function RoasBar({ roas, breakeven, scale }: { roas: number | null; breakeven: number | null; scale: number }) {
   return (
@@ -220,7 +198,6 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
     setLocalDays(next);
     onDaysChange?.(next);
   };
-  const [adFilter, setAdFilter] = useState<AdFilter>("all");
   const [activePin, setActivePin] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
   const ask = useCopilotAsk();
@@ -229,27 +206,29 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const verdictOf = useMetricAnalysis(organizationId, days, connectionId);
 
   const insights = useCachedQuery<MetaInsights>(`${base}/meta/insights?days=${days}${scope}`);
-  const metrics = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=${days}`);
+  const metrics = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=${days}${scope}`);
   const shop = useCachedQuery<ShopifyFinance>(`${base}/shopify/metrics?days=${days}${scope}`);
   const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=meta${scope}`);
-  // "Operativa de Meta Ads" es consultantOnly (ver dashboard-ai-agents.ts): sin
-  // consultor mirando esta pestaña, no hay nadie que la pida.
-  const operativaMeta = useCachedQuery<Diagnostic>(asConsultant ? `${base}/ai/operativa-meta?days=30${scope}` : null);
-  const operations = useCachedQuery<Operations>(`${base}/operations`);
+  const operativaMeta = useCachedQuery<Diagnostic & { source_coverage?: Record<string, unknown>; pending_outputs?: Diagnostic[] }>(`${base}/ai/operativa-meta?days=30${scope}`);
+  const operations = useCachedQuery<Operations>(`${base}/operations${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`);
+  const metaRunRequestKey = useRef<string | null>(null);
 
-  const data = insights.data;
-  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Meta Ads, ${periodPhrase(days)})`, focusLabel, reference: { period_label: periodPhrase(days), filters: { days: String(days) } } });
-  const proposals = [operativaMeta.data].filter((d): d is Diagnostic => Boolean(d));
+  // Al cambiar de periodo se quedan los datos anteriores (atenuados) en vez de vaciar la página.
+  const data = useKeepPrevious(insights.data, `${organizationId}|${connectionId}`);
+  const askCopilot = (question: string, focusLabel: string) => ask({ question: `${question} (Meta Ads, ${periodPhrase(days)})`, focusLabel, reference: { period_label: periodPhrase(days), filters: { days: String(days), ...(connectionId ? { connection_id: connectionId } : {}) } } });
+  const proposals = operativaMeta.data?.pending_outputs ?? [];
 
   async function runOperativaMeta() {
     setRunning(true);
     try {
-      const response = await apiFetch(`${base}/ai/operativa-meta-run?days=30${scope}`, { method: "POST" });
+      metaRunRequestKey.current ??= crypto.randomUUID();
+      const response = await apiFetch(`${base}/ai/operativa-meta-run?days=30${scope}`, { method: "POST", headers: { "Idempotency-Key": metaRunRequestKey.current } });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
       }
       toast.success("Operativa de Meta Ads actualizada.");
+      metaRunRequestKey.current = null;
       operativaMeta.reload();
     } catch {
       toast.danger("No se pudo lanzar el análisis por un error de red.");
@@ -328,39 +307,28 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const breakeven = finance?.has_settings && finance.items_without_cost === 0 ? finance.breakeven_roas : null;
   const mbee = finance?.has_settings && finance.items_without_cost === 0 && finance.mbee > 0 ? finance.mbee : null;
   const metaAi = findingFor(diagnostic, /meta|anunc|ads|paid|adquis|campa/i);
-  const headline =
-    metaAi?.title ??
-    `Has invertido ${fmtEur(summary.spend)} en Meta y Meta se atribuye ${fmtEur(summary.purchase_value)} en ventas (ROAS ${roasText(summary.roas)}).`;
   const attributionWindow = metaAttributionLabel(data.creatives.map((creative) => creative.purchase_attribution_window));
-  const ctr = summary.impressions > 0 ? summary.clicks / summary.impressions : null;
   const avgSpend = points.length ? summary.spend / points.length : null;
   // Sin ROAS de equilibrio (faltan costes), la referencia es recuperar lo
   // gastado: ROAS 1.
   const roasFloor = breakeven ?? 1;
-  const floorLabel = breakeven ? "Equilibrio" : "Referencia";
-  const adKind = (c: Creative): Exclude<AdFilter, "all"> => (!c.enough_volume ? "low" : c.roas != null && c.roas >= roasFloor ? "good" : "bad");
+  const floorLabel = breakeven ? "Tu mínimo" : "Recuperar lo invertido";
+  const adKind = (c: Creative): "good" | "bad" | "low" => (!c.enough_volume ? "low" : c.roas != null && c.roas >= roasFloor ? "good" : "bad");
   const allCreatives = data.creatives.slice().sort((a, b) => b.spend - a.spend);
-  const adCounts = { all: allCreatives.length, good: 0, bad: 0, low: 0 };
-  allCreatives.forEach((c) => { adCounts[adKind(c)] += 1; });
-  const creatives = allCreatives.filter((c) => adFilter === "all" || adKind(c) === adFilter).slice(0, 10);
   const roasScale = Math.max(5, breakeven ?? 0, ...allCreatives.map((c) => c.roas ?? 0));
   const campaigns = (metrics.data?.campaigns ?? [])
     .map((c) => ({ id: c.campaign_id, name: c.campaign_name ?? "Sin nombre", spend: Number(c.spend) || 0, purchases: Number(c.purchases) || 0, roas: c.roas == null ? null : Number(c.roas) }))
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 8);
-  const learning = data.learning.filter((l) => l.learning_stage_status === "LEARNING" || l.learning_stage_status === "LEARNING_LIMITED");
-  const rankingGroups = groupRankingRowsByDimensionCurrency(data.ranking_distribution);
   const failed = (block: string) => data.unavailable.includes(block);
 
   return (
-    <div className={s.root}>
-      <DashboardSections items={[{"id":"meta-headline","label":"Resumen"},{"id":"meta-pendiente","label":"Qué hacer"},{"id":"meta-ads","label":"Anuncios"},{"id":"meta-learn","label":"Aprendizaje"},{"id":"meta-measure","label":"Medición"},{"id":"meta-changes","label":"Cambios"}]} />
+    <div className={s.root} aria-busy={insights.data === undefined} style={insights.data === undefined ? { opacity: 0.55, transition: "opacity 0.2s" } : undefined}>
       {/* ------------------------------ Hero ------------------------------ */}
       <section className={s.hero} aria-labelledby="meta-headline">
-        <div className={s.heroTop}>
+        <div className={s.heroTop} style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <div>
             <div className={s.heroMeta} style={{ alignItems: "center" }}>
-              <span>{organizationName} · Meta Ads</span>
               <div className={cx(s.seg, s.heroSeg)} role="group" aria-label="Periodo">
                 {periods.map((p) => (
                   <button key={p} type="button" aria-pressed={p === days} onClick={() => { setDays(p); setActivePin(null); }}>
@@ -370,12 +338,12 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               </div>
             </div>
             <h1 id="meta-headline" className={s.headline}>
-              Meta Ads: inversión y retorno
+              Por cada 1 € en anuncios, Meta dice que vuelven {summary.roas != null ? `${fmtNum(summary.roas, 2)} €` : "—"}
             </h1>
-            <p className={s.headlineDetail}>{metaAi ? <span className={s.ia}>A02</span> : null}{headline}</p>
             <p className={s.headlineDetail}>
-              {fmtNum(summary.purchases)} compras atribuidas por Meta{attributionWindow ? ` (${attributionWindow})` : ""}. Son las que Meta se adjudica, no las ventas de tu tienda.
+              Has invertido {fmtEur(summary.spend)} en {periodPhrase(days)}. Meta se atribuye {fmtEur(summary.purchase_value)} en ventas{attributionWindow ? ` (${attributionWindow})` : ""}: es su cuenta, no la de tu tienda.
             </p>
+            {metaAi ? <p className={s.headlineDetail}>{asConsultant ? <span className={s.ia}>A02</span> : null}{metaAi.title}</p> : null}
             <div className={s.heroActions}>
               <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("En el periodo analizado, ¿qué resultado de Meta Ads merece atención primero y qué cambio probarías? Cita campaña, métrica y gasto; señala las limitaciones de atribución.", "Meta Ads")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
@@ -390,34 +358,6 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               )}
             </div>
           </div>
-          <aside className={s.heroSide} aria-label="Cómo leer estas cifras">
-            <p>
-              <strong>¿Rentan tus anuncios?</strong>
-            </p>
-            <div className={s.compare}>
-              <div>
-                <span>ROAS atribuido</span>
-                <span className={s.num}>{roasText(summary.roas)}</span>
-              </div>
-              <div>
-                <span>ROAS de equilibrio</span>
-                <span className={s.num}>{roasText(breakeven)}</span>
-              </div>
-              <div>
-                <span>Días con datos</span>
-                <span className={s.num}>
-                  {fmtNum(summary.days_with_data)}
-                </span>
-              </div>
-            </div>
-            <p>
-              {breakeven
-                ? summary.roas != null && summary.roas >= breakeven
-                  ? "Por encima del equilibrio: según Meta, lo que inviertes se paga con el margen de lo que vendes."
-                  : "Por debajo del equilibrio: según Meta, la publicidad cuesta más de lo que deja el margen."
-                : "Con tus costes de producto completos calcularemos el ROAS a partir del que no pierdes dinero."}
-            </p>
-          </aside>
         </div>
         {points.length > 1 ? (
           <>
@@ -465,61 +405,72 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         ) : null}
       </section>
 
-      <section className={s.sec} aria-label="Lectura ejecutiva de Meta Ads">
-        <div className={s.panel}>
-          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> Lectura de Meta Ads</h2>
-          <p className={s.headlineDetail}>
-            {monitor.data?.output.headline ?? "El análisis específico de Meta Ads aparecerá aquí cuando termine su primera ejecución."}
-          </p>
-        </div>
-      </section>
-
-      {afterHero}
-
       {/* ------------------------------ Cifras ------------------------------ */}
       <div className={cx(s.kpis, s.kpis4)} aria-label="Cifras de Meta Ads">
         <Kpi label="Inversión" value={fmtEur(summary.spend)} slot={<p className={s.trackTxt}>{avgSpend !== null ? `${fmtEur(avgSpend)} al día de media` : " "}</p>} />
-        <Kpi label="Ingresos atribuidos" value={fmtEur(summary.purchase_value)} slot={<p className={s.trackTxt}>Lo que Meta se atribuye{attributionWindow ? ` · ${attributionWindow}` : ""}</p>} />
+        <Kpi label="Ventas según Meta" value={fmtEur(summary.purchase_value)} slot={<p className={s.trackTxt}>Según Meta</p>} />
         <Kpi
           verdict={<MetricVerdict analysis={verdictOf("meta_roas")} />}
           anchorId="insight-metric-meta_roas"
-          label="ROAS atribuido"
+          label="ROAS"
           value={roasText(summary.roas)}
           slot={
             breakeven && summary.roas != null ? (
-              <TargetBar value={summary.roas} target={breakeven} max={Math.max(breakeven * 2, summary.roas * 1.2)} text={`Equilibrio ${roasText(breakeven)}`} />
+              <TargetBar value={summary.roas} target={breakeven} max={Math.max(breakeven * 2, summary.roas * 1.2)} text={`Tu mínimo ${roasText(breakeven)}`} />
             ) : (
-              <p className={s.trackTxt}>Ingresos atribuidos / inversión</p>
+              <p className={s.trackTxt}>{breakeven ? "" : "Con los costes completos verás tu mínimo para no perder"}</p>
             )
           }
         />
         <Kpi
-          label="CPA atribuido"
+          label="Coste por compra"
           value={summary.cac != null ? fmtEur(summary.cac, 2) : "—"}
           slot={
             mbee && summary.cac != null ? (
-              <TargetBar value={summary.cac} target={mbee} max={Math.max(mbee * 1.6, summary.cac * 1.2)} lowerIsBetter text={`Techo por pedido ${fmtEur(mbee, 2)}`} />
+              <TargetBar value={summary.cac} target={mbee} max={Math.max(mbee * 1.6, summary.cac * 1.2)} lowerIsBetter text={`Máximo por compra ${fmtEur(mbee, 2)}`} />
             ) : (
-              <p className={s.trackTxt}>Inversión / compras atribuidas</p>
+              <p className={s.trackTxt}>{fmtNum(summary.purchases)} compras según Meta</p>
             )
           }
         />
-        <Kpi label="Compras atribuidas" value={fmtNum(summary.purchases)} slot={<p className={s.trackTxt}>{summary.purchase_action_types.length > 1 ? "Varias definiciones de compra: no comparables" : "Según Meta"}</p>} />
-        <Kpi label="CPM" value={summary.cpm != null ? fmtEur(summary.cpm, 2) : "—"} slot={<p className={s.trackTxt}>Coste por 1.000 impresiones</p>} />
-        <Kpi label="CPC" value={summary.cpc != null ? fmtEur(summary.cpc, 2) : "—"} slot={<p className={s.trackTxt}>Coste por clic</p>} />
-        <Kpi label="CTR" value={pct(ctr, 2)} slot={<p className={s.trackTxt}>{fmtNum(summary.clicks)} clics de {fmtNum(summary.impressions)} impresiones</p>} />
       </div>
 
+      {afterHero}
+
       {/* ------------------------------ Pendiente ------------------------------ */}
-      <section className={s.sec} aria-labelledby="meta-pendiente">
-        <SectionHead
-          id="meta-pendiente"
-          title="Pendiente en Meta Ads"
-          ai={null}
-          fallback="Si tienes consultor, aquí caen sus propuestas de operativa sobre esta cuenta."
-          onAsk={() => askCopilot("Con el rendimiento de Meta y las tareas abiertas, ¿qué única revisión priorizarías esta semana? Cita la campaña, la métrica y el periodo; indica si faltan datos.", "Pendiente en Meta Ads")}
-        />
-        {asConsultant || proposals.length ? (
+      {asConsultant ? (
+      <section className={s.sec} id="meta-pendiente" aria-label="Qué hacer en Meta Ads">
+        {operativaMeta.data?.output || operativaMeta.data?.source_coverage ? (
+          <details className={s.panel} aria-label="Diagnóstico de operativa Meta">
+            <summary className={s.panelH}>
+              <div>
+                <h3>Análisis de la cuenta</h3>
+                <p className={s.sub}>
+                  {operativaMeta.data.output ? (operativaMeta.data.stale ? "Datos que requieren actualización" : "Análisis más reciente") : "Estado de disponibilidad"}
+                  {operativaMeta.data.generated_at ? ` · ${new Date(operativaMeta.data.generated_at).toLocaleString("es-ES")}` : ""}
+                  {operativaMeta.data.envelope?.quality?.dataCompleteness ? ` · cobertura ${operativaMeta.data.envelope.quality.dataCompleteness}` : ""}
+                </p>
+              </div>
+            </summary>
+            {operativaMeta.data.output?.answer ? <p className={s.headlineDetail}>{operativaMeta.data.output.answer}</p> : null}
+            {operativaMeta.data.output?.findings?.length ? (
+              <ul>{operativaMeta.data.output.findings.map((finding, index) => <li key={`${finding.title}-${index}`}><strong>{finding.title}</strong> · {evidenceText(finding.evidence)}</li>)}</ul>
+            ) : null}
+            {operativaMeta.data.output?.recommendations?.length ? (
+              <ul>{operativaMeta.data.output.recommendations.map((recommendation, index) => <li key={`${recommendation.action}-${index}`}>{recommendation.action}</li>)}</ul>
+            ) : null}
+            {operativaMeta.data.output?.warnings?.length ? <p className={s.sub}>{operativaMeta.data.output.warnings.join(" · ")}</p> : null}
+            {operativaMeta.data.source_coverage ? (
+              <p className={s.sub}>
+                Meta: {String(operativaMeta.data.source_coverage.status ?? "sin confirmar")}
+                {operativaMeta.data.source_coverage.measurement_verdict ? ` · Medición A24: ${String(operativaMeta.data.source_coverage.measurement_verdict)}` : ""}
+                {operativaMeta.data.source_coverage.currency_status ? ` · Moneda: ${String(operativaMeta.data.source_coverage.currency_status)}` : ""}
+                {operativaMeta.data.source_coverage.financial_comparable === false ? " · Rentabilidad incompleta" : ""}
+              </p>
+            ) : null}
+          </details>
+        ) : null}
+        {asConsultant ? (
           <WorkQueue
             base={base}
             userId={userId}
@@ -531,12 +482,13 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
             onComment={() => toast.success("Coméntalo desde el chat en la pestaña Pulso.")}
           />
         ) : null}
-        {asConsultant && !operativaMeta.data ? (
+        {asConsultant ? (
           <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={running} onClick={() => void runOperativaMeta()}>
-            {running ? "Revisando la operativa…" : "Lanzar operativa de Meta Ads"}
+            {running ? "Revisando la operativa…" : "Actualizar análisis de la cuenta"}
           </button>
         ) : null}
       </section>
+      ) : null}
 
       {/* ------------------------------ Anuncios ------------------------------ */}
       <section className={s.sec} aria-labelledby="meta-ads">
@@ -544,395 +496,116 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           id="meta-ads"
           title="Anuncios"
           ai={findingFor(diagnostic, /creativ|anuncio|fatiga|frecuen|hook|v[ií]deo/i)?.title ?? null}
-          fallback={`Ordenados por gasto. La marca indica ${breakeven ? "el ROAS de equilibrio de la tienda" : "el ROAS 1× para recuperar la inversión en anuncios"}.`}
-          onAsk={() => askCopilot("¿Qué anuncios tienen evidencia suficiente para probar una pausa o un aumento gradual de presupuesto? Para cada propuesta, cita gasto, resultado, ventana y limitaciones; si no alcanza la evidencia, recomienda observar.", "Anuncios de Meta")}
+          fallback="Cuánto vuelve por cada euro en cada anuncio."
         />
-        {!failed("creatives") && allCreatives.length > 1 ? (
+        {failed("creatives") ? (
+          <div className={s.panel}>
+            <p className={s.error}>No se pudieron cargar los anuncios. No significa que no haya.</p>
+          </div>
+        ) : allCreatives.length ? (
           <div className={s.panel}>
             <div className={s.panelH}>
               <div>
-                <h3>ROAS por anuncio</h3>
-                <p className={s.sub}>El largo de cada barra representa el ROAS.</p>
+                <h3>Retorno por anuncio</h3>
+                <p className={s.sub}>Barra más larga, más retorno. La raya marca {breakeven ? "tu mínimo para no perder dinero" : "recuperar lo invertido (1 €)"}.</p>
               </div>
             </div>
             <SpendRoasRanking creatives={allCreatives} floor={roasFloor} floorLabel={floorLabel} kind={adKind} />
           </div>
         ) : null}
+        {campaigns.length !== allCreatives.length ? (
         <div className={s.panel}>
-          {allCreatives.length > 0 ? (
-            <div className={s.seg} role="group" aria-label="Filtrar anuncios" style={{ marginBottom: 14 }}>
-              {(
-                [
-                  ["all", "Todos"],
-                  ["good", breakeven != null ? "Sobre equilibrio" : "ROAS ≥ 1"],
-                  ["bad", breakeven != null ? "Bajo equilibrio" : "ROAS < 1"],
-                  ["low", "Volumen insuficiente"],
-                ] as Array<[AdFilter, string]>
-              ).map(([key, label]) => (
-                <button key={key} type="button" aria-pressed={adFilter === key} onClick={() => setAdFilter(key)}>
-                  {label} <b>{adCounts[key]}</b>
-                </button>
-              ))}
+          <div className={s.panelH}>
+            <div>
+              <h3>Campañas</h3>
+              <p className={s.sub}>Gasto y ROAS atribuido por campaña</p>
             </div>
-          ) : null}
-          {failed("creatives") ? (
-            <p className={s.error}>No se pudieron cargar los anuncios. No significa que no haya.</p>
-          ) : creatives.length === 0 ? (
-            <Empty>{allCreatives.length ? "Ningún anuncio en este grupo." : "No hay anuncios con gasto en este periodo."}</Empty>
-          ) : (
-            <div className={s.tblWrap} role="region" aria-label="Anuncios; desliza para comparar sus métricas" tabIndex={0} style={{ marginTop: 0 }}>
-              <table className={s.tbl} aria-label="Rendimiento de anuncios según Meta">
+          </div>
+          {campaigns.length ? (
+            <div className={s.tblWrap} role="region" aria-label="Campañas publicitarias; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+              <table className={s.tbl} aria-label="Inversión y retorno atribuido por campaña de Meta">
                 <thead>
                   <tr>
-                    <th scope="col">Anuncio</th>
+                    <th scope="col">Campaña</th>
                     <th scope="col">Gasto</th>
                     <th scope="col">ROAS</th>
-                    <th scope="col">CPA</th>
-                    <th scope="col">CTR</th>
-                    <th scope="col">Gancho / retención</th>
-                    <th scope="col">Calidad</th>
-                    <th scope="col">Conversión</th>
+                    <th scope="col">Compras</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {creatives.map((c) => (
-                    <tr key={c.ad_id}>
-                      <td style={{ minWidth: 200 }}>
-                        <b style={{ fontWeight: 600 }}>{c.ad_name}</b>
-                        <span className={s.muted} style={{ display: "block", fontSize: 11.5 }}>
-                          {c.campaign_name} · {STATUS_LABEL[c.effective_status ?? ""] ?? c.effective_status ?? ""}
-                        </span>
-                      </td>
-                      <td className={s.tdN}>{formatMetaAmount(c.spend, c.spend_currency)}</td>
+                  {campaigns.map((c) => (
+                    <tr key={c.id}>
+                      <td>{c.name}</td>
+                      <td className={s.tdN}>{fmtEur(c.spend)}</td>
                       <td>
                         <RoasBar roas={c.roas} breakeven={breakeven} scale={roasScale} />
                       </td>
-                      <td className={s.tdN}>{c.cost_per_purchase != null ? formatMetaAmount(c.cost_per_purchase, c.spend_currency) : "—"}</td>
-                      <td className={s.tdN}>{c.enough_volume ? pct(c.outbound_ctr, 2) : "—"}</td>
-                      <td className={s.tdN}>{c.has_video && c.enough_volume ? `${pct(c.hook_rate, 0)} / ${pct(c.hold_rate, 0)}` : "—"}</td>
-                      <td>{rankingChip(c.quality_ranking)}</td>
-                      <td>{rankingChip(c.conversion_rate_ranking)}</td>
+                      <td className={s.tdN}>{fmtNum(c.purchases)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          ) : (
+            <Empty>Sin campañas con gasto en este periodo.</Empty>
           )}
-          {creatives.some((c) => !c.enough_volume) ? (
-            <p className={s.trackTxt} style={{ whiteSpace: "normal" }}>
-              «—» en tasas: menos de {fmtNum(data.min_impressions_for_rates)} impresiones, todavía es ruido. Gancho = quien ve los 3 primeros segundos; retención = quien sigue viéndolo.
-            </p>
-          ) : null}
         </div>
-        <div className={s.two}>
-          <div className={s.panel}>
-            <div className={s.panelH}>
-              <div>
-                <h3>Campañas</h3>
-                <p className={s.sub}>Gasto y ROAS atribuido por campaña</p>
-              </div>
-            </div>
-            {campaigns.length ? (
-              <div className={s.tblWrap} role="region" aria-label="Campañas publicitarias; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
-                <table className={s.tbl} aria-label="Inversión y retorno atribuido por campaña de Meta">
-                  <thead>
-                    <tr>
-                      <th scope="col">Campaña</th>
-                      <th scope="col">Gasto</th>
-                      <th scope="col">ROAS</th>
-                      <th scope="col">Compras</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {campaigns.map((c) => (
-                      <tr key={c.id}>
-                        <td>{c.name}</td>
-                        <td className={s.tdN}>{fmtEur(c.spend)}</td>
-                        <td>
-                          <RoasBar roas={c.roas} breakeven={breakeven} scale={roasScale} />
-                        </td>
-                        <td className={s.tdN}>{fmtNum(c.purchases)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Empty>Sin campañas con gasto en este periodo.</Empty>
-            )}
-          </div>
-          <div className={s.panel}>
-            <div className={s.panelH}>
-              <div>
-                <h3>Qué opina Meta de tus anuncios</h3>
-                <p className={s.sub}>Reparto de tu gasto según el veredicto de subasta</p>
-              </div>
-            </div>
-            {rankingGroups.length === 0 ? (
-              <Empty>Meta aún no ha emitido veredictos sobre tus anuncios.</Empty>
-            ) : (
-              <div className={s.fn}>
-                {rankingGroups.map((group) => {
-                  const { dimension, currencyCode, rows } = group;
-                  return (
-                    <div key={`${dimension}:${currencyCode ?? "unknown"}`}>
-                      <p className={s.lbl}>
-                        {DIMENSION_LABEL[dimension] ?? dimension} · {currencyCode ?? "moneda desconocida"}
-                      </p>
-                      <div className={s.stack} aria-hidden="true">
-                        {rows.map((r) => {
-                          const tone = RANKING_PRESENTATION[r.ranking_value]?.tone;
-                          const color = tone === "success" ? "var(--good)" : tone === "warn" ? "var(--warn)" : tone === "danger" ? "var(--bad)" : "var(--sunken)";
-                          return <i key={r.ranking_value} style={{ width: `${(r.spend_share ?? 0) * 100}%`, background: color }} title={`${RANKING_PRESENTATION[r.ranking_value]?.label ?? r.ranking_value}: ${pct(r.spend_share, 0)} del gasto`} />;
-                        })}
-                      </div>
-                      <div className={s.stackL}>
-                        {rows
-                          .filter((r) => (r.spend_share ?? 0) >= 0.05)
-                          .map((r) => (
-                            <span key={r.ranking_value}>
-                              {RANKING_PRESENTATION[r.ranking_value]?.label ?? r.ranking_value} <span className={s.num}>{pct(r.spend_share, 0)}</span>
-                            </span>
-                          ))}
-                      </div>
-                      {currencyCode === null ? (
-                        <p className={s.muted} style={{ fontSize: 11.5 }}>
-                          No se agrega gasto ni porcentaje porque falta la moneda de la cuenta.
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------ Aprendizaje ------------------------------ */}
-      <section className={s.sec} aria-labelledby="meta-learn">
-        <SectionHead
-          id="meta-learn"
-          title="Aprendizaje"
-          ai={findingFor(diagnostic, /aprendiz|learning|presupuesto|conjunto/i)?.title ?? null}
-          fallback={
-            failed("learning")
-              ? "No se pudo cargar el estado de aprendizaje."
-              : learning.length
-              ? `${learning.length} conjunto(s) todavía aprendiendo. Mientras aprenden, los resultados son inestables: mejor no tocarlos.`
-              : "Ningún conjunto está en fase de aprendizaje."
-          }
-          onAsk={() => askCopilot("¿Qué conjuntos figuran en fase de aprendizaje según Meta y qué decisión permite tomar la evidencia disponible? Cita estado y volumen de resultados; no recomiendes cambios basados solo en la etiqueta de aprendizaje.", "Aprendizaje de Meta")}
-        />
-        {learning.length ? (
-          <div className={s.panel}>
-            <ul>
-              {learning.map((l) => {
-                const needed = l.learning_conversions_needed ?? 50;
-                const done = l.learning_conversions ?? 0;
-                return (
-                  <li key={l.ad_set_id} className={s.finding}>
-                    <span className={cx(s.pr, l.learning_stage_status === "LEARNING_LIMITED" ? s.prHigh : undefined)} aria-hidden="true" />
-                    <div>
-                      <div className={s.qiM} style={{ marginTop: 0 }}>
-                        <p className={s.qiT}>{l.ad_set_name}</p>
-                        <span className={cx(s.chip, l.learning_stage_status === "LEARNING_LIMITED" ? s.chipWarn : s.chipAcc)}>
-                          {l.learning_stage_status === "LEARNING_LIMITED" ? "Aprendizaje limitado" : "Aprendiendo"}
-                        </span>
-                      </div>
-                      <p className={s.muted} style={{ fontSize: 12.5 }}>
-                        {l.campaign_name}
-                        {l.daily_budget != null ? ` · ${fmtEur(l.daily_budget)} al día` : ""}
-                      </p>
-                      <div className={s.track} style={{ marginTop: 10, maxWidth: 420 }}>
-                        <span className={s.fill} style={{ width: `${Math.min(done / needed, 1) * 100}%`, background: "var(--store)" }} />
-                      </div>
-                      <p className={s.trackTxt} style={{ whiteSpace: "normal" }}>
-                        {fmtNum(done)} de {fmtNum(needed)} conversiones para salir del aprendizaje
-                        {l.days_since_account_activity != null && l.days_since_account_activity <= 7
-                          ? ` · último cambio hace ${l.days_since_account_activity} días${l.last_account_activity_description ? ` (${l.last_account_activity_description})` : ""}`
-                          : ""}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
         ) : null}
       </section>
 
       {/* ------------------------------ Medición ------------------------------ */}
+      {data.pixels.length || failed("pixels") ? (
       <section className={s.sec} aria-labelledby="meta-measure">
         <SectionHead
           id="meta-measure"
-          title="Medición"
+          title="Píxel"
           ai={findingFor(diagnostic, /p[ií]xel|medici|evento|tracking|seguimiento/i)?.title ?? null}
-          fallback="Si el píxel no dispara, Meta optimiza a ciegas y las cifras de arriba se quedan cortas."
-          onAsk={() => askCopilot("Según el estado de diagnóstico y los eventos recibidos, ¿hay señales verificables de fallo de medición? Cita evento, estado y última fecha; separa errores confirmados de eventos sin actividad reciente.", "Píxel de Meta")}
-        />
-        <div className={s.two}>
-          <div className={s.panel}>
-            <div className={s.panelH}>
-              <div>
-                <h3>Píxel</h3>
-                <p className={s.sub}>Eventos recibidos en el periodo</p>
-              </div>
-            </div>
-            {failed("pixels") ? (
-              <p className={s.error}>No se pudo cargar el estado del píxel.</p>
-            ) : data.pixels.length === 0 ? (
-              <Empty>No hay píxel conectado a esta cuenta.</Empty>
-            ) : (
-              <div className={s.tblWrap} role="region" aria-label="Eventos del píxel; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
-                <table className={s.tbl} aria-label="Actividad de eventos del píxel">
-                  <thead>
-                    <tr>
-                      <th scope="col">Píxel / evento</th>
-                      <th scope="col">Eventos</th>
-                      <th scope="col">Días sin datos</th>
-                      <th scope="col">Último disparo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.pixels.map((p, i) => {
-                      const stale = p.is_unavailable || (p.hours_since_last_fire ?? 0) > 48;
-                      return (
-                        <tr key={`${p.pixel_id}-${p.event_name ?? i}`}>
-                          <td>
-                            {p.pixel_name ?? "Píxel"}
-                            {p.event_name ? <span className={s.muted}> · {p.event_name}</span> : null}
-                          </td>
-                          <td className={s.tdN}>{fmtNum(p.events_total)}</td>
-                          <td className={s.tdN} style={{ color: p.days_missing > 0 ? "var(--warn)" : undefined }}>
-                            {p.days_missing} de {p.days_in_period}
-                          </td>
-                          <td>
-                            <span className={cx(s.chip, stale ? s.chipWarn : s.chipGood)}>
-                              {p.is_unavailable ? "No disponible" : p.hours_since_last_fire != null ? `hace ${fmtNum(p.hours_since_last_fire)} h` : "—"}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          <div className={s.panel}>
-            <div className={s.panelH}>
-              <div>
-                <h3>Públicos</h3>
-                <p className={s.sub}>Audiencias personalizadas y similares</p>
-              </div>
-            </div>
-            {failed("audiences") ? (
-              <p className={s.error}>No se pudieron cargar los públicos.</p>
-            ) : data.audiences.length === 0 ? (
-              <Empty>No hay públicos personalizados en la cuenta.</Empty>
-            ) : (
-              <div className={s.tblWrap} role="region" aria-label="Públicos de Meta; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
-                <table className={s.tbl} aria-label="Audiencias de Meta Ads">
-                  <thead>
-                    <tr>
-                      <th scope="col">Público</th>
-                      <th scope="col">Tamaño</th>
-                      <th scope="col">En uso</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.audiences.slice(0, 8).map((a) => (
-                      <tr key={a.audience_id}>
-                        <td>
-                          {a.audience_name ?? "Sin nombre"}
-                          <span className={s.muted} style={{ display: "block", fontSize: 11.5 }}>
-                            {a.is_lookalike
-                              ? `Similar ${a.lookalike_ratio != null ? `${fmtNum(a.lookalike_ratio * 100)} %` : ""}${a.lookalike_country ? ` · ${a.lookalike_country}` : ""}${a.origin_name ? ` · de ${a.origin_name}` : ""}`
-                              : `${a.subtype ?? "Personalizado"}${a.retention_days ? ` · ${a.retention_days} días` : ""}`}
-                          </span>
-                        </td>
-                        <td className={s.tdN}>
-                          {a.approximate_count_lower != null
-                            ? `${fmtNum(a.approximate_count_lower)}${a.approximate_count_upper ? `–${fmtNum(a.approximate_count_upper)}` : ""}`
-                            : "—"}
-                        </td>
-                        <td>
-                          {a.ad_sets_using > 0 ? (
-                            <span className={cx(s.chip, s.chipGood)}>{a.ad_sets_using} conjunto(s)</span>
-                          ) : (
-                            <span className={s.chip}>Sin usar</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------ Cambios ------------------------------ */}
-      <section className={s.sec} aria-labelledby="meta-changes">
-        <SectionHead
-          id="meta-changes"
-          title="Cambios y su efecto"
-          ai={null}
-          fallback={`Qué pasó ${data.change_window_days} días antes y después de cada cambio en la cuenta.`}
-          onAsk={() => askCopilot("Compara los resultados observados antes y después de cada cambio de Meta en la misma entidad y ventana. ¿Qué cambios muestran una variación consistente? Cita fechas, métricas y límites de atribución; no presentes correlación como causa.", "Cambios en Meta")}
+          fallback="Si el píxel no envía eventos, Meta optimiza a ciegas."
         />
         <div className={s.panel}>
-          {failed("changes") ? (
-            <p className={s.error}>No se pudo cargar el historial de cambios.</p>
-          ) : data.changes.length === 0 ? (
-            <Empty>No hay cambios con gasto suficiente para comparar en este periodo.</Empty>
+          {failed("pixels") ? (
+            <p className={s.error}>No se pudo cargar el estado del píxel.</p>
+          ) : data.pixels.length === 0 ? (
+            <Empty>No hay píxel conectado a esta cuenta.</Empty>
           ) : (
-            <ol className={s.tl}>
-              {data.changes
-                .slice()
-                .sort((a, b) => Date.parse(b.event_time) - Date.parse(a.event_time))
-                .slice(0, 10)
-                .map((c, i) => {
-                  const shift = c.roas_delta_pct;
-                  const significant = shift != null && Math.abs(shift) >= ROAS_SHIFT_PCT;
-                  const tone = !significant ? undefined : shift! < 0 ? s.chipBad : s.chipGood;
-                  const dot = !significant ? "var(--ink-3)" : shift! < 0 ? "var(--bad)" : "var(--good)";
-                  return (
-                    <li key={`${c.event_time}-${i}`} className={s.tlR}>
-                      <span className={s.tlD}>{dayLabel(c.event_time, true)}</span>
-                      <span className={s.tlDot} aria-hidden="true">
-                        <i style={{ background: dot }} />
-                      </span>
-                      <div>
-                        <p style={{ fontWeight: 600 }}>
-                          {c.translated_event_type ?? c.event_type}
-                          {c.object_name ? <span className={s.chip} style={{ marginLeft: 6 }}>{c.object_name}</span> : null}
-                        </p>
-                        <p className={s.sub}>
-                          {ENTITY_LABEL[c.entity_level] ?? c.entity_level} · gasto {fmtEur(c.spend_before)} → {fmtEur(c.spend_after)}
-                          {c.cpa_before != null || c.cpa_after != null ? ` · CPA ${c.cpa_before != null ? fmtEur(c.cpa_before, 2) : "—"} → ${c.cpa_after != null ? fmtEur(c.cpa_after, 2) : "—"}` : ""}
-                        </p>
-                      </div>
-                      <div className={s.tlBa}>
-                        <span>
-                          ROAS {roasText(c.roas_before)} → {roasText(c.roas_after)}
-                        </span>
-                        {shift != null ? (
-                          <span className={cx(s.chip, tone)}>
-                            {shift > 0 ? "+" : ""}
-                            {fmtNum(shift)} %
+            <div className={s.tblWrap} role="region" aria-label="Eventos del píxel; desliza para comparar columnas" tabIndex={0} style={{ marginTop: 0 }}>
+              <table className={s.tbl} aria-label="Actividad de eventos del píxel">
+                <thead>
+                  <tr>
+                    <th scope="col">Píxel / evento</th>
+                    <th scope="col">Eventos</th>
+                    <th scope="col">Días sin datos</th>
+                    <th scope="col">Último disparo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.pixels.map((p, i) => {
+                    const stale = p.is_unavailable || (p.hours_since_last_fire ?? 0) > 48;
+                    return (
+                      <tr key={`${p.pixel_id}-${p.event_name ?? i}`}>
+                        <td>
+                          {p.pixel_name ?? "Píxel"}
+                          {p.event_name ? <span className={s.muted}> · {p.event_name}</span> : null}
+                        </td>
+                        <td className={s.tdN}>{fmtNum(p.events_total)}</td>
+                        <td className={s.tdN} style={{ color: p.days_missing > 0 ? "var(--warn)" : undefined }}>
+                          {p.days_missing} de {p.days_in_period}
+                        </td>
+                        <td>
+                          <span className={cx(s.chip, stale ? s.chipWarn : s.chipGood)}>
+                            {p.is_unavailable ? "No disponible" : p.hours_since_last_fire != null ? `hace ${fmtNum(p.hours_since_last_fire)} h` : "—"}
                           </span>
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
-            </ol>
-          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            )}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
@@ -947,9 +620,9 @@ function SpendRoasRanking({ creatives, floor, floorLabel, kind }: {
   const shown = creatives.slice().sort((a, b) => b.spend - a.spend).slice(0, 8);
   const scale = Math.max(2, floor * 1.15, ...shown.map((c) => c.roas ?? 0));
   const status = {
-    good: { label: "Sobre equilibrio", className: s.adGood, textClassName: s.adTextGood },
-    bad: { label: "Bajo equilibrio", className: s.adBad, textClassName: s.adTextBad },
-    low: { label: "Poco volumen", className: s.adLow, textClassName: s.adTextLow },
+    good: { label: "Por encima", className: s.adGood, textClassName: s.adTextGood },
+    bad: { label: "Por debajo", className: s.adBad, textClassName: s.adTextBad },
+    low: { label: "Pocos datos", className: s.adLow, textClassName: s.adTextLow },
   } as const;
   const floorPosition = `${Math.min((floor / scale) * 100, 100)}%`;
   return (

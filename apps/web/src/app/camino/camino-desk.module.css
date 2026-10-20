@@ -1,4 +1,4 @@
-/* Mi Camino del cliente: petróleo + azafrán, igual que el panel Pulso y el mapa.
+/* Mi Camino del cliente: grafito + azafrán, igual que el panel Pulso y el mapa.
    Sin esto el mapa salía en azafrán y todo lo de debajo (fase en curso, árbol,
    revisión) en el verde de globals.css. Mismos tokens que .desk, otra paleta. */
 
@@ -76,8 +76,8 @@
   color: var(--ink-2);
 }
 .chipGood {
-  background: #dcefe5;
-  color: #2f7d5b;
+  background: #f0edeb;
+  color: #3d3b3a;
 }
 .chipAcc {
   background: var(--accent-soft);

@@ -1,5 +1,5 @@
 /* Guía de marca: mismo lenguaje visual que el Estudio de contenido y el
-   constructor de flows (petróleo + azafrán, --tw-* con los mismos valores de
+   constructor de flows (grafito + azafrán, --tw-* con los mismos valores de
    respaldo). A sangre sobre el relleno del contenido del shell, que es
    px-4 / sm:px-6 / lg:px-10, pt-4 / lg:pt-6 y pb-28 / lg:pb-14 (portal-shell).
    Esta ruta va sin el panel de pestañas, así que no hay los 8px extra del Estudio. */
@@ -185,7 +185,7 @@
   background: var(--gd-line);
 }
 .dot[data-s="ok"] {
-  background: #2f7d5b;
+  background: #3d3b3a;
 }
 .dot[data-s="inherit"] {
   background: #3f6b8a;

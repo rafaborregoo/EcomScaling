@@ -7,7 +7,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { invalidateCachedQueries, useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
 import { apiFetch, invalidateApiGetCache, type BootstrapResponse } from "@/lib/bootstrap";
 import { AsyncState, Card, ErrorBlock } from "@/components/ui";
@@ -19,6 +19,7 @@ import type { CatalogProductDetailResponse, CatalogVariant } from "../../catalog
 import { StockForecastCard } from "../stock-forecast";
 
 const PERIODS = [30, 90, 365] as const;
+const PROMO_STATUS: Record<string, string> = { ACTIVE: "Activa", SCHEDULED: "Programada", EXPIRED: "Finalizada" };
 type Period = (typeof PERIODS)[number];
 
 function money(value: number | null | undefined, currency: string | null) {
@@ -159,7 +160,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ? `/v1/organizations/${organizationId}/shopify/catalog/products/${encodeURIComponent(params.productId)}?${queryParams.toString()}`
     : null;
   const query = useCachedQuery<CatalogProductDetailResponse>(key);
-  const data = query.data;
+  const data = useKeepPrevious(query.data, `${organizationId}|${connectionId}|${params.productId}`);
   const currency = data?.product.currency_code ?? null;
   const selectedMedia = data?.media.find((item) => item.external_media_id === selectedMediaId) ?? data?.media[0] ?? null;
   const totalPages = data ? Math.max(1, Math.ceil(data.variant_total / data.variant_page_size)) : 1;
@@ -259,10 +260,11 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
     .slice(0, 8);
 
   const hasBundleComponents = variants.some((variant) => variant.bundle_components?.length);
+  const showPacks = hasBundleComponents || bundleActivity.bundles_sold > 0;
   const copurchase = data.copurchase;
 
   return (
-    <div className={pulse.root}>
+    <div className={pulse.root} aria-busy={query.data === undefined} style={query.data === undefined ? { opacity: 0.55, transition: "opacity 0.2s" } : undefined}>
       <nav className={s.crumb} aria-label="Ruta">
         <a href="/shopify">Shopify</a>
         <span aria-hidden="true">/</span>
@@ -272,7 +274,8 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </nav>
 
       {/* ------------------------------ Hero ------------------------------ */}
-      <section className={s.fHero} aria-labelledby="producto-titulo">
+      <section className={s.fHero} style={data.media.length ? undefined : { gridTemplateColumns: "minmax(0, 1fr)" }} aria-labelledby="producto-titulo">
+        {data.media.length ? (
         <div className={s.gal}>
           <div className={s.main}>
             {selectedMedia?.source_url ? (
@@ -292,20 +295,17 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ))}
             </div>
           ) : null}
-          <p className={s.galNote}>{mediaCoverageLabel(data.media_coverage, data.media.length, data.media_sync.last_successful_full_sync_at)}</p>
+          {data.media_coverage === "complete" ? null : <p className={s.galNote}>{mediaCoverageLabel(data.media_coverage, data.media.length, data.media_sync.last_successful_full_sync_at)}</p>}
           {data.media_coverage === "failed" && data.media_sync.error_code ? <p className={s.galNote}>Referencia del error: {data.media_sync.error_code}</p> : null}
         </div>
+        ) : null}
         <div className={s.info}>
           <div className={s.heroMeta}>
-            <span>{product.store_name}</span>
-            <span>{[product.vendor || "Sin proveedor", product.shopify_category_name || product.product_type || "Sin tipo"].join(" · ")}</span>
-            {product.external_updated_at ? <span>Actualizado {new Date(product.external_updated_at).toLocaleDateString("es-ES")}</span> : null}
+            <span>{[product.vendor && product.vendor !== product.store_name ? product.vendor : null, product.shopify_category_name || product.product_type].filter(Boolean).join(" · ") || product.store_name}</span>
           </div>
           <div>
             <div className={s.chips}>
               <span className={cx(pulse.chip, product.status === "ACTIVE" ? pulse.chipGood : product.status === "DRAFT" ? pulse.chipWarn : undefined)}>{statusLabel(product.status)}</span>
-              <span className={pulse.chip}>{fmtNum(data.variant_total)} variante{data.variant_total === 1 ? "" : "s"}</span>
-              {byLocation.size ? <span className={pulse.chip}>{byLocation.size} ubicación{byLocation.size === 1 ? "" : "es"}</span> : null}
             </div>
             <h1 id="producto-titulo">{product.title}</h1>
           </div>
@@ -320,7 +320,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
           <dl className={s.dl}>
             <div>
-              <dt>Vendidas · {periodDays} d</dt>
+              <dt>Vendidas ({periodDays} días)</dt>
               <dd>{unitsOrdered == null ? "—" : fmtNum(unitsOrdered)}<small>{unitsOrdered == null ? "sin datos de actividad" : changeText(unitsOrdered, pm?.previous_units_ordered ?? null)}</small></dd>
             </div>
             <div>
@@ -339,22 +339,16 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <dt>Último pedido</dt>
               <dd>{activity.last_order_at ? new Date(activity.last_order_at).toLocaleDateString("es-ES") : "—"}<small>{activity.last_order_at ? new Date(activity.last_order_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "sin pedidos observados"}</small></dd>
             </div>
-            <div>
+            {bundleActivity.bundles_sold > 0 ? <div>
               <dt>Como pack</dt>
               <dd>{bundleActivity.status === "observed_only" || bundleActivity.status === "partial" ? fmtNum(bundleActivity.bundles_sold) : "—"}<small>{bundleActivity.status === "observed_only" || bundleActivity.status === "partial" ? "packs vendidos" : "sin datos de packs"}</small></dd>
-            </div>
+            </div> : null}
           </dl>
-          {product.tags.length ? (
-            <ul className={s.tags} aria-label="Etiquetas">
-              {product.tags.slice(0, 8).map((tag) => <li key={tag}><span className={pulse.chip}>{tag}</span></li>)}
-            </ul>
-          ) : null}
           <div className={s.actions}>
             <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo va este producto y qué haría primero", "Ficha de producto")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
-            <Link className={cx(pulse.btn, pulse.ghost)} href="/shopify/productos" onClick={returnToCatalog}>Volver al catálogo</Link>
           </div>
         </div>
       </section>
@@ -362,6 +356,8 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <StockForecastCard history={weekly} available={totalStock} tracked={trackedCount > 0 && inventoryFresh} />
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
+      <details>
+      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Coste</span><span className={cx(pulse.chip, variantsWithoutCost > 0 ? pulse.chipWarn : pulse.chipGood)}>{variantsWithoutCost > 0 ? "falta" : "OK"}</span></div>
@@ -381,20 +377,13 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>{data.promotion_target_coverage.status === "complete" ? "Todas las reglas de descuento se han revisado." : "Pueden faltar reglas, sobre todo las administradas por una app."}</p>
         </div>
       </div>
-
-      <nav className={s.snav} aria-label="Secciones">
-        <a href="#actividad">Ventas</a>
-        <a href="#variantes">Variantes</a>
-        <a href="#stock">Stock</a>
-        <a href="#promos">Promociones y packs</a>
-        <a href="#descripcion">Descripción</a>
-      </nav>
+      </details>
 
       {/* ------------------------------ Ventas ------------------------------ */}
       <section id="actividad" className={pulse.sec}>
         <div className={pulse.secHead} style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}>
           <h2>Ventas</h2>
-          <p className={pulse.aiLine}>{observed ? `${fmtNum(activity.units_ordered)} unidades en los últimos ${periodDays} días, según los pedidos sincronizados.` : ""}</p>
+          <p className={pulse.aiLine}>{observed ? `${fmtNum(activity.units_ordered)} unidades en los últimos ${periodDays} días.` : ""}</p>
           <div className={pulse.seg} role="group" aria-label="Periodo de actividad del producto">
             {PERIODS.map((p) => (
               <button key={p} type="button" aria-pressed={periodDays === p} onClick={() => setPeriodDays(p)}>{p === 365 ? "1 año" : `${p} días`}</button>
@@ -431,14 +420,13 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ) : (
                 <Empty>{data.metrics_coverage === "migration_pending" ? "La serie semanal estará disponible al aplicar la migración de métricas del catálogo." : data.metrics_coverage === "unavailable" ? "No se pudo cargar la serie semanal." : "Sin ventas en pedidos sincronizados en este periodo."}</Empty>
               )}
-              <p className={pulse.sub} style={{ marginTop: 12 }}>{activity.coverage_note} Muestra unidades, no importes ni ventas netas.</p>
             </div>
             <div className={s.minis}>
               <div className={s.mini}><span className={pulse.lbl}>Unidades pedidas</span><span>{fmtNum(activity.units_ordered)}</span><small>{changeText(activity.units_ordered, pm?.previous_units_ordered ?? null)}</small></div>
               <div className={s.mini}><span className={pulse.lbl}>Reembolsadas</span><span style={{ color: activity.units_refunded ? "var(--warn)" : undefined }}>{fmtNum(activity.units_refunded)}</span><small>{returnRate == null ? "sin ventas" : `${fmtNum(returnRate * 100, 1)} % de lo vendido`}</small></div>
               <div className={s.mini}><span className={pulse.lbl}>Pedidos</span><span>{pm ? fmtNum(pm.orders_count) : "—"}</span><small>{pm && pm.orders_count > 0 ? `${fmtNum(activity.units_ordered / pm.orders_count, 2)} uds. por pedido` : "sin pedidos"}</small></div>
               <div className={s.mini}><span className={pulse.lbl}>Ritmo actual</span><span>{pm?.units_per_day_14d != null ? `${fmtNum(pm.units_per_day_14d, 1)}/día` : "—"}</span><small>últimos 14 días</small></div>
-              <div className={cx(s.mini, s.wide)}>
+              {copurchase?.items.length ? <div className={cx(s.mini, s.wide)}>
                 <span className={pulse.lbl}>Se compra junto a</span>
                 {copurchase && copurchase.items.length ? (
                   <>
@@ -448,7 +436,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ) : (
                   <small>{copurchase?.status === "migration_pending" ? "Disponible al aplicar la migración de métricas." : copurchase?.status === "unavailable" ? "No se pudo consultar." : "Sin otros productos en sus pedidos de este periodo."}</small>
                 )}
-              </div>
+              </div> : null}
             </div>
           </div>
         ) : (
@@ -464,8 +452,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           id="variantes-titulo"
           title="Variantes"
           ai={null}
-          fallback={showMatrix ? `Ventas y stock por ${rowName?.toLowerCase()} y ${colName?.toLowerCase()}.` : "Precio, coste y stock de cada variante."}
-          onAsk={() => askCopilot("¿Qué variantes se venden más, cuáles se me van a agotar y cuáles sobran?", "Variantes")}
+          fallback={showMatrix ? `Ventas y stock por ${rowName?.toLowerCase()} y ${colName?.toLowerCase()}.` : "Precio, coste y stock. El coste se edita aquí."}
         />
         {data.selected_options_coverage === "migration_pending" ? (
           <p className={s.note}>Las opciones estructuradas de variante (como color o talla) aparecerán cuando esté disponible la migración de opciones de Shopify.</p>
@@ -511,10 +498,9 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <div className={pulse.panel}>
           <div className={pulse.panelH}>
             <div>
-              <h3>Precios, coste y stock por variante</h3>
-              <p className={pulse.sub}>El precio de comparación no confirma una promoción aplicada. El stock es la última lectura sincronizada, no tiempo real.</p>
+              <h3>Precio, coste y stock</h3>
             </div>
-            <span className={pulse.chip}>{fmtNum(data.variant_total)} variantes</span>
+            {data.variant_total > 1 ? <span className={pulse.chip}>{fmtNum(data.variant_total)} variantes</span> : null}
           </div>
           {variants.length === 0 ? (
             <Empty>Este producto todavía no tiene variantes sincronizadas.</Empty>
@@ -547,8 +533,8 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               ) : null}
                             </span>
                             <span>
-                              <b style={{ fontWeight: 600 }}>{variant.title || "Variante predeterminada"}</b>
-                              {variant.selected_options.length ? (
+                              <b style={{ fontWeight: 600 }}>{!variant.title || variant.title === "Default Title" ? "Única" : variant.title}</b>
+                              {variant.selected_options.length && variant.title !== "Default Title" ? (
                                 <>
                                   <br />
                                   <span className={pulse.muted} style={{ fontSize: 11.5 }}>{variant.selected_options.map((option) => `${option.name}: ${option.value}`).join(" · ")}</span>
@@ -604,13 +590,13 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       {/* ------------------------------ Stock ------------------------------ */}
+      {variants.length > 1 || byLocation.size > 1 ? (
       <section id="stock" className={pulse.sec}>
         <SectionHead
           id="stock-titulo"
           title="Stock"
           ai={null}
-          fallback="Cuántos días aguanta cada variante al ritmo de ventas de los últimos 30 días."
-          onAsk={() => askCopilot("¿Qué variantes debería reponer primero y cuánto?", "Stock del producto")}
+          fallback="Cuántos días aguanta cada variante al ritmo de los últimos 30 días."
         />
         <div className={pulse.two}>
           <div className={pulse.panel}>
@@ -637,7 +623,6 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : (
               <Empty>{variants.length ? "Ninguna variante lleva seguimiento de inventario, así que no se puede calcular la cobertura." : "Sin variantes sincronizadas."}</Empty>
             )}
-            <p className={pulse.sub} style={{ marginTop: 12 }}>Una variante sin ventas en 30 días aparece «sin ritmo»: no hay con qué dividir el stock.</p>
           </div>
           <div className={pulse.panel}>
             <div className={pulse.panelH}>
@@ -668,22 +653,21 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         </div>
       </section>
+      ) : null}
 
       {/* ------------------------------ Promociones y packs ------------------------------ */}
       <section id="promos" className={pulse.sec}>
         <SectionHead
           id="promos-titulo"
-          title="Promociones y packs"
+          title="Promociones"
           ai={null}
-          fallback="Reglas de Shopify que incluyen este producto y su composición como pack."
-          onAsk={() => askCopilot("¿Qué promociones afectan a este producto y me conviene mantenerlas?", "Promociones del producto")}
+          fallback="Descuentos de Shopify que incluyen este producto."
         />
-        <div className={pulse.two}>
+        <div className={showPacks ? pulse.two : undefined}>
           <div className={pulse.panel}>
             <div className={pulse.panelH}>
               <div>
                 <h3>Promociones que lo incluyen</h3>
-                <p className={pulse.sub}>Por la configuración de Shopify; no garantiza que el carrito cumpla códigos, segmentos, mínimos u otras condiciones</p>
               </div>
               <span className={pulse.chip}>{data.related_promotions.length}</span>
             </div>
@@ -700,14 +684,14 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <li key={`${promotion.id}:${promotion.matched_rule_side}`} className={s.promo}>
                     <div className={s.promoH}>
                       <b style={{ fontWeight: 600 }}>{promotion.title || "Promoción sin título"}</b>
-                      <span className={cx(pulse.chip, promotion.status === "ACTIVE" ? pulse.chipGood : promotion.status === "SCHEDULED" ? pulse.chipWarn : undefined)}>{promotion.status || "Sin estado"}</span>
+                      <span className={cx(pulse.chip, promotion.status === "ACTIVE" ? pulse.chipGood : promotion.status === "SCHEDULED" ? pulse.chipWarn : undefined)}>{PROMO_STATUS[promotion.status ?? ""] ?? promotion.status ?? "Sin estado"}</span>
                     </div>
                     <p className={pulse.sub} style={{ margin: 0 }}>
                       {promotion.matched_rule_side === "gets" ? "Lo incluye como beneficio" : "Lo incluye entre los productos requeridos"}
                       {promotion.matched_targets.length ? ` · ${promotion.matched_targets.map((target) => target.title || (target.target_type === "all" ? "Todos los productos" : target.target_type)).join(", ")}` : ""}
                     </p>
                     <p className={pulse.sub} style={{ margin: 0 }}>
-                      {promotion.codes.length ? `Código${promotion.codes.length === 1 ? "" : "s"}: ${promotion.codes.join(", ")}` : "Automática o sin código"}
+                      {promotion.codes.length ? (promotion.codes[0] === promotion.title && promotion.codes.length === 1 ? "Con código" : `Código${promotion.codes.length === 1 ? "" : "s"}: ${promotion.codes.join(", ")}`) : "Automática, sin código"}
                       {promotion.configuration_coverage === "app_managed" ? " · Configuración administrada por una app" : ""}
                     </p>
                     {promotion.summary ? <p style={{ fontSize: 13 }}>{promotion.summary}</p> : null}
@@ -718,6 +702,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <Empty>{data.promotion_target_coverage.status === "complete" ? "No hay reglas de promoción con un objetivo que incluya este producto o sus variantes." : "No hay coincidencias verificadas en las reglas disponibles. La cobertura actual no permite confirmar que no exista una promoción aplicable."}</Empty>
             )}
           </div>
+          {showPacks ? (
           <div className={pulse.panel}>
             <div className={pulse.panelH}>
               <div>
@@ -763,6 +748,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </p>
             )}
           </div>
+          ) : null}
         </div>
       </section>
 
@@ -770,10 +756,8 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <section id="descripcion" className={pulse.sec}>
         <SectionHead
           id="descripcion-titulo"
-          title="Descripción y clasificación"
+          title="Descripción"
           ai={null}
-          fallback="Descripción en texto seguro, etiquetas y categoría estándar leídas de Shopify."
-          onAsk={() => askCopilot("¿Cómo mejorarías la descripción y las etiquetas de este producto?", "Descripción del producto")}
         />
         {product.metadata_coverage !== "complete" ? (
           <p className={s.note}>
@@ -800,7 +784,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       <footer className={s.foot}>
-        <span>Datos de catálogo e inventario de Shopify; ventas observadas en los pedidos sincronizados, en unidades.</span>
+        <span>Datos de Shopify. Ventas en unidades, de los pedidos sincronizados.</span>
         <Link href="/shopify/productos" onClick={returnToCatalog}>← Volver al catálogo</Link>
       </footer>
     </div>

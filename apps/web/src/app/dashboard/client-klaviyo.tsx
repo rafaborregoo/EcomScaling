@@ -6,6 +6,7 @@ import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
+import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import { Skeleton, toast } from "@/components/ui";
 import { BarRows } from "@/components/data-bars";
 import { salesChangePct } from "./store-pulse";
@@ -347,6 +348,17 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           </p>
         </div>
       </section>
+
+      <AiDiagnosticSection
+        organizationId={organizationId}
+        title="A12 · Analista de email"
+        description="Compara el último mes completo con el anterior usando informes mensuales de Klaviyo. La página solo consulta el resultado guardado; las propuestas se revisan antes de convertirse en tareas."
+        getPath="/ai/email-analyst"
+        runPath="/ai/email-analyst-run"
+        loadingLabel="Cargando el análisis de email…"
+        tasksLabelSingular="tarea"
+        variant="summary"
+      />
 
       {/* ------------------------------ Cifras ------------------------------ */}
       <div className={cx(s.kpis, s.kpis4)} aria-label="Cifras de email">

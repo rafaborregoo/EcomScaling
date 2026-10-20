@@ -60,6 +60,7 @@ const CONSULTANT_RULES: Array<{ prefix: string; permission: ConsultantPermission
   { prefix: "ai-settings", permission: "edit_config" },
   { prefix: "shopify/product-costs", permission: "edit_config" },
   { prefix: "tasks", permission: "manage_tasks" },
+  { prefix: "consultant-chat/escalations", permission: "manage_tasks" },
   { prefix: "milestones", permission: "manage_tasks" },
   { prefix: "strategic-plan", permission: "manage_tasks" },
   { prefix: "calls/:callId/tasks", permission: "manage_tasks" },

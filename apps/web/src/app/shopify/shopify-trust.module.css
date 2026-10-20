@@ -134,3 +134,14 @@
     grid-template-columns: 1fr;
   }
 }
+/* Todo en orden: una sola línea plegable en vez de cuatro tarjetas. */
+.trustOk > summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: #15803d;
+  font-weight: 500;
+  padding: 6px 4px;
+}
+.trustOk[open] > summary {
+  margin-bottom: 8px;
+}

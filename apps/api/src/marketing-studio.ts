@@ -2,7 +2,7 @@ import nodemailer from "nodemailer";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@e-nora/config";
-import { sanitizeGeneratedEmailHtml } from "@e-nora/ai";
+import { sanitizeMarketingEmailHtml, reviewMarketingEmailHtml } from "./marketing-email-safety.js";
 import {
   createUserScopedClient,
   requireOperationalOrganization,
@@ -48,6 +48,13 @@ export const studioPieceSchema = z
     blocks: z.array(z.unknown()).max(200).default([]),
     personalization_tokens: z.array(z.string().max(120)).max(100).default([]),
     store_id: z.string().uuid().nullable().optional(),
+    expected_version: z.number().int().positive().optional(),
+    operation_audit: z.object({
+      request_id: z.string().uuid().nullable().optional(),
+      source: z.enum(["ai", "manual", "undo", "redo"]).default("manual"),
+      accepted_operations: z.array(z.record(z.string(), z.unknown())).max(12).default([]),
+      rejected_operations: z.array(z.record(z.string(), z.unknown())).max(12).default([]),
+    }).optional(),
   })
   .strict();
 
@@ -87,7 +94,7 @@ export function studioDraftFields(piece: StudioPiece): { ok: true; fields: Recor
   if (replyTo && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(replyTo)) {
     return { ok: false, statusCode: 400, error: "reply_to_invalido", message: "La dirección de respuesta no es un email válido." };
   }
-  const html = sanitizeGeneratedEmailHtml(piece.html);
+  const html = sanitizeMarketingEmailHtml(piece.html);
   if (!html.trim()) {
     return { ok: false, statusCode: 400, error: "diseno_vacio", message: "La pieza todavía no tiene contenido." };
   }
@@ -126,14 +133,16 @@ export function studioDraftFields(piece: StudioPiece): { ok: true; fields: Recor
  * conexión es de una tienda de esta organización.
  */
 async function storeIdFor(env: LoadedApiEnv, organizationId: string, connectionId: string | null | undefined) {
-  if (!connectionId) return null;
-  const { data } = await serviceClient(env)
+  if (!connectionId) return { ok: true as const, storeId: null };
+  const { data, error } = await serviceClient(env)
     .from("shopify_stores")
     .select("connection_id")
     .eq("organization_id", organizationId)
     .eq("connection_id", connectionId)
     .maybeSingle();
-  return data?.connection_id ?? null;
+  if (error) return { ok: false as const, statusCode: 503, error: "studio_store_resolution_failed" };
+  if (!data?.connection_id) return { ok: false as const, statusCode: 409, error: "studio_store_invalid", message: "La tienda seleccionada ya no está disponible. Selecciona una tienda activa." };
+  return { ok: true as const, storeId: data.connection_id };
 }
 
 export async function createStudioDraft(
@@ -151,7 +160,8 @@ export async function createStudioDraft(
   const built = studioDraftFields(parsed.data);
   if (!built.ok) return built;
   const { request_patch: requestPatch, ...fields } = built.fields as Record<string, unknown> & { request_patch: Record<string, unknown> };
-  const storeId = await storeIdFor(env, organizationId, parsed.data.store_id);
+  const resolvedStore = await storeIdFor(env, organizationId, parsed.data.store_id);
+  if (!resolvedStore.ok) return resolvedStore;
 
   const supabase = serviceClient(env);
   const { data, error } = await supabase
@@ -161,7 +171,7 @@ export async function createStudioDraft(
       organization_id: organizationId,
       created_by: context.user.id,
       status: "draft",
-      request: { ...requestPatch, ...(storeId ? { store_id: storeId } : {}) },
+      request: { ...requestPatch, ...(resolvedStore.storeId ? { store_id: resolvedStore.storeId } : {}) },
       brand_colors: {},
       verbatim_texts: [],
       summary: "Pieza creada en el estudio de contenido.",
@@ -179,6 +189,17 @@ export async function createStudioDraft(
   if (error || !data) {
     return { ok: false as const, statusCode: 500, error: "marketing_draft_persist_failed", detail: error?.message };
   }
+  let auditWarning: string | undefined;
+  if (parsed.data.operation_audit && parsed.data.operation_audit.accepted_operations.length + parsed.data.operation_audit.rejected_operations.length > 0) {
+    const { error: auditError } = await supabase.from("marketing_studio_operation_audits").insert({
+      organization_id: organizationId, draft_id: data.id, actor_user_id: context.user.id,
+      request_id: parsed.data.operation_audit.request_id ?? null,
+      base_version: 1, final_version: Number(data.version ?? 1), source: parsed.data.operation_audit.source,
+      accepted_operations: parsed.data.operation_audit.accepted_operations,
+      rejected_operations: parsed.data.operation_audit.rejected_operations,
+    });
+    if (auditError) auditWarning = "marketing_draft_audit_unavailable";
+  }
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
@@ -187,7 +208,7 @@ export async function createStudioDraft(
     entityId: data.id,
     newData: { channel: parsed.data.channel },
   });
-  return { ok: true as const, data: { draft: data } };
+  return { ok: true as const, data: { draft: data, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
 }
 
 /**
@@ -229,45 +250,49 @@ export async function updateStudioDraft(
   if (requestBase.channel && requestBase.channel !== requestPatch.channel) {
     return { ok: false as const, statusCode: 409, error: "studio_channel_mismatch", message: "Esta pieza es de otro canal." };
   }
+  if (parsed.data.expected_version !== undefined && parsed.data.expected_version !== Number(current.version ?? 1)) {
+    return { ok: false as const, statusCode: 409, error: "marketing_draft_update_conflict", message: "La pieza cambió en otra ventana. Recarga o copia tus cambios antes de guardar." };
+  }
   const leavesReview = current.status !== "draft";
-  const nextVersion = Number(current.version ?? 1) + (leavesReview ? 1 : 0);
-  const { data, error } = await supabase
-    .from("marketing_content_drafts")
-    .update({
-      ...fields,
-      request: { ...requestBase, ...requestPatch },
-      last_edited_by: context.user.id,
-      last_edited_at: new Date().toISOString(),
-      ...(leavesReview
-        ? { status: "draft", version: nextVersion, decided_by: null, decided_at: null, decision_reason: null }
-        : {}),
-    })
-    .eq("id", draftId)
-    .eq("organization_id", organizationId)
-    .neq("status", "published")
-    .select(DRAFT_SELECT)
-    .maybeSingle();
-  if (error) return { ok: false as const, statusCode: 500, error: "marketing_draft_update_failed", detail: error.message };
-  if (!data) return { ok: false as const, statusCode: 409, error: "marketing_draft_update_conflict" };
+  const nextVersion = Number(current.version ?? 1) + 1;
+  const resolvedStore = await storeIdFor(env, organizationId, parsed.data.store_id);
+  if (!resolvedStore.ok) return resolvedStore;
+  const effectiveStoreId = parsed.data.store_id === undefined ? (requestBase.store_id as string | undefined) : resolvedStore.storeId;
+  const nextRequest = { ...requestBase, ...requestPatch, ...(effectiveStoreId ? { store_id: effectiveStoreId } : {}) };
+  const { data: saved, error } = await supabase.rpc("save_a11_studio_draft", {
+    p_organization_id: organizationId,
+    p_draft_id: draftId,
+    p_actor_user_id: context.user.id,
+    p_expected_version: Number(current.version ?? 1),
+    p_fields: fields,
+    p_request: nextRequest,
+  });
+  if (error) {
+    if (error.message.includes("A11_MARKETING_DRAFT_SAVE_STALE")) return { ok: false as const, statusCode: 409, error: "marketing_draft_update_conflict" };
+    return { ok: false as const, statusCode: 500, error: "marketing_draft_update_failed", detail: error.message };
+  }
+  if (!saved || typeof saved !== "object") return { ok: false as const, statusCode: 409, error: "marketing_draft_update_conflict" };
+  const data = saved as Record<string, unknown>;
+  const operationAudit = parsed.data.operation_audit;
+  if (operationAudit && operationAudit.accepted_operations.length + operationAudit.rejected_operations.length > 0) {
+    const { error: auditError } = await supabase.from("marketing_studio_operation_audits").insert({
+      organization_id: organizationId,
+      draft_id: draftId,
+      actor_user_id: context.user.id,
+      request_id: operationAudit.request_id ?? null,
+      base_version: Number(current.version ?? 1),
+      final_version: Number(data.version ?? nextVersion),
+      source: operationAudit.source,
+      accepted_operations: operationAudit.accepted_operations,
+      rejected_operations: operationAudit.rejected_operations,
+    });
+    if (auditError) {
+      return { ok: true as const, data: { draft: data, returned_to_draft: leavesReview, audit_warning: "marketing_draft_audit_unavailable" } };
+    }
+  }
 
   if (leavesReview) {
     // Queda constancia de la versión que se había revisado antes de cambiarla.
-    await supabase.from("marketing_content_draft_versions").insert({
-      draft_id: draftId,
-      organization_id: organizationId,
-      version: nextVersion,
-      change_type: "manual",
-      edited_by: context.user.id,
-      snapshot: data,
-    });
-    if (current.agent_output_id) {
-      await supabase
-        .from("agent_outputs")
-        .update({ status: "pending_approval" })
-        .eq("id", current.agent_output_id)
-        .eq("organization_id", organizationId)
-        .in("status", ["approved", "rejected"]);
-    }
     await recordAuditLog(supabase, {
       organizationId,
       actorUserId: context.user.id,
@@ -327,7 +352,7 @@ export async function sendStudioTest(
   }
   const organizationName =
     context.memberships.find((item) => item.organization_id === organizationId)?.organization?.display_name ?? "Tu tienda";
-  const html = fillKlaviyoTags(sanitizeGeneratedEmailHtml(parsed.data.html), organizationName);
+  const html = fillKlaviyoTags(sanitizeMarketingEmailHtml(parsed.data.html), organizationName);
   const subject = fillKlaviyoTags(parsed.data.subject, organizationName);
   const port = env.SMTP_PORT ?? 587;
   try {
@@ -374,7 +399,11 @@ export async function listStudioProducts(
       .eq("organization_id", organizationId)
       .eq("connection_id", query.connection_id)
       .maybeSingle();
+    if (!store) return { ok: false as const, statusCode: 409, error: "studio_store_invalid", message: "La tienda seleccionada ya no está disponible." };
     storeId = store?.id ?? null;
+  } else {
+    // Sin selección no se consulta la RPC con NULL: NULL significa todas las tiendas.
+    return { ok: true as const, data: { products: [] } };
   }
   const { data, error } = await client.rpc("marketing_studio_products", {
     target_organization_id: organizationId,

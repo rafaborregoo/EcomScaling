@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import {
   FormEvent,
   type ReactNode,
@@ -37,6 +38,7 @@ import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
 import { ModuleSummary } from "@/components/module-summary";
+import { useMetricAnalysis } from "@/components/metric-verdict";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { clientNextStep } from "./next-step";
 import { CaminoMap, type DiscussTopic } from "./camino-map";
@@ -170,6 +172,7 @@ type CaminoWeeklyReviewRecord = {
   period_end: string;
   created_at: string;
   status?: "running" | "succeeded" | "failed";
+  trigger_kind?: "scheduled" | "objective_change";
   can_retry?: boolean;
   proposals?: StoredCaminoProposal[];
   output: {
@@ -1101,7 +1104,7 @@ function TaskListItem({
     ...(canEdit && onRemove ? [{ id: "remove", label: "Quitar del Camino", danger: true }] : []),
   ];
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-md border border-separator bg-surface px-2.5 py-1.5 text-sm">
+    <div className="task-lift-card flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-md border border-separator bg-surface px-2.5 py-1.5 text-sm">
       <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
         {canManage ? (
           <button
@@ -1466,6 +1469,7 @@ function AddObjectiveModal({
   catalog,
   existing,
   milestones,
+  suggestionFor,
   onClose,
   onSubmit,
 }: {
@@ -1473,6 +1477,8 @@ function AddObjectiveModal({
   catalog: ObjectiveCatalogEntry[];
   existing: Objective[];
   milestones: Array<{ id: string; label: string }>;
+  /** Cifra recomendada por el analista de métricas (ADR-0027), si la hay. */
+  suggestionFor: (metricKey: string) => { value: number; text: string } | null;
   onClose: () => void;
   onSubmit: (payload: {
     metricKey: string;
@@ -1487,6 +1493,7 @@ function AddObjectiveModal({
   const [targetValue, setTargetValue] = useState("");
   const [period, setPeriod] = useState("monthly");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const suggestion = suggestionFor(metricKey);
   const alreadySet = existing.some(
     (objective) =>
       objective.metric_key === metricKey &&
@@ -1552,7 +1559,7 @@ function AddObjectiveModal({
             value={milestoneId}
             onChange={setMilestoneId}
             options={[
-              { value: "", label: "Sin hito (no lo ve el cliente)" },
+              { value: "", label: "Sin hito (objetivo del negocio, sale en el panel)" },
               ...milestones.map((milestone) => ({
                 value: milestone.id,
                 label: milestone.label,
@@ -1588,6 +1595,117 @@ function AddObjectiveModal({
             />
           </Field>
         </div>
+        {suggestion ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator p-3">
+            <p className="max-w-prose text-sm leading-snug text-foreground">{suggestion.text}</p>
+            {suggestion.value ? (
+              <Button variant="secondary" size="sm" type="button" onClick={() => setTargetValue(String(suggestion.value))}>
+                Usar {suggestion.value.toLocaleString("es-ES")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Cambiar la cifra de la meta del Camino. Lo pueden hacer consultor y cliente;
+ * a la otra parte le llega un aviso y la IA revisa el Camino y propone ajustes
+ * (nada se aplica sin que alguien lo acepte).
+ */
+function GoalTargetDialog({
+  isOpen,
+  organizationId,
+  planId,
+  currentTarget,
+  label,
+  onClose,
+  onSaved,
+}: {
+  isOpen: boolean;
+  organizationId: string;
+  planId: string;
+  currentTarget: number | null;
+  label: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [target, setTarget] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTarget(currentTarget === null ? "" : String(currentTarget));
+      setReason("");
+      setError(null);
+    }
+  }, [isOpen, currentTarget]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = Number(target);
+    if (target === "" || !Number.isFinite(value) || value < 0) return;
+    setIsSubmitting(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/strategic-plan/${planId}/goal`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: value, reason: reason.trim() || undefined }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success("Meta cambiada. La IA revisará el Camino y te avisará si propone ajustes.");
+      onSaved();
+      onClose();
+    } catch {
+      setError("No se pudo cambiar la meta. Reintenta.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog
+      isOpen={isOpen}
+      onOpenChange={(open) => !open && onClose()}
+      title="Cambiar la meta"
+      isBusy={isSubmitting}
+      isDirty={target !== (currentTarget === null ? "" : String(currentTarget)) || Boolean(reason)}
+      formId="goal-target-form"
+      primary={{
+        label: "Guardar meta",
+        busyLabel: "Guardando…",
+        disabled: target === "" || Number(target) === currentTarget,
+      }}
+    >
+      <form id="goal-target-form" className="space-y-4" onSubmit={handleSubmit}>
+        {error ? <Banner tone="danger">{error}</Banner> : null}
+        <Field label={label}>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Motivo (opcional)">
+          <Input
+            value={reason}
+            maxLength={500}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
       </form>
     </Dialog>
   );
@@ -1620,6 +1738,16 @@ function ObjectivesPanel({
   const setError = setActionError;
   const isLoading = objectivesQuery.isLoading;
   const [isAdding, setIsAdding] = useState(false);
+  // Objetivo sugerido por el analista de métricas (ADR-0027): sale de los costes
+  // de la tienda y del margen neto objetivo. Vivía en Configuración, que ya no
+  // fija objetivos. Solo se pide con el modal abierto.
+  const analysisOf = useMetricAnalysis(organizationId, isAdding ? 30 : "all");
+  const suggestionFor = (metricKey: string) =>
+    (metricKey === "roas"
+      ? analysisOf("meta_roas")?.suggested_target ?? analysisOf("mer")?.suggested_target
+      : metricKey === "cac_blended"
+        ? analysisOf("cac_new")?.suggested_target
+        : null) ?? null;
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [savingActualId, setSavingActualId] = useState<string | null>(null);
 
@@ -1647,7 +1775,7 @@ function ObjectivesPanel({
         setError(await readApiError(response));
         return false;
       }
-      toast.success("Objetivo guardado.");
+      toast.success("Objetivo guardado. La IA revisará el Camino y avisará si propone ajustes.");
       load();
       return true;
     } catch {
@@ -1761,7 +1889,7 @@ function ObjectivesPanel({
         <p className={s.objectiveEmpty}>
           {canManage
             ? "Sin objetivos. Añade el primero con «+ Objetivo»."
-            : "Tu consultor todavía no ha definido objetivos para este negocio."}
+            : "Todavía no hay objetivos para este negocio."}
         </p>
       )}
 
@@ -1771,6 +1899,7 @@ function ObjectivesPanel({
           catalog={data.catalog}
           existing={data.objectives}
           milestones={milestones}
+          suggestionFor={suggestionFor}
           onClose={() => setIsAdding(false)}
           onSubmit={addObjective}
         />
@@ -1865,6 +1994,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isLoading, setIsLoading] = useState(true);
   const [generatingMarketingTaskId, setGeneratingMarketingTaskId] = useState<string | null>(null);
   const [retryingReviewId, setRetryingReviewId] = useState<string | null>(null);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(
     null,
   );
@@ -1890,7 +2020,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [showEditor, setShowEditor] = useState(false);
   // Mesa del consultor: pestaña abierta y semana de
   // la revisión que se está leyendo.
-  const [deskTab, setDeskTab] = useState<"editor" | "seguimiento" | "objetivos">("editor");
+  // ?vista= abre una pestaña concreta: los avisos de objetivos llevan aqui.
+  const initialDeskTab = useSearchParams().get("vista");
+  const [deskTab, setDeskTab] = useState<"editor" | "seguimiento" | "objetivos">(
+    initialDeskTab === "seguimiento" || initialDeskTab === "objetivos" ? initialDeskTab : "editor",
+  );
 
   const [reviewIndex, setReviewIndex] = useState(0);
   // Hito del que se va a hablar: abre el chat en un modal con el mensaje escrito.
@@ -2830,7 +2964,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <Badge tone={content.goal_progress.status === "on_track" || content.goal_progress.status === "achieved" ? "success" : content.goal_progress.status === "at_risk" || content.goal_progress.status === "blocked" ? "danger" : "neutral"}>
                         {content.goal_progress.status === "on_track" ? "En curso" : content.goal_progress.status === "at_risk" ? "En riesgo" : content.goal_progress.status === "blocked" ? "Bloqueado" : content.goal_progress.status === "achieved" ? "Objetivo logrado" : "Faltan datos"}
                       </Badge>
-                      <span className="text-xs text-muted">{new Date(review.created_at).toLocaleDateString("es-ES")}</span>
+                      <span className="flex items-center gap-2 text-xs text-muted">
+                        {review.trigger_kind === "objective_change" ? <Badge tone="brand">Tras cambiar objetivos</Badge> : null}
+                        {new Date(review.created_at).toLocaleDateString("es-ES")}
+                      </span>
                     </div>
                     <p className="mt-3 text-sm leading-6">{content.executive_summary}</p>
                     {plan.goal && content.goal_progress.observed_value !== null ? (
@@ -3020,7 +3157,25 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           >
             {plan.goal ? (
               <div className="mb-4 rounded-lg border border-separator bg-surface-subtle p-3">
-                <p className="text-xs font-medium text-muted">Meta del camino</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-muted">Meta del camino</p>
+                  {canManage && organizationId && !["archived", "completed"].includes(plan.status) ? (
+                    <Button size="sm" variant="ghost" type="button" onClick={() => setIsEditingGoal(true)}>
+                      Cambiar meta
+                    </Button>
+                  ) : null}
+                </div>
+                {organizationId ? (
+                  <GoalTargetDialog
+                    isOpen={isEditingGoal}
+                    organizationId={organizationId}
+                    planId={plan.id}
+                    currentTarget={plan.goal.target}
+                    label={`${plan.goal.metric_label}${plan.goal.unit === "money" ? ` (${planCurrency})` : plan.goal.unit === "pct" ? " (%)" : ""}`}
+                    onClose={() => setIsEditingGoal(false)}
+                    onSaved={() => void loadPlan(true)}
+                  />
+                ) : null}
                 <p className="mt-1 text-sm font-semibold">
                   {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal, planCurrency)}
                   {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal, planCurrency)}`}

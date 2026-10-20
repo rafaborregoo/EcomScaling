@@ -628,6 +628,7 @@ function TrustStrip({
 export function AiDiagnosticSection({
   organizationId,
   title,
+  description,
   getPath,
   runPath,
   loadingLabel,
@@ -642,6 +643,7 @@ export function AiDiagnosticSection({
 }: {
   organizationId: string;
   title: string;
+  description?: string;
   getPath: string;
   runPath: string;
   loadingLabel: string;
@@ -675,6 +677,7 @@ export function AiDiagnosticSection({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notReady, setNotReady] = useState(false);
+  const [notReadyMessage, setNotReadyMessage] = useState<string | null>(null);
   const [needsFirstRun, setNeedsFirstRun] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isCreatingTasks, setIsCreatingTasks] = useState(false);
@@ -720,15 +723,29 @@ export function AiDiagnosticSection({
         if (response.ok) {
           setDiagnostic((await response.json()) as Diagnostic);
           setNotReady(false);
+          setNotReadyMessage(null);
           setNeedsFirstRun(false);
         } else {
           setDiagnostic(null);
           const message = await readApiError(response);
           // Una organizacion sin datos no es un fallo: es que todavia no toca.
           // Se cuenta como estado normal, no como error rojo.
-          const sinDatos = message.startsWith("agent_sin_datos");
+          const sinDatos = message.startsWith("agent_sin_datos") || message.startsWith("agent_klaviyo_not_connected") || message.startsWith("agent_klaviyo_sync_pending") || message.startsWith("agent_klaviyo_account_not_ready");
           const pendiente = message.startsWith("agent_diagnostic_pending");
           setNotReady(sinDatos);
+          setNotReadyMessage(
+            message.startsWith("agent_klaviyo_not_connected")
+              ? "Conecta una cuenta de Klaviyo para analizar campañas, flows e ingresos atribuidos."
+              : message.startsWith("agent_klaviyo_sync_pending")
+                ? "Klaviyo está conectado. El primer análisis estará disponible después de una sincronización correcta."
+                : message.startsWith("agent_klaviyo_account_not_ready")
+                  ? "La conexión de Klaviyo no está asignada a esta tienda. Vincula la cuenta a la tienda para que el análisis use el alcance correcto."
+                : sinDatos
+                  ? "No hay datos de Klaviyo disponibles todavía. Conecta la cuenta y espera a que termine la primera sincronización."
+                  : pendiente
+                    ? "El análisis se genera automáticamente dos veces al día cuando hay datos y el agente está habilitado. También puedes solicitarlo manualmente."
+                    : null,
+          );
           setNeedsFirstRun(pendiente);
           setError(sinDatos || pendiente ? null : message);
         }
@@ -865,12 +882,11 @@ export function AiDiagnosticSection({
     <LoadingBlock label={loadingLabel} />
   ) : notReady ? (
     <p className="text-sm leading-6 text-muted">
-      Conecta tu tienda para que la IA empiece a analizarla. El primer análisis
-      llega tras la primera sincronización.
+      {notReadyMessage ?? "Conecta Klaviyo y completa la sincronización para generar el análisis."}
     </p>
   ) : needsFirstRun ? (
     <p className="text-sm leading-6 text-muted">
-      El primer análisis está pendiente. Aparecerá en el próximo ciclo automático.
+      El análisis se genera automáticamente dos veces al día cuando hay datos y el agente está habilitado. También puedes solicitarlo manualmente.
     </p>
   ) : error ? (
     <ErrorBlock>{error}</ErrorBlock>
@@ -1494,7 +1510,7 @@ export function AiDiagnosticSection({
           {title}
         </span>
       }
-      description={meta ?? undefined}
+      description={description ? <span>{description}{meta ? <span className="ml-2">{meta}</span> : null}</span> : meta ?? undefined}
       actions={refreshButton}
     >
       {body}

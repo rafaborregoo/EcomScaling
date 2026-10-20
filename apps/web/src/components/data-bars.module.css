@@ -9,10 +9,10 @@
   --db-grid: var(--line, #e2dfdc);
   --db-track: var(--sunken, #ebe8e5);
   --db-surface: var(--surface, #ffffff);
-  --db-good: var(--good, #2f7d5b);
+  --db-good: var(--good, #3d3b3a);
   --db-bad: var(--bad, #b8364a);
   --db-warn: var(--warn, #b85f17);
-  --db-bar: var(--store, #4f8a6e);
+  --db-bar: var(--store, #3d3b3a);
   /* Los costes en grafito claro: restar no es un error, no van en rojo. */
   --db-cost: color-mix(in srgb, var(--db-ink-3) 55%, var(--db-surface));
   font-variant-numeric: tabular-nums;

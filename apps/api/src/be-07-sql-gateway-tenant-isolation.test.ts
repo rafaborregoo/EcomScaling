@@ -31,8 +31,12 @@ const RUN_TAG = `${Date.now()}`;
 
 let orgA = "";
 let orgB = "";
+let orgC = "";
 let storeAId = "";
 let storeBId = "";
+// Organización C con dos tiendas: aislamiento por tienda dentro del tenant.
+let storeC1Id = "";
+let storeC2Id = "";
 
 async function createStore(organizationId: string, label: string) {
   const shopDomain = `be07-gateway-test-${label}-${RUN_TAG}.myshopify.com`;
@@ -89,23 +93,54 @@ before(async () => {
         slug: `be07-gateway-org-b-${RUN_TAG}`,
         status: "active",
       },
+      {
+        display_name: `BE-07 Gateway Org C ${RUN_TAG}`,
+        slug: `be07-gateway-org-c-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
-  if (orgsError || !orgs || orgs.length !== 2) {
+  if (orgsError || !orgs || orgs.length !== 3) {
     throw new Error(
       `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
     );
   }
   orgA = orgs.find((org) => org.slug.startsWith("be07-gateway-org-a"))!.id;
   orgB = orgs.find((org) => org.slug.startsWith("be07-gateway-org-b"))!.id;
+  orgC = orgs.find((org) => org.slug.startsWith("be07-gateway-org-c"))!.id;
 
   storeAId = await createStore(orgA, "a");
   storeBId = await createStore(orgB, "b");
+  storeC1Id = await createStore(orgC, "c1");
+  storeC2Id = await createStore(orgC, "c2");
 });
 
 after(async () => {
-  await admin.from("organizations").delete().in("id", [orgA, orgB]);
+  await admin.from("organizations").delete().in("id", [orgA, orgB, orgC]);
+});
+
+const storeIdsFor = async (organizationId: string, storeId: string | null) => {
+  const { data, error } = await admin.rpc("agent_sql_gateway", {
+    target_organization_id: organizationId,
+    query_sql: "select id from shopify_stores",
+    max_rows: 50,
+    target_store_id: storeId,
+  });
+  assert.equal(error, null);
+  return (data as { rows: Array<{ id: string }> }).rows.map((row) => row.id).sort();
+};
+
+test("con target_store_id solo se ve esa tienda; sin él, todas las de la organización", async () => {
+  assert.deepEqual(await storeIdsFor(orgC, storeC1Id), [storeC1Id]);
+  assert.deepEqual(await storeIdsFor(orgC, storeC2Id), [storeC2Id]);
+  assert.deepEqual(await storeIdsFor(orgC, null), [storeC1Id, storeC2Id].sort());
+  // La tienda fijada en una llamada no sobrevive a la siguiente.
+  assert.deepEqual(await storeIdsFor(orgC, null), [storeC1Id, storeC2Id].sort());
+});
+
+test("una tienda de otra organización no abre nada: el filtro de tenant sigue mandando", async () => {
+  assert.deepEqual(await storeIdsFor(orgA, storeC1Id), []);
 });
 
 test("agent_sql_gateway con target_organization_id=A nunca devuelve la tienda de B, aunque el SQL la pida por id explicito", async () => {
