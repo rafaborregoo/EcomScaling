@@ -9362,6 +9362,25 @@ async function detailCaminoProposalTasks(
 
   const results = new Map<string, CaminoTask[] | null>();
   const queue = [...targets];
+  // El detallador calcula con SQL (filtrado a la tienda del Camino) las cifras
+  // que sus pasos necesitan, en vez de pedírselas al cliente. Lo que no pueda
+  // calcular va a analysis_gap / propose_capability. Las tools se comparten
+  // entre los hitos: son sin estado y sus recibos van al mismo run.
+  const detailerTools = buildAgentTools(
+    env,
+    supabase,
+    runId,
+    organizationId,
+    CAMINO_DETAILER_TOOLS,
+    `${prompt.content}\n\nA19 entrega instrucciones comprobables, responsable, esfuerzo y criterio de terminado. En marketing especifica audiencia, oferta, objetivo, dependencias y fecha limite de preparacion; A05 decide la cadencia, el dia y la hora exactos de mailings y Meta. No escribas asuntos, preheaders, cuerpos de email ni creatividades finales. No fijes presupuestos sin costes o medicion comparables; define una puerta de decision verificable.`,
+    storeId,
+    await loadConnectedConnectorIds(supabase, organizationId),
+    ["client_visible"],
+    {
+      actorUserId: context.user.id,
+      approvalMode: agentVersion.approval_mode as ToolContext["approval_mode"],
+    },
+  );
   const worker = async () => {
     for (let target = queue.shift(); target; target = queue.shift()) {
       const started = Date.now();
@@ -9372,7 +9391,8 @@ async function detailCaminoProposalTasks(
         const turn = await runAgentTurnWithFallback<{ tasks: CaminoTask[] }>(env, {
           model: agentVersion.model,
           modelOverride: clientConfig.data?.model_id ?? undefined,
-          systemPrompt: `${prompt.content}\n\nA19 entrega instrucciones comprobables, responsable, esfuerzo y criterio de terminado. En marketing especifica audiencia, oferta, objetivo, dependencias y fecha limite de preparacion; A05 decide la cadencia, el dia y la hora exactos de mailings y Meta. No escribas asuntos, preheaders, cuerpos de email ni creatividades finales. No fijes presupuestos sin costes o medicion comparables; define una puerta de decision verificable.`,
+          systemPrompt: detailerTools.systemPrompt,
+          tools: detailerTools.tools,
           input: {
             run_id: runId,
             agent_code: "a19_arquitecto_camino",
@@ -9382,7 +9402,7 @@ async function detailCaminoProposalTasks(
             trigger_type: "manual",
             objective: `Redactar las tareas del hito «${target.milestone.name}» como guías paso a paso.`,
             time_range: null,
-            allowed_tools: [],
+            allowed_tools: [...CAMINO_DETAILER_TOOLS],
             approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
           },
           contextBlocks: [
@@ -9393,7 +9413,7 @@ async function detailCaminoProposalTasks(
           outputContract: { jsonSchema: taskListJsonSchema, schema: taskListSchema } as OutputContract<{ tasks: CaminoTask[] }>,
           resilience: { timeoutMs: CAMINO_MODEL_TIMEOUT_MS, maxRetries: 1 },
           ...CAMINO_DETAIL_MODEL_OPTIONS,
-        });
+        }, detailerTools.securityEvents);
         results.set(target.key, turn.output.tasks);
         await recordDelegatedAnalysis(supabase, runId, "a19_detallador", turn.output).catch(() => undefined);
         for (const task of turn.output.tasks) {
@@ -10426,6 +10446,10 @@ async function buildCaminoCalendarPack(
 // El Camino es el entregable mas importante y tarda lo que tarde: este limite solo
 // protege de una conexion colgada, no de una respuesta lenta.
 const CAMINO_MODEL_TIMEOUT_MS = 30 * 60_000;
+// Tools del detallador de tareas del Camino (propose_capability la añade el
+// runtime a todos). Va en código y no en agent_versions porque el detallador
+// no tiene versión propia: corre con la de A19.
+const CAMINO_DETAILER_TOOLS = ["sql_select"] as const;
 // Razonamiento del modelo avanzado y salida amplia (el tope incluye el razonamiento).
 const CAMINO_STRATEGY_MODEL_OPTIONS = { reasoningEffort: "high", maxCompletionTokens: 100_000 } as const;
 const CAMINO_DETAIL_MODEL_OPTIONS = { reasoningEffort: "medium", maxCompletionTokens: 100_000 } as const;
