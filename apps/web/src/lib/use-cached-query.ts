@@ -307,6 +307,7 @@ export function useCachedQueriesSettled<T>(
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load, invalidation]);
 
