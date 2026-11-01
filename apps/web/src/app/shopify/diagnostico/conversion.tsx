@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type ConversionRun = {
   organization_id: string;
@@ -74,42 +74,44 @@ export function ConversionCroPlaybookPanel() {
   const funnelStatus = facts["conversion_cro.funnel.measurement.sufficient"] ?? "UNKNOWN";
 
   return (
-    <Card
-      id="insight-conversion"
-      title="Conversión y CRO"
-      description="Localiza la etapa y separa fix, research o test sin confundir cobertura incompleta con una fuga real."
-    >
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">
-            {current.candidate_count
-              ? `${current.candidate_count} playbook(s) CRO evaluado(s).`
-              : "No hay templates CONVERSION activos; no se inventa una fuga ni una intervención."}
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            Cobertura del funnel: {funnelStatus}. La tasa o la caída no se interpreta sin etapa, segmento y evidencia.
-          </p>
-          {profile ? (
-            <p className="text-muted mt-2 text-xs">
-              Modo: {profile.intervention_mode}; etapa: {profile.funnel_stage}.
-              {profile.affected_segment_ref ? ` Segmento: ${profile.affected_segment_ref}.` : " Segmento no declarado."}
-              {profile.primary_metric_ref ? ` Métrica primaria: ${profile.primary_metric_ref}.` : ""}
+    <Card id="insight-conversion">
+      <CardHeader>
+        <CardTitle>Conversión y CRO</CardTitle>
+        <CardDescription>Localiza la etapa y separa fix, research o test sin confundir cobertura incompleta con una fuga real.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">
+              {current.candidate_count
+                ? `${current.candidate_count} playbook(s) CRO evaluado(s).`
+                : "No hay templates CONVERSION activos; no se inventa una fuga ni una intervención."}
             </p>
-          ) : null}
-          <p className="text-muted mt-2 text-xs">
-            {current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar evidencia."}
-            {current.unresolved_unknowns.length
-              ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.`
-              : ""}
-          </p>
-        </article>
-      ) : (
-        <p className="text-muted text-sm">Todavía no hay evaluaciones de conversión y CRO.</p>
-      )}
+            <p className="text-muted mt-2 text-xs">
+              Cobertura del funnel: {funnelStatus}. La tasa o la caída no se interpreta sin etapa, segmento y evidencia.
+            </p>
+            {profile ? (
+              <p className="text-muted mt-2 text-xs">
+                Modo: {profile.intervention_mode}; etapa: {profile.funnel_stage}.
+                {profile.affected_segment_ref ? ` Segmento: ${profile.affected_segment_ref}.` : " Segmento no declarado."}
+                {profile.primary_metric_ref ? ` Métrica primaria: ${profile.primary_metric_ref}.` : ""}
+              </p>
+            ) : null}
+            <p className="text-muted mt-2 text-xs">
+              {current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar evidencia."}
+              {current.unresolved_unknowns.length
+                ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.`
+                : ""}
+            </p>
+          </CardContent></Card>
+        ) : (
+          <EmptyState title="Todavía no hay evaluaciones de conversión y CRO" />
+        )}
+      </CardContent>
     </Card>
   );
 }

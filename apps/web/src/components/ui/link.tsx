@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { Link as HeroLink } from "@heroui/react";
-import { cn } from "./cn";
+import NextLink from "next/link";
+import { buttonVariants, type ButtonSize, type ButtonVariant } from "./button";
 
 // Link real de HeroUI (React Aria). Navega client-side gracias al
 // AriaRouterProvider montado en el layout raiz (le pasa el router.push de
@@ -51,8 +52,8 @@ export function Link({
 export function ButtonLink({
   href,
   children,
-  variant = "primary",
-  size = "md",
+  variant = "default",
+  size = "default",
   className,
   target,
   rel,
@@ -62,43 +63,31 @@ export function ButtonLink({
 }: {
   href: string;
   children?: ReactNode;
-  // `ghost` para las acciones secundarias de una fila de lista: el mismo
-  // vocabulario de jerarquia que Button (ADR-0020), para no tener una escala
-  // de enlaces y otra de botones.
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md";
+  // Mismo vocabulario que Button (variant × size). Es un enlace de verdad
+  // (next/link) con las clases del botón, como pide shadcn: nada de
+  // role="button" sobre un <a>.
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   className?: string;
   target?: string;
   rel?: string;
   download?: string | boolean;
-  // Igual que en `Link`: React Aria solo expone onPress, y los call sites lo
-  // usan para efectos secundarios (invalidar cache al cambiar de cliente) sin
-  // leer el evento.
+  // Los call sites lo usan para efectos secundarios (invalidar cache al
+  // cambiar de cliente) sin leer el evento.
   onClick?: () => void;
   "aria-label"?: string;
 }) {
   return (
-    <HeroLink
+    <NextLink
       href={href}
       target={target}
       rel={rel}
-      download={download}
-      onPress={onClick}
+      download={download === true ? "" : download || undefined}
+      onClick={onClick ? () => onClick() : undefined}
       aria-label={ariaLabel}
-      className={cn(
-        "inline-flex w-fit items-center rounded-md border font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
-        size === "sm"
-          ? "min-h-8 px-3 py-1 text-sm pointer-coarse:min-h-11"
-          : "min-h-9 px-3 py-2 text-sm pointer-coarse:min-h-11",
-        variant === "primary"
-          ? "border-accent bg-accent text-accent-foreground hover:bg-accent-hover"
-          : variant === "ghost"
-            ? "border-transparent bg-transparent text-muted hover:text-accent"
-            : "border-separator bg-surface text-foreground hover:border-accent hover:text-accent",
-        className,
-      )}
+      className={buttonVariants({ variant, size, className })}
     >
       {children}
-    </HeroLink>
+    </NextLink>
   );
 }

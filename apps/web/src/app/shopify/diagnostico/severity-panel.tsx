@@ -25,10 +25,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -151,14 +155,14 @@ function AssessmentBody({ assessment }: { assessment: SeverityView }) {
       </div>
 
       {sinSeveridad ? (
-        <div className="mt-3 rounded-md border border-default-200 p-3">
+        <Card size="sm" className="mt-3"><CardContent>
           <p className="text-xs uppercase tracking-wide">
             Por qué no hay una gravedad
           </p>
           <p className="text-muted mt-1 max-w-prose text-sm leading-6">
             {sinSeveridad}
           </p>
-        </div>
+        </CardContent></Card>
       ) : null}
 
       {assessment.limitations ? (
@@ -213,27 +217,30 @@ export function SeverityPanel() {
   const ordenadas = sortAssessments(assessments);
 
   return (
-    <Card
-      title="Cuánto daño hay"
-      description="Cuánto se movió, sobre qué base y con qué supuestos. La gravedad aguda sale de los umbrales de arriba; el orden de la lista no es un orden de ataque: eso se decide con el esfuerzo y el momento delante, que aquí no están."
-    >
-      {ordenadas.length === 0 ? (
-        <EmptyState
-          title="Sin impacto medido"
-          hint="Aparece cuando hay un caso abierto con una señal en su ventana. Que no haya nada no significa que no haya daño: significa que no se ha medido."
-        />
-      ) : (
-        <ul>
-          {ordenadas.map((assessment) => (
-            <li
-              key={assessment.id}
-              className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
-            >
-              <AssessmentBody assessment={assessment} />
-            </li>
-          ))}
-        </ul>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>Cuánto daño hay</CardTitle>
+        <CardDescription>Cuánto se movió, sobre qué base y con qué supuestos. La gravedad aguda sale de los umbrales de arriba; el orden de la lista no es un orden de ataque: eso se decide con el esfuerzo y el momento delante, que aquí no están.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {ordenadas.length === 0 ? (
+          <EmptyState
+            title="Sin impacto medido"
+            hint="Aparece cuando hay un caso abierto con una señal en su ventana. Que no haya nada no significa que no haya daño: significa que no se ha medido."
+          />
+        ) : (
+          <ul>
+            {ordenadas.map((assessment) => (
+              <li
+                key={assessment.id}
+                className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
+              >
+                <AssessmentBody assessment={assessment} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   );
 }

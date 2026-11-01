@@ -37,6 +37,9 @@ const apiEnvSchema = z.object({
   SHOPIFY_API_SECRET: z.string().min(1).optional(),
   SHOPIFY_SCOPES: z.string().min(1).optional(),
   SHOPIFY_REDIRECT_URI: z.string().url().optional(),
+  // Public ingress can differ from browser OAuth redirects in local development.
+  INTEGRATION_WEBHOOK_BASE_URL: z.string().url().optional(),
+  KLAVIYO_SYSTEM_WEBHOOKS_ENABLED: z.enum(["true", "false"]).optional(),
   SHOPIFY_API_VERSION: z
     .string()
     .regex(/^\d{4}-\d{2}$/)
@@ -202,6 +205,8 @@ export type LoadedApiEnv = {
   SHOPIFY_SCOPES: string;
   SHOPIFY_REDIRECT_URI: string;
   SHOPIFY_API_VERSION?: string;
+  INTEGRATION_WEBHOOK_BASE_URL?: string;
+  KLAVIYO_SYSTEM_WEBHOOKS_ENABLED?: "true" | "false";
   SHOPIFY_CUSTOM_API_KEY?: string;
   SHOPIFY_CUSTOM_API_SECRET?: string;
   SHOPIFY_CUSTOM_SCOPES?: string;
@@ -419,6 +424,8 @@ export function loadApiEnv(
     SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
     SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
     SHOPIFY_REDIRECT_URI: env.SHOPIFY_REDIRECT_URI,
+    ...(env.INTEGRATION_WEBHOOK_BASE_URL ? { INTEGRATION_WEBHOOK_BASE_URL: env.INTEGRATION_WEBHOOK_BASE_URL } : {}),
+    ...(env.KLAVIYO_SYSTEM_WEBHOOKS_ENABLED ? { KLAVIYO_SYSTEM_WEBHOOKS_ENABLED: env.KLAVIYO_SYSTEM_WEBHOOKS_ENABLED } : {}),
     ...(env.SHOPIFY_API_VERSION
       ? { SHOPIFY_API_VERSION: env.SHOPIFY_API_VERSION }
       : {}),

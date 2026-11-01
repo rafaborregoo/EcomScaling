@@ -1,4 +1,33 @@
 import { z } from "zod";
+import crypto from "node:crypto";
+import { isCampaignPlanDate, localCampaignDateTimeToUtc } from "./campaign-plan-window.js";
+
+export function readWeeklyMailingDates(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 7 ||
+    !value.every(isCampaignPlanDate) || new Set(value).size !== value.length) return null;
+  return [...value].sort();
+}
+
+export function resolveWeeklyMailingSchedule(dates: string[], timezone: string, now = Date.now()) {
+  return dates.map((date) => {
+    const instant = localCampaignDateTimeToUtc(date, timezone, 9, 0).toISOString();
+    if (Date.parse(instant) <= now) throw new Error("weekly_mailing_schedule_in_past");
+    return instant;
+  });
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return JSON.stringify(Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, JSON.parse(canonical(item))]),
+  ));
+  return JSON.stringify(value ?? null);
+}
+
+export function weeklyMailingRequestFingerprint(value: unknown) {
+  return crypto.createHash("sha256").update(canonical(value)).digest("hex");
+}
 
 const weeklyMailingClientStateSchema = z.object({
   campaign_name: z.string().max(160).optional(),
@@ -12,9 +41,11 @@ const weeklyMailingClientStateSchema = z.object({
   number_of_emails: z.string().max(1).optional(),
   selected_template_ids: z.array(z.string().uuid()).max(3).optional(),
   selected_image_urls: z.array(z.string().max(2_000)).max(7).optional(),
+  selected_image_ids: z.array(z.string().uuid()).max(7).optional(),
+  image_rights_confirmed: z.boolean().optional(),
   base_design_template_id: z.string().uuid().nullable().optional(),
   verbatim_texts: z.array(z.string().max(2_000)).max(20).optional(),
-  plan_signature: z.string().max(6_000).optional(),
+  plan_signature: z.string().max(80_000).optional(),
 }).strict();
 
 export type WeeklyMailingClientState = z.infer<typeof weeklyMailingClientStateSchema>;
@@ -29,13 +60,10 @@ export function sameWeeklyMailingPlanRequest(
   candidate: Record<string, unknown>,
 ) {
   const sameFields = [
-    "campaign_name", "objective", "audience", "offer", "instructions", "store_connection_id",
+    "contract_version", "campaign_name", "objective", "audience", "offer", "instructions", "store_connection_id",
   ].every((key) => saved[key] === candidate[key]);
-  const sameDates = JSON.stringify(saved.scheduled_dates) === JSON.stringify(candidate.scheduled_dates);
-  const savedTemplate = saved.selected_template as Record<string, unknown> | null;
-  const candidateTemplate = candidate.selected_template as Record<string, unknown> | null;
-  return sameFields && sameDates &&
-    (savedTemplate?.id ?? null) === (candidateTemplate?.id ?? null);
+  return sameFields && ["scheduled_dates", "selected_template", "resources", "image_resources", "production", "timezone", "scheduled_for"]
+    .every((key) => canonical(saved[key]) === canonical(candidate[key]));
 }
 
 export function isWeeklyMailingGenerationLeaseExpired(
@@ -50,14 +78,19 @@ export function isWeeklyMailingGenerationLeaseExpired(
 export function weeklyMailingDraftsAreComplete(
   sequenceId: string,
   expectedSequenceNumbers: number[],
-  drafts: Array<{ idempotency_key: string | null; scheduled_for: string | null }>,
+  drafts: Array<{ idempotency_key: string | null; scheduled_for: string | null; status: string; request?: unknown }>,
+  approvedSchedule: string[],
+  storeConnectionId: string,
 ) {
-  if (!expectedSequenceNumbers.length) return false;
-  const expected = new Set(expectedSequenceNumbers.map((number) => `${sequenceId}:${number}`));
-  const scheduled = new Set(drafts
-    .filter((draft) => Boolean(draft.scheduled_for))
-    .map((draft) => draft.idempotency_key)
-    .filter((key): key is string => typeof key === "string"));
-  return expected.size === expectedSequenceNumbers.length &&
-    scheduled.size === expected.size && [...expected].every((key) => scheduled.has(key));
+  if (!expectedSequenceNumbers.length || approvedSchedule.length !== expectedSequenceNumbers.length ||
+    new Set(expectedSequenceNumbers).size !== expectedSequenceNumbers.length) return false;
+  // Browser completion means all drafts produced; their human review remains separate.
+  return expectedSequenceNumbers.every((number, index) => drafts.some((draft) => {
+    const request = draft.request as Record<string, unknown> | null;
+    return draft.idempotency_key === `${sequenceId}:${number}` &&
+      ["pending_approval", "approved", "published"].includes(draft.status) &&
+      request?.store_id === storeConnectionId &&
+      Boolean(draft.scheduled_for) && Number.isFinite(Date.parse(draft.scheduled_for!)) &&
+      Date.parse(draft.scheduled_for!) === Date.parse(approvedSchedule[index]!);
+  }));
 }

@@ -113,6 +113,16 @@ test("palancas: solo con beneficio creible y por debajo del objetivo", () => {
   assert.ok(row.levers.some((lever) => lever.clave === "cac"));
   // Tienda sin datos: sin palancas, no se inventa dinero.
   assert.deepEqual(store("x", "X", { ...complete, cogs: 0 }).levers, []);
+  // Las reglas se leen en español: coma decimal, no "5.40".
+  assert.match(margin.regla, /^5,4 puntos/);
+});
+
+test("CAC: con pocos clientes nuevos no hay CAC ni palanca, hay falta de muestra", () => {
+  // 3.705 € entre 1 cliente nuevo no es un CAC de 3.705 €.
+  const row = store("pt", "Huerta", { ...complete, new_customers: 1, cac_blended: 3705 });
+  assert.equal(row.cac, null);
+  assert.ok(!row.levers.some((lever) => lever.clave === "cac"));
+  assert.equal(aggregateClients([row])[0]?.cac, null);
 });
 
 test("cliente: el tramo sale del agregado, no de la peor tienda", () => {
@@ -251,4 +261,21 @@ test("gastos fijos: se reparten por facturacion y las tiendas suman el beneficio
   assert.equal(rowA.net_profit, 9400);
   assert.equal(rowB.net_profit, 5600);
   assert.ok(Math.abs(rowA.per_order.fixed - 1.2) < 1e-9);
+});
+
+test("conversión por tienda: pedidos entre sesiones, y nada sin informe de sesiones", () => {
+  const row = store("conv", "o", { orders_count: 214, net_revenue_ex_tax: 10000 }, { conversion_rate: 1.5 });
+  assert.equal(row.sessions, 21400);
+  assert.equal(row.conversion_pct, 1);
+  assert.equal(row.conversion_target, 1.5);
+  const blind = buildStoreRow({
+    store: { id: "x", organization_id: "o", organization_name: "o", connection_id: null, shop_name: "x", domain: null, currency_code: "EUR" },
+    financial: { orders_count: 214 },
+    previous: null,
+    funnel: { days_with_sessions: 0, sessions: 0 },
+    targets: {},
+    periodDays: 30,
+  });
+  assert.equal(blind.sessions, null);
+  assert.equal(blind.conversion_pct, null);
 });

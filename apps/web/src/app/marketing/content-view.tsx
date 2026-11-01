@@ -4,7 +4,23 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import { ChannelBadge, channelStyle, toChannel } from "@/components/marketing-channel";
-import { Badge, Button, EmptyState, MessageIcon, Sheet } from "@/components/ui";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
+import {
+  Separator,
+  ScrollArea,
+  Badge,
+  Button,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  EmptyState,
+  MessageIcon,
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui";
 import { getMetaCallToAction, getMetaDestinationUrl, isInstagramDraft } from "./meta-ad-plan";
 import { dueText, needsViewer, PIECE_STATE, piecesOnDay, queueOrder, weekDays } from "./content-state";
 import { threadIndicator, type PieceAuthorKind } from "./piece-analysis";
@@ -12,6 +28,13 @@ import { fmtDate } from "./format";
 import s from "./content-view.module.css";
 
 export const pieceTitle = (draft: MarketingDraft) => draft.template_name || draft.subject || "Pieza sin nombre";
+
+function LabDraftInfo({ draft }: { draft: MarketingDraft }) {
+  const lab = draft.request?.ai_lab;
+  if (!lab) return null;
+  const price = (value: number) => value.toLocaleString("es-ES", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  return <span className="text-xs text-muted">Prueba A11 · {lab.model_label} · API estimada: {price(lab.estimated_api_cost_low)}–{price(lab.estimated_api_cost_high)} USD · {lab.synthetic ? "Datos sintéticos" : "Contexto guardado"} · Revisión humana pendiente</span>;
+}
 
 const contentTypeLabels: Record<string, string> = {
   campaign: "Campaña",
@@ -259,30 +282,22 @@ export function ContentOverview({
           <h2 id="ct-library-t">Todas las piezas</h2>
         </div>
         <div className={s.filters}>
-          {CHANNEL_FILTERS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={s.chip}
-              aria-pressed={filter.channel === value}
-              onClick={() => setFilter({ ...filter, channel: value })}
-            >
-              {label}
-              <small>{countChannel(value)}</small>
-            </button>
-          ))}
-          <span className={s.sep} aria-hidden />
-          {STATE_FILTERS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={s.chip}
-              aria-pressed={filter.state === value}
-              onClick={() => setFilter({ ...filter, state: value })}
-            >
-              {label}
-            </button>
-          ))}
+          <ToggleGroup aria-label="Canal" spacing={1.5} value={filter.channel} onValueChange={(channel) => setFilter({ ...filter, channel })}>
+            {CHANNEL_FILTERS.map(([value, label]) => (
+              <ToggleGroupItem key={value} value={value}>
+                {label}
+                <span className="text-xs text-muted tabular-nums">{countChannel(value)}</span>
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <Separator orientation="vertical" className="h-5 self-center" />
+          <ToggleGroup aria-label="Estado" spacing={1.5} value={filter.state} onValueChange={(state) => setFilter({ ...filter, state })}>
+            {STATE_FILTERS.map(([value, label]) => (
+              <ToggleGroupItem key={value} value={value}>
+                {label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
           <input
             className={s.search}
             type="search"
@@ -324,6 +339,7 @@ export function ContentOverview({
                     <span>{draft.scheduled_for ? `${fmtDate(draft.scheduled_for)} · ${hour(draft.scheduled_for)}` : "Sin fecha"}</span>
                     <ChannelBadge channel={draft.request?.channel} />
                   </div>
+                  <LabDraftInfo draft={draft} />
                 </div>
               </button>
             );
@@ -340,13 +356,14 @@ export function PiecePreview({ draft }: { draft: MarketingDraft }) {
   if (toChannel(draft.request?.channel) === "email_klaviyo") {
     return (
       <div className={s.stage}>
-        <div className={s.devices} role="group" aria-label="Dispositivo">
+        <LabDraftInfo draft={draft} />
+        <ToggleGroup aria-label="Dispositivo" value={device} onValueChange={setDevice}>
           {(["desktop", "mobile"] as const).map((value) => (
-            <button key={value} type="button" aria-pressed={device === value} onClick={() => setDevice(value)}>
+            <ToggleGroupItem key={value} value={value}>
               {value === "desktop" ? "Ordenador" : "Móvil"}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <iframe title={`Vista previa de ${pieceTitle(draft)}`} className={s.frame} data-dev={device} sandbox="" srcDoc={draft.html} />
       </div>
     );
@@ -354,6 +371,7 @@ export function PiecePreview({ draft }: { draft: MarketingDraft }) {
   const destination = getMetaDestinationUrl(draft);
   return (
     <div className={s.stage}>
+      <LabDraftInfo draft={draft} />
       <div className={s.social}>
         <span className="text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted">
           {isInstagramDraft(draft) ? "Instagram · orgánico" : "Patrocinado · Meta Ads"}
@@ -385,32 +403,41 @@ export function ContentDrawer({
   footer: ReactNode;
 }) {
   const state = draft ? PIECE_STATE[draft.status] : null;
+  const isDesktop = useIsDesktop();
   return (
-    <Sheet
-      isOpen={Boolean(draft)}
+    <Drawer
+      open={Boolean(draft)}
       onOpenChange={(open) => !open && onClose()}
-      size="lg"
-      className={s.tok}
-      title={draft ? pieceTitle(draft) : "Pieza"}
-      meta={
-        draft && state ? (
-          <>
-            <Badge tone={state.tone}>{state.label}</Badge>
-            <ChannelBadge channel={draft.request?.channel} />
-            <span>{pieceKind(draft)}</span>
-          </>
-        ) : undefined
-      }
-      headerActions={tools}
-      footer={draft ? <div className={s.foot}>{footer}</div> : undefined}
+      swipeDirection={isDesktop ? "right" : "down"}
+      showSwipeHandle={!isDesktop}
     >
-      {draft && state ? (
-        <div className={s.dgrid}>
-          <PiecePreview key={draft.id} draft={draft} />
-          <div className={s.side}>{side}</div>
-        </div>
-      ) : null}
-    </Sheet>
+      <DrawerContent className={`${s.tok} sm:max-w-[60rem]`}>
+        <DrawerHeader>
+          <DrawerTitle>{draft ? pieceTitle(draft) : "Pieza"}</DrawerTitle>
+          {draft && state ? (
+            <DrawerDescription>
+              <Badge tone={state.tone}>{state.label}</Badge>
+              <ChannelBadge channel={draft.request?.channel} />
+              <span>{pieceKind(draft)}</span>
+            </DrawerDescription>
+          ) : null}
+          {tools ? <div className="flex flex-wrap items-center gap-2">{tools}</div> : null}
+        </DrawerHeader>
+        <ScrollArea className="flex-1 p-4 sm:px-6">
+          {draft && state ? (
+            <div className={s.dgrid}>
+              <PiecePreview key={draft.id} draft={draft} />
+              <div className={s.side}>{side}</div>
+            </div>
+          ) : null}
+        </ScrollArea>
+        {draft ? (
+          <DrawerFooter>
+            <div className={s.foot}>{footer}</div>
+          </DrawerFooter>
+        ) : null}
+      </DrawerContent>
+    </Drawer>
   );
 }
 

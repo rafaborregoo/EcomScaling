@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
 import { panelMoney, panelPct, type ProfitStoreRow } from "@e-nora/contracts";
 import { Panel, Section, cx } from "./panel-parts";
@@ -28,24 +29,14 @@ export function StoreSimulator({
   const [ads, setAds] = useState(p.ads);
   const [aov, setAov] = useState(p.aov_ex_tax);
 
-  const others = p.cogs + p.shipping + p.fees + p.fixed;
-  const perOrder = aov - others - ads;
+  // Se parte del beneficio real por pedido y se le suma solo lo que se mueve:
+  // recomponerlo desde las partes redondeadas daba +10 € sin tocar nada.
+  const real = p.profit;
+  const perOrder = real + (aov - p.aov_ex_tax) - (ads - p.ads);
   const margin = aov > 0 ? (perOrder / aov) * 100 : 0;
   const monthly = perOrder * row.orders;
-  const real = p.profit;
   const changed = Math.abs(ads - p.ads) > 0.01 || Math.abs(aov - p.aov_ex_tax) > 0.01;
-  const gain = (perOrder - real) * row.orders;
-
-  const steps: Array<{ label: string; value: number; cls?: string }> = [
-    { label: "Ticket", value: aov, cls: s.total },
-    { label: "− Producto", value: p.cogs },
-    { label: "− Envío", value: p.shipping },
-    { label: "− Comisiones", value: p.fees },
-    { label: "− Publicidad", value: ads, cls: s.ads },
-    { label: "− Gastos fijos", value: p.fixed },
-    { label: "= Te queda", value: perOrder, cls: s.end },
-  ];
-  const scale = Math.max(aov, 1);
+  const gain = changed ? (perOrder - real) * row.orders : 0;
 
   return (
     <Section
@@ -53,8 +44,7 @@ export function StoreSimulator({
       title="Simulador de palancas"
       lead="Prueba un escenario antes de proponérselo al cliente. El resto de costes por pedido se mantiene."
     >
-      <div className={s.eq}>
-        <Panel title="Mueve las palancas" sub={`${row.orders} pedidos en el periodo · cifras por pedido sin IVA`}>
+      <Panel title="Mueve las palancas" sub={`${row.orders} pedidos en el periodo · cifras por pedido sin IVA`}>
           <div className={s.simCtl}>
             <label>
               <span>
@@ -106,7 +96,7 @@ export function StoreSimulator({
           <div className={s.actions}>
             <button
               type="button"
-              className={cx(s.btn, s.acc)}
+              className={buttonVariants()}
               disabled={!changed || creating}
               onClick={() =>
                 onCreateTask(
@@ -119,7 +109,7 @@ export function StoreSimulator({
             </button>
             <button
               type="button"
-              className={cx(s.btn, s.ghost)}
+              className={buttonVariants({ variant: "secondary" })}
               disabled={!changed}
               onClick={() => {
                 setAds(p.ads);
@@ -131,18 +121,6 @@ export function StoreSimulator({
           </div>
         </Panel>
 
-        <Panel title={`Un pedido de ${money(aov, 1)}`} sub="De lo que paga el cliente a lo que te queda">
-          {steps.map((step) => (
-            <div key={step.label} className={cx(s.wfR, s.wfSolo, step.cls)}>
-              <span>{step.label}</span>
-              <div className={s.t}>
-                <i style={{ left: 0, width: `${Math.max(0, Math.min(100, (step.value / scale) * 100))}%` }} />
-              </div>
-              <span className={s.v}>{money(step.value, 2)}</span>
-            </div>
-          ))}
-        </Panel>
-      </div>
     </Section>
   );
 }

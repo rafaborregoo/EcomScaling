@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import {
   type AnsweredDoc,
@@ -12,7 +13,7 @@ import {
   type StoreQuestion,
 } from "./store-knowledge";
 import { isStaleAnswer } from "./answer-age";
-import { LoadingBlock } from "@/components/ui";
+import { LoadingBlock, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 import { cx } from "../dashboard/client-pulse";
 import pulse from "../dashboard/client-pulse.module.css";
 import q from "./cuestionario.module.css";
@@ -120,14 +121,10 @@ export function StoreQuestionnaire({
             })}
           </div>
         </div>
-        <div className={pulse.seg} role="group" aria-label="Vista">
-          <button type="button" aria-pressed={mode === "wizard"} onClick={() => setMode("wizard")}>
-            Responder
-          </button>
-          <button type="button" aria-pressed={mode === "profile"} onClick={() => setMode("profile")}>
-            Perfil de la tienda
-          </button>
-        </div>
+        <ToggleGroup aria-label="Vista" value={mode} onValueChange={setMode}>
+          <ToggleGroupItem value="wizard">Responder</ToggleGroupItem>
+          <ToggleGroupItem value="profile">Perfil de la tienda</ToggleGroupItem>
+        </ToggleGroup>
       </section>
 
       {mode === "wizard" ? (
@@ -362,10 +359,12 @@ function QuestionCard({
       )}
 
       {question.example ? (
-        <details className={q.ex}>
-          <summary>Ver un ejemplo de buena respuesta</summary>
+        <Collapsible className={q.ex}>
+          <CollapsibleTrigger>Ver un ejemplo de buena respuesta<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+          <CollapsibleContent>
           <p>{question.type === "number" && question.unit ? `${question.example} ${question.unit}` : question.example}</p>
-        </details>
+        </CollapsibleContent>
+        </Collapsible>
       ) : null}
 
       <div className={q.reads}>
@@ -381,7 +380,7 @@ function QuestionCard({
       <div className={q.acts}>
         <button
           type="button"
-          className={cx(pulse.btn, pulse.ghost)}
+          className={buttonVariants({ variant: "secondary" })}
           disabled={!previous}
           onClick={() => previous && onGo(previous.id)}
         >
@@ -389,13 +388,13 @@ function QuestionCard({
         </button>
         <div>
           {next ? (
-            <button type="button" className={cx(pulse.btn, q.link)} onClick={() => onGo(next.id)}>
+            <button type="button" className={buttonVariants({ variant: "ghost" })} onClick={() => onGo(next.id)}>
               Saltar
             </button>
           ) : null}
           <button
             type="button"
-            className={cx(pulse.btn, pulse.acc)}
+            className={buttonVariants()}
             disabled={isSaving || isLoading || !value.trim()}
             onClick={() => void save()}
           >
@@ -481,7 +480,7 @@ function StoreProfile({
                           {ago(lastChange(doc), now)}
                         </span>
                       ) : null}
-                      <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} onClick={() => onEdit(item.id)}>
+                      <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => onEdit(item.id)}>
                         {doc ? "Editar" : "Responder"}
                       </button>
                     </div>
@@ -509,7 +508,7 @@ function StoreProfile({
               return (
                 <li key={id}>
                   <span>{item.question}</span>
-                  <button type="button" className={cx(pulse.btn, pulse.acc, pulse.sm)} onClick={() => onEdit(id)}>
+                  <button type="button" className={buttonVariants({ size: "sm" })} onClick={() => onEdit(id)}>
                     Responder
                   </button>
                 </li>

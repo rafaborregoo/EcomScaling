@@ -1,9 +1,11 @@
 "use client";
 
+import { Trash2Icon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Banner, Button, ButtonLink, ConfirmDialog, Dialog, toast } from "@/components/ui";
+import { Select, Banner, Button, ButtonLink, Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, toast, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogMedia, AlertDialogTitle, TimeInput, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Command, CommandEmpty, CommandInput, CommandItem, CommandList, CheckIcon, ButtonGroup, RadioCard, RadioGroup, ResizableHandle, ResizablePanel, ResizablePanelGroup, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import {
   DAY_NAME,
@@ -156,7 +158,6 @@ export function FlowBuilder({
   const [view, setView] = useState<"canvas" | "json">("canvas");
   const [pane, setPane] = useState<"left" | "center" | "right">("center");
   const [zoom, setZoom] = useState(1);
-  const [menu, setMenu] = useState<string | null>(null);
   const [overSlot, setOverSlot] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [save, setSave] = useState<{ state: "saved" | "saving" | "dirty" | "error"; message?: string }>({ state: "saved" });
@@ -311,14 +312,12 @@ export function FlowBuilder({
   function select(id: Selected) {
     setSelected(id);
     setRtab("step");
-    setMenu(null);
     if (window.matchMedia("(max-width: 1020px)").matches) setPane("right");
   }
 
   function addAt(listId: string, index: number, type: StepType) {
     const step = newStep(type, account);
     mutate((design) => insertStep(design.steps, listId, index, step));
-    setMenu(null);
     select(step.id);
   }
 
@@ -407,8 +406,6 @@ export function FlowBuilder({
       } else if ((event.key === "Delete" || event.key === "Backspace") && !typing && selected !== "trigger" && !pushOpen && !deleteOpen) {
         event.preventDefault();
         removeById(selected);
-      } else if (event.key === "Escape" && menu) {
-        setMenu(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -460,21 +457,21 @@ export function FlowBuilder({
         }}
         onDrop={(event) => onDrop(event, listId, index)}
       >
-        <button type="button" className={s.add} aria-label="Añadir un paso aquí" aria-expanded={menu === key} onClick={() => setMenu(menu === key ? null : key)}>
-          <Icon name="plus" />
-        </button>
-        {menu === key ? (
-          <div className={s.menu} role="menu">
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<button className={s.add} aria-label="Añadir un paso aquí" />}>
+            <Icon name="plus" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
             {STEP_ORDER.map((type) => (
-              <button key={type} type="button" role="menuitem" onClick={() => addAt(listId, index, type)}>
-                <span className={s.ti} data-kind={STEP_META[type].kind}>
+              <DropdownMenuItem key={type} onSelect={() => addAt(listId, index, type)}>
+                <span className={`${s.ti} ${s.menuIcon}`} data-kind={STEP_META[type].kind}>
                   <Icon name={type} />
                 </span>
                 {STEP_META[type].label}
-              </button>
+              </DropdownMenuItem>
             ))}
-          </div>
-        ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     );
   };
@@ -562,20 +559,20 @@ export function FlowBuilder({
           <span className={s.saved} data-state={save.state === "error" ? "error" : undefined} role="status">
             {saveLabel}
           </span>
-          <button type="button" className={s.tbtn} data-icon="" aria-label="Deshacer" title="Deshacer (Ctrl+Z)" disabled={!history.past.length} onClick={undo}>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "icon-sm" })} data-icon="" aria-label="Deshacer" title="Deshacer (Ctrl+Z)" disabled={!history.past.length} onClick={undo}>
             <Icon name="undo" />
           </button>
-          <button type="button" className={s.tbtn} data-icon="" aria-label="Rehacer" title="Rehacer (Ctrl+Shift+Z)" disabled={!history.future.length} onClick={redo}>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "icon-sm" })} data-icon="" aria-label="Rehacer" title="Rehacer (Ctrl+Shift+Z)" disabled={!history.future.length} onClick={redo}>
             <Icon name="redo" />
           </button>
           {row ? (
-            <button type="button" className={`${s.tbtn} ${s.hideSm}`} data-icon="" aria-label="Borrar el flow" title="Borrar el flow" onClick={() => setDeleteOpen(true)}>
+            <button type="button" className={buttonVariants({ variant: "secondary", size: "icon-sm", className: s.hideSm })} data-icon="" aria-label="Borrar el flow" title="Borrar el flow" onClick={() => setDeleteOpen(true)}>
               <Icon name="del" />
             </button>
           ) : null}
           <button
             type="button"
-            className={`${s.tbtn} ${s.hideSm}`}
+            className={buttonVariants({ variant: "secondary", className: s.hideSm })}
             onClick={() => {
               setRtab("review");
               setPane("right");
@@ -584,15 +581,15 @@ export function FlowBuilder({
             <Icon name="check" />
             Revisar
           </button>
-          <button type="button" className={s.tbtn} data-primary="" disabled={inKlaviyo && !changedSincePush} onClick={() => setPushOpen(true)}>
+          <button type="button" className={buttonVariants()} data-primary="" disabled={inKlaviyo && !changedSincePush} onClick={() => setPushOpen(true)}>
             <Icon name="send" />
             {pushLabel}
           </button>
         </div>
       </header>
 
-      <div className={s.work} data-pane={pane}>
-        <aside className={`${s.pane} ${s.left}`} aria-label="Pasos y plantillas">
+      <ResizablePanelGroup autoSaveId="flows" className={s.work} data-pane={pane}>
+        <ResizablePanel defaultSize="264px" minSize="200px" maxSize="30%" role="complementary" className={`${s.pane} ${s.left}`} aria-label="Pasos y plantillas">
           <div className={s.tabs} role="tablist">
             <button type="button" role="tab" aria-selected={ltab === "steps"} onClick={() => setLtab("steps")}>
               Pasos
@@ -658,47 +655,45 @@ export function FlowBuilder({
                   <span className={s.shape}>{template.shape}</span>
                 </button>
               ))}
-              <button type="button" className={s.btn} onClick={() => loadTemplate("blank")}>
+              <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => loadTemplate("blank")}>
                 <Icon name="plus" />
                 Empezar en blanco
               </button>
             </div>
           )}
-        </aside>
+        </ResizablePanel>
 
-        <main className={s.center} aria-label="Diagrama del flow">
+        <ResizableHandle aria-label="Cambiar el ancho del panel izquierdo" />
+        <ResizablePanel role="main" className={s.center} aria-label="Diagrama del flow">
           <div className={s.ctools}>
-            <div className={s.seg} role="group" aria-label="Vista">
-              <button type="button" aria-pressed={view === "canvas"} onClick={() => setView("canvas")}>
+            <ToggleGroup aria-label="Vista" value={view} onValueChange={setView}>
+              <ToggleGroupItem value="canvas">
                 <Icon name="tree" />
                 Diagrama
-              </button>
-              <button type="button" aria-pressed={view === "json"} onClick={() => setView("json")}>
+              </ToggleGroupItem>
+              <ToggleGroupItem value="json">
                 <Icon name="code" />
                 Formato Klaviyo
-              </button>
-            </div>
+              </ToggleGroupItem>
+            </ToggleGroup>
             {view === "canvas" ? (
-              <div className={s.seg} role="group" aria-label="Zoom">
-                <button type="button" aria-label="Alejar" onClick={() => setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))}>
+              <ButtonGroup aria-label="Zoom">
+                <Button variant="outline" size="sm" aria-label="Alejar" onClick={() => setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))}>
                   −
-                </button>
-                <button type="button" onClick={() => setZoom(1)}>
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setZoom(1)}>
                   {Math.round(zoom * 100)} %
-                </button>
-                <button type="button" aria-label="Acercar" onClick={() => setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))}>
+                </Button>
+                <Button variant="outline" size="sm" aria-label="Acercar" onClick={() => setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))}>
                   +
-                </button>
-              </div>
+                </Button>
+              </ButtonGroup>
             ) : null}
           </div>
           {view === "canvas" ? (
             <div
               className={s.canvas}
               data-dragging={dragging ? "" : undefined}
-              onClick={(event) => {
-                if (event.target === event.currentTarget) setMenu(null);
-              }}
             >
               <div className={s.tree} style={{ zoom }}>
                 <div
@@ -742,9 +737,10 @@ export function FlowBuilder({
           ) : (
             <KlaviyoJson preview={preview} emails={emails.length} />
           )}
-        </main>
+        </ResizablePanel>
 
-        <aside className={`${s.pane} ${s.right}`} aria-label="Ajustes">
+        <ResizableHandle aria-label="Cambiar el ancho de los ajustes" />
+        <ResizablePanel defaultSize="360px" minSize="280px" maxSize="40%" role="complementary" className={`${s.pane} ${s.right}`} aria-label="Ajustes">
           <div className={s.tabs} role="tablist">
             <button type="button" role="tab" aria-selected={rtab === "step"} onClick={() => setRtab("step")}>
               Paso
@@ -771,7 +767,7 @@ export function FlowBuilder({
                         <span>{check.text}</span>
                         {check.state !== "ok" && check.target ? (
                           <div>
-                            <button type="button" className={s.btn} data-size="sm" onClick={() => select(check.target!)}>
+                            <button type="button" className={buttonVariants({ variant: "secondary" })} data-size="sm" onClick={() => select(check.target!)}>
                               Ir al paso
                             </button>
                           </div>
@@ -799,11 +795,11 @@ export function FlowBuilder({
               />
             )}
           </div>
-        </aside>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <nav className={s.mswitch} aria-label="Panel">
-        <div className={s.seg} role="group">
+        <ToggleGroup aria-label="Panel" value={pane} onValueChange={setPane}>
           {(
             [
               ["left", "Pasos"],
@@ -811,11 +807,11 @@ export function FlowBuilder({
               ["right", "Ajustes"],
             ] as const
           ).map(([key, label]) => (
-            <button key={key} type="button" aria-pressed={pane === key} onClick={() => setPane(key)}>
+            <ToggleGroupItem key={key} value={key}>
               {label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </nav>
 
       <PushDialog
@@ -848,24 +844,36 @@ export function FlowBuilder({
         }}
       />
 
-      <ConfirmDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title={`¿Borrar «${doc.name}»?`}
-        consequences={[
-          "Se borra el diseño de NORA.",
-          ...(inKlaviyo ? ["El flow que ya se creó en Klaviyo sigue allí, en borrador. Si no lo quieres, bórralo en Klaviyo."] : []),
-        ]}
-        confirmLabel="Borrar flow"
-        onConfirm={async () => {
-          if (!row) return false;
-          const response = await apiFetch(`/v1/organizations/${organizationId}/marketing/flow-designs/${row.id}`, { method: "DELETE" });
-          if (!response.ok) throw new Error(await readApiError(response));
-          if (saveTimer.current) clearTimeout(saveTimer.current);
-          toast.success("Flow borrado");
-          onDeleted();
-        }}
-      />
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-danger/10 text-danger">
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Borrar «{doc.name}»?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borra el diseño de NORA.
+              {inKlaviyo ? " El flow que ya se creó en Klaviyo sigue allí, en borrador. Si no lo quieres, bórralo en Klaviyo." : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={async () => {
+                if (!row) return false;
+                const response = await apiFetch(`/v1/organizations/${organizationId}/marketing/flow-designs/${row.id}`, { method: "DELETE" });
+                if (!response.ok) throw new Error(await readApiError(response));
+                if (saveTimer.current) clearTimeout(saveTimer.current);
+                toast.success("Flow borrado");
+                onDeleted();
+              }}
+            >
+              Borrar flow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -906,18 +914,18 @@ function StepNode({
     <span className={s.ops}>
       {branch ? null : (
         <>
-          <button type="button" className={s.ibtn} aria-label="Subir" disabled={first} onClick={(event) => (event.stopPropagation(), onOp("up"))}>
+          <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Subir" disabled={first} onClick={(event) => (event.stopPropagation(), onOp("up"))}>
             <Icon name="up" />
           </button>
-          <button type="button" className={s.ibtn} aria-label="Bajar" disabled={last} onClick={(event) => (event.stopPropagation(), onOp("down"))}>
+          <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Bajar" disabled={last} onClick={(event) => (event.stopPropagation(), onOp("down"))}>
             <Icon name="down" />
           </button>
-          <button type="button" className={s.ibtn} aria-label="Duplicar" onClick={(event) => (event.stopPropagation(), onOp("dup"))}>
+          <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Duplicar" onClick={(event) => (event.stopPropagation(), onOp("dup"))}>
             <Icon name="dup" />
           </button>
         </>
       )}
-      <button type="button" className={s.ibtn} aria-label="Borrar" onClick={(event) => (event.stopPropagation(), onOp("del"))}>
+      <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Borrar" onClick={(event) => (event.stopPropagation(), onOp("del"))}>
         <Icon name="del" />
       </button>
     </span>
@@ -1027,7 +1035,7 @@ function StepNode({
 // ---------------------------------------------------------------------------
 // Inspector
 
-function Field({ label, hint, counter, children }: { label: string; hint?: string; counter?: string; children: ReactNode }) {
+function InspectorField({ label, hint, counter, children }: { label: string; hint?: string; counter?: string; children: ReactNode }) {
   return (
     <div className={s.f}>
       <span className={s.lbl}>
@@ -1051,31 +1059,31 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 
 function Options<T extends string | number | boolean | null>({ value, options, onChange, label }: { value: T; options: Array<[T, string]>; onChange: (value: T) => void; label: string }) {
   return (
-    <div className={s.opts} role="group" aria-label={label}>
-      {options.map(([option, text]) => (
-        <button key={String(option)} type="button" className={s.opt} aria-pressed={value === option} onClick={() => onChange(option)}>
+    // Los valores pueden ser booleanos o null: el ToggleGroup trabaja con su posición.
+    <ToggleGroup aria-label={label} spacing={1.5} value={options.findIndex(([option]) => option === value)} onValueChange={(index) => onChange(options[index][0])}>
+      {options.map(([option, text], index) => (
+        <ToggleGroupItem key={String(option)} value={index}>
           {text}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 
 function MetricSelect({ id, value, account, onChange }: { id: string; value: string; account: FlowAccount; onChange: (value: string) => void }) {
   return (
-    <select id={id} className={s.inp} value={value} onChange={(event) => onChange(event.target.value)}>
-      <option value="">Elige qué hace la persona…</option>
-      {groupedMetrics(account).map((group) => (
-        <optgroup key={group.label} label={group.label}>
-          {group.metrics.map((metric) => (
-            <option key={metric.id} value={metric.id}>
-              {metricLabel(account, metric.id)}
-              {metricLabel(account, metric.id) !== metric.name ? ` · ${metric.name}` : ""}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+    <Select
+      id={id}
+      value={value}
+      onChange={onChange}
+      placeholder="Elige qué hace la persona…"
+      options={groupedMetrics(account).flatMap((group) =>
+        group.metrics.map((metric) => {
+          const label = metricLabel(account, metric.id);
+          return { value: metric.id, label: label !== metric.name ? `${label} · ${metric.name}` : label, section: group.label };
+        }),
+      )}
+    />
   );
 }
 
@@ -1116,22 +1124,18 @@ function TriggerInspector({ trigger, account, onChange }: { trigger: FlowTrigger
           <span>Lo que hace que alguien empiece el flow</span>
         </div>
       </div>
-      <div className={s.choices} role="radiogroup" aria-label="Tipo de disparador">
+      <RadioGroup
+        aria-label="Tipo de disparador"
+        className="gap-1.5"
+        value={trigger.type}
+        onValueChange={(type) => onChange({ type, id: "", min_value: null, reentry_days: type === "metric" ? trigger.reentry_days : null }, false)}
+      >
         {TRIGGER_TYPES.map((option) => (
-          <button
-            key={option.type}
-            type="button"
-            role="radio"
-            aria-checked={trigger.type === option.type}
-            className={s.choice}
-            onClick={() => onChange({ type: option.type, id: "", min_value: null, reentry_days: option.type === "metric" ? trigger.reentry_days : null }, false)}
-          >
-            <b>{option.title}</b>
-            <span>{option.text}</span>
-            <small>Ej.: {option.example}</small>
-          </button>
+          <RadioCard key={option.type} value={option.type} title={option.title} description={option.text}>
+            <small className="text-xs text-muted">Ej.: {option.example}</small>
+          </RadioCard>
         ))}
-      </div>
+      </RadioGroup>
       {trigger.type === "metric" ? (
         <>
           {storeConnected ? null : (
@@ -1139,11 +1143,11 @@ function TriggerInspector({ trigger, account, onChange }: { trigger: FlowTrigger
               Klaviyo no está conectado a Shopify: no sabe quién compra ni quién abandona el carrito. Conéctalo en Klaviyo → <b>Integraciones → Shopify</b>.
             </p>
           )}
-          <Field label="Qué hace la persona">
+          <InspectorField label="Qué hace la persona">
             <MetricSelect id="flow-trigger-metric" value={trigger.id} account={account} onChange={(id) => onChange({ id }, false)} />
-          </Field>
+          </InspectorField>
           {help ? <p className={s.note}>{help}</p> : null}
-          <Field label="Solo si el importe es de al menos" counter="Moneda del evento" hint="Vacío = cualquier importe. El importe se compara en la moneda del evento (por ejemplo, la del carrito); compruébala en Klaviyo.">
+          <InspectorField label="Solo si el importe es de al menos" counter="Moneda del evento" hint="Vacío = cualquier importe. El importe se compara en la moneda del evento (por ejemplo, la del carrito); compruébala en Klaviyo.">
             <input
               className={s.inp}
               type="number"
@@ -1152,22 +1156,15 @@ function TriggerInspector({ trigger, account, onChange }: { trigger: FlowTrigger
               value={trigger.min_value ?? ""}
               onChange={(event) => onChange({ min_value: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
             />
-          </Field>
+          </InspectorField>
         </>
       ) : (
-        <Field
+        <InspectorField
           label={trigger.type === "list" ? "Qué lista" : "Qué segmento"}
           hint={pool.length ? undefined : `Esta cuenta no tiene ${trigger.type === "list" ? "listas" : "segmentos"} sincronizados todavía.`}
         >
-          <select className={s.inp} value={trigger.id} onChange={(event) => onChange({ id: event.target.value }, false)}>
-            <option value="">Elige…</option>
-            {pool.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </Field>
+          <Select value={trigger.id} onChange={(value) => onChange({ id: value }, false)} placeholder="Elige…" options={pool.map((item) => ({ value: item.id, label: item.name }))} />
+        </InspectorField>
       )}
       <Toggle label="Sacar del flow a quien compre mientras está dentro" checked={trigger.exclude_purchasers} onChange={(value) => onChange({ exclude_purchasers: value }, false)} />
       {trigger.exclude_purchasers && !placedOrder ? (
@@ -1178,7 +1175,7 @@ function TriggerInspector({ trigger, account, onChange }: { trigger: FlowTrigger
         <p className={s.note}>Si compra, deja de recibir los emails que le quedaban. Imprescindible en carritos y navegación.</p>
       )}
       {trigger.type === "metric" ? (
-        <Field label="¿Puede volver a entrar?" hint="Si repite el evento antes de ese plazo, no vuelve a empezar el flow.">
+        <InspectorField label="¿Puede volver a entrar?" hint="Si repite el evento antes de ese plazo, no vuelve a empezar el flow.">
           <Options
             label="Volver a entrar"
             value={trigger.reentry_days}
@@ -1191,7 +1188,7 @@ function TriggerInspector({ trigger, account, onChange }: { trigger: FlowTrigger
             ]}
             onChange={(reentry_days) => onChange({ reentry_days }, false)}
           />
-        </Field>
+        </InspectorField>
       ) : null}
       <p className={s.callout}>
         Klaviyo lo crea en <b>borrador</b>: nadie entra hasta que alguien lo active.
@@ -1255,12 +1252,12 @@ function StepInspector({
       {step.type === "update" ? <UpdateInspector step={step} patch={patch} /> : null}
       <div className={s.actions}>
         {isBranch(step) ? null : (
-          <button type="button" className={s.btn} onClick={() => onDuplicate(id)}>
+          <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => onDuplicate(id)}>
             <Icon name="dup" />
             Duplicar
           </button>
         )}
-        <button type="button" className={s.btn} data-tone="danger" onClick={() => onRemove(id)}>
+        <button type="button" className={buttonVariants({ variant: "destructive" })} data-tone="danger" onClick={() => onRemove(id)}>
           <Icon name="del" />
           Borrar
         </button>
@@ -1282,45 +1279,46 @@ function EmailInspector({
   onOpenPiece: (draftId: string) => void;
   onNewPiece: () => void;
 }) {
-  const [query, setQuery] = useState("");
-  const shown = pieces.filter((draft) => !query.trim() || pieceName(draft).toLowerCase().includes(query.trim().toLowerCase())).slice(0, 40);
   const current = pieces.find((draft) => draft.id === step.draft_id);
   const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   return (
     <>
-      <Field label="Nombre interno">
+      <InspectorField label="Nombre interno">
         <input className={s.inp} value={step.name} maxLength={120} onChange={(event) => patch({ name: event.target.value })} />
-      </Field>
-      <Field label="Asunto" counter={`${step.subject.length}/60`}>
+      </InspectorField>
+      <InspectorField label="Asunto" counter={`${step.subject.length}/60`}>
         <input className={s.inp} value={step.subject} maxLength={255} aria-invalid={!step.subject.trim()} onChange={(event) => patch({ subject: event.target.value })} />
-      </Field>
-      <Field label="Preheader" counter={`${step.preheader.length}/90`}>
+      </InspectorField>
+      <InspectorField label="Preheader" counter={`${step.preheader.length}/90`}>
         <input className={s.inp} value={step.preheader} maxLength={255} onChange={(event) => patch({ preheader: event.target.value })} />
-      </Field>
+      </InspectorField>
       <div className={s.row}>
-        <Field label="Remitente">
+        <InspectorField label="Remitente">
           <input className={s.inp} value={step.from_label} maxLength={120} onChange={(event) => patch({ from_label: event.target.value })} />
-        </Field>
-        <Field label="Email">
+        </InspectorField>
+        <InspectorField label="Email">
           <input className={s.inp} type="email" value={step.from_email} aria-invalid={!validEmail(step.from_email)} onChange={(event) => patch({ from_email: event.target.value })} />
-        </Field>
+        </InspectorField>
       </div>
-      <Field label="Responder a (opcional)">
+      <InspectorField label="Responder a (opcional)">
         <input className={s.inp} type="email" value={step.reply_to} aria-invalid={Boolean(step.reply_to) && !validEmail(step.reply_to)} onChange={(event) => patch({ reply_to: event.target.value })} />
-      </Field>
-      <Field label="Contenido" counter="del Estudio" hint={current && current.status !== "approved" ? "Esta pieza aún no está aprobada: apruébala en Contenido antes de crear el flow en Klaviyo." : undefined}>
-        <input className={s.inp} placeholder="Buscar pieza…" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar pieza" />
-        <div className={s.pieces} role="group" aria-label="Piezas de email">
-          {shown.length ? (
-            shown.map((draft) => {
+      </InspectorField>
+      <InspectorField label="Contenido" counter="del Estudio" hint={current && current.status !== "approved" ? "Esta pieza aún no está aprobada: apruébala en Contenido antes de crear el flow en Klaviyo." : undefined}>
+        <Command className={s.pieces} aria-label="Piezas de email">
+          <CommandInput placeholder="Buscar pieza…" aria-label="Buscar pieza" />
+          <CommandList>
+            <CommandEmpty>{pieces.length ? "Ninguna pieza con ese nombre." : "Todavía no hay piezas de email en el Estudio."}</CommandEmpty>
+            {pieces.map((draft) => {
               const [label, tone] = PIECE_STATUS[draft.status];
+              const chosen = step.draft_id === draft.id;
               return (
-                <button
+                <CommandItem
                   key={draft.id}
-                  type="button"
+                  value={pieceName(draft)}
+                  keywords={[draft.subject ?? ""]}
                   className={s.pc}
-                  aria-pressed={step.draft_id === draft.id}
-                  onClick={() =>
+                  data-checked={chosen ? "" : undefined}
+                  onSelect={() =>
                     patch(
                       {
                         draft_id: draft.id,
@@ -1339,26 +1337,25 @@ function EmailInspector({
                   <span className={s.chip} data-tone={tone}>
                     {label}
                   </span>
-                </button>
+                  {chosen ? <CheckIcon aria-label="Elegida" /> : null}
+                </CommandItem>
               );
-            })
-          ) : (
-            <p className={s.note}>{pieces.length ? "Ninguna pieza con ese nombre." : "Todavía no hay piezas de email en el Estudio."}</p>
-          )}
-        </div>
+            })}
+          </CommandList>
+        </Command>
         <div className={s.actions}>
           {current ? (
-            <button type="button" className={s.btn} data-size="sm" onClick={() => onOpenPiece(current.id)}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} data-size="sm" onClick={() => onOpenPiece(current.id)}>
               <Icon name="ext" />
               Editar esta pieza
             </button>
           ) : null}
-          <button type="button" className={s.btn} data-size="sm" onClick={onNewPiece}>
+          <button type="button" className={buttonVariants({ variant: "secondary" })} data-size="sm" onClick={onNewPiece}>
             <Icon name="plus" />
             Diseñar una nueva en Crear
           </button>
         </div>
-      </Field>
+      </InspectorField>
       <Toggle label="Envío inteligente (no repetir en 16 h)" checked={step.smart_sending} onChange={(value) => patch({ smart_sending: value }, false)} />
       <Toggle label="UTM para medirlo en Shopify" checked={step.utm} onChange={(value) => patch({ utm: value }, false)} />
     </>
@@ -1370,23 +1367,23 @@ function DelayInspector({ step, patch }: { step: DelayStep; patch: (value: Parti
   return (
     <>
       <div className={s.row}>
-        <Field label="Cuánto">
+        <InspectorField label="Cuánto">
           <input className={s.inp} type="number" min={1} max={999} value={step.value} onChange={(event) => patch({ value: Math.min(999, Math.max(1, Math.round(Number(event.target.value) || 1))) })} />
-        </Field>
-        <Field label="Unidad">
-          <select className={s.inp} value={step.unit} onChange={(event) => patch({ unit: event.target.value as DelayStep["unit"], ...(event.target.value === "days" ? {} : { until: null, weekdays: [] }) }, false)}>
-            <option value="minutes">Minutos</option>
-            <option value="hours">Horas</option>
-            <option value="days">Días</option>
-          </select>
-        </Field>
+        </InspectorField>
+        <InspectorField label="Unidad">
+          <Select
+            value={step.unit}
+            onChange={(value) => patch({ unit: value as DelayStep["unit"], ...(value === "days" ? {} : { until: null, weekdays: [] }) }, false)}
+            options={[{ value: "minutes", label: "Minutos" }, { value: "hours", label: "Horas" }, { value: "days", label: "Días" }]}
+          />
+        </InspectorField>
       </div>
       {daily ? (
         <>
-          <Field label="A qué hora sale" hint="En la zona horaria de cada persona. Vacío = a la misma hora a la que entró.">
-            <input className={s.inp} type="time" value={step.until ?? ""} onChange={(event) => patch({ until: event.target.value || null }, false)} />
-          </Field>
-          <Field label="Solo estos días" hint="Ninguno marcado = cualquier día.">
+          <InspectorField label="A qué hora sale" hint="En la zona horaria de cada persona. Vacío = a la misma hora a la que entró.">
+            <TimeInput aria-label="A qué hora sale" value={step.until ?? ""} onChange={(event) => patch({ until: event.target.value || null }, false)} />
+          </InspectorField>
+          <InspectorField label="Solo estos días" hint="Ninguno marcado = cualquier día.">
             <div className={s.days}>
               {WEEKDAYS.map((day) => (
                 <button
@@ -1400,7 +1397,7 @@ function DelayInspector({ step, patch }: { step: DelayStep; patch: (value: Parti
                 </button>
               ))}
             </div>
-          </Field>
+          </InspectorField>
         </>
       ) : null}
     </>
@@ -1413,7 +1410,7 @@ function SplitInspector({ step, account, patch }: { step: SplitStep; account: Fl
   return (
     <>
       <p className={s.question}>{conditionQuestion(condition, account)}</p>
-      <Field label="Mirar…">
+      <InspectorField label="Mirar…">
         <Options
           label="Tipo de condición"
           value={condition.kind}
@@ -1432,29 +1429,21 @@ function SplitInspector({ step, account, patch }: { step: SplitStep; account: Fl
             )
           }
         />
-      </Field>
+      </InspectorField>
       {condition.kind === "metric" ? <MetricCondition condition={condition} account={account} onChange={setCondition} /> : null}
       {condition.kind === "group" ? (
         <>
-          <Field label="Dónde">
-            <select className={s.inp} value={condition.group_id} onChange={(event) => setCondition({ ...condition, group_id: event.target.value })}>
-              <option value="">Elige…</option>
-              <optgroup label="Listas">
-                {account.lists.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Segmentos">
-                {account.segments.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          </Field>
+          <InspectorField label="Dónde">
+            <Select
+              value={condition.group_id}
+              onChange={(value) => setCondition({ ...condition, group_id: value })}
+              placeholder="Elige…"
+              options={[
+                ...account.lists.map((item) => ({ value: item.id, label: item.name, section: "Listas" })),
+                ...account.segments.map((item) => ({ value: item.id, label: item.name, section: "Segmentos" })),
+              ]}
+            />
+          </InspectorField>
           <Options
             label="Pertenencia"
             value={condition.member}
@@ -1468,21 +1457,20 @@ function SplitInspector({ step, account, patch }: { step: SplitStep; account: Fl
       ) : null}
       {condition.kind === "property" ? (
         <>
-          <Field label="Propiedad del perfil" hint="Tal como se llama en Klaviyo, p. ej. «Accepts Marketing» o una propia.">
+          <InspectorField label="Propiedad del perfil" hint="Tal como se llama en Klaviyo, p. ej. «Accepts Marketing» o una propia.">
             <input className={s.inp} value={condition.property} maxLength={120} onChange={(event) => setCondition({ ...condition, property: event.target.value }, true)} />
-          </Field>
+          </InspectorField>
           <div className={s.row}>
-            <Field label="Condición">
-              <select className={s.inp} value={condition.operator} onChange={(event) => setCondition({ ...condition, operator: event.target.value as typeof condition.operator })}>
-                <option value="equals">es</option>
-                <option value="not-equals">no es</option>
-                <option value="contains">contiene</option>
-                <option value="not-contains">no contiene</option>
-              </select>
-            </Field>
-            <Field label="Valor">
+            <InspectorField label="Condición">
+              <Select
+                value={condition.operator}
+                onChange={(value) => setCondition({ ...condition, operator: value as typeof condition.operator })}
+                options={[{ value: "equals", label: "es" }, { value: "not-equals", label: "no es" }, { value: "contains", label: "contiene" }, { value: "not-contains", label: "no contiene" }]}
+              />
+            </InspectorField>
+            <InspectorField label="Valor">
               <input className={s.inp} value={condition.value} maxLength={255} onChange={(event) => setCondition({ ...condition, value: event.target.value }, true)} />
-            </Field>
+            </InspectorField>
           </div>
         </>
       ) : null}
@@ -1498,10 +1486,10 @@ function MetricCondition({ condition, account, onChange }: { condition: Extract<
   const timeframe = condition.timeframe;
   return (
     <>
-      <Field label="Qué">
+      <InspectorField label="Qué">
         <MetricSelect id={`flow-cond-metric`} value={condition.metric_id} account={account} onChange={(metric_id) => onChange({ ...condition, metric_id })} />
-      </Field>
-      <Field label="Cuántas veces">
+      </InspectorField>
+      <InspectorField label="Cuántas veces">
         <Options
           label="Cuántas veces"
           value={preset}
@@ -1520,40 +1508,34 @@ function MetricCondition({ condition, account, onChange }: { condition: Extract<
             )
           }
         />
-      </Field>
+      </InspectorField>
       {preset === "custom" ? (
         <div className={s.row}>
-          <Field label="Condición">
-            <select className={s.inp} value={condition.operator} onChange={(event) => onChange({ ...condition, operator: event.target.value as NumericOperator })}>
-              {NUMERIC_OPERATORS.map((operator) => (
-                <option key={operator} value={operator}>
-                  {OPERATOR_SYMBOL[operator]} {OPERATOR_LABEL[operator]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Veces">
+          <InspectorField label="Condición">
+            <Select
+              value={condition.operator}
+              onChange={(value) => onChange({ ...condition, operator: value as NumericOperator })}
+              options={NUMERIC_OPERATORS.map((operator) => ({ value: operator, label: `${OPERATOR_SYMBOL[operator]} ${OPERATOR_LABEL[operator]}` }))}
+            />
+          </InspectorField>
+          <InspectorField label="Veces">
             <input className={s.inp} type="number" min={0} value={condition.value} onChange={(event) => onChange({ ...condition, value: Math.max(0, Math.round(Number(event.target.value) || 0)) }, true)} />
-          </Field>
+          </InspectorField>
         </div>
       ) : null}
-      <Field label="Cuándo">
-        <select
-          className={s.inp}
+      <InspectorField label="Cuándo">
+        <Select
           value={timeframe.kind}
-          onChange={(event) => {
-            const kind = event.target.value as Timeframe["kind"];
+          onChange={(value) => {
+            const kind = value as Timeframe["kind"];
             onChange({ ...condition, timeframe: kind === "in-the-last" ? { kind, quantity: 30, unit: "day" } : { kind } });
           }}
-        >
-          <option value="flow-start">Desde que entró en el flow</option>
-          <option value="in-the-last">En los últimos…</option>
-          <option value="alltime">Alguna vez</option>
-        </select>
-      </Field>
+          options={[{ value: "flow-start", label: "Desde que entró en el flow" }, { value: "in-the-last", label: "En los últimos…" }, { value: "alltime", label: "Alguna vez" }]}
+        />
+      </InspectorField>
       {timeframe.kind === "in-the-last" ? (
         <div className={s.row}>
-          <Field label="Cantidad">
+          <InspectorField label="Cantidad">
             <input
               className={s.inp}
               type="number"
@@ -1562,14 +1544,14 @@ function MetricCondition({ condition, account, onChange }: { condition: Extract<
               value={timeframe.quantity}
               onChange={(event) => onChange({ ...condition, timeframe: { ...timeframe, quantity: Math.min(3650, Math.max(1, Math.round(Number(event.target.value) || 1))) } }, true)}
             />
-          </Field>
-          <Field label="Unidad">
-            <select className={s.inp} value={timeframe.unit} onChange={(event) => onChange({ ...condition, timeframe: { ...timeframe, unit: event.target.value as "hour" | "day" | "week" } })}>
-              <option value="hour">Horas</option>
-              <option value="day">Días</option>
-              <option value="week">Semanas</option>
-            </select>
-          </Field>
+          </InspectorField>
+          <InspectorField label="Unidad">
+            <Select
+              value={timeframe.unit}
+              onChange={(value) => onChange({ ...condition, timeframe: { ...timeframe, unit: value as "hour" | "day" | "week" } })}
+              options={[{ value: "hour", label: "Horas" }, { value: "day", label: "Días" }, { value: "week", label: "Semanas" }]}
+            />
+          </InspectorField>
         </div>
       ) : null}
     </>
@@ -1581,34 +1563,29 @@ function TriggerSplitInspector({ step, triggerType, patch }: { step: TriggerSpli
     <>
       <p className={s.question}>{triggerSplitQuestion(step)}</p>
       {triggerType !== "metric" ? <p className={s.callout} data-tone="bad">Solo funciona si el flow empieza porque la persona hace algo (no por una lista o segmento).</p> : null}
-      <Field label="Qué mira">
-        <select className={s.inp} value={TRIGGER_FIELDS.some(([key]) => key === step.field) ? step.field : "__custom"} onChange={(event) => patch({ field: event.target.value === "__custom" ? "" : event.target.value }, false)}>
-          {TRIGGER_FIELDS.map(([key, label]) => (
-            <option key={key} value={key}>
-              {label} ({key})
-            </option>
-          ))}
-          <option value="__custom">Otra propiedad del evento…</option>
-        </select>
-      </Field>
+      <InspectorField label="Qué mira">
+        <Select
+          value={TRIGGER_FIELDS.some(([key]) => key === step.field) ? step.field : "__custom"}
+          onChange={(value) => patch({ field: value === "__custom" ? "" : value }, false)}
+          options={[...TRIGGER_FIELDS.map(([key, label]) => ({ value: key, label: `${label} (${key})` })), { value: "__custom", label: "Otra propiedad del evento…" }]}
+        />
+      </InspectorField>
       {TRIGGER_FIELDS.some(([key]) => key === step.field) ? null : (
-        <Field label="Propiedad del evento">
+        <InspectorField label="Propiedad del evento">
           <input className={s.inp} value={step.field} maxLength={120} onChange={(event) => patch({ field: event.target.value })} />
-        </Field>
+        </InspectorField>
       )}
       <div className={s.row}>
-        <Field label="Condición">
-          <select className={s.inp} value={step.operator} onChange={(event) => patch({ operator: event.target.value as NumericOperator }, false)}>
-            {NUMERIC_OPERATORS.map((operator) => (
-              <option key={operator} value={operator}>
-                {OPERATOR_SYMBOL[operator]} {OPERATOR_LABEL[operator]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Valor">
+        <InspectorField label="Condición">
+          <Select
+            value={step.operator}
+            onChange={(value) => patch({ operator: value as NumericOperator }, false)}
+            options={NUMERIC_OPERATORS.map((operator) => ({ value: operator, label: `${OPERATOR_SYMBOL[operator]} ${OPERATOR_LABEL[operator]}` }))}
+          />
+        </InspectorField>
+        <InspectorField label="Valor">
           <input className={s.inp} type="number" min={0} value={step.value} onChange={(event) => patch({ value: Math.max(0, Number(event.target.value) || 0) })} />
-        </Field>
+        </InspectorField>
       </div>
       <p className={s.note}>Mira el evento que metió a la persona en el flow (por ejemplo, el carrito), no su historial.</p>
     </>
@@ -1618,12 +1595,12 @@ function TriggerSplitInspector({ step, triggerType, patch }: { step: TriggerSpli
 function UpdateInspector({ step, patch }: { step: UpdateStep; patch: (value: Partial<UpdateStep>) => void }) {
   return (
     <>
-      <Field label="Propiedad" hint="Se crea en el perfil si no existe.">
+      <InspectorField label="Propiedad" hint="Se crea en el perfil si no existe.">
         <input className={s.inp} value={step.property} maxLength={120} aria-invalid={!step.property.trim()} onChange={(event) => patch({ property: event.target.value })} />
-      </Field>
-      <Field label="Valor">
+      </InspectorField>
+      <InspectorField label="Valor">
         <input className={s.inp} value={step.value} maxLength={255} onChange={(event) => patch({ value: event.target.value })} />
-      </Field>
+      </InspectorField>
     </>
   );
 }
@@ -1670,7 +1647,7 @@ function KlaviyoJson({ preview, emails }: { preview: { body: unknown; issues: Ar
           <code>https://a.klaviyo.com/api/flows</code>
           <button
             type="button"
-            className={s.btn}
+            className={buttonVariants({ variant: "secondary" })}
             data-size="sm"
             disabled={!text}
             onClick={async () => {
@@ -1780,48 +1757,25 @@ function PushDialog({
 
   return (
     <Dialog
-      isOpen={open}
+      open={open}
       onOpenChange={(next) => {
         if (next) onOpenChange(true);
         else close();
       }}
-      isBusy={phase.kind === "running"}
-      size="md"
-      title={
-        done
-          ? "Creado en Klaviyo, en borrador"
-          : blockers.length
-            ? "Falta poco para poder crearlo"
-            : replacing
-              ? "Crear una versión nueva en Klaviyo"
-              : "Crear el flow en Klaviyo"
-      }
-      cancelLabel={done ? false : blockers.length ? "Cerrar" : "Cancelar"}
-      primary={
-        done || blockers.length
-          ? undefined
-          : {
-              label: phase.kind === "error" ? "Reintentar" : replacing ? "Crear versión nueva" : "Crear en borrador",
-              busyLabel: "Creando…",
-              onClick: () => void run(),
-            }
-      }
-      footer={
-        done ? (
-          <>
-            <ButtonLink
-              variant="secondary"
-              href={`https://www.klaviyo.com/flow/${encodeURIComponent(phase.flowId)}/edit`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Abrir en Klaviyo
-            </ButtonLink>
-            <Button onClick={close}>Listo</Button>
-          </>
-        ) : undefined
-      }
+      busy={phase.kind === "running"}
     >
+      <DialogContent>
+      <DialogHeader>
+        <DialogTitle>
+          {done
+            ? "Creado en Klaviyo, en borrador"
+            : blockers.length
+              ? "Falta poco para poder crearlo"
+              : replacing
+                ? "Crear una versión nueva en Klaviyo"
+                : "Crear el flow en Klaviyo"}
+        </DialogTitle>
+      </DialogHeader>
       {phase.kind === "done" ? (
         <>
           <p className={s.note}>
@@ -1882,6 +1836,31 @@ function PushDialog({
           {phase.kind === "error" ? <Banner tone="danger">{phase.message}</Banner> : null}
         </>
       )}
+      <DialogFooter>
+        {done ? (
+          <>
+            <ButtonLink
+              variant="secondary"
+              href={`https://www.klaviyo.com/flow/${encodeURIComponent(phase.flowId)}/edit`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Abrir en Klaviyo
+            </ButtonLink>
+            <Button onClick={close}>Listo</Button>
+          </>
+        ) : (
+          <>
+            <DialogClose>{blockers.length ? "Cerrar" : "Cancelar"}</DialogClose>
+            {blockers.length ? null : (
+              <Button disabled={phase.kind === "running"} onClick={() => void run()}>
+                {phase.kind === "running" ? "Creando…" : phase.kind === "error" ? "Reintentar" : replacing ? "Crear versión nueva" : "Crear en borrador"}
+              </Button>
+            )}
+          </>
+        )}
+      </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

@@ -1,29 +1,34 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState, type ReactNode } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
-import { Skeleton, toast } from "@/components/ui";
+import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
+import { Banner, Skeleton, ToggleGroup, ToggleGroupItem, toast, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { BarRows } from "@/components/data-bars";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
-import { evidenceText, fmtCurrency, fmtNum } from "./client-pulse-model";
+import { fmtCurrency, fmtNum } from "./client-pulse-model";
 import {
   cx,
+  a02FindingText,
   Delta,
   Empty,
   findingFor,
   Kpi,
-  prioClass,
+  A02MetricNotice,
   SalesChart,
   SectionHead,
+  DiagnosticScopeNote,
   Spark,
   usePins,
   WorkQueue,
   type Diagnostic,
   type Metrics,
+  DiagnosticReading,
   type Operations,
 } from "./client-pulse";
 import s from "./client-pulse.module.css";
@@ -137,6 +142,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
   const ask = useCopilotAsk();
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
+  const verdictOf = useMetricAnalysis(organizationId, days, connectionId);
 
   const metrics = useCachedQuery<ShopifyMetrics>(`${base}/shopify/metrics?days=${days}${scope}`);
   const insights = useCachedQuery<Insights>(`${base}/shopify/insights?days=${days}${scope}`);
@@ -217,10 +223,10 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
     );
   }
 
-  const storeSelectionRequired = metrics.error?.includes("shopify_store_selection_required")
-    || insights.error?.includes("shopify_store_selection_required");
-  const currencyUnavailable = metrics.error?.includes("shopify_currency_unavailable")
-    || insights.error?.includes("shopify_currency_unavailable");
+  const storeSelectionRequired = metrics.errorCode === "shopify_store_selection_required"
+    || insights.errorCode === "shopify_store_selection_required";
+  const currencyUnavailable = metrics.errorCode === "shopify_currency_unavailable"
+    || insights.errorCode === "shopify_currency_unavailable";
 
   if (storeSelectionRequired || currencyUnavailable) {
     return (
@@ -235,7 +241,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           </p>
           {!storeSelectionRequired && !asConsultant ? (
             <div className={s.heroActions}>
-              <a className={cx(s.btn, s.acc)} href="/integraciones/shopify">Revisar integración</a>
+              <a className={buttonVariants()} href="/integraciones/shopify">Revisar integración</a>
             </div>
           ) : null}
         </section>
@@ -256,12 +262,12 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
           </p>
           {!asConsultant ? (
             <div className={s.heroActions}>
-              <a className={cx(s.btn, s.acc)} href="/integraciones/shopify">
+              <a className={buttonVariants()} href="/integraciones/shopify">
                 Ir a Integraciones
               </a>
             </div>
           ) : null}
-          <div className={s.heroActions}><button type="button" className={cx(s.btn, s.ghost)} onClick={() => { metrics.reload(); insights.reload(); }}>Reintentar la carga</button></div>
+          <div className={s.heroActions}><button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => { metrics.reload(); insights.reload(); }}>Reintentar la carga</button></div>
         </div>
       </div>
     );
@@ -295,13 +301,13 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
         <div className={s.heroTop} style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <div>
             <div className={s.heroMeta} style={{ alignItems: "center" }}>
-              <div className={cx(s.seg, s.heroSeg)} role="group" aria-label="Periodo">
+              <ToggleGroup aria-label="Periodo" value={days} onValueChange={(p) => { setDays(p); setActivePin(null); }}>
                 {periods.map((p) => (
-                  <button key={p} type="button" aria-pressed={p === days} onClick={() => { setDays(p); setActivePin(null); }}>
+                  <ToggleGroupItem key={p} value={p}>
                     {periodButton(p)}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
             </div>
             <h1 id="shop-headline" className={s.headline}>
               Has vendido {fmtEur(sales.net_sales)}
@@ -312,16 +318,18 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
               {salesChangePct(sales.net_sales, previous?.sales.net_sales ?? null) !== null ? <>{" "}<Delta change={salesChangePct(sales.net_sales, previous?.sales.net_sales ?? null)} /> vs periodo anterior</> : null}
               {yoy !== null ? <> · <Delta change={yoy} /> vs año pasado</> : null}
             </p>
-            {days === "all" ? null : <p className={s.headlineDetail}>{salesAi && asConsultant ? <span className={s.ia}>A02</span> : null}{headline}</p>}
+            <A02MetricNotice diagnostic={diagnostic} metricLabel="Ventas netas" metricKey="sales_net_sales" pattern={/ventas|ingresos|factur/i} audience={asConsultant ? "consultor" : "cliente"} />
+            {days === "all" ? null : <p className={s.headlineDetail}>{salesAi ? <span className={s.ia}>A02</span> : null}{headline}</p>}
+            <DiagnosticScopeNote diagnostic={diagnostic} />
             <div className={s.heroActions}>
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot(`Explícame cómo va mi tienda: «${headline}». ¿Qué haría primero?`, "Tu tienda en Shopify")}>
+              <button type="button" className={buttonVariants()} onClick={() => askCopilot(`Explícame cómo va mi tienda: «${headline}». ¿Qué haría primero?`, "Tu tienda en Shopify")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
                   IA
                 </span>
                 Preguntar por qué
               </button>
               {hideFullLink ? null : (
-                <a className={cx(s.btn, s.ghost)} href="/shopify">
+                <a className={buttonVariants({ variant: "secondary" })} href="/shopify">
                   Analítica completa
                 </a>
               )}
@@ -361,21 +369,19 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
       </section>
 
       {!financialCurrencyComparable ? (
-        <div className={s.panel} role="status" style={{ marginTop: 16 }}>
-          <strong>Rentabilidad pendiente de validar por moneda</strong>
-          <p className={s.trackTxt}>
+        <Banner tone="warn" className="mt-4" title="La rentabilidad espera a que cuadren las monedas">
             {data.financial_currency_coverage.status === "incompatible"
-              ? `Hay fuentes en monedas distintas a ${data.currency_code ?? "la tienda"}: ${data.financial_currency_coverage.mismatched_sources.map((item) => `${item.source} (${item.currencies.join(", ")})`).join("; ")}.`
-              : `No se pudo confirmar la moneda de todas las fuentes financieras${data.financial_currency_coverage.unknown_sources.length ? `: ${data.financial_currency_coverage.unknown_sources.join(", ")}` : ""}.`}
-            {" "}Se mantienen las ventas de Shopify, pero se ocultan las conclusiones de rentabilidad hasta tener una base comparable. No se convierte moneda automáticamente.
-          </p>
-        </div>
+              ? `Hay datos en monedas distintas a ${data.currency_code ?? "la de la tienda"}: ${data.financial_currency_coverage.mismatched_sources.map((item) => `${item.source} (${item.currencies.join(", ")})`).join("; ")}.`
+              : `No se ha podido confirmar la moneda de ${data.financial_currency_coverage.unknown_sources.length ? data.financial_currency_coverage.unknown_sources.join(", ") : "todos los datos de costes"}.`}
+            {" "}Las ventas de Shopify se ven igual; la rentabilidad se oculta hasta que todo esté en la misma moneda.
+        </Banner>
       ) : null}
 
       {/* ------------------------------ Cifras ------------------------------ */}
       <div className={cx(s.kpis, s.kpis4)} aria-label="Cifras de la tienda">
         <Kpi
           label="Pedidos"
+          aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="Pedidos" metricKey="orders_count" pattern={/pedidos|órdenes|orders/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={fmtNum(sales.orders_count)}
           delta={<Delta change={salesChangePct(sales.orders_count, previous?.sales.orders_count ?? null)} />}
           vs={previous ? fmtNum(previous.sales.orders_count) : null}
@@ -383,11 +389,13 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Conversión"
+          verdict={<MetricVerdict analysis={verdictOf("conversion")} />}
           value={funnel?.has_sessions && funnel.conversion_rate_own != null ? pct(funnel.conversion_rate_own, 2) : "—"}
           slot={<p className={s.trackTxt}>{funnel?.has_sessions ? `${fmtNum(funnel.sessions)} visitas` : "Sin datos de visitas"}</p>}
         />
         <Kpi
           label="Gasto medio por pedido"
+          aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="Gasto medio por pedido" metricKey="average_order_value" pattern={/ticket|pedido medio|aov|gasto medio/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={fmtEur(sales.aov, 2)}
           delta={<Delta change={salesChangePct(sales.aov, previous?.sales.aov ?? null)} />}
           vs={previous ? fmtEur(previous.sales.aov, 2) : null}
@@ -395,6 +403,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Margen bruto"
+          aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="Margen bruto" metricKey="gross_margin" pattern={/margen|coste|beneficio|rentab/i} audience={asConsultant ? "consultor" : "cliente"} />}
           tag={!lineMetricsComplete || data.margin.items_without_cost > 0 ? "incompleto" : data.margin.lines_with_estimated_metrics > 0 || data.margin.items_with_estimated_cost > 0 ? "estimado" : undefined}
           value={!productCostCurrencyComparable || !lineMetricsComplete || (data.margin.items_without_cost > 0 && data.margin.cogs === 0) ? "—" : `${fmtNum(data.margin.margin_pct, 1)} %`}
           slot={
@@ -418,19 +427,19 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
       {/* ------------------------------ Pendiente ------------------------------ */}
       <section className={s.sec} id="shop-pendiente" aria-label="Qué hacer">
         {asConsultant && operativaShopify.data ? (
-          <details className={s.panel}>
-            <summary>
+          <Collapsible className={s.panel}>
+            <CollapsibleTrigger>
               <strong>Análisis operativo de la tienda</strong>{" "}
               <span className={s.sub}>{operativaShopify.data.stale ? "desactualizado" : "vigente"} · {new Date(operativaShopify.data.generated_at).toLocaleDateString("es-ES")}</span>
-            </summary>
-            <p>{operativaShopify.data.output.answer || "El análisis no incluye una conclusión."}</p>
-            {operativaShopify.data.output.warnings?.length ? (
-              <ul className={s.sub}>{operativaShopify.data.output.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
-            ) : null}
-            <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={running !== null} onClick={() => void runOperativaShopify()}>
+              <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+            <DiagnosticReading tag="A13" diagnostic={operativaShopify.data} audience="consultor" />
+            <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={running !== null} onClick={() => void runOperativaShopify()}>
               {running === "/ai/operativa-shopify-run" ? "Analizando…" : "Actualizar análisis"}
             </button>
-          </details>
+          </CollapsibleContent>
+          </Collapsible>
         ) : null}
         <WorkQueue
           base={base}
@@ -449,7 +458,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
         <SectionHead
           id="shop-conv"
           title="Conversión"
-          ai={findingFor(diagnostic, /conver|embudo|carrito|checkout|cro|web/i)?.title ?? null}
+          ai={a02FindingText(diagnostic, /conver|embudo|carrito|checkout|cro|web/i)}
           fallback={funnel?.has_sessions && funnel.conversion_rate_own != null ? `De cada 100 visitas compran ${fmtNum(funnel.conversion_rate_own * 100, 1)}.` : null}
         />
         <div className={recovery?.checkouts ? s.two : undefined}>
@@ -603,7 +612,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                 <h3>Stock</h3>
                 <p className={s.sub}>Estado actual del inventario</p>
               </div>
-              <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={running !== null} onClick={() => void runStockPlanner()}>
+              <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={running !== null} onClick={() => void runStockPlanner()}>
                 {running === "/ai/stock-planner-run" ? "Actualizando…" : "Actualizar previsión"}
               </button>
             </div>
@@ -621,25 +630,11 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
                 <span className={s.num}>{fmtNum(data.stock.tracked_items)}</span>
               </div>
             </div>
-            {stockAi.data && asConsultant ? (
-              <ul className={s.findings}>
-                {stockAi.data.output.findings.slice(0, 3).map((finding, i) => (
-                  <li key={i} className={s.finding}>
-                    <span className={cx(s.pr, prioClass(finding.severity))} aria-hidden="true" />
-                    <div>
-                      <p className={s.qiT}>{finding.title}</p>
-                      {asConsultant ? <p className={s.findingE}>{evidenceText(finding.evidence)}</p> : null}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className={s.qfB} style={{ marginTop: 16 }}>
-                <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={running !== null} onClick={() => void runStockPlanner()}>
-                  {running === "/ai/stock-planner-run" ? "Actualizando previsión…" : "Actualizar previsión"}
-                </button>
+            {stockAi.data ? (
+              <div style={{ marginTop: 16 }}>
+                <DiagnosticReading tag="A06" diagnostic={stockAi.data} audience={asConsultant ? "consultor" : "cliente"} />
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </section>
@@ -649,7 +644,7 @@ export function ClientShopify({ organizationId, organizationName, connectionId, 
         <SectionHead
           id="shop-cli"
           title="Clientes"
-          ai={findingFor(diagnostic, /client|recurren|repet|fideli|retenc|ltv|churn/i)?.title ?? null}
+          ai={a02FindingText(diagnostic, /client|recurren|repet|fideli|retenc|ltv|churn/i)}
         />
         {!ins ? (
           <div className={s.panel}>{insights.isLoading ? <p className={s.empty}>Cargando…</p> : <Unavailable what="los datos de clientes" />}</div>

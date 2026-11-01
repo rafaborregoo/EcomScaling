@@ -25,10 +25,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -201,33 +205,36 @@ export function ConfidencePanel() {
   const casos = groupByCase(claims);
 
   return (
-    <Card
-      title="De qué nos podemos fiar"
-      description="Capa por capa: qué se sabe, cómo se sabe y qué haría falta para saber más. Se enseñan todas juntas a propósito — un caso con señal, patrón e impacto medido parece cerrado hasta que se lee la fila que dice que nadie sabe por qué pasa."
-    >
-      {casos.length === 0 ? (
-        <EmptyState
-          title="Sin lecturas de confianza"
-          hint="Aparecen cuando hay un caso abierto y el motor recorre lo que los demás han escrito sobre él."
-        />
-      ) : (
-        <div className="space-y-6">
-          {casos.map(({ caseId, claims: capas }) => (
-            <div key={caseId}>
-              <ul>
-                {capas.map((claim) => (
-                  <LayerRow key={claim.id} claim={claim} />
-                ))}
-              </ul>
-              <Uncertainties
-                uncertainties={uncertainties.filter(
-                  (u) => u.case_id === caseId,
-                )}
-              />
-            </div>
-          ))}
-        </div>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>De qué nos podemos fiar</CardTitle>
+        <CardDescription>Capa por capa: qué se sabe, cómo se sabe y qué haría falta para saber más. Se enseñan todas juntas a propósito — un caso con señal, patrón e impacto medido parece cerrado hasta que se lee la fila que dice que nadie sabe por qué pasa.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {casos.length === 0 ? (
+          <EmptyState
+            title="Sin lecturas de confianza"
+            hint="Aparecen cuando hay un caso abierto y el motor recorre lo que los demás han escrito sobre él."
+          />
+        ) : (
+          <div className="space-y-6">
+            {casos.map(({ caseId, claims: capas }) => (
+              <div key={caseId}>
+                <ul>
+                  {capas.map((claim) => (
+                    <LayerRow key={claim.id} claim={claim} />
+                  ))}
+                </ul>
+                <Uncertainties
+                  uncertainties={uncertainties.filter(
+                    (u) => u.case_id === caseId,
+                  )}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

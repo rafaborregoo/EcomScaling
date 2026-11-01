@@ -65,7 +65,7 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
             status: "error",
             last_error_at: new Date().toISOString(),
             last_error_message:
-              "La sincronizacion anterior quedo abierta y fue recuperada por la reconciliacion periodica.",
+              "La sincronización anterior quedó abierta y fue recuperada por la reconciliación periódica.",
           })
           .eq("id", connection.id)
           .eq("status", "syncing")

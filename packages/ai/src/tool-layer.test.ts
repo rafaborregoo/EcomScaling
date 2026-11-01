@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getToolContract } from "./tool-layer.js";
 
+test("A05 pipeline is read-only and cannot change tenant or store scope", () => {
+  const contract = getToolContract("get_email_campaign_pipeline");
+  assert.ok(contract);
+  assert.equal(contract.definition.permission, "read");
+  assert.equal(contract.definition.status, "implemented_partial");
+  assert.equal(contract.inputSchema.safeParse({}).success, true);
+  assert.equal(contract.inputSchema.safeParse({ organization_id: "other", store_id: "other" }).success, false);
+});
+
 test("A09 can retrieve one knowledge document by UUID without model-controlled scope", () => {
   const contract = getToolContract("get_knowledge_document");
   assert.ok(contract);

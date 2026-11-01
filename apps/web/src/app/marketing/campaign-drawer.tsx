@@ -5,18 +5,28 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
 import type { CampaignItem } from "@/hooks/use-campaign-items";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { StatusStrip } from "@/components/trabajo-ui";
 import {
+  ScrollArea,
   Badge,
   Banner,
   Button,
   ButtonLink,
   Checkbox,
-  Sheet,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
   Field,
   Input,
   LoadingBlock,
+  MultiSearchableSelect,
   toast,
+  Card,
+  CardContent,
+  DateTimePicker,
 } from "@/components/ui";
 import { audienceSize, STATE_LABEL, type CampaignRow } from "./campaign-rows";
 import { int, pct, ratio, type KWorkspace } from "./klaviyo-workspace";
@@ -35,24 +45,28 @@ type Props = {
 
 /** Panel lateral de una campaña: qué es, a quién va, qué hacer con ella y cómo fue. */
 export function CampaignDrawer({ row, organizationId, workspace, onClose, onChanged, onWritePiece, onOpenDraft }: Props) {
+  const isDesktop = useIsDesktop();
   return (
-    <Sheet
-      isOpen={Boolean(row)}
+    <Drawer
+      open={Boolean(row)}
       onOpenChange={(open) => !open && onClose()}
-      size="lg"
-      title={row?.name ?? "Campaña"}
-      meta={
-        row ? (
-          <>
+      swipeDirection={isDesktop ? "right" : "down"}
+      showSwipeHandle={!isDesktop}
+    >
+      <DrawerContent className="sm:max-w-[60rem]">
+      <DrawerHeader>
+        <DrawerTitle>{row?.name ?? "Campaña"}</DrawerTitle>
+        {row ? (
+          <DrawerDescription>
             <Badge tone={STATE_LABEL[row.state].tone}>{STATE_LABEL[row.state].label}</Badge>
             <span>
               {row.date ? fmtSchedule(row.date) : "Sin fecha"} ·{" "}
               {row.source === "klaviyo" ? "creada en Klaviyo" : "planificada en NORA"}
             </span>
-          </>
-        ) : undefined
-      }
-    >
+          </DrawerDescription>
+        ) : null}
+      </DrawerHeader>
+      <ScrollArea className="flex-1 p-4 sm:px-6">
       {row ? (
         <CampaignDetail
           key={row.key}
@@ -65,7 +79,9 @@ export function CampaignDrawer({ row, organizationId, workspace, onClose, onChan
           onOpenDraft={onOpenDraft}
         />
       ) : null}
-    </Sheet>
+      </ScrollArea>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -169,7 +185,7 @@ function CampaignPlanDescription({ description, initiative }: { description: str
   return (
     <div className="grid gap-3">
       {umbrella ? (
-        <section className="rounded-lg border border-separator bg-surface-subtle p-4">
+        <Card><CardContent>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Campaña paraguas</p>
           <h3 className="mt-1 text-base font-semibold">{umbrella}</h3>
           {strategy.length ? (
@@ -182,10 +198,10 @@ function CampaignPlanDescription({ description, initiative }: { description: str
               ))}
             </dl>
           ) : null}
-        </section>
+        </CardContent></Card>
       ) : null}
       {execution.length ? (
-        <section className="rounded-lg border border-separator bg-background p-4">
+        <Card><CardContent>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Acción prevista</p>
           <dl className="mt-3 grid gap-3">
             {execution.map((field, index) => (
@@ -195,7 +211,7 @@ function CampaignPlanDescription({ description, initiative }: { description: str
               </div>
             ))}
           </dl>
-        </section>
+        </CardContent></Card>
       ) : null}
     </div>
   );
@@ -326,7 +342,7 @@ function Actions({ row, organizationId, workspace, onChanged, onClose, onOpenDra
             : "Deja de estar programada y queda como borrador en Klaviyo."}
         </span>
         <div className={s.acts}>
-          <Button size="sm" variant="danger" disabled={busy} onClick={() => void cancel(confirm)}>
+          <Button size="sm" variant="destructive" disabled={busy} onClick={() => void cancel(confirm)}>
             Sí, {confirm === "cancel" ? "cancelar" : "devolver"}
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirm(null)}>
@@ -408,13 +424,6 @@ function ScheduleForm({ row, organizationId, workspace, onDone }: { row: Campaig
     .reduce((sum, audience) => sum + (audience.size ?? 0), 0);
   const valid = subject.trim() && fromEmail.trim() && included.size > 0;
 
-  function toggle(set: Set<string>, id: string, update: (next: Set<string>) => void) {
-    const next = new Set(set);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    update(next);
-  }
-
   async function submit(now: boolean) {
     setBusy(true);
     try {
@@ -464,42 +473,35 @@ function ScheduleForm({ row, organizationId, workspace, onDone }: { row: Campaig
         </Field>
       </div>
       <Field label={`Envía a${reach ? ` · ${int(reach)} perfiles` : ""}`}>
-        <div className={s.audPick}>
-          {audiences.length === 0 ? (
-            <span className={s.muted}>Aún no hay listas ni segmentos sincronizados.</span>
-          ) : (
-            audiences.map((audience) => (
-              <Checkbox
-                key={`in-${audience.id}`}
-                checked={included.has(audience.id)}
-                onChange={() => toggle(included, audience.id, setIncluded)}
-              >
-                {audience.name} · {audience.kind}
-                {audience.size != null ? ` · ${int(audience.size)}` : ""}
-              </Checkbox>
-            ))
-          )}
-        </div>
+        {audiences.length === 0 ? (
+          <span className={s.muted}>Aún no hay listas ni segmentos sincronizados.</span>
+        ) : (
+          <MultiSearchableSelect
+            aria-label="Listas y segmentos a los que se envía"
+            placeholder="Busca una lista o un segmento"
+            emptyText="No hay ninguna lista ni segmento con ese nombre."
+            values={[...included]}
+            onChange={(next) => setIncluded(new Set(next))}
+            options={audiences.map((audience) => ({ value: audience.id, label: audience.name, section: audience.kind === "Lista" ? "Listas" : "Segmentos", hint: audience.size != null ? `${int(audience.size)} perfiles` : undefined }))}
+          />
+        )}
       </Field>
       {audiences.length ? (
         <Field label="Excluye">
-          <div className={s.audPick}>
-            {audiences.map((audience) => (
-              <Checkbox
-                key={`ex-${audience.id}`}
-                checked={excluded.has(audience.id)}
-                onChange={() => toggle(excluded, audience.id, setExcluded)}
-              >
-                {audience.name} · {audience.kind}
-              </Checkbox>
-            ))}
-          </div>
+          <MultiSearchableSelect
+            aria-label="Listas y segmentos que se excluyen"
+            placeholder="Nadie excluido"
+            emptyText="No hay ninguna lista ni segmento con ese nombre."
+            values={[...excluded]}
+            onChange={(next) => setExcluded(new Set(next))}
+            options={audiences.map((audience) => ({ value: audience.id, label: audience.name, section: audience.kind === "Lista" ? "Listas" : "Segmentos", hint: audience.size != null ? `${int(audience.size)} perfiles` : undefined }))}
+          />
         </Field>
       ) : null}
       <Field label="Fecha y hora de envío">
-        <Input type="datetime-local" value={sendAt} onChange={(event) => setSendAt(event.target.value)} />
+        <DateTimePicker aria-label="Fecha y hora de envío" min={toDatetimeLocal(new Date().toISOString())} value={sendAt} onChange={setSendAt} />
       </Field>
-      <Checkbox checked={smartSending} onChange={setSmartSending}>
+      <Checkbox checked={smartSending} onCheckedChange={setSmartSending}>
         No enviar a quien recibió un email en las últimas 16 horas (Smart Sending)
       </Checkbox>
       {confirmNow ? (

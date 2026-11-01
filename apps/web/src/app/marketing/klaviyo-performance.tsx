@@ -1,7 +1,7 @@
 "use client";
 
 import { formatMoney } from "@/lib/money";
-import { BarChart, ButtonLink, Card, EmptyState, LoadingBlock, Table } from "@/components/ui";
+import { BarChart, ButtonLink, EmptyState, LoadingBlock, DataTable, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 import { StatusStrip } from "@/components/trabajo-ui";
 import { flowStatus, pct, ratio, type KWorkspace } from "./klaviyo-workspace";
 import s from "./marketing-views.module.css";
@@ -15,7 +15,7 @@ export function KlaviyoPerformance({ workspace, isLoading = false, storeCurrency
         title="Con Klaviyo verías aperturas, clics e ingresos atribuidos al email"
         hint="Conecta la cuenta y NORA trae el histórico de campañas y flows."
         action={
-          <ButtonLink href="/integraciones" variant="primary">
+          <ButtonLink href="/integraciones" variant="default">
             Conectar Klaviyo
           </ButtonLink>
         }
@@ -67,77 +67,95 @@ export function KlaviyoPerformance({ workspace, isLoading = false, storeCurrency
           { value: pct(ratio(totals?.opens_unique, totals?.delivered)), label: "Aperturas", hint: `Clics ${pct(ratio(totals?.clicks_unique, totals?.delivered))}` },
         ]}
       />
-      <Card title="Ingresos atribuidos por Klaviyo, por día" description="Las campañas cuentan el día de envío con todo lo que atribuyeron.">
-        {chart.some((point) => point.Flows || point.Campañas) ? (
-          <div className={s.root} style={{ gap: 0 }}>
-            <BarChart
-              data={chart}
-              xKey="day"
-              stacked
-              height={240}
-              valueFormatter={money}
-              axisValueFormatter={(value) => new Intl.NumberFormat("es-ES", { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value)}
-              series={[
-                { key: "Flows", label: "Flows", color: "var(--mk-flow)" },
-                { key: "Campañas", label: "Campañas", color: "var(--mk-camp)" },
-              ]}
-            />
-            <div className={s.legend}>
-              <span>
-                <i className={s.swatch} style={{ background: "var(--mk-flow)" }} />
-                Flows
-              </span>
-              <span>
-                <i className={s.swatch} style={{ background: "var(--mk-camp)" }} />
-                Campañas
-              </span>
+      <Card>
+        <CardHeader>
+          <CardTitle>Ingresos atribuidos por Klaviyo, por día</CardTitle>
+          <CardDescription>Las campañas cuentan el día de envío con todo lo que atribuyeron.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {chart.some((point) => point.Flows || point.Campañas) ? (
+            <div className={s.root} style={{ gap: 0 }}>
+              <BarChart
+                data={chart}
+                xKey="day"
+                stacked
+                height={240}
+                valueFormatter={money}
+                axisValueFormatter={(value) => new Intl.NumberFormat("es-ES", { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(value)}
+                series={[
+                  { key: "Flows", label: "Flows", color: "var(--mk-flow)" },
+                  { key: "Campañas", label: "Campañas", color: "var(--mk-camp)" },
+                ]}
+              />
+              <div className={s.legend}>
+                <span>
+                  <i className={s.swatch} style={{ background: "var(--mk-flow)" }} />
+                  Flows
+                </span>
+                <span>
+                  <i className={s.swatch} style={{ background: "var(--mk-camp)" }} />
+                  Campañas
+                </span>
+              </div>
             </div>
-          </div>
-        ) : (
-          <p className={s.muted}>La serie diaria se completa en la próxima sincronización de Klaviyo.</p>
-        )}
+          ) : (
+            <p className={s.muted}>La serie diaria se completa en la próxima sincronización de Klaviyo.</p>
+          )}
+        </CardContent>
       </Card>
       <div className={s.two}>
-        <Card title="Flows" description={`${workspace.period.days} días`}>
-          <Table
-            ariaLabel="Rendimiento de flows"
-            rows={flows}
-            emptyLabel="Sin datos de flows en el periodo."
-            columns={[
-              { key: "name", label: "Flow", render: (flow) => <b>{flow.name}</b> },
-              {
-                key: "revenue",
-                label: "Ingresos atrib.",
-                render: (flow) =>
-                  flowStatus(flow.status).key !== "live" && !flow.stats?.revenue ? (
-                    <span style={{ color: "var(--mk-warn)" }}>{flowStatus(flow.status).label}</span>
-                  ) : (
-                    <span className={s.num}>{money(flow.stats?.revenue ?? 0)}</span>
-                  ),
-              },
-              {
-                key: "rpr",
-                label: "Por destinatario",
-                render: (flow) => <span className={s.num}>{flow.stats?.recipients ? money(ratio(flow.stats.revenue, flow.stats.recipients)) : "—"}</span>,
-              },
-            ]}
-          />
+        <Card>
+          <CardHeader>
+            <CardTitle>Flows</CardTitle>
+            <CardDescription>{`${workspace.period.days} días`}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              ariaLabel="Rendimiento de flows"
+              rows={flows}
+              emptyLabel="Sin datos de flows en el periodo."
+              columns={[
+                { key: "name", label: "Flow", render: (flow) => <b>{flow.name}</b> },
+                {
+                  key: "revenue",
+                  label: "Ingresos atrib.",
+                  render: (flow) =>
+                    flowStatus(flow.status).key !== "live" && !flow.stats?.revenue ? (
+                      <span style={{ color: "var(--mk-warn)" }}>{flowStatus(flow.status).label}</span>
+                    ) : (
+                      <span className={s.num}>{money(flow.stats?.revenue ?? 0)}</span>
+                    ),
+                },
+                {
+                  key: "rpr",
+                  label: "Por destinatario",
+                  render: (flow) => <span className={s.num}>{flow.stats?.recipients ? money(ratio(flow.stats.revenue, flow.stats.recipients)) : "—"}</span>,
+                },
+              ]}
+            />
+          </CardContent>
         </Card>
-        <Card title="Campañas" description="Enviadas en el periodo">
-          <Table
-            ariaLabel="Rendimiento de campañas"
-            rows={campaigns}
-            emptyLabel="Sin campañas enviadas en el periodo."
-            columns={[
-              { key: "name", label: "Campaña", render: (campaign) => <b>{campaign.name}</b> },
-              { key: "revenue", label: "Ingresos atrib.", render: (campaign) => <span className={s.num}>{money(campaign.stats?.revenue ?? 0)}</span> },
-              {
-                key: "opens",
-                label: "Aperturas",
-                render: (campaign) => <span className={s.num}>{pct(ratio(campaign.stats?.opens_unique, campaign.stats?.delivered))}</span>,
-              },
-            ]}
-          />
+        <Card>
+          <CardHeader>
+            <CardTitle>Campañas</CardTitle>
+            <CardDescription>Enviadas en el periodo</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              ariaLabel="Rendimiento de campañas"
+              rows={campaigns}
+              emptyLabel="Sin campañas enviadas en el periodo."
+              columns={[
+                { key: "name", label: "Campaña", render: (campaign) => <b>{campaign.name}</b> },
+                { key: "revenue", label: "Ingresos atrib.", render: (campaign) => <span className={s.num}>{money(campaign.stats?.revenue ?? 0)}</span> },
+                {
+                  key: "opens",
+                  label: "Aperturas",
+                  render: (campaign) => <span className={s.num}>{pct(ratio(campaign.stats?.opens_unique, campaign.stats?.delivered))}</span>,
+                },
+              ]}
+            />
+          </CardContent>
         </Card>
       </div>
       <p className={s.caveat}>

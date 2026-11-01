@@ -1,5 +1,7 @@
 "use client";
 
+
+import { UserXIcon } from "lucide-react";
 import { useState } from "react";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
@@ -27,18 +29,40 @@ import {
   Banner,
   BarChart,
   Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   ButtonLink,
-  Card,
-  ConfirmDialog,
   ErrorBlock,
   EYEBROW,
   Field,
   Input,
   Metric,
   Select,
-  Sheet,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 function ConsultantsPanel() {
@@ -134,7 +158,7 @@ function ConsultantsPanel() {
     return null;
   }
 
-  const columns: TableColumnDef<Consultant>[] = [
+  const columns: DataTableColumn<Consultant>[] = [
     {
       key: "full_name",
       label: "Consultor",
@@ -177,7 +201,7 @@ function ConsultantsPanel() {
       key: "actions",
       label: "",
       render: (row) => (
-        <div className="flex justify-end gap-2">
+        <div role="group" aria-label="Acciones del consultor" className="flex flex-wrap items-center gap-2 ml-auto">
           <Button
             size="sm"
             variant="ghost"
@@ -202,19 +226,33 @@ function ConsultantsPanel() {
           >
             Abrir ficha
           </ButtonLink>
-          <ConfirmDialog
-            trigger={
-              <Button size="sm" variant="ghost" disabled={busyId === row.id}>
-                Eliminar
-              </Button>
-            }
-            title={`Eliminar a ${row.full_name ?? row.id} para siempre`}
-            note="Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor, no se borran: se reasignan desde aquí. No hay vuelta atrás."
-            irreversible
-            confirmPhrase={row.full_name ?? row.id}
-            confirmLabel="Eliminar definitivamente"
-            onConfirm={() => deleteConsultant(row)}
-          />
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button size="sm" variant="ghost" disabled={busyId === row.id}>
+                  Eliminar
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogMedia className="bg-danger/10 text-danger">
+                  <UserXIcon />
+                </AlertDialogMedia>
+                <AlertDialogTitle>¿Eliminar a {row.full_name ?? row.id} para siempre?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor, no se borran: se reasignan desde aquí. No hay vuelta atrás.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogConfirmPhrase phrase={row.full_name ?? row.id} />
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={() => deleteConsultant(row)}>
+                  Eliminar definitivamente
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       ),
     },
@@ -246,38 +284,39 @@ function ConsultantsPanel() {
         <Metric card label="Asignaciones de clientes" value={String(assignmentCount)} />
       </div>
 
-      <Card
-        kicker="Panel platform admin"
-        title="Directorio de consultores"
-        description={`Acceso, cartera y uso de IA · últimos ${data.window_days} días.`}
-        actions={
-          <Button onClick={() => setCreating((value) => !value)}>
+      <Card>
+        <CardHeader>
+          <CardKicker>Panel platform admin</CardKicker>
+          <CardTitle>Directorio de consultores</CardTitle>
+          <CardDescription>{`Acceso, cartera y uso de IA · últimos ${data.window_days} días.`}</CardDescription>
+          <CardAction><Button onClick={() => setCreating((value) => !value)}>
             {creating ? "Cerrar alta" : "Invitar consultor"}
-          </Button>
-        }
-      >
-        {costChartData.length >= 2 ? (
-          <div className="mb-6">
-            <p className={EYEBROW}>Coste IA por consultor (USD)</p>
-            <div className="mt-2">
-              <BarChart
-                data={costChartData}
-                xKey="name"
-                series={[{ key: "cost", label: "Coste IA" }]}
-                horizontal
-                height={Math.min(280, Math.max(88, costChartData.length * 30))}
-                valueFormatter={formatCost}
-              />
+          </Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          {costChartData.length >= 2 ? (
+            <div className="mb-6">
+              <p className={EYEBROW}>Coste IA por consultor (USD)</p>
+              <div className="mt-2">
+                <BarChart
+                  data={costChartData}
+                  xKey="name"
+                  series={[{ key: "cost", label: "Coste IA" }]}
+                  horizontal
+                  height={Math.min(280, Math.max(88, costChartData.length * 30))}
+                  valueFormatter={formatCost}
+                />
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        <Table
-          ariaLabel="Consultores"
-          columns={columns}
-          rows={data.consultants}
-          emptyLabel="No hay consultores todavía."
-        />
+          <DataTable
+            ariaLabel="Consultores"
+            columns={columns}
+            rows={data.consultants}
+            emptyLabel="No hay consultores todavía."
+          />
+        </CardContent>
       </Card>
 
       <ConsultantCreateSheet
@@ -371,17 +410,12 @@ function ConsultantCreateSheet({
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && concesionValida(plan);
 
   return (
-    <Sheet
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      size="md"
-      title="Invitar consultor"
-      isBusy={busy}
-      isDirty={Boolean(email.trim() || fullName.trim())}
-      formId="create-consultant-form"
-      cancelLabel={manualInvite ? "Cerrar" : "Cancelar"}
-      primary={manualInvite ? undefined : { label: "Invitar consultor", busyLabel: "Invitando…", disabled: !canSubmit }}
-    >
+    <Dialog open={isOpen} onOpenChange={onOpenChange} busy={busy} dirty={Boolean(email.trim() || fullName.trim())}>
+      <DialogContent className="sm:max-w-[44rem]">
+      <DialogHeader>
+        <DialogTitle>Invitar consultor</DialogTitle>
+        <DialogDescription>Invita a un consultor por email y decide si le concedes el plan o lo paga él.</DialogDescription>
+      </DialogHeader>
       <form
         id="create-consultant-form"
         className="space-y-4"
@@ -390,12 +424,9 @@ function ConsultantCreateSheet({
           void submit();
         }}
       >
-        <p className="text-muted">
-          Invita a un consultor por email y decide si le concedes el plan o lo paga él.
-        </p>
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
         {manualInvite ? (
-          <div className="space-y-3 rounded-md border border-line bg-surface p-4">
+          <Card><CardContent className="space-y-3">
             <p className="text-sm font-medium">Enlace de acceso para {manualInvite.email}</p>
             <p className="text-xs text-muted">
               El correo de Supabase está temporalmente limitado. Comparte este enlace únicamente con el consultor invitado.
@@ -415,7 +446,7 @@ function ConsultantCreateSheet({
                 {copied ? "Copiado" : "Copiar enlace"}
               </Button>
             </div>
-          </div>
+          </CardContent></Card>
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Email">
@@ -432,7 +463,16 @@ function ConsultantCreateSheet({
           avisoSinPlan="Hasta que pague no será consultor: entrará, pero sin cartera de clientes. El rol sale del plan, así que lo verá en /planes al entrar."
         />
       </form>
-    </Sheet>
+      <DialogFooter>
+        <DialogClose>{manualInvite ? "Cerrar" : "Cancelar"}</DialogClose>
+        {manualInvite ? null : (
+          <Button type="submit" form="create-consultant-form" disabled={!canSubmit || busy}>
+            {busy ? "Invitando…" : "Invitar consultor"}
+          </Button>
+        )}
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

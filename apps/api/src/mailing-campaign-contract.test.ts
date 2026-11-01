@@ -91,43 +91,17 @@ test("flag apagado por defecto: el arranque no existe y el navegador sigue con s
   assert.match(planner, /\/marketing\/drafts\/\$\{payload\.draft\.id\}\/schedule/);
 });
 
-// Copia literal de apps/web/src/lib/marketing-brief.ts (el tsconfig de la API no
-// admite importar la web): fija el texto que A11 recibia antes del grafo.
-function buildMarketingBrief(input: { channel: string; objective: string; audience: string; offer: string; tone: string; cta: string; instructions: string }) {
-  return [
-    `Canal de destino: ${input.channel}`,
-    `Objetivo: ${input.objective}`,
-    `Audiencia: ${input.audience.trim() || "No especificada; identificar supuestos"}`,
-    `Oferta o producto: ${input.offer.trim() || "No especificada; no inventar condiciones"}`,
-    `Tono: ${input.tone}`,
-    `CTA preferido: ${input.cta.trim() || "Proponer uno coherente con el objetivo"}`,
-    `Indicaciones adicionales: ${input.instructions.trim()}`,
-  ].join("\n");
-}
-
-test("el brief compartido es identico al que componia el navegador", () => {
-  const plan = { diagnosis: "D", sequence_rationale: "S", visual_direction: "V" };
-  const email = {
-    title: "T", angle: "A", objective: "O", audience: "Au", subject_direction: "SD",
-    preheader_direction: "PD", cta: "C", copy_brief: "CB", visual_modules: "VM",
-  };
-  const legacy = buildMarketingBrief({
-    channel: "email_klaviyo", objective: "conversion", audience: " vip ", offer: "", tone: "brand", cta: "",
-    instructions: [
-      "PLAN ESTRATEGICO A27: usa lo siguiente como restricciones de trabajo basadas en el historial de esta organizacion.",
-      "Diagnostico: D", "Arco de secuencia: S", "Dirección visual común propuesta por A27: V",
-      "Este es el email 2 de 3: T.", "Angulo: A. Objetivo: O. Audiencia: Au.",
-      "Direccion de asunto: SD. Direccion de preheader: PD. CTA: C.", "Brief de copy obligatorio: CB",
-      "Módulos visuales de esta pieza dentro del sistema común: VM", "CAMPAÑA DE MAILING: Rebajas.",
-      "Este es el email 2 de 3; debe aportar un ángulo distinto y no repetir el anterior.",
-      "Fecha prevista de envío: 2026-10-14 a las 09:00.", "sin descuentos",
-    ].join("\n"),
+test("el brief conserva condiciones, evidencia y zona horaria de la revisión", () => {
+  const brief = buildWeeklyMailingEmailBrief({
+    objective: "conversion", audience: "vip", offer: "", instructions: "sin descuentos", campaignName: "Reposición",
+    plan: { diagnosis: "D", sequence_rationale: "S", visual_direction: "V", success_criteria: ["success-marker"],
+      stop_criteria: ["stop-marker"], experiment: { hypothesis: "experiment-marker" }, sources: [{ reference: "source-marker" }] },
+    email: { title: "T", angle: "A", objective: "O", audience: "Au", subject_direction: "SD", preheader_direction: "PD",
+      cta: "C", copy_brief: "CB", visual_modules: "VM", evidence: [{ label: "evidence-marker" }] },
+    index: 1, total: 3, scheduledDate: "2026-10-14", timezone: "Europe/Madrid", revision: "approved-revision",
   });
-  const shared = buildWeeklyMailingEmailBrief({
-    objective: "conversion", audience: " vip ", offer: "", instructions: " sin descuentos ", campaignName: " Rebajas ",
-    plan, email, index: 1, total: 3, scheduledDate: "2026-10-14",
-  });
-  assert.equal(shared, legacy);
+  for (const marker of ["success-marker", "stop-marker", "experiment-marker", "source-marker", "evidence-marker", "approved-revision", "Europe/Madrid", "sin descuentos"]) assert.ok(brief.includes(marker), marker);
+  assert.match(brief, /No acredita programación ni envío/);
 });
 
 test("aislamiento: otra organizacion, cuenta de tienda u otra tienda no leen ni reanudan", () => {
@@ -135,11 +109,12 @@ test("aislamiento: otra organizacion, cuenta de tienda u otra tienda no leen ni 
   const consultant = { memberships: [{ organization_id: ORG, role: "consultant" }], profile: { platform_role: "consultant" } } as any;
   const outsider = { memberships: [{ organization_id: OTHER_ORG, role: "owner" }], profile: { platform_role: "client" } } as any;
   // Cuenta limitada a tienda: no tiene membership de organizacion (auth-context la separa).
-  const storeOnly = { memberships: [], storeMemberships: [{ organization_id: ORG, role: "manager" }], profile: { platform_role: "client" } } as any;
+  const storeOnly = { memberships: [], storeMemberships: [{ organization_id: ORG, role: "manager", accessSource: "membership", access_scope: "store", store_ids: [STORE] }], profile: { platform_role: "client" } } as any;
   const viewer = { memberships: [{ organization_id: ORG, role: "viewer" }], profile: { platform_role: "client" } } as any;
   assert.equal(authorizeMailingCampaign(consultant, ORG, sequence).ok, true);
-  assert.deepEqual(authorizeMailingCampaign(outsider, ORG, sequence), { ok: false, statusCode: 403, error: "marketing_access_required" });
-  assert.equal(authorizeMailingCampaign(storeOnly, ORG, sequence).ok, false);
+  assert.equal(authorizeMailingCampaign(outsider, ORG, sequence).ok, false);
+  assert.equal(authorizeMailingCampaign(storeOnly, ORG, sequence).ok, true);
+  assert.equal(authorizeMailingCampaign(storeOnly, ORG, { ...sequence, store_id: OTHER_ORG }).ok, false);
   assert.equal(authorizeMailingCampaign(viewer, ORG, sequence).ok, false);
   // La secuencia de otra organizacion no existe para esta (las consultas filtran por organization_id).
   assert.equal(authorizeMailingCampaign(outsider, OTHER_ORG, { organization_id: ORG, store_id: STORE }).ok, false);
@@ -214,6 +189,8 @@ test("campaña parada: decision sin aplicar, email detenido o todo terminado sin
   assert.equal(campaignNeedsResume("in_progress", [row({ status: "failed" })], now), false, "fallido sin decidir espera a una persona");
   assert.equal(campaignNeedsResume("in_progress", [row({ status: "failed", failure_decision: "retry" })], now), true);
   assert.equal(campaignNeedsResume("in_progress", [row({ status: "scheduled" }), row({ status: "rejected" })], now), true, "todos terminados y sin cerrar");
+  assert.equal(campaignNeedsResume("in_progress", [], now), true, "missing bootstrap checkpoint remains discoverable");
+  assert.equal(campaignNeedsResume("abandoned", [row({ status: "drafting" })], now), false);
   assert.equal(campaignNeedsResume("completed", [row({ status: "scheduled" })], now), false);
 });
 

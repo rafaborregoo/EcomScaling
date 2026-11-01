@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BubbleChart, Card, type BubblePoint } from "@/components/ui";
+import { BubbleChart, type BubblePoint, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 /**
  * Cartera del consultor, a la vista: quién pide atención y cuánto pesa.
@@ -83,36 +83,37 @@ export function PortfolioAttention({
   const urgent = items.filter((item) => item.level === "critica" || item.level === "alta").length;
 
   return (
-    <Card
-      title="Quién pide atención"
-      description={
-        urgent > 0
+    <Card>
+      <CardHeader>
+        <CardTitle>Quién pide atención</CardTitle>
+        <CardDescription>{urgent > 0
           ? `${urgent} de ${items.length} ${noun} piden revisión, empezando por ${first?.name}.`
-          : `Ninguna de las ${items.length} ${noun} pide revisión ahora mismo.`
-      }
-    >
-      <div className="mb-3 flex flex-wrap gap-2" aria-label="Reparto por urgencia">
-        {counts.map((entry) => (
-          <span
-            key={entry.level}
-            className="inline-flex items-center gap-2 rounded-full border border-separator px-3 py-1 text-xs"
-          >
-            <i className="inline-block size-2.5 rounded-full" style={{ background: entry.color }} aria-hidden />
-            {entry.label} <strong className="tabular-nums">{entry.n}</strong>
-          </span>
-        ))}
-      </div>
-      <BubbleChart
-        points={points}
-        xFormatter={weighted ? formatWeight : undefined}
-        xLabel={weighted ? weightLabel : undefined}
-        yLabel="Urgencia"
-        onPointClick={(point) => onOpen(point.id)}
-      />
-      <p className="mt-1 text-xs text-muted">
-        Cada burbuja es una cuenta. Arriba, lo más urgente{weighted ? "; a la derecha, lo que más pesa en la cartera" : ""}. Pasa el ratón para ver por qué y haz clic para abrirla.
-        {weighted && known < items.length ? ` Sin ${weightLabel.toLowerCase()} conocido en ${items.length - known}: quedan en el eje izquierdo.` : ""}
-      </p>
+          : `Ninguna de las ${items.length} ${noun} pide revisión ahora mismo.`}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-3 flex flex-wrap gap-2" aria-label="Reparto por urgencia">
+          {counts.map((entry) => (
+            <span
+              key={entry.level}
+              className="inline-flex items-center gap-2 rounded-full border border-separator px-3 py-1 text-xs"
+            >
+              <i className="inline-block size-2.5 rounded-full" style={{ background: entry.color }} aria-hidden />
+              {entry.label} <strong className="tabular-nums">{entry.n}</strong>
+            </span>
+          ))}
+        </div>
+        <BubbleChart
+          points={points}
+          xFormatter={weighted ? formatWeight : undefined}
+          xLabel={weighted ? weightLabel : undefined}
+          yLabel="Urgencia"
+          onPointClick={(point) => onOpen(point.id)}
+        />
+        <p className="mt-1 text-xs text-muted">
+          Cada burbuja es una cuenta. Arriba, lo más urgente{weighted ? "; a la derecha, lo que más pesa en la cartera" : ""}. Pasa el ratón para ver por qué y haz clic para abrirla.
+          {weighted && known < items.length ? ` Sin ${weightLabel.toLowerCase()} conocido en ${items.length - known}: quedan en el eje izquierdo.` : ""}
+        </p>
+      </CardContent>
     </Card>
   );
 }

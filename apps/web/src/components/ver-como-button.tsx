@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
+import type { ButtonSize } from "@/components/ui/button";
 
 /**
  * Entra en modo "ver como" (view-as.ts) para una organizacion CLIENTE.
@@ -19,7 +20,7 @@ export function VerComoButton({
 }: {
   organizationId: string;
   displayName: string;
-  size?: "sm" | "md";
+  size?: ButtonSize;
 }) {
   const router = useRouter();
   return (

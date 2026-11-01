@@ -58,7 +58,7 @@ function requireConsultant(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "consultant_role_required",
-      message: "Solo un consultor o platform admin puede gestionar llamadas.",
+      message: "Solo el consultor puede gestionar llamadas.",
     };
   }
 
@@ -214,6 +214,51 @@ export async function listCalls(
         : { ...summary, key_points: redactConsultantOnly(summary.key_points) },
     ),
   }));
+  const callIds = calls.map((call) => String((call as Record<string, unknown>).id)).filter(Boolean);
+
+  // Comparador A01 para el tenant TEST de laboratorio. Las alternativas son
+  // borradores (nunca resúmenes publicados) y solo se exponen si cada fila fue
+  // marcada explícitamente para comparación por el script de laboratorio.
+  const isA01LabTestTenant =
+    organizationId === "5ebc7b02-ca86-402e-bd61-9abd22f1ee04" &&
+    env.SUPABASE_URL.includes("kopcblejsxpkxoykldyh");
+  if (isA01LabTestTenant && callIds.length > 0 && env.SUPABASE_SERVICE_ROLE_KEY) {
+    const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: labRows, error: labError } = await admin
+      .from("call_ai_summaries")
+      .select("id, call_id, transcript_id, summary, key_points, agreed_actions, status, created_at")
+      .eq("organization_id", organizationId)
+      .in("call_id", callIds)
+      .eq("status", "draft");
+    if (!labError && labRows) {
+      const visibleLabRows = labRows.filter((row) => {
+        const points = row.key_points && typeof row.key_points === "object" && !Array.isArray(row.key_points)
+          ? row.key_points as Record<string, unknown>
+          : {};
+        const lab = points.ai_lab && typeof points.ai_lab === "object" && !Array.isArray(points.ai_lab)
+          ? points.ai_lab as Record<string, unknown>
+          : {};
+        return lab.is_lab === true && lab.synthetic_meeting === true && lab.client_comparison_visible === true;
+      });
+      const byCall = new Map<string, typeof visibleLabRows>();
+      for (const row of visibleLabRows) byCall.set(row.call_id, [...(byCall.get(row.call_id) ?? []), row]);
+      for (const call of calls) {
+        const candidates = byCall.get(String((call as Record<string, unknown>).id)) ?? [];
+        const currentTranscriptId = Array.isArray(call.call_transcripts)
+          ? (call.call_transcripts as Array<{ id?: string }>)[0]?.id
+          : undefined;
+        const comparisons = candidates
+          .filter((row) => !currentTranscriptId || row.transcript_id === currentTranscriptId)
+          .map((row) => isConsultant ? row : {
+            ...row,
+            key_points: redactConsultantOnly(row.key_points),
+          });
+        Object.assign(call, { ai_lab_summaries: comparisons });
+      }
+    }
+  }
 
   return {
     ok: true as const,

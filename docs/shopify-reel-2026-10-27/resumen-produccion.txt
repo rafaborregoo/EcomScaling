@@ -1,0 +1,167 @@
+- alert
+- main:
+  - link "Saltar al contenido principal":
+    - /url: "#portal-content"
+  - link "E-NORA, ir al inicio":
+    - /url: /dashboard
+  - paragraph: Shopify
+  - generic: /
+  - button "ecomscaling-dev.myshopify.com Tienda":
+    - generic: ecomscaling-dev.myshopify.com
+  - combobox
+  - button "Enviar feedback":
+    - generic: Feedback
+  - button "Abrir Consultor IA":
+    - generic: Consultor IA
+  - button "Centro de actividad (1 elementos)":
+    - button "Centro de actividad (1 elementos)":
+      - generic: "1"
+  - button "Abrir menú de perfil":
+    - button "Abrir menú de perfil":
+      - generic: RE
+  - complementary:
+    - navigation "Módulos":
+      - link "Inicio":
+        - /url: /dashboard?tab=todo
+      - link "Trabajo":
+        - /url: /camino
+      - link "Marketing":
+        - /url: /marketing?section=plan
+      - link "Comunicación":
+        - /url: /mensajes
+      - link "Shopify":
+        - /url: /shopify
+      - link "Meta":
+        - /url: /meta
+      - link "Klaviyo":
+        - /url: /klaviyo
+      - link "Analítica":
+        - /url: /informes
+      - link "Conocimiento":
+        - /url: /conocimiento?section=cuestionario
+    - link "Añadir tienda Shopify":
+      - /url: /integraciones/shopify
+    - link "Configuración":
+      - /url: /configuracion?section=resumen
+      - generic "1 incidencias de integración"
+    - button "Control de navegación lateral":
+      - button "Control de navegación lateral":
+  - complementary:
+    - 'navigation "Shopify: secciones"':
+      - link "Resumen":
+        - /url: /shopify
+        - generic: Resumen
+      - link "Productos":
+        - /url: /shopify/productos
+        - generic: Productos
+      - link "Inventario":
+        - /url: /shopify/inventario
+        - generic: Inventario
+      - link "Promociones":
+        - /url: /shopify/promociones
+        - generic: Promociones
+  - heading "EcomScaling Dev" [level=1]
+  - paragraph: ecomscaling-dev.myshopify.com · actualizado 22/9/26, 2:00
+  - button "Sincronizar ahora"
+  - alert:
+    - generic: Shopify rechazó el permiso guardado. Reconecta la tienda.
+  - region "Has vendido 0 US$":
+    - group "Periodo":
+      - button "7 días"
+      - button "30 días" [pressed]
+      - button "90 días"
+      - button "6 meses"
+      - button "1 año"
+      - button "Todo"
+    - heading "Has vendido 0 US$" [level=1]
+    - paragraph: en los últimos 30 días
+    - paragraph: Todavía sin ventas en este periodo
+    - button "IA Preguntar por qué":
+      - generic: IA
+      - text: Preguntar por qué
+    - group "Ventas netas por día":
+    - generic: Ventas netas por día
+    - generic: Media diaria del periodo anterior
+  - status:
+    - strong: Rentabilidad pendiente de validar por moneda
+    - paragraph: "Hay fuentes en monedas distintas a USD: configuración financiera (EUR); cuentas publicitarias Meta (EUR). Se mantienen las ventas de Shopify, pero se ocultan las conclusiones de rentabilidad hasta tener una base comparable. No se convierte moneda automáticamente."
+  - generic "Cifras de la tienda":
+    - group "Pedidos":
+      - generic: Pedidos
+      - paragraph: "0"
+      - paragraph:
+        - generic: vs 0
+    - group "Conversión":
+      - generic: Conversión
+      - paragraph: —
+      - paragraph
+      - paragraph: Sin datos de visitas
+    - group "Gasto medio por pedido":
+      - generic: Gasto medio por pedido
+      - paragraph: 0,00 US$
+      - paragraph:
+        - generic: vs 0,00 US$
+    - group "Margen bruto":
+      - generic: Margen bruto
+      - paragraph: 0,0 %
+      - paragraph
+      - paragraph: 0 US$ tras coste de producto
+  - region "Revisa estas cifras antes de decidir":
+    - heading "Revisa estas cifras antes de decidir" [level=2]
+    - generic: Costes de producto
+    - generic: OK
+    - paragraph: Todas las líneas tienen coste. El margen es fiable.
+    - generic: Sesiones
+    - generic: Sin datos
+    - paragraph: Sin sesiones no hay tasa de conversión. Vienen de los informes de Shopify y necesitan ese permiso.
+    - link "Revisar la conexión":
+      - /url: /integraciones
+    - generic: Inventario
+    - generic: Sin seguimiento
+    - paragraph: "Ningún artículo lleva seguimiento: un cero no significa que no queden unidades."
+    - generic: Importes netos
+    - generic: OK
+    - paragraph: Todas las líneas traen el importe tras descuentos y reembolsos.
+  - region "Qué hacer":
+    - heading "Qué hacer" [level=3]
+    - paragraph: Al día
+    - paragraph: No hay tareas ni propuestas pendientes. Puedes revisar tus resultados o continuar con el plan de la semana.
+  - region "Conversión":
+    - heading "Conversión" [level=2]
+    - paragraph
+    - heading "Del escaparate a la compra" [level=3]
+    - paragraph: Cuántas visitas acaban comprando
+    - paragraph: Todavía no tenemos datos de sesiones. Llegan con la sincronización de analítica de Shopify.
+  - region "Productos":
+    - heading "Productos" [level=2]
+    - paragraph
+    - heading "Los más vendidos" [level=3]
+    - paragraph: Por ventas en el periodo
+    - paragraph: Sin ventas de productos en este periodo.
+    - heading "Stock" [level=3]
+    - paragraph: Estado actual del inventario
+    - button "Actualizar previsión"
+    - text: Agotados
+    - generic: "0"
+    - text: Stock bajo
+    - generic: "0"
+    - text: Con stock vigilado
+    - generic: "0"
+    - button "Actualizar previsión"
+  - region "Clientes":
+    - heading "Clientes" [level=2]
+    - paragraph
+    - generic: —
+    - generic: de los pedidos son de clientes que repiten
+    - paragraph: Pedidos
+    - generic: Nuevos 0
+    - generic: Repiten 0
+    - paragraph: Ventas
+    - generic: 0 US$ de nuevos
+    - generic: 0 US$ de los que repiten
+    - text: Clientes
+    - generic: "0"
+    - text: Pedidos por cliente
+    - generic: —
+    - text: Gasto medio por cliente
+    - generic: —

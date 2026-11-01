@@ -6,10 +6,10 @@
   --intake-accent: #dfad1f;
   display: grid;
   gap: 18px;
-  padding: 20px;
-  border: 1px solid var(--intake-line);
-  border-radius: 16px;
-  background: linear-gradient(145deg, #fbfcfa, var(--intake-bg));
+  padding: 20px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--intake-ink);
 }
 
@@ -267,9 +267,6 @@
   font-size: 11px;
   font-weight: 500;
 }
-.repeat input {
-  accent-color: #8b6d12;
-}
 .dateFlags {
   grid-column: 1 / -1;
   display: flex;
@@ -341,7 +338,7 @@
 }
 @media (max-width: 500px) {
   .root {
-    padding: 15px;
+  padding: 15px 0;
   }
   .choices,
   .dateRow {

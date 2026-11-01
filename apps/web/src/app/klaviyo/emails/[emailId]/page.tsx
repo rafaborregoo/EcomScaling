@@ -1,15 +1,17 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
+import { A26EmailAudit } from "@/components/a26-email-audit";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { AsyncState, Card, ErrorBlock } from "@/components/ui";
+import { AsyncState, ErrorBlock, ToggleGroup, ToggleGroupItem, Card, CardContent, CardDescription, CardHeader, CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { cx, Empty, SectionHead } from "../../../dashboard/client-pulse";
 import { fmtNum } from "../../../dashboard/client-pulse-model";
 import pulse from "../../../dashboard/client-pulse.module.css";
@@ -63,8 +65,18 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
     activeConnection.setConnectionId(connectionId);
   }
 
-  if (!organizationId) return <div className={pulse.root}><Card title="Selecciona un cliente" description="Elige una organización en la barra superior." /></div>;
-  if (query.error && !data) return <div className={pulse.root}><Card title="No se pudo abrir el email"><ErrorBlock>{query.error}</ErrorBlock></Card></div>;
+  if (!organizationId) return <div className={pulse.root}><Card>
+    <CardHeader>
+      <CardTitle>Selecciona un cliente</CardTitle>
+      <CardDescription>Elige una organización en la barra superior.</CardDescription>
+    </CardHeader>
+  </Card></div>;
+  if (query.error && !data) return <div className={pulse.root}><Card>
+    <CardHeader>
+      <CardTitle>No se pudo abrir el email</CardTitle>
+    </CardHeader>
+    <CardContent><ErrorBlock>{query.error}</ErrorBlock></CardContent>
+  </Card></div>;
   if (!data) return <div className={pulse.root}><AsyncState status="loading" loadingLabel="Cargando ficha de email…" /></div>;
 
   const { entity } = data;
@@ -79,7 +91,7 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className={pulse.root} aria-busy={query.data === undefined} style={query.data === undefined ? { opacity: 0.55, transition: "opacity 0.2s" } : undefined}>
       <nav className={s.crumb} aria-label="Ruta">
-        <a href="/klaviyo">Klaviyo</a>
+        <Link href="/klaviyo">Klaviyo</Link>
         <span aria-hidden="true">/</span>
         <Link href={backHref} onClick={returnToEmails}>Emails</Link>
         <span aria-hidden="true">/</span>
@@ -133,7 +145,7 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div><dt>Bajas</dt><dd>{pct(entity.unsub_rate, 2)}</dd><small>lo normal: menos de 0,5 %</small></div>
           </dl>
           <div className={s.actions}>
-            <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo funciona este email y qué cambiarías", "Ficha de email")}>
+            <button type="button" className={buttonVariants()} onClick={() => askCopilot("Explícame cómo funciona este email y qué cambiarías", "Ficha de email")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
@@ -142,8 +154,9 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
-      <details>
-      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
+      <Collapsible>
+      <CollapsibleTrigger className={pulse.sub}>Sobre estos datos<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+      <CollapsibleContent>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Atribución</span><span className={cx(pulse.chip, pulse.chipWarn)}>de Klaviyo</span></div>
@@ -162,16 +175,17 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>{data.stats_coverage === "lifetime" ? "Sin envíos en el periodo elegido: se muestra su histórico completo." : "Cifras del periodo seleccionado."}</p>
         </div>
       </div>
-      </details>
+      </CollapsibleContent>
+      </Collapsible>
 
       {/* ------------------------------ Rendimiento ------------------------------ */}
       <section id="rendimiento" className={pulse.sec}>
         <div className={pulse.secHead} style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}>
           <h2>Rendimiento</h2>
           <p className={pulse.aiLine}>Frente a la media de la cuenta en el mismo periodo.</p>
-          <div className={pulse.seg} role="group" aria-label="Periodo">
-            {PERIODS.map((value) => <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => setPeriodDays(value)}>{periodLabel(value)}</button>)}
-          </div>
+          <ToggleGroup aria-label="Periodo" value={periodDays} onValueChange={setPeriodDays}>
+            {PERIODS.map((value) => <ToggleGroupItem key={value} value={value}>{periodLabel(value)}</ToggleGroupItem>)}
+          </ToggleGroup>
         </div>
         <div className={pulse.panel}>
           <div className={pulse.panelH}>
@@ -248,6 +262,7 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
       ) : null}
 
+      {["platform_admin", "consultant"].includes(bootstrap.profile.platform_role) ? <A26EmailAudit organizationId={organizationId} connectionId={connectionId} /> : null}
       <footer className={s.foot}>
         <span>Ventas según Klaviyo: no son las ventas de tu tienda.</span>
       </footer>

@@ -169,7 +169,7 @@ export async function getKlaviyoInsights(
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      message: "No tienes acceso a esta tienda.",
     };
   }
 

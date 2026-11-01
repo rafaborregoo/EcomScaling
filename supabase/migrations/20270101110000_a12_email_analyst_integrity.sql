@@ -3,6 +3,7 @@
 -- la identidad de cuenta/métrica/canal/mensaje al elegir filas de reporte.
 
 drop function if exists public.klaviyo_tracking_summary(uuid, timestamptz, timestamptz);
+drop function if exists public.klaviyo_tracking_summary(uuid, timestamptz, timestamptz, uuid);
 create function public.klaviyo_tracking_summary(
   target_organization_id uuid,
   period_start timestamptz,

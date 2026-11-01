@@ -207,7 +207,7 @@ export function parseStoreScopeInput(input: StoreScopeInput):
       statusCode: 400,
       error: "invalid_store_scope",
       message:
-        "Envia al menos una asignacion en meta_ad_accounts o klaviyo_accounts.",
+        "Elige al menos una cuenta de Meta o de Klaviyo para asignar.",
     };
   }
 
@@ -238,7 +238,7 @@ export async function assignStoreScope(
       ok: false,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden asignar tiendas.",
+      message: "Solo el propietario o un gestor pueden asignar tiendas.",
     };
   }
 
@@ -271,7 +271,7 @@ export async function assignStoreScope(
         ok: false,
         statusCode: 400,
         error: "invalid_store_scope",
-        message: "Una o mas tiendas no pertenecen a esta organizacion.",
+        message: "Alguna de las tiendas elegidas no es de esta cuenta.",
       };
     }
   }

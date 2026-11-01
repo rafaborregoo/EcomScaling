@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type OperationsCxRun = {
   organization_id: string;
@@ -56,22 +56,28 @@ export function OperationsCxPlaybookPanel() {
   const value = (key: string) => facts[key] ?? "UNKNOWN";
 
   return (
-    <Card id="insight-operations-cx" title="Operaciones, fulfillment y CX" description="Separa entrega, promesa, capacidad, devoluciones y soporte; conserva UNKNOWN cuando la tienda no aporta SLA, backlog o experiencia de cliente.">
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">{current.candidate_count ? `${current.candidate_count} playbook(s) operativo(s) evaluado(s).` : "No hay templates OPERATIONS_CX activos; no se inventa un SLA ni se atribuyen fallos al carrier."}</p>
-          <p className="text-muted mt-2 text-xs">Pedidos: {value("operations.order_volume.observed")}; fulfillment: {value("operations.delivery.fulfillments_observed")}; entregas: {value("operations.delivery.delivered_observed")}; en tránsito: {value("operations.delivery.in_transit_observed")}.</p>
-          <p className="text-muted mt-2 text-xs">Tiempo de preparación: {value("operations.delivery.processing_time_observed")}; tránsito: {value("operations.delivery.transit_time_observed")}; promesa: {value("operations.delivery.promise_observed")}; puntualidad medible: {value("operations.delivery.on_time_observed")}.</p>
-          <p className="text-muted mt-2 text-xs">Backlog: {value("operations.backlog.observed")}; capacidad: {value("operations.capacity.observed")}; cuello de botella: {value("operations.capacity.bottleneck_observed")}; calidad de timestamps: {value("operations.data_quality.timestamps_observed")}.</p>
-          <p className="text-muted mt-2 text-xs">Devoluciones: {value("operations.returns.observed")}; soporte: {value("operations.support.observed")}; WISMO: {value("operations.support.wismo_observed")}; recuperación de servicio: {value("operations.service_recovery.observed")}.</p>
-          {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.operations_motion}; superficie: {profile.operational_surface}; scope: {profile.process_scope}.</p> : null}
-          <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar SLA, capacidad, tiempos y calidad de datos."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
-        </article>
-      ) : <p className="text-muted text-sm">Todavía no hay evaluaciones de operaciones y CX.</p>}
+    <Card id="insight-operations-cx">
+      <CardHeader>
+        <CardTitle>Operaciones, fulfillment y CX</CardTitle>
+        <CardDescription>Separa entrega, promesa, capacidad, devoluciones y soporte; conserva UNKNOWN cuando la tienda no aporta SLA, backlog o experiencia de cliente.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">{current.candidate_count ? `${current.candidate_count} playbook(s) operativo(s) evaluado(s).` : "No hay templates OPERATIONS_CX activos; no se inventa un SLA ni se atribuyen fallos al carrier."}</p>
+            <p className="text-muted mt-2 text-xs">Pedidos: {value("operations.order_volume.observed")}; fulfillment: {value("operations.delivery.fulfillments_observed")}; entregas: {value("operations.delivery.delivered_observed")}; en tránsito: {value("operations.delivery.in_transit_observed")}.</p>
+            <p className="text-muted mt-2 text-xs">Tiempo de preparación: {value("operations.delivery.processing_time_observed")}; tránsito: {value("operations.delivery.transit_time_observed")}; promesa: {value("operations.delivery.promise_observed")}; puntualidad medible: {value("operations.delivery.on_time_observed")}.</p>
+            <p className="text-muted mt-2 text-xs">Backlog: {value("operations.backlog.observed")}; capacidad: {value("operations.capacity.observed")}; cuello de botella: {value("operations.capacity.bottleneck_observed")}; calidad de timestamps: {value("operations.data_quality.timestamps_observed")}.</p>
+            <p className="text-muted mt-2 text-xs">Devoluciones: {value("operations.returns.observed")}; soporte: {value("operations.support.observed")}; WISMO: {value("operations.support.wismo_observed")}; recuperación de servicio: {value("operations.service_recovery.observed")}.</p>
+            {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.operations_motion}; superficie: {profile.operational_surface}; scope: {profile.process_scope}.</p> : null}
+            <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar SLA, capacidad, tiempos y calidad de datos."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
+          </CardContent></Card>
+        ) : <EmptyState title="Todavía no hay evaluaciones de operaciones y CX" />}
+      </CardContent>
     </Card>
   );
 }

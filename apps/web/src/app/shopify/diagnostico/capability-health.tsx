@@ -23,10 +23,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -197,54 +201,57 @@ export function CapabilityHealthPanel() {
   const { evaluadas, sinEvaluar } = splitByAssessability(assessments);
 
   return (
-    <Card
-      title="Cómo está cada capacidad"
-      description="El estado de hoy y hacia dónde va, como dos cosas distintas. La severidad vive en cada hallazgo, no en la capacidad: un problema grave y localizado no pinta de rojo algo que funciona."
-    >
-      {assessments.length === 0 ? (
-        <EmptyState
-          title="Sin lecturas de salud"
-          hint="Aparecen cuando el motor corre sobre las señales y los síntomas de una tienda."
-        />
-      ) : null}
+    <Card>
+      <CardHeader>
+        <CardTitle>Cómo está cada capacidad</CardTitle>
+        <CardDescription>El estado de hoy y hacia dónde va, como dos cosas distintas. La severidad vive en cada hallazgo, no en la capacidad: un problema grave y localizado no pinta de rojo algo que funciona.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {assessments.length === 0 ? (
+          <EmptyState
+            title="Sin lecturas de salud"
+            hint="Aparecen cuando el motor corre sobre las señales y los síntomas de una tienda."
+          />
+        ) : null}
 
-      {evaluadas.length > 0 ? (
-        <ul>
-          {evaluadas.map((assessment) => (
-            <li
-              key={assessment.id}
-              className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
-            >
-              <AssessmentBody assessment={assessment} />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {sinEvaluar.length > 0 ? (
-        // No es un cajon de descartes: hoy es el contenido principal, y cada
-        // fila dice exactamente que declarar para que esa capacidad se pueda
-        // juzgar. El guardrail 11 prohibe el atajo de clasificarla igualmente.
-        <div
-          className={
-            evaluadas.length > 0 ? "mt-6 border-t border-default-200 pt-4" : ""
-          }
-        >
-          <p className="text-muted text-xs uppercase tracking-wide">
-            Lo que todavía no se puede juzgar
-          </p>
-          <ul className="mt-2">
-            {sinEvaluar.map((assessment) => (
+        {evaluadas.length > 0 ? (
+          <ul>
+            {evaluadas.map((assessment) => (
               <li
                 key={assessment.id}
-                className="border-t border-default-200 py-5 first:border-t-0"
+                className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
               >
                 <AssessmentBody assessment={assessment} />
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
+        ) : null}
+
+        {sinEvaluar.length > 0 ? (
+          // No es un cajon de descartes: hoy es el contenido principal, y cada
+          // fila dice exactamente que declarar para que esa capacidad se pueda
+          // juzgar. El guardrail 11 prohibe el atajo de clasificarla igualmente.
+          <div
+            className={
+              evaluadas.length > 0 ? "mt-6 border-t border-default-200 pt-4" : ""
+            }
+          >
+            <p className="text-muted text-xs uppercase tracking-wide">
+              Lo que todavía no se puede juzgar
+            </p>
+            <ul className="mt-2">
+              {sinEvaluar.map((assessment) => (
+                <li
+                  key={assessment.id}
+                  className="border-t border-default-200 py-5 first:border-t-0"
+                >
+                  <AssessmentBody assessment={assessment} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

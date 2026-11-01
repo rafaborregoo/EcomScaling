@@ -1,26 +1,32 @@
 "use client";
 
+
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { ModuleSummary } from "@/components/module-summary";
+import { StatusStrip, WorkPageHeader } from "@/components/trabajo-ui";
 import { daysSince } from "@/lib/elapsed";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   EYEBROW,
-  Heading,
   Input,
   List,
   LoadingBlock,
   toast,
   type Tone,
+  Card,
+  CardContent,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 
 /**
@@ -174,116 +180,121 @@ function CallPrepCard({
 
   return (
     <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {call.is_overdue ? <Badge tone="danger">Sin cerrar</Badge> : null}
-            <p className="text-sm font-medium text-foreground">
-              {call.organization_name}
+      <CardContent>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {call.is_overdue ? <Badge tone="danger">Sin cerrar</Badge> : null}
+              <p className="text-base font-medium text-foreground">
+                {call.organization_name}
+              </p>
+            </div>
+            <p className="mt-0.5 text-sm text-muted">
+              {call.title}
+              {call.title !== (CALL_TYPE_LABELS[call.call_type] ?? call.call_type)
+                ? ` · ${CALL_TYPE_LABELS[call.call_type] ?? call.call_type}`
+                : ""}
             </p>
           </div>
-          <p className="mt-0.5 text-xs text-muted">
-            {call.title} · {CALL_TYPE_LABELS[call.call_type] ?? call.call_type}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={[
-              "text-sm tabular-nums",
-              call.is_overdue ? "font-medium text-danger" : "text-foreground",
-            ].join(" ")}
-          >
-            {whenLabel(call.scheduled_at)}
-          </span>
-          <Button size="sm" variant="ghost" onClick={onOpenClient}>
-            Abrir cliente
-          </Button>
-        </div>
-      </div>
-
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-3 [&>div]:rounded-lg [&>div]:bg-surface [&>div]:p-3">
-        <div>
-          <p className={EYEBROW}>De la última llamada</p>
-          {call.last_call ? (
-            <>
-              <p className="mt-1 text-xs text-muted">
-                {call.last_call.title}
-                {call.last_call.held_at
-                  ? ` · hace ${daysSince(call.last_call.held_at)} d`
-                  : ""}
-              </p>
-              {/* Lo que el agente dijo que no trataste y sigue sin tratarse:
-                  es exactamente lo que hay que llevar preparado. */}
-              {call.last_call.gaps.length > 0 ? (
-                <ul className="mt-2 space-y-1">
-                  {call.last_call.gaps.map((gap, index) => (
-                    <li
-                      key={index}
-                      className="flex flex-wrap items-center gap-2 text-sm"
-                    >
-                      <Badge tone={GAP_TONE[gap.severity] ?? "neutral"}>
-                        {gap.topic}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-muted">
-                  Sin huecos señalados.
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="mt-1 text-sm text-muted">
-              Es la primera llamada con este cliente.
-            </p>
-          )}
-        </div>
-
-        <div>
-          <p className={EYEBROW}>Sin cerrar</p>
-          <p
-            className={`mt-1 text-sm ${call.my_open_tasks > 0 ? "text-warning" : "text-muted"}`}
-          >
-            {call.my_open_tasks > 0
-              ? `${call.my_open_tasks} ${call.my_open_tasks === 1 ? "tarea tuya abierta" : "tareas tuyas abiertas"} con este cliente`
-              : "Nada tuyo pendiente con este cliente."}
-          </p>
-        </div>
-
-        <div>
-          <p className={EYEBROW}>Apuntes para la llamada</p>
-          {call.internal_notes.length > 0 ? (
-            <ul className="mt-1 space-y-1">
-              {call.internal_notes.map((entry) => (
-                <li key={entry.id} className="text-sm text-foreground">
-                  {entry.body}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <form className="mt-2 flex flex-col gap-2 sm:flex-row" onSubmit={saveNote}>
-            <Input
-              className="w-full"
-              aria-label={`Apunte para la llamada con ${call.organization_name}`}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Preguntar por..., traer el análisis de..."
-            />
-            <Button
-              size="sm"
-              type="submit"
-              variant="secondary"
-              className="w-full sm:w-auto"
-              disabled={isSaving || !note.trim()}
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              className={[
+                "text-sm tabular-nums",
+                call.is_overdue ? "font-medium text-danger" : "text-foreground",
+              ].join(" ")}
             >
-              {isSaving ? "..." : "Apuntar"}
+              {whenLabel(call.scheduled_at)}
+            </span>
+            <Button size="sm" variant="ghost" onClick={onOpenClient}>
+              Abrir cliente
             </Button>
-          </form>
+          </div>
         </div>
-      </div>
+
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-3 [&>div]:rounded-lg [&>div]:bg-surface [&>div]:p-3">
+          <div>
+            <p className={EYEBROW}>De la última llamada</p>
+            {call.last_call ? (
+              <>
+                <p className="mt-1 text-sm text-muted">
+                  {call.last_call.title}
+                  {call.last_call.held_at
+                    ? ` · hace ${daysSince(call.last_call.held_at)} d`
+                    : ""}
+                </p>
+                {/* Lo que el agente dijo que no trataste y sigue sin tratarse:
+                    es exactamente lo que hay que llevar preparado. */}
+                {call.last_call.gaps.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {call.last_call.gaps.map((gap, index) => (
+                      <li
+                        key={index}
+                        className="flex flex-wrap items-center gap-2 text-sm"
+                      >
+                        <Badge tone={GAP_TONE[gap.severity] ?? "neutral"}>
+                          {gap.topic}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-muted">
+                    Sin huecos señalados.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="mt-1 text-sm text-muted">
+                Es la primera llamada con este cliente.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <p className={EYEBROW}>Sin cerrar</p>
+            <p
+              className={`mt-1 text-sm ${call.my_open_tasks > 0 ? "text-warning" : "text-muted"}`}
+            >
+              {call.my_open_tasks > 0
+                ? `${call.my_open_tasks} ${call.my_open_tasks === 1 ? "tarea tuya abierta" : "tareas tuyas abiertas"} con este cliente`
+                : "Nada tuyo pendiente con este cliente."}
+            </p>
+          </div>
+
+          <div>
+            <p className={EYEBROW}>Apuntes para la llamada</p>
+            {call.internal_notes.length > 0 ? (
+              <ul className="mt-1 space-y-1">
+                {call.internal_notes.map((entry) => (
+                  <li key={entry.id} className="text-sm text-foreground">
+                    {entry.body}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <form className="mt-2 flex flex-col gap-2 sm:flex-row" onSubmit={saveNote}>
+              <Input
+                className="w-full"
+                aria-label={`Apunte para la llamada con ${call.organization_name}`}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Preguntar por..., traer el análisis de..."
+              />
+              <Button
+                size="sm"
+                type="submit"
+                variant="secondary"
+                className="w-full sm:w-auto"
+                disabled={isSaving || !note.trim()}
+              >
+                {isSaving ? "..." : "Apuntar"}
+              </Button>
+            </form>
+          </div>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -346,15 +357,16 @@ function MyWorkContent() {
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <Heading>Mi trabajo</Heading>
+      <WorkPageHeader title="Mi trabajo">
+        Tu semana como consultor: las llamadas que vienen, lo tuyo pendiente y los clientes sin agendar. Próximos 14 días.
+      </WorkPageHeader>
 
-      <ModuleSummary
-        period="Próximos 14 días"
-        metrics={[
+      <StatusStrip
+        items={[
           {
             label: "Llamadas próximas",
             value: upcoming.length.toLocaleString("es-ES"),
-            tone: overdueCalls > 0 ? "warn" : "default",
+            tone: overdueCalls > 0 ? "warn" : undefined,
             hint:
               overdueCalls > 0
                 ? `${overdueCalls} agendada${overdueCalls === 1 ? "" : "s"} sin cerrar`
@@ -367,12 +379,12 @@ function MyWorkContent() {
           {
             label: "Mías vencidas",
             value: overdueTasks.toLocaleString("es-ES"),
-            tone: overdueTasks > 0 ? "danger" : "success",
+            tone: overdueTasks > 0 ? "bad" : "good",
           },
           {
             label: "Clientes sin agendar",
             value: uncovered.length.toLocaleString("es-ES"),
-            tone: silent > 0 ? "warn" : "default",
+            tone: silent > 0 ? "warn" : undefined,
             hint:
               silent > 0
                 ? `${silent} sin hablar hace 30 d o más`
@@ -382,7 +394,7 @@ function MyWorkContent() {
       />
 
       <section className="space-y-3">
-        <p className={EYEBROW}>Próximas llamadas</p>
+        <h2 className="text-xl font-semibold tracking-tight">Próximas llamadas</h2>
         {upcoming.length === 0 ? (
           <EmptyState
             title="Nada agendado en 14 días"
@@ -400,111 +412,111 @@ function MyWorkContent() {
         )}
       </section>
 
-      <Card title="Mis tareas">
-        {myTasks.length === 0 ? (
-          <EmptyState
-            title="Sin tareas internas abiertas"
-            hint="Al aprobar un resumen de llamada, lo que quede a tu nombre aparece aquí."
-          />
-        ) : (
-          <List>
-            {myTasks.map((task) => (
-              <List.Item
-                key={task.id}
-                className="task-lift flex flex-wrap items-start justify-between gap-3 py-3"
-              >
-                <div className="min-w-[15rem] flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {["urgent", "high"].includes(task.priority) ? (
-                      <Badge
-                        tone={task.priority === "urgent" ? "danger" : "warn"}
-                      >
-                        {PRIORITY_LABELS[task.priority] ?? task.priority}
-                      </Badge>
-                    ) : null}
-                    <p className="text-sm font-medium text-foreground">
-                      {task.title}
-                    </p>
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted">
-                    <span className="font-medium text-foreground">
-                      {task.organization_name}
-                    </span>
-                  </p>
-                </div>
-                <span
-                  className={[
-                    "w-28 shrink-0 pt-0.5 text-right text-xs tabular-nums",
-                    task.is_overdue ? "font-medium text-danger" : "text-muted",
-                  ].join(" ")}
-                >
-                  {task.due_at
-                    ? new Date(task.due_at).toLocaleDateString("es-ES", {
-                        day: "2-digit",
-                        month: "short",
-                      })
-                    : "Sin fecha"}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setOrganizationId(task.organization_id)}
-                >
-                  Abrir cliente
-                </Button>
-              </List.Item>
-            ))}
-          </List>
-        )}
-      </Card>
-
-      <Card title="Clientes sin llamada agendada">
-        {uncovered.length === 0 ? (
-          <EmptyState title="Toda la cartera tiene su próxima llamada agendada" />
-        ) : (
-          <List>
-            {uncovered.map((client) => (
-              <List.Item
-                key={client.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">
-                    {client.display_name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {client.days_since_last_call === null
-                      ? "Nunca has tenido una llamada con este cliente"
-                      : `Última llamada hace ${client.days_since_last_call} d`}
-                    {client.my_open_tasks > 0
-                      ? ` · ${client.my_open_tasks} tarea${client.my_open_tasks === 1 ? "" : "s"} tuya${client.my_open_tasks === 1 ? "" : "s"}`
-                      : ""}
-                  </p>
-                </div>
-                <div className="flex shrink-0 gap-1.5">
+      <Card>
+        <CardContent>
+          <h2 className="mb-2 text-xl font-semibold tracking-tight">Mis tareas</h2>
+          {myTasks.length === 0 ? (
+            <EmptyState
+              title="Sin tareas internas abiertas"
+              hint="Al aprobar un resumen de llamada, lo que quede a tu nombre aparece aquí."
+            />
+          ) : (
+            <List>
+              {myTasks.map((task) => (
+                <Item key={task.id} role="listitem" className="task-lift items-start">
+                  <ItemContent>
+                    <ItemTitle className="text-base">
+                      {["urgent", "high"].includes(task.priority) ? (
+                        <Badge
+                          tone={task.priority === "urgent" ? "danger" : "warn"}
+                        >
+                          {PRIORITY_LABELS[task.priority] ?? task.priority}
+                        </Badge>
+                      ) : null}
+                      <span>{task.title}</span>
+                    </ItemTitle>
+                    <ItemDescription>
+                      <span className="font-medium text-foreground">
+                        {task.organization_name}
+                      </span>
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                  <span
+                    className={[
+                      "w-28 shrink-0 pt-0.5 text-right text-sm tabular-nums",
+                      task.is_overdue ? "font-medium text-danger" : "text-muted",
+                    ].join(" ")}
+                  >
+                    {task.due_at
+                      ? new Date(task.due_at).toLocaleDateString("es-ES", {
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "Sin fecha"}
+                  </span>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setOrganizationId(client.id)}
+                    onClick={() => setOrganizationId(task.organization_id)}
                   >
                     Abrir cliente
                   </Button>
-                  {/* La llamada se agenda donde viven las llamadas, ya con el
-                      cliente activo. */}
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setOrganizationId(client.id);
-                      router.push("/llamadas");
-                    }}
-                  >
-                    Agendar
-                  </Button>
-                </div>
-              </List.Item>
-            ))}
-          </List>
-        )}
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <h2 className="mb-2 text-xl font-semibold tracking-tight">Clientes sin llamada agendada</h2>
+          {uncovered.length === 0 ? (
+            <EmptyState title="Toda la cartera tiene su próxima llamada agendada" />
+          ) : (
+            <List>
+              {uncovered.map((client) => (
+                <Item key={client.id} role="listitem">
+                  <ItemContent>
+                    <ItemTitle className="text-base">
+                      {client.display_name}
+                    </ItemTitle>
+                    <ItemDescription>
+                      {client.days_since_last_call === null
+                        ? "Nunca has tenido una llamada con este cliente"
+                        : `Última llamada hace ${client.days_since_last_call} d`}
+                      {client.my_open_tasks > 0
+                        ? ` · ${client.my_open_tasks} tarea${client.my_open_tasks === 1 ? "" : "s"} tuya${client.my_open_tasks === 1 ? "" : "s"}`
+                        : ""}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions role="group" aria-label="Acciones del cliente">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setOrganizationId(client.id)}
+                    >
+                      Abrir cliente
+                    </Button>
+                    {/* La llamada se agenda donde viven las llamadas, ya con el
+                        cliente activo. */}
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setOrganizationId(client.id);
+                        router.push("/llamadas");
+                      }}
+                    >
+                      Agendar
+                    </Button>
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

@@ -1,9 +1,10 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { Download, FileText, RefreshCw } from "lucide-react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
-import { Badge, Banner, Card, EYEBROW } from "@/components/ui";
+import { Badge, Banner, EYEBROW, Card, CardContent } from "@/components/ui";
 import { apiFetch } from "@/lib/bootstrap";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import styles from "./reportes.module.css";
@@ -68,8 +69,12 @@ function ReportTemplateGallery() {
         <strong>Previsualizaciones con datos ficticios.</strong> Los importes, nombres y resultados de estos documentos son ejemplos sintéticos. No representan a ninguna organización cliente.
       </Banner>
 
-      {error ? <Card className={styles.error}>No se pudo cargar el catálogo: {error}</Card> : null}
-      {isLoading ? <Card className={styles.loading}>Cargando biblioteca de plantillas…</Card> : null}
+      {error ? <Card className={styles.error}>
+        <CardContent>No se pudo cargar el catálogo: {error}</CardContent>
+      </Card> : null}
+      {isLoading ? <Card className={styles.loading}>
+        <CardContent>Cargando biblioteca de plantillas…</CardContent>
+      </Card> : null}
       {!isLoading && !error && selected ? (
         <div className={styles.workspace}>
           <aside className={styles.sidebar} aria-label="Plantillas disponibles">
@@ -108,7 +113,7 @@ function ReportTemplateGallery() {
                 <p>{selected.description}</p>
               </div>
               {previewUrl ? (
-                <a className={styles.download} href={previewUrl} download={`${selected.id}-muestra.pdf`}>
+                <a className={buttonVariants({ variant: "secondary", size: "sm" })} href={previewUrl} download={`${selected.id}-muestra.pdf`}>
                   <Download size={16} aria-hidden /> Descargar
                 </a>
               ) : null}

@@ -1,6 +1,8 @@
 import { createLogger } from "@e-nora/observability";
 import { type AuthContext, createUserScopedClient, membershipCoversStore } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
+import { createSwrCache } from "./swr-cache.js";
+import { integrationDataVersion } from "./integration-data-cache.js";
 import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
 import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
 import { parseShopifyScopes } from "./shopify-permissions.js";
@@ -17,6 +19,9 @@ const MIN_PERIOD_DAYS = 1;
 const MAX_PERIOD_DAYS = 3650;
 const DEFAULT_PERIOD_DAYS = 30;
 const METRICS_CACHE_TTL_SECONDS = 60;
+// Pasada la frescura se sirve la copia vieja y se refresca detrás (swr-cache.ts).
+// Acota cuánto tarda en notarse un cambio de ajustes (moneda, costes) en las cifras.
+const METRICS_STALE_SECONDS = 600;
 // Mes en curso y los once anteriores: el grafico de barras del panel.
 const MONTHLY_SERIES_MONTHS = 12;
 
@@ -145,7 +150,7 @@ type ShopifyMetricsData = {
   } | null;
   // Serie diaria para los sparklines de las tarjetas KPI. Vacia cuando se pide
   // "Todo" (no hay ventana acotada) o si el bloque falla (no es fatal).
-  daily: Array<{ date: string; net_sales: number; orders_count: number }>;
+  daily: Array<{ date: string; net_sales: number; orders_count: number; net_profit: number | null }>;
   // Embudo: sesiones (ShopifyQL, bloque de sync `sessions`) + pedidos propios.
   // `null` si la consulta falla; `has_sessions: false` si no hay ni un dia con
   // dato -- la pantalla debe distinguir "0 sesiones" de "no lo sabemos".
@@ -366,7 +371,7 @@ function emptyFinancialData(): ShopifyMetricsData["financial"] {
   };
 }
 
-export async function getShopifyMetrics(
+async function computeShopifyMetrics(
   env: ApiEnv,
   authorization: string,
   context: AuthContext,
@@ -379,7 +384,7 @@ export async function getShopifyMetrics(
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      message: "No tienes acceso a esta tienda.",
     };
   }
 
@@ -519,7 +524,8 @@ export async function getShopifyMetrics(
 
     // El v4 incorpora moneda, alcance histórico y cobertura por tienda. Evita servir
     // respuestas antiguas cacheadas sin moneda tras desplegar este contrato.
-    const cacheKey = `shopify:metrics:v4:${organizationId}:${storeId}:${periodDays}`;
+    const version = await integrationDataVersion(env.REDIS_URL, organizationId);
+    const cacheKey = `shopify:metrics:v5:${organizationId}:${storeId}:${periodDays}:${version}`;
     const cached = await getCached<ShopifyMetricsData>(env.REDIS_URL, cacheKey);
 
     if (cached) {
@@ -553,6 +559,7 @@ export async function getShopifyMetrics(
       yearAgoSalesResult,
       yearAgoFinancialResult,
       previousFunnelResult,
+      profitDailyResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -687,6 +694,15 @@ export async function getShopifyMetrics(
             target_store_id: storeId,
           })
         : Promise.resolve({ data: null, error: null }),
+      // Un resumen financiero por dia (30 en el panel), en paralelo y no fatal.
+      periodStart
+        ? supabase.rpc("shopify_financial_daily", {
+            target_organization_id: organizationId,
+            period_start: periodStart.toISOString(),
+            period_end: periodEnd.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -750,12 +766,22 @@ export async function getShopifyMetrics(
       logger.error("shopify_financial_summary_year_ago_failed", { organization_id: organizationId, error: yearAgoFinancialResult.error.message });
     }
 
+    if (profitDailyResult.error) {
+      logger.error("shopify_financial_daily_failed", { organization_id: organizationId, error: profitDailyResult.error.message });
+    }
+
     type DailyRow = { bucket_date: string; net_sales: number; orders_count: number };
+    const profitByDate = new Map(
+      !profitDailyResult.error && Array.isArray(profitDailyResult.data)
+        ? (profitDailyResult.data as Array<{ bucket_date: string; net_profit: number | null }>).map((row) => [row.bucket_date, row.net_profit == null ? null : Number(row.net_profit)])
+        : [],
+    );
     const daily = !dailyResult.error && Array.isArray(dailyResult.data)
       ? (dailyResult.data as DailyRow[]).map((row) => ({
           date: row.bucket_date,
           net_sales: Number(row.net_sales) || 0,
           orders_count: Number(row.orders_count) || 0,
+          net_profit: profitByDate.get(row.bucket_date) ?? null,
         }))
       : [];
 
@@ -1010,6 +1036,7 @@ export async function getShopifyMetrics(
 
     return { ok: true as const, data };
   } catch (error) {
+    logger.error("shopify_metrics_load_failed", { organization_id: organizationId, error: error instanceof Error ? error.message : String(error) });
     return {
       ok: false as const,
       statusCode: 500,
@@ -1017,4 +1044,36 @@ export async function getShopifyMetrics(
       detail: error instanceof Error ? error.message : "unknown_error",
     };
   }
+}
+
+// Copia por usuario (no por organización): el cálculo pasa por RLS y por la
+// comprobación de acceso a la tienda de ese usuario, así que una copia
+// compartida saltaría esos controles.
+const swr = createSwrCache();
+
+/**
+ * Métricas de Shopify sirviendo la última copia buena mientras se recalcula
+ * (ver swr-cache.ts). El cálculo caro es `computeShopifyMetrics`.
+ */
+export async function getShopifyMetrics(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+  daysInput: string | undefined,
+  connectionId?: string,
+) {
+  const version = await integrationDataVersion(env.REDIS_URL, organizationId);
+  return swr({
+    store: {
+      get: (key) => getCached(env.REDIS_URL, key),
+      set: (key, value, ttl) => setCached(env.REDIS_URL, key, value, ttl),
+    },
+    key: `shopify:metrics:swr:v1:${context.user.id}:${organizationId}:${connectionId ?? "all"}:${daysInput ?? ""}`,
+    revision: version,
+    freshSeconds: METRICS_CACHE_TTL_SECONDS,
+    staleSeconds: METRICS_STALE_SECONDS,
+    load: () => computeShopifyMetrics(env, authorization, context, organizationId, daysInput, connectionId),
+    onRefreshError: (error) => logger.error("shopify_metrics_refresh_failed", { organization_id: organizationId, error: error instanceof Error ? error.message : String(error) }),
+  });
 }

@@ -51,7 +51,7 @@ function canManageMetaWrite(context: AuthContext, organizationId: string) {
       statusCode: 403,
       error: "meta_write_access_denied",
       message:
-        "Solo owner, manager, consultor o administrador de plataforma puede preparar un plan Meta.",
+        "Solo el propietario, un gestor o el consultor pueden preparar un plan Meta.",
     };
   }
 

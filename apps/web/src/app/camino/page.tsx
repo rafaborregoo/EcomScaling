@@ -1,15 +1,22 @@
 "use client";
+import type { LearningEdits } from "./learning-decision";
+import { MeasurementDetails, type MeasurementInfo } from "./measurement-details";
+import { ClosureSummary, type CaminoClosure } from "./closure-summary";
+import { DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, SearchableSelect, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui";
 
-import { useSearchParams } from "next/navigation";
+
+import { TargetIcon, Trash2Icon, UnlinkIcon } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   FormEvent,
+  type ReactElement,
   type ReactNode,
   Suspense,
   useCallback,
   useEffect,
+  useId,
   useMemo,
-  useState,
-} from "react";
+  useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -18,15 +25,13 @@ import {
   closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+  type DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
   arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+  verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PortalShell } from "@/components/portal-shell";
 import { WorkPageHeader } from "@/components/trabajo-ui";
@@ -49,9 +54,10 @@ import { formatEffort, metaOwnerLabel, taskWantsEmailDraft, type PlanTaskMeta } 
 import s from "./camino-map.module.css";
 import d from "./camino-desk.module.css";
 import { CaminoRoutesView, type CaminoRoute } from "./camino-routes-view";
-import { CAMINO_CURRENCIES, CaminoCreatePanel } from "./camino-create-panel";
+import { CAMINO_CURRENCIES, CaminoCreatePanel, metricOptions } from "./camino-create-panel";
 import { ACTIVE_CONNECTION_STORAGE_KEY } from "@/components/active-connection";
 import { CaminoProposalDecision, type StoredCaminoProposal } from "./proposal-decision";
+import { ConsultantCamino, MilestoneEditForm, PlanSettings } from "./camino-consultant";
 import { isPast } from "@/lib/elapsed";
 import { latestMarketingAssetByTask, marketingAssetHref, marketingAssetStatusLabel, type CaminoMarketingAsset } from "@/lib/camino-marketing-assets";
 import {
@@ -60,11 +66,14 @@ import {
   Banner,
   Button,
   ButtonLink,
-  Card,
   CheckIcon,
-  ConfirmDialog,
   Dialog,
-  Dropdown,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorBlock,
   Field,
@@ -72,17 +81,36 @@ import {
   IconChevronDown,
   IconChevronUp,
   Input,
-  Label,
   List,
   LoadingBlock,
   MoreIcon,
   PencilIcon,
   PlusIcon,
-  ProgressBar,
+  Progress,
+  ProgressLabel,
+  ProgressValue,
   Select,
   Textarea,
   toast,
   type Tone,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 type CreatorOrigin = "consultant" | "client" | null;
@@ -159,6 +187,7 @@ type Plan = {
 };
 
 type PlanResponse = {
+  closures?: CaminoClosure[];
   organization_id: string;
   plan: Plan | null;
   weekly_reviews?: CaminoWeeklyReviewRecord[];
@@ -209,6 +238,7 @@ type ObjectiveCatalogEntry = {
 };
 
 type Objective = {
+  measurement?: MeasurementInfo;
   id: string;
   milestone_id: string | null;
   metric_key: string;
@@ -240,8 +270,8 @@ function formatObjectiveValue(
   currency = "EUR",
 ) {
   if (unit === "money") return formatMoney(value, currency);
-  if (unit === "pct") return `${value.toFixed(1)}%`;
-  if (unit === "ratio") return `${value.toFixed(2)}x`;
+  if (unit === "pct") return `${value.toFixed(1).replace(".", ",")} %`;
+  if (unit === "ratio") return `${value.toFixed(2).replace(".", ",")}x`;
   return value.toFixed(0);
 }
 
@@ -324,8 +354,9 @@ const TASK_SOURCE_LABELS: Record<string, string> = {
 // distinguirlos. El origen se deriva del platform_role del creador en el
 // backend (ver strategic-plans.ts, attachCreatorOrigin), no se guarda aparte.
 const ORIGIN_COLOR: Record<"consultant" | "client", string> = {
-  consultant: "var(--color-brand)",
-  client: "var(--color-success)",
+  // Mismos colores que la etiqueta de dueño de una tarea en la mesa del consultor.
+  consultant: "#3d3b3a",
+  client: "#bd6940",
 };
 const ORIGIN_LABEL: Record<"consultant" | "client", string> = {
   consultant: "Consultor",
@@ -429,30 +460,31 @@ function RowMenu({
 }) {
   if (items.length === 0) return null;
   return (
-    <Dropdown>
-      <Button
-        variant="ghost"
-        size="sm"
-        aria-label={ariaLabel}
-        className="min-h-8 min-w-8 shrink-0 px-2 pointer-coarse:min-w-11"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={ariaLabel}
+            className="min-h-8 min-w-8 shrink-0 px-2 pointer-coarse:min-w-11"
+          />
+        }
       >
         <MoreIcon aria-hidden />
-      </Button>
-      <Dropdown.Popover>
-        <Dropdown.Menu onAction={(key) => onAction(String(key))}>
-          {items.map((item) => (
-            <Dropdown.Item
-              key={item.id}
-              id={item.id}
-              textValue={item.label}
-              variant={item.danger ? "danger" : undefined}
-            >
-              <Label>{item.label}</Label>
-            </Dropdown.Item>
-          ))}
-        </Dropdown.Menu>
-      </Dropdown.Popover>
-    </Dropdown>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            variant={item.danger ? "destructive" : "default"}
+            onSelect={() => onAction(item.id)}
+          >
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -551,7 +583,6 @@ function PhaseNode({
         ? "active"
         : "idle",
   );
-  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const Chevron = isOpen ? IconChevronUp : IconChevronDown;
 
   return (
@@ -622,32 +653,17 @@ function PhaseNode({
           ) : null}
         </div>
 
-        {/* Progreso con semantica real: antes eran dos spans aria-hidden, asi
-            que un lector de pantalla solo oia "3/7 hitos" sin saber que era
-            una barra de progreso. */}
         {totalCount > 0 ? (
-          <div
-            className="mt-1.5 flex items-center gap-2"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={totalCount}
-            aria-valuenow={doneCount}
+          <Progress
+            className="mt-1.5 max-w-56"
+            value={doneCount}
+            max={totalCount}
             aria-valuetext={`${doneCount} de ${totalCount} hitos completados`}
             aria-label={`Progreso de la fase ${phase.name}`}
           >
-            <span className="shrink-0 font-mono text-[0.65rem] text-muted">
-              {doneCount}/{totalCount} hitos
-            </span>
-            <span
-              className="h-1 w-full max-w-32 overflow-hidden rounded-full bg-separator"
-              aria-hidden
-            >
-              <span
-                className="block h-full rounded-full bg-accent transition-[width]"
-                style={{ width: `${pct}%` }}
-              />
-            </span>
-          </div>
+            <ProgressLabel>Hitos</ProgressLabel>
+            <ProgressValue>{() => `${doneCount} de ${totalCount}`}</ProgressValue>
+          </Progress>
         ) : null}
 
         {phase.description ? (
@@ -885,59 +901,63 @@ function AddTaskForm({
   }
 
   return (
-    <Card title="Añadir tarea" className="mt-3">
-      <form className="space-y-3" onSubmit={handleSubmit}>
-        <Field label="Título">
-          <Input
-            className="mt-2"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            required
-          />
-        </Field>
-        <Field label="Descripción (opcional)">
-          <Textarea
-            className="mt-2 h-20"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </Field>
-        <div className="flex flex-wrap gap-3">
-          <Field label="Prioridad">
-            <Select
-              className="mt-2"
-              value={priority}
-              onChange={setPriority}
-              options={[
-                { value: "low", label: "Baja" },
-                { value: "medium", label: "Media" },
-                { value: "high", label: "Alta" },
-                { value: "urgent", label: "Urgente" },
-              ]}
-            />
-          </Field>
-          <Field label="Fecha límite">
+    <Card className="mt-3">
+      <CardHeader>
+        <CardTitle>Añadir tarea</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-3" onSubmit={handleSubmit}>
+          <Field label="Título">
             <Input
-              type="date"
-              className="mt-2 w-40"
-              value={dueAt}
-              onChange={(event) => setDueAt(event.target.value)}
+              className="mt-2"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              required
             />
           </Field>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            type="submit"
-            size="sm"
-            disabled={isSubmitting || !title.trim()}
-          >
-            {isSubmitting ? "Creando..." : "Crear tarea"}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-            Cancelar
-          </Button>
-        </div>
-      </form>
+          <Field label="Descripción (opcional)">
+            <Textarea
+              className="mt-2 h-20"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </Field>
+          <div className="flex flex-wrap gap-3">
+            <Field label="Prioridad">
+              <Select
+                className="mt-2"
+                value={priority}
+                onChange={setPriority}
+                options={[
+                  { value: "low", label: "Baja" },
+                  { value: "medium", label: "Media" },
+                  { value: "high", label: "Alta" },
+                  { value: "urgent", label: "Urgente" },
+                ]}
+              />
+            </Field>
+            <Field label="Fecha límite">
+              <DatePicker
+                className="mt-2 w-40"
+                value={dueAt}
+                onChange={(value) => setDueAt(value)}
+              />
+            </Field>
+          </div>
+          <div role="group" aria-label="Acciones de la tarea" className="flex flex-wrap items-center gap-2">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSubmitting || !title.trim()}
+            >
+              {isSubmitting ? "Creando..." : "Crear tarea"}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+              Cancelar
+            </Button>
+          </div>
+        </form>
+      </CardContent>
     </Card>
   );
 }
@@ -966,21 +986,26 @@ function EditTaskForm({
   }
 
   return (
-    <Card title="Editar tarea" className="mt-2">
-      <form className="space-y-3" onSubmit={handleSubmit}>
-        <Field label="Título"><Input className="mt-2" value={title} onChange={(event) => setTitle(event.target.value)} required /></Field>
-        <Field label="Descripción (opcional)"><Textarea className="mt-2 h-20" value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
-        <div className="flex flex-wrap gap-3">
-          <Field label="Prioridad"><Select className="mt-2" value={priority} onChange={setPriority} options={[
-            { value: "low", label: "Baja" }, { value: "medium", label: "Media" }, { value: "high", label: "Alta" }, { value: "urgent", label: "Urgente" },
-          ]} /></Field>
-          <Field label="Fecha límite"><Input type="date" className="mt-2 w-40" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></Field>
-        </div>
-        <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={isSubmitting || !title.trim()}>{isSubmitting ? "Guardando…" : "Guardar tarea"}</Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancelar</Button>
-        </div>
-      </form>
+    <Card className="mt-2">
+      <CardHeader>
+        <CardTitle>Editar tarea</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-3" onSubmit={handleSubmit}>
+          <Field label="Título"><Input className="mt-2" value={title} onChange={(event) => setTitle(event.target.value)} required /></Field>
+          <Field label="Descripción (opcional)"><Textarea className="mt-2 h-20" value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
+          <div className="flex flex-wrap gap-3">
+            <Field label="Prioridad"><Select className="mt-2" value={priority} onChange={setPriority} options={[
+              { value: "low", label: "Baja" }, { value: "medium", label: "Media" }, { value: "high", label: "Alta" }, { value: "urgent", label: "Urgente" },
+            ]} /></Field>
+            <Field label="Fecha límite"><DatePicker className="mt-2 w-40" value={dueAt} onChange={(value) => setDueAt(value)} /></Field>
+          </div>
+          <div role="group" aria-label="Acciones de la tarea" className="flex flex-wrap items-center gap-2">
+            <Button type="submit" size="sm" disabled={isSubmitting || !title.trim()}>{isSubmitting ? "Guardando…" : "Guardar tarea"}</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancelar</Button>
+          </div>
+        </form>
+      </CardContent>
     </Card>
   );
 }
@@ -991,6 +1016,7 @@ function NameDescriptionForm({
   initialTargetDate,
   showTargetDate,
   submitLabel,
+  title,
   onCancel,
   onSubmit,
 }: {
@@ -999,6 +1025,8 @@ function NameDescriptionForm({
   initialTargetDate?: string;
   showTargetDate?: boolean;
   submitLabel: string;
+  /** Cabecera del formulario; sin ella se usa el texto del botón. */
+  title?: string;
   onCancel: () => void;
   onSubmit: (payload: {
     name: string;
@@ -1010,6 +1038,7 @@ function NameDescriptionForm({
   const [description, setDescription] = useState(initialDescription);
   const [targetDate, setTargetDate] = useState(initialTargetDate ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formId = useId();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1024,47 +1053,50 @@ function NameDescriptionForm({
   }
 
   return (
-    <Card title={submitLabel} className="mt-2">
-      <form className="space-y-3" onSubmit={handleSubmit}>
-        <Field label="Nombre">
-          <Input
-            className="mt-2"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-        </Field>
-        <Field label="Descripción (opcional)">
-          <Textarea
-            className="mt-2 h-20"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </Field>
-        {showTargetDate ? (
-          <Field label="Fecha objetivo">
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onCancel()}
+      busy={isSubmitting}
+      dirty={name !== initialName || description !== initialDescription || targetDate !== (initialTargetDate ?? "")}
+    >
+      <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{title ?? submitLabel}</DialogTitle>
+      </DialogHeader>
+        <form id={formId} className="space-y-3" onSubmit={handleSubmit}>
+          <Field label="Nombre">
             <Input
-              type="date"
-              className="mt-2 w-40"
-              value={targetDate}
-              onChange={(event) => setTargetDate(event.target.value)}
+              className="mt-2"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
             />
           </Field>
-        ) : null}
-        <div className="flex gap-2">
-          <Button
-            type="submit"
-            size="sm"
-            disabled={isSubmitting || !name.trim()}
-          >
-            {isSubmitting ? "Guardando..." : submitLabel}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-            Cancelar
-          </Button>
-        </div>
-      </form>
-    </Card>
+          <Field label="Descripción (opcional)">
+            <Textarea
+              className="mt-2 h-20"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </Field>
+          {showTargetDate ? (
+            <Field label="Fecha objetivo">
+              <DatePicker
+                className="mt-2 w-40"
+                value={targetDate}
+                onChange={(value) => setTargetDate(value)}
+              />
+            </Field>
+          ) : null}
+        </form>
+      <DialogFooter>
+        <DialogClose>Cancelar</DialogClose>
+        <Button type="submit" form={formId} disabled={isSubmitting || !name.trim()}>
+          {isSubmitting ? "Guardando…" : submitLabel}
+        </Button>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1183,15 +1215,23 @@ function TaskListItem({
         onAction={(key) => (key === "edit" ? onEdit?.() : setRemoveOpen(true))}
       />
       {canEdit && onRemove ? (
-        <ConfirmDialog
-          open={removeOpen}
-          onOpenChange={setRemoveOpen}
-          status="default"
-          title="Quitar tarea del Camino"
-          description="La tarea se desvinculará de este hito y seguirá disponible en Tareas."
-          confirmLabel="Quitar tarea"
-          onConfirm={onRemove}
-        />
+        <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogMedia>
+                <UnlinkIcon />
+              </AlertDialogMedia>
+              <AlertDialogTitle>¿Quitar la tarea del Camino?</AlertDialogTitle>
+              <AlertDialogDescription>
+                La tarea se desvinculará de este hito y seguirá disponible en Tareas.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={onRemove}>Quitar tarea</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
     </div>
   );
@@ -1348,6 +1388,7 @@ function ObjectiveCard({
       <div className={s.objectiveIdentity}>
         <div>
           <h3 className={s.objectiveName}>{objective.label}</h3>
+          <MeasurementDetails measurement={objective.measurement} source={objective.source === "manual" ? "Manual" : objective.source === "meta" ? "Meta Ads" : "Shopify"} />
           <p className={s.objectivePeriod}>
             {OBJECTIVE_PERIOD_LABELS[objective.period] ?? objective.period}
             {isManual ? " · Manual" : " · Indicador conectado"}
@@ -1432,15 +1473,7 @@ function ObjectiveCard({
         </div>
       )}
       {progress !== null ? (
-        <ProgressBar
-          value={Math.min(100, progress)}
-          aria-label={`Progreso de ${objective.label}`}
-          className={s.objectiveProgress}
-        >
-          <ProgressBar.Track>
-            <ProgressBar.Fill />
-          </ProgressBar.Track>
-        </ProgressBar>
+        <Progress value={Math.min(100, progress)} aria-label={`Progreso de ${objective.label}`} className={s.objectiveProgress} />
       ) : (
         <p className={s.objectiveNoData}>
           {isManual
@@ -1449,20 +1482,100 @@ function ObjectiveCard({
         </p>
       )}
       {canManage ? (
-        <Button
-          className={s.objectiveRemove}
-          size="sm"
-          variant="ghost"
-          disabled={isRemoving}
-          onClick={onRemove}
-        >
-          {isRemoving ? "Quitando..." : "Quitar objetivo"}
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button className={s.objectiveRemove} size="sm" variant="ghost" disabled={isRemoving}>
+                {isRemoving ? "Quitando..." : "Quitar objetivo"}
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogMedia className="bg-danger/10 text-danger">
+                <TargetIcon />
+              </AlertDialogMedia>
+              <AlertDialogTitle>¿Quitar el objetivo «{objective.label}»?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Deja de medirse en el Camino y en el panel. Se avisa a la otra parte y la IA revisa el Camino con el cambio.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={onRemove}>Quitar objetivo</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
       </div>
     </article>
   );
 }
+
+// Borrar un hito o el Camino entero se pide desde dos sitios cada uno (árbol
+// de estructura y mesa del Camino): el mismo diálogo de alerta en ambos.
+type DeleteDialogProps = {
+  name: string;
+  trigger: ReactElement<{ onClick?: () => void }>;
+  onDelete: () => unknown;
+};
+
+function DeleteMilestoneDialog({ name, trigger, onDelete }: DeleteDialogProps) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger render={trigger} />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia className="bg-danger/10 text-danger">
+            <Trash2Icon />
+          </AlertDialogMedia>
+          <AlertDialogTitle>¿Eliminar el hito «{name}»?</AlertDialogTitle>
+          <AlertDialogDescription>Se elimina con todo lo que contiene:</AlertDialogDescription>
+        </AlertDialogHeader>
+        <ul className="ui-alert-dialog__list">
+          <li>Sus notas y su vínculo con las tareas.</li>
+          <li>Las tareas siguen disponibles en Tareas.</li>
+        </ul>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onDelete}>
+            Eliminar hito
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DeletePlanDialog({ name, trigger, onDelete }: DeleteDialogProps) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger render={trigger} />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia className="bg-danger/10 text-danger">
+            <Trash2Icon />
+          </AlertDialogMedia>
+          <AlertDialogTitle>¿Eliminar el Camino completo?</AlertDialogTitle>
+          <AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <ul className="ui-alert-dialog__list">
+          <li>Se borran el plan, sus fases, hitos, notas, revisiones y decisiones del agente.</li>
+          <li>Las tareas y borradores de marketing enlazados se conservan, sin vínculo con este Camino.</li>
+        </ul>
+        <AlertDialogConfirmPhrase phrase={name} />
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onDelete}>
+            Eliminar Camino
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+const NO_MILESTONE = "negocio";
 
 function AddObjectiveModal({
   isOpen,
@@ -1470,6 +1583,7 @@ function AddObjectiveModal({
   existing,
   milestones,
   suggestionFor,
+  initialMetric,
   onClose,
   onSubmit,
 }: {
@@ -1479,6 +1593,8 @@ function AddObjectiveModal({
   milestones: Array<{ id: string; label: string }>;
   /** Cifra recomendada por el analista de métricas (ADR-0027), si la hay. */
   suggestionFor: (metricKey: string) => { value: number; text: string } | null;
+  /** Métrica con la que se abre (si está en el catálogo). */
+  initialMetric?: string | null;
   onClose: () => void;
   onSubmit: (payload: {
     metricKey: string;
@@ -1488,8 +1604,12 @@ function AddObjectiveModal({
   }) => Promise<boolean>;
 }) {
   const available = catalog;
-  const [metricKey, setMetricKey] = useState(available[0]?.key ?? "");
-  const [milestoneId, setMilestoneId] = useState("");
+  const firstMetric =
+    (initialMetric && available.some((entry) => entry.key === initialMetric) ? initialMetric : available[0]?.key) ?? "";
+  const [metricKey, setMetricKey] = useState(firstMetric);
+  // Valor propio para "sin hito": con "" el desplegable enseñaba "Seleccionar..." y
+  // parecía obligatorio elegir un hito (y con hito el objetivo no sale en el panel).
+  const [milestoneId, setMilestoneId] = useState(NO_MILESTONE);
   const [targetValue, setTargetValue] = useState("");
   const [period, setPeriod] = useState("monthly");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1497,19 +1617,19 @@ function AddObjectiveModal({
   const alreadySet = existing.some(
     (objective) =>
       objective.metric_key === metricKey &&
-      (objective.milestone_id ?? "") === milestoneId,
+      (objective.milestone_id ?? NO_MILESTONE) === milestoneId,
   );
 
   // Cada apertura arranca en limpio: sin esto, un intento abandonado deja los
   // valores tecleados para la siguiente vez que se abre el modal.
   useEffect(() => {
     if (isOpen) {
-      setMetricKey(available[0]?.key ?? "");
-      setMilestoneId("");
+      setMetricKey(firstMetric);
+      setMilestoneId(NO_MILESTONE);
       setTargetValue("");
       setPeriod("monthly");
     }
-  }, [isOpen, available]);
+  }, [isOpen, firstMetric]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1520,7 +1640,7 @@ function AddObjectiveModal({
       metricKey,
       targetValue: value,
       period,
-      milestoneId: milestoneId || null,
+      milestoneId: milestoneId === NO_MILESTONE ? null : milestoneId,
     });
     setIsSubmitting(false);
     if (created) {
@@ -1530,82 +1650,81 @@ function AddObjectiveModal({
   }
 
   return (
-    <Dialog
-      isOpen={isOpen}
-      onOpenChange={(open) => !open && onClose()}
-      title="Añadir objetivo"
-      isBusy={isSubmitting}
-      isDirty={Boolean(targetValue)}
-      formId="add-objective-form"
-      primary={{
-        label: "Guardar objetivo",
-        busyLabel: "Guardando…",
-        disabled: !metricKey || !targetValue,
-      }}
-    >
-      <form id="add-objective-form" className="space-y-4" onSubmit={handleSubmit}>
-        <Field label="Métrica">
-          <Select
-            value={metricKey}
-            onChange={setMetricKey}
-            options={available.map((entry) => ({
-              value: entry.key,
-              label: entry.label,
-            }))}
-          />
-        </Field>
-        <Field label="Hito">
-          <Select
-            value={milestoneId}
-            onChange={setMilestoneId}
-            options={[
-              { value: "", label: "Sin hito (objetivo del negocio, sale en el panel)" },
-              ...milestones.map((milestone) => ({
-                value: milestone.id,
-                label: milestone.label,
-              })),
-            ]}
-          />
-        </Field>
-        {alreadySet ? (
-          <Banner tone="warn">
-            Ya hay un objetivo activo para esta métrica. Guardar reemplaza el valor actual.
-          </Banner>
-        ) : null}
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Valor objetivo">
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={targetValue}
-              onChange={(event) => setTargetValue(event.target.value)}
-              required
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()} busy={isSubmitting} dirty={Boolean(targetValue)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Añadir objetivo</DialogTitle>
+        </DialogHeader>
+        <form id="add-objective-form" className="space-y-4" onSubmit={handleSubmit}>
+          <Field label="Métrica">
+            <SearchableSelect
+              placeholder="Busca una métrica"
+              emptyText="No hay ninguna métrica con ese nombre."
+              value={metricKey}
+              onChange={setMetricKey}
+              options={metricOptions(available)}
             />
           </Field>
-          <Field label="Periodo">
-            <Select
-              value={period}
-              onChange={setPeriod}
+          <Field label="Hito">
+            <SearchableSelect
+              aria-label="Hito"
+              placeholder="Busca un hito"
+              emptyText="No hay ningún hito con ese nombre."
+              value={milestoneId}
+              onChange={setMilestoneId}
               options={[
-                { value: "monthly", label: "Mensual" },
-                { value: "quarterly", label: "Trimestral" },
-                { value: "yearly", label: "Anual" },
+                { value: NO_MILESTONE, label: "Sin hito (objetivo del negocio, sale en el panel)" },
+                ...milestones.map((milestone) => ({
+                  value: milestone.id,
+                  label: milestone.label,
+                })),
               ]}
             />
           </Field>
-        </div>
-        {suggestion ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator p-3">
-            <p className="max-w-prose text-sm leading-snug text-foreground">{suggestion.text}</p>
-            {suggestion.value ? (
-              <Button variant="secondary" size="sm" type="button" onClick={() => setTargetValue(String(suggestion.value))}>
-                Usar {suggestion.value.toLocaleString("es-ES")}
-              </Button>
-            ) : null}
+          {alreadySet ? (
+            <Banner tone="warn">
+              Ya hay un objetivo activo para esta métrica. Guardar reemplaza el valor actual.
+            </Banner>
+          ) : null}
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={available.find((entry) => entry.key === metricKey)?.unit === "pct" ? "Valor objetivo (%)" : "Valor objetivo"}>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={targetValue}
+                onChange={(event) => setTargetValue(event.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Periodo">
+              <Select
+                value={period}
+                onChange={setPeriod}
+                options={[
+                  { value: "monthly", label: "Mensual" },
+                  { value: "quarterly", label: "Trimestral" },
+                  { value: "yearly", label: "Anual" },
+                ]}
+              />
+            </Field>
           </div>
-        ) : null}
-      </form>
+          {suggestion ? (
+            <Card size="sm"><CardContent className="flex flex-wrap items-center justify-between gap-3">
+              <p className="max-w-prose text-sm leading-snug text-foreground">{suggestion.text}</p>
+              {suggestion.value ? (
+                <Button variant="secondary" size="sm" type="button" onClick={() => setTargetValue(String(suggestion.value))}>
+                  Usar {suggestion.value.toLocaleString("es-ES")}
+                </Button>
+              ) : null}
+            </CardContent></Card>
+          ) : null}
+        </form>
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button type="submit" form="add-objective-form" disabled={isSubmitting || !metricKey || !targetValue}>{isSubmitting ? "Guardando…" : "Guardar objetivo"}</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -1674,39 +1793,36 @@ function GoalTargetDialog({
   }
 
   return (
-    <Dialog
-      isOpen={isOpen}
-      onOpenChange={(open) => !open && onClose()}
-      title="Cambiar la meta"
-      isBusy={isSubmitting}
-      isDirty={target !== (currentTarget === null ? "" : String(currentTarget)) || Boolean(reason)}
-      formId="goal-target-form"
-      primary={{
-        label: "Guardar meta",
-        busyLabel: "Guardando…",
-        disabled: target === "" || Number(target) === currentTarget,
-      }}
-    >
-      <form id="goal-target-form" className="space-y-4" onSubmit={handleSubmit}>
-        {error ? <Banner tone="danger">{error}</Banner> : null}
-        <Field label={label}>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            value={target}
-            onChange={(event) => setTarget(event.target.value)}
-            required
-          />
-        </Field>
-        <Field label="Motivo (opcional)">
-          <Input
-            value={reason}
-            maxLength={500}
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </Field>
-      </form>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()} busy={isSubmitting} dirty={target !== (currentTarget === null ? "" : String(currentTarget)) || Boolean(reason)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cambiar la meta</DialogTitle>
+        </DialogHeader>
+        <form id="goal-target-form" className="space-y-4" onSubmit={handleSubmit}>
+          {error ? <Banner tone="danger">{error}</Banner> : null}
+          <Field label={label}>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Motivo (opcional)">
+            <Input
+              value={reason}
+              maxLength={500}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+        </form>
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button type="submit" form="goal-target-form" disabled={isSubmitting || target === "" || Number(target) === currentTarget}>{isSubmitting ? "Guardando…" : "Guardar meta"}</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -1716,11 +1832,13 @@ function ObjectivesPanel({
   objectivesQuery,
   milestones,
   currency,
+  connectionId,
   canManage,
   variant,
 }: {
   organizationId: string;
   currency: string;
+  connectionId?: string | null;
   // La consulta vive en PlanContent: la misma respuesta alimenta el mapa.
   objectivesQuery: ReturnType<typeof useCachedQuery<ObjectivesResponse>>;
   milestones: Array<{ id: string; label: string }>;
@@ -1737,17 +1855,23 @@ function ObjectivesPanel({
       : null);
   const setError = setActionError;
   const isLoading = objectivesQuery.isLoading;
-  const [isAdding, setIsAdding] = useState(false);
+  // ?objetivo=<clave> llega desde el panel ("Fijar objetivo"): abre el alta con
+  // esa métrica ya elegida.
+  const requestedMetric = useSearchParams().get("objetivo");
+  const router = useRouter();
+  const [isAdding, setIsAdding] = useState(Boolean(requestedMetric && canManage));
   // Objetivo sugerido por el analista de métricas (ADR-0027): sale de los costes
   // de la tienda y del margen neto objetivo. Vivía en Configuración, que ya no
   // fija objetivos. Solo se pide con el modal abierto.
-  const analysisOf = useMetricAnalysis(organizationId, isAdding ? 30 : "all");
+  const analysisOf = useMetricAnalysis(organizationId, isAdding ? 30 : "all", connectionId);
   const suggestionFor = (metricKey: string) =>
     (metricKey === "roas"
       ? analysisOf("meta_roas")?.suggested_target ?? analysisOf("mer")?.suggested_target
       : metricKey === "cac_blended"
         ? analysisOf("cac_new")?.suggested_target
-        : null) ?? null;
+        : metricKey === "conversion_rate"
+          ? analysisOf("conversion")?.suggested_target
+          : null) ?? null;
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [savingActualId, setSavingActualId] = useState<string | null>(null);
 
@@ -1836,7 +1960,7 @@ function ObjectivesPanel({
     >
       <header className={s.objectivesHeader}>
         <div>
-          <h2 id="business-objectives-title">Objetivos por hito</h2>
+          <h2 id="business-objectives-title">Objetivos del camino</h2>
         </div>
         {canManage ? (
           <Button
@@ -1900,7 +2024,17 @@ function ObjectivesPanel({
           existing={data.objectives}
           milestones={milestones}
           suggestionFor={suggestionFor}
-          onClose={() => setIsAdding(false)}
+          initialMetric={requestedMetric}
+          onClose={() => {
+            setIsAdding(false);
+            // Que recargar, volver atrás o cambiar de tienda no lo abra otra vez:
+            // con el router, no con history, para que el shell no lo reponga.
+            if (requestedMetric) {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("objetivo");
+              router.replace(`${url.pathname}${url.search}`, { scroll: false });
+            }
+          }}
           onSubmit={addObjective}
         />
       ) : null}
@@ -1931,30 +2065,31 @@ function ClientNextStep({ plan, phases }: { plan: Plan; phases: Phase[] }) {
   );
 
   return (
-    <Card
-      kicker="Ahora"
-      title={step.headline}
-      description={step.detail}
-      actions={
-        <div className="flex items-center gap-2">
+    <Card>
+      <CardHeader>
+        <CardKicker>Ahora</CardKicker>
+        <CardTitle>{step.headline}</CardTitle>
+        <CardDescription>{step.detail}</CardDescription>
+        <CardAction><div className="flex items-center gap-2">
           <Badge tone={step.tone}>{NEXT_STEP_LABEL[step.tone]}</Badge>
           {step.tasks.length > 0 ? (
             <ButtonLink href="/tareas" variant="secondary">
               Ver mis tareas
             </ButtonLink>
           ) : null}
-        </div>
-      }
-    >
-      {step.tasks.length > 0 ? (
-        <List as="ul">
-          {step.tasks.map((task) => (
-            <List.Item as="li" key={task.id} className="py-2 text-sm">
-              {task.title}
-            </List.Item>
-          ))}
-        </List>
-      ) : null}
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        {step.tasks.length > 0 ? (
+          <List as="ul">
+            {step.tasks.map((task) => (
+              <List.Item as="li" key={task.id} className="py-2 text-sm">
+                {task.title}
+              </List.Item>
+            ))}
+          </List>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
@@ -1965,7 +2100,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   // Tienda activa del selector: el camino se propone para la tienda que el
   // consultor tiene delante, no para el agregado del cliente.
-  const { connectionId, setConnectionId } = useActiveConnection();
+  const { connectionId, setConnectionId, stores } = useActiveConnection();
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
@@ -2014,19 +2149,12 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isActivating, setIsActivating] = useState(false);
   const [completionMilestone, setCompletionMilestone] = useState<Milestone | null>(null);
   const [completionEvidence, setCompletionEvidence] = useState("");
+  const [completionAction, setCompletionAction] = useState<"completed" | "skipped">("completed");
+  const [completionMode, setCompletionMode] = useState("verify");
   const [isCompletingMilestone, setIsCompletingMilestone] = useState(false);
   // El cliente ve el camino como mapa; el árbol (para editarlo) queda detrás
   // de un botón para quien puede gestionar el plan.
   const [showEditor, setShowEditor] = useState(false);
-  // Mesa del consultor: pestaña abierta y semana de
-  // la revisión que se está leyendo.
-  // ?vista= abre una pestaña concreta: los avisos de objetivos llevan aqui.
-  const initialDeskTab = useSearchParams().get("vista");
-  const [deskTab, setDeskTab] = useState<"editor" | "seguimiento" | "objetivos">(
-    initialDeskTab === "seguimiento" || initialDeskTab === "objetivos" ? initialDeskTab : "editor",
-  );
-
-  const [reviewIndex, setReviewIndex] = useState(0);
   // Hito del que se va a hablar: abre el chat en un modal con el mensaje escrito.
   const [discuss, setDiscuss] = useState<DiscussTopic | null>(null);
   // "Todas las tiendas" con varias tiendas abre la vista general; el camino
@@ -2186,12 +2314,12 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
   }
 
-  async function approveWeeklyLearning(planId: string, reviewId: string, learningIndex: number) {
+  async function approveWeeklyLearning(planId: string, reviewId: string, learningIndex: number, edits?: LearningEdits) {
     if (!organizationId) return;
     const query = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
     const response = await apiFetch(
       `/v1/organizations/${organizationId}/strategic-plan/${planId}/weekly-review/${reviewId}/learnings/${learningIndex}/approve${query}`,
-      { method: "POST" },
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(edits ?? {}) },
     );
     if (!response.ok) throw new Error(await readApiError(response));
   }
@@ -2291,14 +2419,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
   }
 
-  async function changeMilestoneStatus(milestoneId: string, status: string, completionNote?: string) {
+  async function changeMilestoneStatus(milestoneId: string, status: string, completionNote?: string, completionMode?: string) {
     if (!organization) return false;
     return submitPlanMutation(
       `/v1/organizations/${organization.id}/milestones/${milestoneId}/status`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, ...(completionNote ? { completion_note: completionNote } : {}) }),
+        body: JSON.stringify({ status, completion_mode: completionMode, ...(completionNote ? { completion_note: completionNote } : {}) }),
       },
       "Estado del hito actualizado.",
     );
@@ -2309,6 +2437,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       void changeMilestoneStatus(milestone.id, "in_progress");
       return;
     }
+    setCompletionAction("completed");
+    setCompletionMode("verify");
     setCompletionEvidence("");
     setCompletionMilestone(milestone);
   }
@@ -2318,7 +2448,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     if (!completionMilestone) return;
     setIsCompletingMilestone(true);
     try {
-      const saved = await changeMilestoneStatus(completionMilestone.id, "completed", completionEvidence.trim());
+      const saved = await changeMilestoneStatus(completionMilestone.id, completionAction, completionEvidence.trim(), completionMode);
       if (saved) setCompletionMilestone(null);
     } finally {
       setIsCompletingMilestone(false);
@@ -2424,7 +2554,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function editMilestone(
     milestoneId: string,
-    payload2: { name: string; description: string; targetDate: string },
+    payload2: { name: string; description: string; targetDate: string; successCriteria?: string; rationale?: string },
   ) {
     if (!organization) return;
     return submitPlanMutation(
@@ -2436,6 +2566,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           name: payload2.name,
           description: payload2.description || null,
           targetDate: payload2.targetDate || null,
+          ...(payload2.successCriteria !== undefined ? { successCriteria: payload2.successCriteria || null } : {}),
+          ...(payload2.rationale !== undefined ? { rationale: payload2.rationale || null } : {}),
         }),
       },
       "Hito actualizado.",
@@ -2585,76 +2717,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // El cliente abre el editor con un botón.
   const showMap = Boolean(plan) && phases.length > 0;
   const showDetail = !showMap || showEditor || isConsultantView;
-  // El consultor trabaja en pestañas bajo el mapa; el cliente lo ve todo seguido.
-  const desk = isConsultantView && Boolean(plan);
-  const onTab = (tab: typeof deskTab) => !desk || deskTab === tab;
-  const pendingProposals = (weeklyReviews.find((review) => review.output)?.proposals ?? []).filter(
-    (proposal) => proposal.status === "pending",
-  ).length;
+  // Consultor y cliente ven la misma mesa (camino-consultant.tsx); solo cambia
+  // el texto según quién mira, y las notas internas son solo del consultor.
+  const desk = Boolean(plan);
 
-  // Ficha del hito del consultor: todo lo que antes vivía en la fila del árbol.
-  function renderDeskMilestone(milestoneId: string) {
-    const milestone = allMilestones.find((item) => item.id === milestoneId);
-    if (!milestone || !organizationId) return null;
-    const isEditing = editingMilestoneId === milestone.id;
-    const isAddingTask = addingTaskMilestoneId === milestone.id;
-    return (
-      <div className={d.hitoActs}>
-        <div className={d.row}>
-          <Button size="sm" variant={milestone.status === "completed" ? "secondary" : "primary"} onClick={() => toggleMilestoneComplete(milestone)}>
-            {milestone.status === "completed" ? "Reabrir" : "Marcar completado"}
-          </Button>
-          {milestone.status === "pending" ? (
-            <Button size="sm" variant="secondary" onClick={() => void changeMilestoneStatus(milestone.id, "in_progress")}>
-              Empezar
-            </Button>
-          ) : null}
-          {["pending", "in_progress"].includes(milestone.status) ? (
-            <Button size="sm" variant="secondary" onClick={() => void changeMilestoneStatus(milestone.id, "skipped")}>
-              Omitir
-            </Button>
-          ) : null}
-          <Button size="sm" variant="secondary" onClick={() => setEditingMilestoneId(isEditing ? null : milestone.id)}>
-            {isEditing ? "Cerrar edición" : "Editar"}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setDeskTab("objetivos")}>
-            Métrica y meta
-          </Button>
-          {!isAddingTask ? (
-            <Button size="sm" variant="ghost" onClick={() => setAddingTaskMilestoneId(milestone.id)}>
-              <PlusIcon aria-hidden />
-              Tarea
-            </Button>
-          ) : null}
-        </div>
-        {milestone.status === "completed" && milestone.completion_evidence ? (
-          <p className="text-xs text-muted">Evidencia de cierre: {milestone.completion_evidence}</p>
-        ) : null}
-        {isEditing ? (
-          <NameDescriptionForm
-            initialName={milestone.name}
-            initialDescription={milestone.description ?? ""}
-            initialTargetDate={milestone.target_date ?? ""}
-            showTargetDate
-            submitLabel="Guardar"
-            onCancel={() => setEditingMilestoneId(null)}
-            onSubmit={async (payload) => {
-              if (await editMilestone(milestone.id, payload)) setEditingMilestoneId(null);
-            }}
-          />
-        ) : null}
-        {isAddingTask ? (
-          <AddTaskForm
-            onCancel={() => setAddingTaskMilestoneId(null)}
-            onSubmit={async (payload) => {
-              if (await addMilestoneTask(milestone.id, payload)) setAddingTaskMilestoneId(null);
-            }}
-          />
-        ) : null}
-        <MilestoneInternalNotes organizationId={organizationId} milestoneId={milestone.id} />
-      </div>
-    );
-  }
   const planCurrency =
     plan?.currency_code ?? plan?.goal?.currency_code ?? organization?.currency_code ?? "EUR";
 
@@ -2720,95 +2786,798 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
   }
 
-  return (
-    <div className={`portal-page space-y-5 sm:space-y-6 ${desk ? d.desk : d.client}`}>
-      {!desk || !plan ? <WorkPageHeader title="Mi camino">Tu objetivo, los hitos para alcanzarlo y el trabajo que toca ahora.</WorkPageHeader> : null}
-      <Dialog
-        isOpen={Boolean(completionMilestone)}
-        onOpenChange={(open) => { if (!open) setCompletionMilestone(null); }}
-        title={completionMilestone ? `Verificar hito: ${completionMilestone.name}` : "Verificar hito"}
-        isBusy={isCompletingMilestone}
-        isDirty={Boolean(completionEvidence)}
-        formId="complete-camino-milestone"
-        primary={{ label: "Completar hito", busyLabel: "Completando…", disabled: completionEvidence.trim().length < 20 || completionEvidence.trim().length > 2000 || Boolean(completionMilestone?.milestone_task_links.some((link) => link.tasks?.status !== "completed")) }}
-      >
-        <form id="complete-camino-milestone" className="space-y-4" onSubmit={confirmMilestoneCompletion}>
-          <p className="text-sm">Criterio: {completionMilestone?.success_criteria || "Describe qué resultado se ha conseguido y cómo se comprobó."}</p>
-          {completionMilestone?.milestone_task_links.some((link) => link.tasks?.status !== "completed") ? (
-            <p className="text-sm">Quedan tareas pendientes: {completionMilestone.milestone_task_links.filter((link) => link.tasks?.status !== "completed").map((link) => link.tasks?.title ?? "Tarea sin datos").join(", ")}.</p>
-          ) : null}
-          <Field label="Evidencia del resultado">
-            <Textarea value={completionEvidence} onChange={(event) => setCompletionEvidence(event.target.value)} maxLength={2000} placeholder="Indica el resultado observado y dónde se puede comprobar" />
-          </Field>
-        </form>
-      </Dialog>
-      {desk && plan ? (
-        <>
-          <header className={d.work}>
-            <div>
-              <h1 className={d.name}>{plan.name}</h1>
-              <div className={d.chips}>
-                <span className={`${d.chip} ${plan.status === "active" ? d.chipGood : plan.status === "draft" ? d.chipAcc : ""}`}>
-                  {displayValue(plan.status)}
-                </span>
-                <span className={d.chip}>Versión {plan.version}</span>
-                {plan.horizon_months ? (
-                  <span className={d.chip}>
-                    {plan.horizon_months} {plan.horizon_months === 1 ? "mes" : "meses"}
-                  </span>
+
+  const structureTree = plan ? (
+    <>
+            <Card>
+              <CardHeader>
+                <CardKicker>{desk ? undefined : `v${plan.version}${plan.horizon_months ? ` · ${plan.horizon_months} ${plan.horizon_months === 1 ? "mes" : "meses"}` : ""} · ${displayValue(plan.status)}`}</CardKicker>
+                <CardTitle>{desk ? "Fases e hitos" : plan.name}</CardTitle>
+                <CardDescription>{desk ? "Arrastra fases e hitos para reordenarlos. Cada fase se abre al cerrar todos los hitos de la anterior." : (plan.description ?? undefined)}</CardDescription>
+                <CardAction>{desk ? undefined : (
+                <div className="flex items-center gap-2">
+                  {canManage ? (
+                    <Select
+                      className="w-24"
+                      aria-label="Moneda del camino"
+                      value={planCurrency}
+                      onChange={(value) => void changePlanCurrency(value)}
+                      options={
+                        CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
+                          ? CURRENCY_OPTIONS
+                          : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
+                      }
+                    />
+                  ) : null}
+                  {plan.status === "draft" && canManage ? (
+                    <Button
+                      type="button"
+                      onClick={() => void activatePlan(plan.id)}
+                    >
+                      Activar plan
+                    </Button>
+                  ) : null}
+                </div>
+              )}</CardAction>
+              </CardHeader>
+              <CardContent>
+                {plan.goal && !desk ? (
+                  <Card size="sm" className="mb-4"><CardContent>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-muted">Meta del camino</p>
+                      {canManage && organizationId && !["archived", "completed"].includes(plan.status) ? (
+                        <Button size="sm" variant="ghost" type="button" onClick={() => setIsEditingGoal(true)}>
+                          Cambiar meta
+                        </Button>
+                      ) : null}
+                    </div>
+                    {organizationId ? (
+                      <GoalTargetDialog
+                        isOpen={isEditingGoal}
+                        organizationId={organizationId}
+                        planId={plan.id}
+                        currentTarget={plan.goal.target}
+                        label={`${plan.goal.metric_label}${plan.goal.unit === "money" ? ` (${planCurrency})` : plan.goal.unit === "pct" ? " (%)" : ""}`}
+                        onClose={() => setIsEditingGoal(false)}
+                        onSaved={() => void loadPlan(true)}
+                      />
+                    ) : null}
+                    <p className="mt-1 text-sm font-semibold">
+                      {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal, planCurrency)}
+                      {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal, planCurrency)}`}
+                    </p>
+                    {plan.goal.baseline_window_days ? (
+                      <p className="mt-1 text-xs text-muted">
+                        Base observada en {plan.goal.baseline_window_days} días{plan.goal.baseline_observed_at ? ` · ${new Date(plan.goal.baseline_observed_at).toLocaleDateString("es-ES")}` : ""}
+                        {plan.goal.target_date ? ` · objetivo para ${new Date(`${plan.goal.target_date}T00:00:00`).toLocaleDateString("es-ES")}` : ""}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs text-muted">{plan.goal.rationale}</p>
+                    {plan.goal.assumptions.length ? (
+                      <p className="mt-1 text-xs text-muted">Supuestos: {plan.goal.assumptions.join(" · ")}</p>
+                    ) : null}
+                    {plan.goal.decision_gates?.length ? (
+                      <Collapsible className="mt-3 text-sm">
+                        <CollapsibleTrigger>Decisiones condicionadas por datos<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                        <CollapsibleContent>
+                        <ul className="mt-2 space-y-2">
+                          {plan.goal.decision_gates.map((gate, index) => (
+                            <li key={`${gate.decision}-${index}`}>
+                              <b>{gate.decision}</b><br />Avanzar: {gate.proceed_when}<br />Pausar: {gate.hold_when}<br />Comprobar: {gate.evidence_needed}
+                            </li>
+                          ))}
+                        </ul>
+                      </CollapsibleContent>
+                      </Collapsible>
+                    ) : null}
+                  </CardContent></Card>
                 ) : null}
-              </div>
-            </div>
-            <div className={d.tools}>
-              <Select
-                className="w-24"
-                aria-label="Moneda del camino"
-                value={planCurrency}
-                onChange={(value) => void changePlanCurrency(value)}
-                options={
-                  CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
-                    ? CURRENCY_OPTIONS
-                    : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
+                {totalMilestones > 0 && !desk ? (
+                  <Progress value={doneMilestones} max={totalMilestones} aria-valuetext={`${doneMilestones} de ${totalMilestones} hitos`}>
+                    <ProgressLabel>Progreso del plan</ProgressLabel>
+                    <ProgressValue>{() => `${doneMilestones} de ${totalMilestones} hitos`}</ProgressValue>
+                  </Progress>
+                ) : null}
+                {activePhase && !desk ? (
+                  <p className="mt-2 text-sm">
+                    {isConsultantView ? "El cliente está en" : "Estás en"} la fase{" "}
+                    <strong className="font-semibold">{activePhase.name}</strong>
+                    {focusMilestone ? (
+                      <>
+                        , en el hito{" "}
+                        <strong className="font-semibold">
+                          {focusMilestone.name}
+                        </strong>
+                        {focusMilestone.target_date
+                          ? ` (objetivo ${focusMilestone.target_date})`
+                          : ""}
+                        .
+                      </>
+                    ) : (
+                      ", sin ningún hito en curso todavía."
+                    )}
+                  </p>
+                ) : null}
+                <div className="mt-2 flex items-center gap-4 text-xs text-muted">
+                  <span className="flex items-center gap-1.5">
+                    <OriginDot origin="consultant" /> Propuesto por consultor
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <OriginDot origin="client" /> Propuesto por cliente
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {phases.length === 0 && !canManage ? (
+              <EmptyState
+                title="Este plan todavía no tiene fases"
+                hint={
+                  isAutonomous
+                    ? "El plan existe pero está vacío: quien lleve la cuenta tiene que añadirle fases, o pedirle a la IA que las proponga."
+                    : "Tu consultor todavía está preparando las fases del plan."
                 }
               />
-              <ButtonLink href="/camino/nuevo" variant="secondary">
-                Replanificar o nuevo camino
-              </ButtonLink>
-              {plan.status === "draft" ? (
-                <Button type="button" onClick={() => void activatePlan(plan.id)}>
-                  Activar camino
-                </Button>
+            ) : null}
+
+            <div className="relative pb-1">
+              {phases.length > 0 ? (
+                <TreeTrunk size={TREE_NODE_SIZE.phase} />
               ) : null}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handlePhaseDragEnd}
+              >
+                <SortableContext
+                  items={phases.map((p) => p.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <ol className="space-y-6">
+                    {phases.map((phase) => {
+                      const milestones = phase.strategic_plan_milestones
+                        .slice()
+                        .sort((a, b) => a.position - b.position);
+                      const isEditingPhase = editingPhaseId === phase.id;
+                      const isAddingMilestone =
+                        addingMilestonePhaseId === phase.id;
+                      const phaseDone = milestones.filter((m) =>
+                        ["completed", "skipped"].includes(m.status),
+                      ).length;
+                      const phaseOpen =
+                        expandedPhases[phase.id] ?? phase.status === "active";
+                      return (
+                        <SortablePhase key={phase.id} phase={phase}>
+                          {(phaseHandle) => (
+                            <>
+                              <PhaseNode
+                                phase={phase}
+                                canManage={canManage}
+                                isEditing={isEditingPhase}
+                                onEdit={() =>
+                                  setEditingPhaseId(
+                                    isEditingPhase ? null : phase.id,
+                                  )
+                                }
+                                handleProps={phaseHandle}
+                                isOpen={phaseOpen}
+                                onToggle={() =>
+                                  setExpandedPhases((current) => ({
+                                    ...current,
+                                    [phase.id]: !phaseOpen,
+                                  }))
+                                }
+                                doneCount={phaseDone}
+                                totalCount={milestones.length}
+                              />
+
+                              {isEditingPhase ? (
+                                <div className="ml-12 mt-2 space-y-2">
+                                  <NameDescriptionForm
+                                    initialName={phase.name}
+                                    initialDescription={phase.description ?? ""}
+                                    submitLabel="Guardar"
+                                    onCancel={() => setEditingPhaseId(null)}
+                                    onSubmit={async (payload) => {
+                                      if (await editPhase(phase.id, payload)) setEditingPhaseId(null);
+                                    }}
+                                  />
+                                  <AlertDialog>
+                                    <AlertDialogTrigger render={<Button size="sm" variant="destructive">Eliminar fase</Button>} />
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogMedia className="bg-danger/10 text-danger">
+                                          <Trash2Icon />
+                                        </AlertDialogMedia>
+                                        <AlertDialogTitle>¿Eliminar la fase «{phase.name}»?</AlertDialogTitle>
+                                        <AlertDialogDescription>Se elimina con todo lo que contiene:</AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <ul className="ui-alert-dialog__list">
+                                        <li>Sus hitos, notas y vínculos del Camino.</li>
+                                        <li>Las tareas enlazadas siguen disponibles en Tareas, sin vínculo con esta fase.</li>
+                                      </ul>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction variant="destructive" onClick={() => deletePlanPhase(phase)}>
+                                          Eliminar fase
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </div>
+                              ) : null}
+
+                              {phaseOpen ? (
+                                <div
+                                  id={phasePanelId(phase.id)}
+                                  className="relative ml-5 mt-3"
+                                >
+                                  {milestones.length > 0 ? (
+                                    <TreeTrunk size={TREE_NODE_SIZE.milestone} />
+                                  ) : null}
+                                  <DndContext
+                                    sensors={sensors}
+                                    collisionDetection={closestCenter}
+                                    onDragEnd={(event) =>
+                                      handleMilestoneDragEnd(phase.id, event)
+                                    }
+                                  >
+                                    <SortableContext
+                                      items={milestones.map((m) => m.id)}
+                                      strategy={verticalListSortingStrategy}
+                                    >
+                                      <ol className="space-y-2.5">
+                                        {milestones.map(
+                                          (milestone, milestoneIndex) => {
+                                            const isMilestoneExpanded =
+                                              expandedMilestoneId ===
+                                              milestone.id;
+                                            const isEditingMilestone =
+                                              editingMilestoneId === milestone.id;
+                                            const isAddingTask =
+                                              addingTaskMilestoneId ===
+                                              milestone.id;
+                                            const tasks =
+                                              milestone.milestone_task_links
+                                                .map((link) => link.tasks)
+                                                .filter(
+                                                  (task): task is MilestoneTask =>
+                                                    Boolean(task),
+                                                );
+                                            const milestoneMarketingAssets = tasks
+                                              .map((task) => marketingAssetsByTask.get(task.id))
+                                              .filter((asset): asset is CaminoMarketingAsset => Boolean(asset));
+                                            return (
+                                              <SortableMilestone
+                                                key={milestone.id}
+                                                milestone={milestone}
+                                              >
+                                                {(milestoneHandle) => (
+                                                  <>
+                                                    <MilestoneNode
+                                                      numberLabel={`${phase.position}.${milestoneIndex + 1}`}
+                                                      milestone={milestone}
+                                                      canManage={canManage}
+                                                      isFocus={
+                                                        focusMilestone?.id ===
+                                                        milestone.id
+                                                      }
+                                                      isExpanded={
+                                                        isMilestoneExpanded
+                                                      }
+                                                      onToggleExpand={() =>
+                                                        setExpandedMilestoneId(
+                                                          isMilestoneExpanded
+                                                            ? null
+                                                            : milestone.id,
+                                                        )
+                                                      }
+                                                      onToggleComplete={() =>
+                                                        toggleMilestoneComplete(
+                                                          milestone,
+                                                        )
+                                                      }
+                                                      isEditing={
+                                                        isEditingMilestone
+                                                      }
+                                                      handleProps={
+                                                        milestoneHandle
+                                                      }
+                                                      onAction={(action) => {
+                                                        if (action === "start") {
+                                                          void changeMilestoneStatus(
+                                                            milestone.id,
+                                                            "in_progress",
+                                                          );
+                                                        } else if (
+                                                          action === "skip"
+                                                        ) {
+                                                          setCompletionEvidence(""); setCompletionAction("skipped"); setCompletionMilestone(milestone);
+                                                        } else {
+                                                          setEditingMilestoneId(
+                                                            isEditingMilestone
+                                                              ? null
+                                                              : milestone.id,
+                                                          );
+                                                        }
+                                                      }}
+                                                    />
+
+                                                    {isEditingMilestone ? (
+                                                      <div className="ml-11 mt-2 space-y-2">
+                                                        <NameDescriptionForm
+                                                          initialName={
+                                                            milestone.name
+                                                          }
+                                                          initialDescription={
+                                                            milestone.description ??
+                                                            ""
+                                                          }
+                                                          initialTargetDate={
+                                                            milestone.target_date ??
+                                                            ""
+                                                          }
+                                                          showTargetDate
+                                                          submitLabel="Guardar"
+                                                          onCancel={() =>
+                                                            setEditingMilestoneId(
+                                                              null,
+                                                            )
+                                                          }
+                                                          onSubmit={async (
+                                                            payload,
+                                                          ) => {
+                                                            if (
+                                                              await editMilestone(
+                                                                milestone.id,
+                                                                payload,
+                                                              )
+                                                            ) {
+                                                              setEditingMilestoneId(
+                                                                null,
+                                                              );
+                                                            }
+                                                          }}
+                                                        />
+                                                        <DeleteMilestoneDialog
+                                                          name={milestone.name}
+                                                          trigger={<Button size="sm" variant="destructive">Eliminar hito</Button>}
+                                                          onDelete={() => deletePlanMilestone(milestone)}
+                                                        />
+                                                      </div>
+                                                    ) : null}
+
+                                                    {isMilestoneExpanded ? (
+                                                      <div
+                                                        id={milestonePanelId(
+                                                          milestone.id,
+                                                        )}
+                                                        className="ml-11 mt-2 space-y-2"
+                                                      >
+                                                        {/* La fecha objetivo ya no se repite aqui:
+                                        vive en la fila del hito, visible sin
+                                        desplegar. */}
+                                                        {milestone.description ? (
+                                                          <p className="text-xs text-muted">
+                                                            {
+                                                              milestone.description
+                                                            }
+                                                          </p>
+                                                        ) : null}
+                                                        {milestone.status === "completed" && milestone.completion_evidence ? (
+                                                          <p className="text-xs text-muted">Evidencia de cierre: {milestone.completion_evidence}</p>
+                                                        ) : null}
+                                                        {milestoneMarketingAssets.length ? (
+                                                          <p className="text-xs text-muted">
+                                                            Marketing vinculado: {milestoneMarketingAssets.length} · {milestoneMarketingAssets.map(marketingAssetStatusLabel).join(", ")}
+                                                          </p>
+                                                        ) : null}
+                                                        {tasks.length > 0 ? (
+                                                          <ul className="flex flex-wrap gap-1.5">
+                                                            {tasks.map(
+                                                              (
+                                                                task,
+                                                                taskIndex,
+                                                              ) => (
+                                                                <li key={task.id} className="space-y-2">
+                                                                  <TaskListItem
+                                                                    numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
+                                                                    task={task}
+                                                                    linkedMarketingAsset={marketingAssetsByTask.get(task.id) ?? null}
+                                                                    canManage={canResolveTasks}
+                                                                    canEdit={canManage}
+                                                                    viewerIsClient={!isConsultantView}
+                                                                    onToggleDone={() =>
+                                                                      toggleTaskDone(
+                                                                        task,
+                                                                      )
+                                                                    }
+                                                                    onEdit={canManage ? () => setEditingTaskId(editingTaskId === task.id ? null : task.id) : undefined}
+                                                                    onRemove={canManage ? () => void unlinkPlanTask(milestone.id, task.id) : undefined}
+                                                                    onGenerateMarketing={
+                                                                      canManage && taskCanGenerateMarketing(task)
+                                                                        ? () => void generateMarketingForTask(task)
+                                                                        : undefined
+                                                                    }
+                                                                    isGeneratingMarketing={generatingMarketingTaskId === task.id}
+                                                                  />
+                                                                  {editingTaskId === task.id ? (
+                                                                    <EditTaskForm
+                                                                      task={task}
+                                                                      onCancel={() => setEditingTaskId(null)}
+                                                                      onSubmit={async (values) => { await updatePlanTask(milestone.id, task.id, values); }}
+                                                                    />
+                                                                  ) : null}
+                                                                </li>
+                                                              ),
+                                                            )}
+                                                          </ul>
+                                                        ) : null}
+                                                        {canManage ? (
+                                                          isAddingTask ? (
+                                                            <AddTaskForm
+                                                              onCancel={() =>
+                                                                setAddingTaskMilestoneId(
+                                                                  null,
+                                                                )
+                                                              }
+                                                              onSubmit={async (
+                                                                payload,
+                                                              ) => {
+                                                                if (
+                                                                  await addMilestoneTask(
+                                                                    milestone.id,
+                                                                    payload,
+                                                                  )
+                                                                ) {
+                                                                  setAddingTaskMilestoneId(
+                                                                    null,
+                                                                  );
+                                                                }
+                                                              }}
+                                                            />
+                                                          ) : (
+                                                            <Button
+                                                              size="sm"
+                                                              variant="secondary"
+                                                              onClick={() =>
+                                                                setAddingTaskMilestoneId(
+                                                                  milestone.id,
+                                                                )
+                                                              }
+                                                            >
+                                                              <PlusIcon
+                                                                aria-hidden
+                                                              />
+                                                              Tarea
+                                                            </Button>
+                                                          )
+                                                        ) : null}
+                                                        {isConsultantView ? (
+                                                          <MilestoneInternalNotes
+                                                            organizationId={
+                                                              organization?.id ??
+                                                              ""
+                                                            }
+                                                            milestoneId={
+                                                              milestone.id
+                                                            }
+                                                          />
+                                                        ) : null}
+                                                      </div>
+                                                    ) : null}
+                                                  </>
+                                                )}
+                                              </SortableMilestone>
+                                            );
+                                          },
+                                        )}
+                                      </ol>
+                                    </SortableContext>
+                                  </DndContext>
+                                  <ol className="mt-2.5">
+                                    {canManage ? (
+                                      <li>
+                                        {isAddingMilestone ? (
+                                          <div className="ml-1">
+                                            <NameDescriptionForm
+                                              initialName=""
+                                              initialDescription=""
+                                              initialTargetDate=""
+                                              showTargetDate
+                                              submitLabel="Crear hito"
+                                              onCancel={() =>
+                                                setAddingMilestonePhaseId(null)
+                                              }
+                                              onSubmit={async (payload) => {
+                                                if (
+                                                  await addMilestone(
+                                                    phase.id,
+                                                    payload,
+                                                  )
+                                                ) {
+                                                  setAddingMilestonePhaseId(null);
+                                                }
+                                              }}
+                                            />
+                                          </div>
+                                        ) : (
+                                          <TreeAddNode
+                                            size={TREE_NODE_SIZE.milestone}
+                                            label="Añadir hito"
+                                            onClick={() =>
+                                              setAddingMilestonePhaseId(phase.id)
+                                            }
+                                          />
+                                        )}
+                                      </li>
+                                    ) : null}
+                                  </ol>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
+                        </SortablePhase>
+                      );
+                    })}
+                  </ol>
+                </SortableContext>
+              </DndContext>
+              <ol>
+                {canManage ? (
+                  <li>
+                    {isAddingPhase ? (
+                      <div className="ml-12">
+                        <NameDescriptionForm
+                          initialName=""
+                          initialDescription=""
+                          submitLabel="Crear fase"
+                          onCancel={() => setIsAddingPhase(false)}
+                          onSubmit={addPhase}
+                        />
+                      </div>
+                    ) : (
+                      <TreeAddNode
+                        size={TREE_NODE_SIZE.phase}
+                        label="Añadir fase"
+                        onClick={() => setIsAddingPhase(true)}
+                      />
+                    )}
+                  </li>
+                ) : null}
+              </ol>
             </div>
-          </header>
-          {totalMilestones > 0 ? (
-            <section className={d.health} aria-label="Salud del camino">
-              <div>
-                <b>{Math.round((doneMilestones / totalMilestones) * 100)} %</b>
-                <span>
-                  Progreso · {doneMilestones} de {totalMilestones} hitos
-                </span>
-              </div>
-              <div>
-                <b className={d.text}>{activePhase?.name ?? "Ninguna"}</b>
-                <span>Fase activa</span>
-              </div>
-              <div>
-                <b className={d.text}>{focusMilestone?.name ?? "Ninguno"}</b>
-                <span>Hito en curso{focusMilestone?.target_date ? ` · ${focusMilestone.target_date}` : ""}</span>
-              </div>
-              <div className={overdueMilestones > 0 ? d.bad : ""}>
-                <b>{overdueMilestones}</b>
-                <span>Hitos fuera de fecha</span>
-              </div>
-              <div>
-                <b>{openPlanTasks}</b>
-                <span>Tareas abiertas · {planTasks.length} en total</span>
-              </div>
-            </section>
-          ) : null}
-        </>
-      ) : null}
+    </>
+  ) : null;
+
+  // Igual que el servidor (assessMilestoneCompletion): solo bloquean las tareas abiertas.
+  const completionPending = (completionMilestone?.milestone_task_links ?? []).filter(
+    (link) => !link.tasks || link.tasks.status === "pending" || link.tasks.status === "in_progress" || link.tasks.status === "proposed",
+  );
+  const evidenceLength = completionEvidence.trim().length;
+  const completionDialog = (
+        <Dialog open={Boolean(completionMilestone)} onOpenChange={(open) => { if (!open) setCompletionMilestone(null); }} busy={isCompletingMilestone} dirty={Boolean(completionEvidence)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{completionMilestone ? `Verificar hito: ${completionMilestone.name}` : "Verificar hito"}</DialogTitle>
+            </DialogHeader>
+            <form id="complete-camino-milestone" className="space-y-4" onSubmit={confirmMilestoneCompletion}>
+              <p className="text-sm">Criterio: {completionMilestone?.success_criteria || "Describe qué resultado se ha conseguido y cómo se comprobó."}</p>
+              {completionPending.length ? (
+                <p className="text-sm">Quedan tareas pendientes: {completionPending.map((link) => link.tasks?.title ?? "Tarea sin datos").join(", ")}.</p>
+              ) : null}
+              <Field label="Tipo de cierre"><Select value={completionAction === "skipped" ? "skipped" : completionMode} onChange={(value) => { setCompletionAction(value === "skipped" ? "skipped" : "completed"); setCompletionMode(value === "exception" ? "exception" : "verify"); }} options={[{ value: "verify", label: "Verificar resultado" }, { value: "exception", label: "Cerrar por excepción (no acredita el resultado)" }, { value: "skipped", label: "Omitir hito con motivo" }]} /></Field>
+              <p className="text-sm text-muted">Los objetivos asociados se comprobarán con datos al verificar. Una excepción o una omisión no acreditan que el objetivo se haya logrado.</p>
+              <Field label="Evidencia del resultado o motivo del cierre">
+                <Textarea value={completionEvidence} onChange={(event) => setCompletionEvidence(event.target.value)} maxLength={2000} placeholder="Indica el resultado observado y dónde se puede comprobar" />
+              </Field>
+              {evidenceLength < 20 ? (
+                <p className="text-sm text-muted" aria-live="polite">
+                  Escribe al menos 20 caracteres para poder completarlo ({evidenceLength}/20).
+                </p>
+              ) : null}
+            </form>
+            <DialogFooter>
+              <DialogClose>Cancelar</DialogClose>
+              <Button type="submit" form="complete-camino-milestone" disabled={isCompletingMilestone || evidenceLength < 20 || evidenceLength > 2000 || completionAction !== "skipped" && completionPending.length > 0}>{isCompletingMilestone ? "Completando…" : "Completar hito"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+  );
+
+  const discussModal = (
+        <DiscussModal
+          organizationId={organizationId}
+          title={discuss ? `Hito ${discuss.code} · ${discuss.name}` : null}
+          draft={discuss ? discussDraft(discuss, isConsultantView) : ""}
+          viewerIsClient={!isConsultantView}
+          onClose={() => setDiscuss(null)}
+        />
+  );
+
+  // Mesa del consultor: rediseño propio (camino-consultant.tsx). Mutaciones y
+  // formularios siguen aquí y se le pasan como callbacks y render props.
+  if (desk && plan) {
+    if (isLoading) {
+      return (
+        <div className="portal-page">
+          <AsyncState status="loading" loadingLabel="Cargando plan..." />
+        </div>
+      );
+    }
+    const findMilestone = (milestoneId: string) => allMilestones.find((milestone) => milestone.id === milestoneId) ?? null;
+    return (
+      <div className={`portal-page ${d.desk}`}>
+        {completionDialog}
+        <ClosureSummary closures={payload?.closures ?? []} completed={plan?.status === "completed"} />
+        {multiStore && showGeneral ? (
+          <div>
+            <Button type="button" variant="secondary" onClick={() => setGeneralFor(null)}>
+              Todas las tiendas
+            </Button>
+          </div>
+        ) : null}
+        {plan.status === "draft" ? (
+          <DraftNotice readiness={draftReadiness(phases, plan.goal)} canManage={canManage} isActivating={isActivating} onActivate={() => void activatePlan(plan.id)} />
+        ) : null}
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        {payload?.marketing_assets_available === false ? (
+          <p className="text-sm text-muted" role="status">
+            No se pudo comprobar ahora el estado de los borradores de Marketing vinculados a las tareas.
+          </p>
+        ) : null}
+        <ConsultantCamino
+          plan={plan}
+          phases={phases}
+          organizationName={organization?.display_name ?? "El cliente"}
+          viewerIsClient={!isConsultantView}
+          storeName={stores?.find((store) => store.connectionId === connectionId)?.label ?? null}
+          objectives={objectivesQuery.data?.objectives ?? []}
+          reviews={weeklyReviews}
+          marketingAssets={payload?.marketing_assets ?? []}
+          formatGoal={(value) => (plan.goal ? formatPlanGoalValue(value, plan.goal, planCurrency) : String(value))}
+          formatObjective={(value, unit) => formatObjectiveValue(value, unit, planCurrency)}
+          canResolveTasks={canResolveTasks}
+          canManage={canManage}
+          currentUserId={bootstrap.user.id}
+          generatingTaskId={generatingMarketingTaskId}
+          retryingReviewId={retryingReviewId}
+          onActivate={() => void activatePlan(plan.id)}
+          isActivating={isActivating}
+          onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
+          onGenerateMarketingTask={(task) => void generateMarketingForTask(task as MilestoneTask)}
+          onStartMilestone={(milestoneId) => changeMilestoneStatus(milestoneId, "in_progress")}
+          onCompleteMilestone={(milestoneId) => {
+            const milestone = findMilestone(milestoneId);
+            if (milestone) toggleMilestoneComplete(milestone);
+          }}
+          onReopenMilestone={(milestoneId) => changeMilestoneStatus(milestoneId, "in_progress")}
+          onSkipMilestone={async (milestoneId) => { const milestone = findMilestone(milestoneId); if (milestone) { setCompletionEvidence(""); setCompletionAction("skipped"); setCompletionMilestone(milestone); } }}
+          onRemoveTask={(milestoneId, taskId) => unlinkPlanTask(milestoneId, taskId)}
+          onDiscuss={setDiscuss}
+          onChangeGoal={() => setIsEditingGoal(true)}
+          onRetryReview={(reviewId) => void retryWeeklyReview(plan.id, reviewId)}
+          onApproveLearning={(reviewId, learningIndex, edits) => approveWeeklyLearning(plan.id, reviewId, learningIndex, edits)}
+          onProposalUpdated={() => void loadPlan(true)}
+          organizationId={organizationId ?? ""}
+          renderMilestoneEditor={(milestoneId, close) => {
+            const milestone = findMilestone(milestoneId);
+            if (!milestone) return null;
+            return (
+              <MilestoneEditForm
+                milestone={milestone}
+                onCancel={close}
+                onSubmit={async (values) => {
+                  if (await editMilestone(milestone.id, values)) close();
+                }}
+                deleteControl={
+                  <DeleteMilestoneDialog
+                    name={milestone.name}
+                    trigger={<Button size="sm" variant="ghost">Eliminar hito</Button>}
+                    onDelete={() => deletePlanMilestone(milestone)}
+                  />
+                }
+              />
+            );
+          }}
+          renderAddTask={(milestoneId, close) => (
+            <AddTaskForm
+              onCancel={close}
+              onSubmit={async (values) => {
+                if (await addMilestoneTask(milestoneId, values)) close();
+              }}
+            />
+          )}
+          renderTaskEditor={(milestoneId, taskId, close) => {
+            const task = findMilestone(milestoneId)?.milestone_task_links.find((link) => link.tasks?.id === taskId)?.tasks;
+            if (!task) return null;
+            return (
+              <EditTaskForm
+                task={task}
+                onCancel={close}
+                onSubmit={async (values) => {
+                  if (await updatePlanTask(milestoneId, taskId, values)) close();
+                }}
+              />
+            );
+          }}
+          renderNotes={(milestoneId) => (organizationId && isConsultantView ? <MilestoneInternalNotes organizationId={organizationId} milestoneId={milestoneId} /> : null)}
+          objectivesSlot={
+            organizationId ? (
+              <ObjectivesPanel
+                organizationId={organizationId}
+                objectivesQuery={objectivesQuery}
+                milestones={milestoneOptions}
+                currency={planCurrency}
+                canManage={canManage}
+                variant="consultant"
+              />
+            ) : null
+          }
+          settingsSlot={
+            <PlanSettings
+              name={plan.name}
+              description={plan.description}
+              onEdit={() => setIsEditingPlan(true)}
+              editForm={
+                isEditingPlan ? (
+                  <NameDescriptionForm
+                    title="Editar nombre y descripción"
+                    initialName={plan.name}
+                    initialDescription={plan.description ?? ""}
+                    submitLabel="Guardar camino"
+                    onCancel={() => setIsEditingPlan(false)}
+                    onSubmit={async (values) => {
+                      await updatePlanDetails(values);
+                    }}
+                  />
+                ) : null
+              }
+              currencyControl={
+                <Select
+                  className="w-24"
+                  aria-label="Moneda del camino"
+                  value={planCurrency}
+                  onChange={(value) => void changePlanCurrency(value)}
+                  options={
+                    CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
+                      ? CURRENCY_OPTIONS
+                      : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
+                  }
+                />
+              }
+              deleteControl={
+                <DeletePlanDialog
+                  name={plan.name}
+                  trigger={<Button type="button" size="sm" variant="destructive">Eliminar camino</Button>}
+                  onDelete={() => deletePlan()}
+                />
+              }
+            />
+          }
+          structureSlot={structureTree}
+        />
+        {organizationId && plan.goal ? (
+          <GoalTargetDialog
+            isOpen={isEditingGoal}
+            organizationId={organizationId}
+            planId={plan.id}
+            currentTarget={plan.goal.target}
+            label={`${plan.goal.metric_label}${plan.goal.unit === "money" ? ` (${planCurrency})` : plan.goal.unit === "pct" ? " (%)" : ""}`}
+            onClose={() => setIsEditingGoal(false)}
+            onSaved={() => void loadPlan(true)}
+          />
+        ) : null}
+        {discussModal}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`portal-page space-y-5 sm:space-y-6 ${d.client}`}>
+      <WorkPageHeader title="Mi camino">Tu objetivo, los hitos para alcanzarlo y el trabajo que toca ahora.</WorkPageHeader>
+      {completionDialog}
+      <ClosureSummary closures={payload?.closures ?? []} completed={plan?.status === "completed"} />
       {multiStore && showGeneral ? (
         <div>
           <Button type="button" variant="secondary" onClick={() => setGeneralFor(null)}>
@@ -2836,10 +3605,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           phases={phases}
           objectives={objectivesQuery.data?.objectives ?? []}
           formatObjective={(value, unit) => formatObjectiveValue(value, unit, planCurrency)}
-          variant={desk ? "consultant" : "client"}
-          renderMilestoneExtra={desk ? renderDeskMilestone : undefined}
+          variant="client"
+          hasConsultant={!isAutonomous}
           onDiscuss={setDiscuss}
-          review={desk ? null : (weeklyReviews.find((review) => review.output) ?? null)}
+          review={weeklyReviews.find((review) => review.output) ?? null}
           canResolveTasks={canResolveTasks}
           sourceLabels={TASK_SOURCE_LABELS}
           formatGoal={(value) => (plan.goal ? formatPlanGoalValue(value, plan.goal, planCurrency) : String(value))}
@@ -2847,7 +3616,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           onGenerateMarketingTask={canManage ? (task) => void generateMarketingForTask(task as MilestoneTask) : undefined}
           generatingTaskId={generatingMarketingTaskId}
           marketingAssets={payload?.marketing_assets ?? []}
-          onApproveLearning={canManage ? (reviewId, learningIndex) => approveWeeklyLearning(plan.id, reviewId, learningIndex) : undefined}
+          onApproveLearning={canManage ? (reviewId, learningIndex, edits) => approveWeeklyLearning(plan.id, reviewId, learningIndex, edits) : undefined}
           renderChangeDecision={(index) => {
             const latest = weeklyReviews.find((review) => review.output);
             const stored = latest?.proposals?.find((proposal) => proposal.proposal_index === index);
@@ -2866,26 +3635,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </p>
       ) : null}
 
-      {desk ? (
-        <div className={d.tabs} role="tablist" aria-label="Mesa del consultor">
-          {(
-            [
-              ["editor", "Editor del camino"],
-              ["seguimiento", "Seguimiento IA"],
-              ["objetivos", "Objetivos"],
-            ] as const
-          ).map(([key, label]) => (
-            <button key={key} type="button" role="tab" aria-selected={deskTab === key} onClick={() => setDeskTab(key)}>
-              {label}
-              {key === "seguimiento" && pendingProposals > 0 ? <span className={d.count}>{pendingProposals}</span> : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {canManage && ((showMap && !isConsultantView) || (desk && deskTab === "editor")) ? (
+      {canManage && showMap && !isConsultantView ? (
         <div className="space-y-3">
-          <div className="flex flex-wrap justify-end gap-2">
+          <div role="group" aria-label="Acciones del plan" className="flex flex-wrap items-center gap-2 ml-auto">
             {!desk ? (
               <Button type="button" variant="secondary" onClick={() => setShowEditor((open) => !open)}>
                 {showEditor ? "Ocultar el editor" : "Editar el camino"}
@@ -2896,18 +3648,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Button>
             {!desk ? <ButtonLink href="/camino/nuevo" variant="secondary">Replanificar o nuevo camino</ButtonLink> : null}
             {plan ? (
-              <ConfirmDialog
-                trigger={<Button type="button" variant="danger">Eliminar Camino</Button>}
-                title="Eliminar Camino completo"
-                note="Esta acción no se puede deshacer."
-                irreversible
-                consequences={[
-                  "Se borran el plan, sus fases, hitos, notas, revisiones y decisiones del agente.",
-                  "Las tareas y borradores de marketing enlazados se conservan, sin vínculo con este Camino.",
-                ]}
-                confirmPhrase={plan?.name}
-                confirmLabel="Eliminar Camino"
-                onConfirm={() => deletePlan()}
+              <DeletePlanDialog
+                name={plan.name}
+                trigger={<Button type="button" variant="destructive">Eliminar Camino</Button>}
+                onDelete={() => deletePlan()}
               />
             ) : null}
           </div>
@@ -2923,151 +3667,140 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </div>
       ) : null}
 
-      {plan?.status === "active" && showDetail && onTab("seguimiento") ? (
-        <Card title={desk ? undefined : "Revisión del camino"}>
-          {desk && weeklyReviews.length > 1 ? (
-            <div className={d.weeks} role="group" aria-label="Semana">
-              {weeklyReviews.slice(0, 4).map((review, index) => (
-                <button
-                  key={review.id}
-                  type="button"
-                  aria-pressed={reviewIndex === index}
-                  className={review.status === "failed" ? d.failed : undefined}
-                  onClick={() => setReviewIndex(index)}
-                >
-                  {new Date(review.period_start).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                  {review.status === "failed" ? " · falló" : ""}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {weeklyReviews.length ? (
-            <div className="mt-3 space-y-4">
-              {weeklyReviews.slice(0, 4).filter((_, index) => !desk || index === reviewIndex).map((review) => {
-                const content = review.output;
-                if (review.status !== "succeeded" || !content) return (
-                  <article key={review.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator bg-surface p-4">
-                    <div>
-                      <p className="text-sm font-medium">{review.status === "failed" ? "No se pudo generar la revisión del Camino" : "Revisión del Camino en curso"}</p>
-                      <p className="mt-1 text-xs text-muted">Semana del {new Date(review.period_start).toLocaleDateString("es-ES")}. El Camino sigue sin cambios.</p>
-                    </div>
-                    {canManage && review.can_retry && plan ? (
-                      <Button size="sm" variant="secondary" onClick={() => void retryWeeklyReview(plan.id, review.id)} disabled={retryingReviewId === review.id}>
-                        {retryingReviewId === review.id ? "Reintentando…" : "Reintentar revisión"}
-                      </Button>
-                    ) : review.status === "running" ? <Badge tone="neutral">En curso</Badge> : null}
-                  </article>
-                );
-                return (
-                  <article key={review.id} className="rounded-lg border border-separator bg-surface p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Badge tone={content.goal_progress.status === "on_track" || content.goal_progress.status === "achieved" ? "success" : content.goal_progress.status === "at_risk" || content.goal_progress.status === "blocked" ? "danger" : "neutral"}>
-                        {content.goal_progress.status === "on_track" ? "En curso" : content.goal_progress.status === "at_risk" ? "En riesgo" : content.goal_progress.status === "blocked" ? "Bloqueado" : content.goal_progress.status === "achieved" ? "Objetivo logrado" : "Faltan datos"}
-                      </Badge>
-                      <span className="flex items-center gap-2 text-xs text-muted">
-                        {review.trigger_kind === "objective_change" ? <Badge tone="brand">Tras cambiar objetivos</Badge> : null}
-                        {new Date(review.created_at).toLocaleDateString("es-ES")}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-sm leading-6">{content.executive_summary}</p>
-                    {plan.goal && content.goal_progress.observed_value !== null ? (
-                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <div className="rounded-md bg-surface-subtle px-3 py-2">
-                          <p className="text-[11px] text-muted">Medido</p>
-                          <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.observed_value, plan.goal, planCurrency)}</p>
+      {plan?.status === "active" && showDetail ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{desk ? undefined : "Revisión del camino"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {weeklyReviews.length ? (
+              <div className="mt-3 space-y-4">
+                {weeklyReviews.slice(0, 4).map((review) => {
+                  const content = review.output;
+                  if (review.status !== "succeeded" || !content) return (
+                    <Item key={review.id} role="article" variant="outline">
+                      <ItemContent>
+                        <ItemTitle>{review.status === "failed" ? "No se pudo generar la revisión del Camino" : "Revisión del Camino en curso"}</ItemTitle>
+                        <ItemDescription>Semana del {new Date(review.period_start).toLocaleDateString("es-ES")}. El Camino sigue sin cambios.</ItemDescription>
+                      </ItemContent>
+                      {canManage && review.can_retry && plan ? (
+                        <Button size="sm" variant="secondary" onClick={() => void retryWeeklyReview(plan.id, review.id)} disabled={retryingReviewId === review.id}>
+                          {retryingReviewId === review.id ? "Reintentando…" : "Reintentar revisión"}
+                        </Button>
+                      ) : review.status === "running" ? <Badge tone="neutral">En curso</Badge> : null}
+                    </Item>
+                  );
+                  return (
+                    <Card key={review.id} role="article"><CardContent>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Badge tone={content.goal_progress.status === "on_track" || content.goal_progress.status === "achieved" ? "success" : content.goal_progress.status === "at_risk" || content.goal_progress.status === "blocked" ? "danger" : "neutral"}>
+                          {content.goal_progress.status === "on_track" ? "En curso" : content.goal_progress.status === "at_risk" ? "En riesgo" : content.goal_progress.status === "blocked" ? "Bloqueado" : content.goal_progress.status === "achieved" ? "Objetivo logrado" : "Faltan datos"}
+                        </Badge>
+                        <span className="flex items-center gap-2 text-xs text-muted">
+                          {review.trigger_kind === "objective_change" ? <Badge tone="brand">Tras cambiar objetivos</Badge> : null}
+                          {new Date(review.created_at).toLocaleDateString("es-ES")}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6">{content.executive_summary}</p>
+                      {plan.goal && content.goal_progress.observed_value !== null ? (
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <div className="rounded-md bg-surface-subtle px-3 py-2">
+                            <p className="text-[11px] text-muted">Medido</p>
+                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.observed_value, plan.goal, planCurrency)}</p>
+                          </div>
+                          {content.goal_progress.comparison_value !== null ? (
+                            <div className="rounded-md bg-surface-subtle px-3 py-2">
+                              <p className="text-[11px] text-muted">Periodo anterior</p>
+                              <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.comparison_value, plan.goal, planCurrency)}</p>
+                            </div>
+                          ) : null}
+                          {content.goal_progress.expected_value != null ? (
+                            <div className="rounded-md bg-surface-subtle px-3 py-2">
+                              <p className="text-[11px] text-muted">Ritmo de referencia</p>
+                              <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.expected_value, plan.goal, planCurrency)}</p>
+                            </div>
+                          ) : null}
+                          {content.goal_progress.target_value != null ? (
+                            <div className="rounded-md bg-surface-subtle px-3 py-2">
+                              <p className="text-[11px] text-muted">Objetivo</p>
+                              <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.target_value, plan.goal, planCurrency)}</p>
+                            </div>
+                          ) : null}
                         </div>
-                        {content.goal_progress.comparison_value !== null ? (
-                          <div className="rounded-md bg-surface-subtle px-3 py-2">
-                            <p className="text-[11px] text-muted">Periodo anterior</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.comparison_value, plan.goal, planCurrency)}</p>
-                          </div>
-                        ) : null}
-                        {content.goal_progress.expected_value != null ? (
-                          <div className="rounded-md bg-surface-subtle px-3 py-2">
-                            <p className="text-[11px] text-muted">Ritmo de referencia</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.expected_value, plan.goal, planCurrency)}</p>
-                          </div>
-                        ) : null}
-                        {content.goal_progress.target_value != null ? (
-                          <div className="rounded-md bg-surface-subtle px-3 py-2">
-                            <p className="text-[11px] text-muted">Objetivo</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.target_value, plan.goal, planCurrency)}</p>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    <p className="mt-2 text-sm text-muted">{content.goal_progress.explanation}</p>
-                    {content.progress.length ? (
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Avance observado</p>
-                        <ul className="mt-2 space-y-2">
-                          {content.progress.slice(0, 4).map((item, index) => (
-                            <li key={`${review.id}-progress-${index}`} className="text-sm">
-                              <span className="font-medium">{item.item}</span>
-                              <span className="ml-2 text-muted">{displayValue(item.status)} · {item.evidence}</span>
-                            </li>
-                          ))}
-                          {content.progress.length > 4 ? <li className="text-xs text-muted">+{content.progress.length - 4} más</li> : null}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {content.risks.length ? (
-                      <div className="mt-4 rounded-md border border-separator px-3 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Riesgos y bloqueos</p>
-                        <ul className="mt-2 space-y-2">
-                          {content.risks.slice(0, 3).map((risk, index) => (
-                            <li key={`${review.id}-risk-${index}`} className="text-sm">
-                              <Badge tone={risk.severity === "high" ? "danger" : risk.severity === "medium" ? "warn" : "neutral"}>{displayValue(risk.severity)}</Badge>
-                              <span className="ml-2">{risk.detail}</span>
-                              <p className="mt-1 text-xs text-muted">Evidencia: {risk.evidence}</p>
-                            </li>
-                          ))}
-                          {content.risks.length > 3 ? <li className="text-xs text-muted">+{content.risks.length - 3} más</li> : null}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {content.next_actions.length ? (
-                      <div className="mt-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Próximas acciones sugeridas</p>
-                        <ul className="mt-2 space-y-2">
-                          {content.next_actions.slice(0, 3).map((action, index) => (
-                            <li key={`${review.id}-action-${index}`} className="text-sm">
-                              <span className="font-medium">{action.title}</span>
-                              <span className="text-muted"> — {action.rationale} · Responsable: {displayValue(action.owner)} · En {action.due_in_days} días</span>
-                            </li>
-                          ))}
-                          {content.next_actions.length > 3 ? <li className="text-xs text-muted">+{content.next_actions.length - 3} más</li> : null}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {content.change_proposals.length ? (
-                      <div className="mt-4 rounded-md border border-separator px-3 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Cambios sugeridos · requieren revisión humana</p>
-                        <ul className="mt-2 space-y-3">
-                          {content.change_proposals.slice(0, 4).map((change, index) => (
-                            <li key={`${review.id}-change-${index}`} className="text-sm">
-                              <p className="font-medium">{displayValue(change.change)} {displayValue(change.target_type)}{change.target_id ? ` · ${change.target_id}` : ""}</p>
-                              <p>{change.description}</p>
-                              <p className="text-muted">Motivo: {change.reason}</p>
-                              <p className="text-xs text-muted">Evidencia: {change.evidence}</p>
-                              {organizationId && plan ? (() => {
-                                const stored = review.proposals?.find((proposal) => proposal.proposal_index === index);
-                                return stored ? <CaminoProposalDecision key={stored.id} organizationId={organizationId} planId={plan.id} record={stored} canManage={canManage} onUpdated={() => void loadPlan(true)} /> : <p className="mt-2 text-xs text-muted">Esta propuesta es anterior al registro de decisiones y solo puede consultarse.</p>;
-                              })() : null}
-                            </li>
-                          ))}
-                          {content.change_proposals.length > 4 ? <li className="text-xs text-muted">+{content.change_proposals.length - 4} más</li> : null}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {content.warnings.length ? <p className="mt-2 text-xs text-muted">Límites: {content.warnings.join(" · ")}</p> : null}
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-muted">Con la automatización de agentes activa, la primera revisión llega tres días después de activar el Camino y se repite cada tres días.</p>
-          )}
+                      ) : null}
+                      <p className="mt-2 text-sm text-muted">{content.goal_progress.explanation}</p>
+                      {content.progress.length ? (
+                        <div className="mt-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Avance observado</p>
+                          <ul className="mt-2 space-y-2">
+                            {content.progress.slice(0, 4).map((item, index) => (
+                              <li key={`${review.id}-progress-${index}`} className="text-sm">
+                                <span className="font-medium">{item.item}</span>
+                                <span className="ml-2 text-muted">{displayValue(item.status)} · {item.evidence}</span>
+                              </li>
+                            ))}
+                            {content.progress.length > 4 ? <li className="text-xs text-muted">+{content.progress.length - 4} más</li> : null}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {content.risks.length ? (
+                        <Card size="sm" className="mt-4"><CardContent>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Riesgos y bloqueos</p>
+                          <ul className="mt-2 space-y-2">
+                            {content.risks.slice(0, 3).map((risk, index) => (
+                              <li key={`${review.id}-risk-${index}`} className="text-sm">
+                                <Badge tone={risk.severity === "high" ? "danger" : risk.severity === "medium" ? "warn" : "neutral"}>{displayValue(risk.severity)}</Badge>
+                                <span className="ml-2">{risk.detail}</span>
+                                <p className="mt-1 text-xs text-muted">Evidencia: {risk.evidence}</p>
+                              </li>
+                            ))}
+                            {content.risks.length > 3 ? <li className="text-xs text-muted">+{content.risks.length - 3} más</li> : null}
+                          </ul>
+                        </CardContent></Card>
+                      ) : null}
+                      {content.next_actions.length ? (
+                        <div className="mt-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Próximas acciones sugeridas</p>
+                          <ul className="mt-2 space-y-2">
+                            {content.next_actions.slice(0, 3).map((action, index) => (
+                              <li key={`${review.id}-action-${index}`} className="text-sm">
+                                <span className="font-medium">{action.title}</span>
+                                <span className="text-muted"> — {action.rationale} · Responsable: {displayValue(action.owner)} · En {action.due_in_days} días</span>
+                              </li>
+                            ))}
+                            {content.next_actions.length > 3 ? <li className="text-xs text-muted">+{content.next_actions.length - 3} más</li> : null}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {content.change_proposals.length ? (
+                        <Card size="sm" className="mt-4"><CardContent>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Cambios sugeridos · requieren revisión humana</p>
+                          <ul className="mt-2 space-y-3">
+                            {content.change_proposals.slice(0, 4).map((change, index) => (
+                              <li key={`${review.id}-change-${index}`} className="text-sm">
+                                <p className="font-medium">{displayValue(change.change)} {displayValue(change.target_type)}{change.target_id ? ` · ${change.target_id}` : ""}</p>
+                                <p>{change.description}</p>
+                                <p className="text-muted">Motivo: {change.reason}</p>
+                                <p className="text-xs text-muted">Evidencia: {change.evidence}</p>
+                                {organizationId && plan ? (() => {
+                                  const stored = review.proposals?.find((proposal) => proposal.proposal_index === index);
+                                  return stored ? <CaminoProposalDecision key={stored.id} organizationId={organizationId} planId={plan.id} record={stored} canManage={canManage} onUpdated={() => void loadPlan(true)} /> : <p className="mt-2 text-xs text-muted">Esta propuesta es anterior al registro de decisiones y solo puede consultarse.</p>;
+                                })() : null}
+                              </li>
+                            ))}
+                            {content.change_proposals.length > 4 ? <li className="text-xs text-muted">+{content.change_proposals.length - 4} más</li> : null}
+                          </ul>
+                        </CardContent></Card>
+                      ) : null}
+                      {content.warnings.length ? <p className="mt-2 text-xs text-muted">Límites: {content.warnings.join(" · ")}</p> : null}
+                    </CardContent></Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-muted">Con la automatización de agentes activa, la primera revisión llega tres días después de activar el Camino y se repite cada tres días.</p>
+            )}
+          </CardContent>
         </Card>
       ) : null}
 
@@ -3107,12 +3840,13 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {/* Los objetivos se ven en el mapa, dentro de su hito. El panel es la
           herramienta para asignarlos y solo sale al editar el camino. */}
-      {organizationId && plan && showDetail && onTab("objetivos") ? (
+      {organizationId && plan && showDetail ? (
         <ObjectivesPanel
           organizationId={organizationId}
           objectivesQuery={objectivesQuery}
           milestones={milestoneOptions}
           currency={planCurrency}
+          connectionId={connectionId}
           canManage={canManage}
           variant={isConsultantView ? "consultant" : "client"}
         />
@@ -3123,571 +3857,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {isLoading ? (
         <AsyncState status="loading" loadingLabel="Cargando plan..." />
       ) : plan ? (
-        showDetail && onTab("editor") ? (
-        <>
-          <Card
-            kicker={desk ? undefined : `v${plan.version}${plan.horizon_months ? ` · ${plan.horizon_months} ${plan.horizon_months === 1 ? "mes" : "meses"}` : ""} · ${displayValue(plan.status)}`}
-            title={desk ? "Fases e hitos" : plan.name}
-            description={desk ? undefined : (plan.description ?? undefined)}
-            actions={desk ? undefined : (
-              <div className="flex items-center gap-2">
-                {canManage ? (
-                  <Select
-                    className="w-24"
-                    aria-label="Moneda del camino"
-                    value={planCurrency}
-                    onChange={(value) => void changePlanCurrency(value)}
-                    options={
-                      CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
-                        ? CURRENCY_OPTIONS
-                        : [{ value: planCurrency, label: planCurrency }, ...CURRENCY_OPTIONS]
-                    }
-                  />
-                ) : null}
-                {plan.status === "draft" && canManage ? (
-                  <Button
-                    type="button"
-                    onClick={() => void activatePlan(plan.id)}
-                  >
-                    Activar plan
-                  </Button>
-                ) : null}
-              </div>
-            )}
-          >
-            {plan.goal ? (
-              <div className="mb-4 rounded-lg border border-separator bg-surface-subtle p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-muted">Meta del camino</p>
-                  {canManage && organizationId && !["archived", "completed"].includes(plan.status) ? (
-                    <Button size="sm" variant="ghost" type="button" onClick={() => setIsEditingGoal(true)}>
-                      Cambiar meta
-                    </Button>
-                  ) : null}
-                </div>
-                {organizationId ? (
-                  <GoalTargetDialog
-                    isOpen={isEditingGoal}
-                    organizationId={organizationId}
-                    planId={plan.id}
-                    currentTarget={plan.goal.target}
-                    label={`${plan.goal.metric_label}${plan.goal.unit === "money" ? ` (${planCurrency})` : plan.goal.unit === "pct" ? " (%)" : ""}`}
-                    onClose={() => setIsEditingGoal(false)}
-                    onSaved={() => void loadPlan(true)}
-                  />
-                ) : null}
-                <p className="mt-1 text-sm font-semibold">
-                  {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal, planCurrency)}
-                  {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal, planCurrency)}`}
-                </p>
-                {plan.goal.baseline_window_days ? (
-                  <p className="mt-1 text-xs text-muted">
-                    Base observada en {plan.goal.baseline_window_days} días{plan.goal.baseline_observed_at ? ` · ${new Date(plan.goal.baseline_observed_at).toLocaleDateString("es-ES")}` : ""}
-                    {plan.goal.target_date ? ` · objetivo para ${new Date(`${plan.goal.target_date}T00:00:00`).toLocaleDateString("es-ES")}` : ""}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-xs text-muted">{plan.goal.rationale}</p>
-                {plan.goal.assumptions.length ? (
-                  <p className="mt-1 text-xs text-muted">Supuestos: {plan.goal.assumptions.join(" · ")}</p>
-                ) : null}
-                {plan.goal.decision_gates?.length ? (
-                  <details className="mt-3 text-sm">
-                    <summary>Decisiones condicionadas por datos</summary>
-                    <ul className="mt-2 space-y-2">
-                      {plan.goal.decision_gates.map((gate, index) => (
-                        <li key={`${gate.decision}-${index}`}>
-                          <b>{gate.decision}</b><br />Avanzar: {gate.proceed_when}<br />Pausar: {gate.hold_when}<br />Comprobar: {gate.evidence_needed}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                ) : null}
-              </div>
-            ) : null}
-            {totalMilestones > 0 && !desk ? (
-              <ProgressBar
-                value={(doneMilestones / totalMilestones) * 100}
-                aria-label="Progreso del plan"
-              >
-                <div className="flex justify-between text-xs text-muted">
-                  <span>Progreso</span>
-                  <span className="font-mono">
-                    {doneMilestones}/{totalMilestones} hitos
-                  </span>
-                </div>
-                <ProgressBar.Track>
-                  <ProgressBar.Fill />
-                </ProgressBar.Track>
-              </ProgressBar>
-            ) : null}
-            {activePhase && !desk ? (
-              <p className="mt-2 text-sm">
-                {isConsultantView ? "El cliente está en" : "Estás en"} la fase{" "}
-                <strong className="font-semibold">{activePhase.name}</strong>
-                {focusMilestone ? (
-                  <>
-                    , en el hito{" "}
-                    <strong className="font-semibold">
-                      {focusMilestone.name}
-                    </strong>
-                    {focusMilestone.target_date
-                      ? ` (objetivo ${focusMilestone.target_date})`
-                      : ""}
-                    .
-                  </>
-                ) : (
-                  ", sin ningún hito en curso todavía."
-                )}
-              </p>
-            ) : null}
-            <div className="mt-2 flex items-center gap-4 text-xs text-muted">
-              <span className="flex items-center gap-1.5">
-                <OriginDot origin="consultant" /> Propuesto por consultor
-              </span>
-              <span className="flex items-center gap-1.5">
-                <OriginDot origin="client" /> Propuesto por cliente
-              </span>
-            </div>
-          </Card>
-
-          {phases.length === 0 && !canManage ? (
-            <EmptyState
-              title="Este plan todavía no tiene fases"
-              hint={
-                isAutonomous
-                  ? "El plan existe pero está vacío: quien lleve la cuenta tiene que añadirle fases, o pedirle a la IA que las proponga."
-                  : "Tu consultor todavía está preparando las fases del plan."
-              }
-            />
-          ) : null}
-
-          <div className="relative pb-1">
-            {phases.length > 0 ? (
-              <TreeTrunk size={TREE_NODE_SIZE.phase} />
-            ) : null}
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handlePhaseDragEnd}
-            >
-              <SortableContext
-                items={phases.map((p) => p.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <ol className="space-y-6">
-                  {phases.map((phase) => {
-                    const milestones = phase.strategic_plan_milestones
-                      .slice()
-                      .sort((a, b) => a.position - b.position);
-                    const isEditingPhase = editingPhaseId === phase.id;
-                    const isAddingMilestone =
-                      addingMilestonePhaseId === phase.id;
-                    const phaseDone = milestones.filter((m) =>
-                      ["completed", "skipped"].includes(m.status),
-                    ).length;
-                    const phaseOpen =
-                      expandedPhases[phase.id] ?? phase.status === "active";
-                    return (
-                      <SortablePhase key={phase.id} phase={phase}>
-                        {(phaseHandle) => (
-                          <>
-                            <PhaseNode
-                              phase={phase}
-                              canManage={canManage}
-                              isEditing={isEditingPhase}
-                              onEdit={() =>
-                                setEditingPhaseId(
-                                  isEditingPhase ? null : phase.id,
-                                )
-                              }
-                              handleProps={phaseHandle}
-                              isOpen={phaseOpen}
-                              onToggle={() =>
-                                setExpandedPhases((current) => ({
-                                  ...current,
-                                  [phase.id]: !phaseOpen,
-                                }))
-                              }
-                              doneCount={phaseDone}
-                              totalCount={milestones.length}
-                            />
-
-                            {isEditingPhase ? (
-                              <div className="ml-12 mt-2 space-y-2">
-                                <NameDescriptionForm
-                                  initialName={phase.name}
-                                  initialDescription={phase.description ?? ""}
-                                  submitLabel="Guardar"
-                                  onCancel={() => setEditingPhaseId(null)}
-                                  onSubmit={async (payload) => {
-                                    if (await editPhase(phase.id, payload)) setEditingPhaseId(null);
-                                  }}
-                                />
-                                <ConfirmDialog
-                                  trigger={<Button size="sm" variant="danger">Eliminar fase</Button>}
-                                  title="Eliminar fase"
-                                  description="Se elimina con todo lo que contiene:"
-                                  consequences={[
-                                    "Sus hitos, notas y vínculos del Camino.",
-                                    "Las tareas enlazadas siguen disponibles en Tareas, sin vínculo con esta fase.",
-                                  ]}
-                                  confirmLabel="Eliminar fase"
-                                  onConfirm={() => void deletePlanPhase(phase)}
-                                />
-                              </div>
-                            ) : null}
-
-                            {phaseOpen ? (
-                              <div
-                                id={phasePanelId(phase.id)}
-                                className="relative ml-5 mt-3"
-                              >
-                                {milestones.length > 0 ? (
-                                  <TreeTrunk size={TREE_NODE_SIZE.milestone} />
-                                ) : null}
-                                <DndContext
-                                  sensors={sensors}
-                                  collisionDetection={closestCenter}
-                                  onDragEnd={(event) =>
-                                    handleMilestoneDragEnd(phase.id, event)
-                                  }
-                                >
-                                  <SortableContext
-                                    items={milestones.map((m) => m.id)}
-                                    strategy={verticalListSortingStrategy}
-                                  >
-                                    <ol className="space-y-2.5">
-                                      {milestones.map(
-                                        (milestone, milestoneIndex) => {
-                                          const isMilestoneExpanded =
-                                            expandedMilestoneId ===
-                                            milestone.id;
-                                          const isEditingMilestone =
-                                            editingMilestoneId === milestone.id;
-                                          const isAddingTask =
-                                            addingTaskMilestoneId ===
-                                            milestone.id;
-                                          const tasks =
-                                            milestone.milestone_task_links
-                                              .map((link) => link.tasks)
-                                              .filter(
-                                                (task): task is MilestoneTask =>
-                                                  Boolean(task),
-                                              );
-                                          const milestoneMarketingAssets = tasks
-                                            .map((task) => marketingAssetsByTask.get(task.id))
-                                            .filter((asset): asset is CaminoMarketingAsset => Boolean(asset));
-                                          return (
-                                            <SortableMilestone
-                                              key={milestone.id}
-                                              milestone={milestone}
-                                            >
-                                              {(milestoneHandle) => (
-                                                <>
-                                                  <MilestoneNode
-                                                    numberLabel={`${phase.position}.${milestoneIndex + 1}`}
-                                                    milestone={milestone}
-                                                    canManage={canManage}
-                                                    isFocus={
-                                                      focusMilestone?.id ===
-                                                      milestone.id
-                                                    }
-                                                    isExpanded={
-                                                      isMilestoneExpanded
-                                                    }
-                                                    onToggleExpand={() =>
-                                                      setExpandedMilestoneId(
-                                                        isMilestoneExpanded
-                                                          ? null
-                                                          : milestone.id,
-                                                      )
-                                                    }
-                                                    onToggleComplete={() =>
-                                                      toggleMilestoneComplete(
-                                                        milestone,
-                                                      )
-                                                    }
-                                                    isEditing={
-                                                      isEditingMilestone
-                                                    }
-                                                    handleProps={
-                                                      milestoneHandle
-                                                    }
-                                                    onAction={(action) => {
-                                                      if (action === "start") {
-                                                        void changeMilestoneStatus(
-                                                          milestone.id,
-                                                          "in_progress",
-                                                        );
-                                                      } else if (
-                                                        action === "skip"
-                                                      ) {
-                                                        void changeMilestoneStatus(
-                                                          milestone.id,
-                                                          "skipped",
-                                                        );
-                                                      } else {
-                                                        setEditingMilestoneId(
-                                                          isEditingMilestone
-                                                            ? null
-                                                            : milestone.id,
-                                                        );
-                                                      }
-                                                    }}
-                                                  />
-
-                                                  {isEditingMilestone ? (
-                                                    <div className="ml-11 mt-2 space-y-2">
-                                                      <NameDescriptionForm
-                                                        initialName={
-                                                          milestone.name
-                                                        }
-                                                        initialDescription={
-                                                          milestone.description ??
-                                                          ""
-                                                        }
-                                                        initialTargetDate={
-                                                          milestone.target_date ??
-                                                          ""
-                                                        }
-                                                        showTargetDate
-                                                        submitLabel="Guardar"
-                                                        onCancel={() =>
-                                                          setEditingMilestoneId(
-                                                            null,
-                                                          )
-                                                        }
-                                                        onSubmit={async (
-                                                          payload,
-                                                        ) => {
-                                                          if (
-                                                            await editMilestone(
-                                                              milestone.id,
-                                                              payload,
-                                                            )
-                                                          ) {
-                                                            setEditingMilestoneId(
-                                                              null,
-                                                            );
-                                                          }
-                                                        }}
-                                                      />
-                                                      <ConfirmDialog
-                                                        trigger={<Button size="sm" variant="danger">Eliminar hito</Button>}
-                                                        title="Eliminar hito"
-                                                        description="Se elimina con todo lo que contiene:"
-                                                        consequences={[
-                                                          "Sus notas y su vínculo con las tareas.",
-                                                          "Las tareas siguen disponibles en Tareas.",
-                                                        ]}
-                                                        confirmLabel="Eliminar hito"
-                                                        onConfirm={() => void deletePlanMilestone(milestone)}
-                                                      />
-                                                    </div>
-                                                  ) : null}
-
-                                                  {isMilestoneExpanded ? (
-                                                    <div
-                                                      id={milestonePanelId(
-                                                        milestone.id,
-                                                      )}
-                                                      className="ml-11 mt-2 space-y-2"
-                                                    >
-                                                      {/* La fecha objetivo ya no se repite aqui:
-                                      vive en la fila del hito, visible sin
-                                      desplegar. */}
-                                                      {milestone.description ? (
-                                                        <p className="text-xs text-muted">
-                                                          {
-                                                            milestone.description
-                                                          }
-                                                        </p>
-                                                      ) : null}
-                                                      {milestone.status === "completed" && milestone.completion_evidence ? (
-                                                        <p className="text-xs text-muted">Evidencia de cierre: {milestone.completion_evidence}</p>
-                                                      ) : null}
-                                                      {milestoneMarketingAssets.length ? (
-                                                        <p className="text-xs text-muted">
-                                                          Marketing vinculado: {milestoneMarketingAssets.length} · {milestoneMarketingAssets.map(marketingAssetStatusLabel).join(", ")}
-                                                        </p>
-                                                      ) : null}
-                                                      {tasks.length > 0 ? (
-                                                        <ul className="flex flex-wrap gap-1.5">
-                                                          {tasks.map(
-                                                            (
-                                                              task,
-                                                              taskIndex,
-                                                            ) => (
-                                                              <li key={task.id} className="space-y-2">
-                                                                <TaskListItem
-                                                                  numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
-                                                                  task={task}
-                                                                  linkedMarketingAsset={marketingAssetsByTask.get(task.id) ?? null}
-                                                                  canManage={canResolveTasks}
-                                                                  canEdit={canManage}
-                                                                  viewerIsClient={!isConsultantView}
-                                                                  onToggleDone={() =>
-                                                                    toggleTaskDone(
-                                                                      task,
-                                                                    )
-                                                                  }
-                                                                  onEdit={canManage ? () => setEditingTaskId(editingTaskId === task.id ? null : task.id) : undefined}
-                                                                  onRemove={canManage ? () => void unlinkPlanTask(milestone.id, task.id) : undefined}
-                                                                  onGenerateMarketing={
-                                                                    canManage && taskCanGenerateMarketing(task)
-                                                                      ? () => void generateMarketingForTask(task)
-                                                                      : undefined
-                                                                  }
-                                                                  isGeneratingMarketing={generatingMarketingTaskId === task.id}
-                                                                />
-                                                                {editingTaskId === task.id ? (
-                                                                  <EditTaskForm
-                                                                    task={task}
-                                                                    onCancel={() => setEditingTaskId(null)}
-                                                                    onSubmit={async (values) => { await updatePlanTask(milestone.id, task.id, values); }}
-                                                                  />
-                                                                ) : null}
-                                                              </li>
-                                                            ),
-                                                          )}
-                                                        </ul>
-                                                      ) : null}
-                                                      {canManage ? (
-                                                        isAddingTask ? (
-                                                          <AddTaskForm
-                                                            onCancel={() =>
-                                                              setAddingTaskMilestoneId(
-                                                                null,
-                                                              )
-                                                            }
-                                                            onSubmit={async (
-                                                              payload,
-                                                            ) => {
-                                                              if (
-                                                                await addMilestoneTask(
-                                                                  milestone.id,
-                                                                  payload,
-                                                                )
-                                                              ) {
-                                                                setAddingTaskMilestoneId(
-                                                                  null,
-                                                                );
-                                                              }
-                                                            }}
-                                                          />
-                                                        ) : (
-                                                          <Button
-                                                            size="sm"
-                                                            variant="secondary"
-                                                            onClick={() =>
-                                                              setAddingTaskMilestoneId(
-                                                                milestone.id,
-                                                              )
-                                                            }
-                                                          >
-                                                            <PlusIcon
-                                                              aria-hidden
-                                                            />
-                                                            Tarea
-                                                          </Button>
-                                                        )
-                                                      ) : null}
-                                                      {isConsultantView ? (
-                                                        <MilestoneInternalNotes
-                                                          organizationId={
-                                                            organization?.id ??
-                                                            ""
-                                                          }
-                                                          milestoneId={
-                                                            milestone.id
-                                                          }
-                                                        />
-                                                      ) : null}
-                                                    </div>
-                                                  ) : null}
-                                                </>
-                                              )}
-                                            </SortableMilestone>
-                                          );
-                                        },
-                                      )}
-                                    </ol>
-                                  </SortableContext>
-                                </DndContext>
-                                <ol className="mt-2.5">
-                                  {canManage ? (
-                                    <li>
-                                      {isAddingMilestone ? (
-                                        <div className="ml-1">
-                                          <NameDescriptionForm
-                                            initialName=""
-                                            initialDescription=""
-                                            initialTargetDate=""
-                                            showTargetDate
-                                            submitLabel="Crear hito"
-                                            onCancel={() =>
-                                              setAddingMilestonePhaseId(null)
-                                            }
-                                            onSubmit={async (payload) => {
-                                              if (
-                                                await addMilestone(
-                                                  phase.id,
-                                                  payload,
-                                                )
-                                              ) {
-                                                setAddingMilestonePhaseId(null);
-                                              }
-                                            }}
-                                          />
-                                        </div>
-                                      ) : (
-                                        <TreeAddNode
-                                          size={TREE_NODE_SIZE.milestone}
-                                          label="Añadir hito"
-                                          onClick={() =>
-                                            setAddingMilestonePhaseId(phase.id)
-                                          }
-                                        />
-                                      )}
-                                    </li>
-                                  ) : null}
-                                </ol>
-                              </div>
-                            ) : null}
-                          </>
-                        )}
-                      </SortablePhase>
-                    );
-                  })}
-                </ol>
-              </SortableContext>
-            </DndContext>
-            <ol>
-              {canManage ? (
-                <li>
-                  {isAddingPhase ? (
-                    <div className="ml-12">
-                      <NameDescriptionForm
-                        initialName=""
-                        initialDescription=""
-                        submitLabel="Crear fase"
-                        onCancel={() => setIsAddingPhase(false)}
-                        onSubmit={addPhase}
-                      />
-                    </div>
-                  ) : (
-                    <TreeAddNode
-                      size={TREE_NODE_SIZE.phase}
-                      label="Añadir fase"
-                      onClick={() => setIsAddingPhase(true)}
-                    />
-                  )}
-                </li>
-              ) : null}
-            </ol>
-          </div>
-        </>
-        ) : null
+        showDetail ? structureTree : null
       ) : error ? null : !canManage ? (
         <EmptyState
           title="Aún no hay un camino"
@@ -3721,13 +3891,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       )}
 
-      <DiscussModal
-        organizationId={organizationId}
-        title={discuss ? `Hito ${discuss.code} · ${discuss.name}` : null}
-        draft={discuss ? discussDraft(discuss, isConsultantView) : ""}
-        viewerIsClient={!isConsultantView}
-        onClose={() => setDiscuss(null)}
-      />
+      {discussModal}
     </div>
   );
 }

@@ -66,21 +66,21 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     area: "Catalogo",
     status: "active_ingestion",
     fields: ["product.id", "title", "handle", "vendor", "productType", "status", "variants", "selectedOptions", "price", "compareAtPrice", "barcode", "media", "productVariantComponents"],
-    enables: ["Catalogo visual e imagenes", "opciones de variante", "packs nativos", "Productos mas vendidos", "ventas por producto", "ventas por variante"],
+    enables: ["Catálogo visual e imágenes", "opciones de variante", "packs nativos", "Productos más vendidos", "ventas por producto", "ventas por variante"],
   },
   {
     scope: "read_inventory",
     area: "Inventario",
     status: "active_ingestion",
     fields: ["inventoryItem.id", "sku", "tracked", "requiresShipping", "measurement", "inventoryLevels.quantities"],
-    enables: ["Stock por ubicacion", "rotacion", "dias de cobertura", "alertas de reposicion"],
+    enables: ["Stock por ubicación", "rotación", "días de cobertura", "alertas de reposicion"],
   },
   {
     scope: "read_locations",
     area: "Inventario",
     status: "active_ingestion",
     fields: ["location.id", "name", "isActive", "fulfillsOnlineOrders", "address"],
-    enables: ["Inventario por almacen", "fulfillment por ubicacion", "cobertura por location"],
+    enables: ["Inventario por almacen", "fulfillment por ubicación", "cobertura por location"],
   },
   {
     scope: "read_orders",
@@ -122,14 +122,14 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     area: "Descuentos",
     status: "active_ingestion",
     fields: ["discountNode.id", "discount", "status", "usageCount"],
-    enables: ["Uso de codigos", "descuento por campana", "rentabilidad promocional"],
+    enables: ["Uso de códigos", "descuento por campaña", "rentabilidad promocional"],
   },
   {
     scope: "read_marketing_events",
     area: "Marketing",
     status: "active_ingestion",
     fields: ["marketingEvent.id", "eventType", "channel", "startedAt", "endedAt"],
-    enables: ["Eventos de marketing", "atribucion basica", "calendario de campanas"],
+    enables: ["Eventos de marketing", "atribución basica", "calendario de campañas"],
   },
 ];
 
@@ -154,7 +154,7 @@ const datasets: DatasetDefinition[] = [
     key: "locations",
     label: "Ubicaciones",
     table: "shopify_locations",
-    description: "Almacenes, tiendas fisicas y ubicaciones usadas para fulfillment e inventario.",
+    description: "Almacenes, tiendas físicas y ubicaciones usadas para fulfillment e inventario.",
     status: "active",
     scopes: ["read_locations"],
     syncScope: "inventory",
@@ -163,7 +163,7 @@ const datasets: DatasetDefinition[] = [
     key: "products",
     label: "Productos",
     table: "shopify_products",
-    description: "Catalogo base: titulo, handle, vendor, tipo, estado y fechas externas.",
+    description: "Catálogo base: titulo, handle, vendor, tipo, estado y fechas externas.",
     status: "active",
     scopes: ["read_products"],
     syncScope: "catalog",
@@ -197,7 +197,7 @@ const datasets: DatasetDefinition[] = [
   },
   {
     key: "inventory_snapshots",
-    label: "Stock por ubicacion",
+    label: "Stock por ubicación",
     table: "shopify_inventory_current_state",
     description: "Estado actual (no historico) de cantidades available, on_hand, committed e incoming por location.",
     status: "active",
@@ -298,7 +298,7 @@ const datasets: DatasetDefinition[] = [
     key: "marketing_events",
     label: "Marketing Shopify",
     table: "shopify_marketing_events",
-    description: "Marketing events y campanas integradas declaradas en Shopify, con sus UTMs.",
+    description: "Marketing events y campañas integradas declaradas en Shopify, con sus UTMs.",
     status: "active",
     scopes: ["read_marketing_events"],
     syncScope: "marketing_events",
@@ -556,7 +556,7 @@ export async function getShopifyConnections(
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      message: "No tienes acceso a esta tienda.",
     };
   }
 
@@ -595,6 +595,17 @@ export async function getShopifyConnections(
   }
 }
 
+// Las muestras (productos, pedidos, inventario) solo las lee el diagnóstico técnico. Si una
+// se atasca (statement timeout en TEST), no debe tirar la ficha entera de la tienda.
+async function bestEffort<T>(label: string, promise: Promise<T[]>): Promise<T[]> {
+  try {
+    return await promise;
+  } catch (error) {
+    console.error(`shopify_overview_sample_failed[${label}]`, error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
 export async function getShopifyOverview(
   env: ApiEnv,
   authorization: string,
@@ -607,7 +618,7 @@ export async function getShopifyOverview(
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      message: "No tienes acceso a esta tienda.",
     };
   }
 
@@ -628,9 +639,9 @@ export async function getShopifyOverview(
       await Promise.all([
         loadLatestSync(supabase, organizationId),
         loadSyncBlocks(supabase, organizationId),
-        loadProducts(supabase, organizationId, storeId),
-        loadOrders(supabase, organizationId, storeId),
-        loadInventory(supabase, organizationId, storeId),
+        bestEffort("products", loadProducts(supabase, organizationId, storeId)),
+        bestEffort("orders", loadOrders(supabase, organizationId, storeId)),
+        bestEffort("inventory", loadInventory(supabase, organizationId, storeId)),
         Promise.all(
           datasets.map(async (dataset) => {
             let count = 0;

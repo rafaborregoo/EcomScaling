@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type PlaybookRun = {
   id: string;
@@ -55,39 +55,40 @@ export function PlaybookFrameworkPanel() {
 
   const current = runs[0];
   return (
-    <Card
-      title="Framework universal de playbooks"
-      description="Evalúa contexto, aplicabilidad y trazabilidad. No convierte una métrica en una orden."
-    >
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">
-              {current.organization_id}
-            </span>
-            <Badge tone={tone(current.disposition)}>
-              {current.disposition}
-            </Badge>
-          </div>
-          <p className="mt-3 text-sm">
-            {current.candidate_count
-              ? `${current.candidate_count} candidato(s) evaluado(s).`
-              : "No hay templates activos en el catálogo; no se inventa una intervención."}
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            {current.selected_instance_id
-              ? "Instancia trazable preparada para recomendación."
-              : "Sin instancia seleccionada."}{" "}
-            {current.unresolved_unknowns.length
-              ? `Unknowns: ${current.unresolved_unknowns.join(", ")}.`
-              : ""}
-          </p>
-        </article>
-      ) : (
-        <p className="text-muted text-sm">
-          Todavía no hay evaluaciones de playbooks.
-        </p>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>Framework universal de playbooks</CardTitle>
+        <CardDescription>Evalúa contexto, aplicabilidad y trazabilidad. No convierte una métrica en una orden.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">
+                {current.organization_id}
+              </span>
+              <Badge tone={tone(current.disposition)}>
+                {current.disposition}
+              </Badge>
+            </div>
+            <p className="mt-3 text-sm">
+              {current.candidate_count
+                ? `${current.candidate_count} candidato(s) evaluado(s).`
+                : "No hay templates activos en el catálogo; no se inventa una intervención."}
+            </p>
+            <p className="text-muted mt-2 text-xs">
+              {current.selected_instance_id
+                ? "Instancia trazable preparada para recomendación."
+                : "Sin instancia seleccionada."}{" "}
+              {current.unresolved_unknowns.length
+                ? `Unknowns: ${current.unresolved_unknowns.join(", ")}.`
+                : ""}
+            </p>
+          </CardContent></Card>
+        ) : (
+          <EmptyState title="Todavía no hay evaluaciones de playbooks" />
+        )}
+      </CardContent>
     </Card>
   );
 }

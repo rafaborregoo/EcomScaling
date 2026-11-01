@@ -346,7 +346,7 @@ export async function listCampaignPlanningResources(
         .limit(100),
       supabase
         .from("klaviyo_campaigns")
-        .select("id, name, status, scheduled_at, send_time")
+        .select("id, name, status, send_time")
         .eq("organization_id", organizationId)
         .order("name")
         .limit(100),
@@ -1706,7 +1706,7 @@ export async function createCampaignItemsFromProposal(
       ok: false as const,
       statusCode: 400,
       error: "campaign_plan_proposal_wrong_agent",
-      message: "Esa salida de IA no es una propuesta de plan de campanas.",
+      message: "Esa propuesta de la IA no es un plan de campañas.",
     };
   }
 

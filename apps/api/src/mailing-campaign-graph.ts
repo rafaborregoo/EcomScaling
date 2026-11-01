@@ -202,11 +202,6 @@ function buildEmailGraph(deps: MailingGraphDeps) {
       if (decision.status === "rejected") {
         return reject(decided, "human", [decision.reason?.trim() || "Rechazado sin motivo escrito."], "rejected");
       }
-      if (decision.role === "client" && state.requires_consultant_review) {
-        const next: MailingEmailState = { ...decided, status: "awaiting_consultant_review" };
-        await deps.project(next);
-        return new Command({ goto: "esperar_revision", update: { email: next } });
-      }
       const next: MailingEmailState = { ...decided, status: "approved" };
       await deps.project(next);
       return new Command({ goto: "programar", update: { email: next } });
@@ -217,12 +212,9 @@ function buildEmailGraph(deps: MailingGraphDeps) {
         sequence_number: state.email.sequence_number,
         draft_id: state.email.draft_id!,
       });
-      const review = await deps.readConsultantReview(state.email.sequence_number);
-      if (!review) return new Command({ goto: "esperar_revision" });
-      if (review.decision === "rejected") {
-        return reject(state.email, "consultant_review", [review.reason?.trim() || "El consultor pidió cambios sin motivo escrito."], "rejected");
-      }
-      const next: MailingEmailState = { ...state.email, status: "approved", decided_by: review.reviewedBy, decided_role: "consultant" };
+      // Compatibility for checkpoints paused under the former consultant veto.
+      // Client approval remains the decision; the consultant's opinion is recorded separately.
+      const next: MailingEmailState = { ...state.email, status: "approved" };
       await deps.project(next);
       return new Command({ goto: "programar", update: { email: next } });
     }, { ends: ["esperar_revision", "programar", "redactar", END] })

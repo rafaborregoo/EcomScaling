@@ -1,15 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Card as HeroCard } from "@heroui/react";
 import { cn } from "./cn";
 import { EYEBROW } from "./typography";
 import { Sparkline } from "./chart";
+import { Card, CardContent } from "./card";
 
 // Cifra destacada (KPI) unica para todo el dashboard. La cifra va en la fuente
 // del cuerpo con `tabular-nums` para que las columnas sigan alineadas, y un
-// solo tamano por jerarquia (md / sm). Con `card`, se envuelve en el Card
-// nativo de HeroUI (superficie + shadow-surface).
+// solo tamano por jerarquia (md / sm). Con `card`, se envuelve en la Card de
+// la app (components/ui/card.tsx).
 const VALUE_TONE = {
   default: "text-foreground",
   success: "text-success",
@@ -21,7 +21,7 @@ const VALUE_TONE = {
 // blancas identicas: habia que leerlas todas para ver cual pedia algo. El fondo
 // suave y el borde semantico solo aparecen cuando existe un estado que importa.
 const CARD_TONE = {
-  default: "border-edge",
+  default: "",
   success: "border-success bg-success-soft",
   warn: "border-warning bg-warning-soft",
   danger: "border-danger bg-danger-soft",
@@ -106,8 +106,8 @@ export function Metric({
 
   if (!card) return body;
   return (
-    <HeroCard className={cn("w-full border", CARD_TONE[tone])}>
-      <HeroCard.Content>{body}</HeroCard.Content>
-    </HeroCard>
+    <Card className={CARD_TONE[tone]}>
+      <CardContent>{body}</CardContent>
+    </Card>
   );
 }

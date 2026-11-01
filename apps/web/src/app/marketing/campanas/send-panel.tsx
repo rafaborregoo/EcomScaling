@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { toast } from "@/components/ui";
+import { Checkbox, DateTimePicker, MultiSearchableSelect, toast } from "@/components/ui";
 import type { CampaignItem } from "@/hooks/use-campaign-items";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import type { CampaignRow } from "../campaign-rows";
@@ -186,13 +186,6 @@ function ScheduleForm({
   const ready = steps.every((step) => step.ok);
   const firstBad = steps.findIndex((step) => !step.ok);
 
-  function toggle(set: Set<string>, id: string, update: (next: Set<string>) => void) {
-    const next = new Set(set);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    update(next);
-  }
-
   async function submit(now: boolean) {
     if (!draft) return;
     setBusy(true);
@@ -244,43 +237,41 @@ function ScheduleForm({
           </div>
           <div className={cx(s.fld, s.full)}>
             <span className={s.lbl}>Envía a{reach ? ` · ${int(reach)} perfiles` : ""}</span>
-            <div className={s.audPick}>
-              {audiences.length === 0 ? (
-                <span className={s.mut}>Aún no hay listas ni segmentos sincronizados.</span>
-              ) : (
-                audiences.map((audience) => (
-                  <label key={`in-${audience.id}`}>
-                    <input type="checkbox" checked={included.has(audience.id)} onChange={() => toggle(included, audience.id, setIncluded)} />
-                    {audience.name} · {audience.kind}
-                    {audience.size != null ? ` · ${int(audience.size)}` : ""}
-                  </label>
-                ))
-              )}
-            </div>
+            {audiences.length === 0 ? (
+              <span className={s.mut}>Aún no hay listas ni segmentos sincronizados.</span>
+            ) : (
+              <MultiSearchableSelect
+                aria-label="Listas y segmentos a los que se envía"
+                placeholder="Busca una lista o un segmento"
+                emptyText="No hay ninguna lista ni segmento con ese nombre."
+                values={[...included]}
+                onChange={(next) => setIncluded(new Set(next))}
+                options={audiences.map((audience) => ({ value: audience.id, label: audience.name, section: audience.kind === "Lista" ? "Listas" : "Segmentos", hint: audience.size != null ? `${int(audience.size)} perfiles` : undefined }))}
+              />
+            )}
           </div>
           {audiences.length ? (
             <div className={cx(s.fld, s.full)}>
               <span className={s.lbl}>Excluye</span>
-              <div className={s.audPick}>
-                {audiences.map((audience) => (
-                  <label key={`ex-${audience.id}`}>
-                    <input type="checkbox" checked={excluded.has(audience.id)} onChange={() => toggle(excluded, audience.id, setExcluded)} />
-                    {audience.name} · {audience.kind}
-                  </label>
-                ))}
-              </div>
+              <MultiSearchableSelect
+                aria-label="Listas y segmentos que se excluyen"
+                placeholder="Nadie excluido"
+                emptyText="No hay ninguna lista ni segmento con ese nombre."
+                values={[...excluded]}
+                onChange={(next) => setExcluded(new Set(next))}
+                options={audiences.map((audience) => ({ value: audience.id, label: audience.name, section: audience.kind === "Lista" ? "Listas" : "Segmentos", hint: audience.size != null ? `${int(audience.size)} perfiles` : undefined }))}
+              />
             </div>
           ) : null}
           <div className={cx(s.fld, s.inline)}>
             <label htmlFor="send-when">Fecha y hora de envío</label>
-            <input id="send-when" type="datetime-local" value={sendAt} onChange={(event) => setSendAt(event.target.value)} />
+            <DateTimePicker id="send-when" aria-label="Fecha y hora de envío" min={toDatetimeLocal(new Date().toISOString())} value={sendAt} onChange={setSendAt} />
           </div>
           <div className={s.fld}>
             <span className={s.lbl}>Smart Sending</span>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 400 }}>
-              <input type="checkbox" checked={smart} onChange={(event) => setSmart(event.target.checked)} />
+            <Checkbox checked={smart} onCheckedChange={setSmart}>
               No enviar a quien recibió un email en las últimas 16 horas
-            </label>
+            </Checkbox>
           </div>
         </div>
         {confirmNow ? (

@@ -12,11 +12,20 @@
  * rentabilidad. El cliente no ve nada de esto; su dashboard dice otras cosas.
  */
 
+import { METRIC_SPECS } from "./metric-analyst.js";
+
 // ---------------------------------------------------------------------------
 // Formato
 // ---------------------------------------------------------------------------
 
 const CURRENCY_SYMBOLS: Record<string, string> = { EUR: "€", GBP: "£", USD: "$" };
+
+/**
+ * Por debajo de estos clientes nuevos el CAC lo decide el azar: 4.000 € de
+ * publicidad entre 1 cliente nuevo no es un CAC de 4.000 €, es que no hay
+ * muestra. Mismo umbral que el analista de métricas (ADR-0027).
+ */
+export const CAC_MIN_NEW_CUSTOMERS = METRIC_SPECS.cac_new.minSample.min;
 
 function groupedAbs(value: number, digits: number): string {
   const [integer, decimals] = Math.abs(value).toFixed(digits).split(".");
@@ -128,6 +137,7 @@ export function opportunities(
   funnel: LeverFunnel | null,
   targets: Record<string, number>,
   periodDays: number,
+  currency: string | null = "EUR",
 ): Opportunity[] {
   const found: Opportunity[] = [];
   const aMes = (valorDelPeriodo: number) =>
@@ -140,7 +150,7 @@ export function opportunities(
     found.push({
       palanca: "Margen neto al objetivo",
       eur_mes: aMes((financial.net_revenue_ex_tax * puntos) / 100),
-      regla: `${puntos.toFixed(2)} puntos de margen sobre la facturación actual`,
+      regla: `${panelNumber(puntos, 1)} puntos de margen sobre la facturación actual`,
       clave: "margen",
     });
   }
@@ -162,7 +172,7 @@ export function opportunities(
     found.push({
       palanca: "Conversión al objetivo",
       eur_mes: aMes(pedidosExtra * financial.contribution_per_order),
-      regla: `${pedidosExtra.toFixed(0)} pedidos más con el mismo tráfico, a ${financial.contribution_per_order.toFixed(2)} € de margen cada uno`,
+      regla: `${panelNumber(pedidosExtra)} pedidos más con el mismo tráfico, a ${panelMoney(financial.contribution_per_order, currency, 2)} de margen cada uno`,
       clave: "conversion",
     });
   }
@@ -174,13 +184,13 @@ export function opportunities(
     cacObjetivo !== undefined &&
     financial.cac_blended !== null &&
     financial.cac_blended > cacObjetivo &&
-    financial.new_customers > 0
+    financial.new_customers >= CAC_MIN_NEW_CUSTOMERS
   ) {
     const ahorroPorCliente = financial.cac_blended - cacObjetivo;
     found.push({
       palanca: "CAC al objetivo",
       eur_mes: aMes(financial.new_customers * ahorroPorCliente),
-      regla: `${ahorroPorCliente.toFixed(2)} € menos por cada uno de los ${financial.new_customers} clientes nuevos`,
+      regla: `${panelMoney(ahorroPorCliente, currency, 2)} menos por cada uno de los ${panelNumber(financial.new_customers)} clientes nuevos`,
       clave: "cac",
     });
   }
@@ -322,6 +332,11 @@ export type ProfitStoreRow = {
   new_customers: number;
   cac: number | null;
   cac_target: number | null;
+  /** Sesiones del periodo; `null` si la tienda no tiene informe de sesiones. */
+  sessions: number | null;
+  /** Pedidos entre sesiones, en %: la misma cuenta que la palanca de conversión. */
+  conversion_pct: number | null;
+  conversion_target: number | null;
   prev_revenue: number | null;
   prev_profit: number | null;
   prev_orders: number | null;
@@ -412,8 +427,8 @@ export function buildStoreRow(input: StoreRowInput): ProfitStoreRow {
     margin_target: marginTarget,
   });
 
-  const cac = f.cac_blended === null || f.cac_blended === undefined ? null : num(f.cac_blended);
   const newCustomers = num(f.new_customers);
+  const cac = f.cac_blended === null || f.cac_blended === undefined || newCustomers < CAC_MIN_NEW_CUSTOMERS ? null : num(f.cac_blended);
   const contribution = num(f.contribution_per_order);
 
   // La palanca solo se calcula cuando el beneficio se puede creer (regla F7 del
@@ -432,6 +447,7 @@ export function buildStoreRow(input: StoreRowInput): ProfitStoreRow {
           sessions ? { ...sessions, orders_count: orders } : null,
           input.targets,
           input.periodDays,
+          input.store.currency_code,
         ).map(({ clave, palanca, eur_mes, regla }) => ({ clave, palanca, eur_mes, regla }));
 
   const prev = input.previous;
@@ -467,6 +483,9 @@ export function buildStoreRow(input: StoreRowInput): ProfitStoreRow {
     new_customers: newCustomers,
     cac,
     cac_target: input.targets.cac_blended ?? null,
+    sessions: sessions?.has_sessions ? sessions.sessions : null,
+    conversion_pct: sessions?.has_sessions && sessions.sessions > 0 ? (orders / sessions.sessions) * 100 : null,
+    conversion_target: input.targets.conversion_rate ?? null,
     prev_revenue: prevRevenue,
     prev_profit: prevProfit,
     prev_orders: prev ? num(prev.orders_count) : null,
@@ -605,7 +624,7 @@ export function aggregateClients(stores: ProfitStoreRow[]): ProfitClientRow[] {
           weight: store.orders,
         })),
       ),
-      cac: newCustomers > 0 && ads > 0 ? ads / newCustomers : null,
+      cac: newCustomers >= CAC_MIN_NEW_CUSTOMERS && ads > 0 ? ads / newCustomers : null,
       cac_target: weighted(own.map((store) => ({ value: store.cac_target, weight: store.new_customers }))),
       tier: hasBlocking
         ? "datos"

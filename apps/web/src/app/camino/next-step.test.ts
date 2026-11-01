@@ -75,7 +75,7 @@ test("todas las fases cerradas es un final, no un error", () => {
   );
 
   assert.equal(step.tone, "success");
-  assert.match(step.headline, /camino entero/);
+  assert.match(step.headline, /Recorrido cerrado/);
 });
 
 test("fase activa con todos los hitos cerrados: falta arrancar la siguiente", () => {

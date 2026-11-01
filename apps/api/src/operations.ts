@@ -4,6 +4,7 @@ import {
   type AuthContext,
   createUserScopedClient,
   requireOperationalOrganization,
+  requireOperationalStore,
 } from "./auth-context.js";
 import { createLogger } from "@e-nora/observability";
 import { recordAuditLog } from "./audit-log.js";
@@ -11,6 +12,7 @@ import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 import { resolveTaskAssignee } from "./task-assignment.js";
 import { parseTaskOutcomeInput } from "./task-outcome.js";
+import { METRIC_SPECS, providerLabel, type MetricId } from "@e-nora/contracts";
 import { clientManagersOf, consultantsOf, firstNameOf, notify, organizationName } from "./notify.js";
 
 type ApiEnv = {
@@ -83,7 +85,15 @@ type ShopifyAlertStore = {
   id: string;
   shop_name: string;
   connection_id?: string | null;
+  currency_code?: string | null;
 };
+
+/** «1.234,50 €»: los importes de una alerta se leen como en el resto de la app. */
+function formatAlertMoney(value: number, currency: string | null | undefined) {
+  return new Intl.NumberFormat("es-ES", currency
+    ? { style: "currency", currency, maximumFractionDigits: 2 }
+    : { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+}
 
 export function buildShopifyStockOutDetection({
   organizationId,
@@ -146,8 +156,8 @@ export function buildShopifyRevenueDropDetection({
       store_name: store.shop_name,
       metric_value_abs: Math.abs(Math.round(changePct)),
       threshold_abs: Math.abs(threshold),
-      context_current: currentNetSales.toFixed(2),
-      context_previous: previousNetSales.toFixed(2),
+      context_current: formatAlertMoney(currentNetSales, store.currency_code),
+      context_previous: formatAlertMoney(previousNetSales, store.currency_code),
     },
   };
 }
@@ -473,7 +483,7 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
   if (hasShopifyRules) {
     const { data, error } = await supabase
       .from("shopify_stores")
-      .select("id, shop_name, connection_id")
+      .select("id, shop_name, connection_id, currency_code")
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .order("created_at", { ascending: true });
@@ -562,10 +572,12 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
             error: connection.last_error_message,
             ...(shopifyStore ? { store_name: shopifyStore.shop_name } : {}),
           },
+          // El error técnico se queda en context_data (diagnóstico); el texto
+          // solo nombra el proveedor y la cuenta.
           templateValues: {
-            context_provider:
-              connection.provider_account_name ?? connection.provider,
-            context_error: connection.last_error_message ?? "desconocido",
+            context_provider: connection.provider_account_name
+              ? `${providerLabel(connection.provider)} (${connection.provider_account_name})`
+              : providerLabel(connection.provider),
           },
         });
       }
@@ -765,7 +777,7 @@ export async function listOperations(
   let tasksQuery = supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, store_id, created_at, updated_at, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, store_id, created_at, updated_at, outcome_metric_name, outcome_metric_id, outcome_before_value, outcome_after_value, outcome_unit, outcome_currency_code, outcome_source_system, outcome_period_start, outcome_period_end, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, status, strategic_plan_phases(name, status)))",
       )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
@@ -855,7 +867,9 @@ export async function listOperations(
         ? {
             id: ms.id as string,
             name: ms.name as string,
+            status: (ms.status as string | undefined) ?? null,
             phase_name: (phase?.name as string | undefined) ?? null,
+            phase_status: (phase?.status as string | undefined) ?? null,
           }
         : null,
     };
@@ -979,13 +993,10 @@ export async function createTask(
     connectionId?: string | null;
     agentOutputId?: string | null;
     agentProposalIndex?: number | null;
+    source?: string;
+    metadata?: Record<string, unknown>;
   },
 ) {
-  const access = requireMembership(context, organizationId);
-  if (access.ok === false) {
-    return access;
-  }
-
   const title = input.title?.trim();
   if (!title) {
     return { ok: false as const, statusCode: 400, error: "missing_task_title" };
@@ -1021,7 +1032,26 @@ export async function createTask(
   );
   const categories = valid.length > 0 ? valid : ["general"];
 
+  if (!context.memberships.some((item) => item.organization_id === organizationId) &&
+      !context.storeMemberships?.some((item) => item.organization_id === organizationId)) {
+    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  }
   const supabase = createServiceClient(env);
+
+  // Resolve and authorize the exact store before any organization-wide task action.
+  let storeId: string | null = null;
+  const connectionId = input.connectionId?.trim() || null;
+  if (connectionId) {
+    const { data: store, error: storeError } = await supabase.from("shopify_stores")
+      .select("id").eq("organization_id", organizationId).eq("connection_id", connectionId).eq("is_active", true).maybeSingle();
+    if (storeError) return { ok: false as const, statusCode: 503, error: "task_store_lookup_failed", detail: storeError.message };
+    if (!store) return { ok: false as const, statusCode: 400, error: "invalid_task_store", message: "Esa tienda no pertenece a este cliente." };
+    storeId = store.id as string;
+  }
+  const access = storeId
+    ? requireOperationalStore(context, organizationId, storeId)
+    : requireMembership(context, organizationId);
+  if (access.ok === false) return access;
 
   // Proponer no es decidir: lo que el consultor crea para el cliente nace como
   // propuesta ('proposed') y el cliente la acepta (pasa a 'pending') o la
@@ -1037,17 +1067,6 @@ export async function createTask(
   const assignedTo = input.assignedTo?.trim() || (proposedToClient ? null : context.user.id);
   if (assignedTo && !(await validateTaskAssignee(supabase, organizationId, assignedTo, context.user.id))) {
     return { ok: false as const, statusCode: 400, error: "invalid_task_assignee", message: "El responsable debe tener acceso activo a esta tienda." };
-  }
-
-  // Etiqueta de tienda: se guarda el id de shopify_stores de esa conexion.
-  let storeId: string | null = null;
-  const connectionId = input.connectionId?.trim() || null;
-  if (connectionId) {
-    const { data: store, error: storeError } = await supabase.from("shopify_stores")
-      .select("id").eq("organization_id", organizationId).eq("connection_id", connectionId).eq("is_active", true).maybeSingle();
-    if (storeError) return { ok: false as const, statusCode: 503, error: "task_store_lookup_failed", detail: storeError.message };
-    if (!store) return { ok: false as const, statusCode: 400, error: "invalid_task_store", message: "Esa tienda no pertenece a este cliente." };
-    storeId = store.id as string;
   }
 
   // La tarea puede nacer ya colgada de un hito de Mi Camino (misma tabla
@@ -1114,7 +1133,8 @@ export async function createTask(
       priority,
       categories,
       due_at: input.dueAt || null,
-      source: "manual",
+      source: input.source ?? "manual",
+      ...(input.metadata ? { metadata: input.metadata } : {}),
       ...(proposedToClient ? { status: "proposed" as const } : {}),
       created_by: context.user.id,
       // Quien la crea se hace responsable. El reparto automatico solo decide
@@ -1203,22 +1223,45 @@ export async function createTask(
 }
 
 /** «Conversión: 1,8 → 2,4 %» o el resumen que haya escrito el cliente. */
+const OUTCOME_SOURCE_LABEL: Record<string, string> = {
+  manual: "una medición manual",
+  shopify: "Shopify",
+  meta: "Meta Ads",
+  klaviyo: "Klaviyo",
+  other: "otra fuente",
+};
+
 function describeOutcome(outcome: {
   metric_name: string;
+  metric_id?: string | null;
   before_value?: number | null;
   after_value?: number | null;
   unit?: string | null;
+  currency_code?: string | null;
+  source_system?: string | null;
+  measurement_period_start?: string | null;
+  measurement_period_end?: string | null;
   summary?: string | null;
 }) {
-  const unit = outcome.unit ? ` ${outcome.unit}` : "";
-  const fmt = (value: number) => value.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+  const spec = outcome.metric_id && outcome.metric_id in METRIC_SPECS ? METRIC_SPECS[outcome.metric_id as MetricId] : null;
+  // Con moneda, «1.234,50 €»; si no, la unidad que traiga (% o x).
+  const fmt = (value: number) =>
+    outcome.currency_code && !outcome.unit
+      ? new Intl.NumberFormat("es-ES", { style: "currency", currency: outcome.currency_code, maximumFractionDigits: 2 }).format(value)
+      : `${(spec?.unit === "rate" ? value * 100 : value).toLocaleString("es-ES", { maximumFractionDigits: 2 })}${outcome.unit ? ` ${outcome.unit}` : ""}`;
   const values =
     outcome.after_value != null
       ? outcome.before_value != null
-        ? `${fmt(outcome.before_value)} → ${fmt(outcome.after_value)}${unit}`
-        : `${fmt(outcome.after_value)}${unit}`
+        ? `${fmt(outcome.before_value)} → ${fmt(outcome.after_value)}`
+        : fmt(outcome.after_value)
       : null;
-  return [values ? `${outcome.metric_name}: ${values}` : outcome.metric_name, outcome.summary]
+  const day = (iso: string) =>
+    new Date(`${iso}T12:00:00Z`).toLocaleDateString("es-ES", { day: "numeric", month: "long", timeZone: "Europe/Madrid" });
+  const period = outcome.measurement_period_start && outcome.measurement_period_end
+    ? `Del ${day(outcome.measurement_period_start)} al ${day(outcome.measurement_period_end)}`
+    : null;
+  const source = outcome.source_system ? `Medido en ${OUTCOME_SOURCE_LABEL[outcome.source_system] ?? "otra fuente"}` : null;
+  return [values ? `${outcome.metric_name}: ${values}` : outcome.metric_name, period, source, outcome.summary]
     .filter(Boolean)
     .join(". ");
 }
@@ -1357,9 +1400,14 @@ export async function updateTaskStatus(
       ...(statusInput === "completed" && parsedOutcome.data
         ? {
             outcome_metric_name: parsedOutcome.data.metric_name,
+            outcome_metric_id: parsedOutcome.data.metric_id,
             outcome_before_value: parsedOutcome.data.before_value,
             outcome_after_value: parsedOutcome.data.after_value,
             outcome_unit: parsedOutcome.data.unit,
+            outcome_currency_code: parsedOutcome.data.currency_code,
+            outcome_source_system: parsedOutcome.data.source_system,
+            outcome_period_start: parsedOutcome.data.measurement_period_start,
+            outcome_period_end: parsedOutcome.data.measurement_period_end,
             outcome_summary: parsedOutcome.data.summary,
             outcome_measured_at: parsedOutcome.data.measured_at,
             outcome_recorded_at: now,
@@ -1465,9 +1513,14 @@ export async function updateTaskStatus(
       ...(parsedOutcome.data ? {
         measured_outcome: {
           metric_name: parsedOutcome.data.metric_name,
+          metric_id: parsedOutcome.data.metric_id,
           before_value: parsedOutcome.data.before_value,
           after_value: parsedOutcome.data.after_value,
           unit: parsedOutcome.data.unit,
+          currency_code: parsedOutcome.data.currency_code,
+          source_system: parsedOutcome.data.source_system,
+          measurement_period_start: parsedOutcome.data.measurement_period_start,
+          measurement_period_end: parsedOutcome.data.measurement_period_end,
           measured_at: parsedOutcome.data.measured_at,
         },
       } : {}),

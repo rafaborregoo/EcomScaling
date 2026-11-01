@@ -1,5 +1,7 @@
 import { z } from "zod";
 export * from "./copilot-evidence.js";
+export * from "./ai-model-lab.js";
+export * from "./ai-model-decisions.js";
 
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),
@@ -173,6 +175,18 @@ export type ShopifyScopeInfo = {
 export const SHOPIFY_SCOPES_USED: readonly ShopifyScopeInfo[] = [
   { scope: "read_orders", label: "Pedidos", required: true },
   { scope: "read_products", label: "Productos y variantes", required: true },
+  {
+    scope: "read_discounts",
+    label: "Leer promociones y códigos",
+    required: false,
+    note: "Sin este permiso no se puede releer ni verificar una promoción aplicada.",
+  },
+  {
+    scope: "write_discounts",
+    label: "Crear promociones y códigos",
+    required: false,
+    note: "Sin este permiso puedes preparar borradores, pero no aprobarlos ni aplicarlos en Shopify.",
+  },
   {
     scope: "read_files",
     label: "Imágenes y contenido multimedia de productos",
@@ -381,6 +395,7 @@ export * from "./learning-blocks-domain.js";
 export * from "./learning-blocks-knowledge.js";
 export * from "./learning-blocks-governance.js";
 export * from "./copilot-navigation.js";
+export * from "./copilot-credits.js";
 export * from "./cross-channel-attribution.js";
 export * from "./panel-profitability.js";
 export * from "./campaigns-overview.js";
@@ -388,3 +403,4 @@ export * from "./mailing-campaign-graph.js";
 export * from "./metric-analyst.js";
 export * from "./notification-catalog.js";
 export * from "./notification-templates.js";
+export * from "./internal-email-template.js";

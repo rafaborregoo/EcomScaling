@@ -1,9 +1,12 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
+import { Banner } from "@/components/ui/banner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useState } from "react";
 import { useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import { cx, Delta, Empty, Kpi, MONTHS, ago, niceStep } from "../dashboard/client-pulse";
-import { fmtEur, fmtNum } from "../dashboard/client-pulse-model";
+import { fmtNum } from "../dashboard/client-pulse-model";
 import { salesChangePct } from "../dashboard/store-pulse";
 import pulse from "../dashboard/client-pulse.module.css";
 import k from "./analytics.module.css";
@@ -40,6 +43,12 @@ const PERIODS = [
 ] as const;
 type Period = (typeof PERIODS)[number]["key"];
 
+/** Importes en la moneda de la cuenta de Klaviyo (sin cuenta conocida, euros como hasta ahora). */
+const moneyIn = (code: string | null | undefined) => {
+  const currency = code || "EUR";
+  return (value: number, decimals = 0) =>
+    new Intl.NumberFormat("es-ES", { style: "currency", currency, minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: "always" }).format(value);
+};
 const pct = (ratio: number | null | undefined, digits = 1) => (ratio == null ? "—" : `${fmtNum(ratio * 100, digits)} %`);
 const monthShort = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? iso.slice(5, 7)} ${iso.slice(2, 4)}`;
 /** Cambio de una tasa en puntos porcentuales, para <Delta suffix="pp">. */
@@ -52,15 +61,9 @@ type Alert = { tone: "warn" | "bad"; title: string; text?: string };
 
 function AlertRow({ tone, title, text }: { tone: "warn" | "bad" | "good"; title: string; text?: string }) {
   return (
-    <div className={cx(k.alert, tone === "bad" ? k.alertBad : tone === "good" ? k.alertGood : k.alertWarn)}>
-      <span className={k.ic} aria-hidden="true">
-        {tone === "good" ? "✓" : "!"}
-      </span>
-      <div>
-        <b>{title}</b>
-        {text ? <p>{text}</p> : null}
-      </div>
-    </div>
+    <Banner tone={tone === "bad" ? "danger" : tone === "good" ? "success" : "warn"} title={title}>
+      {text}
+    </Banner>
   );
 }
 
@@ -74,6 +77,7 @@ function SecHead({ id, title, line }: { id: string; title: string; line: string 
 }
 
 function Hero({ report, periodLabel }: { report: EmailReport; periodLabel: string }) {
+  const fmtEur = moneyIn(report.currency_code);
   const { totals, previous } = report;
   const trend = report.trend.slice(-12);
   const channel = totals.flow_revenue + totals.campaign_revenue;
@@ -167,6 +171,7 @@ function Hero({ report, periodLabel }: { report: EmailReport; periodLabel: strin
 }
 
 function Figures({ report }: { report: EmailReport }) {
+  const fmtEur = moneyIn(report.currency_code);
   const { totals: t, previous: p } = report;
   return (
     <div className={k.kpis} role="group" aria-label="Cifras de email">
@@ -350,6 +355,7 @@ function Delivery({ report }: { report: EmailReport }) {
 }
 
 function Subjects({ report, isConsultant }: { report: EmailReport; isConsultant: boolean }) {
+  const fmtEur = moneyIn(report.currency_code);
   const [mode, setMode] = useState<"rev" | "low">("rev");
   const avgOpen = report.totals.open_rate;
   const avgClick = report.totals.click_rate;
@@ -373,14 +379,10 @@ function Subjects({ report, isConsultant }: { report: EmailReport; isConsultant:
           </p>
         </div>
         {isConsultant ? (
-          <div className={pulse.seg} role="group" aria-label="Orden">
-            <button type="button" aria-pressed={mode === "rev"} onClick={() => setMode("rev")}>
-              Más ingresos
-            </button>
-            <button type="button" aria-pressed={mode === "low"} onClick={() => setMode("low")}>
-              A revisar
-            </button>
-          </div>
+          <ToggleGroup aria-label="Orden" value={mode} onValueChange={setMode}>
+            <ToggleGroupItem value="rev">Más ingresos</ToggleGroupItem>
+            <ToggleGroupItem value="low">A revisar</ToggleGroupItem>
+          </ToggleGroup>
         ) : null}
       </div>
       {rows.length === 0 ? (
@@ -434,6 +436,7 @@ function Subjects({ report, isConsultant }: { report: EmailReport; isConsultant:
 }
 
 function Flows({ report, activeFlows }: { report: EmailReport; activeFlows: number | null }) {
+  const fmtEur = moneyIn(report.currency_code);
   const flows = report.flows.slice().sort((a, b) => b.revenue - a.revenue);
   const max = Math.max(...flows.map((f) => f.revenue), 1);
   return (
@@ -499,7 +502,7 @@ function KlaviyoWork({ organizationId, connectionId }: { organizationId: string;
       <p>Todo se hace desde NORA: no hace falta abrir Klaviyo.</p>
       <div className={k.workTiles}>
         {tiles.map((tile) => (
-          <a key={tile.section} className={k.workTile} href={`/marketing?section=${tile.section}&${scope}`}>
+          <a key={tile.section} className={`${k.workTile} task-lift`} href={`/marketing?section=${tile.section}&${scope}`}>
             <b>{tile.title}</b>
             <span>{tile.text}</span>
           </a>
@@ -533,7 +536,7 @@ export function KlaviyoAnalytics({
   const lastSync = insights?.health?.ultimo_sync ?? null;
   const header = (
     <header className={k.top}>
-      <div>
+      <div className="client-sr-title">
         <h1>Klaviyo</h1>
         <p>Lo que venden tus emails.</p>
       </div>
@@ -541,13 +544,13 @@ export function KlaviyoAnalytics({
         {insights?.health ? (
           <span className={cx(pulse.chip, lastSync ? pulse.chipGood : pulse.chipWarn)}>{lastSync ? `Sincronizado ${ago(lastSync)}` : "Sin sincronizar"}</span>
         ) : null}
-        <div className={pulse.seg} role="group" aria-label="Periodo">
+        <ToggleGroup aria-label="Periodo" value={period} onValueChange={setPeriod}>
           {PERIODS.map((p) => (
-            <button key={p.key} type="button" aria-pressed={p.key === period} onClick={() => setPeriod(p.key)}>
+            <ToggleGroupItem key={p.key} value={p.key}>
               {p.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
     </header>
   );
@@ -576,7 +579,7 @@ export function KlaviyoAnalytics({
           </p>
           {!isConsultant ? (
             <div className={pulse.heroActions}>
-              <a className={cx(pulse.btn, pulse.acc)} href="/integraciones">
+              <a className={buttonVariants()} href="/integraciones">
                 Conectar Klaviyo
               </a>
             </div>

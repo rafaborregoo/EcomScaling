@@ -27,6 +27,12 @@ const policyTables = names(
   /create\s+policy\s+[^\n]+\s+on\s+public\.([a-z0-9_]+)/gi,
 );
 const serviceOnlyTables = new Set([
+  "a26_content_reviews",
+  "a26_content_run_claims",
+  "a26_render_receipts",
+  "a26_content_message_samples",
+  "meta_pixel_sync_receipts",
+  "meta_measurement_incidents",
   "client_invites",
   "memory_ingestion_queue",
   "referrals",
@@ -42,6 +48,8 @@ const serviceOnlyTables = new Set([
   "platform_ai_security_events",
   "meta_measurement_verdict_cache",
   "marketing_mailing_sequences",
+  "marketing_mailing_delivery_receipts",
+  "marketing_mailing_campaign_emails",
   "organization_ai_agent_runtime_config",
   "platform_health_feedback",
   "campaign_quick_actions",
@@ -64,10 +72,15 @@ const serviceOnlyTables = new Set([
   "agent_output_decision_claims",
   "agent_manual_refresh_reservations",
   "a06_restock_decision_claims",
+  // Internal reservation, export and audit tables are only accessed by the API service role.
   "a11_marketing_generation_requests",
   "marketing_draft_export_operations",
   "a11_studio_chat_requests",
   "marketing_studio_operation_audits",
+  "shopify_discount_proposals",
+  // A23 evidence and decisions are intentionally private to the server runtime.
+  "a23_creative_evidence_snapshots",
+  "a23_creative_decisions",
 ]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));

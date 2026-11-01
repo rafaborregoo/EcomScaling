@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, EmptyState, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 import {
   baselineNote,
@@ -125,37 +125,40 @@ export function SignalListPanel() {
   const { visibles, apartadas } = splitBySuppression(ordenadas);
 
   return (
-    <Card
-      title="Qué ha cambiado"
-      description="Las desviaciones detectadas: cuánto, desde cuándo y contra qué se comparan. Ninguna dice por qué. Están por fecha, no por tamaño: el tamaño de una desviación no es el orden en que hay que mirarlas."
-    >
-      {visibles.length === 0 && apartadas.length === 0 ? (
-        <EmptyState
-          title="Sin señales"
-          hint="Aparecen cuando una métrica se sale de su rango esperado. Que no haya ninguna significa que nada se ha salido en la ventana medida, no que todo vaya bien."
-        />
-      ) : (
-        <ul>
-          {visibles.map((signal) => (
-            <SignalRow key={signal.id} signal={signal} />
-          ))}
-        </ul>
-      )}
-
-      {apartadas.length > 0 ? (
-        // Se apartan, no se esconden: cuando alguien declare un patron de
-        // supresion, el consultor tiene que poder comprobar si estuvo bien.
-        <div className="mt-6 border-t border-default-200 pt-4">
-          <p className="text-muted text-xs uppercase tracking-wide">
-            Apartadas por un patrón declarado
-          </p>
-          <ul className="mt-2">
-            {apartadas.map((signal) => (
+    <Card>
+      <CardHeader>
+        <CardTitle>Qué ha cambiado</CardTitle>
+        <CardDescription>Las desviaciones detectadas: cuánto, desde cuándo y contra qué se comparan. Ninguna dice por qué. Están por fecha, no por tamaño: el tamaño de una desviación no es el orden en que hay que mirarlas.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {visibles.length === 0 && apartadas.length === 0 ? (
+          <EmptyState
+            title="Sin señales"
+            hint="Aparecen cuando una métrica se sale de su rango esperado. Que no haya ninguna significa que nada se ha salido en la ventana medida, no que todo vaya bien."
+          />
+        ) : (
+          <ul>
+            {visibles.map((signal) => (
               <SignalRow key={signal.id} signal={signal} />
             ))}
           </ul>
-        </div>
-      ) : null}
+        )}
+
+        {apartadas.length > 0 ? (
+          // Se apartan, no se esconden: cuando alguien declare un patron de
+          // supresion, el consultor tiene que poder comprobar si estuvo bien.
+          <div className="mt-6 border-t border-default-200 pt-4">
+            <p className="text-muted text-xs uppercase tracking-wide">
+              Apartadas por un patrón declarado
+            </p>
+            <ul className="mt-2">
+              {apartadas.map((signal) => (
+                <SignalRow key={signal.id} signal={signal} />
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

@@ -503,6 +503,23 @@ export function blankBlocks(brand: StudioBrand): StudioBlock[] {
 // Utilidades compartidas por el lienzo y el HTML
 // ---------------------------------------------------------------------------
 
+/** Variables de Klaviyo que se pueden poner en los textos del email. */
+export const MERGE = [
+  ["Nombre", '{{ first_name|default:"" }}'],
+  ["Ciudad", "{{ location.city }}"],
+  ["Tienda", "{{ organization.name }}"],
+] as const;
+
+/** Colores de la marca por rol: se repintan si cambia la Guía de marca. */
+export const COLOR_ROLES: Array<[string, string]> = [
+  ["primary", "Principal"],
+  ["accent", "Acento"],
+  ["text", "Texto"],
+  ["bg", "Fondo"],
+  ["card", "Tarjeta"],
+  ["white", "Blanco"],
+];
+
 export function colorOf(ref: ColorRef, brand: StudioBrand): string {
   switch (ref) {
     case "primary":

@@ -5,7 +5,7 @@
 // (la misma fusión org → tienda que usa get_brand_profile).
 
 import { useState } from "react";
-import { Badge, Table, Tabs, Textarea } from "@/components/ui";
+import { Badge, DataTable, Tabs, Textarea, Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui";
 import {
   analyzeText,
   FIELD_LABEL,
@@ -176,7 +176,7 @@ export function GuiaLivePanel({
               Esto es exactamente lo que recibe A11 al pedir la guía{isStoreScope ? " para esta tienda: primero lo propio de la tienda y, si no hay, lo de la marca general" : ""}.
               Lo que pongas aquí son datos, no órdenes: A11 ignora cualquier instrucción escrita dentro de la guía.
             </p>
-            <Table
+            <DataTable
               ariaLabel="Lo que lee A11"
               columns={[
                 { key: "field", label: "Campo", render: (row) => <span className="text-sm font-medium">{FIELD_LABEL[row.field as BrandProfileField]}</span> },
@@ -235,12 +235,14 @@ function Check({ tone, title, detail }: { tone: "ok" | "warn" | "bad"; title: st
     tone === "bad" ? "border-danger/30 bg-danger/5" : tone === "warn" ? "border-warning/30 bg-warning/5" : "border-edge";
   const dot = tone === "bad" ? "bg-danger" : tone === "warn" ? "bg-warning" : "bg-success";
   return (
-    <div className={`flex gap-3 rounded-md border px-3 py-3 text-sm ${toneClass}`}>
-      <span className={`mt-1 size-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
-      <div>
-        <p className="font-medium">{title}</p>
-        <p className="text-xs text-muted">{detail}</p>
-      </div>
-    </div>
+    <Item variant="outline" size="sm" className={`flex-nowrap items-start ${toneClass}`}>
+      <ItemMedia>
+        <span className={`mt-1.5 size-2 rounded-full ${dot}`} aria-hidden="true" />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>{title}</ItemTitle>
+        <ItemDescription>{detail}</ItemDescription>
+      </ItemContent>
+    </Item>
   );
 }

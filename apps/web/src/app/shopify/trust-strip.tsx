@@ -1,8 +1,9 @@
 "use client";
 
+import { readApiError } from "@/lib/api-error";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { apiFetch } from "@/lib/bootstrap";
-import { Button, Field, Input, Link } from "@/components/ui";
+import { Button, Field, Input, Link, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { ProductCostImport } from "./product-cost-import";
 import pulse from "../dashboard/client-pulse.module.css";
 import s from "./shopify-trust.module.css";
@@ -118,8 +119,7 @@ function CostForm({ organizationId, onSaved }: { organizationId: string; onSaved
         body: JSON.stringify({ sku: sku.trim(), unitCost: Number(unitCost) }),
       });
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string; message?: string; detail?: string } | null;
-        setFeedback([body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "));
+        setFeedback(await readApiError(response));
         return;
       }
       setFeedback("Coste guardado.");
@@ -164,10 +164,12 @@ export function ShopifyTrustStrip({ organizationId, metrics, onCostsChanged }: {
     <>
       {metrics ? (
         metricsAllOk(metrics) ? (
-          <details className={s.trustOk}>
-            <summary>✓ Cifras fiables: costes, visitas, inventario e importes completos</summary>
+          <Collapsible className={s.trustOk}>
+            <CollapsibleTrigger>✓ Cifras fiables: costes, visitas, inventario e importes completos<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+            <CollapsibleContent>
             <TrustChecks metrics={metrics} />
-          </details>
+          </CollapsibleContent>
+          </Collapsible>
         ) : (
           <section
             className={s.trust}

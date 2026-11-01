@@ -1,7 +1,6 @@
 -- Paginated inventory view at the actionable variant + location level.
 -- Missing inventory snapshots remain NULL; they must never be interpreted as zero stock.
 drop function if exists public.shopify_catalog_inventory_page(uuid, uuid[], text, text, integer, integer);
-
 create or replace function public.shopify_catalog_inventory_page(
   target_organization_id uuid,
   target_store_ids uuid[],

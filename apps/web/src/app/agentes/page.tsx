@@ -7,13 +7,19 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
 import { getAgentCatalogEntry } from "@e-nora/contracts";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import {
+  ScrollArea,
   AsyncState,
   AgentEvalReadinessPanel,
   Badge,
   Button,
-  Card,
-  Dialog,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
   EmptyState,
   ErrorBlock,
   Field,
@@ -21,12 +27,19 @@ import {
   LoadingBlock,
   Metric,
   Select,
-  Table,
+  DataTable,
   Tabs,
   Textarea,
   toast,
   type Tone,
-  type TableColumnDef,
+  type DataTableColumn,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
+  EYEBROW,
 } from "@/components/ui";
 
 // AI-30 fase 7: el rechazo categorizado es la señal de calidad que agrupa
@@ -107,7 +120,7 @@ function ReadableData({ value, label }: { value: unknown; label: string }) {
   return (
     <section className="space-y-2">
       <h3 className="text-sm font-semibold text-ink">{label}</h3>
-      <Table
+      <DataTable
         ariaLabel={label}
         columns={keys.map((key) => ({ key, label: displayValue(key) }))}
         rows={objects.map((row, index) => ({
@@ -213,6 +226,7 @@ const runStatusLabel: Record<string, string> = {
 
 function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
+  const isDesktop = useIsDesktop();
   const canView = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
@@ -402,7 +416,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
   }
 
-  const runColumns: TableColumnDef<AgentRun>[] = [
+  const runColumns: DataTableColumn<AgentRun>[] = [
     { key: "objective", label: "Objetivo" },
     { key: "trigger_type", label: "Disparador" },
     {
@@ -483,7 +497,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     },
   ];
 
-  const stepColumns: TableColumnDef<TraceStep>[] = [
+  const stepColumns: DataTableColumn<TraceStep>[] = [
     { key: "position", label: "#" },
     { key: "step_type", label: "Tipo" },
     { key: "summary", label: "Resumen", render: (row) => row.summary ?? "—" },
@@ -494,7 +508,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     },
   ];
 
-  const toolCallColumns: TableColumnDef<TraceToolCall>[] = [
+  const toolCallColumns: DataTableColumn<TraceToolCall>[] = [
     { key: "tool_name", label: "Herramienta" },
     {
       key: "is_error",
@@ -517,7 +531,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     },
   ];
 
-  const contextColumns: TableColumnDef<TraceContextSnapshot>[] = [
+  const contextColumns: DataTableColumn<TraceContextSnapshot>[] = [
     { key: "context_level", label: "Nivel" },
     {
       key: "created_at",
@@ -526,7 +540,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     },
   ];
 
-  const queryRunColumns: TableColumnDef<TraceQueryRun>[] = [
+  const queryRunColumns: DataTableColumn<TraceQueryRun>[] = [
     { key: "sql_text", label: "SQL" },
     {
       key: "rows_returned",
@@ -562,68 +576,74 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         liveVerified={evalReadiness.liveVerified}
       />
 
-      <Card
-        kicker="Control de costes"
-        title="Presupuesto diario de IA"
-        description="Supervisa el consumo de los agentes antes de alcanzar el límite operativo de la organización."
-      >
-        {budgetLoading ? (
-          <LoadingBlock label="Consultando presupuesto..." />
-        ) : budgetError ? (
-          <ErrorBlock>{budgetError}</ErrorBlock>
-        ) : budget ? (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <p className="text-xs text-muted">Gastado hoy</p>
-              <p className="text-xl font-semibold text-foreground">
-                ${budget.spentTodayUsd.toFixed(2)}
-              </p>
+      <Card>
+        <CardHeader>
+          <CardKicker>Control de costes</CardKicker>
+          <CardTitle>Presupuesto diario de IA</CardTitle>
+          <CardDescription>Supervisa el consumo de los agentes antes de alcanzar el límite operativo de la organización.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {budgetLoading ? (
+            <LoadingBlock label="Consultando presupuesto..." />
+          ) : budgetError ? (
+            <ErrorBlock>{budgetError}</ErrorBlock>
+          ) : budget ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-muted">Gastado hoy</p>
+                <p className="text-xl font-semibold text-foreground">
+                  ${budget.spentTodayUsd.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Límite diario</p>
+                <p className="text-xl font-semibold text-foreground">
+                  ${budget.dailyBudgetUsd.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">Disponible</p>
+                <p className="text-xl font-semibold text-foreground">
+                  ${budget.remainingUsd.toFixed(2)}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-muted">Límite diario</p>
-              <p className="text-xl font-semibold text-foreground">
-                ${budget.dailyBudgetUsd.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Disponible</p>
-              <p className="text-xl font-semibold text-foreground">
-                ${budget.remainingUsd.toFixed(2)}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <EmptyState
-            title="Presupuesto no disponible"
-            hint="No se pudo obtener el estado actual del control de costes."
-          />
-        )}
+          ) : (
+            <EmptyState
+              title="Presupuesto no disponible"
+              hint="No se pudo obtener el estado actual del control de costes."
+            />
+          )}
+        </CardContent>
       </Card>
 
-      <Card
-        title="Ejecuciones recientes"
-        description="Consulta el estado, coste, latencia y trazabilidad de cada ejecución."
-      >
-        {isLoading ? (
-          <AsyncState status="loading" loadingLabel="Cargando ejecuciones..." />
-        ) : error ? (
-          <AsyncState status="error" error={error} />
-        ) : runs.length === 0 ? (
-          <EmptyState
-            title="Sin ejecuciones todavia"
-            hint="Los agentes de esta organizacion no han corrido todavia."
-          />
-        ) : (
-          <Table
-            columns={runColumns}
-            rows={runs}
-            ariaLabel="Ejecuciones de agentes IA"
-          />
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Ejecuciones recientes</CardTitle>
+          <CardDescription>Consulta el estado, coste, latencia y trazabilidad de cada ejecución.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <AsyncState status="loading" loadingLabel="Cargando ejecuciones..." />
+          ) : error ? (
+            <AsyncState status="error" error={error} />
+          ) : runs.length === 0 ? (
+            <EmptyState
+              title="Sin ejecuciones todavia"
+              hint="Los agentes de esta organizacion no han corrido todavia."
+            />
+          ) : (
+            <DataTable
+              columns={runColumns}
+              rows={runs}
+              ariaLabel="Ejecuciones de agentes IA"
+            />
+          )}
+        </CardContent>
       </Card>
 
-      <Dialog
-        isOpen={reviewOutput !== null}
+      <Drawer
+        open={reviewOutput !== null}
         onOpenChange={(open) => {
           if (!open) {
             setReviewOutput(null);
@@ -632,39 +652,19 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             setRejecting(false);
           }
         }}
-        size="lg"
-        eyebrow="Propuesta pendiente de revisión"
-        title={
-          runs.find((run) => run.id === reviewOutput?.runId)?.objective ??
-          "Propuesta del agente"
-        }
-        isBusy={isDeciding}
-        isDirty={Boolean(reviewReason.trim())}
-        start={
-          reviewOutput && !rejecting ? (
-            <Button variant="ghost" className="text-danger" onClick={() => setRejecting(true)}>
-              Rechazar…
-            </Button>
-          ) : undefined
-        }
-        footer={
-          rejecting ? (
-            <>
-              <Button variant="ghost" onClick={() => setRejecting(false)}>
-                Volver
-              </Button>
-              <Button variant="danger" onClick={() => void decideOutput("rejected")}>
-                Rechazar propuesta
-              </Button>
-            </>
-          ) : undefined
-        }
-        primary={{
-          label: "Aprobar y crear tareas",
-          busyLabel: "Guardando…",
-          onClick: () => void decideOutput("approved"),
-        }}
+        busy={isDeciding}
+        dirty={Boolean(reviewReason.trim())}
+        swipeDirection={isDesktop ? "right" : "down"}
+        showSwipeHandle={!isDesktop}
       >
+        <DrawerContent className="sm:max-w-[44rem]">
+        <DrawerHeader>
+          <span className={EYEBROW}>Propuesta pendiente de revisión</span>
+          <DrawerTitle>
+            {runs.find((run) => run.id === reviewOutput?.runId)?.objective ?? "Propuesta del agente"}
+          </DrawerTitle>
+        </DrawerHeader>
+        <ScrollArea className="flex-1 space-y-4 p-4 sm:px-6">
         {reviewOutput ? (
           <>
             <p className="text-muted">
@@ -703,10 +703,36 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : null}
           </>
         ) : null}
-      </Dialog>
+        </ScrollArea>
+        <DrawerFooter>
+          {rejecting ? (
+            <>
+              <Button variant="destructive" disabled={isDeciding} onClick={() => void decideOutput("rejected")}>
+                {isDeciding ? "Guardando…" : "Rechazar propuesta"}
+              </Button>
+              <Button variant="outline" onClick={() => setRejecting(false)}>
+                Volver
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button disabled={isDeciding} onClick={() => void decideOutput("approved")}>
+                {isDeciding ? "Guardando…" : "Aprobar y crear tareas"}
+              </Button>
+              {reviewOutput ? (
+                <Button variant="ghost" className="text-danger" disabled={isDeciding} onClick={() => setRejecting(true)}>
+                  Rechazar…
+                </Button>
+              ) : null}
+              <DrawerClose render={<Button variant="outline" />}>Cancelar</DrawerClose>
+            </>
+          )}
+        </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
-      <Dialog
-        isOpen={selectedRunId !== null}
+      <Drawer
+        open={selectedRunId !== null}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedRunId(null);
@@ -715,19 +741,23 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             setTraceTab("steps");
           }
         }}
-        size="cover"
-        eyebrow={
-          trace
-            ? (getAgentCatalogEntry(trace.run.agent_versions?.agent_definitions.code ?? "")?.displayName ?? "Agente IA")
-            : undefined
-        }
-        title={
-          trace
-            ? `Ejecución del ${new Date(trace.run.started_at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
-            : "Traza de ejecución"
-        }
-        cancelLabel="Cerrar"
+        swipeDirection={isDesktop ? "right" : "down"}
+        showSwipeHandle={!isDesktop}
       >
+        <DrawerContent className="sm:max-w-[60rem]">
+        <DrawerHeader>
+          {trace ? (
+            <span className={EYEBROW}>
+              {getAgentCatalogEntry(trace.run.agent_versions?.agent_definitions.code ?? "")?.displayName ?? "Agente IA"}
+            </span>
+          ) : null}
+          <DrawerTitle>
+            {trace
+              ? `Ejecución del ${new Date(trace.run.started_at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+              : "Traza de ejecución"}
+          </DrawerTitle>
+        </DrawerHeader>
+        <ScrollArea className="flex-1 space-y-4 p-4 sm:px-6">
         {isTraceLoading ? (
           <LoadingBlock label="Cargando traza…" />
         ) : traceError ? (
@@ -756,7 +786,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ]}
               panels={{
                 steps: (
-                  <Table
+                  <DataTable
                     className="mt-4"
                     ariaLabel="Pasos de la ejecución"
                     columns={stepColumns}
@@ -765,7 +795,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   />
                 ),
                 tools: (
-                  <Table
+                  <DataTable
                     className="mt-4"
                     ariaLabel="Llamadas a herramientas"
                     columns={toolCallColumns}
@@ -774,7 +804,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   />
                 ),
                 context: (
-                  <Table
+                  <DataTable
                     className="mt-4"
                     ariaLabel="Snapshots de contexto"
                     columns={contextColumns}
@@ -783,7 +813,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   />
                 ),
                 sql: (
-                  <Table
+                  <DataTable
                     className="mt-4"
                     ariaLabel="Consultas SQL del SQL Gateway"
                     columns={queryRunColumns}
@@ -795,7 +825,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           </>
         ) : null}
-      </Dialog>
+        </ScrollArea>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

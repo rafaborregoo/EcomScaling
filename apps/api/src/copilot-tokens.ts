@@ -1,5 +1,5 @@
 /**
- * Saldo de tokens del copiloto y eleccion de modelo.
+ * Saldo de créditos del copiloto y elección de modelo.
  *
  * Aqui solo vive la aritmetica y las reglas: nada de Supabase, nada de red.
  * El que habla con la base de datos es `copilot-saldo.ts`; esto es lo que se
@@ -9,14 +9,8 @@
  * Ver docs/PLAN_ORGANIZACION_CONSULTORA_Y_SALDO_COPILOTO.md, fases 4 y 5.
  */
 
-/**
- * Coste medio de un mensaje del copiloto, en tokens facturables (entrada +
- * salida). No es una estimacion: es la media de los runs reales de
- * `agent_runs` con `trigger_type = 'chat'` (3.358 de entrada + 1.940 de
- * salida). Sirve para traducir el saldo a "mensajes que te quedan", que es lo
- * unico que el numero significa para quien lo lee.
- */
-export const TOKENS_POR_MENSAJE = 5300;
+/** El saldo comercial se expresa en créditos ponderados por coste API. */
+import { COPILOT_CREDITS_PER_USD } from "@e-nora/contracts";
 
 export type CopilotModelId = "sonnet" | "opus" | "haiku" | "luna" | "sol";
 
@@ -32,14 +26,7 @@ export type CopilotModel = {
   selectable: boolean;
 };
 
-/**
- * Dos modelos elegibles, no tres.
- *
- * Haiku no es una opcion: nadie elige a sabiendas el modelo peor, y ponerlo en
- * la lista obliga a explicar tres cosas en vez de dos. Existe como modo
- * degradado cuando se agota el saldo -- un copiloto que deja de responder es
- * un motivo de baja, uno que responde peor es un motivo para subir de plan.
- */
+/** Catálogo actual. Haiku mantiene el modo reducido al agotar los créditos. */
 export const COPILOT_MODELS: readonly CopilotModel[] = [
   {
     id: "sonnet",
@@ -144,8 +131,12 @@ export type CopilotBalance = {
   granted: number;
   used: number;
   remaining: number;
-  /** Mensajes que salen aproximadamente con lo que queda. */
-  approx_messages_left: number;
+  /** Compatibilidad con clientes anteriores: sin estimación fija de preguntas. */
+  approx_messages_left: null;
+  unit: "credits";
+  credits_per_usd: number;
+  monthly_budget_usd: number;
+  by_model?: Array<{ model: string; runs: number; credits: number; cost_usd: number }>;
   /** ISO del dia en que se renueva (el 1 del mes siguiente). */
   renews_at: string;
   days_to_renewal: number;
@@ -177,7 +168,10 @@ export function describeBalance(input: {
     granted: input.granted,
     used: input.used,
     remaining,
-    approx_messages_left: Math.floor(remaining / TOKENS_POR_MENSAJE),
+    approx_messages_left: null,
+    unit: "credits",
+    credits_per_usd: COPILOT_CREDITS_PER_USD,
+    monthly_budget_usd: input.granted / COPILOT_CREDITS_PER_USD,
     renews_at: renewal.toISOString(),
     days_to_renewal: Math.max(
       0,

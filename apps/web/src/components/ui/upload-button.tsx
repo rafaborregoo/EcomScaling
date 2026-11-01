@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { Button } from "./button";
+import { Button, type ButtonSize, type ButtonVariant } from "./button";
 
 // Disparador de subida de archivo con aspecto de Button de HeroUI. El <input>
 // nativo queda oculto (sr-only, fuera del tab order) y el Button real es el
@@ -18,8 +18,8 @@ export function UploadButton({
   accept?: string;
   children?: ReactNode;
   busyLabel?: ReactNode;
-  variant?: "primary" | "secondary" | "danger" | "ghost";
-  size?: "sm" | "md";
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   disabled?: boolean;
   /** Recibe el archivo elegido. Si devuelve una promesa, el botón queda en
    *  estado "ocupado" hasta que resuelve. */

@@ -1,0 +1,67 @@
+/* Marketing: movimiento ligero y botones cuidados. Solo transiciones de color y una
+   entrada de 200 ms; nada que distraiga. Respeta «reducir movimiento». */
+
+.mk-polish button,
+.mk-polish a[class*="btn"],
+.mk-polish [role="button"],
+.mk-polish [role="radio"],
+.mk-polish [role="option"] {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease,
+    transform 0.1s ease, opacity 0.15s ease;
+}
+.mk-polish button:not(:disabled):active,
+.mk-polish a[class*="btn"]:active {
+  transform: scale(0.98);
+}
+.mk-polish button:disabled {
+  cursor: not-allowed;
+}
+
+/* Botón principal de Campañas: un tono más oscuro al pasar, sin saltos. */
+.mk-polish [class*="__btn"]:not([class*="__ghost"]):not([class*="__danger"]):not(:disabled):hover {
+  background-color: #292827;
+}
+
+/* Tarjetas y filas: el borde se afirma al pasar el ratón. */
+.mk-polish [class*="__panel"],
+.mk-polish [class*="__qi"],
+.mk-polish [class*="__tlR"],
+.mk-polish [class*="__counter"] {
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.mk-polish [class*="__panel"]:hover {
+  border-color: #cfcbc7;
+}
+
+/* Entrada: cada bloque aparece con un fundido corto, escalonado. */
+@keyframes mk-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.mk-polish [class*="__stage"] > *,
+.mk-polish [class*="__wrap"] > * {
+  animation: mk-in 0.22s ease both;
+}
+.mk-polish [class*="__stage"] > :nth-child(2),
+.mk-polish [class*="__wrap"] > :nth-child(2) { animation-delay: 0.03s; }
+.mk-polish [class*="__stage"] > :nth-child(3),
+.mk-polish [class*="__wrap"] > :nth-child(3) { animation-delay: 0.06s; }
+.mk-polish [class*="__stage"] > :nth-child(4),
+.mk-polish [class*="__wrap"] > :nth-child(4) { animation-delay: 0.09s; }
+.mk-polish [class*="__stage"] > :nth-child(n + 5),
+.mk-polish [class*="__wrap"] > :nth-child(n + 5) { animation-delay: 0.12s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-polish *,
+  .mk-polish *::before,
+  .mk-polish *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

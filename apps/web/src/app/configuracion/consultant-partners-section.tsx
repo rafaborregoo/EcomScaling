@@ -1,5 +1,6 @@
 "use client";
 
+import { UsersRoundIcon } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -7,8 +8,6 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
-  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   Field,
@@ -16,6 +15,33 @@ import {
   List,
   LoadingBlock,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+  AvatarBadge,
+  avatarInitials,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 /**
@@ -31,6 +57,7 @@ import {
 type Partner = {
   user_id: string;
   full_name: string | null;
+  avatar_url?: string | null;
   is_active: boolean;
   client_count: number;
 };
@@ -131,87 +158,108 @@ export function ConsultantPartnersSection() {
   }
 
   return (
-    <Card
-      title="Con quién compartes cartera"
-      description="Un consultor con el que trabajas: veis y lleváis las mismas tiendas."
-      actions={
-        partners && partners.length > 0 ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>Con quién compartes cartera</CardTitle>
+        <CardDescription>Un consultor con el que trabajas: veis y lleváis las mismas tiendas.</CardDescription>
+        <CardAction>{partners && partners.length > 0 ? (
           <Badge tone="success">{partners.length}</Badge>
-        ) : undefined
-      }
-    >
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        ) : undefined}</CardAction>
+      </CardHeader>
+      <CardContent>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <form className="flex flex-wrap items-end gap-3" onSubmit={add}>
-        <Field label="Correo del consultor">
-          <Input
-            className="mt-1 w-72"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="socio@tuagencia.com"
-          />
-        </Field>
-        <Button type="submit" disabled={adding || !email.trim()}>
-          {adding ? "Emparejando…" : "Compartir cartera"}
-        </Button>
-      </form>
+        <form className="flex flex-wrap items-end gap-3" onSubmit={add}>
+          <Field label="Correo del consultor">
+            <Input
+              className="mt-1 w-72"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="socio@tuagencia.com"
+            />
+          </Field>
+          <Button type="submit" disabled={adding || !email.trim()}>
+            {adding ? "Emparejando…" : "Compartir cartera"}
+          </Button>
+        </form>
 
-      <p className="mt-2 text-xs text-muted">
-        Si no tiene cuenta, se la creamos y le llega una invitación por correo.
-        Al emparejaros, cada uno pasa a llevar las tiendas del otro, y las
-        nuevas se asignan a los dos.
-      </p>
+        <p className="mt-2 text-xs text-muted">
+          Si no tiene cuenta, se la creamos y le llega una invitación por correo.
+          Al emparejaros, cada uno pasa a llevar las tiendas del otro, y las
+          nuevas se asignan a los dos.
+        </p>
 
-      <div className="mt-6">
-        {partners === null && !error ? (
-          <LoadingBlock label="Cargando…" />
-        ) : partners && partners.length === 0 ? (
-          <EmptyState
-            title="Trabajas solo"
-            hint="Si otro consultor lleva tus tiendas contigo, añádelo arriba y os repartís la cartera."
-          />
-        ) : partners ? (
-          <List as="ul">
-            {partners.map((partner) => (
-              <List.Item
-                as="li"
-                key={partner.user_id}
-                className="flex flex-wrap items-center gap-3 py-3"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {partner.full_name ?? "Sin nombre"}
-                  </span>
-                  <span className="block text-xs text-muted">
-                    {partner.client_count} cliente
-                    {partner.client_count === 1 ? "" : "s"} en común
-                  </span>
-                </span>
-                {partner.is_active ? null : <Badge tone="warn">inactivo</Badge>}
-                <ConfirmDialog
-                  trigger={
-                    <Button size="sm" variant="ghost">
-                      Dejar de compartir
-                    </Button>
-                  }
-                  title="¿Dejar de compartir cartera?"
-                  description="Las tiendas nuevas dejarán de asignarse a los dos. Las que ya lleva siguen siendo suyas: para quitarle el acceso a una tienda concreta, hazlo desde esa tienda."
-                  confirmLabel="Dejar de compartir"
-                  onConfirm={() => void remove(partner)}
-                />
-              </List.Item>
-            ))}
-          </List>
+        <div className="mt-6">
+          {partners === null && !error ? (
+            <LoadingBlock label="Cargando…" />
+          ) : partners && partners.length === 0 ? (
+            <EmptyState
+              title="Trabajas solo"
+              hint="Si otro consultor lleva tus tiendas contigo, añádelo arriba y os repartís la cartera."
+            />
+          ) : partners ? (
+            <List as="ul">
+              {partners.map((partner) => (
+                <Item key={partner.user_id} render={<li />}>
+                  <ItemMedia>
+                    <Avatar size="lg">
+                      <AvatarImage src={partner.avatar_url ?? undefined} alt="" />
+                      <AvatarFallback>{avatarInitials(partner.full_name)}</AvatarFallback>
+                      {partner.is_active ? null : <AvatarBadge className="bg-warning" aria-hidden />}
+                    </Avatar>
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>
+                      <span className="truncate">{partner.full_name ?? "Sin nombre"}</span>
+                      {partner.is_active ? null : <Badge tone="warn">inactivo</Badge>}
+                    </ItemTitle>
+                    <ItemDescription>
+                      {partner.client_count} cliente
+                      {partner.client_count === 1 ? "" : "s"} en común
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                  <AlertDialog>
+                    <AlertDialogTrigger
+                      render={
+                        <Button size="sm" variant="ghost">
+                          Dejar de compartir
+                        </Button>
+                      }
+                    />
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogMedia>
+                          <UsersRoundIcon />
+                        </AlertDialogMedia>
+                        <AlertDialogTitle>¿Dejar de compartir cartera?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Las tiendas nuevas dejarán de asignarse a los dos. Las que ya lleva siguen siendo suyas: para quitarle el acceso a una tienda concreta, hazlo desde esa tienda.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction variant="destructive" onClick={() => remove(partner)}>
+                          Dejar de compartir
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          ) : null}
+        </div>
+
+        {partners && partners.length > 0 ? (
+          <Banner tone="success" className="mt-4 text-sm">
+            Las tiendas que des de alta a partir de ahora se asignarán a los dos
+            automáticamente.
+          </Banner>
         ) : null}
-      </div>
-
-      {partners && partners.length > 0 ? (
-        <Banner tone="success" className="mt-4 text-sm">
-          Las tiendas que des de alta a partir de ahora se asignarán a los dos
-          automáticamente.
-        </Banner>
-      ) : null}
+      </CardContent>
     </Card>
   );
 }

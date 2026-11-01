@@ -1,6 +1,8 @@
 import type { KlaviyoClient } from "./klaviyo-client.js";
 
 export const KLAVIYO_VARIATION_BETA_REVISION = "2026-07-15.pre";
+// Same normalized resource shape, now generally available; beta remains an explicit adapter.
+export const KLAVIYO_VARIATION_CONTENT_REVISION = "2026-10-15";
 export const KLAVIYO_VARIATION_CONTENT_MAX_MESSAGES = 12;
 
 export type KlaviyoCampaignVariationContentRef = {

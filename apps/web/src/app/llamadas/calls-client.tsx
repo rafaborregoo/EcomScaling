@@ -1,5 +1,7 @@
 "use client";
 
+import { PhoneOffIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import NextLink from "next/link";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -16,20 +18,45 @@ import {
   type CallTaskAudience,
 } from "./call-task-view-model";
 import { useModuleSummary } from "@/components/module-summary";
+import { useCopilotAsk } from "@/components/copilot-ask";
 import { daysSince, isUpcoming } from "@/lib/elapsed";
 import {
   LoadingBlock,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Checkbox,
-  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   Link,
+  SearchableSelect,
   Select,
   Textarea,
+  type SearchableSelectOption,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  DateTimePicker,
+  Button,
+  Card,
+  CardContent,
+  CardTitle,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 import p from "../dashboard/client-pulse.module.css";
 import s from "./llamadas.module.css";
@@ -62,11 +89,11 @@ function Chip({ tone = "neutral", children }: { tone?: ChipTone; children: React
 }
 
 const btn = {
-  primary: p.btn,
-  acc: `${p.btn} ${p.acc}`,
-  ghost: `${p.btn} ${p.ghost}`,
-  ghostSm: `${p.btn} ${p.ghost} ${p.sm}`,
-  accSm: `${p.btn} ${p.acc} ${p.sm}`,
+  primary: buttonVariants(),
+  acc: buttonVariants(),
+  ghost: buttonVariants({ variant: "secondary" }),
+  ghostSm: buttonVariants({ variant: "secondary", size: "sm" }),
+  accSm: buttonVariants({ size: "sm" }),
 };
 
 type CallTranscript = {
@@ -82,7 +109,33 @@ type CallTranscript = {
 // Un resumen manual guarda key_points como string[] (o null); uno de A01 guarda
 // este objeto. El render distingue ambos casos.
 type CallSummaryDetail = {
+  ai_lab?: {
+    is_lab?: boolean;
+    synthetic_meeting?: boolean;
+    model_id?: string;
+    model_label?: string;
+    actual_model?: string | null;
+    model_verified?: boolean;
+    client_comparison_visible?: boolean;
+    standard_api_cost_usd?: number | null;
+    standard_api_cost_low_usd?: number | null;
+    standard_api_cost_high_usd?: number | null;
+    cli_reported_cost_usd?: number | null;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
   facts?: string[];
+  product_mentions?: Array<{
+    product_id?: string;
+    product_title: string;
+    product_type?: string | null;
+    product_status?: string | null;
+    image_url?: string | null;
+    image_alt?: string | null;
+    mention_type: string;
+    evidence_quote: string;
+    relevance: string;
+  }>;
   recommendations?: Array<{
     action: string;
     priority: string;
@@ -136,13 +189,19 @@ type CallSummaryDetail = {
 function A01Handoffs({
   organizationId,
   detail,
+  summaryText,
+  isConsultant,
 }: {
   organizationId: string;
   detail: CallSummaryDetail;
+  summaryText?: string;
+  isConsultant: boolean;
 }) {
+  const askCopilot = useCopilotAsk();
   const campaigns = detail.proposed_campaign_ideas ?? [];
   const caminoChanges = detail.proposed_camino_changes ?? [];
-  if (!campaigns.length && !caminoChanges.length) return null;
+  const copilotBrief = [summaryText, ...(detail.facts ?? []), ...(detail.product_mentions ?? []).map((item) => `${item.product_title}: ${item.evidence_quote}`), ...(detail.proposed_tasks ?? []).map((item) => `Tarea propuesta: ${item.title} (${item.owner})`)].filter(Boolean).join("\n");
+  if (!campaigns.length && !caminoChanges.length && !isConsultant) return null;
 
   const campaignBrief = (item: (typeof campaigns)[number]) =>
     `Objetivo acordado: ${item.objective}\nAudiencia: ${item.audience}\nCuándo: ${item.timing_hint ?? "No se fijó una fecha"}\nCita de la llamada: “${item.evidence_quote}”`;
@@ -152,6 +211,7 @@ function A01Handoffs({
   return (
     <div className={s.handoffs}>
       <p className={p.lbl}>Continuar lo acordado</p>
+      {isConsultant ? <Button type="button" variant="secondary" size="sm" onClick={() => askCopilot({ question: `Analiza esta llamada junto con el contexto actual de la tienda. Comprueba coherencia, productos mencionados, tareas y oportunidades; señala dudas con evidencia y propone una analítica estructurada. No ejecutes cambios.\n\n${copilotBrief}`, focusLabel: "Analítica de llamada", reference: { kind: "entity", entity: { type: "call_summary", id: organizationId } } })}>Revisar análisis con Copiloto</Button> : null}
       {campaigns.map((item, index) => (
         <div key={`campaign-${index}`} className={s.list}>
           <div>
@@ -257,6 +317,24 @@ function StructuredSummary({
   // (PendingSummaryReview) y nunca llegan a la vista del cliente.
   return (
     <div className={p.two}>
+      {(detail?.product_mentions ?? []).length > 0 ? (
+        <section className={`${s.block} col-span-full`} aria-label="Productos mencionados">
+          <p className={p.lbl}>Productos mencionados</p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {detail!.product_mentions!.map((product, index) => (
+              <Card key={`${product.product_id ?? product.product_title}-${index}`} size="sm" className="overflow-hidden p-0">
+                {product.image_url ? <img src={product.image_url} alt={product.image_alt ?? product.product_title} className="h-36 w-full bg-[var(--surface-muted)] object-cover" loading="lazy" /> : null}
+                <CardContent className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2"><CardTitle className="text-base">{product.product_title}</CardTitle><Chip tone="neutral">{product.mention_type}</Chip></div>
+                  {product.product_type ? <p className={s.small}>{product.product_type}</p> : null}
+                  <blockquote className={`${s.small} border-l-2 border-[var(--line)] pl-2`}>«{product.evidence_quote}»</blockquote>
+                  <p className={s.small}>{product.relevance}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {bulletBlock("Hechos", detail?.facts ?? [])}
       {bulletBlock("Decisiones", decisions)}
       {bulletBlock(
@@ -417,6 +495,7 @@ export type ConsultingCall = {
   created_at: string;
   call_transcripts: CallTranscript[];
   call_ai_summaries: CallSummary[];
+  ai_lab_summaries?: CallSummary[];
   call_internal_notes: CallInternalNote[];
   call_task_links: CallTaskLink[];
 };
@@ -487,7 +566,7 @@ function PendingSummaryReview({
   summary: CallSummary;
   isBusy: boolean;
   /** Hitos de Mi Camino donde puede entrar una tarea del cliente. */
-  milestones: { value: string; label: string }[];
+  milestones: SearchableSelectOption[];
   onApprove: (selection: {
     indexes: number[];
     /** índice de la tarea -> hito elegido. */
@@ -593,7 +672,7 @@ function PendingSummaryReview({
                     <div className="min-w-0">
                       <Checkbox
                         checked={isSelected}
-                        onChange={() => toggle(index)}
+                        onCheckedChange={() => toggle(index)}
                       >
                         <span className="font-semibold">{task.title}</span>
                       </Checkbox>
@@ -620,8 +699,10 @@ function PendingSummaryReview({
                     {/* Punto de Mi Camino en el que entra. Solo para las del
                         cliente: una tarea interna tuya no es parte del plan. */}
                     {isForClient && milestones.length > 0 ? (
-                      <Select
+                      <SearchableSelect
                         className="w-full"
+                        placeholder="Busca un hito"
+                        emptyText="No hay ningún hito con ese nombre."
                         aria-label={`Punto de Mi Camino para «${task.title}»`}
                         disabled={!isSelected}
                         value={taskMilestones[String(index)] ?? ""}
@@ -677,41 +758,38 @@ function PendingSummaryReview({
         </button>
       </div>
 
-      <Dialog
-        isOpen={rejectOpen}
-        onOpenChange={setRejectOpen}
-        title="Rechazar resumen"
-        isBusy={isBusy}
-        isDirty={Boolean(rejectReason.trim())}
-        formId="reject-summary-form"
-        primary={{
-          label: "Rechazar resumen",
-          busyLabel: "Rechazando…",
-          disabled: !rejectReason.trim(),
-        }}
-      >
-        <form
-          id="reject-summary-form"
-          className="space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onReject(rejectReason.trim());
-            setRejectOpen(false);
-          }}
-        >
-          <Field label="Motivo del rechazo">
-            <Textarea
-              className="h-24"
-              autoFocus
-              value={rejectReason}
-              onChange={(event) => setRejectReason(event.target.value)}
-              placeholder="Qué falló o qué debería corregir el análisis"
-            />
-          </Field>
-          <p className="text-xs text-muted">
-            Obligatorio. Queda registrado y sirve de feedback para el análisis.
-          </p>
-        </form>
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen} busy={isBusy} dirty={Boolean(rejectReason.trim())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rechazar resumen</DialogTitle>
+          </DialogHeader>
+          <form
+            id="reject-summary-form"
+            className="space-y-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onReject(rejectReason.trim());
+              setRejectOpen(false);
+            }}
+          >
+            <Field label="Motivo del rechazo">
+              <Textarea
+                className="h-24"
+                autoFocus
+                value={rejectReason}
+                onChange={(event) => setRejectReason(event.target.value)}
+                placeholder="Qué falló o qué debería corregir el análisis"
+              />
+            </Field>
+            <p className="text-xs text-muted">
+              Obligatorio. Queda registrado y sirve de feedback para el análisis.
+            </p>
+          </form>
+          <DialogFooter>
+            <DialogClose>Cancelar</DialogClose>
+            <Button type="submit" form="reject-summary-form" disabled={isBusy || !rejectReason.trim()}>{isBusy ? "Rechazando…" : "Rechazar resumen"}</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </section>
   );
@@ -759,13 +837,38 @@ export function CallDetail({
       summary.status === "pending_approval" &&
       (!currentTranscript || summary.transcript_id === currentTranscript.id),
   );
+  // Los seis resultados del laboratorio también se guardan como borradores
+  // en call_ai_summaries. La API añade ai_lab_summaries para el cliente (cuya
+  // RLS oculta los borradores), pero la vista del consultor puede recibirlos
+  // primero en la relación normal. Combinar ambas fuentes evita que la
+  // comparativa desaparezca por diferencias en la forma de respuesta.
+  const labSummaries = Array.from(
+    new Map(
+      [
+        ...(call.ai_lab_summaries ?? []),
+        ...call.call_ai_summaries.filter((summary) => {
+          if (summary.status !== "draft" || !isCallSummaryDetail(summary.key_points)) {
+            return false;
+          }
+          const lab = summary.key_points.ai_lab;
+          return lab?.is_lab === true &&
+            lab.synthetic_meeting === true &&
+            lab.client_comparison_visible === true;
+        }),
+      ].map((summary) => [summary.id, summary] as const),
+    ).values(),
+  ).filter((summary) => {
+    if (currentTranscript && summary.transcript_id !== currentTranscript.id) {
+      return false;
+    }
+    return isCallSummaryDetail(summary.key_points) &&
+      summary.key_points.ai_lab?.model_id === "gpt-6.1-sol";
+  });
 
   // Fases/hitos de Mi Camino para elegir dónde entra cada tarea al aprobar.
   // Solo se carga cuando hay algo que aprobar: no todas las tiendas tienen
   // plan y no hace falta en cada llamada plegada.
-  const [milestoneOptions, setMilestoneOptions] = useState<
-    { value: string; label: string }[]
-  >([]);
+  const [milestoneOptions, setMilestoneOptions] = useState<SearchableSelectOption[]>([]);
   // Mismo criterio que callStage: un pendiente de una transcripción antigua ya
   // no cuenta.
   const hasPendingSummary = pendingSummaries.length > 0;
@@ -800,7 +903,8 @@ export function CallDetail({
             .sort((a, b) => a.position - b.position)
             .map((milestone) => ({
               value: milestone.id,
-              label: `${phase.name} · ${milestone.name}`,
+              label: milestone.name,
+              section: phase.name,
             })),
         ),
     );
@@ -1074,22 +1178,36 @@ export function CallDetail({
             </button>
           ) : null}
           {isConsultant && call.status !== "cancelled" ? (
-            <ConfirmDialog
-              trigger={
-                <button
-                  className={`${btn.ghost} ${s.danger}`}
-                  type="button"
-                  disabled={isBusy}
-                >
-                  Cancelar llamada
-                </button>
-              }
-              title="Cancelar llamada"
-              description="La llamada queda como cancelada y sale de lo pendiente. Su historial se conserva."
-              confirmLabel="Cancelar llamada"
-              cancelLabel="Volver"
-              onConfirm={() => void setStatus("cancelled")}
-            />
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <button
+                    className={`${btn.ghost} ${s.danger}`}
+                    type="button"
+                    disabled={isBusy}
+                  >
+                    Cancelar llamada
+                  </button>
+                }
+              />
+              <AlertDialogContent size="sm">
+                <AlertDialogHeader>
+                  <AlertDialogMedia className="bg-danger/10 text-danger">
+                    <PhoneOffIcon />
+                  </AlertDialogMedia>
+                  <AlertDialogTitle>¿Cancelar la llamada?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    La llamada queda como cancelada y sale de lo pendiente. Su historial se conserva.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Volver</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={() => setStatus("cancelled")}>
+                    Cancelar llamada
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           ) : null}
         </div>
       </div>
@@ -1194,6 +1312,44 @@ export function CallDetail({
 
       <div className={s.grid}>
         <div className={s.stack}>
+          {labSummaries.length ? (
+            <section className={p.panel} aria-labelledby={`a01-lab-${call.id}`}>
+              <div className={p.panelH}>
+                <div>
+                  <h3 id={`a01-lab-${call.id}`}>Resumen generado con GPT-6.1 Sol</h3>
+                  <p className={p.sub}>Resultado de laboratorio del modelo elegido. El resumen oficial de A01 se genera en el paso de análisis para que el consultor pueda aprobarlo y publicarlo.</p>
+                </div>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {labSummaries.map((candidate) => {
+                  const detail = isCallSummaryDetail(candidate.key_points) ? candidate.key_points : null;
+                  const lab = detail?.ai_lab;
+                  const apiCost = lab?.standard_api_cost_usd;
+                  const apiCostLow = lab?.standard_api_cost_low_usd;
+                  const apiCostHigh = lab?.standard_api_cost_high_usd;
+                  const cliCost = lab?.cli_reported_cost_usd;
+                  return (
+                    <Card key={candidate.id} size="sm">
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div><CardTitle className="text-base">{lab?.model_label ?? "Modelo sin identificar"}</CardTitle><p className={s.small}>{lab?.actual_model ?? "Modelo servido sin verificar"}</p></div>
+                        <Chip tone="warn">Prueba</Chip>
+                      </div>
+                      <CardContent className="space-y-2 p-0">
+                        <p className={s.small}>Coste API estimado: {typeof apiCostLow === "number" && typeof apiCostHigh === "number" ? apiCostLow === apiCostHigh ? `$${apiCostLow.toFixed(6)}` : `$${apiCostLow.toFixed(6)}–$${apiCostHigh.toFixed(6)}` : typeof apiCost === "number" ? `$${apiCost.toFixed(6)}` : "pendiente de normalizar"}{typeof cliCost === "number" ? ` · CLI: $${cliCost.toFixed(6)}` : ""}</p>
+                        <p className={s.small}>Tokens: {lab?.input_tokens?.toLocaleString("es-ES") ?? "—"} entrada · {lab?.output_tokens?.toLocaleString("es-ES") ?? "—"} salida{lab?.model_verified === false ? " · modelo servido no verificado" : ""}</p>
+                        <p className={s.lead}>{candidate.summary}</p>
+                        {detail?.facts?.length ? <div><p className={p.lbl}>Hechos detectados</p><ul className={s.dots}>{detail.facts.map((fact, index) => <li key={index}>{fact}</li>)}</ul></div> : null}
+                        {detail?.product_mentions?.length ? <div><p className={p.lbl}>Productos</p><ul className={s.dots}>{detail.product_mentions.map((product, index) => <li key={index}>{product.product_title} · «{product.evidence_quote}»</li>)}</ul></div> : null}
+                        {candidate.agreed_actions?.length ? <div><p className={p.lbl}>Decisiones</p><ul className={s.dots}>{candidate.agreed_actions.map((decision, index) => <li key={index}>{decision}</li>)}</ul></div> : null}
+                        {detail?.proposed_tasks?.length ? <div><p className={p.lbl}>Tareas sugeridas</p><ul className={s.dots}>{detail.proposed_tasks.map((task, index) => <li key={index}>{task.title} · {task.owner} · {priorityLabels[task.priority] ?? task.priority}</li>)}</ul></div> : null}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+              <p className={`${s.small} mt-3`}>La conclusión y el modelo recomendado se registran en el Laboratorio de IA después de revisar juntos calidad y coste.</p>
+            </section>
+          ) : null}
           {isConsultant
             ? pendingSummaries.map((summary) => (
                 <div key={summary.id} className={s.stack}>
@@ -1216,6 +1372,7 @@ export function CallDetail({
                   {isCallSummaryDetail(summary.key_points) ? (
                     <ConsultantCoaching detail={summary.key_points} />
                   ) : null}
+                  {isCallSummaryDetail(summary.key_points) ? <A01Handoffs organizationId={organizationId} detail={summary.key_points} summaryText={summary.summary} isConsultant /> : null}
                 </div>
               ))
             : null}
@@ -1240,6 +1397,8 @@ export function CallDetail({
                   <A01Handoffs
                     organizationId={organizationId}
                     detail={publishedSummary.key_points}
+                    summaryText={publishedSummary.summary}
+                    isConsultant={isConsultant}
                   />
                 ) : null}
               </div>
@@ -1451,26 +1610,10 @@ export function CallDetail({
 
             {isConsultant ? (
               <div className={s.stack}>
-                <div
-                  className={s.seg}
-                  role="group"
-                  aria-label="Responsable de las tareas"
-                >
-                  <button
-                    type="button"
-                    aria-pressed={taskAudience === "cliente"}
-                    onClick={() => setTaskAudience("cliente")}
-                  >
-                    Cliente
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={taskAudience === "consultor"}
-                    onClick={() => setTaskAudience("consultor")}
-                  >
-                    Para mí
-                  </button>
-                </div>
+                <ToggleGroup aria-label="Responsable de las tareas" value={taskAudience} onValueChange={setTaskAudience}>
+                  <ToggleGroupItem value="cliente">Cliente</ToggleGroupItem>
+                  <ToggleGroupItem value="consultor">Para mí</ToggleGroupItem>
+                </ToggleGroup>
                 <form className={s.field} onSubmit={submitTask}>
                   <Input
                     aria-label={
@@ -1807,7 +1950,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className="grid gap-7">
       <section className={s.head}>
-        <h1 className={s.title}>Llamadas</h1>
+        <h1 className={`${s.title} client-sr-title`}>Llamadas</h1>
         {isConsultant ? (
           <>
             {/* El boton NO puede ir dentro de `Modal.Trigger`: ese componente
@@ -1823,78 +1966,75 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             >
               Registrar llamada
             </button>
-            <Dialog
-              isOpen={showCreateForm}
-              onOpenChange={(open) => {
+            <Dialog open={showCreateForm} onOpenChange={(open) => {
                 setShowCreateForm(open);
                 if (!open) setCreateError(null);
-              }}
-              title="Registrar llamada"
-              isBusy={isCreating}
-              isDirty={Boolean(newTitle.trim() || newRecordingUrl.trim())}
-              formId="create-call-form"
-              primary={{
-                label: "Crear llamada",
-                busyLabel: "Creando…",
-                disabled: !newTitle.trim(),
-              }}
-            >
-              <form id="create-call-form" className="space-y-4" onSubmit={submitCreate}>
-                <Field label="Título">
-                  <Input
-                    value={newTitle}
-                    onChange={(event) => setNewTitle(event.target.value)}
-                    placeholder="Ej: Revisión mensual julio"
-                  />
-                </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Fecha y hora">
-                    {/* `type="date"` perdia la hora de la llamada, que es justo lo
-                        que hace falta para agendarla. */}
+              }} busy={isCreating} dirty={Boolean(newTitle.trim() || newRecordingUrl.trim())}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Registrar llamada</DialogTitle>
+                </DialogHeader>
+                <form id="create-call-form" className="space-y-4" onSubmit={submitCreate}>
+                  <Field label="Título">
                     <Input
-                      type="datetime-local"
-                      value={newScheduledAt}
-                      onChange={(event) => setNewScheduledAt(event.target.value)}
+                      value={newTitle}
+                      onChange={(event) => setNewTitle(event.target.value)}
+                      placeholder="Ej: Revisión mensual julio"
                     />
                   </Field>
-                  <Field label="Tipo">
-                    <Select
-                      aria-label="Tipo"
-                      value={newType}
-                      onChange={setNewType}
-                      options={Object.entries(callTypeLabels).map(([value, label]) => ({ value, label }))}
-                    />
-                  </Field>
-                </div>
-                {/* La grabacion ya la aceptaba la API desde el primer dia, pero el
-                    formulario no la pedia y no habia otra pantalla para añadirla. */}
-                <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
-                  <Field label="Grabación (opcional)">
-                    <Input
-                      type="url"
-                      value={newRecordingUrl}
-                      onChange={(event) => setNewRecordingUrl(event.target.value)}
-                      placeholder="https://..."
-                    />
-                  </Field>
-                  <Field label="Proveedor">
-                    <Select
-                      aria-label="Proveedor de la grabación"
-                      value={newRecordingProvider}
-                      onChange={setNewRecordingProvider}
-                      options={[
-                        { value: "", label: "Sin especificar" },
-                        { value: "loom", label: "Loom" },
-                        { value: "fathom", label: "Fathom" },
-                        { value: "meet", label: "Meet" },
-                        { value: "zoom", label: "Zoom" },
-                        { value: "other", label: "Otro" },
-                      ]}
-                    />
-                  </Field>
-                </div>
-                {createError ? <ErrorBlock>{createError}</ErrorBlock> : null}
-              </form>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Fecha y hora">
+                      {/* `type="date"` perdia la hora de la llamada, que es justo lo
+                          que hace falta para agendarla. */}
+                      <DateTimePicker
+                        aria-label="Fecha y hora"
+                        value={newScheduledAt}
+                        onChange={setNewScheduledAt}
+                      />
+                    </Field>
+                    <Field label="Tipo">
+                      <Select
+                        aria-label="Tipo"
+                        value={newType}
+                        onChange={setNewType}
+                        options={Object.entries(callTypeLabels).map(([value, label]) => ({ value, label }))}
+                      />
+                    </Field>
+                  </div>
+                  {/* La grabacion ya la aceptaba la API desde el primer dia, pero el
+                      formulario no la pedia y no habia otra pantalla para añadirla. */}
+                  <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
+                    <Field label="Grabación (opcional)">
+                      <Input
+                        type="url"
+                        value={newRecordingUrl}
+                        onChange={(event) => setNewRecordingUrl(event.target.value)}
+                        placeholder="https://..."
+                      />
+                    </Field>
+                    <Field label="Proveedor">
+                      <Select
+                        aria-label="Proveedor de la grabación"
+                        value={newRecordingProvider}
+                        onChange={setNewRecordingProvider}
+                        options={[
+                          { value: "", label: "Sin especificar" },
+                          { value: "loom", label: "Loom" },
+                          { value: "fathom", label: "Fathom" },
+                          { value: "meet", label: "Meet" },
+                          { value: "zoom", label: "Zoom" },
+                          { value: "other", label: "Otro" },
+                        ]}
+                      />
+                    </Field>
+                  </div>
+                  {createError ? <ErrorBlock>{createError}</ErrorBlock> : null}
+                </form>
+                <DialogFooter>
+                  <DialogClose>Cancelar</DialogClose>
+                  <Button type="submit" form="create-call-form" disabled={isCreating || !newTitle.trim()}>{isCreating ? "Creando…" : "Crear llamada"}</Button>
+                </DialogFooter>
+              </DialogContent>
             </Dialog>
           </>
         ) : null}

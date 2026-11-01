@@ -1,3 +1,5 @@
+import { currentReviewOutput } from "./camino-structured-change.js";
+import { objectiveWindow, objectiveProgress, readCaminoObjectives } from "./camino-measurement.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import {
@@ -6,8 +8,6 @@ import {
   requireOperationalOrganization,
 } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
-import { getShopifyMetrics } from "./shopify-metrics.js";
-import { getMetaMetrics } from "./meta-metrics.js";
 import {
   caminoPlanOutputSchema,
   caminoCalendarHorizonDays,
@@ -19,7 +19,6 @@ import { adjustCaminoProposal } from "./camino-proposal-adjustment.js";
 import { loadCaminoRoutes } from "./camino-routes.js";
 import { caminoReviewCycleStart, canRetryCaminoReview } from "./camino-review-scheduling.js";
 import { occurrenceTitle, recurrenceDates } from "./camino-recurrence.js";
-import { assessMilestoneCompletion, type MilestoneTaskReadiness } from "./camino-milestone-readiness.js";
 import { createLogger } from "@e-nora/observability";
 import type { LoadedApiEnv } from "@e-nora/config";
 import {
@@ -57,6 +56,8 @@ type ApiEnv = {
 // unica fuente de objetivos y el panel los busca por clave exacta. Antes el
 // Camino usaba net_sales/aov/cac (con IVA, CAC solo de Meta) y el panel
 // net_revenue_ex_tax/aov_ex_tax/cac_blended: el mismo objetivo con dos cifras.
+function actionAllowedForApply(action: string, state: string) { return action === "apply" && ["pending", "accepted"].includes(state); }
+
 export const OBJECTIVE_CATALOG = [
   {
     key: "net_revenue_ex_tax",
@@ -171,7 +172,7 @@ export function assertCanManagePlan(context: AuthContext, organizationId: string
       statusCode: 403,
       error: "plan_manage_denied",
       message:
-        "Solo owner, manager, consultor o platform admin pueden gestionar el plan.",
+        "Solo el propietario, un gestor o el consultor pueden gestionar el plan.",
     };
   }
 
@@ -222,7 +223,7 @@ export async function getStrategicPlan(
   let planQuery = planReader
     .from("strategic_plans")
     .select(
-      "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, rationale, evidence, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, success_criteria, rationale, position, status, target_date, completed_at, completion_evidence, created_by, milestone_task_links(task_id, position, owner_role, kind, track, cadence, effort_hours, definition_of_done, rationale, evidence, created_at, tasks(id, title, description, status, priority, due_at, categories, source, created_by, assigned_to))))",
+      "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, rationale, evidence, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, success_criteria, rationale, position, status, target_date, completed_at, completion_evidence, completion_kind, verification_snapshot, created_by, milestone_task_links(task_id, position, owner_role, kind, track, cadence, effort_hours, definition_of_done, rationale, evidence, created_at, tasks(id, title, description, status, priority, due_at, categories, source, created_by, assigned_to))))",
     )
     .eq("organization_id", organizationId);
   planQuery = storeId ? planQuery.eq("store_id", storeId) : planQuery.is("store_id", null);
@@ -339,10 +340,10 @@ export async function getStrategicPlan(
   }
 
   let weeklyReviews: Array<Record<string, unknown>> = [];
-  if (plan?.status === "active") {
+  if (plan && ["active", "completed"].includes(plan.status)) {
     const { data: reviews, error: reviewsError } = await supabase
       .from("strategic_plan_weekly_reviews")
-      .select("id, review_week_start, trigger_kind, period_start, period_end, status, updated_at, output_id, created_at, agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
+      .select("id, review_week_start, trigger_kind, goal_snapshot, period_start, period_end, status, updated_at, output_id, created_at, camino_learning_decisions(learning_index, decision, content), agent_outputs(output, status), strategic_plan_change_proposals(id, proposal_index, proposal, created_at, strategic_plan_change_proposal_events(id, action, actor_user_id, actor_role, reason, edited_proposal, created_at))")
       .eq("plan_id", plan.id)
       .order("created_at", { ascending: false })
       .limit(8);
@@ -352,6 +353,11 @@ export async function getStrategicPlan(
     const normalizedReviews = (reviews ?? []).map((row) => {
       const relation = row.agent_outputs as unknown as Record<string, unknown> | Array<Record<string, unknown>> | null;
       const outputRow = Array.isArray(relation) ? relation[0] : relation;
+      const rawOutput = currentReviewOutput(outputRow?.output, row.goal_snapshot, plan.goal, row.period_end) as Record<string, unknown> | null;
+      if (rawOutput && Array.isArray(rawOutput.learnings)) rawOutput.learnings = rawOutput.learnings.map((learning, index) => {
+        const decision = (row.camino_learning_decisions as unknown as Array<{ learning_index: number; decision: string; content: Record<string, unknown> }> | null)?.find((d) => d.learning_index === index);
+        return decision ? { ...learning, ...decision.content, decision: decision.decision } : learning;
+      });
       const proposals = row.strategic_plan_change_proposals as unknown as Array<Record<string, unknown>> | null;
       return {
         id: row.id,
@@ -365,7 +371,7 @@ export async function getStrategicPlan(
         can_retry: (row.trigger_kind ?? "scheduled") === "scheduled" &&
           row.review_week_start === caminoReviewCycleStart(new Date()) &&
           canRetryCaminoReview(String(row.status), typeof row.updated_at === "string" ? row.updated_at : null),
-        output: outputRow?.output ?? null,
+        output: rawOutput,
         proposals: (proposals ?? []).map((proposal) => {
           const events = (proposal.strategic_plan_change_proposal_events as Array<Record<string, unknown>> | null) ?? [];
           const orderedEvents = [...events].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
@@ -403,9 +409,12 @@ export async function getStrategicPlan(
     }));
   }
 
+  const closures = plan ? await supabase.from("camino_closures").select("id, created_at, snapshot").eq("plan_id", plan.id).eq("organization_id", organizationId).order("created_at", { ascending: false }).limit(5) : { data: [], error: null };
+  if (closures.error) return { ok: false as const, statusCode: 503, error: "camino_closures_load_failed", detail: closures.error.message };
   return {
     ok: true as const,
     data: {
+      closures: closures.data ?? [],
       organization_id: organizationId,
       plan: plan ?? null,
       weekly_reviews: weeklyReviews,
@@ -430,12 +439,12 @@ export async function recordCaminoChangeProposalAction(
 ) {
   const authz = assertCanManagePlan(context, organizationId);
   if (authz.ok === false) return authz;
-  if (!input.action || !["accept", "reject", "edit", "complete"].includes(input.action)) {
+  if (!input.action || !["accept", "reject", "edit", "complete", "apply"].includes(input.action)) {
     return { ok: false as const, statusCode: 400, error: "invalid_camino_proposal_action" };
   }
   const supabase = createServiceClient(env);
   const [{ data: plan, error: planError }, { data: proposalRow, error: proposalError }] = await Promise.all([
-    supabase.from("strategic_plans").select("id, status, store_id").eq("id", planId).eq("organization_id", organizationId).maybeSingle(),
+    supabase.from("strategic_plans").select("id, status, store_id, goal").eq("id", planId).eq("organization_id", organizationId).maybeSingle(),
     supabase.from("strategic_plan_change_proposals").select("id, proposal, plan_id, organization_id").eq("id", proposalId).eq("plan_id", planId).eq("organization_id", organizationId).maybeSingle(),
   ]);
   if (planError || proposalError) return { ok: false as const, statusCode: 503, error: "camino_proposal_decision_load_failed", detail: planError?.message ?? proposalError?.message };
@@ -454,7 +463,7 @@ export async function recordCaminoChangeProposalAction(
   }
   if (previous?.action === "completed") return { ok: false as const, statusCode: 409, error: "camino_proposal_already_completed" };
   const previousAction = previous?.action ?? "pending";
-  const allowed = isCaminoProposalActionAllowed(input.action as "accept" | "reject" | "edit" | "complete", previousAction as "pending" | "accepted" | "edited" | "rejected" | "completed");
+  const allowed = actionAllowedForApply(input.action, previousAction) || isCaminoProposalActionAllowed(input.action as "accept" | "reject" | "edit" | "complete", previousAction as "pending" | "accepted" | "edited" | "rejected" | "completed");
   if (!allowed) return { ok: false as const, statusCode: 409, error: "camino_proposal_invalid_transition" };
 
   const action = input.action;
@@ -473,6 +482,7 @@ export async function recordCaminoChangeProposalAction(
     const original = previous?.edited_proposal ?? proposalRow.proposal as Record<string, unknown>;
     editedProposal = {
       ...original,
+      structured_change: null,
       description: patch.description!.trim().slice(0, 2000),
       reason: patch.reason!.trim().slice(0, 2000),
       evidence: patch.evidence!.trim().slice(0, 2000),
@@ -480,16 +490,14 @@ export async function recordCaminoChangeProposalAction(
     };
   }
   const eventAction = action === "accept" ? "accepted" : action === "reject" ? "rejected" : action === "edit" ? "edited" : "completed";
-  const { data: event, error: eventError } = await supabase.from("strategic_plan_change_proposal_events").insert({
-    proposal_id: proposalId,
-    organization_id: organizationId,
-    action: eventAction,
-    actor_user_id: context.user.id,
-    actor_role: ["platform_admin", "consultant"].includes(context.profile.platform_role) ? "consultant" : "client",
-    reason: reason || null,
-    edited_proposal: editedProposal,
-  }).select("id, action, created_at").single();
-  if (eventError || !event) return { ok: false as const, statusCode: 503, error: "camino_proposal_decision_save_failed", detail: eventError?.message };
+  const { data: eventData, error: eventError } = await supabase.rpc("camino_proposal_decision", {
+    p_organization_id: organizationId, p_plan_id: planId, p_proposal_id: proposalId,
+    p_actor_id: context.user.id, p_actor_role: ["platform_admin", "consultant"].includes(context.profile.platform_role) ? "consultant" : "client",
+    p_action: action === "apply" ? "apply" : eventAction, p_reason: reason || null,
+    p_expected_event: input.expected_last_event_id ?? null, p_edited: editedProposal,
+  });
+  const event = eventData as { id: string; action: string; created_at: string } | null;
+  if (eventError || !event) return { ok: false as const, statusCode: 409, error: "camino_proposal_decision_save_failed", detail: eventError?.message };
 
   await auditStrategicChange(supabase, organizationId, context, `strategic_plan.proposal.${eventAction}`, "strategic_plan_change_proposal", proposalId, {
     plan_id: planId,
@@ -497,6 +505,15 @@ export async function recordCaminoChangeProposalAction(
     action: eventAction,
     reason: reason || null,
   });
+  if (action === "apply") {
+    const original = proposalRow.proposal as Record<string, unknown>;
+    const patch = original.structured_change as { before?: number; value?: number } | null;
+    const goal = plan.goal as Record<string, unknown> | null;
+    if (original.target_type === "goal" && patch && typeof patch.value === "number") await recordObjectiveChange(supabase, context, {
+      organizationId, storeId: plan.store_id, planId, scope: "plan_goal", metricKey: String(goal?.metric_key ?? "goal"),
+      metricLabel: String(goal?.metric_label ?? "Meta del Camino"), action: "updated", previousValue: patch.before ?? null, newValue: patch.value, reason: reason || String(original.reason ?? "Cambio aprobado desde revisión semanal"),
+    });
+  }
   return { ok: true as const, data: { id: event.id, action: event.action, created_at: event.created_at } };
 }
 
@@ -1193,205 +1210,55 @@ export async function unlinkMilestoneTask(env: ApiEnv, context: AuthContext, org
 const MILESTONE_ACTIONS = ["in_progress", "completed", "skipped"] as const;
 
 export async function updateMilestoneStatus(
-  env: ApiEnv,
-  context: AuthContext,
-  organizationId: string,
-  milestoneId: string,
-  statusInput: string | undefined,
-  completionNote?: string,
+  env: ApiEnv, context: AuthContext, organizationId: string, milestoneId: string,
+  statusInput: string | undefined, completionNote?: string, authorization?: string, completionMode?: string,
 ) {
   const authz = assertCanManagePlan(context, organizationId);
-  if (authz.ok === false) {
-    return authz;
-  }
-
-  if (
-    !statusInput ||
-    !MILESTONE_ACTIONS.includes(
-      statusInput as (typeof MILESTONE_ACTIONS)[number],
-    )
-  ) {
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "invalid_milestone_status",
-    };
-  }
-
+  if (!authz.ok) return authz;
+  if (!statusInput || !MILESTONE_ACTIONS.includes(statusInput as (typeof MILESTONE_ACTIONS)[number]))
+    return { ok: false as const, statusCode: 400, error: "invalid_milestone_status" };
+  if (completionMode !== undefined && !["verify", "exception"].includes(completionMode))
+    return { ok: false as const, statusCode: 400, error: "invalid_completion_mode" };
   const supabase = createServiceClient(env);
-  const now = new Date().toISOString();
-
+  let verification: Record<string, unknown> | null = null;
   if (statusInput === "completed") {
-    const { data: links, error: linksError } = await supabase
-      .from("milestone_task_links")
-      .select("task_id, tasks(title, status)")
-      .eq("organization_id", organizationId)
-      .eq("milestone_id", milestoneId);
-    if (linksError) return { ok: false as const, statusCode: 500, error: "milestone_readiness_failed", detail: linksError.message };
-    const normalizedLinks: MilestoneTaskReadiness[] = (links ?? []).map((link) => ({
-      task_id: link.task_id,
-      tasks: Array.isArray(link.tasks) ? (link.tasks[0] ?? null) : link.tasks,
+    const { data: milestone, error } = await supabase.from("strategic_plan_milestones")
+      .select("id, description, success_criteria, strategic_plan_phases!inner(strategic_plans!inner(store_id))")
+      .eq("id", milestoneId).eq("organization_id", organizationId).maybeSingle();
+    if (error || !milestone) return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+    const rel = milestone.strategic_plan_phases as unknown as { strategic_plans: { store_id: string | null } };
+    const storeId = rel.strategic_plans.store_id;
+    let connectionId: string | undefined;
+    if (storeId) {
+      const store = await supabase.from("shopify_stores").select("connection_id").eq("id", storeId).eq("organization_id", organizationId).single();
+      if (store.error) return { ok: false as const, statusCode: 503, error: "milestone_store_unavailable" };
+      connectionId = store.data.connection_id;
+    }
+    if (!authorization) return { ok: false as const, statusCode: 400, error: "milestone_measurement_authorization_required" };
+    const result = await getObjectives(env, authorization, context, organizationId, storeId, connectionId);
+    if (!result.ok) return result;
+    const checks = result.data.objectives.filter((o) => o.milestone_id === milestoneId).map((o) => ({
+      id: o.id, metric_key: o.metric_key, period: o.period, basis: o.measurement_basis,
+      label: o.label, target: o.target_value, actual: o.actual_value, reached: o.status === "cumplido", measurement: o.measurement,
     }));
-    const readiness = assessMilestoneCompletion(normalizedLinks, completionNote);
-    if (!readiness.ready) return {
-      ok: false as const,
-      statusCode: 409,
-      error: "milestone_not_ready",
-      message: readiness.unfinished.length
-        ? `Completa primero las tareas del hito: ${readiness.unfinished.slice(0, 3).join(", ")}${readiness.unfinished.length > 3 ? "…" : ""}.`
-        : readiness.evidenceTooLong
-          ? "La evidencia no puede superar 2000 caracteres."
-        : "Describe la evidencia del resultado en al menos 20 caracteres.",
+    if (completionMode !== "exception" && checks.some((c) => !c.reached)) return {
+      ok: false as const, statusCode: 409, error: "milestone_metric_not_met",
+      message: "Hay objetivos sin alcanzar o sin medición fiable. Revisa el resultado o registra un cierre por excepción con su motivo.",
     };
+    verification = { kind: completionMode === "exception" ? "exception" : checks.length ? "metric" : "human", checks,
+      criterion: milestone.success_criteria || milestone.description, measured_at: new Date().toISOString() };
   }
-
-  const { data: milestone, error } = await supabase
-    .from("strategic_plan_milestones")
-    .update({
-      status: statusInput,
-      ...(statusInput === "completed"
-        ? { completed_at: now, completed_by: context.user.id, completion_evidence: completionNote?.trim() }
-        : {}),
-    })
-    .eq("id", milestoneId)
-    .eq("organization_id", organizationId)
-    .not("status", "eq", "locked")
-    .select("id, phase_id")
-    .maybeSingle();
-
-  if (error) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "milestone_update_failed",
-      detail: error.message,
-    };
-  }
-
-  if (!milestone) {
-    return {
-      ok: false as const,
-      statusCode: 404,
-      error: "milestone_not_found_or_locked",
-    };
-  }
-
-  if (statusInput !== "completed" && statusInput !== "skipped") {
-    const { data: phase } = await supabase.from("strategic_plan_phases")
-      .select("id, plan_id, status")
-      .eq("id", milestone.phase_id)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (phase?.status === "completed") {
-      await supabase.from("strategic_plan_phases")
-        .update({ status: "active", completed_at: null })
-        .eq("id", phase.id)
-        .eq("organization_id", organizationId);
-      await supabase.from("strategic_plans")
-        .update({ status: "active", completed_on: null })
-        .eq("id", phase.plan_id)
-        .eq("organization_id", organizationId)
-        .eq("status", "completed");
-    }
-    await auditStrategicChange(
-      supabase,
-      organizationId,
-      context,
-      "strategic_plan.update_milestone_status",
-      "strategic_plan_milestone",
-      milestone.id,
-      { status: statusInput },
-    );
-    return {
-      ok: true as const,
-      data: { id: milestone.id, status: statusInput },
-    };
-  }
-
-  // Si la fase quedo sin hitos abiertos, se completa y se desbloquea la siguiente.
-  const { data: remaining, error: remainingError } = await supabase
-    .from("strategic_plan_milestones")
-    .select("id")
-    .eq("phase_id", milestone.phase_id)
-    .not("status", "in", "(completed,skipped)")
-    .limit(1);
-
-  if (remainingError || (remaining ?? []).length > 0) {
-    await auditStrategicChange(
-      supabase,
-      organizationId,
-      context,
-      "strategic_plan.update_milestone_status",
-      "strategic_plan_milestone",
-      milestone.id,
-      { status: statusInput },
-    );
-    return {
-      ok: true as const,
-      data: { id: milestone.id, status: statusInput },
-    };
-  }
-
-  const { data: phase } = await supabase
-    .from("strategic_plan_phases")
-    .update({ status: "completed", completed_at: now })
-    .eq("id", milestone.phase_id)
-    .select("id, plan_id, position")
-    .maybeSingle();
-
-  if (phase) {
-    const { data: nextPhase } = await supabase
-      .from("strategic_plan_phases")
-      .select("id")
-      .eq("plan_id", phase.plan_id)
-      .eq("status", "pending")
-      .order("position", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (nextPhase) {
-      await supabase
-        .from("strategic_plan_phases")
-        .update({
-          status: "active",
-          activated_at: now,
-          activated_by: context.user.id,
-        })
-        .eq("id", nextPhase.id);
-      await supabase
-        .from("strategic_plan_milestones")
-        .update({ status: "pending" })
-        .eq("phase_id", nextPhase.id)
-        .eq("status", "locked");
-    } else {
-      // Sin fases pendientes: el plan esta completo.
-      await supabase
-        .from("strategic_plans")
-        .update({
-          status: "completed",
-          completed_on: new Date().toISOString().slice(0, 10),
-        })
-        .eq("id", phase.plan_id)
-        .eq("status", "active");
-    }
-  }
-
-  await auditStrategicChange(
-    supabase,
-    organizationId,
-    context,
-    "strategic_plan.update_milestone_status",
-    "strategic_plan_milestone",
-    milestone.id,
-    { status: statusInput, ...(statusInput === "completed" ? { completion_note: completionNote?.trim() } : {}) },
-  );
-  return { ok: true as const, data: { id: milestone.id, status: statusInput } };
+  const { data, error } = await supabase.rpc("camino_transition_milestone", {
+    p_organization_id: organizationId, p_milestone_id: milestoneId, p_actor_id: context.user.id,
+    p_status: statusInput, p_evidence: completionNote?.trim() ?? null, p_verification: verification,
+  });
+  if (error) return { ok: false as const, statusCode: 409, error: "milestone_transition_failed", message: error.message };
+  await auditStrategicChange(supabase, organizationId, context, "strategic_plan.update_milestone_status", "strategic_plan_milestone", milestoneId,
+    { status: statusInput, evidence: completionNote, verification });
+  return { ok: true as const, data: data as { id: string; status: string } };
 }
 
-type PhaseCreateInput = {
-  name?: string | undefined;
-  description?: string | null | undefined;
-};
+type PhaseCreateInput = { name?: string | undefined; description?: string | null | undefined };
 
 /** Anade una fase a un plan ya existente (a diferencia de createStrategicPlan,
  * que crea el plan entero de una vez). Tanto el consultor como el cliente
@@ -1767,6 +1634,9 @@ type MilestoneUpdateInput = {
   name?: string | undefined;
   description?: string | null | undefined;
   targetDate?: string | null | undefined;
+  /** «Cómo sabremos que está hecho» y «Por qué ahora»: los escribe A19 y el consultor los corrige. */
+  successCriteria?: string | null | undefined;
+  rationale?: string | null | undefined;
 };
 
 export async function updateMilestone(
@@ -1801,6 +1671,15 @@ export async function updateMilestone(
 
   if (input.targetDate !== undefined) {
     patch.target_date = input.targetDate;
+  }
+
+  for (const [key, column] of [["successCriteria", "success_criteria"], ["rationale", "rationale"]] as const) {
+    const value = input[key];
+    if (value === undefined) continue;
+    if (value !== null && typeof value !== "string") {
+      return { ok: false as const, statusCode: 400, error: "invalid_milestone_text" };
+    }
+    patch[column] = value?.trim() ? value.trim().slice(0, 2000) : null;
   }
 
   if (Object.keys(patch).length === 0) {
@@ -2215,7 +2094,7 @@ export async function getObjectives(
   let targetsQuery = supabase
     .from("organization_metric_targets")
     .select(
-      "id, metric_key, target_value, period, valid_from, created_by, store_id, milestone_id",
+      "id, metric_key, target_value, period, measurement_basis, valid_from, created_by, store_id, milestone_id",
     )
     .eq("organization_id", organizationId)
     .lte("valid_from", today)
@@ -2262,54 +2141,25 @@ export async function getObjectives(
     }
   }
 
-  const [shopifyResult, metaResult] = await Promise.all([
-    getShopifyMetrics(env, authorization, context, organizationId, "30", connectionId),
-    getMetaMetrics(env, authorization, context, organizationId, "30", connectionId),
-  ]);
-
-  const actuals: Record<string, number | null> = {};
-  // Mismas cifras que pinta el panel para cada clave, para que el "real" del
-  // Camino y el del panel no discrepen.
-  if (shopifyResult.ok) {
-    const data = shopifyResult.data as any;
-    actuals.net_revenue_ex_tax = data.financial?.net_revenue_ex_tax ?? null;
-    actuals.orders_count = data.sales?.orders_count ?? null;
-    actuals.aov_ex_tax = data.financial?.aov_ex_tax ?? null;
-    actuals.net_profit = data.financial?.net_profit ?? null;
-    actuals.net_margin_pct = data.financial?.net_margin_pct ?? null;
-    actuals.conversion_rate = data.funnel?.conversion_rate_own ?? null;
-    actuals.cac_blended = data.financial?.cac_blended ?? null;
-    actuals.out_of_stock_items = data.stock?.out_of_stock_items ?? null;
+  const measurementTime = new Date();
+  const windows = new Map<string, ReturnType<typeof objectiveWindow>>();
+  for (const target of targets ?? []) {
+    const key = target.measurement_basis === "calendar" ? target.period : "rolling_30_days";
+    if (!windows.has(key)) windows.set(key, objectiveWindow(target.period, target.measurement_basis, measurementTime));
   }
-  if (metaResult.ok) {
-    const data = metaResult.data as any;
-    actuals.roas = data.acquisition?.roas ?? null;
-  }
+  const measurements = new Map(await Promise.all([...windows].map(async ([key, window]) =>
+    [key, await readCaminoObjectives(createServiceClient(env), organizationId, storeId ?? null, window)] as const)));
 
   const objectives = (targets ?? [])
     .filter((target) => catalogByKey.has(target.metric_key as string))
     .map((target) => {
       const catalogEntry = catalogByKey.get(target.metric_key as string)!;
-      const actual =
-        catalogEntry.source === "manual"
-          ? (manualById.get(target.id as string) ?? null)
-          : ((catalogEntry.metric_key
-              ? actuals[catalogEntry.metric_key]
-              : null) ?? null);
+      const measurement = measurements.get(target.measurement_basis === "calendar" ? target.period : "rolling_30_days")!;
+      const actual = catalogEntry.source === "manual" ? (manualById.get(target.id as string) ?? null)
+        : (catalogEntry.metric_key ? measurement.values[catalogEntry.metric_key] ?? null : null);
       const targetValue = Number(target.target_value);
-      let progressPct: number | null = null;
-      if (actual !== null) {
-        if (catalogEntry.direction === "up") {
-          progressPct = targetValue > 0 ? (actual / targetValue) * 100 : 100;
-        } else {
-          progressPct =
-            actual <= targetValue
-              ? 100
-              : targetValue > 0
-                ? (targetValue / actual) * 100
-                : 0;
-        }
-      }
+      const progress = objectiveProgress(actual, targetValue, catalogEntry.direction);
+      const progressPct = progress.pct;
       return {
         id: target.id,
         store_id: target.store_id ?? null,
@@ -2321,12 +2171,15 @@ export async function getObjectives(
         source: catalogEntry.source,
         target_value: targetValue,
         period: target.period,
+        measurement_basis: target.measurement_basis,
+        measurement: { ...measurement, values: undefined, last_sync_at: catalogEntry.source === "meta" ? measurement.meta_last_sync_at : catalogEntry.source === "manual" ? null : measurement.last_sync_at, period_label: catalogEntry.source === "manual" ? "Valor manual" : catalogEntry.metric_key === "out_of_stock_items" ? "Inventario actual" : measurement.period_label,
+          unavailable_reason: actual === null ? "Faltan datos fiables, cobertura o ajustes para esta métrica." : null },
         actual_value: actual,
         progress_pct: progressPct,
         status:
           actual === null
             ? "sin_datos"
-            : progressPct !== null && progressPct >= 100
+            : progress.reached
               ? "cumplido"
               : "en_curso",
       };
@@ -2460,6 +2313,7 @@ export async function createObjective(
           metric_key: input.metricKey,
           target_value: input.targetValue,
           period,
+          measurement_basis: "calendar",
           valid_from: today,
           created_by: context.user.id,
         })
@@ -2564,7 +2418,7 @@ export async function deactivateObjective(
     milestoneId: (data.milestone_id as string | null) ?? null,
     scope: "objective",
     metricKey: data.metric_key as string,
-    metricLabel: catalogEntry?.label ?? (data.metric_key as string),
+    metricLabel: catalogEntry?.label ?? "un objetivo",
     unit: catalogEntry?.unit ?? null,
     period: data.period as string,
     action: "removed",
@@ -2752,7 +2606,7 @@ function assertConsultant(context: AuthContext) {
       statusCode: 403,
       error: "consultant_access_required",
       message:
-        "Solo un consultor o platform admin puede gestionar tipos de objetivo.",
+        "Solo el consultor puede gestionar tipos de objetivo.",
     };
   }
   return { ok: true as const };

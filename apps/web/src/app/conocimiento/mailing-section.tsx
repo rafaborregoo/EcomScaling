@@ -1,12 +1,12 @@
 "use client";
 
+
 import { useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   Field,
   Input,
@@ -14,6 +14,16 @@ import {
   Select,
   Textarea,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 
 type MailingDocument = {
@@ -142,109 +152,112 @@ export function MailingSection({
 
   return (
     <div className="space-y-5">
-      <Card
-        title="Conocimiento de mailing"
-        description="Añade estrategia, tono, segmentos, campañas, flujos, ejemplos y reglas de cumplimiento. Cada nota se indexa para que los agentes la encuentren al analizar o crear emails."
-      >
-        {canManage ? (
-          <form className="space-y-4" onSubmit={(event) => void save(event)}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Tema">
-                <Select
+      <Card>
+        <CardHeader>
+          <CardTitle>Conocimiento de mailing</CardTitle>
+          <CardDescription>Añade estrategia, tono, segmentos, campañas, flujos, ejemplos y reglas de cumplimiento. Cada nota se indexa para que los agentes la encuentren al analizar o crear emails.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {canManage ? (
+            <form className="space-y-4" onSubmit={(event) => void save(event)}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Tema">
+                  <Select
+                    className="mt-2"
+                    value={category}
+                    onChange={(value) => setCategory(value)}
+                    options={MAILING_CATEGORIES.map((item) => ({
+                      value: item.value,
+                      label: item.label,
+                    }))}
+                    disabled={Boolean(editing)}
+                  />
+                </Field>
+                <Field label="Título de esta nota">
+                  <Input
+                    className="mt-2"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Ej.: Bienvenida a nuevos suscriptores"
+                    required
+                    disabled={Boolean(editing)}
+                  />
+                </Field>
+              </div>
+              <Field label="Información para el copiloto y los agentes">
+                <Textarea
                   className="mt-2"
-                  value={category}
-                  onChange={(value) => setCategory(value)}
-                  options={MAILING_CATEGORIES.map((item) => ({
-                    value: item.value,
-                    label: item.label,
-                  }))}
-                  disabled={Boolean(editing)}
-                />
-              </Field>
-              <Field label="Título de esta nota">
-                <Input
-                  className="mt-2"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Ej.: Bienvenida a nuevos suscriptores"
+                  rows={10}
+                  value={content}
+                  onChange={(event) => setContent(event.target.value)}
+                  placeholder={
+                    "Objetivo y contexto:\nAudiencia y exclusiones:\nTono y palabras de marca:\nOferta o propuesta de valor:\nEstructura y llamada a la acción:\nFrecuencia y momento de envío:\nQué evitar / requisitos legales:\nEjemplos y resultados conocidos:"
+                  }
                   required
-                  disabled={Boolean(editing)}
                 />
               </Field>
-            </div>
-            <Field label="Información para el copiloto y los agentes">
-              <Textarea
-                className="mt-2"
-                rows={10}
-                value={content}
-                onChange={(event) => setContent(event.target.value)}
-                placeholder={
-                  "Objetivo y contexto:\nAudiencia y exclusiones:\nTono y palabras de marca:\nOferta o propuesta de valor:\nEstructura y llamada a la acción:\nFrecuencia y momento de envío:\nQué evitar / requisitos legales:\nEjemplos y resultados conocidos:"
-                }
-                required
-              />
-            </Field>
-            <p className="text-xs text-muted">
-              Se guardará como conocimiento visible para el cliente y los agentes, y quedará disponible en la búsqueda semántica.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={isSaving || isLoadingDocument}>
-                {isSaving ? "Indexando…" : editing ? "Guardar cambios" : "Guardar en Conocimiento"}
-              </Button>
-              {editing ? (
-                <Button type="button" variant="secondary" onClick={resetForm} disabled={isSaving}>
-                  Cancelar edición
+              <p className="text-xs text-muted">
+                Se guardará como conocimiento visible para el cliente y los agentes, y quedará disponible en la búsqueda semántica.
+              </p>
+              <div role="group" aria-label="Acciones del documento" className="flex flex-wrap items-center gap-2">
+                <Button type="submit" disabled={isSaving || isLoadingDocument}>
+                  {isSaving ? "Indexando…" : editing ? "Guardar cambios" : "Guardar en Conocimiento"}
                 </Button>
-              ) : null}
-            </div>
-          </form>
-        ) : (
-          <p className="text-sm text-muted">
-            Puedes consultar estas notas. Para añadir o editar información, pide acceso a un propietario, manager o consultor.
-          </p>
-        )}
+                {editing ? (
+                  <Button type="button" variant="secondary" onClick={resetForm} disabled={isSaving}>
+                    Cancelar edición
+                  </Button>
+                ) : null}
+              </div>
+            </form>
+          ) : (
+            <p className="text-sm text-muted">
+              Puedes consultar estas notas. Para añadir o editar información, pide acceso a un propietario, manager o consultor.
+            </p>
+          )}
+        </CardContent>
       </Card>
 
-      <Card
-        title={`Información de mailing (${mailingDocuments.length})`}
-        description="Cada nota se conserva como documento independiente y se puede actualizar sin perder la búsqueda semántica."
-      >
-        {mailingDocuments.length === 0 ? (
-          <EmptyState
-            title="Todavía no hay información de mailing"
-            hint="Empieza con la voz de marca, los objetivos del canal o una campaña que ya os funcione."
-          />
-        ) : (
-          <List>
-            {mailingDocuments.map((document) => (
-              <List.Item
-                key={document.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium">{document.title.slice(MAILING_PREFIX.length)}</p>
-                  <p className="mt-1 text-xs text-muted">
-                    Actualizado {new Date(document.updated_at).toLocaleDateString("es-ES")} · versión {document.version}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  {document.status !== "active" ? <Badge tone="neutral">{document.status}</Badge> : null}
-                  {canManage && document.status === "active" ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={isLoadingDocument || isSaving}
-                      onClick={() => void editDocument(document)}
-                    >
-                      Editar
-                    </Button>
-                  ) : null}
-                </div>
-              </List.Item>
-            ))}
-          </List>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>{`Información de mailing (${mailingDocuments.length})`}</CardTitle>
+          <CardDescription>Cada nota se conserva como documento independiente y se puede actualizar sin perder la búsqueda semántica.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {mailingDocuments.length === 0 ? (
+            <EmptyState
+              title="Todavía no hay información de mailing"
+              hint="Empieza con la voz de marca, los objetivos del canal o una campaña que ya os funcione."
+            />
+          ) : (
+            <List>
+              {mailingDocuments.map((document) => (
+                <Item key={document.id} role="listitem">
+                  <ItemContent>
+                    <ItemTitle>{document.title.slice(MAILING_PREFIX.length)}</ItemTitle>
+                    <ItemDescription>
+                      Actualizado {new Date(document.updated_at).toLocaleDateString("es-ES")} · versión {document.version}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions className="gap-3">
+                    {document.status !== "active" ? <Badge tone="neutral">{document.status}</Badge> : null}
+                    {canManage && document.status === "active" ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={isLoadingDocument || isSaving}
+                        onClick={() => void editDocument(document)}
+                      >
+                        Editar
+                      </Button>
+                    ) : null}
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

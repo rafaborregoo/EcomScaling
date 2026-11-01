@@ -7,7 +7,6 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
@@ -15,6 +14,18 @@ import {
   List,
   LoadingBlock,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 // /admin/logs/errores-sync: pantalla propia (antes mitad de la pestaña
@@ -92,11 +103,11 @@ function SyncErrorsPanel() {
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
 
   return (
-    <Card
-      title="Sincronizaciones caídas"
-      description="Sincronizaciones fallidas de Shopify, Meta Ads y Klaviyo, de toda la plataforma."
-      actions={
-        <div className="flex items-center gap-2">
+    <Card>
+      <CardHeader>
+        <CardTitle>Sincronizaciones caídas</CardTitle>
+        <CardDescription>Sincronizaciones fallidas de Shopify, Meta Ads y Klaviyo, de toda la plataforma.</CardDescription>
+        <CardAction><div className="flex items-center gap-2">
           {errors && errors.length > 0 ? (
             <Badge tone="danger">{errors.length}</Badge>
           ) : null}
@@ -110,51 +121,52 @@ function SyncErrorsPanel() {
               onChange={(event) => setDays(event.target.value)}
             />
           </Field>
-        </div>
-      }
-    >
-      {errors === null ? (
-        <LoadingBlock label="Buscando fallos…" />
-      ) : errors.length === 0 ? (
-        <EmptyState
-          title="Nada roto en esta ventana"
-          hint="Ninguna sincronización fallida en los últimos días."
-        />
-      ) : (
-        <List as="ul">
-          {errors.map((item) => (
-            <List.Item
-              as="li"
-              key={item.id}
-              className="flex flex-wrap items-start gap-3 py-3"
-            >
-              <Badge tone="danger">sync</Badge>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">
-                  {item.source}
-                  {item.organization_name ? ` · ${item.organization_name}` : ""}
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        {errors === null ? (
+          <LoadingBlock label="Buscando fallos…" />
+        ) : errors.length === 0 ? (
+          <EmptyState
+            title="Nada roto en esta ventana"
+            hint="Ninguna sincronización fallida en los últimos días."
+          />
+        ) : (
+          <List as="ul">
+            {errors.map((item) => (
+              <Item key={item.id} size="sm" render={<li />}>
+                <ItemMedia>
+                  <Badge tone="danger">sync</Badge>
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle>
+                    {item.source}
+                    {item.organization_name ? ` · ${item.organization_name}` : ""}
+                  </ItemTitle>
+                  {item.message ? (
+                    <ItemDescription className="break-words">
+                      {item.message.slice(0, 300)}
+                    </ItemDescription>
+                  ) : null}
+                </ItemContent>
+                <ItemActions>
+                <span className="text-sm text-muted">
+                  {when(item.occurred_at)}
                 </span>
-                {item.message ? (
-                  <span className="mt-0.5 block break-words text-xs text-muted">
-                    {item.message.slice(0, 300)}
-                  </span>
-                ) : null}
-              </span>
-              <span className="shrink-0 text-xs text-muted">
-                {when(item.occurred_at)}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={retrying === item.id}
-                onClick={() => void retry(item.id)}
-              >
-                {retrying === item.id ? "Relanzando…" : "Reintentar"}
-              </Button>
-            </List.Item>
-          ))}
-        </List>
-      )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={retrying === item.id}
+                  onClick={() => void retry(item.id)}
+                >
+                  {retrying === item.id ? "Relanzando…" : "Reintentar"}
+                </Button>
+                </ItemActions>
+              </Item>
+            ))}
+          </List>
+        )}
+      </CardContent>
     </Card>
   );
 }

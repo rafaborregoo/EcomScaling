@@ -1,12 +1,15 @@
 "use client";
+import { DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { A01_CAMINO_BRIEF_KEY, parseA01BriefHandoff } from "@/lib/a01-call-handoff";
 import { EvidenceChips } from "@/components/ai-proposed-tasks";
-import { AiEvidence, Button, ButtonLink, ErrorBlock, Input, LoadingBlock, Select, Tabs, Textarea, toast } from "@/components/ui";
+import { FileTextIcon, XIcon } from "lucide-react";
+import { AiEvidence, Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia, AttachmentTitle, Button, ButtonLink, ErrorBlock, Input, LoadingBlock, SearchableSelect, Select, Tabs, Textarea, toast } from "@/components/ui";
 import { CaminoDraftMap, CaminoDrawing, type DraftPhase } from "./camino-map";
 import { CaminoIntakeWizard, type CaminoIntake } from "./camino-intake-wizard";
 import { calendarHorizonDays, calendarMonthsTouched } from "./camino-calendar";
@@ -24,7 +27,18 @@ import s from "./camino-create-panel.module.css";
 
 export type CaminoCreateMode = "ia" | "import" | "manual";
 
-type CatalogEntry = { key: string; label: string; unit: "money" | "pct" | "count" | "ratio" | "number" };
+type CatalogEntry = { key: string; label: string; unit: "money" | "pct" | "count" | "ratio" | "number"; source?: "shopify" | "meta" | "manual" };
+
+// Las métricas del catálogo, agrupadas por la fuente que las mide.
+const METRIC_SOURCE_LABEL: Record<string, string> = { shopify: "Shopify", meta: "Meta Ads", klaviyo: "Klaviyo", manual: "Manual" };
+export function metricOptions(catalog: Array<{ key: string; label: string; source?: string }>) {
+  return catalog.map((entry) => ({
+    value: entry.key,
+    label: entry.label,
+    section: entry.source ? (METRIC_SOURCE_LABEL[entry.source] ?? entry.source) : undefined,
+  }));
+}
+
 
 export const CAMINO_CURRENCIES = ["EUR", "USD", "GBP", "MXN", "COP", "ARS", "CLP", "PEN", "CHF"] as const;
 
@@ -98,28 +112,16 @@ export function CaminoCreatePanel({
         </div>
         <label className={s.currency}>
           <span>Moneda del camino</span>
-          <select value={currency} onChange={(event) => setCurrency(event.target.value)} aria-label="Moneda del camino">
-            {CAMINO_CURRENCIES.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
+          <Select value={currency} onChange={setCurrency} aria-label="Moneda del camino" options={CAMINO_CURRENCIES.map((code) => ({ value: code, label: code }))} />
         </label>
         {replacePlan ? null : (
-        <div className={s.modes} role="group" aria-label="Cómo crear el camino">
+        <ToggleGroup aria-label="Cómo crear el camino" className="col-span-full" value={mode} onValueChange={setMode}>
           {MODES.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`${s.mode} ${mode === item.key ? s.modeActive : ""}`}
-              aria-pressed={mode === item.key}
-              onClick={() => setMode(item.key)}
-            >
-              <span className={s.modeLabel}>{item.label}</span>
-            </button>
+            <ToggleGroupItem key={item.key} value={item.key}>
+              {item.label}
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         )}
       </div>
       <div className={s.body}>
@@ -568,8 +570,9 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
             <strong>{error}</strong>
             {progress?.state === "failed" && content ? <p>La propuesta que ves abajo es anterior a este intento.</p> : null}
             {progress?.state === "failed" ? (
-              <details style={{ marginTop: 8 }}>
-                <summary>Diagnóstico de ejecución</summary>
+              <Collapsible style={{ marginTop: 8 }}>
+                <CollapsibleTrigger>Diagnóstico de ejecución<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                <CollapsibleContent>
                 <div style={{ marginTop: 8 }}>
                   <div>Estado: {progress.run_status ?? progress.failure?.error ?? "fallido"}</div>
                   {progress.model ? <div>Modelo: {progress.model}</div> : null}
@@ -583,7 +586,8 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
                   ) : <div>No hay pasos guardados para esta ejecución.</div>}
                   <div>Consultas a herramientas: {progress.tool_calls}</div>
                 </div>
-              </details>
+              </CollapsibleContent>
+              </Collapsible>
             ) : null}
           </div>
         </ErrorBlock>
@@ -726,8 +730,9 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
             </section>
           ) : null}
           {goal?.decision_gates?.length ? (
-            <details className={s.phaseDetails}>
-              <summary>Decisiones antes de invertir o lanzar</summary>
+            <Collapsible className={s.phaseDetails}>
+              <CollapsibleTrigger>Decisiones antes de invertir o lanzar<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+              <CollapsibleContent>
               <div className={s.phaseCards}>
                 {goal.decision_gates.map((gate, index) => (
                   <div className={s.phaseCard} key={`${gate.decision}-${index}`}>
@@ -738,7 +743,8 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
                   </div>
                 ))}
               </div>
-            </details>
+            </CollapsibleContent>
+            </Collapsible>
           ) : null}
 
           {hiddenMilestones > 0 ? (
@@ -783,8 +789,9 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
                 <div className="space-y-4 pt-3">
           <CaminoDraftMap phases={draft} finalLabel={finalLabel} variant={variant} />
 
-          <details className={s.phaseDetails}>
-            <summary>Ver contexto y evidencias por fase</summary>
+          <Collapsible className={s.phaseDetails}>
+            <CollapsibleTrigger>Ver contexto y evidencias por fase<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+            <CollapsibleContent>
             <ol className={s.phaseCards}>
             {phases.map((phase, index) => (
               <li key={`${phase.name}-${index}`} className={s.phaseCard}>
@@ -806,7 +813,8 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
               </li>
             ))}
             </ol>
-          </details>
+          </CollapsibleContent>
+          </Collapsible>
 
 </div>
               ),
@@ -830,18 +838,22 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
           </section>
 
           {goal?.rationale ? (
-            <details className={s.phaseDetails}>
-              <summary>Por qué esta meta</summary>
+            <Collapsible className={s.phaseDetails}>
+              <CollapsibleTrigger>Por qué esta meta<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+              <CollapsibleContent>
               <p>{goal.rationale}</p>
-            </details>
+            </CollapsibleContent>
+            </Collapsible>
           ) : null}
 
           {proposal?.context_sources ? <ContextUsed sources={proposal.context_sources} /> : null}
 
-          <details className={s.phaseDetails}>
-            <summary>Ver {content.sources.length} fuentes y límites de la propuesta</summary>
+          <Collapsible className={s.phaseDetails}>
+            <CollapsibleTrigger>Ver {content.sources.length} fuentes y límites de la propuesta<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+            <CollapsibleContent>
             <AiEvidence sources={content.sources} warnings={content.warnings} />
-          </details>
+          </CollapsibleContent>
+          </Collapsible>
 
 </div>
               ),
@@ -1004,9 +1016,27 @@ function ImportCreator({ organizationId, connectionId, currency, onCreated, vari
         <span className={s.dropIcon} aria-hidden="true">
           ⇪
         </span>
-        <b>{preview?.fileName ?? "Arrastra aquí tu plantilla .md"}</b>
-        <span>{preview ? "Suelta otro archivo para cambiarla" : "o pulsa para elegirla"}</span>
+        <b>{preview ? "Suelta otra plantilla para cambiarla" : "Arrastra aquí tu plantilla .md"}</b>
+        <span>o pulsa para elegirla</span>
       </label>
+      {preview ? (
+        <Attachment size="sm" state={preview.ok ? "done" : "error"}>
+          <AttachmentMedia><FileTextIcon aria-hidden /></AttachmentMedia>
+          <AttachmentContent>
+            <AttachmentTitle>{preview.fileName ?? "plantilla.md"}</AttachmentTitle>
+            <AttachmentDescription>
+              {preview.ok
+                ? `Markdown · ${preview.counts.phases} fases, ${preview.counts.milestones} hitos`
+                : `Markdown · ${preview.errors.length === 1 ? "1 error" : `${preview.errors.length} errores`} que corregir`}
+            </AttachmentDescription>
+          </AttachmentContent>
+          <AttachmentActions>
+            <AttachmentAction aria-label={`Quitar ${preview.fileName ?? "la plantilla"}`} onClick={() => { setPreview(null); setMarkdown(""); }}>
+              <XIcon aria-hidden />
+            </AttachmentAction>
+          </AttachmentActions>
+        </Attachment>
+      ) : null}
       <p className={s.hintLine}>
         ¿No tienes plantilla?{" "}
         <ButtonLink href="/plantilla-mi-camino.md" download="plantilla-mi-camino.md" variant="ghost" size="sm">
@@ -1167,7 +1197,7 @@ function ManualCreator({ organizationId, connectionId, currency, catalog, onCrea
                   placeholder={pi === 0 ? "p. ej. Medir bien" : "Nombre de la fase"}
                 />
                 {phases.length > 1 ? (
-                  <button type="button" className={s.remove} aria-label={`Quitar la fase ${pi + 1}`} onClick={() => setPhases((current) => current.filter((_, i) => i !== pi))}>
+                  <button type="button" className={buttonVariants({ variant: "ghost", size: "icon" })} aria-label={`Quitar la fase ${pi + 1}`} onClick={() => setPhases((current) => current.filter((_, i) => i !== pi))}>
                     ×
                   </button>
                 ) : null}
@@ -1186,17 +1216,18 @@ function ManualCreator({ organizationId, connectionId, currency, catalog, onCrea
                         placeholder="Qué se consigue en este hito"
                       />
                       <div className={s.builderRow}>
-                        <Input
-                          type="date"
+                        <DatePicker
                           aria-label={`Fecha del hito ${pi + 1}.${mi + 1}`}
                           value={milestone.date}
-                          onChange={(event) => updateMilestone(pi, mi, { date: event.target.value })}
+                          onChange={(value) => updateMilestone(pi, mi, { date: value })}
                         />
-                        <Select
+                        <SearchableSelect
                           aria-label={`Métrica del hito ${pi + 1}.${mi + 1}`}
+                          placeholder="Busca una métrica"
+                          emptyText="No hay ninguna métrica con ese nombre."
                           value={milestone.metricKey}
                           onChange={(value) => updateMilestone(pi, mi, { metricKey: value })}
-                          options={[{ value: "", label: "Sin métrica" }, ...catalog.map((entry) => ({ value: entry.key, label: entry.label }))]}
+                          options={[{ value: "", label: "Sin métrica" }, ...metricOptions(catalog)]}
                         />
                         {milestone.metricKey ? (
                           <span className={s.targetField}>
@@ -1217,7 +1248,7 @@ function ManualCreator({ organizationId, connectionId, currency, catalog, onCrea
                     {phase.milestones.length > 1 ? (
                       <button
                         type="button"
-                        className={s.remove}
+                        className={buttonVariants({ variant: "ghost", size: "icon" })}
                         aria-label={`Quitar el hito ${pi + 1}.${mi + 1}`}
                         onClick={() => updatePhase(pi, { milestones: phase.milestones.filter((_, j) => j !== mi) })}
                       >
@@ -1227,7 +1258,7 @@ function ManualCreator({ organizationId, connectionId, currency, catalog, onCrea
                   </li>
                 ))}
               </ul>
-              <button type="button" className={s.addLink} onClick={() => updatePhase(pi, { milestones: [...phase.milestones, emptyMilestone()] })}>
+              <button type="button" className={buttonVariants({ variant: "link" })} onClick={() => updatePhase(pi, { milestones: [...phase.milestones, emptyMilestone()] })}>
                 + Hito
               </button>
             </li>

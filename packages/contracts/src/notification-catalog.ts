@@ -80,6 +80,24 @@ export const NOTIFICATION_TYPES = {
     explanation: "Alguien ha cambiado un objetivo o la meta, o la IA propone ajustes por ese cambio.",
     audience: "ambos",
   },
+  meeting_booked: {
+    category: "task_assigned",
+    label: "Reunión",
+    explanation: "Se ha reservado una reunión contigo, o tu consultor te ha citado.",
+    audience: "ambos",
+  },
+  meeting_rescheduled: {
+    category: "task_assigned",
+    label: "Reunión movida",
+    explanation: "Una reunión ha cambiado de día u hora.",
+    audience: "ambos",
+  },
+  meeting_cancelled: {
+    category: "task_assigned",
+    label: "Reunión cancelada",
+    explanation: "Una reunión se ha cancelado.",
+    audience: "ambos",
+  },
   message: {
     category: "message",
     label: "Mensaje",

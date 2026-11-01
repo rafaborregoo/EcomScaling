@@ -12,9 +12,13 @@ import {
   Input,
   Select,
   Textarea,
-  ToggleButton,
-  ToggleButtonGroup,
+  ToggleGroup,
+  ToggleGroupItem,
   UploadButton,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
 } from "@/components/ui";
 import {
   FONT_OPTIONS,
@@ -62,23 +66,17 @@ function AlignField({
   onChange: (align: BlockAlign) => void;
 }) {
   return (
-    <ToggleButtonGroup
+    <ToggleGroup
       aria-label="Alineación"
-      selectionMode="single"
-      disallowEmptySelection
-      size="sm"
-      selectedKeys={[value]}
-      onSelectionChange={(keys) => {
-        const next = [...keys][0] as BlockAlign | undefined;
-        if (next) onChange(next);
-      }}
+      value={value}
+      onValueChange={(next) => onChange(next as BlockAlign)}
     >
       {ALIGN_OPTIONS.map(({ key, label, Icon }) => (
-        <ToggleButton key={key} id={key} isIconOnly aria-label={label}>
+        <ToggleGroupItem key={key} value={key} size="icon-sm" aria-label={label}>
           <Icon />
-        </ToggleButton>
+        </ToggleGroupItem>
       ))}
-    </ToggleButtonGroup>
+    </ToggleGroup>
   );
 }
 
@@ -243,25 +241,17 @@ export function TemplateBuilder({
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className={EYEBROW}>Lienzo</p>
-          <ToggleButtonGroup
+          <ToggleGroup
             aria-label="Ancho de la vista"
-            selectionMode="single"
-            disallowEmptySelection
-            size="sm"
-            selectedKeys={[device]}
-            onSelectionChange={(keys) => {
-              const next = [...keys][0] as
-                | "mobile"
-                | "tablet"
-                | "desktop"
-                | undefined;
-              if (next) setDevice(next);
-            }}
+            value={device}
+            onValueChange={(next) =>
+              setDevice(next as "mobile" | "tablet" | "desktop")
+            }
           >
-            <ToggleButton id="mobile">Móvil</ToggleButton>
-            <ToggleButton id="tablet">Tablet</ToggleButton>
-            <ToggleButton id="desktop">Escritorio</ToggleButton>
-          </ToggleButtonGroup>
+            <ToggleGroupItem value="mobile">Móvil</ToggleGroupItem>
+            <ToggleGroupItem value="tablet">Tablet</ToggleGroupItem>
+            <ToggleGroupItem value="desktop">Escritorio</ToggleGroupItem>
+          </ToggleGroup>
         </div>
         <div
           className="mx-auto w-full border border-separator bg-white"
@@ -549,10 +539,12 @@ export function TemplateBuilder({
           )}
         </div>
 
-        <details className="border border-separator">
-          <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium">
+        <Collapsible className="border border-separator">
+          <CollapsibleTrigger className="w-full justify-between px-3 py-2 text-sm font-medium">
             Estilos generales
-          </summary>
+            <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 pb-3">
             <Select
               className="w-44"
@@ -585,7 +577,8 @@ export function TemplateBuilder({
               onChange={(hex) => setStyles({ primary: hex })}
             />
           </div>
-        </details>
+        </CollapsibleContent>
+        </Collapsible>
       </div>
     </div>
   );

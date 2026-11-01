@@ -5,18 +5,20 @@
  * conviene que se vea de lejos: el consultor lo ve todo, y el cliente solo lo
  * que ocurre en sus sistemas y **ya esta verificado**.
  *
- * Las dos condiciones -- `client_actionable` y `status <> 'open'` -- son las
- * mismas que `isVisibleToClient` del contrato y las mismas que la politica RLS
- * `data_quality_issues_select_cliente`. Estan escritas dos veces a proposito:
+ * Las dos condiciones -- `client_actionable` y estado verificado y vigente
+ * (`investigating`/`explained`) -- son las de `isVisibleToClient` del contrato.
+ * La politica RLS `data_quality_issues_select_cliente` es mas amplia
+ * (`status <> 'open'`); esta consulta ademas excluye lo ya resuelto. Estan escritas dos veces a proposito:
  * aqui para pedir solo lo que toca, y en la RLS para que no se pueda leer otra
  * cosa aunque esta consulta se escriba mal. Si algun dia discrepan, manda la
  * RLS, que es la unica que no se puede saltar por descuido.
  *
- * Por que `status <> 'open'`: un issue recien detectado es una sospecha del
+ * Por que no `open`: un issue recien detectado es una sospecha del
  * motor. Avisar al cliente de una averia que no lo era erosiona la confianza
  * mas rapido que el fallo original, y ademas le hace perder el tiempo
  * reconectando algo que funciona.
  */
+import { CLIENT_VISIBLE_STATUSES } from "@e-nora/contracts";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 
 type ApiEnv = {
@@ -40,7 +42,7 @@ export async function listOrganizationDataQuality(
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      message: "No tienes acceso a esta tienda.",
     };
   }
 
@@ -54,7 +56,7 @@ export async function listOrganizationDataQuality(
     )
     .eq("organization_id", organizationId)
     .eq("client_actionable", true)
-    .neq("status", "open")
+    .in("status", [...CLIENT_VISIBLE_STATUSES])
     .order("detected_at", { ascending: false })
     .limit(50);
 

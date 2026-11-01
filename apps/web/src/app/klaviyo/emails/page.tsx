@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { PortalShell } from "@/components/portal-shell";
-import { AsyncState, EmptyState, ErrorBlock } from "@/components/ui";
+import { Select, AsyncState, Pagination, EmptyState, ErrorBlock, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { cx } from "../../dashboard/client-pulse";
@@ -13,6 +13,7 @@ import { fmtNum } from "../../dashboard/client-pulse-model";
 import pulse from "../../dashboard/client-pulse.module.css";
 import s from "../../shopify/productos/catalogo.module.css";
 import k from "../emails.module.css";
+import r from "../../shopify/legible.module.css";
 import type { KlaviyoEmailListRow, KlaviyoEmailsResponse } from "../email-types";
 import { alertTone, emailHref, kindLabel, money, PERIODS, type Period, periodLabel, pct, sentLabel } from "../email-model";
 
@@ -117,8 +118,8 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     : [];
 
   return (
-    <div className={pulse.root}>
-      <header className={s.top}>
+    <div className={`${pulse.root} ${r.pg} ${r.min} nora-min`}>
+      <header className={`${s.top} client-sr-title`}>
         <div>
           <h1>Emails</h1>
         </div>
@@ -152,32 +153,30 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </form>
             <div className={s.barR}>
               {summary && summary.campaigns && summary.flows ? (
-              <div className={pulse.seg} role="group" aria-label="Tipo">
+              <ToggleGroup aria-label="Tipo" value={kind} onValueChange={(value) => { setKind(value); setPage(1); }}>
                 {KINDS.map((item) => (
-                  <button key={item.value || "all"} type="button" aria-pressed={kind === item.value} onClick={() => { setKind(item.value); setPage(1); }}>
+                  <ToggleGroupItem key={item.value || "all"} value={item.value}>
                     {item.label}
-                    {summary ? <b>{fmtNum(item.count(summary))}</b> : null}
-                  </button>
+                    {summary ? <span className="text-xs text-muted tabular-nums">{fmtNum(item.count(summary))}</span> : null}
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
               ) : null}
               <label className={s.selectL}>
                 Ordenar
-                <select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setPage(1); }} aria-label="Ordenar por">
-                  {SORTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </select>
+                <Select className="w-auto" value={sort} onChange={(value) => { setSort(value as Sort); setPage(1); }} aria-label="Ordenar por" options={SORTS} />
               </label>
-              <div className={pulse.seg} role="group" aria-label="Periodo">
+              <ToggleGroup aria-label="Periodo" value={periodDays} onValueChange={(value) => { setPeriodDays(value); setPage(1); }}>
                 {PERIODS.map((value) => (
-                  <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => { setPeriodDays(value); setPage(1); }}>
+                  <ToggleGroupItem key={value} value={value}>
                     {periodLabel(value)}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
-              <div className={pulse.seg} role="group" aria-label="Vista">
-                <button type="button" aria-pressed={view === "grid"} onClick={() => setView("grid")}>Tarjetas</button>
-                <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>Tabla</button>
-              </div>
+              </ToggleGroup>
+              <ToggleGroup aria-label="Vista" value={view} onValueChange={setView}>
+                <ToggleGroupItem value="grid">Tarjetas</ToggleGroupItem>
+                <ToggleGroupItem value="table">Tabla</ToggleGroupItem>
+              </ToggleGroup>
             </div>
           </div>
 
@@ -241,13 +240,10 @@ function EmailsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
           {data && totalPages > 1 ? (
             <div className={s.pager}>
-              <span className={pulse.muted} style={{ fontSize: 12.5 }}>
-                {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}
+              <span className={pulse.muted}>
+                {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"}
               </span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
-              </div>
+              <Pagination page={page} pageCount={totalPages} onChange={setPage} />
             </div>
           ) : null}
 

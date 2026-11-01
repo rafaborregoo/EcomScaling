@@ -187,7 +187,6 @@ button.sumC:hover {
   resize: vertical;
 }
 .txt:focus,
-.fld select:focus,
 .fld input:focus {
   border-color: var(--store);
 }
@@ -201,25 +200,7 @@ button.sumC:hover {
 .warnTxt {
   color: var(--warn);
 }
-.topics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.topics button {
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--ink-2);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.topics button[aria-pressed="true"] {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--surface);
-}
+
 .row2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -231,7 +212,6 @@ button.sumC:hover {
   color: var(--ink-3);
   font-size: 12px;
 }
-.fld select,
 .fld input {
   width: 100%;
   min-height: 36px;
@@ -243,9 +223,6 @@ button.sumC:hover {
   font: inherit;
   font-size: 13px;
   outline: none;
-}
-.fld select:disabled {
-  opacity: 0.6;
 }
 .formActs {
   display: flex;

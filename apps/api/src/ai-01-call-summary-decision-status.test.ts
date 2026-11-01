@@ -40,6 +40,7 @@ let orgId = "";
 let creatorUserId = "";
 let callId = "";
 let summaryId = "";
+let securityDraftId = "";
 let platformAdminContext: AuthContext;
 
 before(async () => {
@@ -115,6 +116,32 @@ before(async () => {
   }
   summaryId = summary.id;
 
+  const { data: securityDraft, error: securityDraftError } = await admin
+    .from("call_ai_summaries")
+    .insert({
+      call_id: callId,
+      organization_id: orgId,
+      summary: "Borrador adversarial pendiente de aprobación.",
+      key_points: {
+        proposed_tasks: [
+          {
+            title: "Enviar campaña sin autorización",
+            description: "Propuesta de prueba; no debe ejecutarse mientras siga pendiente.",
+            owner: "cliente",
+          },
+        ],
+      },
+      status: "pending_approval",
+    })
+    .select("id")
+    .single();
+  if (securityDraftError || !securityDraft) {
+    throw new Error(
+      `No se pudo crear el borrador adversarial: ${securityDraftError?.message}`,
+    );
+  }
+  securityDraftId = securityDraft.id;
+
   // BE-01 (2026-07-28): `memberships: []` funcionaba antes solo por el bug
   // real corregido en `calls.ts:requireOrganizationAccess` (un platform_admin
   // pasaba el chequeo de organizacion sin necesitar una membership real ni
@@ -149,6 +176,24 @@ after(async () => {
   if (orgId) {
     await admin.from("organizations").delete().eq("id", orgId);
   }
+});
+
+test("una propuesta adversarial pending_approval no crea tareas ni se publica sola", async () => {
+  const [{ data: draft, error: draftError }, { data: tasks, error: tasksError }] =
+    await Promise.all([
+      admin
+        .from("call_ai_summaries")
+        .select("status, key_points")
+        .eq("id", securityDraftId)
+        .eq("organization_id", orgId)
+        .single(),
+      admin.from("tasks").select("id").eq("organization_id", orgId),
+    ]);
+
+  assert.equal(draftError, null);
+  assert.equal(tasksError, null);
+  assert.equal(draft?.status, "pending_approval");
+  assert.equal(tasks?.length, 0, "una propuesta no debe materializarse antes de aprobarla");
 });
 
 test("primera decision sobre un resumen pending_approval: aprueba con 200", async () => {

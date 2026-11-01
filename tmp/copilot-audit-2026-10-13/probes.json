@@ -1,0 +1,11 @@
+{
+  "missingContracts": [
+    "meta_spend_detail"
+  ],
+  "syntheticTextRedaction": {
+    "message": "Bearer TOKEN_FICTICIO"
+  },
+  "syntheticKeyRedaction": {
+    "access_token": "[REDACTED]"
+  }
+}

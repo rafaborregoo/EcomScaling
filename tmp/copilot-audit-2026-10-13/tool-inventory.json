@@ -1,0 +1,527 @@
+[
+  {
+    "name": "sql_query",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "get_metric",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "compare_periods",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "get_timeseries",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "detect_anomaly",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "get_cohort",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "describe_schema",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "sample_rows",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "data_coverage",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_organization_profile",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_brand_profile",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_strategic_plan",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_current_milestone",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "list_open_tasks",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "list_open_alerts",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_task_history",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_call_history",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "get_financial_settings",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "generate_report",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "meta_read_ad_accounts",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": true
+  },
+  {
+    "name": "meta_read_campaign_insights",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": true
+  },
+  {
+    "name": "instagram_read_media",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "instagram",
+    "contract": true
+  },
+  {
+    "name": "instagram_read_insights",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "instagram",
+    "contract": true
+  },
+  {
+    "name": "knowledge_search",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "memory_recall",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "get_playbook",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "cite_source",
+    "status": "planned",
+    "permission": "read",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "get_budget_status",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "report_confidence",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "sql_select",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "search_knowledge",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "shopify_customer_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_product_repurchase_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_demand_sources",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_fulfillment_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_delivery_diagnostics",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_open_delivery_exceptions",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_return_delay_comparison",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_funnel_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "shopify_margin_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "shopify",
+    "contract": true
+  },
+  {
+    "name": "get_shopify_product_catalog",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "meta_creative_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": true
+  },
+  {
+    "name": "meta_creative_diagnostics",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": true
+  },
+  {
+    "name": "meta_delivery_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": true
+  },
+  {
+    "name": "meta_change_log",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": true
+  },
+  {
+    "name": "meta_spend_detail",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "meta",
+    "contract": false
+  },
+  {
+    "name": "klaviyo_email_content",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "klaviyo",
+    "contract": true
+  },
+  {
+    "name": "klaviyo_measurement_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "klaviyo",
+    "contract": true
+  },
+  {
+    "name": "klaviyo_performance_summary",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "klaviyo",
+    "contract": true
+  },
+  {
+    "name": "klaviyo_entity_performance",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "klaviyo",
+    "contract": true
+  },
+  {
+    "name": "klaviyo_deliverability_health",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": "klaviyo",
+    "contract": true
+  },
+  {
+    "name": "search_internal_email_design_playbook",
+    "status": "implemented_partial",
+    "permission": "read",
+    "connector": null,
+    "contract": true
+  },
+  {
+    "name": "propose_task",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "propose_milestone",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "propose_phase",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "propose_alert_rule",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "propose_budget_change",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "propose_content",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "klaviyo",
+    "contract": false
+  },
+  {
+    "name": "propose_experiment",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "dry_run_write",
+    "status": "implemented_partial",
+    "permission": "propose",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "escalate_to_human",
+    "status": "implemented_partial",
+    "permission": "propose",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "request_missing_data",
+    "status": "implemented_partial",
+    "permission": "propose",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "handoff_to_agent",
+    "status": "planned",
+    "permission": "propose",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "flag_data_quality_issue",
+    "status": "implemented_partial",
+    "permission": "propose",
+    "connector": "core",
+    "contract": true
+  },
+  {
+    "name": "memory_write",
+    "status": "planned",
+    "permission": "write",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "shopify_update_product",
+    "status": "planned",
+    "permission": "write",
+    "connector": "shopify",
+    "contract": false
+  },
+  {
+    "name": "shopify_update_inventory",
+    "status": "planned",
+    "permission": "write",
+    "connector": "shopify",
+    "contract": false
+  },
+  {
+    "name": "meta_pause_ad",
+    "status": "planned",
+    "permission": "write",
+    "connector": "meta",
+    "contract": false
+  },
+  {
+    "name": "meta_adjust_budget",
+    "status": "planned",
+    "permission": "write",
+    "connector": "meta",
+    "contract": false
+  },
+  {
+    "name": "meta_duplicate_adset",
+    "status": "planned",
+    "permission": "write",
+    "connector": "meta",
+    "contract": false
+  },
+  {
+    "name": "klaviyo_create_flow",
+    "status": "planned",
+    "permission": "write",
+    "connector": "klaviyo",
+    "contract": false
+  },
+  {
+    "name": "klaviyo_send_campaign",
+    "status": "planned",
+    "permission": "write",
+    "connector": "klaviyo",
+    "contract": false
+  },
+  {
+    "name": "instagram_schedule_post",
+    "status": "planned",
+    "permission": "write",
+    "connector": "instagram",
+    "contract": false
+  },
+  {
+    "name": "log_reasoning_step",
+    "status": "planned",
+    "permission": "write",
+    "connector": "core",
+    "contract": false
+  },
+  {
+    "name": "record_outcome",
+    "status": "planned",
+    "permission": "write",
+    "connector": "core",
+    "contract": false
+  }
+]

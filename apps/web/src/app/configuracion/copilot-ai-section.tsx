@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import type { CopilotBalance } from "@/components/copilot-saldo";
-import { ButtonLink, Card, LoadingBlock, ProgressBar, SettingRow, Switch, toast } from "@/components/ui";
+import { ButtonLink, LoadingBlock, Progress, SettingRow, Switch, toast, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 /**
  * Copiloto IA: saldo del mes y qué análisis corren solos. Apagar un grupo hace
@@ -54,73 +54,73 @@ export function CopilotAiSection({ organizationId }: { organizationId: string })
   const saldo = balance.data;
   return (
     <div className="space-y-6">
-      <Card title="Saldo del copiloto este mes">
-        {!saldo ? (
-          <LoadingBlock label="Leyendo saldo…" />
-        ) : (
-          <div className="grid gap-3">
-            <p className="text-3xl font-semibold tabular-nums">
-              {saldo.granted > 0 ? Math.round((saldo.remaining / saldo.granted) * 100) : 0} %
-              <span className="ml-2 text-sm font-normal text-muted">
-                {new Intl.NumberFormat("es-ES").format(saldo.remaining)} tokens
-              </span>
-            </p>
-            <ProgressBar
-              value={saldo.granted > 0 ? (saldo.remaining / saldo.granted) * 100 : 0}
-              aria-label="Saldo restante del copiloto"
-            >
-              <ProgressBar.Track>
-                <ProgressBar.Fill />
-              </ProgressBar.Track>
-            </ProgressBar>
-            <p className="text-xs text-muted">
-              Se renueva el{" "}
-              {new Date(saldo.renews_at).toLocaleDateString("es-ES", { day: "numeric", month: "long" })}.
-            </p>
-          </div>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Saldo del copiloto este mes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!saldo ? (
+            <LoadingBlock label="Leyendo saldo…" />
+          ) : (
+            <div className="grid gap-3">
+              <p className="text-3xl font-semibold tabular-nums">
+                {saldo.granted > 0 ? Math.round((saldo.remaining / saldo.granted) * 100) : 0} %
+                <span className="ml-2 text-sm font-normal text-muted">
+                  {new Intl.NumberFormat("es-ES").format(saldo.remaining)} tokens
+                </span>
+              </p>
+              <Progress value={saldo.granted > 0 ? (saldo.remaining / saldo.granted) * 100 : 0} aria-label="Saldo restante del copiloto" />
+              <p className="text-xs text-muted">
+                Se renueva el{" "}
+                {new Date(saldo.renews_at).toLocaleDateString("es-ES", { day: "numeric", month: "long" })}.
+              </p>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
-      <Card
-        title="Análisis que corren solos"
-        description={
-          settings.data?.can_edit === false
+      <Card>
+        <CardHeader>
+          <CardTitle>Análisis que corren solos</CardTitle>
+          <CardDescription>{settings.data?.can_edit === false
             ? "Los cambian el propietario, los gestores o el consultor."
-            : "Solo leen y enseñan el resultado. Escribir algo en tu cuenta siempre pasa por una persona."
-        }
-      >
-        {!settings.data ? (
-          <LoadingBlock label="Cargando…" />
-        ) : (
-          settings.data.groups.map((item) => {
-            const meta = GROUPS[item.group] ?? { label: item.group, hint: "" };
-            return (
-              <SettingRow key={item.group} label={meta.label} hint={meta.hint}>
-                <Switch
-                  aria-label={meta.label}
-                  isSelected={item.enabled}
-                  isDisabled={!settings.data?.can_edit || busy !== null}
-                  onChange={(value: boolean) => void toggle(item.group, value)}
-                >
-                  <Switch.Control>
-                    <Switch.Thumb />
-                  </Switch.Control>
-                </Switch>
-              </SettingRow>
-            );
-          })
-        )}
+            : "Solo leen y enseñan el resultado. Escribir algo en tu cuenta siempre pasa por una persona."}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!settings.data ? (
+            <LoadingBlock label="Cargando…" />
+          ) : (
+            settings.data.groups.map((item) => {
+              const meta = GROUPS[item.group] ?? { label: item.group, hint: "" };
+              return (
+                <SettingRow key={item.group} label={meta.label} hint={meta.hint}>
+                  <Switch
+                    aria-label={meta.label}
+                    isSelected={item.enabled}
+                    isDisabled={!settings.data?.can_edit || busy !== null}
+                    onChange={(value: boolean) => void toggle(item.group, value)}
+                  >
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch>
+                </SettingRow>
+              );
+            })
+          )}
+        </CardContent>
       </Card>
 
-      <Card
-        title="Lo que la IA sabe de tu tienda"
-        actions={
-          <ButtonLink href="/conocimiento" size="sm" variant="ghost">
+      <Card>
+        <CardHeader>
+          <CardTitle>Lo que la IA sabe de tu tienda</CardTitle>
+          <CardAction><ButtonLink href="/conocimiento" size="sm" variant="ghost">
             Abrir Conocimiento
-          </ButtonLink>
-        }
-      >
-        <p className="text-sm text-muted">Cuestionario, reglas y documentos. Cuanto más completo, mejores respuestas.</p>
+          </ButtonLink></CardAction>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted">Cuestionario, reglas y documentos. Cuanto más completo, mejores respuestas.</p>
+        </CardContent>
       </Card>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+
 import { useRef, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -19,8 +20,13 @@ import {
   Badge,
   Button,
   Banner,
-  Card,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorBlock,
   Field,
@@ -30,6 +36,16 @@ import {
   Tabs,
   Textarea,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 
 const KNOWLEDGE_SECTIONS = [
@@ -279,7 +295,8 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           solo cuando quien pregunta es un consultor; los agentes automáticos
           nunca los ven. Esa diferencia se decide al subir el documento y se
           comprueba aquí, no abriendo la lista uno a uno. */}
-      {documents.length > 0 ? (
+      {/* Solo donde se habla de documentos: en Reglas y en el cuestionario duplicaba otra franja de cifras. */}
+      {activeTab === "documentos" && documents.length > 0 ? (
         <ModuleSummary
           metrics={[
             {
@@ -328,7 +345,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           { value: "reglas", label: "Reglas" },
           { value: "mailing", label: "Mailing" },
           { value: "documentos", label: `Documentos (${documents.length})` },
-          { value: "ia", label: "Gestor IA" },
+          ...(canMarkInternal ? [{ value: "ia", label: "Gestor IA" }] : []),
         ]}
         panels={{
           cuestionario: organizationId ? (
@@ -359,7 +376,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           documentos: (
             <div className="space-y-6">
               {canManageKnowledge ? (
-                <div className="flex flex-wrap items-center gap-3">
+                <div role="group" aria-label="Acciones de conocimiento" className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     disabled={isSaving}
@@ -392,212 +409,218 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </div>
               ) : (
                 <Banner tone="warn" className="text-sm">
-                  Solo los propietarios, managers, consultores y
-                  administradores de plataforma pueden añadir o indexar
-                  documentos. Puedes consultar el conocimiento y utilizar la
-                  búsqueda semántica.
+                  Añadir documentos lo hacen el propietario, los gestores y el
+                  consultor. Tú puedes consultarlos y buscar en ellos.
                 </Banner>
               )}
 
               {/* Se llamaba "búsqueda semántica" y describía la
                   implementación. Lo que responde es otra cosa: qué
                   encontrará el copiloto si le preguntan esto. */}
-              <Card
-                title="Probar qué encontrará el copiloto"
-                description="Escribe una pregunta como se la haría el cliente y mira qué documentos suyos saldrían."
-              >
-                <form
-                  className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
-                  onSubmit={submitSearch}
-                >
-                  <Field label="Consulta">
-                    <Input
-                      className="mt-2 w-full"
-                      aria-label="Buscar en el conocimiento"
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Ej: cuándo escalar inversión en ads"
-                    />
-                  </Field>
-                  <Button type="submit" disabled={isSearching}>
-                    {isSearching ? "..." : "Buscar"}
-                  </Button>
-                </form>
-                {searchError ? (
-                  <div className="mt-3">
-                    <ErrorBlock>{searchError}</ErrorBlock>
-                  </div>
-                ) : null}
-                {matches !== null && !searchError ? (
-                  <div className="mt-3 space-y-2">
-                    {matches.length === 0 ? (
-                      <p className="text-sm text-muted">Sin resultados.</p>
-                    ) : (
-                      matches.map((match) => (
-                        <article
-                          key={match.chunk_id}
-                          className="border-t border-separator pt-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-medium">
-                              {match.document_title}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Probar qué encontrará el copiloto</CardTitle>
+                  <CardDescription>Escribe una pregunta como se la haría el cliente y mira qué documentos suyos saldrían.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form
+                    className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
+                    onSubmit={submitSearch}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <Field label="Consulta">
+                        <Input
+                          className="mt-2 w-full"
+                          aria-label="Buscar en el conocimiento"
+                          value={searchQuery}
+                          onChange={(event) => setSearchQuery(event.target.value)}
+                          placeholder="Ej: cuándo escalar inversión en ads"
+                        />
+                      </Field>
+                    </div>
+                    <Button type="submit" disabled={isSearching}>
+                      {isSearching ? "..." : "Buscar"}
+                    </Button>
+                  </form>
+                  {searchError ? (
+                    <div className="mt-3">
+                      <ErrorBlock>{searchError}</ErrorBlock>
+                    </div>
+                  ) : null}
+                  {matches !== null && !searchError ? (
+                    <div className="mt-3 space-y-2">
+                      {matches.length === 0 ? (
+                        <EmptyState size="sm" title="Sin resultados" />
+                      ) : (
+                        matches.map((match) => (
+                          <article
+                            key={match.chunk_id}
+                            className="border-t border-separator pt-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium">
+                                {match.document_title}
+                              </p>
+                              {/* El porcentaje sale de la similitud semantica,
+                                  no del score de fusion: desde que el orden lo
+                                  decide RRF, `similarity` vive en ~0.03 y se
+                                  pintaba como "3%". */}
+                              {match.semantic_similarity !== undefined ? (
+                                <span className="text-xs text-muted">
+                                  {(match.semantic_similarity * 100).toFixed(0)}%
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-xs text-muted">
+                              fragmento {match.chunk_index + 1}
                             </p>
-                            {/* El porcentaje sale de la similitud semantica,
-                                no del score de fusion: desde que el orden lo
-                                decide RRF, `similarity` vive en ~0.03 y se
-                                pintaba como "3%". */}
-                            {match.semantic_similarity !== undefined ? (
-                              <span className="text-xs text-muted">
-                                {(match.semantic_similarity * 100).toFixed(0)}%
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="mt-1 text-xs text-muted">
-                            fragmento {match.chunk_index + 1}
-                          </p>
-                          <p className="mt-2 text-sm leading-6">
-                            {match.content.slice(0, 400)}
-                          </p>
-                        </article>
-                      ))
-                    )}
-                  </div>
-                ) : null}
+                            <p className="mt-2 text-sm leading-6">
+                              {match.content.slice(0, 400)}
+                            </p>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </CardContent>
               </Card>
 
-              <Card
-                title={`Documentos (${documents.length})`}
-                description="Separa el workspace humano de la memoria generada por los agentes."
-                actions={
-                  <div className="flex flex-wrap gap-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{`Documentos (${documents.length})`}</CardTitle>
+                  <CardDescription>Separa el workspace humano de la memoria generada por los agentes.</CardDescription>
+                  <CardAction><div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
-                      variant={documentView === "workspace" ? "primary" : "ghost"}
+                      variant={documentView === "workspace" ? "default" : "ghost"}
                       onClick={() => setDocumentView("workspace")}
                     >
                       Workspace ({workspaceDocuments.length})
                     </Button>
                     <Button
                       type="button"
-                      variant={documentView === "memory" ? "primary" : "ghost"}
+                      variant={documentView === "memory" ? "default" : "ghost"}
                       onClick={() => setDocumentView("memory")}
                     >
                       Memoria ({generatedMemory.length})
                     </Button>
-                  </div>
-                }
-              >
-                {error ? (
-                  <div className="px-4 py-3">
-                    <ErrorBlock>{error}</ErrorBlock>
-                  </div>
-                ) : isLoading ? (
-                  <div className="px-4 py-3">
-                    <LoadingBlock label="Cargando documentos..." />
-                  </div>
-                ) : documents.length === 0 ? (
-                  <EmptyState
-                    title="Aún no hay documentos"
-                    hint="Ingiere el primero con los botones de arriba para activar el conocimiento del workspace."
-                  />
-                ) : (
-                  <List>
-                    {visibleDocuments.map((document) => (
-                      <List.Item
-                        key={document.id}
-                        className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_140px_110px_170px]"
-                      >
-                        <div>
-                          <p className="font-medium">{document.title}</p>
-                          {document.description ? (
-                            <p className="text-sm text-muted">
-                              {document.description}
-                            </p>
-                          ) : null}
-                        </div>
-                        {/* Antes ponía "global | organización": ahora todo lo
-                            listado es de este cliente, así que la columna
-                            decía siempre lo mismo. Lo que sí cambia de fila a
-                            fila es quién lo lee. */}
-                        <span className="text-xs text-muted">
-                          {document.audience === "consultant_only"
-                            ? "solo consultores"
-                            : "lo ve el cliente"}
-                        </span>
-                        <span className="text-xs text-muted">
-                          {displayValue(document.status)} ·{" "}
-                          {displayValue(document.authority)}
-                        </span>
-                        <span className="text-xs text-muted">
-                          {new Date(document.created_at).toLocaleDateString(
-                            "es-ES",
-                          )}
-                        </span>
-                      </List.Item>
-                    ))}
-                  </List>
-                )}
+                  </div></CardAction>
+                </CardHeader>
+                <CardContent>
+                  {error ? (
+                    <div className="px-4 py-3">
+                      <ErrorBlock>{error}</ErrorBlock>
+                    </div>
+                  ) : isLoading ? (
+                    <div className="px-4 py-3">
+                      <LoadingBlock label="Cargando documentos..." />
+                    </div>
+                  ) : documents.length === 0 ? (
+                    <EmptyState
+                      title="Aún no hay documentos"
+                      hint="Ingiere el primero con los botones de arriba para activar el conocimiento del workspace."
+                    />
+                  ) : (
+                    <List>
+                      {visibleDocuments.map((document) => (
+                        <List.Item
+                          key={document.id}
+                          className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_140px_110px_170px]"
+                        >
+                          <div>
+                            <p className="font-medium">{document.title}</p>
+                            {document.description ? (
+                              <p className="text-sm text-muted">
+                                {document.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          {/* Antes ponía "global | organización": ahora todo lo
+                              listado es de este cliente, así que la columna
+                              decía siempre lo mismo. Lo que sí cambia de fila a
+                              fila es quién lo lee. */}
+                          <span className="text-xs text-muted">
+                            {document.audience === "consultant_only"
+                              ? "solo consultores"
+                              : "lo ve el cliente"}
+                          </span>
+                          <span className="text-xs text-muted">
+                            {displayValue(document.status)} ·{" "}
+                            {displayValue(document.authority)}
+                          </span>
+                          <span className="text-xs text-muted">
+                            {new Date(document.created_at).toLocaleDateString(
+                              "es-ES",
+                            )}
+                          </span>
+                        </List.Item>
+                      ))}
+                    </List>
+                  )}
+                </CardContent>
               </Card>
             </div>
           ),
 
-          ia: organizationId ? (
+          ia: organizationId && canMarkInternal ? (
             <AiDiagnosticSection
               organizationId={organizationId}
-              title="Gestor de conocimiento IA"
+              title="Auditoría de conocimiento · A08"
               getPath="/ai/knowledge-manager"
               runPath="/ai/knowledge-manager-run"
               loadingLabel="Revisando el catalogo de conocimiento con IA..."
               tasksLabelSingular="tarea de redacción"
+              showInternals
             />
-          ) : null,
+          ) : <Banner>Esta auditoría editorial está disponible para tu consultor. Puedes consultar los documentos compartidos en la pestaña Documentos.</Banner>,
         }}
       />
 
-      <Dialog
-        isOpen={isAddDocOpen}
-        onOpenChange={setIsAddDocOpen}
-        title="Añadir documento"
-        isBusy={isSaving}
-        isDirty={Boolean(title.trim() || content.trim())}
-        formId="add-document-form"
-        primary={{ label: "Guardar en conocimiento", busyLabel: "Guardando…" }}
-      >
-        <form id="add-document-form" className="space-y-4" onSubmit={submitDocument}>
-          <Field label="Título">
-            <Input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Ej: Playbook de reposición de stock"
-            />
-          </Field>
-          <Field label="Contenido">
-            <Textarea
-              className="h-40"
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              placeholder="Pega aquí la metodología, guía o proceso..."
-            />
-          </Field>
-          {canMarkInternal ? (
-            <Field label="Quién puede leerlo">
-              <Select
-                aria-label="Quién puede leerlo"
-                value={audience}
-                onChange={(value) => setAudience(value as "client_visible" | "consultant_only")}
-                options={[
-                  { value: "client_visible", label: "Cliente y agentes" },
-                  { value: "consultant_only", label: "Solo consultores" },
-                ]}
+      <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen} busy={isSaving} dirty={Boolean(title.trim() || content.trim())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Añadir documento</DialogTitle>
+          </DialogHeader>
+          <form id="add-document-form" className="space-y-4" onSubmit={submitDocument}>
+            <Field label="Título">
+              <Input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Ej: Playbook de reposición de stock"
               />
             </Field>
-          ) : null}
-          {canMarkInternal && audience === "consultant_only" ? (
-            <Banner tone="warn">
-              No aparece en el portal del cliente ni en las salidas de los agentes automáticos. El Consultor IA sí lo usa cuando pregunta un consultor.
-            </Banner>
-          ) : null}
-        </form>
+            <Field label="Contenido">
+              <Textarea
+                className="h-40"
+                value={content}
+                onChange={(event) => setContent(event.target.value)}
+                placeholder="Pega aquí la metodología, guía o proceso..."
+              />
+            </Field>
+            {canMarkInternal ? (
+              <Field label="Quién puede leerlo">
+                <Select
+                  aria-label="Quién puede leerlo"
+                  value={audience}
+                  onChange={(value) => setAudience(value as "client_visible" | "consultant_only")}
+                  options={[
+                    { value: "client_visible", label: "Cliente y agentes" },
+                    { value: "consultant_only", label: "Solo consultores" },
+                  ]}
+                />
+              </Field>
+            ) : null}
+            {canMarkInternal && audience === "consultant_only" ? (
+              <Banner tone="warn">
+                No aparece en el portal del cliente ni en las salidas de los agentes automáticos. El Consultor IA sí lo usa cuando pregunta un consultor.
+              </Banner>
+            ) : null}
+          </form>
+          <DialogFooter>
+            <DialogClose>Cancelar</DialogClose>
+            <Button type="submit" form="add-document-form" disabled={isSaving}>{isSaving ? "Guardando…" : "Guardar en conocimiento"}</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );
@@ -657,55 +680,58 @@ function ConsultantKnowledgeView() {
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
-      <Card
-        title="Conocimiento · toda la cartera"
-        description={`${rows.length} clientes · ${attentionCount} sin documentos o sin actualizar en ${KNOWLEDGE_STALE_DAYS}+ días.`}
-      >
-        {sorted.length === 0 ? (
-          <EmptyState
-            title="Sin clientes"
-            hint="Cuando se te asigne un cliente, la cobertura de su conocimiento aparecerá aquí."
-          />
-        ) : (
-          <List>
-            {sorted.map((row) => {
-              const days = row.last_updated_at
-                ? Math.floor(
-                    (currentTime - Date.parse(row.last_updated_at)) /
-                      (24 * 60 * 60 * 1000),
-                  )
-                : null;
-              return (
-                <List.Item
-                  as="button"
-                  key={row.organization_id}
-                  type="button"
-                  onClick={() => setOrganizationId(row.organization_id)}
-                  className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-surface"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{row.display_name}</span>
-                    {row.doc_count === 0 ? (
-                      <Badge tone="danger">Sin documentos</Badge>
-                    ) : null}
-                  </div>
-                  <span className="text-xs text-muted">
-                    {row.doc_count} doc{row.doc_count === 1 ? "" : "s"}
-                    {" · "}
-                    {days === null
-                      ? "nunca actualizado"
-                      : days <= 0
-                        ? "actualizado hoy"
-                        : `hace ${days} días`}
-                    {days !== null && days > KNOWLEDGE_STALE_DAYS ? (
-                      <span className="ml-2 text-warn-deep">desactualizado</span>
-                    ) : null}
-                  </span>
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Conocimiento · toda la cartera</CardTitle>
+          <CardDescription>{`${rows.length} clientes · ${attentionCount} sin documentos o sin actualizar en ${KNOWLEDGE_STALE_DAYS}+ días.`}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sorted.length === 0 ? (
+            <EmptyState
+              title="Sin clientes"
+              hint="Cuando se te asigne un cliente, la cobertura de su conocimiento aparecerá aquí."
+            />
+          ) : (
+            <List>
+              {sorted.map((row) => {
+                const days = row.last_updated_at
+                  ? Math.floor(
+                      (currentTime - Date.parse(row.last_updated_at)) /
+                        (24 * 60 * 60 * 1000),
+                    )
+                  : null;
+                return (
+                  <Item
+                    key={row.organization_id}
+                    role="listitem"
+                    render={<button type="button" onClick={() => setOrganizationId(row.organization_id)} />}
+                  >
+                    <ItemContent>
+                      <ItemTitle>
+                        {row.display_name}
+                        {row.doc_count === 0 ? (
+                          <Badge tone="danger">Sin documentos</Badge>
+                        ) : null}
+                      </ItemTitle>
+                    </ItemContent>
+                    <ItemDescription>
+                      {row.doc_count} doc{row.doc_count === 1 ? "" : "s"}
+                      {" · "}
+                      {days === null
+                        ? "nunca actualizado"
+                        : days <= 0
+                          ? "actualizado hoy"
+                          : `hace ${days} días`}
+                      {days !== null && days > KNOWLEDGE_STALE_DAYS ? (
+                        <span className="ml-2 text-warn-deep">desactualizado</span>
+                      ) : null}
+                    </ItemDescription>
+                  </Item>
+                );
+              })}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

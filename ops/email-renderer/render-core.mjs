@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 
 export const MAX_JOB_HTML_CHARS = 150_000;
 export const MAX_CAPTURE_HEIGHT = 12_000;
@@ -69,6 +69,9 @@ export async function renderEmailHtml(job, browser, spoolRoot) {
     id: validated.id,
     status: "completed",
     simulation: true,
+    rendererPolicyVersion: "a26-render-v2-offline-1280x800-390x844",
+    htmlHash: createHash("sha256").update(validated.html).digest("hex"),
+    externalResourcesPolicy: "all_external_requests_blocked",
     externalRequestsBlocked: 0,
     captures: [],
     htmlLength: validated.html.length,
@@ -128,6 +131,10 @@ export async function renderEmailHtml(job, browser, spoolRoot) {
         viewportHeight: viewport.height,
         documentHeight: pageHeight,
         clipped: pageHeight > MAX_CAPTURE_HEIGHT,
+        sha256: {
+          [`${viewport.name}-first-screen.png`]: createHash("sha256").update(firstScreen).digest("hex"),
+          [`${viewport.name}-full.png`]: createHash("sha256").update(fullPage).digest("hex"),
+        },
         files: [
           `${viewport.name}-first-screen.png`,
           `${viewport.name}-full.png`,
@@ -174,7 +181,7 @@ export async function processNextRenderJob(spoolRoot, browser) {
     await mkdir(failed, { recursive: true });
     await writeFile(
       path.join(failed, `${id}.json`),
-      JSON.stringify({ id, status: "failed", code: "render_failed" }),
+      JSON.stringify({ id, status: "failed", code: "render_failed", failedAt: new Date().toISOString() }),
       { mode: 0o660 },
     );
     await rm(path.join(spoolRoot, "completed", id), {

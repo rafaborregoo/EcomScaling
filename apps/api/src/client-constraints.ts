@@ -81,7 +81,7 @@ function parseConstraintFields(
       ok: false,
       statusCode: 400,
       error: "statement_demasiado_largo",
-      message: `Una regla no puede pasar de ${CONSTRAINT_MAX_LENGTH} caracteres: entra en el contexto de cada respuesta del copiloto. Si necesitas mas espacio, es un documento.`,
+      message: `Una regla no puede pasar de ${CONSTRAINT_MAX_LENGTH} caracteres: entra en el contexto de cada respuesta del copiloto. Si necesitas más espacio, es un documento.`,
     };
   }
 

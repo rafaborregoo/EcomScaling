@@ -19,13 +19,16 @@ import {
   Banner,
   BrandLogo,
   Button,
-  Card,
   Checkbox,
   ErrorBlock,
   Field,
   Heading,
   Input,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -166,14 +169,19 @@ function RegistroContent() {
   if (enviado) {
     return (
       <main className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center gap-6 px-4 py-12">
-        <Card title="Revisa tu correo">
-          <Banner tone="success">
-            Te hemos enviado un enlace a {email}. Ábrelo para confirmar la
-            cuenta y elegir tu plan.
-          </Banner>
-          <p className="mt-4 text-sm leading-6 text-muted">
-            Si no aparece en unos minutos, mira en spam.
-          </p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Revisa tu correo</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Banner tone="success">
+              Te hemos enviado un enlace a {email}. Ábrelo para confirmar la
+              cuenta y elegir tu plan.
+            </Banner>
+            <p className="mt-4 text-sm leading-6 text-muted">
+              Si no aparece en unos minutos, mira en spam.
+            </p>
+          </CardContent>
         </Card>
       </main>
     );
@@ -192,105 +200,101 @@ function RegistroContent() {
       </div>
 
       <Card>
-        <form className="grid gap-4" onSubmit={handleSubmit}>
-          <Field label="Tu nombre">
-            <Input
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              autoComplete="name"
-              required
-            />
-          </Field>
-          <Field label="Nombre de tu negocio">
-            <Input
-              value={businessName}
-              onChange={(event) => setBusinessName(event.target.value)}
-              autoComplete="organization"
-              required
-            />
-          </Field>
-          <Field label="Email">
-            <Input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-              required
-            />
-          </Field>
-          <Field label="Contraseña">
-            <PasswordInput
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="new-password"
-              minLength={PASSWORD_MIN_LENGTH}
-              required
-            />
-          </Field>
-
-          <PasswordRequirements password={password} />
-
-          <PasswordConfirmation
-            password={password}
-            value={confirm}
-            onChange={setConfirm}
-          />
-
-          {inviteCode ? null : (
-            <Field label="Código de consultor (opcional)">
+        <CardContent>
+          <form className="grid gap-4" onSubmit={handleSubmit}>
+            <Field label="Tu nombre">
               <Input
-                value={referralCode}
-                onChange={(event) =>
-                  setReferralCode(event.target.value.toLowerCase())
-                }
-                autoComplete="off"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                autoComplete="name"
+                required
               />
             </Field>
-          )}
+            <Field label="Nombre de tu negocio">
+              <Input
+                value={businessName}
+                onChange={(event) => setBusinessName(event.target.value)}
+                autoComplete="organization"
+                required
+              />
+            </Field>
+            <Field label="Email">
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                required
+              />
+            </Field>
+            <Field label="Contraseña">
+              <PasswordInput
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
+                minLength={PASSWORD_MIN_LENGTH}
+                required
+              />
+            </Field>
 
-          {referral ? (
-            <>
-              <Banner tone="success">
-                {referral.discount_percent}% de descuento durante{" "}
-                {referral.discount_months}{" "}
-                {referral.discount_months === 1 ? "mes" : "meses"}
-                {referral.consultant_name
-                  ? `, de parte de ${referral.consultant_name}`
-                  : ""}
-                .
-              </Banner>
-              {/* Si cambia este texto, sube CONSENT_TEXT_VERSION en apps/api/src/referidos.ts */}
-              <Checkbox checked={contactConsent} onChange={setContactConsent}>
-                Quiero que el consultor asociado a este código pueda
-                contactarme para conocer sus servicios de consultoría.
-              </Checkbox>
-            </>
-          ) : null}
+            <PasswordRequirements password={password} />
 
-          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+            <PasswordConfirmation
+              password={password}
+              value={confirm}
+              onChange={setConfirm}
+            />
 
-          <Button
-            type="submit"
-            disabled={
-              isSubmitting ||
-              !isPasswordValid(password) ||
-              passwordConfirmationState(password, confirm) !== "match"
-            }
-          >
-            {isSubmitting ? "Creando cuenta..." : "Crear cuenta"}
-          </Button>
-          <p className="text-xs text-muted">
-            Al crear la cuenta aceptas las{" "}
-            <Link className="underline" href="/condiciones">
-              condiciones del servicio
-            </Link>{" "}
-            y la{" "}
-            <Link className="underline" href="/politica-privacidad">
-              política de privacidad
-            </Link>
-            .
-          </p>
-        </form>
+            {inviteCode ? null : (
+              <Field label="Código de consultor (opcional)">
+                <Input
+                  value={referralCode}
+                  onChange={(event) =>
+                    setReferralCode(event.target.value.toLowerCase())
+                  }
+                  autoComplete="off"
+                />
+              </Field>
+            )}
+
+            {referral ? (
+              <>
+                <Banner tone="success">
+                  {`${referral.discount_percent} % de descuento durante ${referral.discount_months} ${referral.discount_months === 1 ? "mes" : "meses"}${referral.consultant_name ? `, de parte de ${referral.consultant_name}` : ""}.`}
+                </Banner>
+                {/* Si cambia este texto, sube CONSENT_TEXT_VERSION en apps/api/src/referidos.ts */}
+                <Checkbox checked={contactConsent} onCheckedChange={setContactConsent}>
+                  Quiero que el consultor asociado a este código pueda
+                  contactarme para conocer sus servicios de consultoría.
+                </Checkbox>
+              </>
+            ) : null}
+
+            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+            <Button
+              type="submit"
+              disabled={
+                isSubmitting ||
+                !isPasswordValid(password) ||
+                passwordConfirmationState(password, confirm) !== "match"
+              }
+            >
+              {isSubmitting ? "Creando cuenta..." : "Crear cuenta"}
+            </Button>
+            <p className="text-xs text-muted">
+              Al crear la cuenta aceptas las{" "}
+              <Link className="underline" href="/condiciones">
+                condiciones del servicio
+              </Link>{" "}
+              y la{" "}
+              <Link className="underline" href="/politica-privacidad">
+                política de privacidad
+              </Link>
+              .
+            </p>
+          </form>
+        </CardContent>
       </Card>
 
       <p className="text-center text-sm text-muted">

@@ -1,12 +1,13 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { buildMarketingBrief } from "@/lib/marketing-brief";
 import { formatMoney } from "@/lib/money";
-import { Dialog, toast } from "@/components/ui";
+import { Select, Banner, Button, Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, RadioCard, RadioGroup, ResizableHandle, ResizablePanel, ResizablePanelGroup, ToggleGroup, ToggleGroupItem, cn, toast } from "@/components/ui";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { toChannel } from "@/components/marketing-channel";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
@@ -1030,7 +1031,8 @@ export function ContentStudio({
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      const inField = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
+      // Dentro de un Popover del lienzo (enlace, color…) las teclas son suyas: Suprimir no borra el bloque.
+      const inField = Boolean(target?.closest("input, textarea, select, [contenteditable='true'], [data-slot='popover-content']"));
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !inField) {
         event.preventDefault();
         if (event.shiftKey) redo();
@@ -1110,7 +1112,7 @@ export function ContentStudio({
             { k: "replyTo", label: "Responder a (opcional)", kind: "text" },
           ]}
         />
-        <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => ask("subjects")} disabled={!aiReady}>
+        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => ask("subjects")} disabled={!aiReady}>
           <Icon name="spark" />
           Proponer asuntos con IA
         </button>
@@ -1229,13 +1231,13 @@ export function ContentStudio({
                       {text.length}/125 · {text.length > 125 ? "se corta con «Ver más»" : "se ve entero"}
                     </span>
                   </div>
-                  <button type="button" className={s.ibtn} aria-label="Quitar" disabled={design.meta.texts.length < 2} onClick={() => changeDesign((current) => ({ ...current, meta: { ...current.meta, texts: current.meta.texts.filter((_, i) => i !== index), active: 0 } }))}>
+                  <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Quitar" disabled={design.meta.texts.length < 2} onClick={() => changeDesign((current) => ({ ...current, meta: { ...current.meta, texts: current.meta.texts.filter((_, i) => i !== index), active: 0 } }))}>
                     <Icon name="x" />
                   </button>
                 </div>
               ))}
               {design.meta.texts.length < 5 ? (
-                <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => fix("addvariant")}>
+                <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => fix("addvariant")}>
                   <Icon name="plus" />
                   Añadir texto
                 </button>
@@ -1264,7 +1266,7 @@ export function ContentStudio({
         {channel === "ig" ? (
           <button
             type="button"
-            className={s.btn}
+            className={buttonVariants({ variant: "secondary" })}
             onClick={() =>
               navigator.clipboard
                 ?.writeText([design.ig.caption, design.ig.hashtags].filter(Boolean).join("\n\n"))
@@ -1306,11 +1308,11 @@ export function ContentStudio({
 
   return (
     <div className={s.studio}>
-      {localRecovery ? <div className={s.recovery} role="status"><span>Hay una copia local del {new Date(localRecovery.updatedAt).toLocaleString("es-ES")}. ¿Quieres recuperarla?</span><button type="button" onClick={restoreLocalRecovery}>Recuperar cambios</button><button type="button" onClick={discardLocalRecovery}>Descartar copia</button></div> : null}
-      {pendingGeneration ? <div className={s.recovery} role="status"><span>Hay una generación pendiente de recuperar.</span><button type="button" disabled={generating} onClick={() => void resumePendingGeneration()}>{generating ? "Comprobando…" : "Recuperar generación"}</button><button type="button" onClick={clearPendingGeneration}>Descartar referencia</button></div> : null}
+      {localRecovery ? <Banner tone="info" title="Tienes cambios sin guardar de otra sesión" action={<><Button size="sm" onClick={restoreLocalRecovery}>Recuperarlos</Button><Button size="sm" variant="ghost" onClick={discardLocalRecovery}>Descartar</Button></>}>Se quedaron en este navegador el {new Date(localRecovery.updatedAt).toLocaleString("es-ES", { dateStyle: "long", timeStyle: "short" })}.</Banner> : null}
+      {pendingGeneration ? <Banner tone="info" title="La IA dejó una pieza a medias" action={<><Button size="sm" disabled={generating} onClick={() => void resumePendingGeneration()}>{generating ? "Comprobando…" : "Recuperarla"}</Button><Button size="sm" variant="ghost" onClick={clearPendingGeneration}>Descartar</Button></>}>Se cortó antes de terminar. Puedes recuperar lo que llegó a hacer.</Banner> : null}
       <header className={s.top}>
         <div className={s.piece}>
-          <h1 className={s.crumb}>Crear contenido</h1>
+          <h1 className={`${s.crumb} client-sr-title`}>Crear contenido</h1>
           <input className={s.pieceName} aria-label="Nombre interno de la pieza" placeholder="Nombre de la pieza" value={header.name} onChange={(event) => changeHeader("name", event.target.value)} />
           <div className={s.pills}>
             <span className={s.pill} data-state={status}>
@@ -1324,56 +1326,63 @@ export function ContentStudio({
             ) : null}
           </div>
         </div>
-        <div className={s.channels} role="group" aria-label="Canal">
+        <ToggleGroup
+          aria-label="Canal"
+          className={s.channels}
+          value={channel}
+          onValueChange={(key) => { setChannel(key); setSelectedId(null); setSuggestions(null); }}
+        >
           {CHANNELS.map(([key, label, icon]) => (
-            <button key={key} type="button" aria-pressed={channel === key} onClick={() => { setChannel(key); setSelectedId(null); setSuggestions(null); }}>
+            <ToggleGroupItem key={key} value={key}>
               <Icon name={icon} />
               {label}
-              {refs[key] ? <i title="Tiene borrador guardado" /> : null}
-            </button>
+              {refs[key] ? <i className="size-1.5 rounded-full bg-current opacity-60" title="Tiene borrador guardado" /> : null}
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <div className={s.topActions}>
           <span className={s.saved} data-error={save.kind === "error"} role="status">
             {savedLabel}
           </span>
-          <button type="button" className={s.tbtn} title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!history.canUndo} onClick={undo}>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "icon" })} title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!history.canUndo} onClick={undo}>
             <Icon name="undo" />
           </button>
-          <button type="button" className={s.tbtn} title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer" disabled={!history.canRedo} onClick={redo}>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "icon" })} title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer" disabled={!history.canRedo} onClick={redo}>
             <Icon name="redo" />
           </button>
-          <button type="button" className={s.tbtn} onClick={() => setLauncher(true)}>
+          <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => setLauncher(true)}>
             <Icon name="plus" />
             Nueva pieza
           </button>
           {channel === "email" ? (
-            <button type="button" className={s.tbtn} disabled={testing || !design.blocks.length} onClick={() => void sendTest()}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} disabled={testing || !design.blocks.length} onClick={() => void sendTest()}>
               <Icon name="send" />
               {testing ? "Enviando…" : "Enviar prueba"}
             </button>
           ) : null}
-          <button type="button" className={`${s.tbtn} ${s.primary}`} disabled={submitting || !hasContent(channel, piece)} onClick={() => void submitForReview()}>
+          <button type="button" className={buttonVariants()} disabled={submitting || !hasContent(channel, piece)} onClick={() => void submitForReview()}>
             {submitting ? "Enviando…" : status === "pending_approval" ? "En revisión" : "Enviar a revisión"}
           </button>
         </div>
       </header>
       {!aiReady ? <div className={s.banner}>La IA no está configurada en el servidor: puedes diseñar y guardar, pero no pedir textos.</div> : null}
       <nav className={s.mswitch} aria-label="Panel">
-        {(
-          [
-            ["left", "Añadir"],
-            ["center", "Lienzo"],
-            ["right", "Ajustes"],
-          ] as const
-        ).map(([key, label]) => (
-          <button key={key} type="button" aria-pressed={pane === key} onClick={() => setPane(key)}>
-            {label}
-          </button>
-        ))}
+        <ToggleGroup aria-label="Panel" value={pane} onValueChange={setPane}>
+          {(
+            [
+              ["left", "Añadir"],
+              ["center", "Lienzo"],
+              ["right", "Ajustes"],
+            ] as const
+          ).map(([key, label]) => (
+            <ToggleGroupItem key={key} value={key}>
+              {label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       </nav>
-      <div className={s.work} data-pane={pane}>
-        <aside className={`${s.pane} ${s.left}`} aria-label="Añadir contenido">
+      <ResizablePanelGroup autoSaveId="estudio" className={s.work} data-pane={pane}>
+        <ResizablePanel defaultSize="256px" minSize="200px" maxSize="30%" role="complementary" className={`${s.pane} ${s.left}`} aria-label="Añadir contenido">
           <LeftPanel
             channel={channel}
             tab={leftTab}
@@ -1398,30 +1407,29 @@ export function ContentStudio({
             onBrand={(key, value) => changeDesign((current) => ({ ...current, brand: setPath(current.brand, key, value) }))}
             onResetBrand={() => changeDesign((current) => ({ ...current, brand: brandBase }))}
           />
-        </aside>
-        <section className={s.center} aria-label="Lienzo">
+        </ResizablePanel>
+        <ResizableHandle aria-label="Cambiar el ancho del panel izquierdo" />
+        <ResizablePanel role="region" className={s.center} aria-label="Lienzo">
           {channel === "email" ? (
             <>
               <div className={s.ctool}>
-                <div className={s.seg} role="group" aria-label="Dispositivo">
-                  <button type="button" aria-pressed={!mobile} onClick={() => setMobile(false)}>
+                <ToggleGroup aria-label="Dispositivo" value={mobile ? "mobile" : "desktop"} onValueChange={(value) => setMobile(value === "mobile")}>
+                  <ToggleGroupItem value="desktop">
                     <Icon name="desktop" />
                     Escritorio
-                  </button>
-                  <button type="button" aria-pressed={mobile} onClick={() => setMobile(true)}>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="mobile">
                     <Icon name="phone" />
                     Móvil
-                  </button>
-                </div>
-                <div className={s.seg} role="group" aria-label="Vista">
-                  <button type="button" aria-pressed={!finalView} onClick={() => setFinalView(false)}>
-                    Editar
-                  </button>
-                  <button type="button" aria-pressed={finalView} onClick={() => setFinalView(true)}>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                <ToggleGroup aria-label="Vista" value={finalView ? "final" : "edit"} onValueChange={(value) => setFinalView(value === "final")}>
+                  <ToggleGroupItem value="edit">Editar</ToggleGroupItem>
+                  <ToggleGroupItem value="final">
                     <Icon name="eye" />
                     HTML final
-                  </button>
-                </div>
+                  </ToggleGroupItem>
+                </ToggleGroup>
                 {reach ? <span className={s.chk}>Para ~{reach.toLocaleString("es-ES")} personas</span> : null}
               </div>
               <div className={s.ibLabel}>
@@ -1463,25 +1471,25 @@ export function ContentStudio({
           ) : channel === "meta" ? (
             <>
               <div className={s.ctool}>
-                <div className={s.seg} role="group" aria-label="Formato">
+                <ToggleGroup aria-label="Formato" value={design.meta.format} onValueChange={(format) => changeDesign((current) => ({ ...current, meta: { ...current.meta, format } }))}>
                   {(
                     [
                       ["feed", "Feed 1:1"],
                       ["story", "Stories 9:16"],
                     ] as const
                   ).map(([format, label]) => (
-                    <button key={format} type="button" aria-pressed={design.meta.format === format} onClick={() => changeDesign((current) => ({ ...current, meta: { ...current.meta, format } }))}>
+                    <ToggleGroupItem key={format} value={format}>
                       {label}
-                    </button>
+                    </ToggleGroupItem>
                   ))}
-                </div>
-                <div className={s.seg} role="group" aria-label="Texto que se ve">
+                </ToggleGroup>
+                <ToggleGroup aria-label="Texto que se ve" value={design.meta.active} onValueChange={(active) => changeDesign((current) => ({ ...current, meta: { ...current.meta, active } }))}>
                   {design.meta.texts.map((_, index) => (
-                    <button key={index} type="button" aria-pressed={design.meta.active === index} onClick={() => changeDesign((current) => ({ ...current, meta: { ...current.meta, active: index } }))}>
+                    <ToggleGroupItem key={index} value={index}>
                       Texto {String.fromCharCode(65 + index)}
-                    </button>
+                    </ToggleGroupItem>
                   ))}
-                </div>
+                </ToggleGroup>
               </div>
               <MetaPreview design={design} pageName={storeName} />
             </>
@@ -1503,8 +1511,9 @@ export function ContentStudio({
               <PopupPreview design={design} />
             </>
           )}
-        </section>
-        <aside className={`${s.pane} ${s.right}`} aria-label="Ajustes">
+        </ResizablePanel>
+        <ResizableHandle aria-label="Cambiar el ancho de los ajustes" />
+        <ResizablePanel defaultSize="328px" minSize="280px" maxSize="35%" role="complementary" className={`${s.pane} ${s.right}`} aria-label="Ajustes">
           <div className={s.tabs} role="tablist" aria-label="Ajustes">
             {rightTabs.map(([key, label, count]) => (
               <button key={key} type="button" role="tab" aria-selected={activeRight === key} onClick={() => setRightTab(key)}>
@@ -1518,160 +1527,155 @@ export function ContentStudio({
             ))}
           </div>
           <div className={s.pbody}>{rightBody}</div>
-        </aside>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
-      <Dialog isOpen={launcher} onOpenChange={setLauncher} size="xl" title="Nueva pieza" className={s.launcherDialog}>
-                <div className={`${s.studio} ${s.dialog}`}>
-                  <div className={s.starts}>
-                    {(
-                      [
-                        ["plantilla", "template", "Desde una plantilla", "Maquetas de NORA con tu marca"],
-                        ["brief", "spark", "Con IA, desde un brief", "Cuéntale qué quieres"],
-                        ["repetir", "again", "Repetir lo que funcionó", "Tus envíos con más resultado"],
-                        ["klaviyo", "klaviyo", "Importar de Klaviyo", "Una plantilla que ya tienes"],
-                        ["blanco", "blank", "En blanco", "Solo cabecera y pie"],
-                      ] as const
-                    ).map(([key, icon, title, detail]) => (
-                      <button key={key} type="button" className={s.start} aria-pressed={startMode === key} onClick={() => setStartMode(key)}>
-                        <span className={s.g}>
-                          <Icon name={icon} />
-                        </span>
-                        <span>
-                          <b>{title}</b>
-                          <small>{detail}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className={s.fields} style={{ minWidth: 0 }}>
-                    {startMode === "plantilla" ? (
-                      <div className={s.optList}>
-                        {SYSTEM_TEMPLATES.map((template) => (
-                          <button
-                            key={template.id}
-                            type="button"
-                            className={s.pick}
-                            onClick={() => startFromBlocks(template.build({ brand: brandBase, storeUrl, products: bestProducts }), { subject: template.subject, preheader: template.preheader, name: campaignTarget?.title ?? template.name })}
-                          >
-                            <span>
-                              <b>{template.name}</b>
-                              <small>{template.description}</small>
-                            </span>
-                            <Icon name="plus" />
-                          </button>
-                        ))}
-                        <p className={s.note}>Se rellenan con tu marca, tu web y tus productos más vendidos. Lo que solo sabes tú va entre corchetes.</p>
-                      </div>
-                    ) : startMode === "brief" ? (
-                      <>
-                        <div className={s.briefGrid}>
-                          <div className={s.f}>
-                            <label className={s.lbl} htmlFor="st-brief-channel">
-                              Canal
-                            </label>
-                            <select id="st-brief-channel" className={s.inp} value={brief.channel} onChange={(event) => setBrief({ ...brief, channel: event.target.value })}>
-                              <option value="email_klaviyo">Email</option>
-                              <option value="meta_ads">Anuncio de Meta</option>
-                              <option value="instagram_organic">Instagram</option>
-                            </select>
-                          </div>
-                          <div className={s.f}>
-                            <label className={s.lbl} htmlFor="st-brief-objective">
-                              Objetivo
-                            </label>
-                            <select id="st-brief-objective" className={s.inp} value={brief.objective} onChange={(event) => setBrief({ ...brief, objective: event.target.value })}>
-                              <option value="launch">Lanzamiento</option>
-                              <option value="conversion">Conversión / ventas</option>
-                              <option value="retention">Retención / recompra</option>
-                              <option value="winback">Reactivación</option>
-                            </select>
-                          </div>
-                          <div className={s.f}>
-                            <label className={s.lbl} htmlFor="st-brief-offer">
-                              Producto u oferta
-                            </label>
-                            <input id="st-brief-offer" className={s.inp} value={brief.offer} onChange={(event) => setBrief({ ...brief, offer: event.target.value })} />
-                          </div>
-                          <div className={s.f}>
-                            <label className={s.lbl} htmlFor="st-brief-audience">
-                              Para quién
-                            </label>
-                            <input id="st-brief-audience" className={s.inp} value={brief.audience} onChange={(event) => setBrief({ ...brief, audience: event.target.value })} />
-                          </div>
-                        </div>
-                        <div className={s.f}>
-                          <label className={s.lbl} htmlFor="st-brief-text">
-                            Qué quieres contar
-                          </label>
-                          <textarea
-                            id="st-brief-text"
-                            className={s.inp}
-                            value={brief.instructions}
-                            placeholder="Ej.: presenta la colección nueva, menciona el taller y cierra con un botón a la tienda. Frases literales entre comillas. No inventes descuentos."
-                            onChange={(event) => setBrief({ ...brief, instructions: event.target.value })}
-                          />
-                        </div>
-                        <div className={s.row}>
-                          <button type="button" className={`${s.btn} ${s.primary}`} disabled={!aiReady || generating || !brief.instructions.trim()} onClick={() => void generateFromBrief()}>
-                            <Icon name="spark" />
-                            {generating ? "Escribiendo… (hasta 1 minuto)" : "Escribir la pieza"}
-                          </button>
-                          {!aiReady ? <span className={s.note}>La IA no está configurada en el servidor.</span> : null}
-                        </div>
-                      </>
-                    ) : startMode === "repetir" ? (
-                      winners.length ? (
+      <Dialog open={launcher} onOpenChange={setLauncher}>
+        <DialogContent className={cn("sm:max-w-[60rem]", s.launcherDialog)}>
+          <DialogHeader>
+            <DialogTitle>Nueva pieza</DialogTitle>
+          </DialogHeader>
+                  <div className={`${s.studio} ${s.dialog}`}>
+                    <RadioGroup aria-label="Cómo empezar" className={s.starts} value={startMode} onValueChange={setStartMode}>
+                      {(
+                        [
+                          ["plantilla", "template", "Desde una plantilla", "Maquetas de NORA con tu marca"],
+                          ["brief", "spark", "Con IA, desde un brief", "Cuéntale qué quieres"],
+                          ["repetir", "again", "Repetir lo que funcionó", "Tus envíos con más resultado"],
+                          ["klaviyo", "klaviyo", "Importar de Klaviyo", "Una plantilla que ya tienes"],
+                          ["blanco", "blank", "En blanco", "Solo cabecera y pie"],
+                        ] as const
+                      ).map(([key, icon, title, detail]) => (
+                        <RadioCard
+                          key={key}
+                          value={key}
+                          className={s.start}
+                          media={<span className="grid size-[30px] place-items-center rounded-lg bg-surface"><Icon name={icon} /></span>}
+                          title={title}
+                          description={detail}
+                        />
+                      ))}
+                    </RadioGroup>
+                    <div className={s.fields} style={{ minWidth: 0 }}>
+                      {startMode === "plantilla" ? (
                         <div className={s.optList}>
-                          <p className={s.note}>Tus emails con más ingresos atribuidos por Klaviyo. Se copian los bloques, no los resultados.</p>
-                          {winners.map((draft) => (
+                          {SYSTEM_TEMPLATES.map((template) => (
                             <button
-                              key={draft.id}
+                              key={template.id}
                               type="button"
                               className={s.pick}
-                              onClick={() => {
-                                const copy = normalizeDesign(draft.request?.design, { aiBlocks: draft.blocks, html: draft.html, brand: brandBase });
-                                startFromBlocks(copy.blocks.map((block) => ({ ...block, id: newBlock("spacer").id })), { subject: draft.subject, preheader: draft.preheader, name: `${draft.template_name || draft.subject} (copia)` });
-                              }}
+                              onClick={() => startFromBlocks(template.build({ brand: brandBase, storeUrl, products: bestProducts }), { subject: template.subject, preheader: template.preheader, name: campaignTarget?.title ?? template.name })}
                             >
                               <span>
-                                <b>{draft.template_name || draft.subject}</b>
-                                <small>
-                                  {draft.template_performance?.delivered ? `Apertura ${Math.round((100 * (draft.template_performance.opens_unique ?? 0)) / draft.template_performance.delivered)} % · ` : ""}
-                                  {draft.template_performance?.last_sent_at ? `enviado ${fmtDate(draft.template_performance.last_sent_at)}` : ""}
-                                </small>
+                                <b>{template.name}</b>
+                                <small>{template.description}</small>
                               </span>
-                              <span className={s.fig}>
-                                {formatMoney(draft.template_performance?.revenue ?? 0, draft.template_performance?.currency_code ?? null)}
-                                <small>atribuidos por Klaviyo</small>
-                              </span>
+                              <Icon name="plus" />
                             </button>
                           ))}
+                          <p className={s.note}>Se rellenan con tu marca, tu web y tus productos más vendidos. Lo que solo sabes tú va entre corchetes.</p>
                         </div>
+                      ) : startMode === "brief" ? (
+                        <>
+                          <div className={s.briefGrid}>
+                            <div className={s.f}>
+                              <label className={s.lbl} htmlFor="st-brief-channel">
+                                Canal
+                              </label>
+                              <Select id="st-brief-channel" value={brief.channel} onChange={(value) => setBrief({ ...brief, channel: value })} options={[{ value: "email_klaviyo", label: "Email" }, { value: "meta_ads", label: "Anuncio de Meta" }, { value: "instagram_organic", label: "Instagram" }]} />
+                            </div>
+                            <div className={s.f}>
+                              <label className={s.lbl} htmlFor="st-brief-objective">
+                                Objetivo
+                              </label>
+                              <Select id="st-brief-objective" value={brief.objective} onChange={(value) => setBrief({ ...brief, objective: value })} options={[{ value: "launch", label: "Lanzamiento" }, { value: "conversion", label: "Conversión / ventas" }, { value: "retention", label: "Retención / recompra" }, { value: "winback", label: "Reactivación" }]} />
+                            </div>
+                            <div className={s.f}>
+                              <label className={s.lbl} htmlFor="st-brief-offer">
+                                Producto u oferta
+                              </label>
+                              <input id="st-brief-offer" className={s.inp} value={brief.offer} onChange={(event) => setBrief({ ...brief, offer: event.target.value })} />
+                            </div>
+                            <div className={s.f}>
+                              <label className={s.lbl} htmlFor="st-brief-audience">
+                                Para quién
+                              </label>
+                              <input id="st-brief-audience" className={s.inp} value={brief.audience} onChange={(event) => setBrief({ ...brief, audience: event.target.value })} />
+                            </div>
+                          </div>
+                          <div className={s.f}>
+                            <label className={s.lbl} htmlFor="st-brief-text">
+                              Qué quieres contar
+                            </label>
+                            <textarea
+                              id="st-brief-text"
+                              className={s.inp}
+                              value={brief.instructions}
+                              placeholder="Ej.: presenta la colección nueva, menciona el taller y cierra con un botón a la tienda. Frases literales entre comillas. No inventes descuentos."
+                              onChange={(event) => setBrief({ ...brief, instructions: event.target.value })}
+                            />
+                          </div>
+                          <div className={s.row}>
+                            <button type="button" className={buttonVariants()} disabled={!aiReady || generating || !brief.instructions.trim()} onClick={() => void generateFromBrief()}>
+                              <Icon name="spark" />
+                              {generating ? "Escribiendo… (hasta 1 minuto)" : "Escribir la pieza"}
+                            </button>
+                            {!aiReady ? <span className={s.note}>La IA no está configurada en el servidor.</span> : null}
+                          </div>
+                        </>
+                      ) : startMode === "repetir" ? (
+                        winners.length ? (
+                          <div className={s.optList}>
+                            <p className={s.note}>Tus emails con más ingresos atribuidos por Klaviyo. Se copian los bloques, no los resultados.</p>
+                            {winners.map((draft) => (
+                              <button
+                                key={draft.id}
+                                type="button"
+                                className={s.pick}
+                                onClick={() => {
+                                  const copy = normalizeDesign(draft.request?.design, { aiBlocks: draft.blocks, html: draft.html, brand: brandBase });
+                                  startFromBlocks(copy.blocks.map((block) => ({ ...block, id: newBlock("spacer").id })), { subject: draft.subject, preheader: draft.preheader, name: `${draft.template_name || draft.subject} (copia)` });
+                                }}
+                              >
+                                <span>
+                                  <b>{draft.template_name || draft.subject}</b>
+                                  <small>
+                                    {draft.template_performance?.delivered ? `Apertura ${Math.round((100 * (draft.template_performance.opens_unique ?? 0)) / draft.template_performance.delivered)} % · ` : ""}
+                                    {draft.template_performance?.last_sent_at ? `enviado ${fmtDate(draft.template_performance.last_sent_at)}` : ""}
+                                  </small>
+                                </span>
+                                <span className={s.fig}>
+                                  {formatMoney(draft.template_performance?.revenue ?? 0, draft.template_performance?.currency_code ?? null)}
+                                  <small>atribuidos por Klaviyo</small>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className={s.note}>Todavía no hay emails de NORA con resultados de Klaviyo. Cuando envíes alguno, los que mejor funcionen aparecerán aquí.</p>
+                        )
+                      ) : startMode === "klaviyo" ? (
+                        <KlaviyoImportPanel
+                          organizationId={organizationId}
+                          importedTemplateIds={drafts.map((draft) => draft.request?.klaviyo_template_id).filter((id): id is string => Boolean(id))}
+                          onImported={(draftId) => {
+                            setLauncher(false);
+                            onDraftsChanged();
+                            if (draftId) setPendingOpenId(draftId);
+                          }}
+                        />
                       ) : (
-                        <p className={s.note}>Todavía no hay emails de NORA con resultados de Klaviyo. Cuando envíes alguno, los que mejor funcionen aparecerán aquí.</p>
-                      )
-                    ) : startMode === "klaviyo" ? (
-                      <KlaviyoImportPanel
-                        organizationId={organizationId}
-                        importedTemplateIds={drafts.map((draft) => draft.request?.klaviyo_template_id).filter((id): id is string => Boolean(id))}
-                        onImported={(draftId) => {
-                          setLauncher(false);
-                          onDraftsChanged();
-                          if (draftId) setPendingOpenId(draftId);
-                        }}
-                      />
-                    ) : (
-                      <div className={s.card}>
-                        <b>Email en blanco</b>
-                        <p className={s.note}>Empieza con cabecera y pie legal para no olvidarlos.</p>
-                        <button type="button" className={`${s.btn} ${s.primary}`} onClick={() => startFromBlocks(blankBlocks(brandBase), { name: campaignTarget?.title ?? "" })}>
-                          Empezar en blanco
-                        </button>
-                      </div>
-                    )}
+                        <div className={s.card}>
+                          <b>Email en blanco</b>
+                          <p className={s.note}>Empieza con cabecera y pie legal para no olvidarlos.</p>
+                          <button type="button" className={buttonVariants()} onClick={() => startFromBlocks(blankBlocks(brandBase), { name: campaignTarget?.title ?? "" })}>
+                            Empezar en blanco
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+        </DialogContent>
       </Dialog>
     </div>
   );

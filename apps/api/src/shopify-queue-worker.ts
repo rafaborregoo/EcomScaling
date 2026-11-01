@@ -4,6 +4,7 @@ import { backfillOrderJourneys } from "./shopify-order-journey.js";
 import { ensureShopifyWebPixel } from "./shopify-pixel.js";
 import { runShopifyInitialSync } from "./shopify-sync.js";
 import { drainFailedShopifyWebhooks } from "./shopify-webhook-handler.js";
+import { ensureShopifyWebhooks } from "./shopify-webhooks.js";
 import type { ShopifyQueueJob } from "./shopify-sync-queue.js";
 
 export type ShopifyQueueWorkerJob = ShopifyQueueJob;
@@ -21,6 +22,9 @@ export async function runShopifyQueueJob(env: LoadedApiEnv, job: ShopifyQueueWor
     if (error) throw new Error(`shopify_inventory_snapshot_failed: ${error.message}`);
     return { status: "reconcile_finalized", inventory_snapshot: data ?? null };
   }
+
+  try { await ensureShopifyWebhooks(env, job.connectionId, job.source === "oauth"); }
+  catch (error) { console.error("Shopify webhook verification failed", { connection_id: job.connectionId, error: error instanceof Error ? error.message : String(error) }); }
 
   if (job.source === "reconcile") {
     try {

@@ -129,7 +129,7 @@ export async function disconnectIntegration(
       ok: false,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden desconectar integraciones.",
+      message: "Solo el propietario o un gestor pueden desconectar integraciones.",
     };
   }
   if (!/^[0-9a-f-]{36}$/i.test(connectionId)) {

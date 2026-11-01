@@ -1,10 +1,16 @@
 "use client";
 
+
+import { genericApiErrorMessage } from "@/lib/api-error";
+import { buttonVariants } from "@/components/ui/button";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
-import {
+import { Select,
+  ScrollArea,
   AiEvidence,
-  Alert,
+  Banner,
+  Bubble,
+  BubbleContent,
   Button,
   ButtonLink,
   CheckIcon,
@@ -16,16 +22,32 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  Sheet,
+  Drawer,
+  DrawerContent,
   Field,
   Input,
   Link,
   Markdown,
   PlusIcon,
   RetryIcon,
-  SearchIcon,
-  Select,
+  SearchableSelect,
   SparklesIcon,
+  Card,
+  CardContent,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  Marker,
+  MarkerContent,
+  MarkerIcon,
+  Message,
+  MessageContent,
 } from "@/components/ui";
 import styles from "./copilot-panel.module.css";
 import {
@@ -482,12 +504,12 @@ const ERROR_MESSAGES: Record<string, ChatError> = {
   },
   organization_daily_budget_exceeded: {
     message:
-      "Esta organización alcanzó su límite diario de uso de IA. El Consultor IA se reactiva al empezar el día siguiente.",
+      "Esta cuenta ha llegado a su límite diario de IA. El Consultor IA vuelve mañana.",
     status: "warning",
   },
   organization_daily_budget_unavailable: {
     message:
-      "No se pudo comprobar el presupuesto diario de IA. El Consultor IA queda pausado temporalmente para proteger la cuenta.",
+      "No se pudo comprobar el saldo diario de IA. El Consultor IA se pausa un momento para no pasarse; inténtalo en unos minutos.",
     status: "warning",
   },
   conversation_not_found: {
@@ -497,16 +519,16 @@ const ERROR_MESSAGES: Record<string, ChatError> = {
   },
   conversation_scope_unknown: {
     message:
-      "Este hilo es anterior al aislamiento por tienda. Inicia una conversación nueva para mantener los datos separados.",
+      "Esta conversación es de antes de separar los datos por tienda. Empieza una nueva para seguir.",
     status: "warning",
   },
   conversation_scope_mismatch: {
     message:
-      "Este hilo pertenece a otro alcance. Inicia una conversación nueva para la tienda actual.",
+      "Esta conversación es de otra tienda. Empieza una nueva para la tienda que tienes abierta.",
     status: "warning",
   },
   organization_access_denied: {
-    message: "No tienes acceso a esta organización.",
+    message: "No tienes acceso a esta cuenta.",
     status: "danger",
   },
   store_scope_invalid: {
@@ -518,19 +540,19 @@ const ERROR_MESSAGES: Record<string, ChatError> = {
     status: "warning",
   },
   store_scope_resolution_failed: {
-    message: "No se pudo comprobar el alcance de la tienda. No se consultaron datos; inténtalo de nuevo.",
+    message: "No se pudo comprobar la tienda seleccionada, así que no se ha consultado nada. Inténtalo de nuevo.",
     status: "danger",
   },
 };
 const CHAT_TURN_STATUS_MESSAGES: Record<string, ChatError> = {
   budget_exceeded: {
     message:
-      "Esta pregunta superó el presupuesto máximo por turno. Prueba con una pregunta más concreta.",
+      "Esta pregunta necesitaba demasiado trabajo para una sola respuesta. Prueba con una más concreta.",
     status: "warning",
   },
   rejected_output: {
     message:
-      "La respuesta generada no pasó los controles de calidad. Intenta reformular la pregunta.",
+      "La respuesta no pasó nuestros controles de calidad y no te la enseñamos. Prueba a preguntarlo de otra forma.",
     status: "danger",
   },
 };
@@ -667,13 +689,7 @@ async function readError(response: Response): Promise<ChatError> {
     return { ...ERROR_MESSAGES[body.error]!, code: body.error };
   return {
     ...(body?.error ? { code: body.error } : {}),
-    message: [
-      body?.error ?? `HTTP ${response.status}`,
-      body?.message,
-      body?.detail,
-    ]
-      .filter(Boolean)
-      .join(" - "),
+    message: body?.message && /^[a-z0-9_]+$/.test(body.error ?? "") ? body.message : genericApiErrorMessage(response.status),
     status: "danger",
   };
 }
@@ -1666,38 +1682,28 @@ export function CopilotPanel({
   const liveStageLabel = liveTools.some((tool) => tool.status === "running")
     ? "Consultando datos…"
     : ["Leyendo el contexto…", "Pensando…", "Validando cifras…", "Escribiendo…"][activityStage];
-  const iconButton =
-    "flex size-9 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
+  const iconButton = buttonVariants({ variant: "ghost", size: "icon" });
+  const iconButtonSm = buttonVariants({ variant: "ghost", size: "icon-sm" });
 
   const renderTrace = (tools: ToolTrace[]) => (
-    <ol className="grid gap-0.5">
+    <ol className="grid">
       {tools.map((tool) => (
-        <li
-          key={tool.id}
-          className={`grid grid-cols-[1rem_minmax(0,1fr)_auto] items-start gap-2 py-1 text-xs ${styles.rise}`}
-        >
-          <span className="mt-0.5 flex size-4 items-center justify-center" aria-hidden>
+        <Marker key={tool.id} variant="border" render={<li />} title={tool.name} className={`last:border-b-0 ${styles.rise}`}>
+          <MarkerIcon className="size-4">
             {tool.status === "running" ? (
               <span className={styles.spin} />
             ) : tool.status === "error" ? (
-              <CloseIcon className="size-3.5 text-danger" />
+              <CloseIcon className="text-danger" />
             ) : (
-              <CheckIcon className="size-3.5 text-success" />
+              <CheckIcon className="text-success" />
             )}
-          </span>
-          <span className="min-w-0">
-            <code className="rounded bg-accent-soft px-1.5 py-px font-mono text-[0.7rem] text-accent">
-              {tool.name}
-            </code>
-            <span className="mt-0.5 block text-muted">
-              {copilotToolLabel(tool.name)}
-              {tool.status === "error" ? " · falló; la respuesta sigue sin ella" : ""}
-            </span>
-          </span>
-          <span className="pt-0.5 font-mono text-[0.68rem] text-muted tabular-nums">
-            {tool.latency_ms === undefined ? "" : `${tool.latency_ms} ms`}
-          </span>
-        </li>
+          </MarkerIcon>
+          <MarkerContent className="flex-1">
+            {copilotToolLabel(tool.name)}
+            {tool.status === "error" ? " · falló; la respuesta sigue sin ella" : ""}
+          </MarkerContent>
+          {tool.latency_ms === undefined ? null : <span className="tabular-nums">{tool.latency_ms} ms</span>}
+        </Marker>
       ))}
     </ol>
   );
@@ -1723,6 +1729,7 @@ export function CopilotPanel({
 
     return (
       <article key={key} className={`grid min-w-0 gap-3.5 ${styles.rise}`}>
+        <Collapsible open={traceOpen} onOpenChange={() => setOpenTrace((previous) => toggle(previous, key))}>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="font-semibold text-muted">A09</span>
           {message.stopped ? (
@@ -1737,43 +1744,49 @@ export function CopilotPanel({
             </span>
           ) : null}
           {toolCount > 0 || elapsedMs ? (
-            <button
-              type="button"
+            <CollapsibleTrigger
               disabled={!message.tools?.length}
-              aria-expanded={traceOpen}
-              onClick={() => setOpenTrace((previous) => toggle(previous, key))}
               className="rounded-full border border-separator px-2.5 py-0.5 text-muted tabular-nums enabled:hover:border-accent/40 enabled:hover:text-foreground"
             >
               {toolCount} {toolCount === 1 ? "herramienta" : "herramientas"}
               {elapsedMs ? ` · ${segundos(elapsedMs)}` : ""}
-            </button>
+            </CollapsibleTrigger>
           ) : null}
         </div>
 
-        {traceOpen && message.tools?.length ? (
-          <div className={`rounded-lg border border-separator p-3 ${styles.rise}`}>
-            <p className="mb-1 text-xs font-medium text-foreground">Cómo he llegado a la respuesta</p>
-            {renderTrace(message.tools)}
-          </div>
+        {message.tools?.length ? (
+          <CollapsibleContent className="pt-3.5">
+            <div className="rounded-lg border border-separator p-3">
+              <p className="mb-1 text-xs font-medium text-foreground">Cómo he llegado a la respuesta</p>
+              {renderTrace(message.tools)}
+            </div>
+          </CollapsibleContent>
         ) : null}
+        </Collapsible>
 
-        {message.summary && !message.stopped ? (
-          <h3 className="text-base font-semibold leading-snug tracking-[-0.01em] text-foreground [text-wrap:balance]">
-            {message.summary}
-          </h3>
-        ) : null}
-        {message.content ? (
-          <div className="min-w-0 text-sm leading-relaxed">
-            <Markdown>{answerText(message.content)}</Markdown>
-          </div>
-        ) : null}
-        {message.stopped ? (
-          <p className="text-xs text-muted">Detuviste la respuesta. No se gastaron más tokens en ella.</p>
-        ) : null}
-        {message.warnings?.length ? (
-          <p className="rounded-md bg-warn-tint px-3 py-2 text-xs leading-5 text-warning">
-            {message.warnings.join(" · ")}
-          </p>
+        {message.summary || message.content || message.stopped || message.warnings?.length ? (
+          <Bubble variant="muted" className="max-w-full">
+            <BubbleContent className="grid gap-2.5">
+              {message.summary && !message.stopped ? (
+                <h3 className="text-base font-semibold leading-snug tracking-[-0.01em] [text-wrap:balance]">
+                  {message.summary}
+                </h3>
+              ) : null}
+              {message.content ? (
+                <div className="min-w-0 text-sm leading-relaxed">
+                  <Markdown>{answerText(message.content)}</Markdown>
+                </div>
+              ) : null}
+              {message.stopped ? (
+                <p className="text-xs text-muted">Detuviste la respuesta. No se gastaron más tokens en ella.</p>
+              ) : null}
+              {message.warnings?.length ? (
+                <p className="rounded-md bg-warn-tint px-3 py-2 text-xs leading-5 text-warning">
+                  {message.warnings.join(" · ")}
+                </p>
+              ) : null}
+            </BubbleContent>
+          </Bubble>
         ) : null}
 
         {message.keyFigures?.length ? (
@@ -1846,7 +1859,7 @@ export function CopilotPanel({
         ) : null}
 
         {next || message.uiActions?.length ? (
-          <section className="grid gap-2.5 rounded-lg border border-accent/30 bg-accent-soft p-3.5" aria-label="Siguiente acción">
+          <Card size="sm" role="region" aria-label="Siguiente acción" className="border-accent/30 bg-accent-soft"><CardContent className="grid gap-2.5">
             <p className="text-[0.68rem] font-semibold uppercase tracking-[0.07em] text-accent">Siguiente acción</p>
             {showRecommendation ? (
               <p className="text-[0.8rem] leading-5 text-muted">{message.recommendation}</p>
@@ -1859,7 +1872,7 @@ export function CopilotPanel({
                     key={`${action.insight_slug}:${action.label}`}
                     href={action.href}
                     size="sm"
-                    variant={actionIndex === 0 ? "primary" : "secondary"}
+                    variant={actionIndex === 0 ? "default" : "secondary"}
                     onClick={onClose}
                     aria-label={`${action.label}: ${action.target_label}. ${action.reason}`}
                   >
@@ -1868,15 +1881,11 @@ export function CopilotPanel({
                 ))}
               </div>
             ) : null}
-          </section>
+          </CardContent></Card>
         ) : null}
 
         {message.reportArtifacts?.map((report) => (
-          <section
-            key={report.report_id}
-            className="grid grid-cols-[2.75rem_minmax(0,1fr)] items-center gap-3 rounded-lg border border-separator bg-white p-3"
-            aria-label="Informe PDF generado"
-          >
+          <Card size="sm" key={report.report_id} role="region" aria-label="Informe PDF generado"><CardContent className="grid grid-cols-[2.75rem_minmax(0,1fr)] items-center gap-3">
             <div
               aria-hidden
               className="flex h-14 w-11 items-end justify-center rounded-md border border-accent/30 bg-accent-soft pb-1.5 font-mono text-[0.55rem] font-semibold text-accent"
@@ -1894,7 +1903,7 @@ export function CopilotPanel({
                 </Link>
               </p>
             </div>
-            <div className="col-span-2 flex flex-wrap gap-1.5">
+            <div role="group" aria-label="Acciones del informe" className="flex flex-wrap items-center gap-2 col-span-2">
               <Button size="sm" onClick={() => void openReport(report)}>
                 <DownloadIcon aria-hidden className="size-3.5" />
                 Descargar
@@ -1943,7 +1952,7 @@ export function CopilotPanel({
                 {reportShareStatus[report.report_id]}
               </p>
             ) : null}
-          </section>
+          </CardContent></Card>
         ))}
 
         {proposals.length ? (
@@ -1981,7 +1990,7 @@ export function CopilotPanel({
                 {isPending ? (
                   <Checkbox
                     checked={!skipped.includes(proposalIndex)}
-                    onChange={() =>
+                    onCheckedChange={() =>
                       setSkippedProposals((previous) => ({
                         ...previous,
                         [key]: toggle(previous[key] ?? [], proposalIndex),
@@ -2039,15 +2048,16 @@ export function CopilotPanel({
                           ? "Revisor sin confirmar: comprueba la asignación"
                           : "Nada se crea hasta que lo apruebes"}
                   </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={decisionIndex !== null}
-                    onClick={() => void decideProposal(index, message.outputId!, "rejected")}
-                  >
-                    Descartar
-                  </Button>
-                  <Button
+                  <div role="group" aria-label="Acciones de la propuesta" className="flex flex-wrap items-center gap-2 ml-auto">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={decisionIndex !== null}
+                      onClick={() => void decideProposal(index, message.outputId!, "rejected")}
+                    >
+                      Descartar
+                    </Button>
+                    <Button
                     size="sm"
                     disabled={decisionIndex !== null || selected === 0}
                     onClick={() => {
@@ -2070,7 +2080,8 @@ export function CopilotPanel({
                     {decisionIndex === index
                       ? "Creando…"
                       : `Crear ${selected} ${selected === 1 ? "tarea" : "tareas"}`}
-                  </Button>
+                    </Button>
+                  </div>
                 </>
               ) : message.approvalStatus === "approved" ? (
                 <>
@@ -2096,6 +2107,7 @@ export function CopilotPanel({
         ) : null}
 
         {!message.stopped ? (
+          <Collapsible open={sourcesOpen} onOpenChange={() => setOpenSources((previous) => toggle(previous, key))}>
           <div className="flex flex-wrap items-center gap-0.5 text-muted">
             {message.messageId ? (
               <>
@@ -2125,7 +2137,7 @@ export function CopilotPanel({
             ) : null}
             <button
               type="button"
-              className={`${iconButton} size-8`}
+              className={iconButtonSm}
               aria-label="Copiar respuesta"
               title="Copiar respuesta"
               onClick={() => void copyAnswer(message.content)}
@@ -2135,7 +2147,7 @@ export function CopilotPanel({
             {previousQuestion ? (
               <button
                 type="button"
-                className={`${iconButton} size-8`}
+                className={iconButtonSm}
                 aria-label="Volver a preguntar"
                 title="Volver a preguntar"
                 disabled={isSending}
@@ -2161,19 +2173,19 @@ export function CopilotPanel({
               )
             ) : null}
             {message.sources?.length ? (
-              <button
-                type="button"
-                className="ml-auto flex items-center gap-1 rounded-md px-2 py-1.5 text-xs hover:text-foreground"
-                aria-expanded={sourcesOpen}
-                onClick={() => setOpenSources((previous) => toggle(previous, key))}
-              >
+              <CollapsibleTrigger className="ml-auto gap-1 px-2 py-1.5 text-xs hover:text-foreground">
                 {message.sources.length} {message.sources.length === 1 ? "fuente" : "fuentes"}
-                <IconChevronDown aria-hidden className={`size-3 transition-transform ${sourcesOpen ? "rotate-180" : ""}`} />
-              </button>
+                <IconChevronDown aria-hidden className="ui-collapsible__chevron size-3" />
+              </CollapsibleTrigger>
             ) : null}
           </div>
+          {message.sources?.length ? (
+            <CollapsibleContent className="pt-3.5">
+              <AiEvidence sources={message.sources} warnings={[]} />
+            </CollapsibleContent>
+          ) : null}
+          </Collapsible>
         ) : null}
-        {sourcesOpen ? <AiEvidence sources={message.sources ?? []} warnings={[]} /> : null}
       </article>
     );
   };
@@ -2256,7 +2268,7 @@ export function CopilotPanel({
       </header>
 
       {isEscalationInboxOpen && canManageEscalations ? (
-        <section aria-label="Bandeja de escalados" className="max-h-[38vh] shrink-0 overflow-y-auto border-b border-separator bg-surface/50 px-4 py-3">
+        <ScrollArea role="region" aria-label="Bandeja de escalados" className="max-h-[38vh] shrink-0 border-b border-separator bg-surface/50 px-4 py-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-foreground">Escalados pendientes</h3>
             <button
@@ -2286,7 +2298,7 @@ export function CopilotPanel({
           ) : (
             <ul className="grid gap-2">
               {escalations.map((escalation) => (
-                <li key={escalation.id} className="rounded-lg border border-separator bg-white p-3">
+                <li key={escalation.id}><Card size="sm"><CardContent>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[0.68rem] font-semibold text-danger">
                       Riesgo {escalation.risk}
@@ -2301,19 +2313,16 @@ export function CopilotPanel({
                       {escalation.blocking_questions.map((question, index) => <li key={index}>{question}</li>)}
                     </ul>
                   ) : null}
-                  <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    <select
+                  <div role="group" aria-label="Acciones del escalado" className="flex flex-wrap items-center gap-2 mt-3 ml-auto">
+                    <Select
                       aria-label="Responsable del escalado"
+                      size="sm"
+                      className="max-w-44 text-xs"
                       value={escalation.owner_user_id ?? ""}
                       disabled={updatingEscalationId === escalation.id || escalationOwners.length === 0}
-                      onChange={(event) => void updateEscalation(escalation, escalation.status, event.target.value || null)}
-                      className="h-8 max-w-44 rounded-md border border-separator bg-white px-2 text-xs text-foreground disabled:opacity-50"
-                    >
-                      <option value="">Sin responsable</option>
-                      {escalationOwners.map((owner) => (
-                        <option key={owner.id} value={owner.id}>{owner.name}</option>
-                      ))}
-                    </select>
+                      onChange={(value) => void updateEscalation(escalation, escalation.status, value || null)}
+                      options={[{ value: "", label: "Sin responsable" }, ...escalationOwners.map((owner) => ({ value: owner.id, label: owner.name }))]}
+                    />
                     {escalation.status === "open" ? (
                       <Button size="sm" variant="secondary" disabled={updatingEscalationId === escalation.id} onClick={() => void updateEscalation(escalation, "acknowledged")}>
                         Reconocer
@@ -2323,20 +2332,20 @@ export function CopilotPanel({
                       {updatingEscalationId === escalation.id ? "Guardando…" : "Resolver"}
                     </Button>
                   </div>
-                </li>
+                </CardContent></Card></li>
               ))}
             </ul>
           )}
-        </section>
+        </ScrollArea>
       ) : null}
 
-      <div
+      <ScrollArea
         ref={scrollRef}
         onScroll={(event) => {
           const node = event.currentTarget;
           wasNearBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96;
         }}
-        className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-2 pt-5"
+        className="min-h-0 min-w-0 flex-1 overflow-x-hidden px-4 pb-2 pt-5"
       >
         <div
           className="flex min-w-0 flex-col gap-5 [overflow-wrap:anywhere]"
@@ -2365,18 +2374,17 @@ export function CopilotPanel({
               <h3 className="text-xl font-semibold tracking-[-0.02em] text-foreground">¿Sobre qué cliente preguntas?</h3>
               <p className="text-sm text-muted">Analizo un cliente cada vez, con sus datos reales.</p>
               <Field label="Cliente">
-                <Select
+                <SearchableSelect
                   aria-label="Cliente sobre el que preguntar"
                   className="mt-2"
+                  placeholder="Busca un cliente"
+                  emptyText="No hay ningún cliente con ese nombre."
                   value={pickedOrganizationId}
                   onChange={setPickedOrganizationId}
-                  options={[
-                    { value: "", label: "Elige un cliente" },
-                    ...organizations.map((organization) => ({
-                      value: organization.id,
-                      label: organization.name,
-                    })),
-                  ]}
+                  options={organizations.map((organization) => ({
+                    value: organization.id,
+                    label: organization.name,
+                  }))}
                 />
               </Field>
             </div>
@@ -2421,40 +2429,43 @@ export function CopilotPanel({
                   </button>
                 ))}
               </div>
-              <p className="flex items-start gap-2 rounded-md bg-surface px-3 py-2.5 text-xs leading-5 text-muted">
-                <CheckIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
-                Leo datos reales y la metodología de Conocimiento. No cambio nada en la cuenta: lo que proponga queda
-                pendiente hasta que lo apruebes.
-              </p>
+              <Marker className="items-start">
+                <MarkerIcon className="mt-0.5 text-success"><CheckIcon /></MarkerIcon>
+                <MarkerContent>
+                  Leo datos reales y la metodología de Conocimiento. No cambio nada en la cuenta: lo que proponga queda
+                  pendiente hasta que lo apruebes.
+                </MarkerContent>
+              </Marker>
             </div>
           ) : (
             messages.map((message, index) =>
               message.role === "assistant" ? (
                 renderAssistant(message, index)
               ) : (
-                <div
-                  key={`user-${index}`}
-                  className={`ml-auto max-w-[86%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-separator bg-surface px-3.5 py-2.5 text-sm leading-6 text-foreground ${styles.rise}`}
-                >
-                  {message.content}
-                </div>
+                <Message key={`user-${index}`} align="end" className={styles.rise}>
+                  <MessageContent>
+                    <Bubble>
+                      <BubbleContent>{message.content}</BubbleContent>
+                    </Bubble>
+                  </MessageContent>
+                </Message>
               ),
             )
           )}
           {isLoadingConversation ? (
-            <p className="flex items-center gap-2 text-sm text-muted" role="status">
-              <span className={styles.spin} aria-hidden />
-              Recuperando conversación…
-            </p>
+            <Marker role="status">
+              <MarkerIcon><span className={styles.spin} /></MarkerIcon>
+              <MarkerContent>Recuperando conversación…</MarkerContent>
+            </Marker>
           ) : null}
           {isSending ? (
             <div className={`grid gap-3 ${styles.rise}`}>
               <div className="rounded-lg border border-separator bg-white p-3" role="status" aria-live="polite">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <span className={styles.spin} aria-hidden />
-                  {liveStageLabel}
-                  <span className="ml-auto font-mono text-xs text-muted tabular-nums">{segundos(elapsed)}</span>
-                </div>
+                <Marker className="font-medium text-foreground">
+                  <MarkerIcon><span className={styles.spin} /></MarkerIcon>
+                  <MarkerContent className="flex-1">{liveStageLabel}</MarkerContent>
+                  <span className="font-normal text-muted tabular-nums">{segundos(elapsed)}</span>
+                </Marker>
                 {liveTools.length ? <div className="mt-2">{renderTrace(liveTools)}</div> : null}
               </div>
               {streamingAnswer ? (
@@ -2466,67 +2477,65 @@ export function CopilotPanel({
             </div>
           ) : null}
           {error ? (
-            <Alert status={error.status} role="alert">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{error.message}</Alert.Description>
-                {retryTurn ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="mt-2"
-                    onClick={() => void ask(retryTurn.question, retryTurn.reference, retryTurn.confirmedFailed ? undefined : retryTurn.id)}
-                    disabled={isSending}
-                  >
-                    Reintentar
-                  </Button>
-                ) : null}
-              </Alert.Content>
-            </Alert>
-          ) : retryTurn && !isSending ? (
-            <Alert status="warning" role="status">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{retryTurn.confirmedFailed ? "La consulta anterior falló. Puedes volver a intentarlo." : "Hay una pregunta sin respuesta confirmada."}</Alert.Description>
+            <Banner
+              tone={error.status === "danger" ? "danger" : "warn"}
+              action={retryTurn ? (
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="mt-2"
+                  onClick={() => void ask(retryTurn.question, retryTurn.reference, retryTurn.confirmedFailed ? undefined : retryTurn.id)}
+                  disabled={isSending}
+                >
+                  Reintentar
+                </Button>
+              ) : null}
+            >
+              {error.message}
+            </Banner>
+          ) : retryTurn && !isSending ? (
+            <Banner
+              tone="warn"
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
                   onClick={() => void ask(retryTurn.question, retryTurn.reference, retryTurn.confirmedFailed ? undefined : retryTurn.id)}
                 >
                   {retryTurn.confirmedFailed ? "Reintentar" : "Recuperar respuesta"}
                 </Button>
-              </Alert.Content>
-            </Alert>
+              }
+            >
+              {retryTurn.confirmedFailed ? "La pregunta anterior no tuvo respuesta. Puedes volver a hacerla." : "Una pregunta se quedó sin respuesta. Puedes recuperarla."}
+            </Banner>
           ) : null}
         </div>
-      </div>
+      </ScrollArea>
 
       <footer className="relative shrink-0 border-t border-separator px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        {/* Atajos con "/": la lista es un Command que maneja el propio textarea
+            (↑↓ y Enter), y el filtro ya lo hace matchingCopilotCommands. */}
+        <Command shouldFilter={false} className="contents">
         {commandMatches.length ? (
-          <div
-            className={`absolute inset-x-3 bottom-full z-20 mb-1 rounded-xl border border-separator bg-white p-1.5 shadow-lg ${styles.rise}`}
-            role="listbox"
-            aria-label="Comandos"
+          <CommandList
+            aria-label="Atajos"
+            className={`absolute inset-x-3 bottom-full z-20 mb-1 rounded-xl border border-separator bg-white shadow-lg ${styles.rise}`}
           >
-            <p className="px-2 pb-1 pt-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.07em] text-muted">Comandos</p>
-            {commandMatches.map((command, commandIndex) => (
-              <button
-                key={command.command}
-                type="button"
-                role="option"
-                aria-selected={commandIndex === 0}
-                onClick={() => {
-                  setInput(`${command.command} `);
-                  textareaRef.current?.focus();
-                }}
-                className="grid w-full grid-cols-[5.5rem_minmax(0,1fr)] gap-2.5 rounded-lg px-2 py-2 text-left text-[0.8rem] hover:bg-accent-soft aria-selected:bg-accent-soft"
-              >
-                <code className="font-mono text-xs text-accent">{command.command}</code>
-                <span className="text-muted">{command.hint}</span>
-              </button>
-            ))}
-          </div>
+            <CommandGroup heading="Atajos">
+              {commandMatches.map((command) => (
+                <CommandItem
+                  key={command.command}
+                  value={command.command}
+                  onSelect={() => {
+                    setInput(`${command.command} `);
+                    textareaRef.current?.focus();
+                  }}
+                >
+                  <code className="w-24 shrink-0 font-mono text-xs text-accent">{command.command}</code>
+                  <span className="text-muted">{command.hint}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
         ) : null}
 
         {view && targetOrganizationId ? (
@@ -2559,7 +2568,7 @@ export function CopilotPanel({
           className={`relative rounded-xl border border-separator bg-white transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_4px_var(--accent-soft)] ${isSending ? styles.busy : ""}`}
           onSubmit={submit}
         >
-          <textarea
+          <CommandInput render={<textarea
             ref={textareaRef}
             className={`${styles.composerInput} block max-h-40 min-h-12 w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted disabled:cursor-not-allowed`}
             aria-label="Pregunta para el Consultor IA"
@@ -2570,11 +2579,6 @@ export function CopilotPanel({
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
               event.preventDefault();
               if (isSending) return;
-              const firstCommand = commandMatches[0];
-              if (firstCommand && input.trim() !== firstCommand.command) {
-                setInput(`${firstCommand.command} `);
-                return;
-              }
               event.currentTarget.form?.requestSubmit();
             }}
             placeholder={
@@ -2583,11 +2587,11 @@ export function CopilotPanel({
                 : "Elige un cliente para empezar"
             }
             disabled={!targetOrganizationId}
-          />
+          />} />
           <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
             <button
               type="button"
-              className={`${iconButton} size-8 font-mono text-sm`}
+              className={`${iconButtonSm} font-mono`}
               aria-label="Atajos"
               title="Atajos (/)"
               disabled={!targetOrganizationId}
@@ -2607,11 +2611,7 @@ export function CopilotPanel({
               aria-label={isSending ? "Detener respuesta" : "Enviar"}
               title={isSending ? "Detener" : "Enviar (Enter)"}
               disabled={!isSending && (!input.trim() || !targetOrganizationId)}
-              className={`flex size-9 items-center justify-center rounded-lg transition ${
-                isSending
-                  ? "bg-foreground text-background"
-                  : "bg-accent text-accent-foreground enabled:hover:-translate-y-px disabled:opacity-35"
-              }`}
+              className={buttonVariants({ variant: isSending ? "secondary" : "default", size: "icon" })}
             >
               {isSending ? (
                 <svg aria-hidden viewBox="0 0 20 20" fill="currentColor" className="size-4">
@@ -2631,6 +2631,7 @@ export function CopilotPanel({
             Solo lectura: nada cambia sin tu aprobación
           </span>
         </div>
+        </Command>
       </footer>
 
       {/* Historial: un cajón dentro del panel, no un select fijo en la cabecera. */}
@@ -2649,37 +2650,31 @@ export function CopilotPanel({
             <span className="ml-auto truncate text-xs text-muted">{view.storeLabel}</span>
           ) : null}
         </div>
-        <div className="relative mx-4 my-3">
-          <SearchIcon aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-          <Input
+        {/* La búsqueda la hace el servidor (y el filtro local de historyGroups):
+            el Command solo aporta el buscador, el teclado y los grupos. */}
+        <Command shouldFilter={false} className="min-h-0 flex-1 rounded-none">
+          <CommandInput
             aria-label="Buscar conversaciones"
             value={historyQuery}
-            onChange={(event) => setHistoryQuery(event.target.value)}
+            onValueChange={setHistoryQuery}
             placeholder="Buscar en tus conversaciones"
-            className="w-full pl-9"
           />
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-          {historyGroups.length === 0 ? (
-            <p className="px-2 text-sm text-muted">
+          <CommandList className="max-h-none min-h-0 flex-1 px-1 pb-4">
+            <CommandEmpty className="text-left">
               {historyQuery.trim() ? "No hay conversaciones que coincidan." : "Aún no hay conversaciones en esta tienda."}
-            </p>
-          ) : (
-            historyGroups.map((group) => (
-              <div key={group.label}>
-                <p className="px-2 pb-1 pt-3 text-[0.65rem] font-semibold uppercase tracking-[0.07em] text-muted">
-                  {group.label}
-                </p>
+            </CommandEmpty>
+            {historyGroups.map((group) => (
+              <CommandGroup key={group.label} heading={group.label}>
                 {group.items.map((conversation) => (
-                  <button
+                  <CommandItem
                     key={conversation.id}
-                    type="button"
+                    value={conversation.id}
                     aria-current={conversation.id === conversationId ? "true" : undefined}
-                    onClick={() => {
+                    onSelect={() => {
                       setIsHistoryOpen(false);
                       if (conversation.id !== conversationId) void loadConversation(conversation.id);
                     }}
-                    className="grid w-full gap-0.5 rounded-md px-2 py-2 text-left hover:bg-surface aria-[current=true]:bg-accent-soft"
+                    className="grid gap-0.5"
                   >
                     <span
                       className={`truncate text-sm font-medium ${conversation.id === conversationId ? "text-accent" : "text-foreground"}`}
@@ -2694,11 +2689,10 @@ export function CopilotPanel({
                         minute: "2-digit",
                       })}
                     </span>
-                  </button>
+                  </CommandItem>
                 ))}
-              </div>
-            ))
-          )}
+              </CommandGroup>
+            ))}
           {hasMoreConversations && conversationHistoryCursor ? (
             <Button
               size="sm"
@@ -2710,7 +2704,8 @@ export function CopilotPanel({
               {isLoadingMoreConversations ? "Cargando…" : "Ver más conversaciones"}
             </Button>
           ) : null}
-        </div>
+          </CommandList>
+        </Command>
       </div>
 
       {notice ? (
@@ -2729,7 +2724,7 @@ export function CopilotPanel({
       <aside
         id="copilot-panel"
         aria-label="Consultor IA"
-        className="sticky top-14 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] min-h-0 border-l border-separator bg-white lg:block"
+        className="sticky top-14 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] min-h-0 bg-white lg:block"
       >
         {panel}
       </aside>
@@ -2737,10 +2732,13 @@ export function CopilotPanel({
   }
 
   return (
-    <Sheet isOpen onOpenChange={(open) => !open && onClose()} size="sm" bare ariaLabel="Consultor IA" title="Consultor IA">
-      <div id="copilot-panel" className="flex h-full min-h-0 flex-col">
-        {panel}
-      </div>
-    </Sheet>
+    // Solo en móvil: cajón inferior casi a pantalla completa; la X es la del panel.
+    <Drawer open onOpenChange={(open) => !open && onClose()} swipeDirection="down" showSwipeHandle>
+      <DrawerContent aria-label="Consultor IA" showCloseButton={false} className="h-[calc(100dvh-2rem)] max-h-none">
+        <div id="copilot-panel" className="flex min-h-0 flex-1 flex-col">
+          {panel}
+        </div>
+      </DrawerContent>
+    </Drawer>
   );
 }

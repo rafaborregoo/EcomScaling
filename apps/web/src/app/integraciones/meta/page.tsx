@@ -5,14 +5,20 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import {
+  FieldLegend,
+  FieldSet,
   AsyncState,
   Banner,
   Button,
-  Card,
   Checkbox,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import {
   BackToHub,
@@ -210,177 +216,175 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
         activeStore={activeStore}
       />
 
-      <Card
-        className="border border-channel-meta"
-        title={
-          meta.connection
+      <Card className="border border-channel-meta">
+        <CardHeader>
+          <CardTitle>{meta.connection
             ? "Renueva el acceso a Meta"
-            : "Conecta tu cuenta de Meta"
-        }
-        description="Necesitamos permiso de solo lectura para traer el rendimiento de tus anuncios. No publicaremos ni modificaremos campañas."
-      >
-        {!configured ? (
-          <Banner tone="warn">
-            La app de Meta no está configurada en el servidor todavía (
-            <span className="font-mono">META_APP_ID</span> /{" "}
-            <span className="font-mono">META_APP_SECRET</span>).
-          </Banner>
-        ) : (
-          <>
-            <InfoModalButton
-              title="Qué ocurre al conectar Meta Ads"
-              label="Ver pasos y permisos"
-            >
-              <Steps
-                items={[
-                  <>
-                    Pulsa{" "}
-                    <span className="font-medium">
-                      {meta.connection ? "Reautorizar" : "Conectar"} Meta Ads
-                    </span>{" "}
-                    e inicia sesión en Facebook con un usuario con acceso al
-                    Business Manager.
-                  </>,
-                  <>
-                    Concede los permisos de lectura de anuncios y vuelves aquí
-                    automáticamente.
-                  </>,
-                  <>
-                    Abajo elige las cuentas publicitarias a sincronizar y
-                    guarda.
-                  </>,
-                ]}
-              />
-            </InfoModalButton>
-            <Button
-              className="mt-4"
-              type="button"
-              onClick={() => void actions.connectMeta()}
-              disabled={pending === "meta"}
-            >
-              {pending === "meta"
-                ? "Conectando..."
-                : meta.connection
-                  ? "Reautorizar Meta Ads"
-                  : "Conectar Meta Ads"}
-            </Button>
-            {actionError ? (
-              <Banner className="mt-3" tone="danger">
-                {actionError}
-              </Banner>
-            ) : null}
-          </>
-        )}
+            : "Conecta tu cuenta de Meta"}</CardTitle>
+          <CardDescription>Necesitamos permiso de solo lectura para traer el rendimiento de tus anuncios. No publicaremos ni modificaremos campañas.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!configured ? (
+            <Banner tone="warn">
+              Conectar Meta aún no está disponible: falta configurarlo en el
+              servidor. En cuanto esté, podrás conectarlo desde aquí.
+            </Banner>
+          ) : (
+            <>
+              <InfoModalButton
+                title="Qué ocurre al conectar Meta Ads"
+                label="Ver pasos y permisos"
+              >
+                <Steps
+                  items={[
+                    <>
+                      Pulsa{" "}
+                      <span className="font-medium">
+                        {meta.connection ? "Reautorizar" : "Conectar"} Meta Ads
+                      </span>{" "}
+                      e inicia sesión en Facebook con un usuario con acceso al
+                      Business Manager.
+                    </>,
+                    <>
+                      Concede los permisos de lectura de anuncios y vuelves aquí
+                      automáticamente.
+                    </>,
+                    <>
+                      Abajo elige las cuentas publicitarias a sincronizar y
+                      guarda.
+                    </>,
+                  ]}
+                />
+              </InfoModalButton>
+              <Button
+                className="mt-4"
+                type="button"
+                onClick={() => void actions.connectMeta()}
+                disabled={pending === "meta"}
+              >
+                {pending === "meta"
+                  ? "Conectando..."
+                  : meta.connection
+                    ? "Reautorizar Meta Ads"
+                    : "Conectar Meta Ads"}
+              </Button>
+              {actionError ? (
+                <Banner className="mt-3" tone="danger">
+                  {actionError}
+                </Banner>
+              ) : null}
+            </>
+          )}
+        </CardContent>
       </Card>
 
       {meta.connection ? (
-        <Card
-          className="border border-channel-meta"
-          title="Elige las cuentas que quieres analizar"
-          description="Solo traeremos datos de las cuentas marcadas. Puedes cambiar esta selección cuando lo necesites."
-        >
-          {assetsLoading ? (
-            <LoadingBlock label="Cargando cuentas publicitarias..." />
-          ) : assetsError ? (
-            <Banner tone="danger">{assetsError}</Banner>
-          ) : !assets || assets.ad_accounts.length === 0 ? (
-            <EmptyState
-              title="Aún no hay cuentas descubiertas"
-              hint="Meta no ha devuelto cuentas para esta conexión. Revisa permisos o vuelve a autorizar."
-            />
-          ) : (
-            <>
-              <fieldset
-                className="space-y-2"
-                aria-label="Cuentas publicitarias Meta"
-              >
-                <legend className="sr-only">Cuentas publicitarias Meta</legend>
-                {assets.ad_accounts.map((asset) => (
-                  <Checkbox
-                    key={asset.id}
-                    checked={asset.is_selected}
-                    disabled={!asset.is_active || saving}
-                    className="flex items-start gap-3 rounded-md border border-separator p-3"
-                    onChange={(checked) => {
-                      setAssets((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ad_accounts: current.ad_accounts.map((item) =>
-                                item.id === asset.id
-                                  ? { ...item, is_selected: checked }
-                                  : item,
-                              ),
-                            }
-                          : current,
-                      );
-                    }}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-foreground">
-                        {asset.name}
-                      </span>
-                      <span className="block font-mono text-xs text-muted">
-                        {asset.external_id}
-                      </span>
-                      {asset.currency_code || asset.timezone_name ? (
-                        <span className="block text-xs text-muted">
-                          {[asset.currency_code, asset.timezone_name]
-                            .filter(Boolean)
-                            .join(" · ")}
+        <Card className="border border-channel-meta">
+          <CardHeader>
+            <CardTitle>Elige las cuentas que quieres analizar</CardTitle>
+            <CardDescription>Solo traeremos datos de las cuentas marcadas. Puedes cambiar esta selección cuando lo necesites.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {assetsLoading ? (
+              <LoadingBlock label="Cargando cuentas publicitarias..." />
+            ) : assetsError ? (
+              <Banner tone="danger">{assetsError}</Banner>
+            ) : !assets || assets.ad_accounts.length === 0 ? (
+              <EmptyState
+                title="Aún no hay cuentas descubiertas"
+                hint="Meta no ha devuelto cuentas para esta conexión. Revisa permisos o vuelve a autorizar."
+              />
+            ) : (
+              <>
+                <FieldSet className="gap-2">
+                  <FieldLegend className="sr-only">Cuentas publicitarias Meta</FieldLegend>
+                  {assets.ad_accounts.map((asset) => (
+                    <Checkbox
+                      key={asset.id}
+                      checked={asset.is_selected}
+                      disabled={!asset.is_active || saving}
+                      className="flex items-start gap-3 rounded-md border border-separator p-3"
+                      onCheckedChange={(checked) => {
+                        setAssets((current) =>
+                          current
+                            ? {
+                                ...current,
+                                ad_accounts: current.ad_accounts.map((item) =>
+                                  item.id === asset.id
+                                    ? { ...item, is_selected: checked }
+                                    : item,
+                                ),
+                              }
+                            : current,
+                        );
+                      }}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-foreground">
+                          {asset.name}
                         </span>
-                      ) : null}
-                      {/* A que tienda se le imputa el gasto de esta cuenta. Sin
-                          esto, con dos tiendas, marcar una casilla era decidir
-                          a ciegas de quien es el gasto. */}
-                      {scope && scope.store_count > 1 ? (
-                        <span className="mt-1 block text-xs">
-                          {storeByAccountId.get(asset.id) ? (
-                            <span className="text-muted">
-                              Tienda:{" "}
-                              {storeLabel(storeByAccountId.get(asset.id)!)}
-                            </span>
-                          ) : (
-                            <span className="text-warn">
-                              Sin tienda asignada · su gasto no aparece al
-                              filtrar por tienda
-                            </span>
-                          )}
+                        <span className="block font-mono text-xs text-muted">
+                          {asset.external_id}
                         </span>
-                      ) : null}
-                    </span>
-                  </Checkbox>
-                ))}
-              </fieldset>
-              {/* Antes era texto suelto: al guardar, con lector de pantalla no
-                  se anunciaba nada y el foco seguia en el boton. */}
-              <p
-                role="status"
-                aria-live="polite"
-                className="mt-3 text-xs text-success"
-              >
-                {saveMessage}
-              </p>
-              {saveError ? (
-                <Banner className="mt-3" tone="danger">
-                  {saveError}
-                </Banner>
-              ) : null}
-              <p className="mt-3 text-xs leading-5 text-muted">
-                Al guardar, iniciaremos la sincronización. Los primeros datos
-                pueden tardar unos minutos en aparecer en Meta Ads y en el
-                panel.
-              </p>
-              <Button
-                className="mt-3"
-                type="button"
-                onClick={() => void saveSelection()}
-                disabled={saving}
-              >
-                {saving ? "Guardando..." : "Guardar y sincronizar"}
-              </Button>
-            </>
-          )}
+                        {asset.currency_code || asset.timezone_name ? (
+                          <span className="block text-xs text-muted">
+                            {[asset.currency_code, asset.timezone_name]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        ) : null}
+                        {/* A que tienda se le imputa el gasto de esta cuenta. Sin
+                            esto, con dos tiendas, marcar una casilla era decidir
+                            a ciegas de quien es el gasto. */}
+                        {scope && scope.store_count > 1 ? (
+                          <span className="mt-1 block text-xs">
+                            {storeByAccountId.get(asset.id) ? (
+                              <span className="text-muted">
+                                Tienda:{" "}
+                                {storeLabel(storeByAccountId.get(asset.id)!)}
+                              </span>
+                            ) : (
+                              <span className="text-warn">
+                                Sin tienda asignada · su gasto no aparece al
+                                filtrar por tienda
+                              </span>
+                            )}
+                          </span>
+                        ) : null}
+                      </span>
+                    </Checkbox>
+                  ))}
+                </FieldSet>
+                {/* Antes era texto suelto: al guardar, con lector de pantalla no
+                    se anunciaba nada y el foco seguia en el boton. */}
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 text-xs text-success"
+                >
+                  {saveMessage}
+                </p>
+                {saveError ? (
+                  <Banner className="mt-3" tone="danger">
+                    {saveError}
+                  </Banner>
+                ) : null}
+                <p className="mt-3 text-xs leading-5 text-muted">
+                  Al guardar, iniciaremos la sincronización. Los primeros datos
+                  pueden tardar unos minutos en aparecer en Meta Ads y en el
+                  panel.
+                </p>
+                <Button
+                  className="mt-3"
+                  type="button"
+                  onClick={() => void saveSelection()}
+                  disabled={saving}
+                >
+                  {saving ? "Guardando..." : "Guardar y sincronizar"}
+                </Button>
+              </>
+            )}
+          </CardContent>
         </Card>
       ) : null}
 

@@ -3,12 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/components/command-palette";
 import { notificationTypeInfo } from "@e-nora/contracts";
 import { useInsights } from "@/components/insights-context";
 import { totalInsightCount, type InsightSpot } from "@/lib/insights-registry";
 import { withPortalRouteContext } from "@/lib/portal-route-context";
 import {
+  ScrollArea,
+  EmptyState,
   Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   ArchiveIcon,
   BellIcon,
   Button,
@@ -17,13 +23,28 @@ import {
   ErrorBlock,
   IconChevronRight,
   insightBadgeCount,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
   LoadingBlock,
   Link,
   List,
-  Sheet,
+  NotificationBadge,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
   Popover,
+  PopoverContent,
+  PopoverTrigger,
   RetryIcon,
   SparklesIcon,
+  ToggleGroup,
+  ToggleGroupItem,
   toast,
 } from "@/components/ui";
 
@@ -182,6 +203,13 @@ export function NotificationsBell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // La paleta ⌘K marca todo como leído por su cuenta: se recarga la cuenta.
+  useEffect(() => {
+    const reload = () => void load();
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, reload);
+  }, [load]);
+
   function handleOpenChange(open: boolean) {
     setIsOpen(open);
     if (open) void load();
@@ -259,20 +287,12 @@ export function NotificationsBell({
           : "text-muted hover:text-foreground",
       )}
     >
-      <BellIcon aria-hidden="true" className="size-[1.2rem] transition-transform group-hover:-rotate-6" />
+      <NotificationBadge count={activityCount}>
+        <BellIcon aria-hidden="true" className="size-[1.2rem] transition-transform group-hover:-rotate-6" />
+      </NotificationBadge>
       {spots.length > 0 ? (
-        <span className="absolute bottom-1 right-1 grid size-3 place-items-center rounded-full bg-[#3d3b3a] text-white" aria-hidden="true">
+        <span className="absolute bottom-1 right-1 grid size-3 place-items-center rounded-full bg-[#3d3b3a] text-white ring-2 ring-white" aria-hidden="true">
           <SparklesIcon className="size-2" />
-        </span>
-      ) : null}
-      {activityCount > 0 ? (
-        <span
-          className="absolute -right-1 -top-1 flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-[#3d3b3a] px-1 text-[0.65rem] font-semibold leading-none text-white ring-2 ring-white"
-          aria-hidden="true"
-        >
-          {activityCount > 99
-            ? "99+"
-            : activityCount}
         </span>
       ) : null}
     </button>
@@ -312,27 +332,20 @@ export function NotificationsBell({
   );
 
   const filterBar = (
-    <div className="flex gap-1 border-b border-separator bg-white px-4 py-2.5" role="group" aria-label="Filtrar actividad">
-      {([
-        ["all", "Todo", notifications.length + aiCount],
-        ["notifications", "Avisos", notifications.length],
-        ["ai", "IA", aiCount],
-      ] as const).map(([value, label, count]) => (
-        <button
-          key={value}
-          type="button"
-          aria-pressed={filter === value}
-          onClick={() => setFilter(value)}
-          className={cn(
-            "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3d3b3a] focus-visible:ring-offset-2",
-            filter === value ? "bg-[#3d3b3a] text-white" : "text-muted hover:bg-[#f0efed] hover:text-foreground",
-          )}
-        >
-          {value === "ai" ? <SparklesIcon aria-hidden="true" className="size-3.5" /> : null}
-          {label}
-          <span className={cn("tabular-nums", filter === value ? "text-white/70" : "text-muted")}>{count}</span>
-        </button>
-      ))}
+    <div className="border-b border-separator bg-white px-4 py-2.5">
+      <ToggleGroup aria-label="Filtrar actividad" value={filter} onValueChange={setFilter}>
+        {([
+          ["all", "Todo", notifications.length + aiCount],
+          ["notifications", "Avisos", notifications.length],
+          ["ai", "IA", aiCount],
+        ] as const).map(([value, label, count]) => (
+          <ToggleGroupItem key={value} value={value}>
+            {value === "ai" ? <SparklesIcon aria-hidden="true" className="size-3.5" /> : null}
+            {label}
+            <span className="text-xs text-muted tabular-nums">{count}</span>
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
     </div>
   );
 
@@ -362,40 +375,37 @@ export function NotificationsBell({
         ) : null}
       </div>
     ) : notifications.length === 0 && spots.length === 0 ? (
-      <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
-        <BellIcon aria-hidden="true" className="size-5 text-muted" />
-        <p className="text-sm text-muted">Sin actividad por ahora.</p>
-      </div>
+      <EmptyState size="sm" className="py-10" icon={<BellIcon aria-hidden="true" />} title="Sin actividad por ahora" />
     ) : (
       <div className="space-y-5 p-4">
         {(filter === "all" || filter === "notifications") && notifications.length > 0 ? (
           <section aria-labelledby="activity-notifications-heading">
             {filter === "all" ? <h3 id="activity-notifications-heading" className="mb-2 px-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-muted">Avisos recientes</h3> : null}
             {storeNames ? (
-      <Accordion
-        className="-mx-1"
-        items={groupByStore(notifications, storeNames).map((group) => ({
-          id: group.id,
-          title: (
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="truncate text-sm font-semibold">
-                {group.name}
+      <Accordion className="px-1">
+        {groupByStore(notifications, storeNames).map((group) => (
+          <AccordionItem key={group.id} value={group.id}>
+            <AccordionTrigger className="py-3">
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="truncate text-sm font-semibold">
+                  {group.name}
+                </span>
+                <span
+                  className={cn(
+                    COUNT_CHIP,
+                    group.unread > 0
+                      ? "bg-foreground text-white"
+                      : "bg-black/[0.06] text-muted",
+                  )}
+                >
+                  {group.unread > 0 ? group.unread : group.items.length}
+                </span>
               </span>
-              <span
-                className={cn(
-                  COUNT_CHIP,
-                  group.unread > 0
-                    ? "bg-foreground text-white"
-                    : "bg-black/[0.06] text-muted",
-                )}
-              >
-                {group.unread > 0 ? group.unread : group.items.length}
-              </span>
-            </span>
-          ),
-          content: renderList(group.items),
-        }))}
-      />
+            </AccordionTrigger>
+            <AccordionContent className="pb-3">{renderList(group.items)}</AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
             ) : renderList(notifications)}
           </section>
         ) : null}
@@ -411,12 +421,7 @@ export function NotificationsBell({
     );
 
   function EmptyActivity({ label }: { label: string }) {
-    return (
-      <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
-        <SparklesIcon aria-hidden="true" className="size-5 text-muted" />
-        <p className="text-sm text-muted">{label}</p>
-      </div>
-    );
+    return <EmptyState size="sm" className="py-10" icon={<SparklesIcon aria-hidden="true" />} title={label} />;
   }
 
   function renderInsights(items: InsightSpot[]) {
@@ -426,15 +431,17 @@ export function NotificationsBell({
           const spotCount = insightBadgeCount(spot.insights);
           return (
             <List.Item as="li" key={spot.id} className="w-full border-b border-separator last:border-b-0">
-              <Link href={spot.href} className="group hover-sweep flex min-h-16 w-full items-center gap-3 rounded-lg px-3.5 py-3 text-foreground no-underline [--hover-sweep-color:#f0efed]" onClick={() => setIsOpen(false)}>
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#f0efed] text-[#3d3b3a]"><SparklesIcon aria-hidden="true" className="size-4" /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{spot.label}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted">{spot.location}</span>
-                </span>
-                {spotCount > 0 ? <span className="shrink-0 rounded-full bg-[#f0efed] px-2 py-0.5 text-[0.7rem] font-semibold tabular-nums text-[#3d3b3a]">{spotCount}</span> : null}
-                <IconChevronRight aria-hidden="true" className="size-3.5 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-              </Link>
+              <Item size="sm" className="group hover-sweep min-h-16 flex-nowrap rounded-none [--hover-sweep-color:#f0efed]" render={<Link href={spot.href} onClick={() => setIsOpen(false)} />}>
+                <ItemMedia variant="icon" className="size-9"><SparklesIcon aria-hidden="true" /></ItemMedia>
+                <ItemContent>
+                  <ItemTitle className="block truncate font-semibold">{spot.label}</ItemTitle>
+                  <ItemDescription className="truncate">{spot.location}</ItemDescription>
+                </ItemContent>
+                <ItemActions className="flex-nowrap">
+                  {spotCount > 0 ? <span className="rounded-full bg-[#f0efed] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#3d3b3a]">{spotCount}</span> : null}
+                  <IconChevronRight aria-hidden="true" className="size-3.5 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </ItemActions>
+              </Item>
             </List.Item>
           );
         })}
@@ -450,12 +457,14 @@ export function NotificationsBell({
         {items.map((notification) => {
           const isUnread = notification.status === "unread";
           return (
-            <List.Item
-              as="li"
+            <Item
               key={notification.id}
+              variant={isUnread ? "muted" : "outline"}
+              size="sm"
+              render={<li />}
               className={cn(
-                "group hover-sweep flex w-full gap-3 rounded-xl border px-3.5 py-3 transition-colors [--hover-sweep-color:#f0efed] hover:border-[#aaa6a2]",
-                isUnread ? "border-[#c9c6c3] bg-[#f0efed]" : "border-separator bg-white",
+                "group hover-sweep flex-nowrap items-start rounded-xl [--hover-sweep-color:#f0efed] hover:border-[#aaa6a2]",
+                isUnread && "border-[#c9c6c3]",
               )}
             >
               {isUnread ? (
@@ -466,7 +475,7 @@ export function NotificationsBell({
               ) : (
                 <span className="size-2 shrink-0" aria-hidden="true" />
               )}
-              <div className="min-w-0 flex-1">
+              <ItemContent>
                 {/* Qué clase de aviso es, con su explicación al pasar el ratón
                   (catálogo en packages/contracts/notification-catalog.ts). */}
                 <p
@@ -491,14 +500,14 @@ export function NotificationsBell({
                   </span>
                 </Link>
                 {notification.message ? (
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">
+                  <ItemDescription className="line-clamp-2">
                     {notification.message}
-                  </p>
+                  </ItemDescription>
                 ) : null}
-                <p className="mt-1.5 text-[0.7rem] text-muted">
+                <ItemDescription className="mt-1">
                   {formatRelativeTime(notification.created_at)}
-                </p>
-              </div>
+                </ItemDescription>
+              </ItemContent>
               <Button
                 variant="ghost"
                 size="sm"
@@ -510,7 +519,7 @@ export function NotificationsBell({
               >
                 <ArchiveIcon aria-hidden="true" className="size-4" />
               </Button>
-            </List.Item>
+            </Item>
           );
         })}
       </List>
@@ -532,62 +541,51 @@ export function NotificationsBell({
 
   if (isDesktop) {
     return (
-      <Popover isOpen={isOpen} onOpenChange={handleOpenChange}>
-        <Popover.Trigger>{renderBell()}</Popover.Trigger>
-        <Popover.Content
-          placement="bottom end"
-          // Borde + sombra marcada: sobre el fondo blanco del shell el panel
-          // no se distinguia de la pagina.
-          className="w-[26rem] overflow-hidden rounded-2xl border border-black/10 bg-white p-0 shadow-[0_20px_56px_-16px_rgba(10,45,44,0.42),0_6px_16px_-8px_rgba(0,0,0,0.16)]"
-        >
-          <Popover.Dialog
-            aria-label="Centro de actividad"
-            className="flex max-h-[min(34rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col p-0"
-          >
+      <Popover open={isOpen} onOpenChange={handleOpenChange}>
+        <PopoverTrigger render={renderBell()} />
+        <PopoverContent side="bottom" align="end" className="w-[26rem] gap-0 overflow-hidden p-0" aria-label="Centro de actividad">
+          <div className="flex max-h-[min(34rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col">
             {header}
             {filterBar}
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <ScrollArea className="min-h-0 flex-1 overscroll-contain">
               {body}
-            </div>
+            </ScrollArea>
             {historyLink}
-          </Popover.Dialog>
-        </Popover.Content>
+          </div>
+        </PopoverContent>
       </Popover>
     );
   }
 
-  // Movil: hoja inferior. El Modal de HeroUI ya se ancla abajo en pantallas
-  // pequeñas (data-placement="auto" -> mt-auto), asi que hace de bottom sheet
-  // sin un primitivo aparte.
+  // Movil: cajón inferior con asa; la misma lista que el popover.
   return (
     <>
       {renderBell(() => handleOpenChange(true))}
-      <Sheet
-        isOpen={isOpen}
-        onOpenChange={handleOpenChange}
-        placement="bottom"
-        flush
-        title="Centro de actividad"
-        meta={<span>{unreadCount} avisos · {aiCount} de IA</span>}
-        headerActions={
-          unreadCount > 0 ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              className="min-w-0 gap-1.5 px-2 text-xs"
-              onClick={() => void markAllRead()}
-            >
-              <CheckAllIcon aria-hidden="true" className="size-3.5" />
-              Marcar todas
-            </Button>
-          ) : undefined
-        }
-      >
-        {filterBar}
-        {body}
-        {historyLink}
-      </Sheet>
+      <Drawer open={isOpen} onOpenChange={handleOpenChange} swipeDirection="down" showSwipeHandle>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Centro de actividad</DrawerTitle>
+            <DrawerDescription>
+              {unreadCount} avisos · {aiCount} de IA
+              {unreadCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  className="ml-auto min-w-0 gap-1.5 px-2 text-xs"
+                  onClick={() => void markAllRead()}
+                >
+                  <CheckAllIcon aria-hidden="true" className="size-3.5" />
+                  Marcar todas
+                </Button>
+              ) : null}
+            </DrawerDescription>
+          </DrawerHeader>
+          {filterBar}
+          <ScrollArea className="min-h-0 flex-1 overscroll-contain">{body}</ScrollArea>
+          <div className="pb-[env(safe-area-inset-bottom)]">{historyLink}</div>
+        </DrawerContent>
+      </Drawer>
     </>
   );
 }

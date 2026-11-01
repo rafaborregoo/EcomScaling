@@ -18,6 +18,7 @@ import {
 } from "@e-nora/ai";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { loadDisabledAgents } from "./ai-agent-groups.js";
+import { requireMailingAccess } from "./marketing-mailing-access.js";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,
@@ -77,7 +78,7 @@ function requireBankAccess(context: AuthContext, organizationId: string) {
       statusCode: 403,
       error: "marketing_access_required",
       message:
-        "Necesitas ser propietario o manager de la organización, consultor o administrador de plataforma.",
+        "Necesitas ser propietario o gestor de la tienda, o su consultor.",
     };
   }
   return { ok: true as const };
@@ -196,6 +197,15 @@ async function getActiveA15Fingerprint(supabase: ReturnType<typeof createService
       ...(typeof image?.representation_kind === "string" ? { representationKind: image.representation_kind } : {}),
     }),
   };
+}
+
+export async function isCurrentA15VisualAnalysis(
+  supabase: ReturnType<typeof createServiceClient>,
+  image: Record<string, unknown>,
+): Promise<boolean> {
+  if (image.status !== "analyzed" || !image.analysis || typeof image.analysis !== "object") return false;
+  const active = await getActiveA15Fingerprint(supabase, image);
+  return active.ok && image.analysis_fingerprint === active.fingerprint;
 }
 
 async function queueImageIfAnalysisIsStale(
@@ -1070,12 +1080,21 @@ export async function listInstagramImageBank(
   authorization: string,
   context: AuthContext,
   organizationId: string,
-  options: { storeId?: string; cursor?: string; limit?: number; search?: string } = {},
+  options: { storeId?: string; storeConnectionId?: string; cursor?: string; limit?: number; search?: string } = {},
 ) {
-  const access = requireBankAccess(context, organizationId);
+  if (options.storeConnectionId) {
+    if (!isUuid(options.storeConnectionId)) return { ok: false as const, statusCode: 400, error: "visual_asset_store_id_invalid" };
+    const store = await createServiceClient(env).from("shopify_stores").select("id").eq("organization_id", organizationId)
+      .eq("connection_id", options.storeConnectionId).eq("is_active", true).maybeSingle();
+    if (store.error) return { ok: false as const, statusCode: 503, error: "visual_asset_store_scope_load_failed" };
+    if (!store.data || options.storeId && options.storeId !== store.data.id) return { ok: false as const, statusCode: 404, error: "visual_asset_store_not_available" };
+    options = { ...options, storeId: store.data.id };
+  }
+  const access = options.storeConnectionId ? requireMailingAccess(context, organizationId, options.storeId!) : requireBankAccess(context, organizationId);
   if (access.ok === false) return access;
   if (options.storeId && !isUuid(options.storeId)) return { ok: false as const, statusCode: 400, error: "visual_asset_store_id_invalid" };
-  const scope = storeAccess(context, organizationId, options.storeId ?? null);
+  const scope = options.storeConnectionId ? { ok: true as const, allowedStoreIds: [options.storeId!] }
+    : storeAccess(context, organizationId, options.storeId ?? null);
   if (!scope.ok) return scope;
 
   const token = authorization.slice("Bearer ".length);

@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, EmptyState, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
 
 import {
   comparabilityLabel,
@@ -47,25 +47,25 @@ function MixTable({ mix }: { mix: MixSegmentView[] }) {
           <p className="text-muted text-xs uppercase tracking-wide">
             {DIMENSION_LABEL[dimension] ?? dimension}
           </p>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[26rem] border-collapse text-sm">
-              <thead>
-                <tr className="text-muted text-left text-xs">
-                  <th className="py-1 pr-3 font-normal">Segmento</th>
-                  <th className="py-1 pr-3 font-normal">Peso</th>
-                  <th className="py-1 font-normal">Rendimiento</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="mt-2">
+            <Table className="min-w-[26rem]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Segmento</TableHead>
+                  <TableHead>Peso</TableHead>
+                  <TableHead>Rendimiento</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {mix
                   .filter((m) => m.dimension === dimension)
                   .map((segmento) => (
-                    <tr key={segmento.segment} className="border-t border-default-200">
-                      <td className="py-2 pr-3">{segmento.segment}</td>
-                      <td className="py-2 pr-3 font-mono tabular-nums">
+                    <TableRow key={segmento.segment}>
+                      <TableCell>{segmento.segment}</TableCell>
+                      <TableCell className="font-mono tabular-nums">
                         {weightShift(segmento)}
-                      </td>
-                      <td className="py-2">
+                      </TableCell>
+                      <TableCell>
                         {segmento.performance_before == null ? (
                           <span className="text-muted">sin medir</span>
                         ) : performanceMoved(segmento) ? (
@@ -78,11 +78,11 @@ function MixTable({ mix }: { mix: MixSegmentView[] }) {
                           // tabla: "igual" es lo que descarta el deterioro.
                           <span className="text-muted">igual</span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
       ))}
@@ -164,22 +164,25 @@ export function ContextReadingsPanel() {
   if (!readings) return null;
 
   return (
-    <Card
-      title="Qué significa el movimiento"
-      description="Contra qué se compara cada señal, si la comparación aguanta y si lo que cambió fue el rendimiento o el peso de los segmentos."
-    >
-      {readings.length === 0 ? (
-        <EmptyState
-          title="Sin lecturas de contexto"
-          hint="Aparecen cuando el motor de señales detecta un movimiento y el de contexto lo descompone."
-        />
-      ) : (
-        <ul>
-          {readings.map((reading) => (
-            <ReadingRow key={reading.id} reading={reading} />
-          ))}
-        </ul>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>Qué significa el movimiento</CardTitle>
+        <CardDescription>Contra qué se compara cada señal, si la comparación aguanta y si lo que cambió fue el rendimiento o el peso de los segmentos.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {readings.length === 0 ? (
+          <EmptyState
+            title="Sin lecturas de contexto"
+            hint="Aparecen cuando el motor de señales detecta un movimiento y el de contexto lo descompone."
+          />
+        ) : (
+          <ul>
+            {readings.map((reading) => (
+              <ReadingRow key={reading.id} reading={reading} />
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   );
 }

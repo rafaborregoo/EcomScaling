@@ -1,5 +1,8 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
+import { Banner as SharedBanner } from "@/components/ui/banner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { type ReactNode } from "react";
 import { cx, type Tone } from "./campaign-format";
 import s from "./campanas.module.css";
@@ -8,17 +11,13 @@ import s from "./campanas.module.css";
  * Piezas compartidas por todas las pantallas de Campañas (cartera, cliente,
  * tienda, campaña abierta y vista del cliente). Misma gramática visual que el
  * panel: hero oscuro, tira de KPIs pegados, paneles blancos, un único acento.
- * El cliente usa su propia paleta (grafito y azafrán): `client` en <Stage>.
+ * El contenido usa directamente el marco común de la página.
  */
 
 export { s as css };
 
-export function Stage({ client, children }: { client?: boolean; children: ReactNode }) {
-  return (
-    <div className={cx(s.stage, client && s.client)}>
-      <div className={s.wrap}>{children}</div>
-    </div>
-  );
+export function Stage({ children }: { client?: boolean; children: ReactNode }) {
+  return <>{children}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,14 +213,15 @@ export function Seg<T extends string>({
   onChange: (key: T) => void;
 }) {
   return (
-    <div className={s.seg} role="group" aria-label={label}>
+    // Más de 4 opciones: sueltas para que salten de línea en móvil.
+    <ToggleGroup aria-label={label} spacing={options.length > 4 ? 1.5 : 0} value={value} onValueChange={onChange}>
       {options.map((option) => (
-        <button key={option.key} type="button" aria-pressed={value === option.key} onClick={() => onChange(option.key)}>
+        <ToggleGroupItem key={option.key} value={option.key}>
           {option.label}
-          {option.count !== undefined ? <b>{option.count}</b> : null}
-        </button>
+          {option.count !== undefined ? <span className="text-xs text-muted tabular-nums">{option.count}</span> : null}
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 
@@ -249,21 +249,25 @@ export function Btn({
     <button
       type="button"
       {...props}
-      className={cx(s.btn, variant && s[variant], size && s[size], icon && s.icon, className)}
+      className={buttonVariants({
+        // Vocabulario antiguo de campañas -> botón único (primario/secundario morado).
+        variant: variant === "acc" ? "default" : variant === "ghost" ? "secondary" : variant ? "destructive" : "default",
+        size: icon ? "icon-sm" : size,
+        className,
+      })}
     />
   );
 }
 
+/** Aviso de campañas sobre el Banner compartido: confirmación (por defecto) o información. */
 export function Banner({ children, onClose, info }: { children: ReactNode; onClose?: () => void; info?: boolean }) {
   return (
-    <div className={cx(s.banner, info && s.info)} role="status">
-      <span>{children}</span>
-      {onClose ? (
-        <Btn size="sm" variant="ghost" onClick={onClose}>
-          Cerrar
-        </Btn>
-      ) : null}
-    </div>
+    <SharedBanner
+      tone={info ? "info" : "success"}
+      action={onClose ? <Btn size="sm" variant="ghost" onClick={onClose}>Cerrar</Btn> : null}
+    >
+      {children}
+    </SharedBanner>
   );
 }
 

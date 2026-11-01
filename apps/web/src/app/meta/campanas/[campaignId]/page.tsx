@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -9,7 +10,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { AsyncState, Card, ErrorBlock } from "@/components/ui";
+import { AsyncState, ErrorBlock, ToggleGroup, ToggleGroupItem, Card, CardContent, CardDescription, CardHeader, CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { cx, Empty, SectionHead } from "../../../dashboard/client-pulse";
 import { fmtNum } from "../../../dashboard/client-pulse-model";
 import pulse from "../../../dashboard/client-pulse.module.css";
@@ -48,7 +49,7 @@ function RoasGauge({ value, breakeven, dark }: { value: number | null; breakeven
   const max = Math.max(5, breakeven ?? 0, value ?? 0, 1) * 1.1;
   const pct = Math.min((value ?? 0) / max, 1);
   const bePct = breakeven != null ? Math.min(breakeven / max, 1) : null;
-  const color = value == null ? "var(--ink-3)" : breakeven != null && value < breakeven ? (dark ? "#ff9aae" : "var(--bad)") : dark ? "#5fd3a8" : "var(--good)";
+  const color = value == null ? "var(--ink-3)" : breakeven != null && value < breakeven ? "var(--bad)" : "var(--good)";
   return (
     <div className={dark ? m.hGauge : undefined}>
       <div className={m.gauge}>
@@ -93,8 +94,18 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
     activeConnection.setConnectionId(connectionId);
   }
 
-  if (!organizationId) return <div className={pulse.root}><Card title="Selecciona un cliente" description="Elige una organización en la barra superior." /></div>;
-  if (query.error && !data) return <div className={pulse.root}><Card title="No se pudo abrir la campaña"><ErrorBlock>{query.error}</ErrorBlock></Card></div>;
+  if (!organizationId) return <div className={pulse.root}><Card>
+    <CardHeader>
+      <CardTitle>Selecciona un cliente</CardTitle>
+      <CardDescription>Elige una organización en la barra superior.</CardDescription>
+    </CardHeader>
+  </Card></div>;
+  if (query.error && !data) return <div className={pulse.root}><Card>
+    <CardHeader>
+      <CardTitle>No se pudo abrir la campaña</CardTitle>
+    </CardHeader>
+    <CardContent><ErrorBlock>{query.error}</ErrorBlock></CardContent>
+  </Card></div>;
   if (!data) return <div className={pulse.root}><AsyncState status="loading" loadingLabel="Cargando ficha de campaña…" /></div>;
 
   const { campaign } = data;
@@ -156,7 +167,7 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div><dt>Coste por compra</dt><dd>{campaign.purchases ? money(campaign.spend / campaign.purchases, currency) : "—"}</dd><small>gasto / compras</small></div>
           </dl>
           <div className={s.actions}>
-            <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo va esta campaña y qué haría primero", "Ficha de campaña")}>
+            <button type="button" className={buttonVariants()} onClick={() => askCopilot("Explícame cómo va esta campaña y qué haría primero", "Ficha de campaña")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
@@ -165,8 +176,9 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
-      <details>
-      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
+      <Collapsible>
+      <CollapsibleTrigger className={pulse.sub}>Sobre estos datos<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+      <CollapsibleContent>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Atribución</span><span className={cx(pulse.chip, pulse.chipWarn)}>de Meta</span></div>
@@ -185,16 +197,17 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>{breakeven == null ? "Faltan costes de producto en Shopify para calcular tu mínimo." : `Se paga sola a partir de ${roasText(breakeven)}.`}</p>
         </div>
       </div>
-      </details>
+      </CollapsibleContent>
+      </Collapsible>
 
       {/* ------------------------------ Rendimiento ------------------------------ */}
       <section id="rendimiento" className={pulse.sec}>
         <div className={pulse.secHead} style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}>
           <h2>Rendimiento</h2>
           <p className={pulse.aiLine}>{daily.length ? `Gasta ${money(avgSpendPerDay, currency)} al día y Meta cuenta ${money(daily.reduce((sum, row) => sum + row.purchase_value, 0) / Math.max(daily.length, 1), currency)} al día en ventas.` : "Sin gasto en el periodo."}</p>
-          <div className={pulse.seg} role="group" aria-label="Periodo del rendimiento">
-            {PERIODS.map((value) => <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => setPeriodDays(value)}>{value === 365 ? "1 año" : `${value} días`}</button>)}
-          </div>
+          <ToggleGroup aria-label="Periodo del rendimiento" value={periodDays} onValueChange={setPeriodDays}>
+            {PERIODS.map((value) => <ToggleGroupItem key={value} value={value}>{value === 365 ? "1 año" : `${value} días`}</ToggleGroupItem>)}
+          </ToggleGroup>
         </div>
         <div className={pulse.two}>
           <div className={pulse.panel}>
@@ -298,7 +311,7 @@ function CampaignDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <b style={{ fontWeight: 600 }}>{change.translated_event_type ?? change.event_type}{change.object_name ? ` · ${change.object_name}` : ""}</b>
                     <small>
                       Gasto {money(change.spend_before, currency)} → {money(change.spend_after, currency)}
-                      {change.roas_delta_pct != null ? `, ROAS ${change.roas_delta_pct > 0 ? "+" : ""}${fmtNum(change.roas_delta_pct)} %` : ""}
+                      {change.comparison_status === "comparable_observation_only" ? ", ventanas completas; coincidencia temporal, no causa" : change.comparison_status ? `, comparación limitada: ${change.comparison_status}` : ""}
                       {change.actor_name ? ` · ${change.actor_name}` : ""}
                     </small>
                   </span>

@@ -10,7 +10,7 @@ import {
 
 const reference = new Date("2026-08-03T10:00:00.000Z");
 
-test("el sync incremental usa ventanas de seis horas", () => {
+test("el sync incremental usa ventanas de quince minutos", () => {
   const first = buildKlaviyoSyncIdempotencyKey(
     "connection-1",
     "incremental",
@@ -19,18 +19,18 @@ test("el sync incremental usa ventanas de seis horas", () => {
   const sameWindow = buildKlaviyoSyncIdempotencyKey(
     "connection-1",
     "incremental",
-    new Date("2026-08-03T11:59:59.000Z"),
+    new Date("2026-08-03T10:14:59.000Z"),
   );
   const nextWindow = buildKlaviyoSyncIdempotencyKey(
     "connection-1",
     "incremental",
-    new Date("2026-08-03T12:00:00.000Z"),
+    new Date("2026-08-03T10:15:00.000Z"),
   );
 
   assert.equal(first, sameWindow);
   assert.notEqual(first, nextWindow);
   assert.match(first, /incremental:/);
-  assert.equal(KLAVIYO_INCREMENTAL_BUCKET_HOURS, 6);
+  assert.equal(KLAVIYO_INCREMENTAL_BUCKET_HOURS, 0.25);
 });
 
 test("el sync inicial conserva una unica importacion diaria", () => {

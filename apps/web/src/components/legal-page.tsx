@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { BrandLogo, Card, Heading, Link, Table } from "@/components/ui";
-import type { TableColumnDef } from "@/components/ui";
+import { BrandLogo, Heading, Link, DataTable, Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
+import type { DataTableColumn } from "@/components/ui";
 import { LEGAL_DOCS, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 
 // Armazon comun de las paginas legales publicas: cabecera, secciones en Card
@@ -73,17 +73,22 @@ export function LegalTable<T extends { id: string }>({
   rows,
   ariaLabel,
 }: {
-  columns: TableColumnDef<T>[];
+  columns: DataTableColumn<T>[];
   rows: T[];
   ariaLabel: string;
 }) {
-  return <Table columns={columns} rows={rows} ariaLabel={ariaLabel} />;
+  return <DataTable columns={columns} rows={rows} ariaLabel={ariaLabel} />;
 }
 
 export function LegalSection({ title, id, children }: { title: string; id?: string; children: ReactNode }) {
   return (
-    <Card title={title} id={id}>
-      <div className="flex flex-col gap-3 text-sm leading-relaxed">{children}</div>
+    <Card id={id}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-3 text-sm leading-relaxed">{children}</div>
+      </CardContent>
     </Card>
   );
 }

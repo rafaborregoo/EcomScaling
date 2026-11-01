@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "@/components/ui";
+import { Select, RadioCard, RadioGroup, ToggleGroup, ToggleGroupItem, toast } from "@/components/ui";
 import { int, type KWorkspace } from "../klaviyo-workspace";
 import { cx } from "./campaign-format";
 import type { CampaignsNav } from "./campanas-nav";
@@ -293,22 +293,22 @@ export function QuickActionsManager({
 
                 <div className={s.fld}>
                   <span className={s.lbl}>Icono</span>
-                  <div className={s.opts}>
+                  <ToggleGroup aria-label="Icono" spacing={1.5} value={draft.icon} onValueChange={(icon) => patch({ icon })}>
                     {ICONS.map((icon) => (
-                      <button key={icon.key} type="button" className={cx(s.opt, s.ic2)} aria-pressed={draft.icon === icon.key} aria-label={icon.label} onClick={() => patch({ icon: icon.key })}>
+                      <ToggleGroupItem key={icon.key} value={icon.key} size="icon-sm" aria-label={icon.label}>
                         <Icon path={icon.path} />
-                      </button>
+                      </ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                 </div>
 
                 <div className={s.fld}>
                   <span className={s.lbl}>Qué hace al pulsarla</span>
-                  <div className={s.opts}>
+                  <ToggleGroup aria-label="Qué hace al pulsarla" value={draft.kind} onValueChange={(kind) => patch({ kind })}>
                     {([["plan", "Planificar en el calendario"], ["ia", "Escribir con IA"]] as const).map(([key, label]) => (
-                      <button key={key} type="button" className={s.opt} aria-pressed={draft.kind === key} onClick={() => patch({ kind: key })}>{label}</button>
+                      <ToggleGroupItem key={key} value={key}>{label}</ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                   <small>
                     {draft.kind === "plan"
                       ? "Crea la campaña en el calendario con su fecha, canal y audiencia. La pieza se escribe después."
@@ -319,40 +319,37 @@ export function QuickActionsManager({
                 <div className={s.row2}>
                   <div className={s.fld}>
                     <span className={s.lbl}>Canal</span>
-                    <div className={s.opts}>
+                    <ToggleGroup aria-label="Canal" value={draft.channel} onValueChange={(channel) => patch({ channel })}>
                       {([["email", "Email"], ["meta", "Meta Ads"]] as const).map(([key, label]) => (
-                        <button key={key} type="button" className={s.opt} aria-pressed={draft.channel === key} onClick={() => patch({ channel: key })}>{label}</button>
+                        <ToggleGroupItem key={key} value={key}>{label}</ToggleGroupItem>
                       ))}
-                    </div>
+                    </ToggleGroup>
                   </div>
                   <div className={s.fld}>
                     <label htmlFor="qa-aud">Audiencia</label>
-                    <select id="qa-aud" value={draft.audience} onChange={(event) => patch({ audience: event.target.value })}>
-                      {audiences.map((name) => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
+                    <Select id="qa-aud" value={draft.audience} onChange={(value) => patch({ audience: value })} options={audiences.map((name) => ({ value: name, label: name }))} />
                   </div>
                 </div>
 
                 <div className={s.row2}>
                   <div className={s.fld}>
                     <span className={s.lbl}>Cuándo se planifica</span>
-                    <div className={s.opts}>
+                    <ToggleGroup aria-label="Cuándo se planifica" value={draft.when_kind} onValueChange={(when_kind) => patch({ when_kind })}>
                       {([["dow", "Un día de la semana"], ["off", "En N días"]] as const).map(([key, label]) => (
-                        <button key={key} type="button" className={s.opt} aria-pressed={draft.when_kind === key} onClick={() => patch({ when_kind: key })}>{label}</button>
+                        <ToggleGroupItem key={key} value={key}>{label}</ToggleGroupItem>
                       ))}
-                    </div>
+                    </ToggleGroup>
                   </div>
                   <div className={s.fld}>
                     {draft.when_kind === "dow" ? (
                       <>
                         <label htmlFor="qa-dow">Día de la semana</label>
-                        <select id="qa-dow" value={draft.dow} onChange={(event) => patch({ dow: Number(event.target.value) })}>
-                          {[1, 2, 3, 4, 5, 6, 0].map((day) => (
-                            <option key={day} value={day}>{dowName(day).replace(/^./, (c) => c.toUpperCase())}</option>
-                          ))}
-                        </select>
+                        <Select
+                          id="qa-dow"
+                          value={String(draft.dow)}
+                          onChange={(value) => patch({ dow: Number(value) })}
+                          options={[1, 2, 3, 4, 5, 6, 0].map((day) => ({ value: String(day), label: dowName(day).replace(/^./, (c) => c.toUpperCase()) }))}
+                        />
                         <small>El primer {dowName(draft.dow)} sin una igual en el calendario.</small>
                       </>
                     ) : (
@@ -372,13 +369,16 @@ export function QuickActionsManager({
 
                 <div className={s.fld}>
                   <span className={s.lbl}>Quién la ve</span>
-                  <div className={s.vis}>
+                  <RadioGroup aria-label="Quién la ve" className="gap-2" value={draft.visibility} onValueChange={(visibility) => patch({ visibility })}>
                     {VISIBILITY.map((option) => (
-                      <button key={option.key} type="button" className={s.visO} aria-pressed={draft.visibility === option.key} onClick={() => patch({ visibility: option.key })}>
-                        <i /><b>{option.label}</b><span>{option.text.replace("este cliente", organizationName).replace("El cliente", organizationName)}</span>
-                      </button>
+                      <RadioCard
+                        key={option.key}
+                        value={option.key}
+                        title={option.label}
+                        description={option.text.replace("este cliente", organizationName).replace("El cliente", organizationName)}
+                      />
                     ))}
-                  </div>
+                  </RadioGroup>
                 </div>
 
                 <div className={s.formF}>

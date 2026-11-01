@@ -32,6 +32,22 @@ test("tambien se lee la forma plana, un evento por entrada", () => {
   ]);
 });
 
+test("se normaliza AdsPixelStatsResult anidado por evento y fecha", () => {
+  const rows = parseMetaPixelStats({
+    aggregation: "event",
+    start_time: "2026-09-04T00:00:00+0000",
+    data: [
+      { event: "Purchase", count: 3 },
+      { event: "PageView", value: 18 },
+    ],
+  });
+
+  assert.deepEqual(rows, [
+    { metricDate: "2026-09-04", eventName: "Purchase", eventCount: 3 },
+    { metricDate: "2026-09-04", eventName: "PageView", eventCount: 18 },
+  ]);
+});
+
 test("una entrada sin fecha no inventa un dia", () => {
   assert.deepEqual(parseMetaPixelStats([{ value: { PageView: 5 } }]), []);
 });

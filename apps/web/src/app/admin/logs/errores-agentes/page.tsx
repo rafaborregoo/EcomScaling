@@ -6,13 +6,24 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   List,
   LoadingBlock,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 // /admin/logs/errores-agentes: pantalla propia (antes la otra mitad de la
@@ -73,11 +84,11 @@ function AgentErrorsPanel() {
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
 
   return (
-    <Card
-      title="Agentes IA con error"
-      description="Ejecuciones de agente fallidas o con salida rechazada, de toda la plataforma."
-      actions={
-        <div className="flex items-center gap-2">
+    <Card>
+      <CardHeader>
+        <CardTitle>Agentes IA con error</CardTitle>
+        <CardDescription>Ejecuciones de agente fallidas o con salida rechazada, de toda la plataforma.</CardDescription>
+        <CardAction><div className="flex items-center gap-2">
           {errors && errors.length > 0 ? (
             <Badge tone="warn">{errors.length}</Badge>
           ) : null}
@@ -91,43 +102,44 @@ function AgentErrorsPanel() {
               onChange={(event) => setDays(event.target.value)}
             />
           </Field>
-        </div>
-      }
-    >
-      {errors === null ? (
-        <LoadingBlock label="Buscando fallos…" />
-      ) : errors.length === 0 ? (
-        <EmptyState
-          title="Nada roto en esta ventana"
-          hint="Ningún agente con error en los últimos días."
-        />
-      ) : (
-        <List as="ul">
-          {errors.map((item) => (
-            <List.Item
-              as="li"
-              key={item.id}
-              className="flex flex-wrap items-start gap-3 py-3"
-            >
-              <Badge tone="warn">agente</Badge>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">
-                  {item.source}
-                  {item.organization_name ? ` · ${item.organization_name}` : ""}
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        {errors === null ? (
+          <LoadingBlock label="Buscando fallos…" />
+        ) : errors.length === 0 ? (
+          <EmptyState
+            title="Nada roto en esta ventana"
+            hint="Ningún agente con error en los últimos días."
+          />
+        ) : (
+          <List as="ul">
+            {errors.map((item) => (
+              <Item key={item.id} size="sm" render={<li />}>
+                <ItemMedia>
+                  <Badge tone="warn">agente</Badge>
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle>
+                    {item.source}
+                    {item.organization_name ? ` · ${item.organization_name}` : ""}
+                  </ItemTitle>
+                  {item.message ? (
+                    <ItemDescription className="break-words">
+                      {item.message.slice(0, 300)}
+                    </ItemDescription>
+                  ) : null}
+                </ItemContent>
+                <ItemActions>
+                <span className="text-sm text-muted">
+                  {when(item.occurred_at)}
                 </span>
-                {item.message ? (
-                  <span className="mt-0.5 block break-words text-xs text-muted">
-                    {item.message.slice(0, 300)}
-                  </span>
-                ) : null}
-              </span>
-              <span className="shrink-0 text-xs text-muted">
-                {when(item.occurred_at)}
-              </span>
-            </List.Item>
-          ))}
-        </List>
-      )}
+                </ItemActions>
+              </Item>
+            ))}
+          </List>
+        )}
+      </CardContent>
     </Card>
   );
 }

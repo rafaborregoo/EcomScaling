@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { EYEBROW, Popover, Spinner } from "@/components/ui";
+import { EYEBROW, Popover, PopoverContent, PopoverTrigger, Spinner, Card, CardContent } from "@/components/ui";
+import { AiInsight } from "@/components/ai-insight";
 import { apiFetch } from "@/lib/bootstrap";
 import type { MetricAnalysis, MetricId, MetricVerdict as Verdict } from "@e-nora/contracts";
 import { useCachedQuery } from "@/lib/use-cached-query";
@@ -53,18 +54,18 @@ export function MetricVerdict({ analysis: a }: { analysis: AnalysisWithPath | nu
   const moved = a.drivers.filter((d) => d.change_pct != null);
   return (
     <Popover>
-      <Popover.Trigger>
-        <button
+      <PopoverTrigger
+        render={<button
           type="button"
           aria-label={`${a.label}: ${v.label}`}
           title={v.label}
           className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-transparent"
         >
           <span aria-hidden className="size-2.5 rounded-full" style={{ background: v.color }} />
-        </button>
-      </Popover.Trigger>
-      <Popover.Content placement="bottom start" className="max-w-[22rem]">
-        <Popover.Dialog aria-label={`Análisis de ${a.label}`} className="max-h-[28rem] overflow-y-auto p-4">
+        </button>}
+      />
+      <PopoverContent side="bottom" align="start" className="w-[22rem] max-h-[28rem] gap-0" aria-label={`Análisis de ${a.label}`}>
+        <div>
           <p className={EYEBROW}>{a.label}</p>
           <p className="mt-1 text-sm font-semibold" style={{ color: v.color }}>
             {v.label} <span className="font-normal text-muted">· {CONFIDENCE[a.confidence]}</span>
@@ -102,12 +103,12 @@ export function MetricVerdict({ analysis: a }: { analysis: AnalysisWithPath | nu
             </div>
           ) : null}
           {a.suggested_target ? (
-            <div className="mt-4 rounded-lg border border-separator p-3">
+            <Card size="sm" className="mt-4"><CardContent>
               <p className="text-sm font-semibold text-foreground">
                 {a.suggested_target.value ? `Objetivo sugerido: ${a.suggested_target.value.toLocaleString("es-ES")}` : "Sin objetivo alcanzable"}
               </p>
               <p className="mt-1 text-sm leading-snug text-foreground">{a.suggested_target.text}</p>
-            </div>
+            </CardContent></Card>
           ) : null}
           {(a.methodology ?? []).length > 0 ? (
             <div className="mt-4">
@@ -123,19 +124,44 @@ export function MetricVerdict({ analysis: a }: { analysis: AnalysisWithPath | nu
           <p className="mt-4 text-[13px] leading-relaxed text-muted">
             {a.definition} <span className="block font-medium">{a.formula}</span>
           </p>
-        </Popover.Dialog>
-      </Popover.Content>
+        </div>
+      </PopoverContent>
     </Popover>
   );
 }
 
-type Explained = { output: { answer: string; recommendations: Array<{ action: string; owner: string }> }; renews_at: string };
+export type Explained = {
+  output: {
+    answer: string;
+    findings?: Array<{ title: string; severity: string; evidence: string; figures?: Array<{ label: string; value: string; previous: string | null; change_pct: number | null }> }>;
+    recommendations: Array<{ action: string; owner: string; priority?: string; expected_impact?: string }>;
+    warnings?: string[];
+  };
+  renews_at: string;
+};
+
+const renewsAt = (iso: string) => `Puedes volver a generarla desde las ${new Date(iso).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+
+/** La explicación de A29 tal cual la devuelve, con la estructura común de la IA. */
+export function A29Insight({ data, tag, audience }: { data: Explained; tag?: string; audience?: "cliente" | "consultor" }) {
+  return (
+    <AiInsight
+      tag={tag}
+      summary={data.output.answer}
+      findings={data.output.findings}
+      steps={data.output.recommendations}
+      audience={audience}
+      warnings={data.output.warnings}
+      footer={renewsAt(data.renews_at)}
+    />
+  );
+}
 
 /**
  * A29 al abrir el popover (el contenido solo se monta abierto). El POST devuelve la
  * explicación guardada si tiene menos de una hora; si no, la genera con el modelo.
  */
-export function AiExplanation({ path }: { path: string }) {
+export function useAiExplanation(path: string) {
   const [state, setState] = useState<{ data?: Explained; error?: string }>({});
   useEffect(() => {
     let stale = false;
@@ -153,24 +179,22 @@ export function AiExplanation({ path }: { path: string }) {
       stale = true;
     };
   }, [path]);
+  return state;
+}
 
+export function AiExplanation({ path }: { path: string }) {
+  const state = useAiExplanation(path);
   if (state.error) return <p className="mt-3 text-[13px] text-muted">La IA no ha podido explicarla ahora: {state.error}</p>;
   if (!state.data) {
     return (
-      <p className="mt-3 flex items-center gap-2 rounded-lg bg-accent-soft p-3 text-sm text-foreground">
+      <p className="mt-3 flex items-center gap-2 text-sm text-muted">
         <Spinner size="sm" /> La IA está analizando esta cifra…
       </p>
     );
   }
   return (
-    <div className="mt-3 space-y-2 rounded-lg bg-accent-soft p-3 text-sm leading-snug text-foreground">
-      <p>{state.data.output.answer}</p>
-      {state.data.output.recommendations.map((r, i) => (
-        <p key={i}>
-          <strong className="font-semibold">{r.owner === "consultor" ? "Consultor" : "Cliente"}:</strong> {r.action}
-        </p>
-      ))}
-      <p className="text-xs text-muted">Análisis de la IA · se renueva a las {new Date(state.data.renews_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</p>
+    <div className="mt-3 border-t border-separator pt-3">
+      <A29Insight data={state.data} />
     </div>
   );
 }

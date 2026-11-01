@@ -272,7 +272,7 @@ test("cada fila abre el modulo que la ejecuta con el cliente ya seleccionado", (
   const hrefByKind = new Map(
     result.actions.map((action) => [action.kind, action.href]),
   );
-  assert.equal(hrefByKind.get("critical_alert"), "/tareas?organizationId=org-a");
+  assert.equal(hrefByKind.get("critical_alert"), "/tareas?organizationId=org-a&alert=alert-1");
   assert.equal(hrefByKind.get("ai_proposal"), "/tareas?organizationId=org-a");
   assert.equal(
     hrefByKind.get("call_approval"),
@@ -284,11 +284,12 @@ test("cada fila abre el modulo que la ejecuta con el cliente ya seleccionado", (
   );
   assert.equal(
     hrefByKind.get("integration_reauth"),
-    "/integraciones?organizationId=org-a",
+    // Cliente asignado: el consultor no puede reconectar; se lo pide por el chat.
+    "/mensajes?organizationId=org-a",
   );
   assert.equal(
     hrefByKind.get("financial_coverage"),
-    "/configuracion?organizationId=org-a",
+    "/configuracion?organizationId=org-a&section=rentabilidad",
   );
   // Ninguna fila decide por su cuenta: todas mandan a una pantalla humana.
   for (const action of result.actions) {
@@ -560,4 +561,45 @@ test("la mesa decide en el sitio solo lo que es atomico", () => {
   );
   // Aprobar out-2 aprobaria tambien su hermana: se decide en /tareas.
   assert.equal(byTitle("Con hermana")?.decision ?? null, null);
+});
+
+test("reconectar en la tienda propia lleva a Integraciones; en un cliente, al chat", () => {
+  const broken = {
+    organization_id: "org-a",
+    provider: "klaviyo",
+    status: "error",
+    last_sync_at: null,
+  };
+  const own = build({
+    organizations: [{ ...org("org-a", "Tienda A"), is_own_store: true }],
+    connections: [broken],
+  });
+  const client = build({ connections: [broken] });
+  assert.equal(own.actions[0]?.href, "/integraciones?organizationId=org-a");
+  assert.equal(client.actions[0]?.href, "/mensajes?organizationId=org-a");
+  assert.equal(client.actions[0]?.action_label, "Pedir al cliente que reconecte");
+});
+
+test("un cliente con una acción urgente no sale 'Al día' en el tablero", () => {
+  const result = build({
+    connections: [{ organization_id: "org-a", provider: "klaviyo", status: "error", last_sync_at: null }],
+  });
+  assert.equal(result.summary.urgent_clients, 1);
+  assert.equal(result.portfolio[0]?.status, "urgente");
+});
+
+test("la misma propuesta del plan semanal y del mensual sale una sola vez", () => {
+  const base = { organization_id: "org-a", rationale: "", priority: "normal", phase: null, evidence: [] };
+  const result = build({
+    proposals: [
+      { ...base, title: "Revisar descuentos activos (mensual)" },
+      { ...base, title: "Revisar descuentos activos (semanal)" },
+      { ...base, title: "Rehacer el email 2" },
+    ],
+  });
+  const titles = result.actions.filter((action) => action.kind === "ai_proposal").map((action) => action.title);
+  assert.deepEqual(titles.sort(), [
+    "Decide sobre la propuesta: Rehacer el email 2",
+    "Decide sobre la propuesta: Revisar descuentos activos",
+  ]);
 });

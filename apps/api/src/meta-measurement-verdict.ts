@@ -1,8 +1,9 @@
-export const META_MEASUREMENT_VERDICT_VERSION = "a24-measurement-v2";
+export const META_MEASUREMENT_VERDICT_VERSION = "a24-measurement-v4";
 
 export type MetaMeasurementSource = {
   available: boolean;
   rows: Array<Record<string, unknown>>;
+  complete?: boolean;
 };
 
 export type MetaMeasurementEvidence = {
@@ -10,6 +11,7 @@ export type MetaMeasurementEvidence = {
   learning: MetaMeasurementSource;
   issues: MetaMeasurementSource;
   eventMapping: MetaMeasurementSource;
+  issueSnapshot?: MetaMeasurementSource;
 };
 
 export type MetaMeasurementVerdict = {
@@ -62,10 +64,21 @@ export function buildMetaMeasurementVerdict(
   const mappingRows = evidence.eventMapping.rows;
   const eligibleRows = mappingRows.filter((row) => asNumber(row.eligible_ad_set_count ?? 1) > 0);
   const spendRows = eligibleRows.filter((row) => asNumber(row.spend_in_period) > 0);
-  const observedRows = spendRows.filter((row) => row.mapping_status === "mapped_event_observed");
-  const positiveSpendLearningRows = evidence.learning.rows.filter(
-    (row) => asNumber(row.spend_in_period) > 0,
+  const learningSpendRows = evidence.learning.rows.filter((row) => asNumber(row.spend_in_period) > 0);
+  const expectedSetCount = mappingRows.reduce((maximum, row) =>
+    Math.max(maximum, asNumber(row.eligible_ad_set_count ?? 0)), 0);
+  const returnedSetIds = new Set(mappingRows.flatMap((row) => typeof row.ad_set_id === "string" ? [row.ad_set_id] : []));
+  const unmappedSpendSetIds = learningSpendRows.flatMap((row) =>
+    typeof row.ad_set_id === "string" && !returnedSetIds.has(row.ad_set_id) ? [row.ad_set_id] : [],
   );
+  const observedRows = spendRows.filter((row) => row.mapping_status === "mapped_event_observed");
+  const observedEventsOld = observedRows.some((row) => {
+    if (typeof row.matched_event_last_date !== "string") return true;
+    const eventAt = Date.parse(`${row.matched_event_last_date}T00:00:00.000Z`);
+    const ageMs = evaluatedAt.getTime() - eventAt;
+    return !Number.isFinite(eventAt) || ageMs < 0 || ageMs > 7 * 24 * 60 * 60 * 1000;
+  });
+  const positiveSpendLearningRows = learningSpendRows;
   const rejectedRows = evidence.issues.rows.filter(
     (row) => row.review_category === "rejected" && row.freshness === "fresh",
   );
@@ -87,38 +100,49 @@ export function buildMetaMeasurementVerdict(
     (row) => !isFreshSyncTimestamp(row.account_last_synced_at),
   );
   const activitySyncUnknown = activityStates.some((state) => state !== "fresh");
-  const issueSyncUnknown = evidence.issues.rows.some((row) => row.freshness !== "fresh");
+  const issueSyncUnknown = evidence.issueSnapshot
+    ? !evidence.issueSnapshot.available || evidence.issueSnapshot.rows.length === 0 || evidence.issueSnapshot.rows.some((row) => row.complete !== true)
+    : evidence.issues.rows.some((row) => row.freshness !== "fresh");
   const mappingTruncated = mappingRows.some((row) => row.ad_set_rows_truncated === true);
-  // The RPC limits review issues to 30 rows and does not return a separate
-  // truncation flag. Treat a full page as incomplete evidence, not a clean list.
-  const issueSampleMayBeTruncated = evidence.issues.rows.length >= 30;
+  const issueSampleMayBeTruncated = evidence.issues.complete !== true && evidence.issues.rows.length >= 500;
   const hasUnknownFreshness =
     activitySyncUnknown || pixelSyncUnknown || accountSyncUnknown || issueSyncUnknown;
   const criticalRowsMissing = evidence.pixels.rows.length === 0 || evidence.learning.rows.length === 0;
-  const unavailablePixel = evidence.pixels.rows.some((row) => row.is_unavailable === true);
+  const usedPixelIds = new Set(spendRows.flatMap((row) => typeof row.pixel_id === "string" ? [row.pixel_id] : []));
+  const unavailablePixel = usedPixelIds.size > 0 && evidence.pixels.rows.some((row) =>
+    row.is_unavailable === true && typeof row.pixel_id === "string" && usedPixelIds.has(row.pixel_id),
+  );
+  const incompleteSetCoverage = expectedSetCount > mappingRows.length || unmappedSpendSetIds.length > 0;
   const hasMappingGap = spendRows.some((row) =>
     row.mapping_status !== "mapped_event_observed",
+  );
+  const noComparableActivity = spendRows.length > 0 && spendRows.every((row) =>
+    row.mapping_status === "mapped_event_not_observed_in_synced_window" &&
+    row.store_activity_evidence === "no_activity_observed_in_fresh_sources",
   );
   const reasons: string[] = [];
 
   if (!allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing) reasons.push("source_missing_or_stale");
   if (pixelSyncUnknown) reasons.push("pixel_sync_stale_or_unknown");
   if (accountSyncUnknown) reasons.push("account_sync_stale_or_unknown");
+  if (observedEventsOld) reasons.push("promoted_event_not_recently_observed");
   if (activitySyncUnknown) reasons.push("activity_sync_stale_or_unknown");
   if (issueSyncUnknown) reasons.push("review_issue_sync_stale_or_unknown");
-  if (mappingTruncated) reasons.push("optimization_event_mapping_truncated");
+  if (mappingTruncated || incompleteSetCoverage) reasons.push("optimization_event_mapping_truncated");
   if (issueSampleMayBeTruncated) reasons.push("review_issue_sample_may_be_truncated");
   if (unavailablePixel) reasons.push("meta_reports_pixel_unavailable");
   if (hasMappingGap) reasons.push("promoted_event_not_observed_or_unresolved");
   if (rejectedRows.length) reasons.push("fresh_rejected_ads_present");
   if (!spendRows.length) reasons.push("no_eligible_spend_observed");
+  if (noComparableActivity) reasons.push("no_comparable_store_activity");
 
   let status: MetaMeasurementVerdict["status"];
   if (
-    !allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing ||
-    mappingTruncated || issueSampleMayBeTruncated
+    !allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing || observedEventsOld ||
+    mappingTruncated || incompleteSetCoverage || issueSampleMayBeTruncated
   ) status = "unknown";
   else if (!spendRows.length) status = "not_assessable";
+  else if (noComparableActivity && !unavailablePixel && !rejectedRows.length) status = "not_assessable";
   else if (unavailablePixel || hasMappingGap || rejectedRows.length) status = "restricted";
   else if (observedRows.length === spendRows.length) status = "usable_with_attribution_limits";
   else status = "unknown";

@@ -93,23 +93,34 @@ export type MetaAdRow = {
 };
 
 export type MetaChangeRow = {
+  event_id?: string;
+  ad_account_id?: string;
+  store_id?: string;
+  object_external_id?: string | null;
+  entity_id?: string | null;
   event_time: string;
   event_type: string;
   translated_event_type: string | null;
   actor_name: string | null;
   object_name: string | null;
-  entity_level: string;
-  spend_before: number;
-  spend_after: number;
-  purchases_before: number;
-  purchases_after: number;
-  purchase_value_before: number;
-  purchase_value_after: number;
+  entity_level: string | null;
+  comparison_status?: string;
+  currency_code?: string | null;
+  spend_before: number | null;
+  spend_after: number | null;
+  purchases_before: number | null;
+  purchases_after: number | null;
+  purchase_value_before: number | null;
+  purchase_value_after: number | null;
   roas_before: number | null;
   roas_after: number | null;
   cpa_before: number | null;
   cpa_after: number | null;
   roas_delta_pct: number | null;
+  days_before?: number;
+  days_after?: number;
+  total_count?: number;
+  has_more?: boolean;
 };
 
 export type MetaAdIssueRow = {

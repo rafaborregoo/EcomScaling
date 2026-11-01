@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "@/components/ui";
+import { Select, Checkbox, toast } from "@/components/ui";
 import { postThreadNote, resolveThreadNote, TARGET_LABEL, type NoteTarget, type ThreadNote } from "./campaign-api";
 import { cx } from "./campaign-format";
 import { Btn, Chip, IaTag, Panel, Seg, css as s } from "./campanas-parts";
@@ -153,26 +153,20 @@ export function ThreadPanel({
                 ]}
               />
               {kind === "correction" ? (
-                <select
+                <Select
                   aria-label="A qué parte se refiere"
+                  size="sm"
+                  className="w-auto"
                   value={target}
-                  onChange={(event) => setTarget(event.target.value as NoteTarget)}
-                  style={{ height: 34, border: "1px solid var(--line)", borderRadius: 10, padding: "0 10px", background: "var(--surface)", fontSize: 12.5 }}
-                >
-                  {TARGETS.map((key) => (
-                    <option key={key} value={key}>
-                      {TARGET_LABEL[key]}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setTarget(value as NoteTarget)}
+                  options={TARGETS.map((key) => ({ value: key, label: TARGET_LABEL[key] }))}
+                />
               ) : null}
             </div>
           ) : null}
           <div className={s.cRow}>
             {staff ? (
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} /> Visible para el cliente
-              </label>
+              <Checkbox checked={visible} onCheckedChange={setVisible}>Visible para el cliente</Checkbox>
             ) : (
               <span className={s.foot}>Tu consultor recibe un aviso.</span>
             )}

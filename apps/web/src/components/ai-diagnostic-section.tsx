@@ -1,23 +1,43 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+
+import { useEffect, useEffectEvent, useState, type ComponentProps, type FormEvent } from "react";
+import { A26ContentReviews, type ContentReview } from "./a26-content-reviews";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { agentTagForPath } from "@/lib/agent-tag";
 import { useActiveConnection } from "@/components/active-connection";
 import { useInsights } from "@/components/insights-context";
 import { insightSpotsFromFindingAreas } from "@/lib/insights-registry";
+import { AiFigure, emphasizeNumbers } from "@/components/ai-insight";
 import {
+  EmptyState,
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Badge,
   Banner,
   Button,
-  Card,
   ErrorBlock,
   Link,
   LoadingBlock,
   CheckIcon,
   CloseIcon,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+  IconChevronDown,
 } from "@/components/ui";
 
 type Finding = {
@@ -26,6 +46,8 @@ type Finding = {
   evidence: string;
   /** Clave de la lista cerrada del prompt; se traduce con `areas`. */
   area?: string;
+  /** Las cifras del hallazgo como datos (contrato común de los agentes). */
+  figures?: Array<{ label: string; value: string; previous: string | null; change_pct: number | null }>;
 };
 
 /**
@@ -46,14 +68,35 @@ type MonitorSection = {
   recommendations: Recommendation[];
 };
 type DiagnosticOutput = {
+  content_decision?: "no_change" | "needs_evidence" | "revision_proposal";
+  content_reviews?: ContentReview[];
+  content_evidence?: { as_of?: string; inventory_complete?: boolean; messages?: Array<{ message_id: string; account_id: string; pertenece_a?: string; asunto?: string }> };
+  visual_review?: { status: string; render_id?: string; screenshots_supplied_to_vision?: number };
   /** Legacy agents keep this; A02 v9 emits a headline instead. */
   answer?: string;
   headline?: string;
   sections?: MonitorSection[];
   findings: Finding[];
   recommendations: Recommendation[];
+  measurement_assessment?: {
+    status: "usable_with_attribution_limits" | "restricted" | "not_assessable" | "unknown";
+    reason_codes?: string[];
+    limitations?: string[];
+    scope?: { store_id?: string | null };
+    window?: { start?: string; end?: string; timezone?: string };
+    evaluated_at?: string;
+    expires_at?: string;
+    evidence_counts?: Record<string, number>;
+    capability_matrix?: Array<{ capability: string; state: string }>;
+    action_limits?: string[];
+  };
   creative_decisions?: Array<{
+    decision_ref: string;
     action: "observe" | "test_variant" | "investigate_landing_offer" | "propose_pause";
+    store_id: string | null;
+    account_id: string | null;
+    ad_id: string | null;
+    creative_id: string | null;
     signal: string;
     window: string;
     spend_implicated: number | null;
@@ -61,8 +104,32 @@ type DiagnosticOutput = {
     uncertainty: string;
     hypothesis: string;
     success_criterion: string;
+    primary_metric: string;
+    metric_denominator: string;
+    comparator: string;
+    evaluation_window_days: number;
+    maturity_days: number | null;
     measurement_verdict: "usable_with_attribution_limits" | "restricted" | "not_assessable" | "unknown";
   }>;
+  change_observations?: Array<{
+    event_ref: string | null;
+    action: "investigate" | "document" | "review" | "handoff";
+    interpretation: string;
+    limitation: string;
+    next_review_at: string | null;
+  }>;
+  change_evidence?: Array<{
+    event_id: string;
+    event_time: string;
+    event_type: string;
+    object_name: string | null;
+    entity_level: string | null;
+    comparison_status: string;
+    currency_code: string | null;
+    days_before: number;
+    days_after: number;
+  }>;
+  change_coverage?: { total_count: number; has_more: boolean };
   flow_architecture?: {
     decision: "no_change" | "needs_validation" | "design_proposal";
     summary: string;
@@ -117,6 +184,11 @@ type Diagnostic = {
   output: DiagnosticOutput;
   generated_at: string;
   from_cache: boolean;
+  visual_review_live?: {
+    status: string;
+    model_review_status?: string;
+    archived_receipt?: { html_hash?: string; renderer_policy_version?: string } | null;
+  } | null;
   /** El run supera las 24h pero se sigue sirviendo (ver no_activity_since). */
   stale?: boolean;
   /** No se ha vuelto a analizar porque no ha habido actividad en la tienda. */
@@ -137,14 +209,18 @@ type Diagnostic = {
   };
 };
 
-function A26EmailRenderPreview({ organizationId, runId }: { organizationId: string; runId: string }) {
+function A26EmailRenderPreview({ organizationId, runId, receipt }: { organizationId: string; runId: string; receipt?: Diagnostic["visual_review_live"] }) {
   const [previews, setPreviews] = useState<Array<{ viewport: string; url: string }>>([]);
-  const [state, setState] = useState<"loading" | "ready" | "pending" | "error">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "pending" | "error" | "expired" | "failed">("loading");
 
   useEffect(() => {
     let active = true;
     const objectUrls: string[] = [];
     setPreviews([]);
+    if (receipt?.status === "expired_or_not_available" || receipt?.status === "failed") {
+      setState(receipt.status === "failed" ? "failed" : "expired");
+      return;
+    }
     setState("loading");
     void (async () => {
       try {
@@ -159,8 +235,11 @@ function A26EmailRenderPreview({ organizationId, runId }: { organizationId: stri
               { cache: "no-store" },
             );
             if (response.status === 404) continue;
+            if (response.status === 410) { if (active) setState("expired"); return; }
             if (!response.ok) throw new Error("render_preview_load_failed");
-            const url = URL.createObjectURL(await response.blob());
+            const blob = await response.blob();
+            if (!active) return;
+            const url = URL.createObjectURL(blob);
             objectUrls.push(url);
             captures.push({ viewport, url });
           }
@@ -181,10 +260,10 @@ function A26EmailRenderPreview({ organizationId, runId }: { organizationId: stri
       active = false;
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [organizationId, runId]);
+  }, [organizationId, runId, receipt?.status]);
 
   return (
-    <section className="space-y-3 rounded-lg border border-separator bg-surface-subtle p-4" aria-label="Simulación visual del email">
+    <Card role="region" aria-label="Simulación visual del email"><CardContent className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-foreground">Vista simulada del email</h3>
         <p className="mt-1 text-xs leading-5 text-muted">No es una captura de bandeja de entrada. Las imágenes y fuentes externas pueden no cargarse en esta simulación.</p>
@@ -192,6 +271,10 @@ function A26EmailRenderPreview({ organizationId, runId }: { organizationId: stri
       {state === "loading" ? <p className="text-sm text-muted">Buscando las capturas…</p> : null}
       {state === "pending" ? <p className="text-sm text-muted">La captura aún no está lista; aparecerá cuando termine el render aislado.</p> : null}
       {state === "error" ? <p role="status" className="text-sm text-muted">No se pudieron cargar las capturas visuales.</p> : null}
+      {state === "expired" ? <p className="text-sm text-muted">Las capturas ya no están disponibles. La revisión editorial y su registro se conservan.</p> : null}
+      {state === "failed" ? <p className="text-sm text-muted">La simulación visual falló. Las conclusiones deben limitarse a la evidencia disponible.</p> : null}
+      {receipt?.model_review_status ? <p className="text-xs text-muted">{receipt.model_review_status === "included_in_diagnosis" ? "El diagnóstico incluyó la captura disponible en ese momento." : "Una captura posterior puede revisarse aquí sin repetir el análisis. No forma parte del diagnóstico guardado."}</p> : null}
+      {receipt?.archived_receipt?.html_hash ? <Collapsible className="text-xs text-muted"><CollapsibleTrigger>Registro de la simulación<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger><CollapsibleContent><p className="mt-2 break-all">HTML: {receipt.archived_receipt.html_hash}</p><p>Política: {receipt.archived_receipt.renderer_policy_version ?? "No disponible"}</p></CollapsibleContent></Collapsible> : null}
       {previews.length ? (
         <div className="grid gap-3 md:grid-cols-2">
           {previews.map((preview) => (
@@ -202,7 +285,7 @@ function A26EmailRenderPreview({ organizationId, runId }: { organizationId: stri
           ))}
         </div>
       ) : null}
-    </section>
+    </CardContent></Card>
   );
 }
 
@@ -219,7 +302,7 @@ function AgentOutputThread({ organizationId, outputId }: { organizationId: strin
     void apiFetch(`/v1/organizations/${organizationId}/ai/outputs/${outputId}/notes`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.message ?? payload.error ?? "No se pudo cargar el hilo.");
+        if (!response.ok) throw new Error(payload.message ?? "No se ha podido cargar la conversación.");
         if (active) { setNotes(payload.notes ?? []); setLoaded(true); }
       })
       .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "No se pudo cargar el hilo."); });
@@ -232,16 +315,17 @@ function AgentOutputThread({ organizationId, outputId }: { organizationId: strin
     try {
       const response = await apiFetch(`/v1/organizations/${organizationId}/ai/outputs/${outputId}/notes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? payload.error ?? "No se pudo guardar la nota.");
+      if (!response.ok) throw new Error(payload.message ?? "No se ha podido guardar la nota. Inténtalo de nuevo.");
       setNotes((current) => [...current, { ...payload.note, author_name: null }]); setBody(""); setExpanded(true);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la nota."); }
     finally { setSaving(false); }
   }
-  return <section className="border-t border-separator pt-3">
-    <Button variant="ghost" size="sm" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+  return <Collapsible open={expanded} onOpenChange={setExpanded} className="border-t border-separator pt-3">
+    <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
       {expanded ? "Ocultar conversación" : `Notas del equipo${notes.length ? ` · ${notes.length}` : ""}`}
-    </Button>
-    {expanded ? <div className="mt-2 space-y-3">
+      <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+    </CollapsibleTrigger>
+    <CollapsibleContent className="mt-2 space-y-3">
       {notes.map((note) => <div key={note.id} className="rounded-md bg-surface-subtle p-3">
         <p className="text-xs font-medium text-muted">{note.author_name ?? ({ consultant: "Consultor", client: "Cliente", platform: "E-NORA", ai: "IA" }[note.author_kind] ?? "Equipo")} · {new Date(note.created_at).toLocaleString("es-ES")}</p>
         <p className="mt-1 whitespace-pre-wrap text-sm">{note.body}</p>
@@ -250,8 +334,8 @@ function AgentOutputThread({ organizationId, outputId }: { organizationId: strin
         <Button type="submit" size="sm" disabled={saving || !body.trim()}>{saving ? "Guardando…" : "Añadir nota"}</Button>
       </form>
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
-    </div> : null}
-  </section>;
+    </CollapsibleContent>
+  </Collapsible>;
 }
 
 const severityTone: Record<Finding["severity"], Tone> = {
@@ -370,7 +454,8 @@ const AGENT_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bis_test_order\b/gi, "pedido de prueba"],
 ];
 
-export function humanizeAgentText(text: string): string {
+export function humanizeAgentText(text: string | null | undefined): string {
+  if (!text) return "";
   return AGENT_TEXT_REPLACEMENTS.reduce(
     (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
     text,
@@ -442,6 +527,18 @@ export function partitionPlatformFindings(findings: Finding[]): {
     }
   }
   return { business, platform };
+}
+
+/** La sección del monitor con el hallazgo más grave, la que se abre de entrada. */
+function worstSectionKey(sections: Array<{ key: string; findings: Finding[] }>): string[] {
+  let worst: { key: string; rank: number } | null = null;
+  for (const section of sections) {
+    for (const finding of section.findings) {
+      const rank = SEVERITY_RANK[finding.severity];
+      if (!worst || rank > worst.rank) worst = { key: section.key, rank };
+    }
+  }
+  return worst ? [worst.key] : [];
 }
 
 // Veredicto de una linea: lo primero que se lee. Cuenta hallazgos por
@@ -549,8 +646,19 @@ function FindingsList({
                 {finding.title}
               </span>
             </div>
+            {finding.figures?.length ? (
+              <div className="mt-2 grid max-w-[40rem] grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2">
+                {finding.figures.map((figure, figureIndex) => (
+                  <AiFigure
+                    key={`${figure.label}-${figureIndex}`}
+                    {...figure}
+                    tone={(finding.severity === "critical" || finding.severity === "high") && figure.change_pct != null ? "bad" : null}
+                  />
+                ))}
+              </div>
+            ) : null}
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              {humanizeAgentText(finding.evidence)}
+              {emphasizeNumbers(humanizeAgentText(finding.evidence))}
             </p>
             {target ? (
               <a
@@ -598,23 +706,34 @@ function TrustStrip({
   }
   const sources = diagnostic.envelope?.sources ?? [];
   return (
-    <p className="border-t border-separator pt-3 text-xs text-muted">
+    <div className="border-t border-separator pt-3 text-xs text-muted">
       {bits.join(" · ")}
       {sources.length ? (
         <>
           {" · "}
-          <span
-            className="underline decoration-dotted underline-offset-2"
-            title={sources.map((source) => source.label).join("\n")}
-          >
-            {sources.length} fuente{sources.length > 1 ? "s" : ""}
-          </span>
+          <HoverCard>
+            <HoverCardTrigger
+              render={
+                <button type="button" className="underline decoration-dotted underline-offset-2">
+                  {sources.length} fuente{sources.length > 1 ? "s" : ""}
+                </button>
+              }
+            />
+            <HoverCardContent side="top" align="start">
+              <p className="font-medium text-foreground">Fuentes del análisis</p>
+              <ul className="list-disc space-y-1 pl-4 text-muted">
+                {sources.map((source) => (
+                  <li key={source.label}>{source.label}</li>
+                ))}
+              </ul>
+            </HoverCardContent>
+          </HoverCard>
         </>
       ) : null}
       {showInternals && diagnostic.runtime?.langsmith_tracing
         ? " · trazas on"
         : ""}
-    </p>
+    </div>
   );
 }
 
@@ -640,6 +759,8 @@ export function AiDiagnosticSection({
   showMeta = true,
   areas,
   renderPreview = false,
+  connectionIdOverride,
+  onVerdict,
 }: {
   organizationId: string;
   title: string;
@@ -670,8 +791,12 @@ export function AiDiagnosticSection({
   areas?: FindingAreas;
   /** Muestra capturas privadas de la simulación A26 asociadas al run actual. */
   renderPreview?: boolean;
+  connectionIdOverride?: string;
+  /** Avisa del veredicto a quien lo pinta fuera (la cabecera de AiSpecialistItem). */
+  onVerdict?: (verdict: SpecialistVerdict | null) => void;
 }) {
-  const { connectionId } = useActiveConnection();
+  const { connectionId: activeConnectionId } = useActiveConnection();
+  const connectionId = connectionIdOverride ?? activeConnectionId;
   const { registerLocalInsights } = useInsights();
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -688,6 +813,23 @@ export function AiDiagnosticSection({
   } | null>(null);
   const [answerExpanded, setAnswerExpanded] = useState(false);
 
+  // Mismos hallazgos que AiVerdict (sin conectividad y, salvo admin, sin los
+  // de plataforma). Como evento de efecto: un `onVerdict` nuevo en cada
+  // render del padre no vuelve a disparar el efecto.
+  const reportVerdict = useEffectEvent((verdict: SpecialistVerdict | null) => onVerdict?.(verdict));
+  useEffect(() => {
+    if (!diagnostic || variant === "tasks") {
+      reportVerdict(null);
+      return;
+    }
+    const { rest } = partitionConnectivity(diagnostic.output.findings);
+    const findings = showInternals ? rest : partitionPlatformFindings(rest).business;
+    reportVerdict({
+      ...findingsVerdict(findings),
+      pendingCount: diagnostic.output_status === "pending_approval" ? diagnostic.output.proposed_writes.length : 0,
+    });
+  }, [diagnostic, variant, showInternals]);
+
   useEffect(() => {
     registerLocalInsights(
       getPath,
@@ -699,7 +841,6 @@ export function AiDiagnosticSection({
     return () => registerLocalInsights(getPath, []);
   }, [areas, diagnostic?.output.findings, getPath, registerLocalInsights]);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
-  const [observationsExpanded, setObservationsExpanded] = useState(false);
 
   const queryParams = [
     connectionId ? `connectionId=${encodeURIComponent(connectionId)}` : null,
@@ -743,7 +884,7 @@ export function AiDiagnosticSection({
                 : sinDatos
                   ? "No hay datos de Klaviyo disponibles todavía. Conecta la cuenta y espera a que termine la primera sincronización."
                   : pendiente
-                    ? "El análisis se genera automáticamente dos veces al día cuando hay datos y el agente está habilitado. También puedes solicitarlo manualmente."
+                    ? getPath === "/ai/klaviyo-flow-architect" ? "Este análisis se actualiza manualmente desde esta pantalla." : "El análisis se genera automáticamente dos veces al día cuando hay datos y el agente está habilitado."
                     : null,
           );
           setNeedsFirstRun(pendiente);
@@ -771,6 +912,7 @@ export function AiDiagnosticSection({
         `/v1/organizations/${organizationId}${runPath}${connectionParam}`,
         {
           method: "POST",
+          headers: runPath === "/ai/klaviyo-flow-architect-run" ? { "Idempotency-Key": crypto.randomUUID() } : undefined,
         },
       );
 
@@ -865,7 +1007,7 @@ export function AiDiagnosticSection({
     </span>
   ) : null;
 
-  const manualRunEnabled = runPath !== "/ai/monitor-run";
+  const manualRunEnabled = runPath !== "/ai/monitor-run" && runPath !== "/ai/contenido-email-run";
   const refreshButton = manualRunEnabled && (diagnostic || needsFirstRun) ? (
     <Button
       variant="ghost"
@@ -886,7 +1028,7 @@ export function AiDiagnosticSection({
     </p>
   ) : needsFirstRun ? (
     <p className="text-sm leading-6 text-muted">
-      El análisis se genera automáticamente dos veces al día cuando hay datos y el agente está habilitado. También puedes solicitarlo manualmente.
+      El análisis se genera automáticamente dos veces al día cuando hay datos y el agente está habilitado.
     </p>
   ) : error ? (
     <ErrorBlock>{error}</ErrorBlock>
@@ -932,10 +1074,10 @@ export function AiDiagnosticSection({
         showsTasks && diagnostic.output.proposed_writes.length ? (
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="text-base font-semibold text-foreground">
                 {diagnostic.output_status === "pending_approval"
-                  ? `${tasksLabelSingular}s propuestas (${diagnostic.output.proposed_writes.length})`
-                  : `${tasksLabelSingular}s propuestas · ya revisadas`}
+                  ? `${pluralEs(tasksLabelSingular)} propuestas (${diagnostic.output.proposed_writes.length})`
+                  : `${pluralEs(tasksLabelSingular)} propuestas · ya revisadas`}
               </h3>
               <Link href="/tareas">Ver en Tareas</Link>
             </div>
@@ -973,12 +1115,12 @@ export function AiDiagnosticSection({
                       {humanizeAgentText(write.title)}
                     </p>
                     {write.description ? (
-                      <p className="mt-1 text-xs leading-relaxed text-muted">
+                      <p className="mt-1 text-sm leading-relaxed text-muted">
                         {humanizeAgentText(write.description)}
                       </p>
                     ) : null}
                     {write.owner_role || write.completion_criteria || write.expected_metric || write.due_hint ? (
-                      <dl className="mt-2 grid gap-1 border-t border-separator pt-2 text-xs">
+                      <dl className="mt-2 grid gap-1 border-t border-separator pt-2 text-sm">
                         {write.owner_role ? <div><dt className="inline font-medium text-foreground">Rol de ejecución: </dt><dd className="inline text-muted">{write.owner_role}</dd></div> : null}
                         {write.completion_criteria ? <div><dt className="inline font-medium text-foreground">Cierre: </dt><dd className="inline text-muted">{humanizeAgentText(write.completion_criteria)}</dd></div> : null}
                         {write.expected_metric ? <div><dt className="inline font-medium text-foreground">Métrica a revisar: </dt><dd className="inline text-muted">{humanizeAgentText(write.expected_metric)}</dd></div> : null}
@@ -986,20 +1128,20 @@ export function AiDiagnosticSection({
                       </dl>
                     ) : null}
                     {write.initiative_measurement ? (
-                      <p className="mt-2 border-t border-separator pt-2 text-xs text-muted">
+                      <p className="mt-2 border-t border-separator pt-2 text-sm text-muted">
                         <span className="font-medium text-foreground">Medición mensual: </span>
                         {humanizeAgentText(write.initiative_measurement.metric_name)} · base {write.initiative_measurement.baseline === null ? "no disponible" : `${write.initiative_measurement.baseline}${write.initiative_measurement.unit ? ` ${write.initiative_measurement.unit}` : ""}`} · objetivo {write.initiative_measurement.target === null ? "sin definir" : `${write.initiative_measurement.target}${write.initiative_measurement.unit ? ` ${write.initiative_measurement.unit}` : ""}`} · {humanizeAgentText(write.initiative_measurement.evaluation_window)}
                       </p>
                     ) : null}
                     {write.initiative_change ? (
-                      <p className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-xs text-muted">
+                      <p className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-sm text-muted">
                         <span className="font-medium text-foreground">Cambio mensual: </span>
                         {write.initiative_change.action === "retire" ? "retirar" : "sustituir"} «{humanizeAgentText(write.initiative_change.previous_task_title)}». Si se aprueba, la iniciativa anterior quedará cancelada con su historial y, al sustituirla, se creará una versión enlazada.
                       </p>
                     ) : null}
                     {selectable ? (
                       <div className="mt-3 flex items-center justify-between gap-3 border-t border-separator pt-2">
-                        <span className="text-xs text-muted">
+                        <span className="text-sm text-muted">
                           {selectedDecision === "approved"
                             ? "Se incluirá en Tareas"
                             : selectedDecision === "rejected"
@@ -1082,7 +1224,7 @@ export function AiDiagnosticSection({
                     : "Aplicar decisiones"}
               </Button>
               {diagnostic.output_status === "pending_approval" ? (
-                <div className="text-xs text-muted">
+                <div className="text-sm text-muted">
                   <span>
                     {proposalDecisions?.outputId === diagnostic.output_id
                       ? Object.keys(proposalDecisions.decisions).length
@@ -1176,7 +1318,7 @@ export function AiDiagnosticSection({
                     }).format(decision.spend_implicated)
                   : "Importe sin divisa verificada";
               return (
-                <li key={`${decision.action}-${index}`} className="rounded-lg border border-edge/60 bg-surface p-4">
+                <li key={decision.decision_ref || `${decision.action}-${index}`}><Card><CardContent>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={decision.action === "propose_pause" ? "warn" : "neutral"}>
                       {actionLabels[decision.action]}
@@ -1184,15 +1326,22 @@ export function AiDiagnosticSection({
                     <Badge tone={decision.measurement_verdict === "usable_with_attribution_limits" ? "neutral" : "warn"}>
                       {gateLabels[decision.measurement_verdict]}
                     </Badge>
+                    <Badge tone="neutral">{decision.decision_ref}</Badge>
                   </div>
+                  {decision.ad_id ? (
+                    <p className="mt-2 text-sm text-muted">
+                      Anuncio {decision.ad_id} · Cuenta {decision.account_id ?? "sin identificar"}
+                    </p>
+                  ) : null}
                   <p className="mt-3 text-sm font-medium text-foreground">{humanizeAgentText(decision.signal)}</p>
-                  <dl className="mt-3 grid gap-2 border-t border-separator pt-3 text-xs">
+                  <dl className="mt-3 grid gap-2 border-t border-separator pt-3 text-sm">
                     <div><dt className="font-medium text-foreground">Ventana y gasto</dt><dd className="text-muted">{humanizeAgentText(decision.window)} · {spend}</dd></div>
                     <div><dt className="font-medium text-foreground">Incertidumbre</dt><dd className="text-muted">{humanizeAgentText(decision.uncertainty)}</dd></div>
                     <div><dt className="font-medium text-foreground">Hipótesis</dt><dd className="text-muted">{humanizeAgentText(decision.hypothesis)}</dd></div>
                     <div><dt className="font-medium text-foreground">Cómo medir el éxito</dt><dd className="text-muted">{humanizeAgentText(decision.success_criterion)}</dd></div>
+                    <div><dt className="font-medium text-foreground">Diseño de la prueba</dt><dd className="text-muted">{humanizeAgentText(decision.primary_metric)} / {humanizeAgentText(decision.metric_denominator)} · comparador: {decision.comparator} · evaluación: {decision.evaluation_window_days} días{decision.maturity_days !== null ? ` · maduración: ${decision.maturity_days} días` : ""}</dd></div>
                   </dl>
-                </li>
+                </CardContent></Card></li>
               );
             })}
           </ul>
@@ -1233,24 +1382,30 @@ export function AiDiagnosticSection({
             const verificationLabels = { verified: "evento verificado", unverified: "evento por verificar", not_available: "evento no disponible" };
             const coverageLabels = { complete: "completa", partial: "parcial", insufficient: "insuficiente", not_available: "no disponible" };
             return (
-              <section aria-labelledby="flow-architecture-title" className="rounded-lg border border-edge/60 bg-surface p-4">
+              <Card role="region" aria-labelledby="flow-architecture-title"><CardContent>
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 id="flow-architecture-title" className="text-base font-semibold text-foreground">Diseño revisable del flujo</h3>
                   <Badge tone={architecture.decision === "design_proposal" ? "neutral" : "warn"}>{decisionLabel}</Badge>
                 </div>
-                <p className="mt-2 text-sm text-muted">{humanizeAgentText(architecture.summary)}</p>
+                <p className="mt-2 text-sm text-muted">{humanizeAgentText(architecture.summary.slice(0, 320))}{architecture.summary.length > 320 ? "…" : ""}</p>
+                {architecture.summary.length > 320 ? <Collapsible className="mt-2 text-sm"><CollapsibleTrigger className="text-muted">Leer el contexto completo<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger><CollapsibleContent><p className="mt-2 text-muted">{humanizeAgentText(architecture.summary)}</p></CollapsibleContent></Collapsible> : null}
                 {architecture.candidates.length ? (
-                  <ol className="mt-4 space-y-4">
+                  <Accordion multiple className="mt-2">
                     {architecture.candidates.map((candidate, index) => (
-                      <li key={`${candidate.action}-${candidate.name}-${index}`} className="rounded-lg border border-edge/60 p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge tone={candidate.priority === "high" ? "warn" : "neutral"}>{actionLabels[candidate.action]}</Badge>
-                          <Badge tone="neutral">Prioridad {priorityLabelsEs[candidate.priority]}</Badge>
-                          <Badge tone={candidate.trigger_verification === "verified" ? "neutral" : "warn"}>{verificationLabels[candidate.trigger_verification]}</Badge>
-                        </div>
-                        <h4 className="mt-2 font-semibold text-foreground">{humanizeAgentText(candidate.name)}</h4>
-                        <p className="mt-1 text-sm text-muted">{humanizeAgentText(candidate.objective)}</p>
-                        <dl className="mt-3 grid gap-3 border-t border-separator pt-3 text-sm sm:grid-cols-2">
+                      <AccordionItem key={`${candidate.action}-${candidate.name}-${index}`} value={String(index)}>
+                        <AccordionTrigger>
+                          <span className="grid min-w-0 gap-1.5">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <Badge tone={candidate.priority === "high" ? "warn" : "neutral"}>{actionLabels[candidate.action]}</Badge>
+                              <Badge tone="neutral">Prioridad {priorityLabelsEs[candidate.priority]}</Badge>
+                              <Badge tone={candidate.trigger_verification === "verified" ? "neutral" : "warn"}>{verificationLabels[candidate.trigger_verification]}</Badge>
+                            </span>
+                            <span className="font-semibold text-foreground">{humanizeAgentText(candidate.name)}</span>
+                            <span className="font-normal text-muted">{humanizeAgentText(candidate.objective.slice(0, 220))}{candidate.objective.length > 220 ? "…" : ""}</span>
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                        <dl className="grid gap-3 text-sm sm:grid-cols-2">
                           <div><dt className="font-medium text-foreground">Entrada</dt><dd className="text-muted">{humanizeAgentText(candidate.entry_trigger)}{candidate.entry_conditions.length ? ` · ${candidate.entry_conditions.map(humanizeAgentText).join("; ")}` : ""}</dd></div>
                           <div><dt className="font-medium text-foreground">Salida y exclusiones</dt><dd className="text-muted">{[...candidate.exit_conditions, ...candidate.exclusions].map(humanizeAgentText).join("; ") || "Por definir y validar antes de activar"}</dd></div>
                           <div><dt className="font-medium text-foreground">Cadencia</dt><dd className="text-muted">{humanizeAgentText(candidate.cadence)}</dd></div>
@@ -1260,34 +1415,30 @@ export function AiDiagnosticSection({
                         {candidate.evidence.length ? <p className="mt-3 text-xs text-muted">Evidencia: {candidate.evidence.map((item) => `${humanizeAgentText(item.source)}, ${humanizeAgentText(item.period)}, muestra ${item.sample_size ?? "no disponible"}, cobertura ${coverageLabels[item.coverage]}`).join(" · ")}</p> : null}
                         {candidate.data_gaps.length ? <p className="mt-2 text-xs text-muted">Por validar: {candidate.data_gaps.map(humanizeAgentText).join("; ")}</p> : null}
                         {candidate.conflicts.length ? <ul className="mt-2 list-inside list-disc text-xs text-muted">{candidate.conflicts.map((item, conflictIndex) => <li key={`${item.existing_flow_or_campaign}-${conflictIndex}`}>Conflicto con {humanizeAgentText(item.existing_flow_or_campaign)}: {humanizeAgentText(item.conflict)}. Revisar: {humanizeAgentText(item.resolution)}</li>)}</ul> : null}
-                      </li>
+                        </AccordionContent>
+                      </AccordionItem>
                     ))}
-                  </ol>
-                ) : <p className="mt-3 text-sm text-muted">No hay candidatos con evidencia suficiente.</p>}
-              </section>
+                  </Accordion>
+                ) : <EmptyState size="sm" title="No hay candidatos con evidencia suficiente" />}
+              </CardContent></Card>
             );
           })() : null}
 
           {diagnostic.output.sections?.length ? (
-            <div className="grid gap-x-5 gap-y-6 lg:grid-cols-2">
+            // Abierta de entrada solo la sección con el hallazgo más grave; el
+            // resto se lee por su cabecera (cuántos hallazgos y acciones trae).
+            <Accordion multiple defaultValue={worstSectionKey(diagnostic.output.sections)}>
               {diagnostic.output.sections.map((section) => (
-                <section
-                  key={section.key}
-                  aria-labelledby={`monitor-section-${section.key}`}
-                  className="flex flex-col"
-                >
-                  <div className="mb-2 flex min-h-7 items-center justify-between gap-3">
-                    <h3
-                      id={`monitor-section-${section.key}`}
-                      className="text-base font-semibold leading-6 text-foreground"
-                    >
-                      {section.label}
-                    </h3>
-                    <span className="shrink-0 text-xs text-muted">
-                      {section.findings.length} hallazgos · {section.recommendations.length} acciones
+                <AccordionItem key={section.key} value={section.key}>
+                  <AccordionTrigger className="text-base font-semibold">
+                    <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <span>{section.label}</span>
+                      <span className="text-xs font-normal text-muted">
+                        {section.findings.length} hallazgos · {section.recommendations.length} acciones
+                      </span>
                     </span>
-                  </div>
-                  <div className="flex-1 rounded-lg border border-edge/60 bg-surface p-4">
+                  </AccordionTrigger>
+                  <AccordionContent>
                     {section.findings.length ? (
                       <FindingsList rows={section.findings} areas={areas} />
                     ) : null}
@@ -1328,10 +1479,10 @@ export function AiDiagnosticSection({
                         </ul>
                       </div>
                     ) : null}
-                  </div>
-                </section>
+                  </AccordionContent>
+                </AccordionItem>
               ))}
-            </div>
+            </Accordion>
           ) : null}
 
           {(variant === "tasks" && getPath !== "/ai/task-planner") || hasMonitorSections ? null : (
@@ -1355,6 +1506,7 @@ export function AiDiagnosticSection({
                   size="sm"
                   type="button"
                   className="mt-1 px-0"
+                  aria-expanded={answerExpanded}
                   onClick={() => setAnswerExpanded((v) => !v)}
                 >
                   {answerExpanded ? "Ver menos" : "Ver análisis completo"}
@@ -1372,59 +1524,124 @@ export function AiDiagnosticSection({
 
           {proposedBlock}
 
+          {getPath === "/ai/medicion-meta" && diagnostic.output.measurement_assessment ? (
+            <Card size="sm" role="region" aria-label="Evaluación técnica de medición Meta"><CardContent>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold text-foreground">Estado técnico de la medición</h3>
+                <Badge tone={diagnostic.output.measurement_assessment.status === "usable_with_attribution_limits" ? "neutral" : "warn"}>
+                  {{
+                    usable_with_attribution_limits: "Señal observable; atribución limitada",
+                    restricted: "Medición con restricciones",
+                    not_assessable: "Sin muestra suficiente",
+                    unknown: "No se puede verificar",
+                  }[diagnostic.output.measurement_assessment.status]}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                Ventana completa UTC: {diagnostic.output.measurement_assessment.window?.start ?? "—"} a {diagnostic.output.measurement_assessment.window?.end ?? "—"}.
+                {diagnostic.output.measurement_assessment.evaluated_at ? ` Evaluado ${new Date(diagnostic.output.measurement_assessment.evaluated_at).toLocaleString("es-ES")}.` : ""}
+                {diagnostic.output.measurement_assessment.expires_at ? ` Vigente hasta ${new Date(diagnostic.output.measurement_assessment.expires_at).toLocaleString("es-ES")}.` : ""}
+              </p>
+              {diagnostic.output.measurement_assessment.reason_codes?.length ? (
+                <p className="mt-2 text-xs text-muted">Motivos técnicos: {diagnostic.output.measurement_assessment.reason_codes.join(", ")}.</p>
+              ) : null}
+              {diagnostic.output.measurement_assessment.limitations?.length ? (
+                <p className="mt-1 text-xs text-muted">{diagnostic.output.measurement_assessment.limitations.slice(0, 2).join(" ")}</p>
+              ) : null}
+              {diagnostic.output.measurement_assessment.capability_matrix?.some((item) => item.state === "requires_external_verification") ? (
+                <p className="mt-2 text-xs text-muted">CAPI, deduplicación, calidad de coincidencia y aislamiento del dominio requieren comprobación en Events Manager o evidencia autorizada. Los eventos agregados disponibles no certifican esos aspectos.</p>
+              ) : null}
+              {diagnostic.output.measurement_assessment.action_limits?.length ? (
+                <p className="mt-1 text-xs text-muted">{diagnostic.output.measurement_assessment.action_limits[0]}</p>
+              ) : null}
+            </CardContent></Card>
+          ) : null}
+
+          {getPath === "/ai/cambios-meta" && diagnostic.output.change_observations?.length ? (
+            <Card size="sm" role="region" aria-label="Observaciones de cambios Meta"><CardContent>
+              <h3 className="text-sm font-semibold text-foreground">Observaciones y seguimiento</h3>
+              {diagnostic.output.change_coverage ? <p className="mt-1 text-xs text-muted">
+                {diagnostic.output.change_coverage.total_count} eventos en el periodo; esta lectura {diagnostic.output.change_coverage.has_more ? "muestra una página de la evidencia" : "incluye todos los eventos devueltos"}.
+              </p> : null}
+              <Accordion multiple className="mt-1">
+                {diagnostic.output.change_observations.map((observation, index) => (
+                  <AccordionItem key={`${observation.event_ref ?? "scope"}-${index}`} value={String(index)}>
+                    <AccordionTrigger className="py-3">
+                      <span className="grid min-w-0 gap-1.5">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <Badge tone="neutral">{{ investigate: "Investigar", document: "Documentar", review: "Revisar", handoff: "Derivar" }[observation.action]}</Badge>
+                          {observation.event_ref ? <span className="text-xs font-normal text-muted">Evento {observation.event_ref.slice(0, 8)}</span> : null}
+                        </span>
+                        <span className="font-normal">{humanizeAgentText(observation.interpretation)}</span>
+                      </span>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-3">
+                    {observation.event_ref ? (() => {
+                      const event = diagnostic.output.change_evidence?.find((row) => row.event_id === observation.event_ref);
+                      if (!event) return null;
+                      const status = {
+                        comparable_observation_only: "Ventanas completas; no causa",
+                        unresolved_entity: "Entidad sin resolver",
+                        attribution_immature: "Atribución inmadura",
+                        partial_before_window: "Ventana previa parcial",
+                        partial_after_window: "Ventana posterior parcial",
+                        below_minimum_spend: "Muestra bajo umbral",
+                        no_attribution: "Sin atribución disponible",
+                        currency_unknown: "Moneda desconocida",
+                      }[event.comparison_status] ?? "Comparación limitada";
+                      return <p className="text-xs text-muted">{event.event_time} · {event.event_type}{event.object_name ? ` · ${event.object_name}` : ""} · {status} · {event.days_before}/{event.days_after} días observados{event.currency_code ? ` · ${event.currency_code}` : ""}</p>;
+                    })() : null}
+                    <p className="mt-1 text-xs text-muted">Límite: {humanizeAgentText(observation.limitation)}</p>
+                    {observation.next_review_at ? <p className="mt-1 text-xs text-muted">Próxima revisión: {new Date(observation.next_review_at).toLocaleString("es-ES")}</p> : null}
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </CardContent></Card>
+          ) : null}
+
           {creativeDecisionBlock}
 
-          {renderPreview ? <A26EmailRenderPreview organizationId={organizationId} runId={diagnostic.run_id} /> : null}
+          {getPath === "/ai/contenido-email" && diagnostic.output.content_reviews?.length ? <A26ContentReviews organizationId={organizationId} connectionId={connectionId} outputId={diagnostic.output_id} outputStatus={diagnostic.output_status} reviews={diagnostic.output.content_reviews.map((review) => {
+            const source = diagnostic.output.content_evidence?.messages?.find((row) => row.message_id === review.message_id && row.account_id === review.account_id);
+            return { ...review, message_label: [source?.pertenece_a, source?.asunto].filter(Boolean).join(" · ") || undefined };
+          })} /> : null}
+          {diagnostic.output.content_decision ? <p className="text-sm text-muted">{diagnostic.output.content_decision === "no_change" ? "Sin cambios justificados con la evidencia revisada." : diagnostic.output.content_decision === "needs_evidence" ? "Falta evidencia para proponer una revisión." : "Revisión editorial propuesta."}</p> : null}
+          {renderPreview && diagnostic.output.visual_review?.render_id ? <A26EmailRenderPreview organizationId={organizationId} runId={diagnostic.run_id} receipt={diagnostic.visual_review_live} /> : null}
 
           {variant === "tasks" && getPath !== "/ai/task-planner" && !diagnostic.output.proposed_writes.length ? (
-            <p className="text-sm text-muted">
-              Sin tareas nuevas en este ciclo. Las que ya existen están en{" "}
-              <Link href="/tareas">Tareas</Link>.
-            </p>
+            <EmptyState size="sm" title="Sin tareas nuevas en este ciclo" hint={<>Las que ya existen están en <Link href="/tareas">Tareas</Link>.</>} />
           ) : null}
 
-          {variant === "full" && !hasMonitorSections && riskFindings.length ? (
-            <div>
-              <h3 className="text-base font-semibold text-foreground">
-                Riesgos ({riskFindings.length})
-              </h3>
-              <FindingsList rows={riskFindings} areas={areas} />
-            </div>
-          ) : null}
-
-          {variant === "full" && !hasMonitorSections && observationFindings.length ? (
-            <div>
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                className="px-0"
-                aria-expanded={observationsExpanded}
-                onClick={() => setObservationsExpanded((v) => !v)}
-              >
-                {observationsExpanded
-                  ? "Ocultar observaciones"
-                  : `Ver ${observationFindings.length} observación${
-                      observationFindings.length > 1 ? "es" : ""
-                    } sin riesgo`}
-              </Button>
-              {observationsExpanded ? (
-                <FindingsList rows={observationFindings} areas={areas} />
+          {/* Riesgos y qué hacer abiertos de entrada; las observaciones sin
+              riesgo, plegadas: se leen si se buscan, no compiten. */}
+          {variant === "full" && !hasMonitorSections && (riskFindings.length || observationFindings.length || sortedRecs.length) ? (
+            <Accordion multiple defaultValue={["riesgos", "recomendaciones"]}>
+              {riskFindings.length ? (
+                <AccordionItem value="riesgos">
+                  <AccordionTrigger className="text-base font-semibold">Riesgos ({riskFindings.length})</AccordionTrigger>
+                  <AccordionContent>
+                    <FindingsList rows={riskFindings} areas={areas} />
+                  </AccordionContent>
+                </AccordionItem>
               ) : null}
-            </div>
-          ) : null}
-
-          {variant === "full" && !hasMonitorSections && sortedRecs.length ? (
-            <div>
-              <h3 className="text-base font-semibold text-foreground">
-                Recomendaciones
-              </h3>
-              <ul className="mt-2 space-y-2">
+              {observationFindings.length ? (
+                <AccordionItem value="observaciones">
+                  <AccordionTrigger className="text-base font-semibold">
+                    {`${observationFindings.length} observación${observationFindings.length > 1 ? "es" : ""} sin riesgo`}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <FindingsList rows={observationFindings} areas={areas} />
+                  </AccordionContent>
+                </AccordionItem>
+              ) : null}
+              {sortedRecs.length ? (
+                <AccordionItem value="recomendaciones">
+                  <AccordionTrigger className="text-base font-semibold">Recomendaciones ({sortedRecs.length})</AccordionTrigger>
+                  <AccordionContent>
+              <ul className="space-y-2">
                 {sortedRecs.map((rec, index) => (
-                  <li
-                    key={index}
-                    className="rounded-md border border-separator p-3"
-                  >
+                  <li key={index}><Card size="sm"><CardContent>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge
                         tone={
@@ -1447,37 +1664,35 @@ export function AiDiagnosticSection({
                     <p className="mt-1 text-xs leading-relaxed text-muted">
                       {humanizeAgentText(rec.expected_impact)}
                     </p>
-                  </li>
+                  </CardContent></Card></li>
                 ))}
               </ul>
-            </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ) : null}
+            </Accordion>
           ) : null}
 
           {showInternals && cleanWarnings.length ? (
             <Banner tone="warn">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  {cleanWarnings.length} límite
-                  {cleanWarnings.length > 1 ? "s" : ""} del análisis (solo
-                  admin)
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  aria-expanded={warningsExpanded}
-                  onClick={() => setWarningsExpanded((v) => !v)}
-                >
-                  {warningsExpanded ? "Ocultar" : "Ver"}
-                </Button>
-              </div>
-              {warningsExpanded ? (
-                <ul className="mt-2 space-y-1">
-                  {cleanWarnings.map((warning, index) => (
-                    <li key={index}>{humanizeAgentText(warning)}</li>
-                  ))}
-                </ul>
-              ) : null}
+              <Collapsible open={warningsExpanded} onOpenChange={setWarningsExpanded}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">
+                    {cleanWarnings.length === 1 ? "1 límite" : `${cleanWarnings.length} límites`} del análisis (solo lo ves tú)
+                  </span>
+                  <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
+                    {warningsExpanded ? "Ocultar" : "Ver"}
+                    <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+                  </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                  <ul className="mt-2 space-y-1">
+                    {cleanWarnings.map((warning, index) => (
+                      <li key={index}>{humanizeAgentText(warning)}</li>
+                    ))}
+                  </ul>
+                </CollapsibleContent>
+              </Collapsible>
             </Banner>
           ) : null}
 
@@ -1503,18 +1718,66 @@ export function AiDiagnosticSection({
   }
 
   return (
-    <Card
-      title={
-        <span className="flex items-center gap-2 text-base font-semibold text-foreground">
+    <Card>
+      <CardHeader>
+        <CardTitle><span className="flex items-center gap-2 text-base font-semibold text-foreground">
           <Badge tone="brand">{agentTagForPath(getPath)}</Badge>
           {title}
-        </span>
-      }
-      description={description ? <span>{description}{meta ? <span className="ml-2">{meta}</span> : null}</span> : meta ?? undefined}
-      actions={refreshButton}
-    >
-      {body}
-      {diagnostic ? <AgentOutputThread key={diagnostic.output_id} organizationId={organizationId} outputId={diagnostic.output_id} /> : null}
+        </span></CardTitle>
+        <CardDescription>{description ? <span>{description}{meta ? <span className="ml-2">{meta}</span> : null}</span> : meta ?? undefined}</CardDescription>
+        <CardAction>{refreshButton}</CardAction>
+      </CardHeader>
+      <CardContent>
+        {body}
+        {diagnostic ? <AgentOutputThread key={diagnostic.output_id} organizationId={organizationId} outputId={diagnostic.output_id} /> : null}
+      </CardContent>
     </Card>
   );
+}
+
+export type SpecialistVerdict = ReturnType<typeof findingsVerdict> & { pendingCount: number };
+
+/**
+ * Un especialista IA como fila de acordeón (va dentro de <Accordion>): en la
+ * cabecera, el agente y su veredicto, para saber cuál mirar sin abrirlos
+ * todos; dentro, el análisis completo. Sigue montado aunque esté cerrado,
+ * así que carga a la vez que la página, como antes.
+ */
+export function AiSpecialistItem({
+  value,
+  id,
+  ...section
+}: Omit<ComponentProps<typeof AiDiagnosticSection>, "bare" | "onVerdict"> & {
+  value: string;
+  /** Ancla para enlazar a este especialista: abre su fila al llegar. */
+  id?: string;
+}) {
+  const [verdict, setVerdict] = useState<SpecialistVerdict | null>(null);
+  return (
+    <AccordionItem value={value} id={id}>
+      <AccordionTrigger className="text-base font-semibold">
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <Badge tone="brand">{agentTagForPath(section.getPath)}</Badge>
+          <span>{section.title}</span>
+          {verdict ? <Badge tone={verdict.tone}>{verdict.text}</Badge> : null}
+          {verdict?.pendingCount ? (
+            <Badge tone="warn">
+              {verdict.pendingCount} propuesta{verdict.pendingCount > 1 ? "s" : ""} sin decidir
+            </Badge>
+          ) : null}
+        </span>
+      </AccordionTrigger>
+      <AccordionContent className="space-y-3">
+        {section.description ? <p className="text-sm leading-relaxed text-muted">{section.description}</p> : null}
+        <AiDiagnosticSection {...section} bare onVerdict={setVerdict} />
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
+/** "acción" → "Acciones", "tarea de redacción" → "Tareas de redacción": plural y mayúscula inicial. */
+function pluralEs(label: string) {
+  const [head = "", ...rest] = label.split(" ");
+  const plural = /ón$/.test(head) ? `${head.slice(0, -2)}ones` : /[aeiou]$/.test(head) ? `${head}s` : `${head}es`;
+  return [plural.charAt(0).toUpperCase() + plural.slice(1), ...rest].join(" ");
 }

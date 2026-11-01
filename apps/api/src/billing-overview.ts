@@ -195,7 +195,7 @@ export async function createBillingPortal(
       ok: false as const,
       statusCode: 503,
       error: "stripe_not_configured",
-      message: "Los pagos todavia no estan configurados en este entorno.",
+      message: "Los pagos todavía no están configurados en este entorno.",
     };
   }
 
@@ -205,7 +205,7 @@ export async function createBillingPortal(
       ok: false as const,
       statusCode: 404,
       error: "no_stripe_subscription",
-      message: "Esta organizacion no tiene una suscripcion de pago en Stripe.",
+      message: "Esta organización no tiene una suscripción de pago en Stripe.",
     };
   }
 

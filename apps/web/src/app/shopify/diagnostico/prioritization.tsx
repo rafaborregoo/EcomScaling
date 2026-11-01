@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, EmptyState, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type PrioritizationRunView = {
   id: string;
@@ -34,5 +34,11 @@ export function PrioritizationPanel() {
   useEffect(() => { let cancelled = false; apiFetch("/v1/consultant/prioritization").then(async (response) => { if (cancelled) return; if (!response.ok) { setError(await readApiError(response)); return; } setItems((await response.json() as { runs: PrioritizationRunView[] }).runs); }).catch(() => { if (!cancelled) setError("No se pudo cargar la ejecución de priorización."); }); return () => { cancelled = true; }; }, []);
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!items) return <LoadingBlock label="Cargando ejecución de priorización..." />;
-  return <Card title="Ejecución de priorización P0" description="P0 congela la entrada y hace visibles los límites. El ranking aparece cuando exista contexto decisional de P1; no se inventa una cola.">{items.length ? <div className="space-y-2">{items.map((item) => <Run key={item.id} item={item} />)}</div> : <EmptyState title="Sin ejecuciones de priorización" hint="El worker P0 crea una ejecución al leer salidas diagnósticas vigentes." />}</Card>;
+  return <Card>
+    <CardHeader>
+      <CardTitle>Ejecución de priorización P0</CardTitle>
+      <CardDescription>P0 congela la entrada y hace visibles los límites. El ranking aparece cuando exista contexto decisional de P1; no se inventa una cola.</CardDescription>
+    </CardHeader>
+    <CardContent>{items.length ? <div className="space-y-2">{items.map((item) => <Run key={item.id} item={item} />)}</div> : <EmptyState title="Sin ejecuciones de priorización" hint="El worker P0 crea una ejecución al leer salidas diagnósticas vigentes." />}</CardContent>
+  </Card>;
 }

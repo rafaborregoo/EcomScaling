@@ -242,7 +242,27 @@ Accesos locales contextuales a secciones existentes: tareas, resultado y evidenc
 
 ### Lectura de evidencia
 
-En el cliente, el gráfico diario vive en un `details` nativo para que la primera lectura priorice resultado y siguiente acción. Las tablas incluyen cabeceras explícitas; la matriz de rentabilidad usa tabla nativa y cabeceras de fila. Los gráficos muestran moneda, escala, periodo y valores reales disponibles; la ausencia de datos permanece visible.
+Los detalles de KPI de Inicio comparten el mismo tratamiento en cliente, cliente visto por el consultor y cartera. Los importes negativos conservan el signo menos y usan el token de peligro en cifras y barras, también al pasar el ratón; un beneficio negativo no recibe el color positivo de la métrica. La identidad de cada tarjeta y detalle se declara por métrica, sin depender de su posición ni de que el CAC esté disponible. La fila de beneficio se separa como total y, en móvil, las barras pasan debajo de la etiqueta y el importe.
+
+Los gráficos diarios incluyen el cero, los valores negativos y la comparación anterior dentro del eje. Un control de rango nativo permite explorar cada día con teclado y anuncia fecha e importe. Los detalles entran en 240 ms y salen en 160 ms; cambiar de cifra cancela un cierre pendiente. Escape y el botón de cierre devuelven el foco a la tarjeta y la preferencia de movimiento reducido elimina las animaciones.
+
+Las tablas incluyen cabeceras explícitas; la matriz de rentabilidad usa tabla nativa y cabeceras de fila. Los gráficos muestran moneda, escala, periodo y valores reales disponibles; la ausencia de datos permanece visible.
+
+### Cartera del consultor: todas las tiendas
+
+La vista general de Inicio sigue la sobriedad de la portada de cliente: superficies blancas, botones grafito o neutros y separadores finos. El color se limita a títulos, etiquetas de métricas, barras y estados escritos: terracota para tienda, azul para Meta y pedidos, verde para ticket medio, ciruela para Klaviyo y rojo oscuro para urgencia o importes negativos. Ventas netas conserva el grafito del cliente. Contadores, filtros, acciones de IA y agenda no usan fondos ni texto cromáticos; los contadores forman una banda abierta con divisores. Estos acentos viven en `consultant-portfolio.module.css` y no redefinen las otras rutas ni la vista de un cliente seleccionado.
+
+El contenedor de cartera es transparente, sin radio ni margen interior lateral: los bloques se apoyan directamente en el lienzo del portal, igual que en la portada de cliente. El color se conserva en las métricas, canales y estados individuales.
+
+Las filas de clientes reutilizan `task-lift`, igual que las prioridades de cliente: elevación de 2px y sombra suave al pasar el ratón o enfocar controles. La última fila pulsada o enfocada conserva ese resaltado hasta interactuar con otra. Movimiento reducido mantiene la marca y elimina el desplazamiento.
+
+Una cabecera compacta y cuatro contadores operativos preceden a las cifras. `PortfolioClients` sustituye las columnas de estado vacías por una lista priorizada, búsqueda y filtros; muestra seis clientes inicialmente y permite ampliar. La siguiente acción conserva su destino y el botón de abrir cliente cambia el contexto del portal.
+
+`PortfolioChannels` agrupa Shopify, Meta y Klaviyo por cliente, con unidades y atribución explícitas. La ordenación monetaria agrupa por moneda antes de comparar; una moneda ausente no se convierte en EUR. Las devoluciones participan en los agregados de su moneda. El ROAS solo se compara con un equilibrio válido y distingue igualdad, valor inferior y referencia ausente.
+
+`PortfolioStores` separa tiendas observadas en pedidos de tiendas conectadas. La bandeja mantiene una acción visible por asunto y despliega el contexto completo con `details`. Bajo 560px los enlaces, botones y desplegables tienen al menos 44px; la navegación local deja de ser fija para no solaparse con el selector del portal. Se conservan las transiciones de detalle de KPI y el respeto a movimiento reducido.
+
+Revisión visual del 20/10/2026 en la sesión de Rafael: escritorio y 390px, búsqueda vacía y recuperación, filtros de bandeja, evidencia, ordenación, apertura de cliente y regreso a Vista general, detalle de ROAS y cierre con Escape. Evidencia y límites en `../../tmp/consultant-portfolio-review-2026-10-20/README.md`.
 
 ### Trabajo
 

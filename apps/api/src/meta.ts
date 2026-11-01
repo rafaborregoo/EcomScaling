@@ -25,6 +25,7 @@ import {
 } from "./integration-adapters.js";
 import { credentialKeyVersion, decryptCredential, encryptCredential } from "./credential-crypto.js";
 import { recordAuditLog } from "./audit-log.js";
+import { enqueueIntegrationSync } from "./integration-sync-queue.js";
 import { findConnectionByOAuthState, isOAuthStateExpired, issuedStateMetadata } from "./oauth-state.js";
 
 type ApiEnv = LoadedApiEnv;
@@ -223,7 +224,7 @@ export async function createMetaConnectionAuthUrl(
       ok: false,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Meta Ads esta desactivada por feature flag.",
+      message: "La integración con Meta Ads está desactivada por ahora.",
     };
   }
 
@@ -235,7 +236,7 @@ export async function createMetaConnectionAuthUrl(
       statusCode: 400,
       error: "meta_app_not_configured",
       message:
-        "La app de Meta no esta configurada en el servidor (META_APP_ID/SECRET/REDIRECT_URI).",
+        "Conectar Meta aún no está disponible: falta configurarlo en el servidor.",
     };
   }
 
@@ -254,7 +255,7 @@ export async function createMetaConnectionAuthUrl(
       ok: false,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden conectar Meta Ads.",
+      message: "Solo el propietario o un gestor pueden conectar Meta Ads.",
     };
   }
 
@@ -772,7 +773,7 @@ export async function updateMetaAssetSelection(
       statusCode: 403,
       error: "organization_manage_denied",
       message:
-        "Solo owner, manager o platform admin pueden seleccionar activos de Meta.",
+        "Solo el propietario o un gestor pueden seleccionar activos de Meta.",
     };
   }
 
@@ -1314,24 +1315,7 @@ export async function handleMetaOAuthCallback(
     },
   });
 
-  const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
-  void metaSyncAdapter
-    .runInitialSync({
-      mode: "initial",
-      connection: toIntegrationConnection({
-        id: pending.id,
-        organization_id: pending.organization_id,
-        provider: "meta_ads",
-        status: "connected",
-      }),
-    })
-    .catch((error: unknown) => {
-      logger.error("meta_initial_sync_failed", {
-        connection_id: pending.id,
-        organization_id: pending.organization_id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+  await enqueueIntegrationSync(env, { provider: "meta_ads", connectionId: pending.id, organizationId: pending.organization_id, mode: "initial" });
 
   return {
     ok: true,
@@ -1388,7 +1372,7 @@ export async function listMetaPurchaseActionTypes(
       ok: false as const,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Meta Ads esta desactivada por feature flag.",
+      message: "La integración con Meta Ads está desactivada por ahora.",
     };
   }
   if (!hasOrganizationAccess(authContext, organizationId)) {
@@ -1482,7 +1466,7 @@ export async function selectMetaPurchaseActionType(
       ok: false as const,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Meta Ads esta desactivada por feature flag.",
+      message: "La integración con Meta Ads está desactivada por ahora.",
     };
   }
   if (!canManageOrganization(authContext, organizationId)) {
@@ -1491,7 +1475,7 @@ export async function selectMetaPurchaseActionType(
       statusCode: 403,
       error: "organization_manage_denied",
       message:
-        "Solo owner, manager o platform admin pueden elegir el action_type de compra.",
+        "Solo el propietario o un gestor pueden elegir qué cuenta como compra.",
     };
   }
   const normalizedActionType = actionType?.trim();
@@ -1580,7 +1564,7 @@ export async function triggerMetaSync(
       ok: false,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Meta Ads esta desactivada por feature flag.",
+      message: "La integración con Meta Ads está desactivada por ahora.",
     };
   }
 
@@ -1600,7 +1584,7 @@ export async function triggerMetaSync(
       statusCode: 403,
       error: "organization_manage_denied",
       message:
-        "Solo owner, manager o platform admin pueden lanzar un sync de Meta Ads.",
+        "Solo el propietario o un gestor pueden sincronizar Meta Ads.",
     };
   }
 
@@ -1698,20 +1682,12 @@ export async function triggerMetaSync(
     };
   }
 
-  const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
-  void metaSyncAdapter
-    .runInitialSync({
-      mode: "initial",
-      connection: toIntegrationConnection({
-        id: connection.id,
-        organization_id: connection.organization_id,
-        provider: "meta_ads",
-        status: connectionStatus,
-      }),
-    })
-    .catch((syncError: unknown) =>
-      markMetaSyncFailure(env, connection.id, syncError, "manual_sync"),
-    );
+  try {
+    await enqueueIntegrationSync(env, { provider: "meta_ads", connectionId: connection.id, organizationId, mode: "initial" });
+  } catch (error) {
+    await markMetaSyncFailure(env, connection.id, error, "manual_sync");
+    return { ok: false, statusCode: 503, error: "meta_sync_queue_unavailable" };
+  }
 
   return { ok: true, data: { status: "queued", connectionId: connection.id } };
 }

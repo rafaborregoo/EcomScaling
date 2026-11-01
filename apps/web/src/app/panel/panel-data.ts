@@ -10,6 +10,7 @@ import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
 import { toast } from "@/components/ui";
+import type { Diagnostic } from "../dashboard/client-pulse";
 
 /** Respuesta de GET /v1/consultant/profitability (cartera o un cliente). */
 export type ProfitabilityPayload = {
@@ -21,6 +22,8 @@ export type ProfitabilityPayload = {
   clients: ProfitClientRow[];
   totals: ProfitTotals;
   monthly: Array<{ month: string; revenue: number; profit: number }>;
+  /** Ingresos mes a mes de cada tienda (solo cartera). */
+  store_monthly?: Array<{ store_id: string; months: Array<{ month: string; revenue: number }> }>;
   failed_stores: Array<{ store_id: string; shop_name: string }>;
   truncated: boolean;
   /** Estado y ultimo sync de cada conexion por cliente (sin cuentas ni errores). */
@@ -40,16 +43,18 @@ export function useProfitability(days: number, organizationId: string | null) {
   );
 }
 
-/** Lectura A02 del panel: escrita para el consultor, nunca la del cliente. */
-export type PanelReading = {
-  generated_at: string;
-  stale?: boolean;
-  output: { headline?: string; answer?: string };
-};
-
 /** A02 solo guarda lecturas de 7, 30 y 90 días: el selector de 1 año no tiene lectura. */
 const READING_DAYS = [30, 90];
 
+/** Las secciones de la lectura general de A02 que hablan de rentabilidad. */
+const PROFIT_SECTIONS = new Set(["finanzas", "ventas", "meta"]);
+
+/**
+ * Lectura A02 del panel: escrita para el consultor, nunca la del cliente. La de
+ * rentabilidad (`view=panel`) la genera el orquestador dos veces al día; si aún
+ * no existe, se enseña la lectura general de A02 recortada a ventas, finanzas
+ * y publicidad, y se dice que es la general.
+ */
 export function usePanelReading({
   organizationId,
   connectionId,
@@ -62,17 +67,32 @@ export function usePanelReading({
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
   const supported = READING_DAYS.includes(days);
-  const query = useCachedQuery<PanelReading>(
-    supported ? `${base}/ai/monitor?days=${days}&view=panel${scope}` : null,
-  );
-  const text = query.data?.output.headline ?? query.data?.output.answer ?? null;
+  const panel = useCachedQuery<Diagnostic>(supported ? `${base}/ai/monitor?days=${days}&view=panel${scope}` : null);
+  const needsFallback = supported && !panel.isLoading && !panel.data;
+  const general = useCachedQuery<Diagnostic>(needsFallback ? `${base}/ai/monitor?days=${days}${scope}` : null);
+
+  const diagnostic: Diagnostic | null = panel.data
+    ? panel.data
+    : general.data
+      ? (() => {
+          const sections = (general.data.output.sections ?? []).filter((section) => PROFIT_SECTIONS.has(section.key));
+          return {
+            ...general.data,
+            output: {
+              ...general.data.output,
+              sections,
+              findings: [],
+              recommendations: sections.flatMap((section) => section.recommendations ?? []),
+            },
+          };
+        })()
+      : null;
 
   return {
     supported,
-    isLoading: supported && query.isLoading,
-    text,
-    generatedAt: query.data?.generated_at ?? null,
-    stale: query.data?.stale,
+    isLoading: supported && (panel.isLoading || (needsFallback && general.isLoading)),
+    diagnostic,
+    source: panel.data ? ("panel" as const) : general.data ? ("general" as const) : null,
   };
 }
 

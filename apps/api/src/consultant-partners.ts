@@ -242,7 +242,7 @@ export async function listConsultantPartners(
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id, full_name, is_active")
+    .select("id, full_name, avatar_url, is_active")
     .in("id", partnerIds);
 
   const { data: assignments } = await supabase
@@ -263,6 +263,7 @@ export async function listConsultantPartners(
       partners: (profiles ?? []).map((profile) => ({
         user_id: profile.id as string,
         full_name: profile.full_name as string | null,
+        avatar_url: profile.avatar_url as string | null,
         is_active: Boolean(profile.is_active),
         client_count: clientsByPartner.get(profile.id as string) ?? 0,
       })),

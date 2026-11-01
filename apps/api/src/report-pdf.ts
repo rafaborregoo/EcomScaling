@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import PDFDocument from "pdfkit";
+import { isReportAccentColor, isReportLogo } from "./report-branding.js";
 import { formatReportMetric, metricChangePct, type ReportChart, type ReportDocument, type ReportMetric, type ReportTable, type ReportTrend } from "./report-templates.js";
 
 const PAGE = { width: 595.28, height: 841.89, left: 48, right: 547, top: 46, bottom: 790 };
@@ -15,6 +16,14 @@ const COLOR = {
   amber: "#9B5B16",
   amberWash: "#FFF4E5",
   white: "#FFFFFF",
+};
+
+type ReportBranding = { logo?: Buffer; accentColor?: string | null };
+const brandingByDocument = new WeakMap<PDFKit.PDFDocument, ReportBranding>();
+const brandColor = (document: PDFKit.PDFDocument) => brandingByDocument.get(document)?.accentColor ?? COLOR.brand;
+const brandWash = (document: PDFKit.PDFDocument) => {
+  const color = brandColor(document);
+  return `#${[1, 3, 5].map((offset) => Math.round(parseInt(color.slice(offset, offset + 2), 16) * 0.06 + 255 * 0.94).toString(16).padStart(2, "0")).join("")}`;
 };
 
 // IBM Plex Sans (OFL) en apps/api/assets/fonts. Desde src/ (tsx) está a un
@@ -68,10 +77,16 @@ function drawRule(document: PDFKit.PDFDocument, y: number) {
 function drawPageHeader(document: PDFKit.PDFDocument, report: ReportDocument, continuation: boolean) {
   document.save();
   const brand = report.preparedBy ?? "E·NORA";
-  document.fillColor(COLOR.brand).font(FONT.bold).fontSize(9).text(brand, PAGE.left, 24, { width: 220, height: 12, ellipsis: "…", lineBreak: false });
-  const brandWidth = Math.min(220, document.widthOfString(brand));
+  const logo = brandingByDocument.get(document)?.logo;
+  let brandX = PAGE.left;
+  if (logo) {
+    try { document.image(logo, PAGE.left, 18, { fit: [68, 27], align: "center", valign: "center" }); brandX += 80; }
+    catch { /* A damaged logo must not discard the report's data. */ }
+  }
+  document.fillColor(brandColor(document)).font(FONT.bold).fontSize(9).text(brand, brandX, 24, { width: 180, height: 12, ellipsis: "…", lineBreak: false });
+  const brandWidth = Math.min(180, document.widthOfString(brand));
   document.fillColor(COLOR.muted).font(FONT.regular).fontSize(8)
-    .text(continuation ? `${report.title} · continuación` : "INFORME DE RENDIMIENTO", PAGE.left + brandWidth + 14, 25, { width: 300, height: 11, ellipsis: "…", lineBreak: false });
+    .text(continuation ? `${report.title} · continuación` : "INFORME DE RENDIMIENTO", brandX + brandWidth + 14, 25, { width: Math.max(60, (report.sample ? 430 : PAGE.right) - brandX - brandWidth - 14), height: 11, ellipsis: "…", lineBreak: false });
   if (report.sample) {
     document.roundedRect(440, 20, 107, 18, 8).fill(COLOR.amberWash);
     document.fillColor(COLOR.amber).font(FONT.bold).fontSize(7)
@@ -118,7 +133,7 @@ function drawMetrics(document: PDFKit.PDFDocument, metrics: ReportMetric[], repo
         .text(formatMetric(item, report.currencyCode), x + 11, rowTop + 32, { width: cardWidth - 22, height: 19, ellipsis: "…" });
       const change = variation(item);
       if (change) {
-        document.fillColor(COLOR.brand).font(FONT.regular).fontSize(7.5)
+        document.fillColor(brandColor(document)).font(FONT.regular).fontSize(7.5)
           .text(change, x + 11, rowTop + 56, { width: cardWidth - 22, height: 11, ellipsis: "…" });
       } else if (item.note) {
         document.fillColor(COLOR.muted).font(FONT.regular).fontSize(7.5)
@@ -175,7 +190,7 @@ function drawTable(document: PDFKit.PDFDocument, table: ReportTable, report: Rep
       if (heat && typeof raw === "number") {
         document.save();
         document.rect(columnLefts[columnIndex]! + 2, rowTop + 3, columnWidths[columnIndex]! - 4, 22)
-          .fillOpacity(0.08 + Math.min(1, Math.max(0, raw) / 60) * 0.5).fill(COLOR.brand);
+          .fillOpacity(0.08 + Math.min(1, Math.max(0, raw) / 60) * 0.5).fill(brandColor(document));
         document.restore();
       }
       document.fillColor(COLOR.ink).font(FONT.regular).fontSize(8.5)
@@ -222,7 +237,7 @@ function drawChart(document: PDFKit.PDFDocument, section: ReportDocument["sectio
     const zeroX = barLeft + (Math.abs(minValue) / span) * barWidth;
     const itemX = barLeft + ((item.value - minValue) / span) * barWidth;
     const width = Math.abs(itemX - zeroX);
-    if (width > 0) document.rect(Math.min(zeroX, itemX), y, Math.max(2, width), 14).fill(item.value < 0 ? COLOR.amber : COLOR.brand);
+    if (width > 0) document.rect(Math.min(zeroX, itemX), y, Math.max(2, width), 14).fill(item.value < 0 ? COLOR.amber : brandColor(document));
     if (minValue < 0 && maxValue > 0) document.moveTo(zeroX, y - 1).lineTo(zeroX, y + 15).lineWidth(0.7).strokeColor(COLOR.muted).stroke();
     const value = formatChartValue(item.value, chart, report);
     document.fillColor(COLOR.ink).font(FONT.bold).fontSize(8)
@@ -266,14 +281,14 @@ function drawTrend(document: PDFKit.PDFDocument, trend: ReportTrend, report: Rep
       document.save();
       document.moveTo(points[0]![0], bottom);
       for (const [x, y] of points) document.lineTo(x, y);
-      document.lineTo(points.at(-1)![0], bottom).closePath().fillOpacity(0.08).fill(COLOR.brand);
+      document.lineTo(points.at(-1)![0], bottom).closePath().fillOpacity(0.08).fill(brandColor(document));
       document.restore();
     }
     document.save();
     document.moveTo(points[0]![0], points[0]![1]);
     for (const [x, y] of points.slice(1)) document.lineTo(x, y);
     if (serie.style === "dashed") document.dash(3, { space: 2 }).lineWidth(1).strokeColor(COLOR.muted).stroke();
-    else document.lineWidth(1.6).strokeColor(COLOR.brand).stroke();
+    else document.lineWidth(1.6).strokeColor(brandColor(document)).stroke();
     document.undash();
     document.restore();
   }
@@ -295,7 +310,7 @@ function drawTrend(document: PDFKit.PDFDocument, trend: ReportTrend, report: Rep
       document.save();
       document.moveTo(legendX, legendY + 4).lineTo(legendX + 14, legendY + 4);
       if (serie.style === "dashed") document.dash(3, { space: 2 }).lineWidth(1).strokeColor(COLOR.muted).stroke();
-      else document.lineWidth(1.6).strokeColor(COLOR.brand).stroke();
+      else document.lineWidth(1.6).strokeColor(brandColor(document)).stroke();
       document.undash();
       document.restore();
       document.fillColor(COLOR.muted).font(FONT.regular).fontSize(7).text(serie.label, legendX + 18, legendY, { lineBreak: false });
@@ -306,7 +321,7 @@ function drawTrend(document: PDFKit.PDFDocument, trend: ReportTrend, report: Rep
 }
 
 function drawNote(document: PDFKit.PDFDocument, title: string, body: string, tone: "info" | "warning", report: ReportDocument) {
-  const fill = tone === "warning" ? COLOR.amberWash : COLOR.brandWash;
+  const fill = tone === "warning" ? COLOR.amberWash : brandWash(document);
   const textColor = tone === "warning" ? COLOR.amber : COLOR.ink;
   document.font(FONT.regular).fontSize(8.5);
   const bodyHeight = document.heightOfString(body, { width: PAGE.right - PAGE.left - 30, lineGap: 2 });
@@ -329,13 +344,13 @@ function drawSummary(document: PDFKit.PDFDocument, section: ReportDocument["sect
   const height = 34 + heights.reduce((total, value) => total + value, 0) + (caption ? 16 : 0);
   ensureSpace(document, height + 10, report);
   const top = document.y;
-  const fill = section.author === "copilot" ? COLOR.brandWash : COLOR.wash;
+  const fill = section.author === "copilot" ? brandWash(document) : COLOR.wash;
   document.roundedRect(PAGE.left, top, PAGE.right - PAGE.left, height, 7).fill(fill);
   document.fillColor(COLOR.ink).font(FONT.bold).fontSize(11)
     .text(section.title, PAGE.left + 16, top + 12, { width: PAGE.right - PAGE.left - 32 });
   let y = top + 32;
   section.points.forEach((point, index) => {
-    document.circle(PAGE.left + 20, y + 5, 2).fill(section.author === "copilot" ? COLOR.brand : COLOR.muted);
+    document.circle(PAGE.left + 20, y + 5, 2).fill(section.author === "copilot" ? brandColor(document) : COLOR.muted);
     document.fillColor(COLOR.ink).font(FONT.regular).fontSize(9.5).text(point, PAGE.left + 30, y, { width, lineGap: 2 });
     y += heights[index]!;
   });
@@ -345,7 +360,7 @@ function drawSummary(document: PDFKit.PDFDocument, section: ReportDocument["sect
   document.y = top + height + 10;
 }
 
-export function renderReportPdf(report: ReportDocument): Promise<Buffer> {
+export function renderReportPdf(report: ReportDocument, branding: ReportBranding = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({
       size: "A4",
@@ -354,10 +369,11 @@ export function renderReportPdf(report: ReportDocument): Promise<Buffer> {
       compress: true,
       info: {
         Title: report.title,
-        Author: "E-NORA",
+        Author: report.preparedBy ?? "E-NORA",
         Subject: `${report.periodStart} — ${report.periodEnd}`,
       },
     });
+    brandingByDocument.set(document, { accentColor: isReportAccentColor(branding.accentColor) ? branding.accentColor : COLOR.brand, ...(branding.logo && isReportLogo(branding.logo) ? { logo: branding.logo } : {}) });
     registerFonts(document);
     const chunks: Buffer[] = [];
     document.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
@@ -413,13 +429,13 @@ export function renderReportPdf(report: ReportDocument): Promise<Buffer> {
       document.font(FONT.regular).fontSize(7.5);
       const detailHeight = Math.max(12, document.heightOfString(source.detail, { width: detailWidth, lineGap: 1 }));
       ensureSpace(document, detailHeight + 10, report);
-      const dotColor = source.status === "available" ? COLOR.brand : source.status === "partial" ? COLOR.amber : COLOR.muted;
+      const dotColor = source.status === "available" ? brandColor(document) : source.status === "partial" ? COLOR.amber : COLOR.muted;
       const rowY = document.y;
       document.circle(PAGE.left + 4, rowY + 6, 3).fill(dotColor);
       document.fillColor(COLOR.ink).font(FONT.bold).fontSize(8.5)
         .text(source.provider, PAGE.left + 13, rowY, { width: 60 });
       const statusLabel = source.status === "available" ? "Disponible" : source.status === "partial" ? "Parcial" : "Sin datos";
-      document.fillColor(source.status === "available" ? COLOR.brand : source.status === "partial" ? COLOR.amber : COLOR.muted)
+      document.fillColor(source.status === "available" ? brandColor(document) : source.status === "partial" ? COLOR.amber : COLOR.muted)
         .font(FONT.bold).fontSize(7).text(statusLabel, PAGE.left + 76, rowY + 1.5, { width: 43 });
       document.fillColor(COLOR.muted).font(FONT.regular).fontSize(7.5)
         .text(source.detail, PAGE.left + 124, rowY + 1, { width: detailWidth, lineGap: 1 });

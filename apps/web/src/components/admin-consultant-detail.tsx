@@ -9,13 +9,18 @@ import { VerComoButton } from "@/components/ver-como-button";
 import {
   Badge,
   Button,
-  Card,
   ErrorBlock,
   Field,
   Input,
+  SearchableSelect,
   Select,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
+  Card,
+  CardContent,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 export type AgentUsage = { name: string; runs: number };
 export type AiStats = {
@@ -147,7 +152,7 @@ export function AssignmentEditor({
     }
   }
 
-  const clientColumns: TableColumnDef<AssignedOrg & { id: string }>[] = [
+  const clientColumns: DataTableColumn<AssignedOrg & { id: string }>[] = [
     {
       key: "display_name",
       label: "Cliente",
@@ -215,70 +220,74 @@ export function AssignmentEditor({
   ];
 
   return (
-    <Card
-      kicker={`Clientes · últimos ${windowDays} días`}
-      title={consultant.full_name ?? consultant.id}
-    >
-      <div className="grid gap-4">
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+    <Card>
+      <CardHeader>
+        <CardKicker>{`Clientes · últimos ${windowDays} días`}</CardKicker>
+        <CardTitle>{consultant.full_name ?? consultant.id}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4">
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-        <div className="flex flex-wrap items-end gap-3 border-b border-separator pb-4">
-          <Field label="Nombre del consultor">
-            <Input
-              className="w-64"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+          <div className="flex flex-wrap items-end gap-3 border-b border-separator pb-4">
+            <Field label="Nombre del consultor">
+              <Input
+                className="w-64"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </Field>
+            <Button
+              size="sm"
+              disabled={savingName || name.trim().length === 0}
+              onClick={() => void saveName()}
+            >
+              {savingName ? "Guardando..." : "Guardar nombre"}
+            </Button>
+          </div>
+
+          {consultant.consulting_organization_id ? (
+            <PlanEditor
+              subjectType="organization"
+              subjectId={consultant.consulting_organization_id}
+              plan={consultant.plan}
+              onSaved={onChanged}
             />
-          </Field>
-          <Button
-            size="sm"
-            disabled={savingName || name.trim().length === 0}
-            onClick={() => void saveName()}
-          >
-            {savingName ? "Guardando..." : "Guardar nombre"}
-          </Button>
-        </div>
+          ) : null}
 
-        {consultant.consulting_organization_id ? (
-          <PlanEditor
-            subjectType="organization"
-            subjectId={consultant.consulting_organization_id}
-            plan={consultant.plan}
-            onSaved={onChanged}
-          />
-        ) : null}
-
-        <Table
-          ariaLabel={`Clientes de ${consultant.full_name ?? consultant.id}`}
-          columns={clientColumns}
-          rows={consultant.assignments.map((assignment) => ({
-            ...assignment,
-            id: assignment.organization_id,
-          }))}
-          emptyLabel="Sin clientes asignados."
-        />
-
-        <div className="flex flex-wrap items-end gap-3 border-t border-separator pt-4">
-          <Select
-            className="w-64"
-            aria-label="Cliente a asignar"
-            placeholder="Elegir cliente..."
-            value={pendingOrgId}
-            onChange={setPendingOrgId}
-            options={unassigned.map((org) => ({
-              value: org.id,
-              label: org.display_name,
+          <DataTable
+            ariaLabel={`Clientes de ${consultant.full_name ?? consultant.id}`}
+            columns={clientColumns}
+            rows={consultant.assignments.map((assignment) => ({
+              ...assignment,
+              id: assignment.organization_id,
             }))}
+            emptyLabel="Sin clientes asignados."
           />
-          <Button
-            size="sm"
-            disabled={!pendingOrgId || busyOrgId === pendingOrgId}
-            onClick={() => void setAssignment(pendingOrgId, true)}
-          >
-            Asignar cliente
-          </Button>
+
+          <div className="flex flex-wrap items-end gap-3 border-t border-separator pt-4">
+            <SearchableSelect
+              className="w-64"
+              aria-label="Cliente a asignar"
+              placeholder="Busca un cliente"
+              emptyText="No hay ningún cliente sin asignar con ese nombre."
+              value={pendingOrgId}
+              onChange={setPendingOrgId}
+              options={unassigned.map((org) => ({
+                value: org.id,
+                label: org.display_name,
+              }))}
+            />
+            <Button
+              size="sm"
+              disabled={!pendingOrgId || busyOrgId === pendingOrgId}
+              onClick={() => void setAssignment(pendingOrgId, true)}
+            >
+              Asignar cliente
+            </Button>
+          </div>
         </div>
-      </div>
+      </CardContent>
     </Card>
   );
 }

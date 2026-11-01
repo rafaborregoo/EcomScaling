@@ -1,5 +1,7 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
+import { SparklesIcon } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,13 +12,18 @@ import { useUrlSection } from "@/lib/use-url-section";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
-import { Skeleton, toast } from "@/components/ui";
+import { Banner, Skeleton, ToggleGroup, ToggleGroupItem, toast, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown, CollapsibleMore } from "@/components/ui";
 import type { DailyWorkbench, PortfolioHealthRow, UpcomingItem, WorkbenchAction } from "../consultor/workbench";
 import {
+  A29Reading,
   ClientPulse,
+  DiagnosticReading,
+  findingSteps,
+  FindingReading,
   Delta,
   Empty,
   Kpi,
+  A02MetricNotice,
   KpiBars,
   KpiDetail,
   SalesChart,
@@ -25,15 +32,17 @@ import {
   cx,
   dayLabel,
   findingFor,
+  useKpiDisclosure,
   type Diagnostic,
   type KpiDetailData,
   type MetaMetrics,
   type Metrics,
 } from "./client-pulse";
-import { clientReadable, evidenceText, fmtCurrency, fmtNum } from "./client-pulse-model";
-import { AiExplanation, useMetricAnalysis } from "@/components/metric-verdict";
+import { fmtCurrency, fmtNum } from "./client-pulse-model";
+import { useMetricAnalysis } from "@/components/metric-verdict";
 import { withPortalRouteContext } from "@/lib/portal-route-context";
-import { formatMoney } from "@/lib/money";
+import { PortfolioChannels, PortfolioClients, PortfolioStores } from "./consultant-portfolio";
+import { revenueByCurrency, roasPosition, sortPortfolio, type MatrixKey, type MatrixRow } from "./consultant-portfolio-model";
 import { salesChangePct } from "./store-pulse";
 import { ClientShopify } from "./client-shopify";
 import { ClientMeta } from "./client-meta";
@@ -41,6 +50,7 @@ import { ClientKlaviyo } from "./client-klaviyo";
 import p from "./client-pulse.module.css";
 import { DashboardSections } from "./dashboard-sections";
 import s from "./consultant-desk.module.css";
+import ps from "./consultant-portfolio.module.css";
 
 /**
  * Dashboard del consultor.
@@ -178,13 +188,13 @@ const DATA_KINDS: Array<WorkbenchAction["kind"]> = ["integration_reauth", "finan
 const INBOX_FILTERS: Array<{ key: InboxFilter; label: string; test: (a: WorkbenchAction) => boolean }> = [
   { key: "todo", label: "Todo", test: () => true },
   { key: "urgente", label: "Urgente", test: (a) => a.priority === "urgent" },
-  { key: "decision", label: "Mi decisión", test: (a) => DECISION_KINDS.includes(a.kind) },
+  { key: "decision", label: "Mi decisión", test: (a) => DECISION_KINDS.includes(a.kind) && a.kind !== "unread_message" },
   { key: "datos", label: "Datos", test: (a) => DATA_KINDS.includes(a.kind) },
 ];
 
 const plural = (n: number, one: string, many: string) => `${fmtNum(n)} ${n === 1 ? one : many}`;
 const sourceMoney = (value: number | null, currencyCode: string | null) =>
-  value == null || !currencyCode ? "—" : formatMoney(value, currencyCode);
+  fmtCurrency(value, currencyCode, 2);
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -266,43 +276,25 @@ export function ConsultantDashboard({ bootstrap }: { bootstrap: BootstrapRespons
 // ---------------------------------------------------------------------------
 
 function ActionRow({ action, onClient }: { action: WorkbenchAction; onClient?: (id: string) => void }) {
-  const kindClass =
-    action.kind === "ai_proposal"
-      ? s.kindAi
-      : action.priority === "urgent"
-        ? s.kindUrgent
-        : action.priority === "high"
-          ? s.kindHigh
-          : undefined;
   return (
-    <li className={cx(s.act, "task-lift")}>
-      <span className={cx(s.kind, kindClass)}>{KIND_LABEL[action.kind]}</span>
+    <li className={ps.action} data-kind={action.kind} data-priority={action.priority}>
       <div>
-        <p className={s.actT}>
-          {onClient ? (
-            <>
-              <button type="button" onClick={() => onClient(action.organization_id)}>
-                {action.organization_name}
-              </button>
-              {" · "}
-            </>
-          ) : null}
-          {action.title}
-        </p>
-        <p className={s.actR}>{action.reason}</p>
-        {action.evidence.length ? (
-          <div className={s.evid}>
-            {action.evidence.slice(0, 4).map((item, i) => (
-              <span key={`${item.label}-${i}`}>
-                {item.label} <b>{item.value}</b>
-              </span>
-            ))}
-          </div>
-        ) : null}
+        <div className={ps.actionMeta}>
+          <span>{action.priority === "urgent" ? "Urgente · " : ""}{KIND_LABEL[action.kind]}</span>
+          {onClient ? <button type="button" onClick={() => onClient(action.organization_id)}>{action.organization_name}</button> : null}
+        </div>
+        <h4>{action.title}</h4>
+        <p className={ps.actionReason}>{action.reason}</p>
+        {action.evidence.length ? <div className={ps.evidence}>{action.evidence.slice(0, 2).map((item, i) => <span key={i}>{item.label}: <b>{item.value}</b></span>)}</div> : null}
+        <Collapsible className={ps.actionContext}>
+          <CollapsibleTrigger>Ver contexto y evidencia<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+          <CollapsibleContent>
+          <p>{action.reason}</p>
+          <div className={ps.evidence}>{action.evidence.map((item, i) => <span key={i}>{item.label}: <b>{item.value}</b>{item.source ? ` · ${item.source}` : ""}</span>)}</div>
+        </CollapsibleContent>
+        </Collapsible>
       </div>
-      <Link className={cx(p.btn, p.ghost, p.sm)} href={action.href}>
-        {action.action_label}
-      </Link>
+      <Link className={buttonVariants({ variant: "secondary", size: "sm" })} href={action.href}>{action.action_label}</Link>
     </li>
   );
 }
@@ -316,50 +308,60 @@ function Inbox({ actions, filter, onFilter, onClient }: {
   const [showAll, setShowAll] = useState(false);
   const active = INBOX_FILTERS.find((f) => f.key === filter) ?? INBOX_FILTERS[0];
   const visible = actions.filter(active.test);
-  const shown = showAll ? visible : visible.slice(0, 8);
-  const clients = new Set(actions.map((a) => a.organization_id)).size;
+
+  const clients = new Set(visible.map((a) => a.organization_id)).size;
   return (
-    <div className={p.panel}>
-      <div className={p.panelH} style={{ flexWrap: "wrap" }}>
+    <div className={cx(p.panel, ps.inboxPanel)}>
+      <div className={ps.panelHead}>
         <div>
           <h3>Bandeja</h3>
-          <p className={p.sub}>
-            {plural(actions.length, "asunto", "asuntos")} de {plural(clients, "cliente", "clientes")} · lo más urgente arriba
+          <p role="status">
+            {plural(visible.length, "asunto", "asuntos")} de {plural(clients, "cliente", "clientes")} · por prioridad
           </p>
         </div>
-        <div className={p.seg} role="group" aria-label="Filtrar la bandeja">
+        <ToggleGroup
+          aria-label="Filtrar la bandeja"
+          className={ps.inboxFilters}
+          spacing={1.5}
+          value={active.key}
+          onValueChange={(key) => {
+            onFilter(key);
+            setShowAll(false);
+          }}
+        >
           {INBOX_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              aria-pressed={f.key === active.key}
-              onClick={() => {
-                onFilter(f.key);
-                setShowAll(false);
-              }}
-            >
+            <ToggleGroupItem key={f.key} value={f.key}>
               {f.label}
-              <b>{actions.filter(f.test).length}</b>
-            </button>
+              <span className="text-xs text-muted tabular-nums">{actions.filter(f.test).length}</span>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
       {visible.length === 0 ? (
-        <Empty action={filter !== "todo" ? <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => onFilter("todo")}>Ver toda la bandeja</button> : undefined}>
+        <Empty action={filter !== "todo" ? <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => onFilter("todo")}>Ver toda la bandeja</button> : undefined}>
           {filter === "todo" ? "No hay asuntos pendientes en las fuentes disponibles." : "No hay asuntos que coincidan con este filtro."}
         </Empty>
       ) : (
-        <ul>
-          {shown.map((action) => (
-            <ActionRow key={action.id} action={action} onClient={onClient} />
-          ))}
-        </ul>
+        <Collapsible open={showAll} onOpenChange={setShowAll}>
+          <ul>
+            {visible.slice(0, 8).map((action) => (
+              <ActionRow key={action.id} action={action} onClient={onClient} />
+            ))}
+          </ul>
+          {visible.length > 8 ? (
+            <>
+              <CollapsibleContent>
+                <ul className={ps.actionMore}>
+                  {visible.slice(8).map((action) => (
+                    <ActionRow key={action.id} action={action} onClient={onClient} />
+                  ))}
+                </ul>
+              </CollapsibleContent>
+              <CollapsibleMore count={visible.length - 8} more={`Ver los ${visible.length} asuntos`} less="Ver menos asuntos" className={s.showAll} />
+            </>
+          ) : null}
+        </Collapsible>
       )}
-      {visible.length > shown.length ? (
-        <button type="button" className={cx(p.btn, p.ghost, p.sm, s.showAll)} onClick={() => setShowAll(true)}>
-          Ver los {visible.length}
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -380,7 +382,7 @@ function Upcoming({ items, showClient }: { items: UpcomingItem[]; showClient: bo
           {items.slice(0, 8).map((item) => {
             const at = new Date(item.at);
             return (
-              <li key={`${item.kind}-${item.id}`} className={cx(s.ag, "task-lift")}>
+              <li key={`${item.kind}-${item.id}`} className={cx(s.ag, ps.agendaItem, "task-lift")}>
                 <span className={s.day}>
                   <small>{at.toLocaleDateString("es-ES", { weekday: "short" })}</small>
                   <b>{at.getDate()}</b>
@@ -410,27 +412,6 @@ function Upcoming({ items, showClient }: { items: UpcomingItem[]; showClient: bo
 // Cartera
 // ---------------------------------------------------------------------------
 
-type MatrixKey = "name" | "sales" | "orders" | "roas" | "cac" | "dep" | "email" | "emailRev" | "alerts";
-type MatrixRow = {
-  id: string;
-  name: string;
-  tier: PortfolioHealthRow["status"];
-  rank: number;
-  sales: number | null;
-  salesCurrencyCode: string | null;
-  orders: number | null;
-  roas: number | null;
-  breakEven: number | null;
-  cac: number | null;
-  cacCurrencyCode: string | null;
-  cacDelta: number | null;
-  dep: number | null;
-  sent: number | null;
-  lastSend: string | null;
-  emailRev: number | null;
-  emailRevCurrencyCode: string | null;
-  alerts: number;
-};
 
 export function ConsultantPortfolio({ userName, onSelectClient }: {
   userName: string | null;
@@ -449,11 +430,10 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
   const orders = useCachedQuery<OrdersPayload>(ordersKey);
   const ask = useCopilotAsk();
   const [filter, setFilter] = useState<InboxFilter>("todo");
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [sort, setSort] = useState<{ key: MatrixKey; dir: 1 | -1 } | null>(null);
   const [today] = useState(() => new Date());
   // Cifra de la cartera abierta: reparto por cliente, lectura y a dónde ir.
-  const [openKpi, setOpenKpi] = useState<string | null>(null);
+  const { openKpi, toggleKpi, closeKpi, closingKpi } = useKpiDisclosure();
 
   const wb = workbench.data;
   const threadList = useMemo(
@@ -476,13 +456,19 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
       const m = metaBy.get(row.organization_id);
       const k = klaviyoBy.get(row.organization_id);
       const o = salesBy.get(row.organization_id);
+      // Cliente con tiendas en varias monedas: la API no suma; si solo vende
+      // una moneda, se enseña esa suma en vez de un "—".
+      const clientStores = (orders.data?.stores ?? []).filter(store => store.organization_id === row.organization_id);
+      const groups = revenueByCurrency(clientStores);
+      const complete = clientStores.every(store => store.net_sales != null && store.currency_code != null);
+      const storeSales = complete && groups.length === 1 ? { sales: groups[0][1].sales, currency: groups[0][0] } : null;
       return {
         id: row.organization_id,
         name: row.organization_name,
         tier: row.status,
         rank,
-        sales: o?.net_sales ?? null,
-        salesCurrencyCode: o?.currency_code ?? null,
+        sales: o?.net_sales ?? storeSales?.sales ?? null,
+        salesCurrencyCode: o?.net_sales != null ? o.currency_code ?? null : storeSales?.currency ?? null,
         orders: o?.orders_count ?? null,
         roas: m?.spend != null && m.spend > 0 ? m.roas : null,
         breakEven: m?.break_even_roas ?? null,
@@ -499,31 +485,11 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
     });
   }, [wb, orders.data, meta.data, klaviyo.data]);
 
-  const sortedMatrix = useMemo(() => {
-    if (!sort) return matrix;
-    const value = (row: MatrixRow): number | string | null =>
-      sort.key === "name"
-        ? row.name
-        : sort.key === "email"
-          ? row.sent
-          : (row[sort.key as Exclude<MatrixKey, "name" | "email">] as number | null);
-    return matrix.slice().sort((a, b) => {
-      if (sort.key === "sales" && a.salesCurrencyCode !== b.salesCurrencyCode) {
-        return a.name.localeCompare(b.name, "es") * sort.dir;
-      }
-      const va = value(a);
-      const vb = value(b);
-      if (va === null && vb === null) return a.rank - b.rank;
-      if (va === null) return 1; // sin dato, siempre al final
-      if (vb === null) return -1;
-      if (typeof va === "string" || typeof vb === "string") return String(va).localeCompare(String(vb)) * sort.dir;
-      return (va - vb) * sort.dir || a.rank - b.rank;
-    });
-  }, [matrix, sort]);
+  const sortedMatrix = useMemo(() => sortPortfolio(matrix, sort), [matrix, sort]);
 
   if (workbench.isLoading && !wb) {
     return (
-      <div className={p.root}>
+      <div className={cx(p.root, ps.portfolio)} data-scope="all-stores">
         <div className={p.hero} role="status" aria-busy="true">
           <p className={p.heroMeta}>Tu cartera</p>
           <p className={p.headline}>Preparando tu mesa…</p>
@@ -535,13 +501,13 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
 
   if (!wb) {
     return (
-      <div className={p.root}>
+      <div className={cx(p.root, ps.portfolio)} data-scope="all-stores">
         <div className={p.hero}>
           <p className={p.heroMeta}>Tu cartera</p>
           <h1 className={p.headline}>No se pudo cargar la mesa</h1>
           <p className={p.headlineDetail}>{workbench.error ?? "Reintenta en unos segundos."}</p>
           <div className={p.heroActions}>
-            <button type="button" className={cx(p.btn, p.acc)} onClick={() => workbench.reload()}>
+            <button type="button" className={buttonVariants()} onClick={() => workbench.reload()}>
               Reintentar
             </button>
           </div>
@@ -569,20 +535,16 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
         : "Tu cartera está al día.";
   const business = overview.data?.business;
   const stores = (orders.data?.stores ?? []).slice().sort((a, b) => b.orders_count - a.orders_count);
-  const maxStoreOrders = Math.max(1, ...stores.map((st) => st.orders_count));
-  const planMix = Object.entries(overview.data?.plan_mix ?? {}).sort((a, b) => b[1] - a[1]);
-  const withoutStore = (overview.data?.portfolio ?? []).filter((r) => r.store_count === 0).length;
+  const dataIssueRows = wb.portfolio.filter((row) => row.data_issues.length > 0);
 
   // ---- detalle de las cifras de la cartera ----
   // No hay un agente sobre la cartera entera: la lectura sale de los datos
   // (concentración, quién está por debajo) y "Preguntar a la IA" lleva al copiloto.
-  const toggleKpi = (key: string) => () => setOpenKpi((current) => (current === key ? null : key));
   const shopifyCurrency = business?.shopify_currency_code ?? null;
   const metaCurrency = business?.meta_currency_code ?? null;
   const nameOf = new Map(wb.portfolio.map((row) => [row.organization_id, row.organization_name]));
   // Las barras solo comparan importes en la misma moneda; el resto se lista sin barra.
-  const sameCurrency = (code: string | null, base: string | null) => !base || !code || code === base;
-  const bySales = matrix.filter((r) => r.sales != null).sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0));
+  const sameCurrency = (code: string | null, base: string | null) => code != null && base != null && code === base;
   const byOrders = matrix.filter((r) => r.orders != null).sort((a, b) => (b.orders ?? 0) - (a.orders ?? 0));
   const byRoas = matrix.filter((r) => r.roas != null).sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0));
   const metaSpend = (meta.data?.clients ?? []).filter((c) => (c.spend ?? 0) > 0).sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
@@ -590,21 +552,69 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
     part != null && total ? Math.round((part / total) * 100) : null;
   const reading = (text: string | null) =>
     text ? <p className={p.aiLine}>{text}</p> : <p className={p.aiLine}>Sin datos suficientes para leer esta cifra todavía.</p>;
-  const belowBreakEven = byRoas.filter((r) => r.breakEven !== null && (r.roas ?? 0) < r.breakEven);
+  // Con un solo cliente o tienda, "concentra el 100 %" no dice nada: se
+  // compara con los 30 días anteriores.
+  const versus = (current: number | null | undefined, previous: number | null | undefined, format: (value: number) => string) => {
+    if (current == null || previous == null || previous === 0) return null;
+    const change = Math.round(((current - previous) / Math.abs(previous)) * 100);
+    return change === 0
+      ? `Igual que los 30 días anteriores (${format(previous)}).`
+      : `${change > 0 ? "Sube" : "Baja"} un ${Math.abs(change)} % frente a los 30 días anteriores (${format(previous)}).`;
+  };
+  const belowBreakEven = byRoas.filter((r) => roasPosition(r.roas, r.breakEven) === "below");
+  const withoutBreakEven = byRoas.filter((r) => roasPosition(r.roas, r.breakEven) === null);
   const withoutOrders = matrix.filter((r) => r.orders === 0);
-  const topSalesShare = bySales[0] && sameCurrency(bySales[0].salesCurrencyCode, shopifyCurrency) ? share(bySales[0].sales, business?.net_sales) : null;
   const topSpendShare = metaSpend[0] && sameCurrency(metaSpend[0].currency_code, metaCurrency) ? share(metaSpend[0].spend, business?.meta_spend) : null;
-  const storeAov = (orders.data?.stores ?? []).filter((st) => st.aov != null).sort((a, b) => (b.aov ?? 0) - (a.aov ?? 0));
+  const storeAov = (orders.data?.stores ?? []).filter((st) => st.aov != null).sort((a, b) => (a.currency_code ?? "").localeCompare(b.currency_code ?? "") || (b.aov ?? 0) - (a.aov ?? 0));
+  // Con tiendas en varias monedas la API no suma ventas (ADR-0021: nada de
+  // mezclar EUR y USD). Cada moneda conserva sus ventas, devoluciones y pedidos.
+  const byCurrency = new Map(revenueByCurrency(orders.data?.stores ?? []));
+  const sellingCurrencies = [...byCurrency.entries()];
+  const mixedCurrency = business?.net_sales == null && sellingCurrencies.length > 0;
+  const unknownCurrencyStores = stores.filter((store) => store.net_sales != null && !store.currency_code).length;
+  // La tienda que más vende, comparada solo con las de su misma moneda.
+  const topStoreSales = (orders.data?.stores ?? [])
+    .filter((st) => (st.net_sales ?? 0) > 0 && st.currency_code === sellingCurrencies[0]?.[0])
+    .sort((a, b) => (b.net_sales ?? 0) - (a.net_sales ?? 0))[0];
+  const salesValue = mixedCurrency
+    ? sellingCurrencies.map(([code, entry], index) => <span key={code} className={entry.sales < 0 ? ps.negativeValue : undefined}>{index ? " · " : ""}{sourceMoney(entry.sales, code)}</span>)
+    : sourceMoney(business?.net_sales ?? null, shopifyCurrency);
+  const aovValue = mixedCurrency
+    ? sellingCurrencies.map(([code, entry], index) => <span key={code} className={entry.sales < 0 ? ps.negativeValue : undefined}>{index ? " · " : ""}{sourceMoney(entry.orders ? entry.sales / entry.orders : null, code)}</span>)
+    : business?.orders && business.net_sales != null
+      ? sourceMoney(business.net_sales / business.orders, shopifyCurrency)
+      : "—";
+  // La ausencia de moneda mantiene visible que los importes son parciales.
+  const currencyNote = unknownCurrencyStores ? `Moneda pendiente en ${plural(unknownCurrencyStores, "tienda", "tiendas")}; importes parciales.` : mixedCurrency
+    ? sellingCurrencies.length === 1
+      ? `Importes disponibles en ${sellingCurrencies[0][0]}`
+      : "Varias monedas: no se suman"
+    : null;
   const portfolioDetails: Record<string, KpiDetailData> = {
     sales: {
       title: "Ventas netas",
       chart: (
         <KpiBars
-          rows={bySales.map((r) => ({ key: r.id, id: r.id, name: r.name, value: sameCurrency(r.salesCurrencyCode, shopifyCurrency) ? r.sales : null, text: sourceMoney(r.sales, r.salesCurrencyCode) }))}
+          rows={(orders.data?.stores ?? [])
+            .filter((st) => st.net_sales != null)
+            .sort((a, b) => (a.currency_code ?? "~").localeCompare(b.currency_code ?? "~") || (b.net_sales ?? 0) - (a.net_sales ?? 0))
+            .slice(0, 12)
+            .map((st) => ({
+              key: st.store_id,
+              id: st.organization_id,
+              name: `${st.shop_name} · ${st.organization_name}`,
+              value: st.currency_code === sellingCurrencies[0]?.[0] ? st.net_sales : null,
+              text: sourceMoney(st.net_sales, st.currency_code),
+              tone: st.net_sales != null && st.net_sales < 0 ? "bad" as const : undefined,
+            }))}
           onSelect={onSelectClient}
         />
       ),
-      ai: reading(topSalesShare !== null ? `${bySales[0].name} concentra el ${topSalesShare} % de las ventas de la cartera.` : null),
+      ai: reading(
+        stores.filter((st) => (st.net_sales ?? 0) > 0).length > 1 && topStoreSales
+          ? `${topStoreSales.shop_name} concentra el ${share(topStoreSales.net_sales, byCurrency.get(topStoreSales.currency_code ?? "")?.sales)} % de las ventas en ${topStoreSales.currency_code}.`
+          : versus(business?.net_sales, business?.prev_net_sales, (value) => sourceMoney(value, shopifyCurrency)),
+      ),
       href: "/panel",
       action: "Ver la rentabilidad de la cartera",
     },
@@ -619,9 +629,9 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
       ai: reading(
         withoutOrders.length
           ? `${plural(withoutOrders.length, "cliente", "clientes")} sin pedidos en 30 días: ${withoutOrders.slice(0, 3).map((r) => r.name).join(", ")}.`
-          : byOrders[0] && business?.orders
+          : byOrders.length > 1 && business?.orders
             ? `${byOrders[0].name} trae el ${share(byOrders[0].orders, business.orders)} % de los pedidos.`
-            : null,
+            : versus(business?.orders, business?.prev_orders, (value) => fmtNum(value)),
       ),
       href: "#mesa-tiendas",
       action: "Ver pedidos por tienda",
@@ -634,14 +644,17 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             key: st.store_id,
             id: st.organization_id,
             name: `${st.shop_name} · ${st.organization_name}`,
-            value: sameCurrency(st.currency_code, shopifyCurrency) ? st.aov : null,
+              value: sameCurrency(st.currency_code, shopifyCurrency ?? sellingCurrencies[0]?.[0] ?? null) ? st.aov : null,
             text: sourceMoney(st.aov, st.currency_code),
+            tone: st.aov != null && st.aov < 0 ? "bad" as const : undefined,
           }))}
           onSelect={onSelectClient}
         />
       ),
       ai: reading(
-        storeAov.length > 1
+        storeAov.length > 1 && new Set(storeAov.map(store => store.currency_code)).size > 1
+          ? "Cada tienda muestra su ticket en su moneda. Los importes de distintas monedas no se comparan entre sí."
+          : storeAov.length > 1
           ? `El ticket va de ${sourceMoney(storeAov[storeAov.length - 1].aov, storeAov[storeAov.length - 1].currency_code)} en ${storeAov[storeAov.length - 1].shop_name} a ${sourceMoney(storeAov[0].aov, storeAov[0].currency_code)} en ${storeAov[0].shop_name}.`
           : null,
       ),
@@ -662,7 +675,11 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
           onSelect={onSelectClient}
         />
       ),
-      ai: reading(topSpendShare !== null ? `${nameOf.get(metaSpend[0].organization_id) ?? "Un cliente"} se lleva el ${topSpendShare} % de la inversión en Meta.` : null),
+      ai: reading(
+        metaSpend.length > 1 && topSpendShare !== null
+          ? `${nameOf.get(metaSpend[0].organization_id) ?? "Un cliente"} se lleva el ${topSpendShare} % de la inversión en Meta.`
+          : versus(business?.meta_spend, business?.prev_meta_spend, (value) => sourceMoney(value, metaCurrency)),
+      ),
       href: "#mesa-canales",
       action: "Ver canales por cliente",
     },
@@ -685,7 +702,9 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
         byRoas.length
           ? belowBreakEven.length
             ? `${plural(belowBreakEven.length, "cliente está", "clientes están")} por debajo de su ROAS de equilibrio: ${belowBreakEven.slice(0, 3).map((r) => r.name).join(", ")}.`
-            : "Todos los clientes con Meta están por encima de su ROAS de equilibrio."
+            : withoutBreakEven.length
+              ? `Falta un ROAS de equilibrio válido para ${plural(withoutBreakEven.length, "cliente", "clientes")}. No se puede valorar la rentabilidad de toda la cartera.`
+              : "Los clientes con datos comparables igualan o superan su ROAS de equilibrio."
           : null,
       ),
       href: "#mesa-canales",
@@ -696,157 +715,49 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
 
   function jump(next: InboxFilter) {
     setFilter(next);
-    document.getElementById("mesa-hoy")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("mesa-hoy")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
-  function sortBy(key: MatrixKey) {
-    setSort((current) =>
-      current?.key === key ? (current.dir === -1 ? { key, dir: 1 } : null) : { key, dir: key === "name" ? 1 : -1 },
-    );
-  }
-
-  const th = (key: MatrixKey, label: string) => (
-    <th scope="col" aria-sort={sort?.key === key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}>
-      <button type="button" onClick={() => sortBy(key)}>
-        {label}
-        {sort?.key === key ? (sort.dir === 1 ? " ↑" : " ↓") : ""}
-      </button>
-    </th>
-  );
 
   return (
-    <div className={p.root}>
-      <DashboardSections items={[{ id: "mesa-headline", label: "Cartera" }, { id: "mesa-hoy", label: "Bandeja" }, { id: "mesa-canales", label: "Canales por cliente" }, { id: "mesa-tiendas", label: "Tiendas" }]} />
-      {/* ------------------------------ Hero ------------------------------ */}
-      <section className={p.hero} aria-labelledby="mesa-headline">
-        <div className={p.heroTop}>
-          <div>
-            <p className={p.heroMeta}>
-              <span>{today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })}</span>
-              <span>
-                Tu cartera · {plural(summary.clients, "cliente", "clientes")}
-                {overview.data ? ` · ${plural(overview.data.stores, "tienda", "tiendas")}` : ""}
-              </span>
-              <span>Mesa actualizada {ago(wb.generated_at)}</span>
-            </p>
-            <h1 id="mesa-headline" className={p.headline}>
-              {firstName ? `${greeting}, ${firstName}. ` : ""}
-              {headline}
-            </h1>
-            <p className={p.headlineDetail}>
-              Lo demás está vigilado: alertas, tareas, llamadas, mensajes, integraciones, hitos y propuestas de la IA.
-            </p>
-            {downSources.length ? (
-              <p className={p.headlineDetail} style={{ color: "var(--accent)" }}>
-                No se pudieron leer {downSources.join(", ")}: la mesa puede estar incompleta.
-              </p>
-            ) : null}
-            <div className={p.heroActions}>
-              <button
-                type="button"
-                className={cx(p.btn, p.acc)}
-                onClick={() =>
-                  ask({
-                    question: "¿Qué cliente de mi cartera necesita más mi atención hoy y qué haría primero con él?",
-                    focusLabel: "Tu cartera",
-                  })
-                }
-              >
-                <span className={p.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
-                  IA
-                </span>
-                ¿Por dónde empiezo?
-              </button>
-              <a className={cx(p.btn, p.ghost)} href="#mesa-hoy">
-                Ir a la bandeja
-              </a>
-            </div>
-          </div>
-          <div className={s.counters}>
-            <button type="button" className={cx(s.counter, urgentActions > 0 && s.hot)} onClick={() => jump("urgente")}>
-              <b>{fmtNum(urgentActions)}</b>
-              <span>Urgentes</span>
-            </button>
-            <button type="button" className={s.counter} onClick={() => jump("decision")}>
-              <b>{fmtNum(decisions)}</b>
-              <span>Esperan tu decisión</span>
-            </button>
-            <button
-              type="button"
-              className={cx(s.counter, summary.unread_threads > 0 && s.hot)}
-              onClick={() => document.getElementById("mesa-chats")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            >
-              <b>{fmtNum(summary.unread_threads)}</b>
-              <span>Chats sin leer</span>
-            </button>
-            {summary.data_issues ? (
-              <button type="button" className={s.counter} onClick={() => jump("datos")} style={{ gridColumn: "1 / -1" }}>
-                <b>{fmtNum(summary.data_issues)}</b>
-                <span>Problemas de datos o integraciones</span>
-              </button>
-            ) : null}
-          </div>
+    <div className={cx(p.root, ps.portfolio)} data-scope="all-stores">
+      <DashboardSections items={[{ id: "mesa-headline", label: "Resumen" }, { id: "mesa-clientes", label: "Clientes" }, { id: "mesa-hoy", label: "Bandeja" }, { id: "mesa-canales", label: "Canales" }, { id: "mesa-tiendas", label: "Tiendas" }]} />
+      <header className={ps.welcome}>
+        <div>
+          <h1 id="mesa-headline">{firstName ? `${greeting}, ${firstName}` : "Tu cartera"}</h1>
+          <p className={ps.welcomeSubtitle}>{headline}</p>
+          <p className={ps.scope}><span>Todas las tiendas · {plural(summary.clients, "cliente", "clientes")}{overview.data ? ` · ${plural(overview.data.stores, "tienda", "tiendas")}` : ""}</span><span>Últimos 30 días</span><span>Actualizado {ago(wb.generated_at)}</span></p>
         </div>
-
-        {/* Tablero de triaje: los mismos tramos que /consultor y el overview. */}
-        <div className={s.board}>
-          {TIERS.map((tier) => {
-            const list = wb.portfolio.filter((row) => row.status === tier.key);
-            const shown = expanded[tier.key] ? list : list.slice(0, 5);
-            return (
-              <div key={tier.key} className={cx(s.col, tier.cls)}>
-                <p className={s.colH}>
-                  <i aria-hidden="true" />
-                  {tier.label}
-                  <b>{list.length}</b>
-                </p>
-                {list.length === 0 ? <p className={s.colEmpty}>Nadie aquí.</p> : null}
-                {shown.map((row) => {
-                  const unread = unreadBy.get(row.organization_id) ?? 0;
-                  const storeCount = storesBy.get(row.organization_id);
-                  const otherAlerts = row.open_alerts - row.critical_alerts;
-                  return (
-                    <button key={row.organization_id} type="button" className={s.card} aria-label={`Abrir ${row.organization_name}, estado ${tier.label}`} onClick={() => onSelectClient(row.organization_id)}>
-                      <span className={s.cardT}>
-                        {row.organization_name}
-                        {storeCount ? <small>{plural(storeCount, "tienda", "tiendas")}</small> : null}
-                      </span>
-                      <span className={s.cardR}>
-                        {row.next_action?.title ?? row.data_issues[0] ?? row.next_event?.label ?? "Sin nada pendiente"}
-                      </span>
-                      <span className={s.cardB}>
-                        {row.critical_alerts ? <span className={s.b}>{plural(row.critical_alerts, "crítica", "críticas")}</span> : null}
-                        {otherAlerts > 0 ? <span>{plural(otherAlerts, "alerta", "alertas")}</span> : null}
-                        {unread ? <span className={s.a}>{unread} sin leer</span> : null}
-                        {row.data_issues.length ? <span className={s.w}>datos</span> : null}
-                      </span>
-                    </button>
-                  );
-                })}
-                {list.length > shown.length ? (
-                  <button type="button" className={s.more} onClick={() => setExpanded((e) => ({ ...e, [tier.key]: true }))}>
-                    y {list.length - shown.length} más
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
+        <div className={ps.headerActions}>
+          <button type="button" className={buttonVariants()} onClick={() => ask({question: "¿Qué cliente de mi cartera necesita más mi atención hoy y qué haría primero con él?", focusLabel: "Tu cartera"})}><SparklesIcon data-icon="inline-start" aria-hidden="true" />Priorizar con IA</button>
+          <button type="button" className={buttonVariants({ variant: "secondary" })} disabled={workbench.isLoading} aria-busy={workbench.isLoading} onClick={() => {workbench.reload();overview.reload();orders.reload();meta.reload();klaviyo.reload();threads.reload();}}>{workbench.isLoading ? "Actualizando…" : "Actualizar"}</button>
         </div>
-      </section>
+      </header>
+      {downSources.length ? <Banner tone="warn" title={`No se ha podido leer ${downSources.join(", ")}`}>El resto de la mesa está al día; lo de esas fuentes puede faltar.</Banner> : null}
+      <div className={ps.workload} role="group" aria-label="Prioridades de tu cartera">
+        <button type="button" data-status={urgentActions ? "urgente" : undefined} onClick={() => jump("urgente")}><b>{fmtNum(urgentActions)}</b><span>Asuntos urgentes</span></button>
+        <button type="button" data-status={decisions ? "revisar" : undefined} onClick={() => jump("decision")}><b>{fmtNum(decisions)}</b><span>Esperan tu decisión</span></button>
+        <button type="button" data-status={summary.unread_threads ? "vigilar" : undefined} onClick={() => document.getElementById("mesa-chats")?.scrollIntoView({behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start"})}><b>{fmtNum(summary.unread_threads)}</b><span>Chats sin leer</span></button>
+        <button type="button" data-status={summary.data_issues ? "revisar" : undefined} onClick={() => jump("datos")}><b>{fmtNum(summary.data_issues)}</b><span>Incidencias de datos</span></button>
+      </div>
 
       {/* ------------------------------ KPIs ------------------------------ */}
       {business ? (
-        <div className={p.kpis} aria-label="Cifras de la cartera, últimos 30 días">
+        <div className={ps.kpis} aria-label="Cifras de la cartera, últimos 30 días">
           <Kpi
+            metric="sales"
+            numericValue={business.net_sales}
+            previousNumericValue={business.prev_net_sales}
             open={openKpi === "sales"}
             onOpen={toggleKpi("sales")}
             label="Ventas netas"
-            value={sourceMoney(business.net_sales, business.shopify_currency_code)}
+            value={salesValue}
             delta={<Delta change={business.net_sales != null && business.prev_net_sales != null ? salesChangePct(business.net_sales, business.prev_net_sales) : null} />}
-            vs={sourceMoney(business.prev_net_sales, business.shopify_currency_code)}
-            slot={<p className={p.trackTxt}>Todas las tiendas, 30 días</p>}
+            vs={business.prev_net_sales != null ? sourceMoney(business.prev_net_sales, business.shopify_currency_code) : null}
+            slot={<p className={p.trackTxt}>{currencyNote ?? "Todas las tiendas, 30 días"}</p>}
           />
           <Kpi
+            metric="orders"
             open={openKpi === "orders"}
             onOpen={toggleKpi("orders")}
             label="Pedidos"
@@ -856,10 +767,12 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>Pedidos de Shopify</p>}
           />
           <Kpi
+            metric="aov"
+            numericValue={business.orders && business.net_sales != null ? business.net_sales / business.orders : null}
             open={openKpi === "aov"}
             onOpen={toggleKpi("aov")}
             label="Ticket medio"
-            value={business.orders && business.net_sales != null ? sourceMoney(business.net_sales / business.orders, business.shopify_currency_code) : "—"}
+            value={aovValue}
             delta={
               <Delta
                 change={
@@ -872,6 +785,9 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>Media de la cartera</p>}
           />
           <Kpi
+            metric="spend"
+            numericValue={business.meta_spend}
+            previousNumericValue={business.prev_meta_spend}
             open={openKpi === "spend"}
             onOpen={toggleKpi("spend")}
             label="Inversión Meta"
@@ -880,6 +796,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>Suma de todas las cuentas</p>}
           />
           <Kpi
+            metric="roas"
+            numericValue={business.roas}
             open={openKpi === "roas"}
             onOpen={toggleKpi("roas")}
             label="ROAS Meta"
@@ -887,22 +805,21 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
             slot={<p className={p.trackTxt}>{sourceMoney(business.meta_purchase_value, business.meta_currency_code)} atribuidos por Meta</p>}
           />
           <Kpi
-            label="Cartera"
-            value={plural(overview.data?.clients ?? summary.clients, "cliente", "clientes")}
-            slot={
-              <p className={p.trackTxt}>
-                {plural(overview.data?.stores ?? 0, "tienda", "tiendas")}
-                {withoutStore ? ` · ${withoutStore} sin tienda` : ""}
-              </p>
-            }
+            metric="coverage"
+            label="Tiendas con datos"
+            value={!orders.data ? orders.isLoading ? "—" : "No disponible" : overview.data ? `${stores.length}/${overview.data.stores}` : fmtNum(stores.length)}
+            slot={<p className={p.trackTxt}>{orders.isLoading && !orders.data ? "Cargando datos de pedidos" : "Con datos de pedidos del periodo"}</p>}
           />
         </div>
       ) : null}
 
       {portfolioDetail ? (
         <KpiDetail
+          key={openKpi}
+          metric={openKpi ?? undefined}
+          closing={closingKpi}
           {...portfolioDetail}
-          onClose={() => setOpenKpi(null)}
+          onClose={closeKpi}
           onAsk={() =>
             ask({
               question: `¿Cómo va la cifra «${portfolioDetail.title}» en mi cartera estos 30 días? ¿Qué clientes destacan, para bien o para mal, y qué haría con ellos?`,
@@ -912,23 +829,21 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
         />
       ) : null}
 
+      {!business && overview.error ? <Banner tone="warn" action={<button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => overview.reload()}>Reintentar</button>}>No se ha podido cargar el resumen del negocio.</Banner> : null}
+      <PortfolioClients rows={wb.portfolio} storesBy={storesBy} unreadBy={unreadBy} onSelect={onSelectClient} />
+
       {/* ------------------------------ Hoy ------------------------------ */}
       <section className={p.sec} aria-labelledby="mesa-hoy">
         <SectionHead
           id="mesa-hoy"
           title="Hoy"
           ai={null}
-          fallback={
-            wb.actions.length
-              ? "Cada fila dice qué hacer, por qué ahora y con qué evidencia; el botón abre el módulo con el cliente ya elegido."
-              : null
-          }
           onAsk={() => ask({ question: "Ordena mi bandeja de hoy: ¿qué haría primero y qué puede esperar?", focusLabel: "Bandeja de hoy" })}
         />
-        <div className={p.two}>
+        <div className={ps.activityColumns}>
           <Inbox actions={wb.actions} filter={filter} onFilter={setFilter} onClient={onSelectClient} />
           <div className={s.stackCol}>
-            <div className={p.panel} id="mesa-chats">
+            <div className={cx(p.panel, ps.sidePanel)} id="mesa-chats">
               <div className={p.panelH}>
                 <div>
                   <h3>Conversaciones</h3>
@@ -936,7 +851,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                     {summary.unread_threads ? `${plural(summary.unread_threads, "chat", "chats")} sin leer` : "Todo leído"}
                   </p>
                 </div>
-                <Link className={cx(p.btn, p.ghost, p.sm)} href="/mensajes">
+                <Link className={buttonVariants({ variant: "secondary", size: "sm" })} href="/mensajes">
                   Abrir chats
                 </Link>
               </div>
@@ -953,8 +868,8 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                       ? thread.last_message.body || (thread.last_message.has_attachments ? "Adjunto" : "")
                       : "Sin mensajes";
                     return (
-                      <button key={thread.organization_id} type="button" className={s.thr} onClick={() => onSelectClient(thread.organization_id)}>
-                        <span className={cx(s.av, thread.unread_count > 0 && s.avHot)} aria-hidden="true">
+                      <Link key={thread.organization_id} className={s.thr} href={`/mensajes?organizationId=${encodeURIComponent(thread.organization_id)}`}>
+                        <span className={cx(s.av, ps.messageAvatar, thread.unread_count > 0 && s.avHot)} aria-hidden="true">
                           {initials(who)}
                         </span>
                         <span style={{ minWidth: 0 }}>
@@ -971,7 +886,7 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
                           {thread.last_message ? <span className={s.time}>{dayLabel(thread.last_message.created_at)}</span> : null}
                           {thread.unread_count ? <span className={s.unread}>{thread.unread_count}</span> : null}
                         </span>
-                      </button>
+                      </Link>
                     );
                   })}
                 </div>
@@ -982,189 +897,23 @@ export function ConsultantPortfolio({ userName, onSelectClient }: {
         </div>
       </section>
 
-      {/* ------------------------------ Canales ------------------------------ */}
       <section className={p.sec} aria-labelledby="mesa-canales">
-        <SectionHead
-          id="mesa-canales"
-          title="Canales por cliente"
-          ai={null}
-          fallback="ROAS frente al equilibrio de cada cliente, no frente a una media. Lo atribuido por Meta y por Klaviyo va por separado: no se suma."
-          onAsk={() =>
-            ask({
-              question: "Compara los canales de mis clientes: ¿quién está por debajo de su ROAS de equilibrio o depende demasiado de Meta?",
-              focusLabel: "Canales por cliente",
-            })
-          }
-        />
-        <div className={p.panel}>
-          {matrix.length === 0 ? (
-            <Empty>No tienes clientes asignados todavía.</Empty>
-          ) : (
-            <div className={s.matrix} role="region" aria-label="Canales por cliente; desliza para ver todas las columnas" tabIndex={0}>
-              <table aria-label="Resultados y alertas por cliente">
-                <thead>
-                  <tr>
-                    {th("name", "Cliente")}
-                    {th("sales", "Ventas 30 d")}
-                    {th("orders", "Pedidos")}
-                    {th("roas", "ROAS vs equilibrio")}
-                    {th("cac", "CPA Meta")}
-                    {th("dep", "Dependencia Meta")}
-                    {th("email", "Campañas email")}
-                    {th("emailRev", "Atribuido Klaviyo")}
-                    {th("alerts", "Alertas")}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedMatrix.map((row) => {
-                    const scale = Math.max(row.roas ?? 0, row.breakEven ?? 0) * 1.25 || 1;
-                    const below = row.roas !== null && row.breakEven !== null && row.roas < row.breakEven;
-                    return (
-                      <tr key={row.id} className={tierOf(row.tier)?.cls} onClick={() => onSelectClient(row.id)}>
-                        <td>
-                          <button
-                            type="button"
-                            className={s.cl}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onSelectClient(row.id);
-                            }}
-                            style={{ border: 0, background: "transparent", padding: 0, color: "inherit", cursor: "pointer", font: "inherit", fontWeight: 600 }}
-                          >
-                            <i aria-hidden="true" />
-                            {row.name}
-                            <span className={p.chip}>{tierOf(row.tier)?.label ?? "Sin estado"}</span>
-                          </button>
-                        </td>
-                        <td className={s.n}>{sourceMoney(row.sales, row.salesCurrencyCode)}</td>
-                        <td className={s.n}>{row.orders !== null ? fmtNum(row.orders) : "—"}</td>
-                        <td className={s.n}>
-                          {row.roas !== null ? (
-                            <>
-                              <span className={s.rb} aria-hidden="true">
-                                <i style={{ width: `${Math.min(100, (row.roas / scale) * 100)}%` }} />
-                                {row.breakEven !== null ? <b style={{ left: `${(row.breakEven / scale) * 100}%` }} /> : null}
-                              </span>
-                              <span className={below ? s.bad : undefined}>{fmtNum(row.roas, 2)}×</span>
-                              {row.breakEven !== null ? <span className={p.muted}> / {fmtNum(row.breakEven, 2)}×</span> : null}
-                            </>
-                          ) : (
-                            <span className={p.muted}>sin Meta</span>
-                          )}
-                        </td>
-                        <td className={s.n}>
-                          {sourceMoney(row.cac, row.cacCurrencyCode)}{" "}
-                          {row.cacDelta !== null && Math.abs(row.cacDelta) >= 0.5 ? (
-                            <span className={row.cacDelta > 0 ? s.bad : s.good}>
-                              {row.cacDelta > 0 ? "▲" : "▼"} {fmtNum(Math.abs(row.cacDelta), Math.abs(row.cacDelta) < 10 ? 1 : 0)} %
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className={s.n}>
-                          {row.dep !== null ? (
-                            <>
-                              <span className={s.dep} aria-hidden="true">
-                                <i style={{ width: `${Math.min(100, row.dep)}%` }} />
-                              </span>
-                              {fmtNum(row.dep)} %
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className={s.n}>
-                          {row.sent !== null ? (
-                            <>
-                              {fmtNum(row.sent)}
-                              {row.lastSend ? <span className={p.muted}> · último {dayLabel(row.lastSend)}</span> : null}
-                            </>
-                          ) : (
-                            <span className={p.muted}>sin Klaviyo</span>
-                          )}
-                        </td>
-                        <td className={s.n}>{sourceMoney(row.emailRev, row.emailRevCurrencyCode)}</td>
-                        <td className={s.n}>{row.alerts ? fmtNum(row.alerts) : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <SectionHead id="mesa-canales" title="Resultados por canal" ai={null} onAsk={() => ask({question: "Compara los canales de mis clientes: ¿quién está por debajo de su ROAS de equilibrio o depende demasiado de Meta?", focusLabel: "Canales por cliente"})} />
+        <PortfolioChannels rows={sortedMatrix} sort={sort} onSort={setSort} onSelect={onSelectClient} unavailable={[
+          ...(orders.error && !orders.data ? [{label: "Shopify", retry: orders.reload}] : []),
+          ...(meta.error && !meta.data ? [{label: "Meta", retry: meta.reload}] : []),
+          ...(klaviyo.error && !klaviyo.data ? [{label: "Klaviyo", retry: klaviyo.reload}] : []),
+        ]} />
       </section>
 
-      {/* ------------------------------ Tiendas ------------------------------ */}
       <section className={p.sec} aria-labelledby="mesa-tiendas">
-        <SectionHead
-          id="mesa-tiendas"
-          title="Tiendas"
-          ai={null}
-          fallback="Por tienda, no por cliente: una tienda parada no se esconde en el total de su cliente."
-          onAsk={() => ask({ question: "¿Qué tiendas de mi cartera han bajado pedidos este mes y por qué?", focusLabel: "Tiendas" })}
-        />
-        <div className={p.two}>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>Pedidos por tienda</h3>
-                <p className={p.sub}>Últimos 30 días</p>
-              </div>
-            </div>
-            {orders.error && !orders.data ? (
-              <p className={p.error}>No se pudieron cargar los pedidos.</p>
-            ) : stores.length === 0 ? (
-              <Empty>{orders.isLoading ? "Cargando pedidos…" : "Sin pedidos en los últimos 30 días."}</Empty>
-            ) : (
-              <div className={s.bars}>
-                {stores.slice(0, 12).map((store) => (
-                  <button
-                    key={store.store_id}
-                    type="button"
-                    className={s.barR}
-                    onClick={() => onSelectClient(store.organization_id)}
-                    style={{ border: 0, background: "transparent", padding: 0, color: "inherit", textAlign: "left", cursor: "pointer" }}
-                  >
-                    <span>
-                      <b>{store.shop_name}</b> <span className={p.muted}>· {store.organization_name}</span>
-                    </span>
-                    <span className={s.n}>
-                      {fmtNum(store.orders_count)} ped · {sourceMoney(store.net_sales, store.currency_code)} · ticket {sourceMoney(store.aov, store.currency_code)}
-                    </span>
-                    <span className={s.barT} aria-hidden="true">
-                      <i style={{ width: `${(store.orders_count / maxStoreOrders) * 100}%` }} />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className={p.panel}>
-            <div className={p.panelH}>
-              <div>
-                <h3>Tu cartera</h3>
-                <p className={p.sub}>Planes de tus clientes</p>
-              </div>
-            </div>
-            {planMix.length === 0 ? (
-              <Empty>Sin datos de planes.</Empty>
-            ) : (
-              <div>
-                {planMix.map(([plan, count]) => (
-                  <div key={plan} className={s.chanR}>
-                    <span>{plan}</span>
-                    <b>{plural(count, "cliente", "clientes")}</b>
-                  </div>
-                ))}
-                {withoutStore ? (
-                  <div className={s.chanR}>
-                    <span>Sin tienda conectada</span>
-                    <b>{plural(withoutStore, "cliente", "clientes")}</b>
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </div>
+        <SectionHead id="mesa-tiendas" title="Actividad y calidad del dato" ai={null} onAsk={() => ask({question: "¿Qué tiendas de mi cartera han bajado pedidos este mes y por qué?", focusLabel: "Tiendas"})} />
+        <div className={ps.storesColumns}>
+          <PortfolioStores stores={stores} totalStores={overview.data?.stores ?? null} onSelect={onSelectClient} loading={orders.isLoading} error={Boolean(orders.error && !orders.data)} onRetry={orders.reload} />
+          <aside className={ps.quality} aria-labelledby="mesa-calidad">
+            <h3 id="mesa-calidad">Calidad de los datos</h3><p>Lo que conviene resolver antes de tomar decisiones.</p>
+            {dataIssueRows.length ? <ul>{dataIssueRows.map(row => <li key={row.organization_id}><strong>{row.organization_name}</strong><p>{row.data_issues.join(" · ")}</p><button type="button" className={buttonVariants({ variant: "ghost", size: "sm" })} onClick={() => onSelectClient(row.organization_id)}>Revisar cliente</button></li>)}</ul> : <div className={ps.empty}>Sin incidencias detectadas en las fuentes disponibles.</div>}
+          </aside>
         </div>
       </section>
     </div>
@@ -1189,10 +938,10 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
 }) {
   const base = `/v1/organizations/${organizationId}`;
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
-  const workbench = useCachedQuery<DailyWorkbench>(`/v1/consultant/daily-workbench?days=30&organizationId=${encodeURIComponent(organizationId)}`);
+  const workbench = useCachedQuery<DailyWorkbench>(`/v1/consultant/daily-workbench?days=30&organizationId=${encodeURIComponent(organizationId)}${scope}`);
   // Mismas claves que ClientPulse: comparten caché, no se piden dos veces.
   const metrics = useCachedQuery<Metrics>(`${base}/shopify/metrics?days=30${scope}`);
-  const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30`);
+  const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30${scope}`);
   // Mismas claves que ClientPulse para A02 y A06: la lectura del detalle no cuesta otra llamada.
   const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=overview${scope}`);
   const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
@@ -1250,18 +999,11 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
   }
 
   // Lectura de un agente sobre una cifra: hallazgo de A02 o de A06 (stock).
+  // Con patrón, el hallazgo del agente sobre esa cifra; sin patrón, su lectura entera.
   const agentLine = (tag: string, diagnostic: Diagnostic | undefined, pattern: RegExp | null) => {
+    if (!pattern && diagnostic) return <DiagnosticReading tag={tag} diagnostic={diagnostic} audience="consultor" maxFindings={3} />;
     const finding = pattern ? findingFor(diagnostic, pattern) : null;
-    const text = finding ? clientReadable(finding.title) ?? finding.title : clientReadable(diagnostic?.output.headline ?? diagnostic?.output.answer);
-    if (!text) return <p className={p.aiLine}>La IA no ha señalado nada sobre esta cifra en su último análisis.</p>;
-    const evidence = finding?.evidence ? clientReadable(evidenceText(finding.evidence)) : null;
-    return (
-      <p className={p.aiLine}>
-        <span className={p.ia}>{tag}</span>
-        {text}
-        {evidence ? <span className={p.muted}> · {evidence}</span> : null}
-      </p>
-    );
+    return <FindingReading tag={tag} finding={finding} steps={findingSteps(diagnostic, finding)} audience="consultor" />;
   };
   const route = (href: string) => withPortalRouteContext(href, organizationId, connectionId);
   const roasAnalysis = verdictOf("meta_roas");
@@ -1289,6 +1031,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
       title: "ROAS Meta",
       chart: (
         <KpiBars
+          label="ROAS por campaña"
           rows={(meta.data?.campaigns ?? [])
             .map((c) => ({ c, roas: c.roas == null ? null : Number(c.roas), spend: Number(c.spend ?? 0) }))
             .filter((row) => row.spend > 0)
@@ -1306,7 +1049,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
         />
       ),
       ai: roasAnalysis && roasAnalysis.verdict !== "insufficient"
-        ? <AiExplanation path={roasAnalysis.explain_path} />
+        ? <A29Reading analysis={roasAnalysis} tag="A29" audience="consultor" fallback={agentLine("A02", monitor.data, /roas|meta|anunc|campa/i)} />
         : agentLine("A02", monitor.data, /roas|meta|anunc|campa/i),
       href: route(hasMeta ? "/meta" : "/integraciones/meta"),
       action: hasMeta ? "Ver campañas en Meta" : "Conectar Meta",
@@ -1327,6 +1070,10 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
   const extraKpis = (open: string | null, toggle: (key: string) => () => void) => data ? (
     <>
       <Kpi
+        metric="aov"
+        aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Ticket medio" metricKey="average_order_value" pattern={/ticket|aov|pedido medio|cesta/i} audience="consultor" />}
+        numericValue={data.sales.aov}
+        previousNumericValue={previous?.sales.aov}
         open={open === "aov"}
         onOpen={toggle("aov")}
         label="Ticket medio"
@@ -1336,6 +1083,9 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
         slot={<p className={p.trackTxt}>Por pedido</p>}
       />
       <Kpi
+        metric="roas"
+        aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="ROAS Meta" metricKey="meta_roas" pattern={/roas|meta|anunc|campa/i} audience="consultor" />}
+        numericValue={hasMeta ? acquisition?.roas : null}
         open={open === "roas"}
         onOpen={toggle("roas")}
         label="ROAS Meta"
@@ -1348,6 +1098,8 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
         }
       />
       <Kpi
+        metric="stock"
+        aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Stock" metricKey="stock_risk" pattern={/stock|inventario|agotad|rotura/i} audience="consultor" />}
         open={open === "stock"}
         onOpen={toggle("stock")}
         label="Stock"
@@ -1360,7 +1112,8 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
 
   const seguimiento = (
       <section className={p.pBlock} aria-labelledby="desk-seguimiento">
-        <h2 id="desk-seguimiento" className={p.pBlockT}>Seguimiento</h2>
+        <h2 id="desk-seguimiento" className={p.pBlockT}>Seguimiento del cliente</h2>
+        <p className="mb-2 text-xs text-muted">Relación y revisión de {organizationName}, incluidas todas sus tiendas.</p>
         <ul className={p.pList}>
           {tier ? (
             <li className={tier.cls}>
@@ -1407,12 +1160,12 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
             </Link>
           </li>
           <li>
-            <Link className={cx(p.pRow, "hover-sweep")} href="/camino">
+            <Link className={cx(p.pRow, "hover-sweep")} href={route("/camino")}>
               <span className={cx(p.dot, p.dotMuted)} aria-hidden="true" />
               <span className={p.pRowT}>
-                {camino ? `Camino · ${camino.phase_name}` : "Camino"}
+                {camino ? `Camino · ${camino.store_name ?? "tienda"} · ${camino.phase_name}` : "Camino de la tienda"}
                 <small>
-                  {camino?.next_milestone ? `Siguiente: ${camino.next_milestone.name}` : camino ? "Sin hito siguiente" : "Sin plan estratégico"}
+                  {camino?.next_milestone ? `Siguiente: ${camino.next_milestone.name}` : camino ? "Sin hito siguiente" : client?.camino_notice ?? "Sin plan estratégico"}
                 </small>
               </span>
               <span className={p.pRowV}>{camino ? `${camino.milestones_done}/${camino.milestones_total}` : "—"}</span>
@@ -1430,15 +1183,15 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
               onChange={(event) => setReviewNote(event.target.value)}
               placeholder="Qué has mirado o dejado pendiente (opcional)"
             />
-            <button type="submit" className={cx(p.btn, p.sm)} disabled={savingReview}>
+            <button type="submit" className={buttonVariants({ size: "sm" })} disabled={savingReview}>
               {savingReview ? "Guardando…" : "Confirmar"}
             </button>
-            <button type="button" className={cx(p.btn, p.ghost, p.sm)} onClick={() => setReviewing(false)}>
+            <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => setReviewing(false)}>
               Cancelar
             </button>
           </form>
         ) : (
-          <button type="button" className={cx(p.btn, p.sm)} onClick={() => setReviewing(true)}>
+          <button type="button" className={buttonVariants({ size: "sm" })} onClick={() => setReviewing(true)}>
             Marcar como revisado
           </button>
         )}

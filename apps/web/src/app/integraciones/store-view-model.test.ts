@@ -376,6 +376,21 @@ test("un codigo interno se traduce; una frase escrita se respeta", () => {
   assert.equal(explainError("   "), null);
 });
 
+test("la falta de métrica requiere elegirla y no promete un reintento que lo arregle", () => {
+  const raw = "klaviyo_recursos_no_traidos:conversion_metric";
+  const c = connection({ id: "metric-missing", status: "error", last_error_message: raw, health: { status: "error", reason: "connection_error", lastSyncAt: null } });
+  const explanation = explainHealth(c.health, c, "klaviyo");
+  assert.equal(explanation.fix, "configure");
+  assert.equal(explanation.automaticRetry, undefined);
+  assert.match(explainError(raw)!.text, /métrica de compra/);
+});
+
+test("los reintentos muestran la frecuencia actual de Meta y Klaviyo", () => {
+  const c = connection({ id: "temporary", status: "error", last_error_message: "timeout", health: { status: "error", reason: "connection_error", lastSyncAt: null } });
+  assert.match(explainHealth(c.health, c, "meta_ads").detail!, /10 minutos/);
+  assert.match(explainHealth(c.health, c, "klaviyo").detail!, /15 minutos/);
+});
+
 test("un codigo desconocido no se le ensena a nadie en crudo", () => {
   const explained = explainError("klaviyo_weird_new_code")!;
   assert.doesNotMatch(explained.text, /klaviyo_weird_new_code/);

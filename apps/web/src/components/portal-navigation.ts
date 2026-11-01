@@ -10,7 +10,7 @@ import {
   GearIcon,
   UsersIcon,
   WalletIcon,
-} from "@/components/ui";
+} from "./ui/icons";
 
 export type PortalRole = "client" | "consultant" | "platform_admin";
 
@@ -112,6 +112,7 @@ function settingsItems(role: PortalRole, context: SettingsNavContext): PortalNav
             },
             { href: section("rentabilidad"), label: "Costes y márgenes", group: store },
             { href: section("objetivos"), label: "Objetivos", group: store },
+            { href: section("negocio"), label: "Contexto del negocio", group: store },
             { href: section("alertas"), label: "Alertas", group: store },
             { href: section("copiloto"), label: "Copiloto IA", group: store },
             ...(context.activeIsOwnStore
@@ -135,6 +136,7 @@ function settingsItems(role: PortalRole, context: SettingsNavContext): PortalNav
           { href: "/integraciones", label: "Integraciones", group: "Tu tienda", matchPrefixes: INTEGRATION_SUBPATHS },
           { href: section("rentabilidad"), label: "Costes y márgenes", group: "Tu tienda" },
           { href: section("objetivos"), label: "Objetivos", group: "Tu tienda" },
+          { href: section("negocio"), label: "Mi negocio", group: "Tu tienda" },
           { href: section("alertas"), label: "Alertas", group: "Tu tienda" },
           ...(context.canManageClientAccess
             ? [{ href: section("equipo"), label: "Personas y roles", group: "Equipo" }]
@@ -167,7 +169,7 @@ function sharedModules(
         ? "Prioridades y lectura ejecutiva"
         : "Estado de tu tienda y siguientes pasos",
       icon: HomeIcon,
-      matchPrefixes: ["/dashboard", "/panel", "/informes"],
+      matchPrefixes: ["/dashboard", "/panel"],
       items: [
         ...dashboardItems,
         ...(consultant
@@ -185,26 +187,24 @@ function sharedModules(
       matchPrefixes: [
         "/camino",
         "/planificacion",
-        "/contexto",
         "/tareas",
+        "/reuniones",
         "/mi-trabajo",
       ],
       items: consultant
         ? [
             { href: "/camino", label: "Camino" },
-            { href: "/contexto", label: "Contexto" },
-            { href: "/planificacion", label: "Resumen" },
-            { href: "/planificacion/calendario", label: "Agenda" },
-            { href: "/planificacion/recomendaciones", label: "Recomendaciones IA" },
+            { href: "/planificacion/calendario", label: "Agenda", defaultForPath: true },
             { href: "/planificacion/tracking", label: "Tracking" },
             { href: "/tareas", label: "Tareas" },
+            { href: "/reuniones", label: "Reuniones" },
             { href: "/mi-trabajo", label: "Mi trabajo" },
           ]
         : [
             { href: "/camino", label: "Mi camino" },
-            { href: "/contexto", label: "Mi negocio" },
-            { href: "/planificacion/calendario", label: "Agenda" },
+            { href: "/planificacion/calendario", label: "Agenda", defaultForPath: true },
             { href: "/tareas", label: "Tareas" },
+            { href: "/reuniones", label: "Reuniones" },
           ],
     },
     {
@@ -238,7 +238,7 @@ function sharedModules(
       items: [
         { href: "/shopify", label: "Resumen" },
         { href: "/shopify/productos", label: "Productos", matchPrefixes: ["/shopify/productos/"] },
-        { href: "/shopify/inventario", label: "Inventario" },
+        { href: "/shopify/inventario", label: "Inventario", matchPrefixes: ["/shopify/inventario/"] },
         { href: "/shopify/promociones", label: "Promociones", matchPrefixes: ["/shopify/promociones/"] },
       ],
     },
@@ -251,6 +251,7 @@ function sharedModules(
       items: [
         { href: "/meta", label: "Resumen" },
         { href: "/meta/campanas", label: "Campañas", matchPrefixes: ["/meta/campanas/"] },
+        { href: "/meta/creativos", label: "Creatividades", matchPrefixes: ["/meta/creativos/"] },
       ],
     },
     {
@@ -261,7 +262,12 @@ function sharedModules(
       matchPrefixes: ["/klaviyo"],
       items: [
         { href: "/klaviyo", label: "Resumen" },
+        { href: "/klaviyo/campanas", label: "Campañas" },
+        { href: "/klaviyo/flows", label: "Flows" },
         { href: "/klaviyo/emails", label: "Emails", matchPrefixes: ["/klaviyo/emails/"] },
+        { href: "/klaviyo/plantillas", label: "Plantillas" },
+        { href: "/klaviyo/audiencias", label: "Audiencias" },
+        { href: "/klaviyo/formularios", label: "Formularios" },
       ],
     },
     {
@@ -389,7 +395,8 @@ export function getPortalNavigation(
 }
 
 function pathMatches(pathname: string, prefix: string) {
-  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  const base = prefix.replace(/\/+$/, "");
+  return pathname === base || pathname.startsWith(`${base}/`);
 }
 
 export function isPortalNavItemActive(

@@ -65,6 +65,7 @@ export function resolveKlaviyoOAuthEnv(
     KLAVIYO_SCOPES: [...new Set([
       ...parseKlaviyoScopes(env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES),
       "events:read",
+      ...(env.KLAVIYO_SYSTEM_WEBHOOKS_ENABLED === "true" ? ["webhooks:read", "webhooks:write"] : []),
     ])].join(" "),
   };
 }

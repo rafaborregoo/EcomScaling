@@ -1,6 +1,8 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
+import Link from "next/link";
 import {
   buildClientHeadline,
   overCacTarget,
@@ -15,7 +17,6 @@ import { invalidateCachedQueries } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { AsyncState, EmptyState, toast } from "@/components/ui";
 import {
-  AiLine,
   Chip,
   Delta,
   Hero,
@@ -23,6 +24,7 @@ import {
   Kpis,
   MonthlyChart,
   Panel,
+  PanelAiReading,
   ScopeBar,
   Section,
   Spark,
@@ -30,9 +32,13 @@ import {
   TIER_LABEL,
   cx,
 } from "./panel-parts";
-import { useCallNotes, usePanelReading, useProfitability, type PanelNav } from "./panel-data";
+import { createLeverTask, useCallNotes, usePanelReading, useProfitability, type PanelNav } from "./panel-data";
+import { cacMissingText } from "./portfolio-level";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import { ClientActions, ClientThread } from "./client-extras";
 import s from "./panel.module.css";
+import { PortfolioCompare } from "./portfolio-compare";
+import { usePanelSection } from "./panel-navigation";
 
 /**
  * Alcance 2 -- un cliente y todas sus tiendas.
@@ -72,32 +78,38 @@ export function ClientLevel({
   const { nextCall, queued, adding, add: addToCall } = useCallNotes(organizationId);
   const ask = useCopilotAsk();
   const [reviewing, setReviewing] = useState(false);
+  const [creating, setCreating] = useState<string | null>(null);
+  const [storePage, setStorePage] = useState(0);
 
+  const section = usePanelSection();
   const bar = <ScopeBar days={days} onDays={onDays} />;
 
   if (query.isLoading) {
-    return <div className={s.stage}><div className={s.wrap}>{bar}<AsyncState status="loading" loadingLabel="Calculando la rentabilidad del cliente…" /></div></div>;
+    return <>{bar}<AsyncState status="loading" loadingLabel="Calculando la rentabilidad del cliente…" /></>;
   }
   if (query.error && !query.data) {
-    return <div className={s.stage}><div className={s.wrap}>{bar}<AsyncState status="error" error={query.error} /></div></div>;
+    return <>{bar}<AsyncState status="error" error={query.error} /></>;
   }
   const data = query.data;
   const client = data?.clients[0];
   if (!data || !client || data.stores.length === 0) {
     return (
-      <div className={s.stage}>
-        <div className={s.wrap}>
+      <>
+
           {bar}
           <EmptyState
             title={`${organizationName} no tiene tiendas con datos`}
             hint="Conecta Shopify en Integraciones para ver su rentabilidad."
           />
-        </div>
-      </div>
+
+      </>
     );
   }
 
   const stores = data.stores;
+  const storePages = Math.ceil(stores.length / 4);
+  const visiblePage = Math.min(storePage, storePages - 1);
+  const visibleStores = stores.slice(visiblePage * 4, (visiblePage + 1) * 4);
   const currency = client.currency_code;
   const money = (value: number, digits = 0) => panelMoney(value, currency, digits);
   const headline = buildClientHeadline(client, stores, days);
@@ -183,39 +195,36 @@ export function ClientLevel({
   const positiveProfit = stores.reduce((sum, store) => sum + Math.max(0, store.net_profit), 0);
   const share = (store: ProfitStoreRow) => (positiveProfit > 0 ? (Math.max(0, store.net_profit) / positiveProfit) * 100 : 0);
 
-  const aiLine = reading.text ? (
-    <AiLine text={reading.text} generatedAt={reading.generatedAt} stale={reading.stale} />
-  ) : !reading.supported ? (
-    <span className={s.mut}>La lectura IA cubre 30 y 90 días.</span>
-  ) : reading.isLoading ? (
-    <span className={s.mut}>Leyendo la rentabilidad…</span>
-  ) : (
-    <span className={s.mut}>Sin lectura IA de este cliente todavía.</span>
-  );
+  async function makeTask(key: string, title: string, description: string) {
+    setCreating(key);
+    await createLeverTask(organizationId, title, description);
+    setCreating(null);
+  }
+  const callsHref = withPortalRouteContext("/llamadas", organizationId);
 
   return (
-    <div className={s.stage}>
-      <div className={s.wrap}>
+    <>
+
         {bar}
 
-        <Hero
+        {section === "resumen" ? (<>
+<Hero
           id="h-cliente"
           tier={client.tier}
           meta={
             <>
-              <span>Rentabilidad</span>
               <span>Cliente · {total} {total === 1 ? "tienda" : "tiendas"}</span>
               <span className={s.tier}>● {TIER_LABEL[client.tier]}</span>
               <span>Últimos {days === 365 ? "12 meses" : `${days} días`} · sin IVA</span>
             </>
           }
           title={headline.title}
-          lines={[headline.detail, aiLine].filter(Boolean)}
+          lines={[headline.detail].filter(Boolean)}
           actions={
             <>
               <button
                 type="button"
-                className={cx(s.btn, s.acc)}
+                className={buttonVariants()}
                 onClick={() =>
                   ask({
                     question: `Prepárame la llamada con ${name}: qué cifras de rentabilidad llevo, qué tiendas lo explican y qué le propondría.`,
@@ -228,7 +237,7 @@ export function ClientLevel({
               </button>
               <button
                 type="button"
-                className={cx(s.btn, s.ghost)}
+                className={buttonVariants({ variant: "secondary" })}
                 onClick={() =>
                   ask({
                     question: `Escríbeme el guion de la llamada con ${name} en tres bloques: 1) qué le enseño primero (las cifras que mejor se explican), 2) qué le propongo y qué le pido permiso para cambiar, 3) cómo cierro con acuerdos concretos. ${
@@ -243,10 +252,10 @@ export function ClientLevel({
                 <IaTag />
                 Guion de la llamada
               </button>
-              <button type="button" className={cx(s.btn, s.ghost)} onClick={nav.portfolio}>
-                ← Toda la cartera
+              <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={nav.portfolio}>
+                Toda la cartera
               </button>
-              <button type="button" className={cx(s.btn, s.ghost)} disabled={reviewing} onClick={markReviewed}>
+              <button type="button" className={buttonVariants({ variant: "secondary" })} disabled={reviewing} onClick={markReviewed}>
                 {reviewing ? "Guardando…" : "Marcar como revisado"}
               </button>
             </>
@@ -282,20 +291,24 @@ export function ClientLevel({
         />
 
         <Kpis
+          diagnostic={reading.diagnostic}
           label={`Cifras del cliente, últimos ${days} días`}
           items={[
             {
               label: "Ingresos (sin IVA)",
+              metricKey: "net_revenue_ex_tax",
               value: client.revenue === null ? "—" : money(client.revenue),
               foot: <Delta value={client.revenue_change_pct} suffix="vs periodo anterior" />,
             },
             {
               label: "Beneficio neto",
+              metricKey: "net_profit",
               value: client.net_profit === null ? "—" : `${client.tier === "datos" ? "≈ " : ""}${money(client.net_profit)}`,
               foot: <Delta value={profitChange} suffix="vs periodo anterior" />,
             },
             {
               label: "Margen neto",
+              metricKey: "net_margin",
               value: client.margin_pct === null ? "—" : panelPct(client.margin_pct),
               foot:
                 client.margin_target !== null ? (
@@ -308,11 +321,13 @@ export function ClientLevel({
             },
             {
               label: "Pedidos",
+              metricKey: "orders_count",
               value: panelNumber(client.orders),
               foot: <Delta value={ordersChange} suffix="vs periodo anterior" />,
             },
             {
               label: "Ticket medio",
+              metricKey: "average_order_value_ex_tax",
               value: client.revenue !== null && client.orders > 0 ? money(client.revenue / client.orders, 1) : "—",
               foot:
                 aovs.length > 1 ? (
@@ -325,10 +340,11 @@ export function ClientLevel({
             },
             {
               label: "CAC real",
+              metricKey: "cac_blended",
               value: client.cac === null ? "—" : money(client.cac, 1),
               foot:
                 client.cac === null ? (
-                  <span>Sin CAC calculado</span>
+                  <span>{cacMissingText(stores)}</span>
                 ) : client.cac_target !== null ? (
                   <>
                     <Chip tone={client.cac <= client.cac_target ? "good" : "warn"}>objetivo {money(client.cac_target, 1)}</Chip>
@@ -340,14 +356,31 @@ export function ClientLevel({
             },
           ]}
         />
+</>) : null}
 
-        <Section
+        {section === "acciones" ? (
+<Section id="lectura" title="Qué dice A02" lead={`La lectura de A02 sobre la rentabilidad de ${name}, con lo que propone hacer.`}>
+          <div className={s.panel}>
+            <PanelAiReading reading={reading} subject={`la rentabilidad de ${name}`} />
+          </div>
+        </Section>
+) : null}
+
+        {section === "costes" ? (
+<Section
           id="tiendas"
           title="Sus tiendas"
           lead="Abre una tienda para revisar sus cifras. La etiqueta indica si cumple el objetivo, pierde dinero o necesita completar sus datos."
+          action={storePages > 1 ? (
+            <div className={s.ctl} aria-label="Páginas de tiendas">
+              <span className={s.foot} aria-live="polite">Tiendas {visiblePage * 4 + 1}–{Math.min((visiblePage + 1) * 4, stores.length)} de {stores.length}</span>
+              <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={visiblePage === 0} onClick={() => setStorePage(visiblePage - 1)}>Anterior</button>
+              <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={visiblePage === storePages - 1} onClick={() => setStorePage(visiblePage + 1)}>Siguiente</button>
+            </div>
+          ) : undefined}
         >
           <div className={s.three}>
-            {stores.map((store) => {
+            {visibleStores.map((store) => {
               const cur = store.currency_code;
               const estimated = store.tier === "datos";
               return (
@@ -390,7 +423,7 @@ export function ClientLevel({
                       {store.cac === null ? (
                         <>
                           <strong className={s.mut}>—</strong>
-                          <em>sin publicidad</em>
+                          <em>{cacMissingText([store])}</em>
                         </>
                       ) : (
                         <>
@@ -409,8 +442,8 @@ export function ClientLevel({
                     ) : (
                       <Chip>Sin palanca</Chip>
                     )}
-                    <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => nav.store(store.organization_id, store.connection_id)}>
-                      Abrir tienda →
+                    <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => nav.store(store.organization_id, store.connection_id)}>
+                      Abrir tienda
                     </button>
                   </div>
                 </article>
@@ -418,9 +451,10 @@ export function ClientLevel({
             })}
           </div>
         </Section>
+) : null}
 
-        {withOrders.length > 0 ? (
-          <Section
+        {section === "costes" && withOrders.length > 1 ? (
+<Section
             id="pedido"
             title="Qué se queda cada pedido"
             lead="El mismo ticket, tienda a tienda. La longitud de la barra es el ticket medio; la parte verde es lo que queda después de todo."
@@ -470,9 +504,10 @@ export function ClientLevel({
               {gap ? <p className={s.foot} style={{ marginTop: 12 }}>{gap}</p> : null}
             </div>
           </Section>
-        ) : null}
+) : null}
 
-        <Section
+        {section === "acciones" ? (
+<Section
           id="palancas"
           title="Qué llevar a la llamada"
           lead="Cada palanca sale de un objetivo que tú fijaste. Se añade al orden del día y deja de ser un número suelto."
@@ -497,14 +532,23 @@ export function ClientLevel({
                           </div>
                           <div className={s.liR}>
                             <span className={cx(s.big, s.pos)}>+{panelMoney(lever.eur_mes, store.currency_code)}/mes</span>
+                            {nextCall ? (
+                              <button
+                                type="button"
+                                className={buttonVariants({ variant: "secondary", size: "sm" })}
+                                disabled={adding === key}
+                                onClick={() => addToCall(note, key)}
+                              >
+                                {adding === key ? "Añadiendo…" : "Añadir a la llamada"}
+                              </button>
+                            ) : null}
                             <button
                               type="button"
-                              className={cx(s.btn, s.ghost, s.sm)}
-                              disabled={!nextCall || adding === key}
-                              title={nextCall ? undefined : "Agenda una llamada con este cliente para llevar puntos"}
-                              onClick={() => addToCall(note, key)}
+                              className={buttonVariants({ variant: "secondary", size: "sm" })}
+                              disabled={creating === key}
+                              onClick={() => makeTask(key, `${store.shop_name} · ${lever.palanca}`, note)}
                             >
-                              {adding === key ? "Añadiendo…" : "Añadir a la llamada"}
+                              {creating === key ? "Creando…" : "Crear tarea"}
                             </button>
                           </div>
                         </li>
@@ -538,12 +582,18 @@ export function ClientLevel({
                     ))}
                   </ul>
                 )
-              ) : null}
+              ) : (
+                <p className={s.empty}>
+                  Registra la próxima llamada en <Link href={callsHref}>Llamadas</Link> para llevar estos puntos al orden del día.
+                </p>
+              )}
             </Panel>
           </div>
         </Section>
+) : null}
 
-        <Section
+        {section === "acciones" ? (
+<Section
           id="conversacion"
           title="Conversación y acciones"
           lead={`El hilo con ${name} y lo que tienes abierto con este cliente, sin salir de las cifras.`}
@@ -552,21 +602,28 @@ export function ClientLevel({
             <Panel title={`Hilo con ${name}`} sub="El mismo canal que Mensajes: lo que escribes aquí le llega al cliente">
               <ClientThread organizationId={organizationId} name={name} />
             </Panel>
-            <Panel title="Acciones abiertas" sub="Tareas internas de este cliente, incluidas las que creas desde las palancas">
+            <Panel title="Acciones abiertas" sub="Lo más urgente de sus tareas abiertas, incluidas las que creas desde las palancas">
               <ClientActions organizationId={organizationId} />
             </Panel>
           </div>
         </Section>
+) : null}
 
-        <Section id="evolucion" title="Cómo evoluciona" lead="Doce meses del cliente y, debajo, de qué tienda sale el beneficio.">
-          <div className={s.two}>
-            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio">
+        {section === "resumen" ? (
+<Section
+          id="evolucion"
+          title="Cómo evoluciona"
+          lead={stores.length > 1 ? "Doce meses del cliente y, al lado, de qué tienda sale el beneficio." : "Doce meses del cliente."}
+        >
+          <div className={stores.length > 1 ? s.two : undefined}>
+            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · ingresos y beneficio neto en barras separadas">
               {data.monthly.length === 0 ? (
                 <p className={s.empty}>Sin serie mensual.</p>
               ) : (
                 <MonthlyChart months={data.monthly} currency={currency} label={`Ingresos y beneficio mensual de ${name}, doce meses`} />
               )}
             </Panel>
+            {stores.length > 1 ? (
             <Panel
               title="De dónde sale el beneficio"
               sub={client.net_profit === null ? undefined : `Reparto de ${money(client.net_profit)} entre sus tiendas`}
@@ -590,9 +647,12 @@ export function ClientLevel({
                   ))}
               </div>
             </Panel>
+            ) : null}
           </div>
         </Section>
-      </div>
-    </div>
+) : null}
+
+    {section === "captacion" ? <PortfolioCompare data={data} days={days} nav={nav} mode="captacion" /> : null}
+    </>
   );
 }

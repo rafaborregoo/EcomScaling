@@ -34,7 +34,7 @@ function assertCanManage(context: AuthContext, organizationId: string) {
       ok: false as const,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden gestionar costes.",
+      message: "Solo el propietario o un gestor pueden gestionar costes.",
     };
   }
 
@@ -355,7 +355,7 @@ export async function importProductCosts(
       ok: false as const,
       statusCode: 400,
       error: "too_many_rows",
-      message: `Maximo ${MAX_IMPORT_ROWS} lineas por importacion.`,
+      message: `Máximo ${MAX_IMPORT_ROWS} líneas por importación.`,
     };
   }
 
@@ -511,7 +511,7 @@ export async function importProductCosts(
         // Lo ya escrito se queda: no hay transaccion entre llamadas HTTP. Es
         // seguro porque reimportar el mismo listado actualiza en vez de
         // duplicar, asi que volver a lanzarlo termina el trabajo.
-        message: `Se escribieron ${applied} costes antes del fallo. Reimporta el mismo listado para terminar: no se duplicara.`,
+        message: `Se escribieron ${applied} costes antes del fallo. Reimporta el mismo listado para terminar: no se duplicará.`,
       };
     }
 

@@ -1,5 +1,6 @@
 "use client";
 
+
 import {
   useCallback,
   useEffect,
@@ -15,13 +16,19 @@ import { readApiError } from "@/lib/api-error";
 import { getOverlayReviewWarnings } from "../overlay-review";
 import {
   AlignCenterIcon,
+  Attachment,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+  AttachmentTrigger,
   AlignLeftIcon,
   AlignRightIcon,
   Badge,
   Banner,
   Button,
   ButtonLink,
-  Card,
   Checkbox,
   ColorField,
   DownloadIcon,
@@ -42,6 +49,16 @@ import {
   Textarea,
   toast,
   TrashIcon,
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 
 const RENDER_WIDTH = 1080;
@@ -595,7 +612,7 @@ function OverlayEditor() {
           <Heading size="lg">Creativo de {channel === "meta_ads" ? "Meta Ads" : "Instagram"}</Heading>
           {dirty ? <Badge tone="warn">Sin guardar</Badge> : null}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div role="group" aria-label="Acciones de la pieza" className="flex flex-wrap items-center gap-2">
           {slides.length > 1 ? (
             <Button
               type="button"
@@ -756,6 +773,7 @@ function OverlayEditor() {
                   ? `Historias (${slides.length})`
                   : `Slides del carrusel (${slides.length})`}
             </p>
+            <Collapsible open={showPicker} onOpenChange={setShowPicker}>
             <ul className="mt-2 flex flex-wrap gap-2">
               {slides.map((s, index) => {
                 const image = s.image_id ? imagesById.get(s.image_id) : null;
@@ -827,20 +845,16 @@ function OverlayEditor() {
               })}
               {format !== "single" && slides.length < 10 ? (
                 <li>
-                  <button
-                    type="button"
-                    onClick={() => setShowPicker((value) => !value)}
-                    className="flex h-20 w-16 flex-col items-center justify-center border border-dashed border-separator text-xs text-muted hover:border-muted"
-                  >
+                  <CollapsibleTrigger className="h-20 w-16 flex-col justify-center gap-0 border border-dashed border-separator text-xs text-muted hover:border-muted">
                     <PlusIcon aria-hidden />
                     Añadir
-                  </button>
+                  </CollapsibleTrigger>
                 </li>
               ) : null}
             </ul>
 
-            {showPicker ? (
-              <div className="mt-3 border border-separator p-3">
+            <CollapsibleContent className="pt-3">
+              <div className="border border-separator p-3">
                 <p className="mb-2 text-xs text-muted">
                   Elige una imagen analizada del banco:
                 </p>
@@ -852,25 +866,23 @@ function OverlayEditor() {
                   <ul className="grid grid-cols-4 gap-2 sm:grid-cols-6">
                     {analyzed.map((image) => (
                       <li key={image.id}>
-                        <button
-                          type="button"
-                          aria-label={`Añadir ${image.original_filename}`}
-                          onClick={() => addSlide(image.id)}
-                          className="block h-16 w-full overflow-hidden border border-separator hover:border-accent"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={image.public_url}
-                            alt={image.original_filename}
-                            className="h-full w-full object-cover"
-                          />
-                        </button>
+                        <Attachment orientation="vertical" size="xs">
+                          <AttachmentMedia variant="image" className="aspect-square">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={image.public_url} alt="" />
+                          </AttachmentMedia>
+                          <AttachmentContent>
+                            <AttachmentTitle>{image.original_filename}</AttachmentTitle>
+                          </AttachmentContent>
+                          <AttachmentTrigger aria-label={`Añadir ${image.original_filename} como slide`} onClick={() => addSlide(image.id)} />
+                        </Attachment>
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
-            ) : null}
+            </CollapsibleContent>
+            </Collapsible>
           </div>
 
           <p className="text-xs text-muted">
@@ -897,23 +909,22 @@ function OverlayEditor() {
           {exportLinks.length > 0 ? (
             <div>
               <p className={EYEBROW}>Descargar PNG</p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <AttachmentGroup className="mt-2">
                 {exportLinks.map((entry) => (
-                  <ButtonLink
-                    key={entry.index}
-                    href={entry.href}
-                    variant="secondary"
-                    download={entry.filename}
-                  >
-                    <span className="flex items-center gap-1.5">
+                  <Attachment key={entry.index} size="sm" className="w-56">
+                    <AttachmentMedia>
                       <DownloadIcon aria-hidden />
-                      {exportLinks.length > 1
-                        ? `Slide ${entry.index + 1}`
-                        : "Descargar"}
-                    </span>
-                  </ButtonLink>
+                    </AttachmentMedia>
+                    <AttachmentContent>
+                      <AttachmentTitle>{entry.filename}</AttachmentTitle>
+                      <AttachmentDescription>
+                        {exportLinks.length > 1 ? `Slide ${entry.index + 1} · PNG` : "PNG"}
+                      </AttachmentDescription>
+                    </AttachmentContent>
+                    <AttachmentTrigger render={<a href={entry.href} download={entry.filename} aria-label={`Descargar ${entry.filename}`} />} />
+                  </Attachment>
                 ))}
-              </div>
+              </AttachmentGroup>
               {dirty ? (
                 <p className="mt-1 text-xs text-muted">
                   Tienes cambios sin guardar; el PNG usa lo último editado, no lo
@@ -926,72 +937,77 @@ function OverlayEditor() {
 
         {/* Panel */}
         <div className="space-y-5">
-          <Card title="Publicación">
-            <div className="space-y-4">
-              <Field label="Nombre">
-                <Input
-                  className="mt-1"
-                  value={name}
-                  onChange={(event) => {
-                    setName(event.target.value);
-                    setDirty(true);
-                  }}
-                  maxLength={160}
-                />
-              </Field>
-              <Field label="Formato">
-                <Select
-                  aria-label="Formato de publicación"
-                  className="mt-1"
-                  value={format}
-                  onChange={(value) => changeFormat(value as Format)}
-                  options={[
-                    { value: "single", label: "Publicación de 1 imagen" },
-                    { value: "carousel", label: "Carrusel (varias imágenes)" },
-                    { value: "story", label: "Historia (secuencia)" },
-                  ]}
-                />
-              </Field>
-              {format !== "story" ? (
-                <Field label="Proporción">
-                  <Select
-                    aria-label="Proporción"
+          <Card>
+            <CardHeader>
+              <CardTitle>Publicación</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Field label="Nombre">
+                  <Input
                     className="mt-1"
-                    value={ratio}
-                    onChange={(value) => {
-                      setRatio(value as Ratio);
+                    value={name}
+                    onChange={(event) => {
+                      setName(event.target.value);
                       setDirty(true);
                     }}
+                    maxLength={160}
+                  />
+                </Field>
+                <Field label="Formato">
+                  <Select
+                    aria-label="Formato de publicación"
+                    className="mt-1"
+                    value={format}
+                    onChange={(value) => changeFormat(value as Format)}
                     options={[
-                      { value: "4:5", label: "Vertical 4:5 (feed)" },
-                      { value: "1:1", label: "Cuadrado 1:1" },
+                      { value: "single", label: "Publicación de 1 imagen" },
+                      { value: "carousel", label: "Carrusel (varias imágenes)" },
+                      { value: "story", label: "Historia (secuencia)" },
                     ]}
                   />
                 </Field>
-              ) : (
-                <p className="text-xs text-muted">
-                  Las historias son verticales 9:16.
-                </p>
-              )}
-              <Field label={`Brief compartido (${channel === "meta_ads" ? "anuncio Meta Ads" : "Instagram"})`}>
-                <Textarea
-                  className="mt-1 min-h-20"
-                  placeholder="Objetivo, público, tono, mensaje clave, CTA y afirmaciones permitidas"
-                  value={objective}
-                  onChange={(event) => {
-                    setObjective(event.target.value);
-                    setDirty(true);
-                  }}
-                  maxLength={800}
-                />
-              </Field>
-            </div>
+                {format !== "story" ? (
+                  <Field label="Proporción">
+                    <Select
+                      aria-label="Proporción"
+                      className="mt-1"
+                      value={ratio}
+                      onChange={(value) => {
+                        setRatio(value as Ratio);
+                        setDirty(true);
+                      }}
+                      options={[
+                        { value: "4:5", label: "Vertical 4:5 (feed)" },
+                        { value: "1:1", label: "Cuadrado 1:1" },
+                      ]}
+                    />
+                  </Field>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Las historias son verticales 9:16.
+                  </p>
+                )}
+                <Field label={`Brief compartido (${channel === "meta_ads" ? "anuncio Meta Ads" : "Instagram"})`}>
+                  <Textarea
+                    className="mt-1 min-h-20"
+                    placeholder="Objetivo, público, tono, mensaje clave, CTA y afirmaciones permitidas"
+                    value={objective}
+                    onChange={(event) => {
+                      setObjective(event.target.value);
+                      setDirty(true);
+                    }}
+                    maxLength={800}
+                  />
+                </Field>
+              </div>
+            </CardContent>
           </Card>
 
-          <Card
-            title={`Texto del slide ${current + 1}`}
-            actions={
-              <Button
+          <Card>
+            <CardHeader>
+              <CardTitle>{`Texto del slide ${current + 1}`}</CardTitle>
+              <CardAction><Button
                 type="button"
                 size="sm"
                 variant="ghost"
@@ -1002,181 +1018,177 @@ function OverlayEditor() {
                   <PlusIcon aria-hidden />
                   Bloque
                 </span>
-              </Button>
-            }
-          >
-            {blocks.length === 0 ? (
-              <p className="text-sm text-muted">
-                Sin bloques. Añade uno o usa «Borrador de texto (IA)».
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {blocks.map((block, i) => (
-                  <li
-                    key={block.id}
-                    className={`flex items-center gap-1 border pr-1 transition-colors ${
+              </Button></CardAction>
+            </CardHeader>
+            <CardContent>
+              {blocks.length === 0 ? (
+                <EmptyState size="sm" title="Sin bloques" hint="Añade uno o usa «Borrador de texto (IA)»." />
+              ) : (
+                <ul className="space-y-1.5">
+                  {blocks.map((block, i) => (
+                    <li
+                      key={block.id}
+                      className={`flex items-center gap-1 border pr-1 transition-colors ${
                       selectedId === block.id
                         ? "border-accent"
                         : "border-separator hover:border-muted"
                     }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(block.id)}
-                      aria-pressed={selectedId === block.id}
-                      className="line-clamp-1 flex-1 px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
-                      {block.text || "—"}
-                    </button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label="Subir bloque"
-                      title="Subir (se pinta detrás)"
-                      disabled={i === 0}
-                      onClick={() => moveBlock(block.id, -1)}
-                    >
-                      <IconChevronUp aria-hidden />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label="Bajar bloque"
-                      title="Bajar (se pinta encima)"
-                      disabled={i === blocks.length - 1}
-                      onClick={() => moveBlock(block.id, 1)}
-                    >
-                      <IconChevronDown aria-hidden />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label="Quitar bloque"
-                      title="Quitar bloque"
-                      onClick={() => removeBlock(block.id)}
-                    >
-                      <TrashIcon aria-hidden />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(block.id)}
+                        aria-pressed={selectedId === block.id}
+                        className="line-clamp-1 flex-1 px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        {block.text || "—"}
+                      </button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Subir bloque"
+                        title="Subir (se pinta detrás)"
+                        disabled={i === 0}
+                        onClick={() => moveBlock(block.id, -1)}
+                      >
+                        <IconChevronUp aria-hidden />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Bajar bloque"
+                        title="Bajar (se pinta encima)"
+                        disabled={i === blocks.length - 1}
+                        onClick={() => moveBlock(block.id, 1)}
+                      >
+                        <IconChevronDown aria-hidden />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Quitar bloque"
+                        title="Quitar bloque"
+                        onClick={() => removeBlock(block.id)}
+                      >
+                        <TrashIcon aria-hidden />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
           </Card>
 
           {selected ? (
-            <Card title="Bloque seleccionado">
-              <div className="space-y-4">
-                <Field label="Texto">
-                  <Textarea
-                    className="mt-1 min-h-20"
-                    value={selected.text}
-                    onChange={(event) =>
-                      patchBlock(selected.id, { text: event.target.value })
-                    }
-                    maxLength={400}
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Tamaño (px a 1080)">
+            <Card>
+              <CardHeader>
+                <CardTitle>Bloque seleccionado</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <Field label="Texto">
+                    <Textarea
+                      className="mt-1 min-h-20"
+                      value={selected.text}
+                      onChange={(event) =>
+                        patchBlock(selected.id, { text: event.target.value })
+                      }
+                      maxLength={400}
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Tamaño (px a 1080)">
+                      <Input
+                        className="mt-1"
+                        type="number"
+                        min={12}
+                        max={200}
+                        step={2}
+                        value={String(selected.fontSize)}
+                        onChange={(event) =>
+                          patchBlock(selected.id, {
+                            fontSize: Number(event.target.value) || 12,
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Grosor">
+                      <Select
+                        aria-label="Grosor del texto"
+                        className="mt-1"
+                        value={String(selected.weight)}
+                        onChange={(value) =>
+                          patchBlock(selected.id, { weight: Number(value) })
+                        }
+                        options={[
+                          { value: "400", label: "Normal" },
+                          { value: "600", label: "Semibold" },
+                          { value: "800", label: "Black" },
+                        ]}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Ancho de caja (%)">
                     <Input
                       className="mt-1"
                       type="number"
-                      min={12}
-                      max={200}
+                      min={10}
+                      max={100}
                       step={2}
-                      value={String(selected.fontSize)}
+                      value={String(selected.widthPct)}
                       onChange={(event) =>
                         patchBlock(selected.id, {
-                          fontSize: Number(event.target.value) || 12,
+                          widthPct: Number(event.target.value) || 10,
                         })
                       }
                     />
                   </Field>
-                  <Field label="Grosor">
-                    <Select
-                      aria-label="Grosor del texto"
-                      className="mt-1"
-                      value={String(selected.weight)}
-                      onChange={(value) =>
-                        patchBlock(selected.id, { weight: Number(value) })
-                      }
-                      options={[
-                        { value: "400", label: "Normal" },
-                        { value: "600", label: "Semibold" },
-                        { value: "800", label: "Black" },
-                      ]}
-                    />
-                  </Field>
-                </div>
-                <Field label="Ancho de caja (%)">
-                  <Input
-                    className="mt-1"
-                    type="number"
-                    min={10}
-                    max={100}
-                    step={2}
-                    value={String(selected.widthPct)}
-                    onChange={(event) =>
-                      patchBlock(selected.id, {
-                        widthPct: Number(event.target.value) || 10,
-                      })
-                    }
+                  <div>
+                    <p className={EYEBROW}>Alineación</p>
+                    <ToggleGroup aria-label="Alineación" className="mt-1" value={selected.align} onValueChange={(align) => patchBlock(selected.id, { align })}>
+                      {(
+                        [
+                          ["left", AlignLeftIcon, "a la izquierda"],
+                          ["center", AlignCenterIcon, "al centro"],
+                          ["right", AlignRightIcon, "a la derecha"],
+                        ] as const
+                      ).map(([value, Icon, label]) => (
+                        <ToggleGroupItem key={value} value={value} size="icon-sm" aria-label={`Alinear ${label}`}>
+                          <Icon aria-hidden />
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </div>
+                  <ColorField
+                    label="Color del texto"
+                    value={selected.color}
+                    onChange={(hex) => patchBlock(selected.id, { color: hex })}
                   />
-                </Field>
-                <div>
-                  <p className={EYEBROW}>Alineación</p>
-                  <div className="mt-1 flex gap-1">
-                    {(
-                      [
-                        ["left", AlignLeftIcon],
-                        ["center", AlignCenterIcon],
-                        ["right", AlignRightIcon],
-                      ] as const
-                    ).map(([value, Icon]) => (
-                      <Button
-                        key={value}
-                        type="button"
-                        size="sm"
-                        variant={selected.align === value ? "primary" : "ghost"}
-                        aria-label={`Alinear a ${value}`}
-                        aria-pressed={selected.align === value}
-                        onClick={() => patchBlock(selected.id, { align: value })}
-                      >
-                        <Icon aria-hidden />
-                      </Button>
-                    ))}
+                  <div className="space-y-2">
+                    <Checkbox
+                      checked={selected.bgColor !== null}
+                      onCheckedChange={(checked) =>
+                        patchBlock(selected.id, {
+                          bgColor: checked ? "#000000" : null,
+                        })
+                      }
+                    >
+                      Fondo tras el texto (pastilla)
+                    </Checkbox>
+                    {selected.bgColor !== null ? (
+                      <ColorField
+                        label="Color del fondo"
+                        value={selected.bgColor}
+                        onChange={(hex) =>
+                          patchBlock(selected.id, { bgColor: hex })
+                        }
+                      />
+                    ) : null}
                   </div>
                 </div>
-                <ColorField
-                  label="Color del texto"
-                  value={selected.color}
-                  onChange={(hex) => patchBlock(selected.id, { color: hex })}
-                />
-                <div className="space-y-2">
-                  <Checkbox
-                    checked={selected.bgColor !== null}
-                    onChange={(checked) =>
-                      patchBlock(selected.id, {
-                        bgColor: checked ? "#000000" : null,
-                      })
-                    }
-                  >
-                    Fondo tras el texto (pastilla)
-                  </Checkbox>
-                  {selected.bgColor !== null ? (
-                    <ColorField
-                      label="Color del fondo"
-                      value={selected.bgColor}
-                      onChange={(hex) =>
-                        patchBlock(selected.id, { bgColor: hex })
-                      }
-                    />
-                  ) : null}
-                </div>
-              </div>
+              </CardContent>
             </Card>
           ) : null}
 

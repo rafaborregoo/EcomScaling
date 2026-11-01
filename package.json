@@ -14,6 +14,7 @@
     "dev:web": "npm run dev --workspace=web",
     "dev:api": "npm run dev --workspace=@e-nora/api",
     "dev:worker": "npm run dev --workspace=@e-nora/worker",
+    "dev:webhooks": "node scripts/dev-webhooks.mjs",
     "build": "npm run build:packages && npm run build -w @e-nora/api -w web -w @e-nora/worker",
     "build:packages": "npm run build -w @e-nora/ai -w @e-nora/config -w @e-nora/contracts -w @e-nora/db -w @e-nora/domain -w @e-nora/integrations -w @e-nora/observability",
     "typecheck": "npm run build:packages && npm run build -w @e-nora/api && npm run typecheck --workspaces --if-present",
@@ -51,7 +52,9 @@
     "api:contra-produccion": "dotenv -e .env.production.local -- tsx apps/api/src/server.ts",
     "seed:cartera-local": "dotenv -e .env.local -- tsx scripts/seed-cartera-local.ts",
     "seed:finanzas": "dotenv -e .env.local -- tsx scripts/seed-configuracion-financiera.ts",
-    "seed:agentes-demo": "dotenv -e .env.local -- node scripts/seed-agentes-demo.mjs"
+    "seed:agentes-demo": "dotenv -e .env.local -- node scripts/seed-agentes-demo.mjs",
+    "test:a24:db": "dotenv -e .env.local -- node --test scripts/a24-measurement-remote.test.mjs",
+    "test:a26:db": "dotenv -e .env.local -- node --test scripts/a26-content-remote.test.mjs"
   },
   "devDependencies": {
     "@shopify/cli": "^4.8.2",

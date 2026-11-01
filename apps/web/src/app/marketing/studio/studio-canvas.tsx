@@ -11,16 +11,20 @@ import {
   type ClipboardEvent,
   type CSSProperties,
   type DragEvent,
+  type FocusEvent,
   type FormEvent,
 } from "react";
+import { Checkbox, Field, Input, Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui";
 import {
   BLOCK_LABEL,
   BODY_FONT,
+  COLOR_ROLES,
   colorOf,
   deadlineLabel,
   headFont,
   isHttpUrl,
   MAX_PRODUCTS,
+  MERGE,
   youtubeThumb,
   type BlockProps,
   type StudioBlock,
@@ -78,6 +82,9 @@ const PATHS: Record<string, string> = {
   klaviyo: "M3 5h18L12 13ZM3 5v14h18V5",
   blank: "M5 3h14v18H5z",
   upload: "M12 16V4M7 9l5-5 5 5M4 20h16",
+  link: "M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1",
+  braces: "M8 4H7a2 2 0 0 0-2 2v4l-2 2 2 2v4a2 2 0 0 0 2 2h1M16 4h1a2 2 0 0 1 2 2v4l2 2-2 2v4a2 2 0 0 1-2 2h-1",
+  palette: "M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A4.7 4.7 0 0 0 22 9.7C22 5.9 17.5 3 12 3ZM7.5 12h.01M9 7.5h.01M14.5 7h.01",
 };
 
 export function Icon({ name }: { name: string }) {
@@ -129,12 +136,141 @@ function Editable({
       aria-label={label}
       aria-multiline
       onInput={(event: FormEvent<HTMLElement>) => onChange(event.currentTarget.innerText.replace(/\n$/, ""))}
+      // Al salir guarda el cursor: «Insertar variable» la pone ahí.
+      onBlur={rememberCaret}
       // Pegar desde Word o una web traería su formato: solo texto.
       onPaste={(event: ClipboardEvent<HTMLElement>) => {
         event.preventDefault();
         document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
       }}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ajustes rápidos sobre el lienzo (Popover desde la barra del bloque): enlace,
+// variables de personalización y color, sin ir al panel de la derecha.
+// ---------------------------------------------------------------------------
+
+/** Dónde estaba el cursor en el último texto del lienzo: la variable se inserta ahí. */
+let lastCaret: { blockId: string; range: Range } | null = null;
+
+function rememberCaret(event: FocusEvent<HTMLElement>) {
+  const selection = window.getSelection();
+  const blockId = event.currentTarget.closest<HTMLElement>("[data-block]")?.dataset.block;
+  if (!blockId || !selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (event.currentTarget.contains(range.startContainer)) lastCaret = { blockId, range: range.cloneRange() };
+}
+
+/** Escribe el texto en el cursor guardado de ese bloque; false si no lo hay. */
+function insertAtCaret(blockId: string, token: string) {
+  const saved = lastCaret;
+  const node = saved?.blockId === blockId ? saved.range.startContainer : null;
+  const editable = (node instanceof HTMLElement ? node : node?.parentElement)?.closest<HTMLElement>("[contenteditable]");
+  if (!saved || !editable?.isConnected) return false;
+  editable.focus();
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(saved.range);
+  // Como si se tecleara: dispara onInput y entra en deshacer.
+  document.execCommand("insertText", false, token);
+  return true;
+}
+
+/** Qué campo de cada bloque es su enlace, dónde van las variables y cuál es su color. */
+const LINK_OF: Partial<Record<keyof BlockProps, { url: string; utm?: string }>> = {
+  button: { url: "url", utm: "utm" },
+  hero: { url: "url", utm: "utm" },
+  image: { url: "url" },
+};
+const MERGE_INTO: Partial<Record<keyof BlockProps, string>> = { hero: "text", heading: "text", text: "text" };
+const COLOR_OF: Partial<Record<keyof BlockProps, string>> = { header: "bg", heading: "color", text: "color", button: "bg", divider: "color" };
+
+function QuickTools({ block, brand, patch }: { block: StudioBlock; brand: StudioBrand; patch: Patch }) {
+  const props = block.props as Record<string, unknown>;
+  const link = LINK_OF[block.type];
+  const mergeKey = MERGE_INTO[block.type];
+  const colorKey = COLOR_OF[block.type];
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const url = link ? String(props[link.url] ?? "") : "";
+  const missing = Boolean(link) && !isHttpUrl(url);
+  return (
+    <>
+      {link ? (
+        <Popover>
+          <PopoverTrigger render={<button type="button" title={missing ? "Falta el enlace" : "Enlace"} aria-label={missing ? "Enlace (falta)" : "Enlace"} data-warn={missing || undefined} />}>
+            <Icon name="link" />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80">
+            <PopoverHeader>
+              <PopoverTitle>Enlace</PopoverTitle>
+              <PopoverDescription>A dónde lleva al hacer clic.</PopoverDescription>
+            </PopoverHeader>
+            <Field label="Dirección" error={url && !isHttpUrl(url) ? "Tiene que empezar por https://" : undefined}>
+              <Input type="url" autoFocus placeholder="https://tu-tienda.com/coleccion" value={url} onChange={(event) => patch({ [link.url]: event.target.value })} />
+            </Field>
+            {link.utm ? (
+              <Checkbox checked={Boolean(props[link.utm])} onCheckedChange={(checked) => patch({ [link.utm!]: checked })}>
+                Añadir UTM para medirlo en Shopify
+              </Checkbox>
+            ) : null}
+          </PopoverContent>
+        </Popover>
+      ) : null}
+      {mergeKey ? (
+        <Popover open={mergeOpen} onOpenChange={setMergeOpen}>
+          <PopoverTrigger render={<button type="button" title="Insertar variable" aria-label="Insertar variable" />}>
+            <Icon name="braces" />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 gap-3">
+            <PopoverHeader>
+              <PopoverTitle>Personalizar</PopoverTitle>
+              <PopoverDescription>Se cambia por el dato de cada persona al enviarlo.</PopoverDescription>
+            </PopoverHeader>
+            <div className="grid gap-1">
+              {MERGE.map(([label, token]) => (
+                <button
+                  key={token}
+                  type="button"
+                  className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface"
+                  onClick={() => {
+                    setMergeOpen(false);
+                    // En el cursor si estaba en este bloque; si no, al final del texto.
+                    if (!insertAtCaret(block.id, token)) {
+                      const current = String(props[mergeKey] ?? "");
+                      patch({ [mergeKey]: `${current}${!current || current.endsWith(" ") ? "" : " "}${token}` });
+                    }
+                  }}
+                >
+                  <span className="font-medium">{label}</span>
+                  <code className="truncate text-sm text-muted">{token}</code>
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      ) : null}
+      {colorKey ? (
+        <Popover>
+          <PopoverTrigger render={<button type="button" title="Color" aria-label="Color" />}>
+            <Icon name="palette" />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 gap-3">
+            <PopoverHeader>
+              <PopoverTitle>Color</PopoverTitle>
+              <PopoverDescription>Los de tu marca cambian solos si cambia la Guía de marca.</PopoverDescription>
+            </PopoverHeader>
+            <div className={s.swrow} role="group" aria-label="Colores de la marca">
+              {COLOR_ROLES.map(([role, label]) => (
+                <button key={role} type="button" className={s.sw} style={{ background: colorOf(role, brand) }} aria-pressed={props[colorKey] === role} title={label} aria-label={label} onClick={() => patch({ [colorKey]: role })} />
+              ))}
+              <input type="color" value={colorOf(String(props[colorKey] ?? "text"), brand)} aria-label="Otro color" onChange={(event) => patch({ [colorKey]: event.target.value })} />
+            </div>
+          </PopoverContent>
+        </Popover>
+      ) : null}
+    </>
   );
 }
 
@@ -490,6 +626,7 @@ export function EmailCanvas({
             >
               <Icon name="grip" />
             </span>
+            <QuickTools block={block} brand={brand} patch={(props) => onPatch(block.id, props)} />
             <button type="button" title="Subir" aria-label="Subir" disabled={index === 0} onClick={() => onAction("up", block.id)}>
               <Icon name="up" />
             </button>

@@ -5,7 +5,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { ConsultantAgenda } from "@/components/consultant-agenda";
 import { WorkPageHeader } from "@/components/trabajo-ui";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { ButtonLink, Card } from "@/components/ui";
+import { ButtonLink, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 function AgendaContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { setOrganizationId } = useActiveOrganization();
@@ -15,11 +15,14 @@ function AgendaContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   if (!isConsultant) {
     return (
-      <Card
-        title="Agenda del consultor"
-        description="Esta agenda es una herramienta interna del consultor."
-      >
-        <ButtonLink href="/dashboard">Volver al dashboard</ButtonLink>
+      <Card>
+        <CardHeader>
+          <CardTitle>Agenda del consultor</CardTitle>
+          <CardDescription>Esta agenda es una herramienta interna del consultor.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ButtonLink href="/dashboard">Volver al dashboard</ButtonLink>
+        </CardContent>
       </Card>
     );
   }

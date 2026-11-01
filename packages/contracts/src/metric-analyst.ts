@@ -154,13 +154,13 @@ export type MetricObservation = {
    * umbral económico, objetivo ni historial, y nunca condena: como mucho "vigilar".
    */
   benchmark?: { p25: number; p50: number; p75: number; label: string } | null;
-  drivers?: Array<{ id: string; value: number | null; previous: number | null }>;
+  drivers?: Array<{ id: string; value: number | null; previous: number | null; currency_code?: string | null }>;
   /** Motivo por el que falta el dato (p. ej. plataforma sin conectar). Manda sobre todo lo demás. */
   unavailable?: string | null;
 };
 
 export type MetricReason = { source: ReasonSource; verdict: MetricVerdict; text: string };
-export type MetricDriverChange = { id: string; label: string; value: number | null; previous: number | null; change_pct: number | null; effect: "helps" | "hurts" | "flat" | "unknown" };
+export type MetricDriverChange = { id: string; label: string; value: number | null; previous: number | null; change_pct: number | null; effect: "helps" | "hurts" | "flat" | "unknown"; currency_code?: string | null };
 
 export type MetricAnalysis = {
   metric: MetricId;
@@ -182,6 +182,8 @@ export type MetricAnalysis = {
   suggested_target?: { value: number; text: string } | null;
   /** Fragmentos de la metodología (RAG global) sobre esta métrica; solo para consultores (lo rellena la API). */
   methodology?: Array<{ title: string; excerpt: string }>;
+  currency_code?: string | null;
+  measurement_period?: { start: string; end: string };
 };
 
 /** Cambios por debajo de esto se consideran ruido; por encima del segundo, graves. */
@@ -193,7 +195,8 @@ export const ECONOMIC_CUSHION = 0.15;
 const RANK: Record<MetricVerdict, number> = { good: 0, insufficient: 0, watch: 1, bad: 2 };
 
 const changePct = (now: number | null | undefined, before: number | null | undefined) =>
-  now == null || before == null || before === 0 ? null : ((now - before) / Math.abs(before)) * 100;
+  now == null || before == null || !Number.isFinite(now) || !Number.isFinite(before) || before === 0
+    ? null : Number.isFinite(((now - before) / Math.abs(before)) * 100) ? ((now - before) / Math.abs(before)) * 100 : null;
 
 const fmt = (v: number, unit: MetricUnit) =>
   unit === "rate" ? `${(v * 100).toFixed(2).replace(".", ",")} %` : unit === "money" ? v.toFixed(2).replace(".", ",") : v.toFixed(2).replace(".", ",");
@@ -206,6 +209,29 @@ function percentileRank(value: number, history: number[]) {
 }
 
 export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAnalysis {
+  const validNumber = (value: number | null | undefined): value is number =>
+    value != null && Number.isFinite(value);
+  const validDomain = (value: number | null | undefined, unit: MetricUnit) =>
+    value == null || (Number.isFinite(value) && (unit === "rate" ? value >= 0 && value <= 1 : value >= 0));
+  const invalidObservation = !validDomain(obs.value, spec.unit) || !validDomain(obs.previous, spec.unit) ||
+    !validDomain(obs.target, spec.unit) || (obs.threshold != null && !validDomain(obs.threshold.value, spec.unit)) ||
+    (obs.history ?? []).some((value) => !validDomain(value, spec.unit)) ||
+    !Number.isFinite(obs.sample) || obs.sample < 0 ||
+    spec.drivers.some((driver) => {
+      const seen = obs.drivers?.find((item) => item.id === driver.id);
+      return seen && (!validDomain(seen.value, driver.unit) || !validDomain(seen.previous, driver.unit));
+    });
+  if (invalidObservation) {
+    return {
+      metric: spec.id, label: spec.label, definition: spec.definition, formula: spec.formula,
+      attributed_by: spec.attributedBy, owner_agents: spec.ownerAgents,
+      value: validDomain(obs.value, spec.unit) && validNumber(obs.value) ? obs.value : null,
+      previous: validDomain(obs.previous, spec.unit) && validNumber(obs.previous) ? obs.previous : null,
+      change_pct: null, verdict: "insufficient", confidence: "low",
+      reasons: [{ source: "coverage", verdict: "insufficient", text: "Hay valores inválidos o tasas fuera de rango. Revisa la medición antes de comparar." }],
+      drivers: [], main_driver: null,
+    };
+  }
   const base = {
     metric: spec.id,
     label: spec.label,
@@ -223,7 +249,7 @@ export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAn
     const change = changePct(seen?.value, seen?.previous);
     const effect: MetricDriverChange["effect"] =
       change == null ? "unknown" : Math.abs(change) < 5 ? "flat" : (change > 0) === d.higherIsBetter ? "helps" : "hurts";
-    return { id: d.id, label: d.label, value: seen?.value ?? null, previous: seen?.previous ?? null, change_pct: change, effect };
+    return { id: d.id, label: d.label, value: seen?.value ?? null, previous: seen?.previous ?? null, change_pct: change, effect, ...(seen?.currency_code ? { currency_code: seen.currency_code } : {}) };
   });
   const hurting = drivers.filter((d) => d.effect === "hurts").sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0));
   const main_driver = hurting[0]?.id ?? null;
@@ -231,7 +257,7 @@ export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAn
   if (obs.unavailable) {
     return { ...base, verdict: "insufficient", confidence: "low", reasons: [{ source: "coverage", verdict: "insufficient", text: obs.unavailable }], drivers, main_driver: null };
   }
-  if (obs.value == null || obs.sample < spec.minSample.min) {
+  if (!validNumber(obs.value) || !Number.isFinite(obs.sample) || obs.sample < spec.minSample.min) {
     return {
       ...base,
       verdict: "insufficient",
@@ -246,7 +272,7 @@ export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAn
   const up = spec.higherIsBetter;
   const reasons: MetricReason[] = [];
 
-  if (obs.threshold && obs.threshold.value > 0) {
+  if (obs.threshold && Number.isFinite(obs.threshold.value) && obs.threshold.value > 0) {
     const t = obs.threshold.value;
     const breached = up ? v < t : v > t;
     const close = up ? v < t * (1 + ECONOMIC_CUSHION) : v > t * (1 - ECONOMIC_CUSHION);
@@ -259,7 +285,7 @@ export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAn
     );
   }
 
-  if (obs.target != null && obs.target > 0) {
+  if (validNumber(obs.target) && obs.target > 0) {
     const ratio = v / obs.target;
     const miss = up ? ratio < 1 : ratio > 1;
     const far = up ? ratio < 0.8 : ratio > 1.2;
@@ -283,7 +309,7 @@ export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAn
 
   const history = (obs.history ?? []).filter((h) => Number.isFinite(h));
   if (history.length >= 6) {
-    const rank = percentileRank(v, history);
+    const rank = (history.filter((h) => h < v).length + history.filter((h) => h === v).length / 2) / history.length;
     const worse = up ? rank <= 0.25 : rank >= 0.75;
     const better = up ? rank >= 0.75 : rank <= 0.25;
     if (worse) reasons.push({ source: "history", verdict: "watch", text: `Entre los peores registros de los últimos ${history.length} meses.` });
@@ -309,6 +335,62 @@ export function assessMetric(spec: MetricSpec, obs: MetricObservation): MetricAn
   }
 
   const verdict = reasons.reduce<MetricVerdict>((worst, r) => (RANK[r.verdict] > RANK[worst] ? r.verdict : worst), "good");
-  const confidence = reasons.some((r) => r.source === "economic") ? "high" : reasons.some((r) => r.source === "target" || r.source === "history") ? "medium" : "low";
+  const decidingReasons = reasons.filter((reason) => reason.verdict === verdict);
+  const confidence = decidingReasons.some((reason) => reason.source === "economic")
+    ? "high"
+    : decidingReasons.some((reason) => reason.source === "target" || reason.source === "history")
+      ? "medium"
+      : "low";
   return { ...base, verdict, confidence, reasons, drivers, main_driver };
+}
+
+/** Una semana con menos sesiones que esto no dice cuánto convierte la tienda. */
+export const CONVERSION_WEEK_MIN_SESSIONS = 250;
+/** Semanas válidas mínimas para sugerir un objetivo. */
+export const CONVERSION_MIN_WEEKS = 4;
+
+const pctEs = (rate: number) => `${(Math.round(rate * 1000) / 10).toFixed(1).replace(".", ",")} %`;
+
+/**
+ * Objetivo de conversión sugerido: el nivel de las mejores semanas de la PROPIA
+ * tienda (percentil 75 de sus semanas con tráfico suficiente), no una media del
+ * sector, que no tenemos con fuente. Es alcanzable porque ya lo ha hecho. Si hoy
+ * convierte por encima, el objetivo es mantenerlo. `value` va en % (unidad de
+ * `organization_metric_targets.conversion_rate`). Conversión = pedidos ÷ sesiones,
+ * la misma cuenta que el panel.
+ */
+export function suggestConversionTarget(
+  daily: Array<{ date: string; sessions: number; orders_count: number }>,
+): { value: number; text: string } | null {
+  const days = [...daily].sort((a, b) => a.date.localeCompare(b.date));
+  // Semanas completas contando desde el día más reciente; la que queda a medias, fuera.
+  const weeks: Array<{ sessions: number; orders: number }> = [];
+  for (let end = days.length; end - 7 >= 0; end -= 7) {
+    const chunk = days.slice(end - 7, end);
+    weeks.push({
+      sessions: chunk.reduce((sum, day) => sum + day.sessions, 0),
+      orders: chunk.reduce((sum, day) => sum + day.orders_count, 0),
+    });
+  }
+  const rates = weeks
+    .filter((week) => week.sessions >= CONVERSION_WEEK_MIN_SESSIONS)
+    .map((week) => week.orders / week.sessions)
+    .sort((a, b) => a - b);
+  if (rates.length < CONVERSION_MIN_WEEKS) return null;
+
+  const best = rates[Math.ceil(rates.length * 0.75) - 1]!;
+  const sessions = days.reduce((sum, day) => sum + day.sessions, 0);
+  const current = sessions > 0 ? days.reduce((sum, day) => sum + day.orders_count, 0) / sessions : 0;
+  const span = `sus ${rates.length} semanas con tráfico de los últimos ${days.length} días`;
+  // Se comparan ya redondeadas a la décima que se enseña: 2,99… y 3,0 son lo mismo.
+  if (Math.round(current * 1000) >= Math.round(best * 1000)) {
+    return {
+      value: Math.round(current * 1000) / 10,
+      text: `La tienda convierte un ${pctEs(current)}, al nivel de las mejores de ${span}. Mantenerlo ya es un buen objetivo.`,
+    };
+  }
+  return {
+    value: Math.round(best * 1000) / 10,
+    text: `En una de cada cuatro de ${span} la tienda convirtió un ${pctEs(best)} o más; en todos esos días juntos, un ${pctEs(current)}. Es alcanzable porque ya lo ha hecho, y no es una media del sector.`,
+  };
 }

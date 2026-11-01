@@ -1,0 +1,81 @@
+{
+  "name": "e-nora",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo E-NORA IA",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "predev": "node scripts/ensure-redis.mjs",
+    "dev": "concurrently -n api,web,worker -c blue,green,yellow \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
+    "dev:web": "npm run dev --workspace=web",
+    "dev:api": "npm run dev --workspace=@e-nora/api",
+    "dev:worker": "npm run dev --workspace=@e-nora/worker",
+    "build": "npm run build:packages && npm run build -w @e-nora/api -w web -w @e-nora/worker",
+    "build:packages": "npm run build -w @e-nora/ai -w @e-nora/config -w @e-nora/contracts -w @e-nora/db -w @e-nora/domain -w @e-nora/integrations -w @e-nora/observability",
+    "typecheck": "npm run build:packages && npm run build -w @e-nora/api && npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "verify": "node scripts/verify.mjs",
+    "test:agent-release-preflight": "node --test scripts/agent-release-migration-preflight.test.mjs",
+    "verify:agent-judge-release-gate": "dotenv -e .env.local -- node scripts/verify-agent-judge-release-gate.mjs",
+    "verify:agent-judge-release-gate:prod": "dotenv -e .env.production.local -- node scripts/verify-agent-judge-release-gate.mjs --prod",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "seed:demo-user": "dotenv -e .env.local -- tsx scripts/seed-demo-user.ts",
+    "seed:shopify-store": "dotenv -e .env.local -- tsx scripts/seed-shopify-store.ts",
+    "seed:meta-history": "dotenv -e .env.local -- tsx scripts/seed-meta-history.ts",
+    "seed:klaviyo-history": "dotenv -e .env.local -- tsx scripts/seed-klaviyo-history.ts",
+    "lab:reset": "node scripts/e-nora-test-lab.mjs reset",
+    "lab:run": "node scripts/e-nora-test-lab.mjs run",
+    "stripe:catalogo": "dotenv -e .env.local -- node scripts/stripe-catalogo.mjs",
+    "db:types": "dotenv -e .env.local -- node scripts/db-types.mjs",
+    "db:push": "dotenv -e .env.local -- node scripts/db-push.mjs",
+    "db:push:dry": "dotenv -e .env.local -- node scripts/db-push.mjs --dry-run",
+    "db:push:prod": "dotenv -e .env.production.local -- node scripts/db-push.mjs --prod",
+    "db:push:prod:dry": "dotenv -e .env.production.local -- node scripts/db-push.mjs --prod --dry-run",
+    "check:meta-metrics": "dotenv -e .env.local -- node scripts/check-meta-metrics.mjs",
+    "supabase": "supabase",
+    "supabase:init": "supabase init",
+    "supabase:link": "supabase link --project-ref cthjwpeygpzwdmjkxeqa",
+    "supabase:start": "supabase start",
+    "supabase:reset": "supabase db reset",
+    "conocimiento:ingest": "dotenv -e .env.local -- node scripts/ingest-conocimiento.mjs",
+    "conocimiento:test": "node --test scripts/ingest-conocimiento.test.mjs",
+    "conocimiento:archiva": "dotenv -e .env.local -- node scripts/archiva-conocimiento-global.mjs",
+    "conocimiento:ingest:prod": "dotenv -e .env.production.local -v API_URL=https://api.ecom.noraapp.es -- node scripts/ingest-conocimiento.mjs",
+    "conocimiento:archiva:prod": "dotenv -e .env.production.local -- node scripts/archiva-conocimiento-global.mjs",
+    "api:contra-produccion": "dotenv -e .env.production.local -- tsx apps/api/src/server.ts",
+    "seed:cartera-local": "dotenv -e .env.local -- tsx scripts/seed-cartera-local.ts",
+    "seed:finanzas": "dotenv -e .env.local -- tsx scripts/seed-configuracion-financiera.ts",
+    "seed:agentes-demo": "dotenv -e .env.local -- node scripts/seed-agentes-demo.mjs",
+    "test:a24:db": "dotenv -e .env.local -- node --test scripts/a24-measurement-remote.test.mjs",
+    "test:a26:db": "dotenv -e .env.local -- node --test scripts/a26-content-remote.test.mjs"
+  },
+  "devDependencies": {
+    "@shopify/cli": "^4.8.2",
+    "concurrently": "^9.2.4",
+    "dotenv-cli": "^11.0.0",
+    "pg": "^8.23.0",
+    "prettier": "^3.6.2",
+    "supabase": "^2.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.3"
+  },
+  "engines": {
+    "node": ">=20.9.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.3",
+    "@supabase/supabase-js": "^2.109.0",
+    "nanoid": "3.3.18",
+    "ws": "^8.21.1"
+  },
+  "overrides": {
+    "nanoid": "3.3.18"
+  }
+}

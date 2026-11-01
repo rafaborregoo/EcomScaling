@@ -1,7 +1,7 @@
 "use client";
 
 import { useCachedQueriesSettled } from "@/lib/use-cached-query";
-import { Badge, Card, LoadingBlock } from "@/components/ui";
+import { Badge, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 const DOMAINS = [
   ["playbooks", "Framework universal"],
@@ -88,68 +88,70 @@ export function PlaybookDiagnosticOverviewPanel() {
   ).length;
 
   return (
-    <Card
-      id="insight-diagnostic-overview"
-      title="Mapa de diagnóstico IA"
-      description="Una lectura transversal de todos los playbooks: cada fila enlaza con su card de detalle y conserva los huecos de evidencia para el Copiloto."
-    >
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded border border-default-200 p-3">
-          <p className="text-muted text-xs">Bloques revisados</p>
-          <p className="mt-1 text-xl font-semibold">{summaries.length}</p>
+    <Card id="insight-diagnostic-overview">
+      <CardHeader>
+        <CardTitle>Mapa de diagnóstico IA</CardTitle>
+        <CardDescription>Una lectura transversal de todos los playbooks: cada fila enlaza con su card de detalle y conserva los huecos de evidencia para el Copiloto.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <Card size="sm"><CardContent>
+            <p className="text-muted text-xs">Bloques revisados</p>
+            <p className="mt-1 text-xl font-semibold">{summaries.length}</p>
+          </CardContent></Card>
+          <Card size="sm"><CardContent>
+            <p className="text-muted text-xs">Requieren atención</p>
+            <p className="mt-1 text-xl font-semibold text-warn-deep">
+              {attention}
+            </p>
+          </CardContent></Card>
+          <Card size="sm"><CardContent>
+            <p className="text-muted text-xs">Listos para recomendar</p>
+            <p className="mt-1 text-xl font-semibold text-success">{ready}</p>
+          </CardContent></Card>
         </div>
-        <div className="rounded border border-default-200 p-3">
-          <p className="text-muted text-xs">Requieren atención</p>
-          <p className="mt-1 text-xl font-semibold text-warn-deep">
-            {attention}
-          </p>
-        </div>
-        <div className="rounded border border-default-200 p-3">
-          <p className="text-muted text-xs">Listos para recomendar</p>
-          <p className="mt-1 text-xl font-semibold text-success">{ready}</p>
-        </div>
-      </div>
-      <div
-        className="space-y-3"
-        role="list"
-        aria-label="Estado de diagnósticos IA"
-      >
-        {summaries.map((item) => {
-          const width =
-            item.disposition === "SIN_EVALUACION" ||
-            item.disposition === "NO_DISPONIBLE"
-              ? 12
-              : item.disposition === "READY_FOR_RECOMMENDATION"
-                ? 100
-                : 66;
-          return (
-            <div
-              key={item.key}
-              role="listitem"
-              className="grid gap-2 sm:grid-cols-[12rem_1fr_auto] sm:items-center"
-            >
-              <span className="text-sm">{item.label}</span>
-              <div className="h-2 rounded bg-default-100" aria-hidden="true">
-                <div
-                  className={`h-2 rounded ${barClass(item.disposition)}`}
-                  style={{ width: `${width}%` }}
-                />
-              </div>
-              <Badge
-                tone={
-                  item.disposition === "SIN_EVALUACION" ||
-                  item.disposition === "NO_DISPONIBLE"
-                    ? "neutral"
-                    : tone(item.disposition)
-                }
+        <div
+          className="space-y-3"
+          role="list"
+          aria-label="Estado de diagnósticos IA"
+        >
+          {summaries.map((item) => {
+            const width =
+              item.disposition === "SIN_EVALUACION" ||
+              item.disposition === "NO_DISPONIBLE"
+                ? 12
+                : item.disposition === "READY_FOR_RECOMMENDATION"
+                  ? 100
+                  : 66;
+            return (
+              <div
+                key={item.key}
+                role="listitem"
+                className="grid gap-2 sm:grid-cols-[12rem_1fr_auto] sm:items-center"
               >
-                {item.disposition}
-                {item.unknowns ? ` · ${item.unknowns} huecos` : ""}
-              </Badge>
-            </div>
-          );
-        })}
-      </div>
+                <span className="text-sm">{item.label}</span>
+                <div className="h-2 rounded bg-default-100" aria-hidden="true">
+                  <div
+                    className={`h-2 rounded ${barClass(item.disposition)}`}
+                    style={{ width: `${width}%` }}
+                  />
+                </div>
+                <Badge
+                  tone={
+                    item.disposition === "SIN_EVALUACION" ||
+                    item.disposition === "NO_DISPONIBLE"
+                      ? "neutral"
+                      : tone(item.disposition)
+                  }
+                >
+                  {item.disposition}
+                  {item.unknowns ? ` · ${item.unknowns} huecos` : ""}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
     </Card>
   );
 }

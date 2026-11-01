@@ -236,6 +236,8 @@ test("lo que el proveedor si reporta se acumula como numero, incluido el cero", 
   // 0 reportado es un hecho distinto de null: el proveedor dijo "cero hits".
   assert.equal(result.cacheReadTokens, 0);
   assert.equal(result.cacheCreationTokens, 512);
+  // El resultado final debe conservar el coste por llamada, incluida escritura.
+  assert.equal(result.estimatedCostUsd, 0.00428);
 });
 
 test("un modelo sin tarifa deja el coste en null y lo marca como incidente", async () => {

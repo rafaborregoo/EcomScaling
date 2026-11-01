@@ -22,7 +22,9 @@ import {
 } from "./shopify-product-media.js";
 import { isMissingShopifyProductMetadataSchema } from "./shopify-product-metadata.js";
 import { explainShopifyError } from "./shopify-permissions.js";
+import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
+import { invalidateIntegrationData } from "./integration-data-cache.js";
 import {
   ShopifyReportsScopeError,
   syncShopifySessions,
@@ -775,6 +777,11 @@ function isMissingSyncScopeColumn(message: string) {
   );
 }
 
+function isShopifyAuthorizationFailure(message: string) {
+  return requiresIntegrationReauthorization(message) ||
+    /^(Faltan permisos de Shopify|Shopify denego el acceso)/i.test(message);
+}
+
 export function buildShopifySyncIdempotencyKey(
   syncType: string,
   syncScope: BlockKey,
@@ -784,7 +791,8 @@ export function buildShopifySyncIdempotencyKey(
   if (syncType === "initial_import") {
     return `${syncType}:${syncScope}:${connectionId}`;
   }
-  return `${syncType}:${syncScope}:${connectionId}:${now.slice(0, 13)}`;
+  const bucket = new Date(Math.floor(Date.parse(now) / 900_000) * 900_000).toISOString();
+  return `${syncType}:${syncScope}:${connectionId}:${bucket}`;
 }
 
 async function ensureSyncRun(
@@ -907,7 +915,7 @@ async function finishSyncRun(
   counts: { read: number; written: number; failed: number },
   errorMessage?: string,
 ) {
-  await supabase
+  const { error } = await supabase
     .from("integration_sync_runs")
     .update({
       status,
@@ -920,6 +928,7 @@ async function finishSyncRun(
       error_message: errorMessage ?? null,
     })
     .eq("id", syncRunId);
+  if (error) throw new Error(`shopify_sync_run_finish_failed: ${error.message}`);
 }
 
 const UPSERT_BATCH_SIZE = 500;
@@ -1323,7 +1332,7 @@ export async function runShopifyInitialSync(
     sync_type: syncType,
   });
 
-  await supabase
+  const { error: markSyncingError } = await supabase
     .from("integration_connections")
     .update({
       status: "syncing",
@@ -1331,6 +1340,7 @@ export async function runShopifyInitialSync(
       last_error_at: null,
     })
     .eq("id", connectionId);
+  if (markSyncingError) throw new Error(`shopify_connection_mark_syncing_failed: ${markSyncingError.message}`);
 
   let storeId: string | null = null;
   let fatalError: string | null = null;
@@ -1965,6 +1975,7 @@ export async function runShopifyInitialSync(
               const locationId = locationMap.get(level.location.id);
               if (!locationId) continue;
               inventorySnapshotRows.push({
+                source_updated_at: now,
                 organization_id: connection.organization_id,
                 external_inventory_item_id: inventoryItem.id,
                 location_id: locationId,
@@ -2479,6 +2490,7 @@ export async function runShopifyInitialSync(
                   quantities.map((quantity) => [quantity.name, quantity.quantity]),
                 ) as Record<string, number>;
                 snapshotRows.push({
+                  source_updated_at: now,
                   organization_id: connection.organization_id,
                   inventory_item_id: inventoryItemId,
                   location_id: locationId,
@@ -2915,6 +2927,7 @@ export async function runShopifyInitialSync(
         ]),
       );
 
+      const orderVersions = new Map(orderRows.map((row) => [orderMap.get(row.external_order_id), row.external_updated_at]));
       const orderItemRows = lineItemsByOrderId.map(({ orderId, lineItem }) => {
         const matchedVariant = lineItem.variant?.id
           ? lineItemVariantMap.get(lineItem.variant.id)
@@ -2925,6 +2938,7 @@ export async function runShopifyInitialSync(
         return {
           organization_id: connection.organization_id,
           order_id: orderId,
+          source_updated_at: orderVersions.get(orderId) ?? now,
           product_id: matchedVariant?.product_id ?? null,
           variant_id: matchedVariant?.id ?? null,
           external_line_item_id: lineItem.id,
@@ -3252,6 +3266,7 @@ export async function runShopifyInitialSync(
             organization_id: connection.organization_id,
             store_id: storeId,
             order_id: orderId,
+            source_updated_at: orderVersions.get(orderId) ?? now,
             // El enlace a `shopify_discounts` lo pone el bloque de promociones,
             // que es quien conoce los ids. Aqui se guarda el texto, que es lo
             // que sobrevive si la promocion se borra en Shopify.
@@ -4473,6 +4488,8 @@ export async function runShopifyInitialSync(
 
   const finishedAt = new Date().toISOString();
 
+  await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
+
   for (const key of Object.keys(blocks) as BlockKey[]) {
     const block = blocks[key];
     await finishSyncRun(
@@ -4501,7 +4518,7 @@ export async function runShopifyInitialSync(
       )
       .join(" | ");
 
-    await supabase
+    const { error: markErrorError } = await supabase
       .from("integration_connections")
       .update({
         status: "error",
@@ -4510,6 +4527,7 @@ export async function runShopifyInitialSync(
         ...(storeId ? { last_sync_at: finishedAt } : {}),
       })
       .eq("id", connectionId);
+    if (markErrorError) throw new Error(`shopify_connection_mark_error_failed: ${markErrorError.message}`);
 
     logger.error("Shopify sync finished with block failures", {
       connection_id: connectionId,
@@ -4519,14 +4537,26 @@ export async function runShopifyInitialSync(
       error_message: combinedError,
     });
 
-    if (fatalError) {
-      throw new Error(fatalError);
+    const retryableFailures = failedBlocks.filter(([, block]) =>
+      !isShopifyAuthorizationFailure(
+        explainShopifyError(block.error ?? "", connectionScopes),
+      ),
+    );
+    if (fatalError || retryableFailures.length > 0) {
+      throw new Error(
+        fatalError
+          ? `shopify_sync_failed: ${fatalError}`
+          : `shopify_sync_partial_failure: ${combinedError}`,
+      );
     }
 
+    // An authorization failure needs the store owner to reconnect. Returning
+    // lets BullMQ mark the job complete instead of retrying the same denial;
+    // the failed block remains visible on the integration connection.
     return;
   }
 
-  await supabase
+  const { error: markConnectedError } = await supabase
     .from("integration_connections")
     .update({
       status: "connected",
@@ -4535,6 +4565,7 @@ export async function runShopifyInitialSync(
       last_error_at: null,
     })
     .eq("id", connectionId);
+  if (markConnectedError) throw new Error(`shopify_connection_mark_connected_failed: ${markConnectedError.message}`);
 
   logger.info("Shopify sync succeeded", {
     connection_id: connectionId,

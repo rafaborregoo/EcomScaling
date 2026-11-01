@@ -1,8 +1,11 @@
 "use client";
+import { LearningDecision, type LearningEdits } from "./learning-decision";
+import { MeasurementDetails, type MeasurementInfo } from "./measurement-details";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { displayValue } from "@/lib/display-labels";
-import { ButtonLink, toast } from "@/components/ui";
+import { ButtonLink, Checkbox, ToggleGroup, ToggleGroupItem, toast, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { clientNextStep, splitCriterion } from "./next-step";
 import { MonthlyRoute } from "./monthly-route";
 import { GrowthCycle } from "./growth-cycle";
@@ -40,6 +43,8 @@ type MapMilestone = {
   id: string;
   name: string;
   description: string | null;
+  completion_kind?: string | null;
+  completion_evidence?: string | null;
   success_criteria?: string | null;
   rationale?: string | null;
   position: number;
@@ -70,6 +75,7 @@ type MapGoal = {
 type MapUnit = "money" | "pct" | "count" | "ratio" | "number";
 
 type MapObjective = {
+  measurement?: MeasurementInfo;
   id: string;
   milestone_id: string | null;
   label: string;
@@ -88,7 +94,7 @@ type MapReview = {
   period_end: string;
   output: {
     executive_summary: string;
-    goal_progress: {
+    goal_progress: MeasurementInfo & {
       status?: string;
       explanation: string;
       observed_value: number | null;
@@ -98,7 +104,7 @@ type MapReview = {
     };
     progress?: Array<{ item: string; status: string; evidence: string }>;
     risks?: Array<{ severity: string; detail: string; evidence: string }>;
-    learnings?: Array<{ title: string; learning: string; evidence: string; applies_to: string; confidence: string }>;
+    learnings?: Array<{ title: string; learning: string; evidence: string; applies_to: string; confidence: string; decision?: string }>;
     next_actions: Array<{ title: string; rationale: string; owner: string; due_in_days: number }>;
     change_proposals: Array<{ description: string; reason: string }>;
     warnings?: string[];
@@ -314,6 +320,7 @@ function renderSvg(layout: Layout, selectedId: string | null, adventure: boolean
 
 export function CaminoMap({
   planStatus,
+  hasConsultant = true,
   goal,
   phases: rawPhases,
   objectives,
@@ -343,6 +350,7 @@ export function CaminoMap({
   onGenerateMarketingTask?: (task: MapTask) => void;
   generatingTaskId?: string | null;
   marketingAssets?: CaminoMarketingAsset[];
+  hasConsultant?: boolean;
   planStatus: string;
   goal: MapGoal | null | undefined;
   phases: MapPhase[];
@@ -354,7 +362,7 @@ export function CaminoMap({
   formatGoal: (value: number) => string;
   onToggleTask: (task: MapTask) => void;
   renderChangeDecision?: (index: number) => ReactNode;
-  onApproveLearning?: (reviewId: string, learningIndex: number) => Promise<void>;
+  onApproveLearning?: (reviewId: string, learningIndex: number, edits?: LearningEdits) => Promise<void>;
 }) {
   const [today] = useState(() => new Date());
   // Solo se monta en el navegador (el plan llega tras la carga), así que leer
@@ -438,7 +446,7 @@ export function CaminoMap({
 
   const progress = review?.output?.goal_progress;
   const observed = progress?.observed_value ?? null;
-  const baseline = goal?.baseline ?? progress?.baseline_value ?? null;
+  const baseline = progress?.baseline_value ?? (goal?.unit !== "money" && goal?.unit !== "count" ? goal?.baseline : null) ?? null;
   const target = goal?.target ?? progress?.target_value ?? null;
   const expected = progress?.expected_value ?? null;
   const ratio = (value: number | null) =>
@@ -460,7 +468,7 @@ export function CaminoMap({
             </span>
           </div>
           <div>
-            <span className={s.k}>Meta del camino</span>
+            <span className={s.k}>Resultado del objetivo</span>
             {target !== null ? (
               <>
                 <span className={s.v}>
@@ -485,7 +493,7 @@ export function CaminoMap({
             )}
           </div>
           <div>
-            <span className={s.k}>Tareas hechas</span>
+            <span className={s.k}>Trabajo del camino · tareas hechas</span>
             <span className={s.v}>
               {doneTasks} <small>/ {allTasks.length}</small>
             </span>
@@ -539,14 +547,10 @@ export function CaminoMap({
             );
           })}
           <span className={s.mapHint}>Selecciona un hito para ver su recorrido de tareas</span>
-          <div className={s.styleSeg} role="group" aria-label="Estilo del mapa">
-            <button type="button" aria-pressed={!adventure} onClick={() => chooseStyle(false)}>
-              Formal
-            </button>
-            <button type="button" aria-pressed={adventure} onClick={() => chooseStyle(true)}>
-              Aventura
-            </button>
-          </div>
+          <ToggleGroup aria-label="Estilo del mapa" className={s.styleSeg} value={adventure ? "adventure" : "formal"} onValueChange={(value) => chooseStyle(value === "adventure")}>
+            <ToggleGroupItem value="formal">Formal</ToggleGroupItem>
+            <ToggleGroupItem value="adventure">Aventura</ToggleGroupItem>
+          </ToggleGroup>
         </div>
       </section>
 
@@ -561,6 +565,7 @@ export function CaminoMap({
           onToggleTask={onToggleTask}
           variant={variant}
           extra={renderMilestoneExtra?.(selected.milestone.id)}
+          hasConsultant={hasConsultant}
           onDiscuss={onDiscuss}
           onGenerateMarketingTask={onGenerateMarketingTask}
           generatingTaskId={generatingTaskId}
@@ -598,7 +603,8 @@ export function CaminoMap({
   );
 }
 
-function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTasks, sourceLabels, onToggleTask, variant, extra, onDiscuss, onGenerateMarketingTask, generatingTaskId, marketingAssetsByTask, draft }: {
+function MilestonePanel({ hasConsultant = true, stop, objectives, formatObjective, today, canResolveTasks, sourceLabels, onToggleTask, variant, extra, onDiscuss, onGenerateMarketingTask, generatingTaskId, marketingAssetsByTask, draft }: {
+  hasConsultant?: boolean;
   draft: boolean;
   onDiscuss?: (topic: DiscussTopic) => void;
   onGenerateMarketingTask?: (task: MapTask) => void;
@@ -650,6 +656,7 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
         <span className={`${s.chip} ${chip[0]}`}>{chip[1]}</span>
       </div>
       <h2 id={`camino-hito-title-${milestone.id}`} className={s.lvTitle}>{milestone.name}</h2>
+      {milestone.status === "skipped" ? <p>Hito omitido: no acredita un resultado. {milestone.completion_evidence}</p> : milestone.status === "completed" ? <p>{milestone.completion_kind === "exception" ? "Cierre por excepción: resultado sin verificar" : milestone.completion_kind ? "Resultado verificado" : "Cierre anterior sin verificación estructurada"}. {milestone.completion_evidence}</p> : null}
       {text ? <p className={s.lvDesc}>{text}</p> : null}
       <div className={s.sheetGrid}>
         <div className={s.col}>
@@ -683,8 +690,9 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                         <i className={reached ? s.meterDone : ""} style={{ width: `${Math.min(100, objective.progress_pct)}%` }} />
                       </div>
                     ) : null}
+                    <MeasurementDetails measurement={objective.measurement} source={objective.source} />
                     <span className={s.sub}>
-                      {objective.label} · {objective.source === "manual" ? "valor manual" : `${objective.source === "meta" ? "Meta Ads" : "Shopify"} · últimos 30 días`}
+                      {objective.label} · {objective.source === "manual" ? "valor manual" : `${objective.source === "meta" ? "Meta Ads" : "Shopify"}`}
                     </span>
                   </div>
                 );
@@ -712,8 +720,7 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                 const marketingAsset = marketingAssetsByTask.get(task.id) ?? null;
                 return (
                   <li key={task.id} className={`${s.task} task-lift ${isDone ? s.taskDone : ""}`}>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       id={`camino-task-${task.id}`}
                       checked={isDone}
                       disabled={!canTick || !["pending", "in_progress", "completed"].includes(task.status)}
@@ -736,8 +743,9 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                     </label>
                     <span className={`${s.due} ${late ? s.late : ""}`}>{task.due_at ? shortDate(task.due_at) : ""}</span>
                     {task.description?.trim() || task.plan_meta?.definition_of_done || task.plan_meta?.rationale || task.plan_meta?.evidence?.length ? (
-                      <details className={s.how}>
-                        <summary>Cómo hacerlo</summary>
+                      <Collapsible className={s.how}>
+                        <CollapsibleTrigger>Cómo hacerlo<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                        <CollapsibleContent>
                         {task.description?.trim() ? <p>{task.description}</p> : null}
                         {task.plan_meta?.definition_of_done ? <p><b>Se da por hecha cuando:</b> {task.plan_meta.definition_of_done}</p> : null}
                         {task.plan_meta?.rationale ? <p><b>Por qué:</b> {task.plan_meta.rationale}</p> : null}
@@ -750,17 +758,18 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
                             ))}
                           </span>
                         ) : null}
-                      </details>
+                      </CollapsibleContent>
+                      </Collapsible>
                     ) : null}
                     {marketingAsset ? (
                       <>
                         <span className={s.taskAssetStatus}>Marketing · {marketingAssetStatusLabel(marketingAsset)}</span>
-                        <a className={s.taskAction} href={marketingAssetHref(marketingAsset.id)}>Abrir borrador</a>
+                        <a className={buttonVariants({ variant: "secondary", size: "xs", className: s.taskAction })} href={marketingAssetHref(marketingAsset.id)}>Abrir borrador</a>
                       </>
                     ) : onGenerateMarketingTask && taskWantsEmailDraft(task) ? (
                       <button
                         type="button"
-                        className={s.taskAction}
+                        className={buttonVariants({ variant: "secondary", size: "xs", className: s.taskAction })}
                         disabled={generatingTaskId === task.id}
                         onClick={() => onGenerateMarketingTask(task)}
                         aria-label={`Crear borrador de email para: ${task.title}`}
@@ -777,20 +786,20 @@ function MilestonePanel({ stop, objectives, formatObjective, today, canResolveTa
           )}
         </div>
       </div>
-      <div className={s.discussion}>
+      {hasConsultant ? <div className={s.discussion}>
         <strong>{variant === "consultant" ? "Hablar de este hito con el cliente" : "¿Lo revisas con tu consultor?"}</strong>
         {onDiscuss ? (
           <button
             type="button"
-            className={s.btn}
+            className={buttonVariants({ variant: "secondary" })}
             onClick={() => onDiscuss({ code, name: milestone.name, targetDate: milestone.target_date, doneTasks: done, totalTasks: tasks.length, late: days !== null && days < 0 && state !== "done" })}
           >
             Escribir sobre este hito
           </button>
         ) : (
-          <a className={s.btn} href="/mensajes">Abrir Comunicación</a>
+          <a className={buttonVariants({ variant: "secondary" })} href="/mensajes">Abrir Comunicación</a>
         )}
-      </div>
+      </div> : <p className="text-sm text-muted">Tu equipo gestiona este camino. Consulta la revisión de IA para decidir el siguiente paso.</p>}
       {extra}
     </section>
   );
@@ -800,7 +809,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, onApproveLearn
   review: MapReview;
   formatGoal: (value: number) => string;
   renderChangeDecision?: (index: number) => ReactNode;
-  onApproveLearning?: (reviewId: string, learningIndex: number) => Promise<void>;
+  onApproveLearning?: (reviewId: string, learningIndex: number, edits?: LearningEdits) => Promise<void>;
   baseline: number | null;
   target: number | null;
 }) {
@@ -835,6 +844,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, onApproveLearn
             </div>
           </div>
         ) : null}
+        <MeasurementDetails measurement={output.goal_progress} />
         {output.progress?.length ? (
           <div className={s.reviewSignals}>
             <div className={s.sech}>
@@ -883,27 +893,7 @@ function WeeklyReview({ review, formatGoal, renderChangeDecision, onApproveLearn
                   <span>{learning.learning}</span>
                   <span>Aplica a: {learning.applies_to} · Confianza {displayValue(learning.confidence)}</span>
                   <span>Evidencia: {learning.evidence}</span>
-                  {onApproveLearning ? (
-                    <button
-                      type="button"
-                      className={s.taskAction}
-                      disabled={approvingLearningIndex !== null || approvedLearningIndexes.has(index)}
-                      onClick={async () => {
-                        setApprovingLearningIndex(index);
-                        try {
-                          await onApproveLearning(review.id, index);
-                          setApprovedLearningIndexes((current) => new Set(current).add(index));
-                          toast.success("Aprendizaje guardado en el Conocimiento de esta tienda.");
-                        } catch (error) {
-                          toast.danger(error instanceof Error ? error.message : "No se pudo guardar el aprendizaje.");
-                        } finally {
-                          setApprovingLearningIndex(null);
-                        }
-                      }}
-                    >
-                      {approvedLearningIndexes.has(index) ? "Guardado en Conocimiento" : approvingLearningIndex === index ? "Guardando…" : "Guardar en Conocimiento"}
-                    </button>
-                  ) : null}
+                  {onApproveLearning ? <LearningDecision learning={learning} onSave={(edits) => onApproveLearning(review.id, index, edits)} /> : null}
                 </li>
               ))}
             </ul>
@@ -1071,14 +1061,10 @@ export function CaminoDraftMap({ phases: draft, finalLabel, variant = "client" }
             {phases.length} {phases.length === 1 ? "fase" : "fases"} · {stops.length} {stops.length === 1 ? "hito" : "hitos"} · {draftTaskCount} tareas
           </span>
           <span className={s.mapHint}>Selecciona un hito para ver sus tareas</span>
-          <div className={s.styleSeg} role="group" aria-label="Estilo del mapa">
-            <button type="button" aria-pressed={!adventure} onClick={() => setAdventure(false)}>
-              Formal
-            </button>
-            <button type="button" aria-pressed={adventure} onClick={() => setAdventure(true)}>
-              Aventura
-            </button>
-          </div>
+          <ToggleGroup aria-label="Estilo del mapa" className={s.styleSeg} value={adventure ? "adventure" : "formal"} onValueChange={(value) => setAdventure(value === "adventure")}>
+            <ToggleGroupItem value="formal">Formal</ToggleGroupItem>
+            <ToggleGroupItem value="adventure">Aventura</ToggleGroupItem>
+          </ToggleGroup>
         </div>
       </section>
       {selected ? (

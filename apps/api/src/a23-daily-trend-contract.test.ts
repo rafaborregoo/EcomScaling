@@ -37,22 +37,20 @@ test("A23 runtime passes server-owned store scope to the daily trend RPC", async
   assert.match(source, /base64: bytes\.toString\("base64"\)/);
 });
 
-test("A23 inspects imported still images while A15 extracts video frames through the server", async () => {
+test("A23 inspects imported video thumbnails as stills and never fetches video bytes", async () => {
   const [runtime, bank, ui] = await Promise.all([
     readFile(new URL("./ai-runtime.ts", import.meta.url), "utf8"),
     readFile(new URL("./instagram-image-bank.ts", import.meta.url), "utf8"),
     readFile(new URL("../../web/src/app/marketing/imagenes/page.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(runtime, /\.in\("asset_type", \["image", "video"\]\)/);
-  assert.match(runtime, /miniatura fija de/);
+  assert.match(runtime, /miniatura fija de vídeo/);
   assert.match(runtime, /no permite evaluar movimiento ni montaje/);
   assert.match(runtime, /no infieras movimiento, montaje, ritmo ni el gancho del primer segundo/);
   assert.match(runtime, /const preferredType = videoByAd\.get\(adId\) \? "video" : "image"/);
   assert.match(runtime, /\.slice\(0, 8\)/);
   assert.match(bank, /resolveMetaVisualRepresentation/);
-  assert.match(bank, /imported_representation: params\.representationKind/);
-  assert.match(bank, /extractMetaVideoFrames\(downloaded\.buffer\)/);
-  assert.match(bank, /representation_kind: "video_frame"/);
-  assert.match(ui, /Extraer fotogramas/);
-  assert.match(ui, /hasta 8 fotogramas uniformes/);
+  assert.match(bank, /imported_representation: params\.assetType === "video" \? "static_thumbnail_only"/);
+  assert.match(ui, /El vídeo completo no se\s*importa:\s*solo la imagen fija/);
+  assert.match(ui, /miniatura de vídeo/i);
 });

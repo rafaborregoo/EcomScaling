@@ -12,13 +12,23 @@ import {
 import {
   Badge,
   Banner,
-  Card,
   EmptyState,
   EYEBROW,
   List,
   LoadingBlock,
   Metric,
   Select,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 import { fmtDate } from "./format";
 
@@ -43,70 +53,72 @@ function KlaviyoBlock({ report, currency }: { report: KlaviyoAttribution | null;
   const style = channelStyle("Email");
   if (!report?.connected) {
     return (
-      <Card title="Email · Klaviyo">
-        <EmptyState
-          title="Klaviyo sin conectar"
-          hint="Conecta la cuenta para ver qué atribuye el email."
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Email · Klaviyo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="Klaviyo sin conectar"
+            hint="Conecta la cuenta para ver qué atribuye el email."
+          />
+        </CardContent>
       </Card>
     );
   }
   const { totals, previous, campaigns } = report;
   const money = (value: number) => currency ? formatMoney(value, currency) : value.toLocaleString("es-ES", { maximumFractionDigits: 2 });
   return (
-    <Card
-      title="Email · Klaviyo"
-      description={`Ingresos atribuidos por Klaviyo en su propia ventana de conversión. No es venta Shopify.${currency ? "" : " Moneda no disponible."}`}
-      actions={<span className={`h-5 w-1 ${style.fill}`} aria-hidden />}
-    >
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Metric
-          card
-          label="Ingresos atribuidos por Klaviyo"
-          value={money(totals.revenue)}
-          delta={delta(totals.revenue, previous?.revenue)}
-        />
-        <Metric
-          card
-          label="Conversiones atribuidas"
-          value={totals.conversions.toLocaleString("es-ES")}
-          delta={delta(totals.conversions, previous?.conversions)}
-        />
-        <Metric
-          card
-          size="sm"
-          label="Apertura / clic"
-          value={`${pct(totals.open_rate)} · ${pct(totals.click_rate)}`}
-          hint={`${totals.delivered.toLocaleString("es-ES")} entregados`}
-        />
-      </div>
-
-      {campaigns.length > 0 ? (
-        <div className="mt-4">
-          <p className={EYEBROW}>Campañas con más ingreso atribuido</p>
-          <List as="ul" className="text-sm">
-            {campaigns.slice(0, 5).map((campaign) => (
-              <List.Item
-                as="li"
-                key={campaign.id}
-                className="flex items-center justify-between gap-3 py-2"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate">{campaign.name}</span>
-                  {campaign.send_time ? (
-                    <span className="block text-xs text-muted">
-                      {fmtDate(campaign.send_time)}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="shrink-0 tabular-nums">
-                  {money(campaign.revenue)}
-                </span>
-              </List.Item>
-            ))}
-          </List>
+    <Card>
+      <CardHeader>
+        <CardTitle>Email · Klaviyo</CardTitle>
+        <CardDescription>{`Ingresos atribuidos por Klaviyo en su propia ventana de conversión. No es venta Shopify.${currency ? "" : " Moneda no disponible."}`}</CardDescription>
+        <CardAction><span className={`h-5 w-1 ${style.fill}`} aria-hidden /></CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Metric
+            card
+            label="Ingresos atribuidos por Klaviyo"
+            value={money(totals.revenue)}
+            delta={delta(totals.revenue, previous?.revenue)}
+          />
+          <Metric
+            card
+            label="Conversiones atribuidas"
+            value={totals.conversions.toLocaleString("es-ES")}
+            delta={delta(totals.conversions, previous?.conversions)}
+          />
+          <Metric
+            card
+            size="sm"
+            label="Apertura / clic"
+            value={`${pct(totals.open_rate)} · ${pct(totals.click_rate)}`}
+            hint={`${totals.delivered.toLocaleString("es-ES")} entregados`}
+          />
         </div>
-      ) : null}
+
+        {campaigns.length > 0 ? (
+          <div className="mt-4">
+            <p className={EYEBROW}>Campañas con más ingreso atribuido</p>
+            <List as="ul" className="text-sm">
+              {campaigns.slice(0, 5).map((campaign) => (
+                <Item key={campaign.id} size="xs" className="flex-nowrap" render={<li />}>
+                  <ItemContent>
+                    <ItemTitle className="block truncate font-normal">{campaign.name}</ItemTitle>
+                    {campaign.send_time ? (
+                      <ItemDescription>{fmtDate(campaign.send_time)}</ItemDescription>
+                    ) : null}
+                  </ItemContent>
+                  <ItemActions className="tabular-nums">
+                    {money(campaign.revenue)}
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
@@ -115,11 +127,16 @@ function MetaBlock({ report }: { report: MetaAttribution | null }) {
   const style = channelStyle("Meta");
   if (!report) {
     return (
-      <Card title="Meta Ads">
-        <EmptyState
-          title="Meta sin conectar"
-          hint="Conecta la cuenta publicitaria para ver gasto y retorno."
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Meta Ads</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="Meta sin conectar"
+            hint="Conecta la cuenta publicitaria para ver gasto y retorno."
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -128,68 +145,69 @@ function MetaBlock({ report }: { report: MetaAttribution | null }) {
   const roas = report.acquisition.roas;
   const actionType = report.acquisition.purchase_action_types?.[0];
   return (
-    <Card
-      title="Meta Ads"
-      description="Valor atribuido por Meta en su ventana de atribución. Moneda no disponible; se muestran los importes tal como los informa Meta."
-      actions={<span className={`h-5 w-1 ${style.fill}`} aria-hidden />}
-    >
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Metric card label="Gasto" value={spend.toLocaleString("es-ES", { maximumFractionDigits: 2 })} />
-        <Metric
-          card
-          label="Valor atribuido por Meta"
-          value={value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}
-          hint={actionType ? "Compras según el evento configurado en Meta" : undefined}
-        />
-        <Metric
-          card
-          label="ROAS"
-          value={roas == null ? "—" : num(roas).toFixed(2)}
-          tone={roas != null && num(roas) < 1 ? "danger" : "default"}
-          hint={
-            roas != null && num(roas) < 1
-              ? "Gasta más de lo que Meta le atribuye"
-              : undefined
-          }
-        />
-      </div>
-
-      {report.campaigns.length > 0 ? (
-        <div className="mt-4">
-          <p className={EYEBROW}>Campañas por gasto</p>
-          <List as="ul" className="text-sm">
-            {report.campaigns.slice(0, 5).map((campaign) => (
-              <List.Item
-                as="li"
-                key={campaign.campaign_id}
-                className="flex items-center justify-between gap-3 py-2"
-              >
-                <span className="min-w-0 truncate">
-                  {campaign.campaign_name ?? "(sin nombre)"}
-                </span>
-                <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                  <span className="text-muted">
-                    {num(campaign.spend).toLocaleString("es-ES", { maximumFractionDigits: 2 })}
-                  </span>
-                  <Badge
-                    tone={
-                      campaign.roas == null
-                        ? "neutral"
-                        : num(campaign.roas) >= 1
-                          ? "success"
-                          : "danger"
-                    }
-                  >
-                    {campaign.roas == null
-                      ? "sin ROAS"
-                      : `${num(campaign.roas).toFixed(2)}x`}
-                  </Badge>
-                </span>
-              </List.Item>
-            ))}
-          </List>
+    <Card>
+      <CardHeader>
+        <CardTitle>Meta Ads</CardTitle>
+        <CardDescription>Valor atribuido por Meta en su ventana de atribución. Moneda no disponible; se muestran los importes tal como los informa Meta.</CardDescription>
+        <CardAction><span className={`h-5 w-1 ${style.fill}`} aria-hidden /></CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Metric card label="Gasto" value={spend.toLocaleString("es-ES", { maximumFractionDigits: 2 })} />
+          <Metric
+            card
+            label="Valor atribuido por Meta"
+            value={value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}
+            hint={actionType ? "Compras según el evento configurado en Meta" : undefined}
+          />
+          <Metric
+            card
+            label="ROAS"
+            value={roas == null ? "—" : num(roas).toFixed(2)}
+            tone={roas != null && num(roas) < 1 ? "danger" : "default"}
+            hint={
+              roas != null && num(roas) < 1
+                ? "Gasta más de lo que Meta le atribuye"
+                : undefined
+            }
+          />
         </div>
-      ) : null}
+
+        {report.campaigns.length > 0 ? (
+          <div className="mt-4">
+            <p className={EYEBROW}>Campañas por gasto</p>
+            <List as="ul" className="text-sm">
+              {report.campaigns.slice(0, 5).map((campaign) => (
+                <Item key={campaign.campaign_id} size="xs" className="flex-nowrap" render={<li />}>
+                  <ItemContent>
+                    <ItemTitle className="block truncate font-normal">
+                      {campaign.campaign_name ?? "(sin nombre)"}
+                    </ItemTitle>
+                  </ItemContent>
+                  <ItemActions className="flex-nowrap gap-3 tabular-nums">
+                    <span className="text-muted">
+                      {num(campaign.spend).toLocaleString("es-ES", { maximumFractionDigits: 2 })}
+                    </span>
+                    <Badge
+                      tone={
+                        campaign.roas == null
+                          ? "neutral"
+                          : num(campaign.roas) >= 1
+                            ? "success"
+                            : "danger"
+                      }
+                    >
+                      {campaign.roas == null
+                        ? "sin ROAS"
+                        : `${num(campaign.roas).toFixed(2)}x`}
+                    </Badge>
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

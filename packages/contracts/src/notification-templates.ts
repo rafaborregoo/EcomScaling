@@ -41,9 +41,15 @@ const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1
 const PROVIDER_LABEL: Record<string, string> = {
   shopify: "Shopify",
   meta_ads: "Meta Ads",
+  meta: "Meta Ads",
   klaviyo: "Klaviyo",
   instagram: "Instagram",
 };
+
+/** «Meta Ads», nunca «meta_ads»: el nombre del proveedor tal como lo conoce quien lee. */
+export function providerLabel(provider: string): string {
+  return PROVIDER_LABEL[provider] ?? "la integración";
+}
 
 function tasksUrl(organizationId: string | null, params: string) {
   const query = [organizationId ? `organizationId=${organizationId}` : null, params || null].filter(Boolean).join("&");
@@ -63,6 +69,9 @@ export type CampaignEvent =
   | "changes_requested"
   | "reviewed";
 
+/** `when` ya viene formateado (día y hora) por quien emite: la plantilla no conoce husos. */
+export type MeetingNoticeData = { meetingId: string; who: string; title: string; when: string; reason?: string | null };
+
 export type NotificationData = {
   alert_critical: { alertId: string; title: string; message: string | null; store: string | null };
   alert: { alertId: string; title: string; message: string | null; store: string | null };
@@ -77,6 +86,9 @@ export type NotificationData = {
   camino_objective:
     | { kind: "changed"; changeId: string | null; who: string; action: "created" | "updated" | "removed"; scope: "objective" | "plan_goal"; detail: string; reason: string | null }
     | { kind: "review"; proposals: number };
+  meeting_booked: MeetingNoticeData;
+  meeting_rescheduled: MeetingNoticeData;
+  meeting_cancelled: MeetingNoticeData;
   message: { who: string; text: string | null };
   campaign_review: { event: CampaignEvent; itemId: string; campaignTitle: string; store: string | null; consultant: string | null; detail: string | null };
   integration_error: { connectionId: string; provider: string; accountName: string | null };
@@ -273,6 +285,36 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
     merge: (_previous, next) => ({ title: next.title, message: next.message }),
   },
 
+  meeting_booked: {
+    render: (data, organizationId) => ({
+      title: `${data.who} ha reservado «${data.title.slice(0, 100)}»`,
+      message: data.when,
+      url: `/reuniones?organizationId=${organizationId}&meeting=${data.meetingId}`,
+      entityType: "meeting",
+      entityId: data.meetingId,
+    }),
+  },
+
+  meeting_rescheduled: {
+    render: (data, organizationId) => ({
+      title: `${data.who} ha movido «${data.title.slice(0, 100)}»`,
+      message: `Nueva hora: ${data.when}`,
+      url: `/reuniones?organizationId=${organizationId}&meeting=${data.meetingId}`,
+      entityType: "meeting",
+      entityId: data.meetingId,
+    }),
+  },
+
+  meeting_cancelled: {
+    render: (data, organizationId) => ({
+      title: `${data.who} ha cancelado «${data.title.slice(0, 100)}»`,
+      message: data.reason ? `${data.when}. ${data.reason}` : data.when,
+      url: `/reuniones?organizationId=${organizationId}&meeting=${data.meetingId}`,
+      entityType: "meeting",
+      entityId: data.meetingId,
+    }),
+  },
+
   campaign_review: {
     render: (data, organizationId) => ({
       ...campaignCopy(data),
@@ -284,9 +326,9 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
 
   integration_error: {
     render: (data, organizationId) => {
-      const provider = PROVIDER_LABEL[data.provider] ?? data.provider;
+      const provider = providerLabel(data.provider);
       return {
-        title: `${provider} se ha desconectado`,
+        title: capitalize(`${provider} se ha desconectado`),
         message: `${data.accountName ? `${data.accountName}. ` : ""}Perdió el permiso y sus datos están parados. Reconéctala y vuelven solos, sin perder el histórico.`,
         url: `/integraciones?organizationId=${organizationId}`,
         entityType: "integration_connection",
@@ -299,7 +341,7 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
 
   integration_expiring: {
     render: (data, organizationId) => {
-      const provider = PROVIDER_LABEL[data.provider] ?? data.provider;
+      const provider = providerLabel(data.provider);
       const date = new Date(data.expiresAt).toLocaleDateString("es-ES", { day: "numeric", month: "long", timeZone: "Europe/Madrid" });
       return {
         title: `El permiso de ${provider} caduca el ${date}`,

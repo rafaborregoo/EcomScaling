@@ -138,7 +138,9 @@ async function refreshAccessToken() {
 const AI_REQUEST_TIMEOUT_MS = 300_000;
 
 export function defaultTimeoutFor(path: string): number | undefined {
-  return path.includes("/ai/") ? AI_REQUEST_TIMEOUT_MS : undefined;
+  // La explicación de A29 (/metric-analysis/:metric/explanation) también
+  // ejecuta el agente en línea cuando no hay una guardada de la última hora.
+  return path.includes("/ai/") || /\/metric-analysis\/[^/?]+\/explanation/.test(path) ? AI_REQUEST_TIMEOUT_MS : undefined;
 }
 
 // `fetch` etiqueta un body de tipo string como text/plain, y Fastify trae

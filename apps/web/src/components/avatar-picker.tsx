@@ -3,24 +3,27 @@
 import { useCallback, useState } from "react";
 import { ImagePlus, Upload } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabase";
-import { Avatar, UploadButton, cn } from "@/components/ui";
+import { AVATAR_TYPES, avatarFileProblem, avatarFileExtension } from "@/lib/avatar-file";
+import { Avatar, AvatarFallback, AvatarImage, avatarInitials, Button, UploadButton, cn, Card, CardContent } from "@/components/ui";
 
-// Avatares alojados por HeroUI. Si alguno no carga, el <Avatar.Fallback> con
-// las iniciales del nombre lo cubre.
+// Avatares alojados por HeroUI. Si alguno no carga, el AvatarFallback con las
+// iniciales del nombre lo cubre. Comprobados el 2026-10-26: yellow y pink
+// devolvían 403, por eso no están.
 export const AVATAR_PRESETS = [
   "blue",
   "green",
   "purple",
   "red",
-  "yellow",
-  "pink",
+  "orange",
+  "black",
 ].map(
   (color) =>
     `https://heroui-assets.nyc3.cdn.digitaloceanspaces.com/avatars/${color}.jpg`,
 );
 
 // Selector de avatar reutilizable (onboarding y /perfil): rejilla de presets +
-// subida de foto propia al bucket `avatars/<uid>/`. Controlado por value/onChange.
+// subida de foto propia al bucket `avatars/<uid>/`. Controlado por value/onChange;
+// guardar en el perfil es cosa de quien lo usa.
 export function AvatarPicker({
   name,
   value,
@@ -30,7 +33,8 @@ export function AvatarPicker({
 }: {
   name: string;
   value: string | null;
-  onChange: (url: string) => void;
+  /** `null` = sin foto: se ven las iniciales. */
+  onChange: (url: string | null) => void;
   userId: string;
   onUploadingChange?: (uploading: boolean) => void;
 }) {
@@ -39,21 +43,31 @@ export function AvatarPicker({
   const uploadAvatar = useCallback(
     async (file: File) => {
       setUploadError(null);
-      onUploadingChange?.(true);
-      const supabase = getSupabaseClient();
-      const ext = (file.name.split(".").pop() || "png").toLowerCase();
-      const path = `${userId}/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (error) {
-        setUploadError(error.message);
-        onUploadingChange?.(false);
+      const problem = avatarFileProblem(file);
+      if (problem) {
+        setUploadError(problem);
         return;
       }
-      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-      onChange(data.publicUrl);
-      onUploadingChange?.(false);
+      onUploadingChange?.(true);
+      try {
+        const supabase = getSupabaseClient();
+        // Extensión por tipo real, no por el nombre (una «foto» sin extensión
+        // o con .jpeg/.JPG acababa con una ruta rara).
+        const path = `${userId}/${crypto.randomUUID()}.${avatarFileExtension(file.type)}`;
+        const { error } = await supabase.storage
+          .from("avatars")
+          .upload(path, file, { contentType: file.type, upsert: false });
+        if (error) {
+          setUploadError(`No se pudo subir la foto: ${error.message}`);
+          return;
+        }
+        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+        onChange(data.publicUrl);
+      } catch {
+        setUploadError("No se pudo subir la foto por un error de red. Inténtalo de nuevo.");
+      } finally {
+        onUploadingChange?.(false);
+      }
     },
     [onChange, onUploadingChange, userId],
   );
@@ -72,16 +86,28 @@ export function AvatarPicker({
               value === url ? "ring-accent" : "ring-transparent",
             )}
             aria-label="Elegir avatar"
+            aria-pressed={value === url}
           >
-            <Avatar name={name || "?"} src={url} size="md" />
+            <Avatar size="lg">
+              <AvatarImage src={url} alt="" />
+              <AvatarFallback>{avatarInitials(name)}</AvatarFallback>
+            </Avatar>
           </button>
         ))}
       </div>
       {value && !AVATAR_PRESETS.includes(value) ? (
-        <div className="mt-4 flex items-center gap-3 rounded-lg border border-separator bg-[#f5f4f2] px-3 py-2">
-          <Avatar name={name || "?"} src={value} size="sm" />
-          <span className="text-sm font-medium text-foreground">Foto seleccionada</span>
-        </div>
+        <Card size="sm" className="mt-4"><CardContent className="flex items-center gap-3">
+          <Avatar>
+            <AvatarImage src={value} alt="" />
+            <AvatarFallback>{avatarInitials(name)}</AvatarFallback>
+          </Avatar>
+          <span className="text-sm font-medium text-foreground">Foto seleccionada · se aplica al guardar</span>
+        </CardContent></Card>
+      ) : null}
+      {value ? (
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => onChange(null)}>
+          Quitar la foto y usar las iniciales
+        </Button>
       ) : null}
       <div className="mt-4 flex flex-col gap-4 rounded-xl border border-dashed border-accent/40 bg-accent/5 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
@@ -90,20 +116,20 @@ export function AvatarPicker({
           </span>
           <div>
             <p className="text-sm font-semibold text-foreground">Sube tu propia foto</p>
-            <p className="mt-0.5 text-xs text-muted">PNG, JPG, WEBP o GIF</p>
+            <p className="mt-0.5 text-xs text-muted">PNG, JPG, WEBP o GIF · hasta 2 MB</p>
           </div>
         </div>
         <UploadButton
-          accept="image/png,image/jpeg,image/webp,image/gif"
+          accept={AVATAR_TYPES.join(",")}
           variant="secondary"
-          size="md"
+          size="default"
           onFile={uploadAvatar}
         >
           <Upload size={16} aria-hidden />
           Elegir archivo
         </UploadButton>
       </div>
-      {uploadError ? <p className="mt-2 text-xs text-danger">{uploadError}</p> : null}
+      {uploadError ? <p role="alert" className="mt-2 text-xs text-danger">{uploadError}</p> : null}
     </div>
   );
 }

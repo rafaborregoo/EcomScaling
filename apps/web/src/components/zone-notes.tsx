@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState, type ComponentProps, type FormEvent, type MouseEvent, type ReactNode } from "react";
-import { Dialog, MessageIcon, PlusIcon, Popover, toast } from "@/components/ui";
+import { ScrollArea, Drawer, DrawerContent, DrawerHeader, DrawerTitle, EYEBROW, MessageIcon, PlusIcon, Popover, PopoverContent, PopoverTrigger, toast } from "@/components/ui";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 
 // Notas del consultor ancladas a una tarjeta del panel (cifra o bloque).
 // La vista del cliente y la del consultor usan la misma clave (`anchor`), así
@@ -234,8 +235,8 @@ export function ZoneNoteMark({ anchor, label }: { anchor: string; label: string 
   const count = ctx.asConsultant ? notes.length : unseen.length;
   return (
     <Popover>
-      <Popover.Trigger>
-        <button
+      <PopoverTrigger
+        render={<button
           type="button"
           className="zone-note-mark"
           data-zone-note={unseen.length ? "unseen" : notes.length ? "seen" : "empty"}
@@ -244,10 +245,10 @@ export function ZoneNoteMark({ anchor, label }: { anchor: string; label: string 
         >
           <MessageIcon aria-hidden="true" />
           {count ? <span>{count}</span> : <PlusIcon aria-hidden="true" className="zone-note-plus" />}
-        </button>
-      </Popover.Trigger>
-      <Popover.Content placement="bottom start" className="zone-note-popover max-w-[calc(100vw-16px)]">
-        <Popover.Dialog aria-label={`Notas sobre ${label}`} className="zone-note-pop">
+        </button>}
+      />
+      <PopoverContent side="bottom" align="start" className="w-[22rem] p-0" aria-label={`Notas sobre ${label}`}>
+        <div className="zone-note-pop">
           <header className="zone-note-head">
             <MessageIcon aria-hidden="true" />
             <div>
@@ -256,8 +257,8 @@ export function ZoneNoteMark({ anchor, label }: { anchor: string; label: string 
             </div>
           </header>
           <NoteThread ctx={ctx} anchor={anchor} />
-        </Popover.Dialog>
-      </Popover.Content>
+        </div>
+      </PopoverContent>
     </Popover>
   );
 }
@@ -283,6 +284,7 @@ export function ZoneCard({ anchor, label, previewClassName, className, children,
   const ctx = useContext(ZoneNotesContext);
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState<string[]>([]);
+  const isDesktop = useIsDesktop();
   useEffect(() => setOpened(readOpened()), []);
   const notes = ctx ? visibleNotes(ctx, anchor) : [];
   const clickable = notes.length > 0;
@@ -318,15 +320,28 @@ export function ZoneCard({ anchor, label, previewClassName, className, children,
         {children}
       </div>
       {ctx && clickable ? (
-        <Dialog isOpen={open} onOpenChange={setOpen} title={label} eyebrow={ctx.asConsultant ? "Nota para el cliente" : "Tu consultor"} cancelLabel={false}>
-          <div className={`zone-card-stage ${previewClassName ?? ""}`}>
-            <div className={`${className ?? ""} zone-card-preview`}>{children}</div>
-          </div>
-          <section className="zone-card-thread" aria-label="Comentarios">
-            <h3>Comentarios</h3>
-            <NoteThread ctx={ctx} anchor={anchor} />
-          </section>
-        </Dialog>
+        <Drawer
+          open={open}
+          onOpenChange={setOpen}
+          swipeDirection={isDesktop ? "right" : "down"}
+          showSwipeHandle={!isDesktop}
+        >
+          <DrawerContent className="sm:max-w-[40rem]">
+            <DrawerHeader>
+              <span className={EYEBROW}>{ctx.asConsultant ? "Nota para el cliente" : "Tu consultor"}</span>
+              <DrawerTitle>{label}</DrawerTitle>
+            </DrawerHeader>
+            <ScrollArea className="flex-1 space-y-4 p-4 sm:px-6">
+              <div className={`zone-card-stage ${previewClassName ?? ""}`}>
+                <div className={`${className ?? ""} zone-card-preview`}>{children}</div>
+              </div>
+              <section className="zone-card-thread" aria-label="Comentarios">
+                <h3>Comentarios</h3>
+                <NoteThread ctx={ctx} anchor={anchor} />
+              </section>
+            </ScrollArea>
+          </DrawerContent>
+        </Drawer>
       ) : null}
     </>
   );

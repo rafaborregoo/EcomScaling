@@ -128,6 +128,22 @@ function diasCubiertos(
   return dias;
 }
 
+/**
+ * La conexión que cuenta de un proveedor. Una organización acumula conexiones de
+ * intentos viejos (borradas, a medias, caídas); coger la primera evaluaba la
+ * credencial de una tienda que ya no existe y avisaba de «credencial caducada»
+ * con la conectada y al día.
+ */
+export function conexionVigente<T extends { provider: string; status: string | null; last_sync_at: string | null }>(
+  conexiones: T[],
+  provider: string,
+): T | undefined {
+  const rank = (c: T) => (c.status === "connected" ? 0 : ["pending", "pending_deletion", "error"].includes(c.status ?? "") ? 2 : 1);
+  return conexiones
+    .filter((c) => c.provider === provider)
+    .sort((a, b) => rank(a) - rank(b) || Date.parse(b.last_sync_at ?? "") - Date.parse(a.last_sync_at ?? "") || 0)[0];
+}
+
 type Conexion = {
   id: string;
   provider: string;
@@ -180,15 +196,16 @@ export async function runDataQualityEngine(env: LoadedApiEnv, organizationId: st
   const { data: tiendas } = await supabase
     .from("shopify_stores")
     .select("id")
-    .eq("organization_id", organizationId);
+    .eq("organization_id", organizationId)
+    // Una tienda dada de baja no se evalúa: su dato parado es esperado y abría
+    // avisos «obsoletos» que ya no tienen arreglo.
+    .eq("is_active", true);
 
   const resumen = { sources: 0, assessments: 0, issues_opened: 0, issues_updated: 0, issues_resolved: 0 };
   const evaluadas: { id: string; issues: ReturnType<typeof assessSource>["issues"]; store_id: string | null }[] = [];
 
   for (const definicion of FUENTES) {
-    const conexion = (conexiones ?? []).find((c) => c.provider === definicion.source) as
-      | Conexion
-      | undefined;
+    const conexion = conexionVigente((conexiones ?? []) as Conexion[], definicion.source);
     // Una integracion que nunca se conecto no es una fuente degradada: no es
     // una fuente. Evaluarla produciria un `unusable` permanente que no dice
     // nada de la calidad del dato de este negocio.

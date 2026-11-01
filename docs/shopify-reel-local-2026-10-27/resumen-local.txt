@@ -1,0 +1,361 @@
+- button "Open Next.js Dev Tools":
+- alert
+- main:
+  - link "Saltar al contenido principal":
+    - /url: "#portal-content"
+  - link "E-NORA, ir al inicio":
+    - /url: /dashboard
+  - paragraph: Shopify
+  - generic: /
+  - button "e-nora-demo.myshopify.com Tienda":
+    - generic: e-nora-demo.myshopify.com
+  - combobox
+  - button "Enviar feedback":
+    - generic: Feedback
+  - button "Buscar… Ctrl K":
+    - text: Buscar…
+    - generic: Ctrl K
+  - button "Abrir Consultor IA":
+    - generic: Consultor IA
+  - button "Centro de actividad (3 elementos)":
+    - button "Centro de actividad (3 elementos)":
+      - generic: "3"
+  - button "Abrir menú de perfil":
+    - button "Abrir menú de perfil"
+  - complementary:
+    - navigation "Módulos":
+      - link "Inicio":
+        - /url: /dashboard?tab=todo
+        - generic: Inicio
+      - link "Trabajo":
+        - /url: /camino
+        - generic: Trabajo
+      - link "Marketing":
+        - /url: /marketing?section=plan
+        - generic: Marketing
+      - link "Comunicación":
+        - /url: /mensajes
+        - generic: Comunicación
+      - link "Shopify":
+        - /url: /shopify
+        - generic: Shopify
+      - link "Meta":
+        - /url: /meta
+        - generic: Meta
+      - link "Klaviyo":
+        - /url: /klaviyo
+        - generic: Klaviyo
+      - link "Analítica":
+        - /url: /informes
+        - generic: Analítica
+      - link "Conocimiento":
+        - /url: /conocimiento?section=cuestionario
+        - generic: Conocimiento
+    - link "Añadir tienda Shopify":
+      - /url: /integraciones/shopify
+      - generic: Añadir tienda
+    - link "Configuración":
+      - /url: /configuracion?section=resumen
+      - generic "3 incidencias de integración"
+      - generic: Configuración
+      - generic: "3"
+    - button "Control de navegación lateral":
+      - button "Control de navegación lateral":
+        - generic: Navegación
+  - complementary:
+    - 'navigation "Shopify: secciones"':
+      - link "Resumen":
+        - /url: /shopify
+        - generic: Resumen
+      - link "Productos":
+        - /url: /shopify/productos
+        - generic: Productos
+      - link "Inventario":
+        - /url: /shopify/inventario
+        - generic: Inventario
+      - link "Promociones":
+        - /url: /shopify/promociones
+        - generic: Promociones
+  - navigation "breadcrumb":
+    - list:
+      - link "Inicio":
+        - /url: /dashboard?tab=todo
+      - link "Shopify":
+        - /url: /shopify
+      - link "Resumen" [disabled]
+  - heading "E-NORA Demo" [level=1]
+  - paragraph: e-nora-demo.myshopify.com · actualizado n/a
+  - generic: Sincronizando...
+  - region "Has vendido 49.241 €":
+    - group "Periodo":
+      - button "7 días"
+      - button "30 días" [pressed]
+      - button "90 días"
+      - button "6 meses"
+      - button "1 año"
+      - button "Todo"
+    - heading "Has vendido 49.241 €" [level=1]
+    - paragraph:
+      - text: en los últimos 30 días
+      - generic: ▲ 9,5 %
+      - text: vs periodo anterior ·
+      - generic: ▲ 70 %
+      - text: vs año pasado
+    - paragraph: Tu tienda va mejor que el periodo anterior
+    - button "IA Preguntar por qué":
+      - generic: IA
+      - text: Preguntar por qué
+    - group "Ventas netas por día":
+      - application:
+        - generic: 29 sep
+        - generic: 1 oct
+        - generic: 3 oct
+        - generic: 5 oct
+        - generic: 7 oct
+        - generic: 9 oct
+        - generic: 11 oct
+        - generic: 13 oct
+        - generic: 15 oct
+        - generic: 17 oct
+        - generic: 19 oct
+        - generic: 21 oct
+        - generic: 23 oct
+        - generic: 25 oct
+        - generic: 27 oct
+    - paragraph: "Media diaria del periodo anterior: 1.450 €"
+    - generic: Ventas netas por día
+    - generic: Media diaria del periodo anterior
+  - generic "Cifras de la tienda":
+    - group "Pedidos":
+      - generic: Pedidos
+      - paragraph: "942"
+      - paragraph:
+        - generic: ▲ 18 %
+        - generic: vs 800
+    - group "Conversión":
+      - generic: Conversión
+      - paragraph: 3,39 %
+      - paragraph
+      - paragraph: 27.784 visitas
+    - group "Gasto medio por pedido":
+      - generic: Gasto medio por pedido
+      - paragraph: 52,27 €
+      - paragraph:
+        - generic: ▼ 7,0 %
+        - generic: vs 56,21 €
+    - group "Margen bruto":
+      - text: Margen bruto
+      - generic: estimado
+      - paragraph: 59,8 %
+      - paragraph
+      - paragraph: 29.432 € tras coste de producto
+  - 'button "✓ Cifras fiables: costes, visitas, inventario e importes completos"':
+    - text: "✓ Cifras fiables: costes, visitas, inventario e importes completos"
+  - generic: Costes de producto
+  - generic: OK
+  - paragraph: 942 líneas se valoran con el coste de hoy; el margen de los meses viejos puede desviarse.
+  - generic: Sesiones
+  - generic: OK
+  - paragraph: 30 días con sesiones del informe de Shopify. La conversión es real.
+  - generic: Inventario
+  - generic: OK
+  - paragraph: 34 artículos con seguimiento. Un cero significa que no quedan unidades.
+  - generic: Importes netos
+  - generic: OK
+  - paragraph: Todas las líneas traen el importe tras descuentos y reembolsos.
+  - region "Qué hacer":
+    - heading "Qué hacer" [level=3]
+    - paragraph:
+      - text: 6 por resolver ·
+      - link "67 más a largo plazo":
+        - /url: /tareas
+      - text: ·
+      - generic: 1 urgentes
+    - group "Filtrar trabajo pendiente":
+      - button "Todo 6" [pressed]:
+        - text: Todo
+        - generic: "6"
+      - button "Tuyas 6":
+        - text: Tuyas
+        - generic: "6"
+    - list:
+      - button "Marcar como hecha":
+      - paragraph: Verificar existencias, costes y plazos para decidir los regalos
+      - generic: Urgente
+      - generic: lun 9 nov
+      - button "5 pasos"
+      - 'button "Archivar: ya no me interesa"':
+      - button "Añadir comentario a la tarea":
+      - button "Marcar como hecha":
+      - paragraph: Preparar catálogo y servicio de invierno
+      - generic: Alta
+      - generic: sáb 31 oct
+      - button "5 pasos"
+      - 'button "Archivar: ya no me interesa"':
+      - button "Añadir comentario a la tarea":
+      - button "Marcar como hecha":
+      - paragraph: Dimensionar expedición y soporte para Black Friday
+      - generic: Alta
+      - generic: dom 1 nov
+      - button "6 pasos"
+      - 'button "Archivar: ya no me interesa"':
+      - button "Añadir comentario a la tarea":
+      - button "Marcar como hecha":
+      - paragraph: Preparar colección, anuncios y secuencia de Black Friday
+      - generic: Alta
+      - generic: sáb 7 nov
+      - button "6 pasos"
+      - 'button "Archivar: ya no me interesa"':
+      - button "Añadir comentario a la tarea":
+      - button "Marcar como hecha":
+      - paragraph: Preparar la propuesta de email de apertura de invierno
+      - generic: Alta
+      - generic: dom 8 nov
+      - button "5 pasos"
+      - 'button "Archivar: ya no me interesa"':
+      - button "Añadir comentario a la tarea":
+    - list:
+      - button "Marcar como hecha":
+      - paragraph: Trabajar email por audiencia
+      - generic: lun 9 nov
+      - button "5 pasos"
+      - 'button "Archivar: ya no me interesa"':
+      - button "Añadir comentario a la tarea":
+    - button "Ver las 6 (1 más)":
+      - text: Ver las 6 (1 más)
+    - button "Hechas esta semana (5)":
+      - text: Hechas esta semana (5)
+    - list:
+      - text: ✓
+      - generic: Crear los flujos esenciales de bienvenida y carrito abandonado en Klaviyo
+      - text: ✓
+      - generic: Contrastar el evento de compra y el gasto de Meta con Shopify
+      - text: ✓
+      - generic: Decidir semanalmente la inversión según margen, stock y MER
+      - text: ✓
+      - generic: Cerrar la selección y la oferta de Black Friday
+      - text: ✓
+      - generic: Comprobar costes y fijar límites económicos antes de proponer ofertas
+  - region "Conversión":
+    - heading "Conversión" [level=2]
+    - paragraph: De cada 100 visitas compran 3,4.
+    - heading "Del escaparate a la compra" [level=3]
+    - paragraph: Cuántas visitas acaban comprando
+    - group "Embudo de la tienda online":
+      - generic: Visitas
+      - generic: "27.784"
+      - generic: a la tienda online
+      - generic: Añaden al carrito
+      - generic: "2.920"
+      - generic: 10,5 % de las visitas
+      - generic: Llegan al pago
+      - generic: "1.692"
+      - generic: 57,9 % de los que añaden al carrito
+      - generic: Compran
+      - generic: "956"
+      - generic: 56,5 % de los que llegan al pago
+  - region "Productos":
+    - heading "Productos" [level=2]
+    - paragraph
+    - heading "Los más vendidos" [level=3]
+    - paragraph: Por ventas en el periodo
+    - region "Productos más vendidos; desliza para comparar columnas":
+      - table "Ventas netas por producto":
+        - rowgroup:
+          - row "Producto Unidades Ventas netas % del total":
+            - columnheader "Producto"
+            - columnheader "Unidades"
+            - columnheader "Ventas netas"
+            - columnheader "% del total"
+        - rowgroup:
+          - row "Abrir ficha de Chaqueta Boreal Negra 108 12.804 € 26,0 %":
+            - cell "Abrir ficha de Chaqueta Boreal Negra":
+              - link "Abrir ficha de Chaqueta Boreal Negra":
+                - /url: /shopify/productos/0b5293d6-485f-4302-88cc-2d69f3b8e620?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Chaqueta Boreal Negra
+            - cell "108"
+            - cell "12.804 €": 12.804 €
+            - cell "26,0 %"
+          - row "Abrir ficha de Sudadera Capucha Arcilla 131 8.908 € 18,1 %":
+            - cell "Abrir ficha de Sudadera Capucha Arcilla":
+              - link "Abrir ficha de Sudadera Capucha Arcilla":
+                - /url: /shopify/productos/3143e617-8dcc-4bd4-9ff7-d01077e87755?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Sudadera Capucha Arcilla
+            - cell "131"
+            - cell "8.908 €": 8.908 €
+            - cell "18,1 %"
+          - row "Abrir ficha de Sudadera Oversize Arena 135 7.702 € 15,6 %":
+            - cell "Abrir ficha de Sudadera Oversize Arena":
+              - link "Abrir ficha de Sudadera Oversize Arena":
+                - /url: /shopify/productos/8061d2df-26a9-4063-ae95-5c008dd2f116?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Sudadera Oversize Arena
+            - cell "135"
+            - cell "7.702 €": 7.702 €
+            - cell "15,6 %"
+          - row "Abrir ficha de Bolso Mini Bruma 143 5.546 € 11,3 %":
+            - cell "Abrir ficha de Bolso Mini Bruma":
+              - link "Abrir ficha de Bolso Mini Bruma":
+                - /url: /shopify/productos/d59de466-112d-4947-bb20-69a375d64420?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Bolso Mini Bruma
+            - cell "143"
+            - cell "5.546 €": 5.546 €
+            - cell "11,3 %"
+          - row "Abrir ficha de Pantalón Cargo Oliva 83 5.286 € 10,7 %":
+            - cell "Abrir ficha de Pantalón Cargo Oliva":
+              - link "Abrir ficha de Pantalón Cargo Oliva":
+                - /url: /shopify/productos/acae8657-2e03-401b-82a4-4ab4808d6afd?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Pantalón Cargo Oliva
+            - cell "83"
+            - cell "5.286 €": 5.286 €
+            - cell "10,7 %"
+          - row "Abrir ficha de Camiseta Básica Niebla 143 4.112 € 8,4 %":
+            - cell "Abrir ficha de Camiseta Básica Niebla":
+              - link "Abrir ficha de Camiseta Básica Niebla":
+                - /url: /shopify/productos/ead98dd1-9c9c-4f5f-a930-338c680fe123?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Camiseta Básica Niebla
+            - cell "143"
+            - cell "4.112 €": 4.112 €
+            - cell "8,4 %"
+          - row "Abrir ficha de Gorra Costa Cruda 135 3.230 € 6,6 %":
+            - cell "Abrir ficha de Gorra Costa Cruda":
+              - link "Abrir ficha de Gorra Costa Cruda":
+                - /url: /shopify/productos/63214020-4209-4268-9146-0279bf9e6818?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Gorra Costa Cruda
+            - cell "135"
+            - cell "3.230 €": 3.230 €
+            - cell "6,6 %"
+          - row "Abrir ficha de Calcetín Rib Menta 138 1.651 € 3,4 %":
+            - cell "Abrir ficha de Calcetín Rib Menta":
+              - link "Abrir ficha de Calcetín Rib Menta":
+                - /url: /shopify/productos/0222a751-dd63-4ff1-888d-5a05e40da3fc?organizationId=5ebc7b02-ca86-402e-bd61-9abd22f1ee04&connectionId=836364d9-1e29-4273-be44-29f73a53722a
+                - text: Calcetín Rib Menta
+            - cell "138"
+            - cell "1.651 €": 1.651 €
+            - cell "3,4 %"
+    - heading "Stock" [level=3]
+    - paragraph: Estado actual del inventario
+    - button "Actualizar previsión"
+    - text: Agotados
+    - generic: "7"
+    - text: Stock bajo
+    - generic: "4"
+    - text: Con stock vigilado
+    - generic: "34"
+  - region "Clientes":
+    - heading "Clientes" [level=2]
+    - paragraph
+    - generic: 99,9 %
+    - generic: de los pedidos son de clientes que repiten
+    - paragraph: Pedidos
+    - generic: Nuevos 1
+    - generic: Repiten 941
+    - paragraph: Ventas
+    - generic: 58 € de nuevos
+    - generic: 49.183 € de los que repiten
+    - text: Clientes
+    - generic: "241"
+    - text: Pedidos por cliente
+    - generic: 43,72
+    - text: Gasto medio por cliente
+    - generic: 2.340,55 €
+- generic: "23"

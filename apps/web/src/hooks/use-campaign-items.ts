@@ -48,24 +48,28 @@ export function useCampaignItems(organizationId: string, connectionId?: string |
   const [items, setItems] = useState<CampaignItem[]>([]);
   const [agenda, setAgenda] = useState<CampaignAgenda | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!organizationId) {
       setItems([]);
+      setAgenda(null);
+      setError(null);
       setIsLoading(false);
       return;
     }
     setIsLoading(true);
+    setError(null);
     try {
       const response = await apiFetch(
         `/v1/organizations/${organizationId}/campaign-planning${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`,
       );
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("campaign_planning_unavailable");
       const payload = (await response.json()) as { items?: CampaignItem[]; agenda?: CampaignAgenda };
       setItems(payload.items ?? []);
       setAgenda(payload.agenda ?? null);
     } catch {
-      // El calendario es contexto: si no carga, Marketing sigue funcionando.
+      setError("No se pudieron cargar las campañas del calendario.");
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +79,7 @@ export function useCampaignItems(organizationId: string, connectionId?: string |
     void reload();
   }, [reload]);
 
-  return { items, agenda, isLoading, reload };
+  return { items, agenda, isLoading, error, reload };
 }
 
 /**

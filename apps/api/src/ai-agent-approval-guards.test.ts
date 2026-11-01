@@ -127,7 +127,7 @@ test("quien no es candidato recibe 403 sin tocar la base", async () => {
     ok: false,
     statusCode: 403,
     error: "approval_denied",
-    message: "Solo un consultor o platform admin puede aprobar salidas IA.",
+    message: "Solo el consultor puede aprobar salidas IA.",
   });
 });
 

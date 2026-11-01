@@ -1,17 +1,51 @@
-.page { min-width: 0; }
+/* Agenda compartida cliente/consultor. --cal-line es más oscura que --tw-line
+   (#e2dfdc), que en la rejilla apenas se veía. */
+.page { min-width: 0; --cal-line: #c9c4bf; --cal-line-soft: #dcd8d4; --cal-head: #f3f1ee; }
 .header { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
 .header > header { flex: 1 1 440px; }
-.scroll { margin-top: 20px; overflow-x: auto; scrollbar-color: #b5c7c5 #f8f7f5; border-radius: 12px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.toolbarNav { display: flex; align-items: center; gap: 4px; }
+.label { padding: 0 12px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.label::first-letter { text-transform: uppercase; }
+.scroll { margin-top: 16px; overflow-x: auto; border: 1px solid var(--cal-line); border-radius: 12px; background: #fff; }
 .scroll:focus-visible { outline: 2px solid var(--tw-accent); outline-offset: 3px; }
-.grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-width: 770px; gap: 1px; background: var(--tw-line); border: 1px solid var(--tw-line); border-radius: 12px; overflow: hidden; }
-.day { min-height: 136px; padding: 12px; background: #fff; }
-.outside { background: var(--tw-surface-2); color: var(--tw-ink-3); }
-.today { background: #f0f8f6; box-shadow: inset 0 0 0 1px var(--tw-accent); }
-.add { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; color: var(--tw-accent); font-size: 22px; cursor: pointer; }
-.add:hover { background: var(--tw-accent-soft); }
+.board { min-width: 770px; }
+.weekdays, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.weekdays { background: var(--cal-head); border-bottom: 1px solid var(--cal-line); }
+.weekdays span { padding: 10px 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--tw-ink); text-transform: uppercase; border-right: 1px solid var(--cal-line-soft); }
+.weekdays span:last-child { border-right: 0; }
+.day { position: relative; min-width: 0; overflow: hidden; min-height: 120px; padding: 6px 6px 8px; border-right: 1px solid var(--cal-line); border-bottom: 1px solid var(--cal-line); background: #fff; transition: background .12s; }
+.day:nth-child(7n) { border-right: 0; }
+.grid > .day:nth-last-child(-n + 7) { border-bottom: 0; }
+.day:hover { background: #fbfaf9; }
+.weekend { background: #faf9f7; }
+.outside { background: var(--cal-head); color: var(--tw-ink-3); }
+.outside .num { opacity: .55; }
+.num { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 5px; border-radius: 999px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.today { background: var(--tw-accent-soft); box-shadow: inset 0 0 0 2px var(--tw-accent); }
+.today:hover { background: var(--tw-accent-soft); }
+.today .num { background: var(--tw-accent); color: var(--tw-on-accent, #fff); }
+/* «+» de cada día, siempre a la vista (clase doble para ganar al min-w del Button). */
+.add.add { position: absolute; top: 5px; right: 5px; display: inline-grid; place-items: center; width: 26px; min-width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 6px; border: 1px solid var(--cal-line); background: #fff; color: var(--tw-ink); font-size: 16px; font-weight: 600; line-height: 1; cursor: pointer; opacity: .7; transition: opacity .12s, background .12s; }
+.day:hover .add, .add:focus-visible, .add[aria-expanded="true"] { opacity: 1; }
+.add.add:hover { background: var(--tw-accent-soft); border-color: var(--tw-accent); }
 .add:focus-visible { outline: 2px solid var(--tw-accent); outline-offset: 2px; }
-.event { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; min-height: 44px; padding: 8px; border-radius: 8px; font-size: 12px; text-align: left; cursor: pointer; }
-.eventTitle { flex: 1 1 calc(100% - 16px); min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
-.event:hover { outline: 1px solid var(--tw-accent); }
-.event:focus-visible { outline: 2px solid var(--tw-accent); outline-offset: 2px; }
-@media (max-width: 600px) { .header > a, .header > button { flex: 1 1 auto; } .add { width: 44px; height: 44px; } }
+.events { margin-top: 6px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.event { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding: 3px 7px; border-radius: 6px; border: 1px solid transparent; font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; color: var(--tw-ink); }
+.event:hover { border-color: var(--cal-line); filter: brightness(.97); }
+.event:focus-visible { outline: 2px solid var(--tw-accent); outline-offset: 1px; }
+.dot { width: 8px; height: 8px; flex: none; border-radius: 999px; }
+.eventTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { flex: none; padding: 0 5px; border-radius: 4px; background: #fff; font-size: 10px; font-weight: 600; color: var(--tw-ink-3); }
+.month { margin-top: 16px; border: 1px solid var(--cal-line); border-radius: 12px; overflow: hidden; background: #fff; }
+.monthTitle { padding: 10px 16px; background: var(--cal-head); border-bottom: 1px solid var(--cal-line); font-size: 13px; font-weight: 600; }
+.monthTitle::first-letter { text-transform: uppercase; }
+.monthEmpty { padding: 12px 16px; font-size: 13px; color: var(--tw-ink-3); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--cal-line-soft); }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: #fbfaf9; }
+@media (max-width: 600px) { .header > a, .header > button { flex: 1 1 auto; } .add.add { opacity: 1; width: 32px; min-width: 32px; height: 32px; min-height: 32px; } }
+/* Reunión con el consultor: borde de acento, para no confundirla con una acción de canal. */
+.meeting { background: #fff; border-color: var(--tw-accent); text-decoration: none; }
+.meeting:hover { background: var(--tw-accent-soft); text-decoration: none; }
+.time { flex: none; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--tw-accent-ink); }

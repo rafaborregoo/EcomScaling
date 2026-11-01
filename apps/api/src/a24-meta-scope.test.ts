@@ -74,10 +74,10 @@ test("A24 links only the explicitly promoted pixel/event and keeps missing cover
   assert.match(sql, /No infieras Purchase a partir de `optimization_goal`/);
   assert.match(sql, /a24_medicion_meta_system', 'v5'/);
   assert.match(sql, /no exijas equivalencia 1:1/);
-  assert.match(runtime, /rpc\("meta_optimization_event_health", window\)/);
+  assert.match(runtime, /loadMetaMeasurementPages\(supabase, window, "events"\)/);
   assert.match(runtime, /optimization_event_mapping_available/);
   assert.match(runtime, /Diferencias Meta-Shopify no prueban causalidad/);
-  assert.match(runtime, /alineacion_objetivo_evento: client\.rpc\([\s\S]*?meta_optimization_event_health/);
+  assert.match(runtime, /alineacion_objetivo_evento:[\s\S]*?meta_measurement_event_page/);
   assert.match(tools, /objetivo\/evento promocionado realmente configurado/);
 });
 
@@ -111,9 +111,9 @@ test("A24 and A25 GET, manual run, cache, and cron carry the selected connection
   assert.match(runtime, /getMedicionMetaDiagnostic\([\s\S]*?connectionId\?: string \| null/);
   assert.match(runtime, /runCambiosMetaAgent\([\s\S]*?connectionId\?: string \| null/);
   assert.match(runtime, /getCambiosMetaDiagnostic\([\s\S]*?connectionId\?: string \| null/);
-  assert.match(runtime, /supabase\.rpc\("meta_scoped_review_issues", window\)/);
-  assert.match(runtime, /supabase\.rpc\("meta_optimization_event_health", window\)/);
-  assert.match(runtime, /meta_audience_overview", window/);
+  assert.match(runtime, /loadMetaMeasurementPages\(supabase, window, "issues"\)/);
+  assert.match(runtime, /loadMetaMeasurementPages\(supabase, window, "events"\)/);
+  assert.match(runtime, /rpc\("meta_audience_overview", \{/);
   assert.match(runtime, /"a24_medicion_meta",\s*scope\.storeId/);
   assert.match(runtime, /"a25_cambios_meta",\s*scope\.storeId/);
   assert.match(runtime, /agentCode !== "a23_creatividad_meta"[\s\S]*?agentCode !== "a25_cambios_meta"/);
@@ -124,10 +124,10 @@ test("A24 and A25 GET, manual run, cache, and cron carry the selected connection
 test("A24 persists one versioned store-window gate and A14/A23/A25 fail closed when it is absent", async () => {
   const runtime = await readFile(new URL("./ai-runtime.ts", import.meta.url), "utf8");
   const verdict = await readFile(new URL("./meta-measurement-verdict.ts", import.meta.url), "utf8");
-  const migration = await readFile(new URL("../../../supabase/migrations/20261115570000_a24_meta_measurement_verdict_cache.sql", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../../../supabase/migrations/20270107120000_a24_measurement_integrity.sql", import.meta.url), "utf8");
   assert.match(runtime, /buildMetaMeasurementVerdict\(/);
-  assert.match(runtime, /saveMetaMeasurementVerdict\(/);
-  assert.match(runtime, /loadMetaMeasurementVerdict\(\s*supabase,\s*organizationId,\s*storeId,\s*periodStart,\s*now,?\s*\)/);
+  assert.match(runtime, /rpc\("meta_save_measurement_verdict"/);
+  assert.match(runtime, /loadMetaMeasurementVerdict\(supabase, organizationId, storeId, start, new Date\(endExclusive\.getTime\(\) - 24 \* 60 \* 60 \* 1000\)\)/);
   assert.match(runtime, /from\("meta_measurement_verdict_cache"\)/);
   const orchestrationStart = runtime.indexOf("const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES");
   const orchestrationEnd = runtime.indexOf("] as const", orchestrationStart);
@@ -139,6 +139,8 @@ test("A24 persists one versioned store-window gate and A14/A23/A25 fail closed w
   assert.ok(gateIndex < orchestration.indexOf('"a25_cambios_meta"', gateIndex));
   assert.match(verdict, /usable_with_attribution_limits/);
   assert.match(verdict, /fresh_verdict_unavailable/);
-  assert.match(migration, /enable row level security/);
-  assert.match(migration, /grant select, insert, update, delete[\s\S]*to service_role/);
+  assert.match(migration, /meta_save_measurement_verdict/);
+  assert.match(migration, /source_fingerprint/);
+  assert.match(migration, /a24_medicion_meta_system','v9'/);
+  assert.match(migration, /grant execute on function public\.meta_save_measurement_verdict/);
 });

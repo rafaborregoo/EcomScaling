@@ -9,6 +9,7 @@ import {
   isAllowedA26RenderCaptureName,
   KLAVIYO_RENDER_MAX_PENDING_JOBS,
   prepareKlaviyoEmailRenderReview,
+  reconcileA26RenderReceipts,
   readKlaviyoEmailRenderCapture,
   readKlaviyoEmailRenderState,
   stableKlaviyoRenderJobId,
@@ -16,6 +17,25 @@ import {
 } from "./email-render-queue.js";
 
 const id = "123e4567-e89b-42d3-a456-426614174000";
+
+test("A26 archives asynchronous worker receipts and marks expired artifacts without generating again", async () => {
+  const spool = await mkdtemp(path.join(os.tmpdir(), "a26-reconcile-"));
+  const expiredId = "123e4567-e89b-42d3-a456-426614174001";
+  const writes: Array<{ id: string; receipt: Record<string, unknown> }> = [];
+  try {
+    await mkdir(path.join(spool, "completed", id), { recursive: true });
+    await writeFile(path.join(spool, "completed", id, "result.json"), JSON.stringify({ id, status: "completed", htmlHash: "observed-hash" }));
+    const client = { from: () => ({
+      select: () => ({ in: () => ({ order: () => ({ limit: async () => ({ data: [id, expiredId].map((render_id) => ({ render_id, receipt: { status: "queued", html_hash: "observed-hash" }, created_at: "2020-01-01" })), error: null }) }) }) }),
+      update: (value: { receipt: Record<string, unknown> }) => ({ eq: async (_column: string, renderId: string) => { writes.push({ id: renderId, receipt: value.receipt }); return { error: null }; } }),
+    }) } as unknown as Parameters<typeof reconcileA26RenderReceipts>[0];
+    await reconcileA26RenderReceipts(client, spool);
+    assert.equal(writes[0]?.receipt.status, "completed");
+    assert.equal(writes[1]?.receipt.status, "expired_or_not_available");
+    assert.equal(writes[0]?.receipt.model_review_status, "human_review_available_without_model_rerun");
+    assert.deepEqual(writes[0]?.receipt.worker_receipt, { id, status: "completed", htmlHash: "observed-hash" });
+  } finally { await rm(spool, { recursive: true, force: true }); }
+});
 
 test("rejects unsafe IDs, empty HTML, and oversized queue payloads", () => {
   assert.equal(
@@ -207,4 +227,18 @@ test("a new A26 run retries a previously failed deterministic render job", async
   } finally {
     await rm(spool, { recursive: true, force: true });
   }
+});
+
+test("A26 backs off a new failure and retains the retry budget after artifact cleanup", async () => {
+  const spool = await mkdtemp(path.join(os.tmpdir(), "e-nora-render-backoff-"));
+  const scope = { organizationId: "org", storeId: "store", accountId: "account", externalTemplateId: "template" };
+  const html = "<p>Retry</p>", renderId = stableKlaviyoRenderJobId(scope, html);
+  try {
+    await mkdir(path.join(spool, "failed"), { recursive: true });
+    await writeFile(path.join(spool, "failed", `${renderId}.json`), JSON.stringify({ id: renderId, status: "failed", failedAt: new Date().toISOString() }));
+    assert.equal((await prepareKlaviyoEmailRenderReview(spool, scope, html)).review.status, "failed");
+    await rm(path.join(spool, "failed", `${renderId}.json`));
+    await writeFile(path.join(spool, "failed", `${renderId}.retry`), JSON.stringify({ attempts: 3, last_at: 0 }));
+    assert.equal((await prepareKlaviyoEmailRenderReview(spool, scope, html)).review.status, "failed");
+  } finally { await rm(spool, { recursive: true, force: true }); }
 });

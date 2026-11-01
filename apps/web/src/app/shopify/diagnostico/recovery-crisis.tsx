@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type RecoveryRun = {
   organization_id: string;
@@ -50,13 +50,19 @@ export function RecoveryCrisisPlaybookPanel() {
   const value = (key: string) => facts[key] ?? "UNKNOWN";
   const observed = FACTS.filter(([key]) => value(key) !== "UNKNOWN").length;
   const profile = current?.result?.selected_instance?.domain_extension?.recovery_crisis;
-  return <Card id="insight-recovery-crisis" title="Recovery, crisis y continuidad" description="Distingue deterioro normal, incidente y crisis; prioriza contener, estabilizar y recuperar antes de volver a optimizar.">
-    {current ? <article className="rounded border border-default-200 p-4">
-      <div className="flex items-center justify-between gap-3"><span className="text-muted text-xs">{current.organization_id}</span><Badge tone={tone(current.disposition)}>{current.disposition}</Badge></div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">{FACTS.map(([key, label]) => { const fact = value(key); return <div key={key} className="rounded border border-default-200 p-3"><div className="flex items-center justify-between gap-2 text-xs"><span>{label}</span><span className="font-mono text-muted">{fact}</span></div><div className="mt-2 h-1.5 rounded bg-default-100"><div className={`h-1.5 rounded ${fact === "TRUE" ? "bg-success" : fact === "FALSE" ? "bg-danger" : "bg-muted"}`} style={{ width: fact === "UNKNOWN" ? "22%" : "100%" }} /></div></div>; })}</div>
-      <p className="text-muted mt-3 text-xs">Cobertura de señales: {observed}/{FACTS.length}. No se declara una crisis por un KPI aislado ni se inventan severidad o blast radius.</p>
-      {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.recovery_motion}; alcance: {profile.crisis_scope}; dominios afectados: {profile.affected_domain_refs?.join(", ") || "pendiente"}.</p> : null}
-      <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: falta contexto fiable de incidente, alcance, severidad o baseline de recuperación."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
-    </article> : <p className="text-muted text-sm">Todavía no hay evaluaciones de recovery y crisis.</p>}
+  return <Card id="insight-recovery-crisis">
+    <CardHeader>
+      <CardTitle>Recovery, crisis y continuidad</CardTitle>
+      <CardDescription>Distingue deterioro normal, incidente y crisis; prioriza contener, estabilizar y recuperar antes de volver a optimizar.</CardDescription>
+    </CardHeader>
+    <CardContent>
+      {current ? <Card role="article"><CardContent>
+        <div className="flex items-center justify-between gap-3"><span className="text-muted text-xs">{current.organization_id}</span><Badge tone={tone(current.disposition)}>{current.disposition}</Badge></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">{FACTS.map(([key, label]) => { const fact = value(key); return <Card size="sm" key={key}><CardContent><div className="flex items-center justify-between gap-2 text-xs"><span>{label}</span><span className="font-mono text-muted">{fact}</span></div><div className="mt-2 h-1.5 rounded bg-default-100"><div className={`h-1.5 rounded ${fact === "TRUE" ? "bg-success" : fact === "FALSE" ? "bg-danger" : "bg-muted"}`} style={{ width: fact === "UNKNOWN" ? "22%" : "100%" }} /></div></CardContent></Card>; })}</div>
+        <p className="text-muted mt-3 text-xs">Cobertura de señales: {observed}/{FACTS.length}. No se declara una crisis por un KPI aislado ni se inventan severidad o blast radius.</p>
+        {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.recovery_motion}; alcance: {profile.crisis_scope}; dominios afectados: {profile.affected_domain_refs?.join(", ") || "pendiente"}.</p> : null}
+        <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: falta contexto fiable de incidente, alcance, severidad o baseline de recuperación."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
+      </CardContent></Card> : <EmptyState title="Todavía no hay evaluaciones de recovery y crisis" />}
+    </CardContent>
   </Card>;
 }

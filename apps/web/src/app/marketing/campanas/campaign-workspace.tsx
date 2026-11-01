@@ -1,9 +1,10 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { formatMoney } from "@/lib/money";
 import { apiFetch } from "@/lib/bootstrap";
-import { toast } from "@/components/ui";
+import { toast, Link } from "@/components/ui";
 import type { CampaignItem } from "@/hooks/use-campaign-items";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import type { CampaignRow } from "../campaign-rows";
@@ -283,6 +284,7 @@ export function CampaignWorkspace({
         lines={[detail]}
         actions={
           <>
+            {staff && !meta ? <Link href="/klaviyo#revision-contenido-email">Revisión editorial A26</Link> : null}
             {phase === "nopiece" && canEdit ? (
               <Btn variant="acc" onClick={() => onWritePiece(item)}>
                 {meta ? "Preparar el creativo" : "Escribir la pieza"}
@@ -304,7 +306,7 @@ export function CampaignWorkspace({
               </>
             ) : null}
             {staff && phase === "approved" && !meta ? (
-              <a className={`${s.btn} ${s.acc}`} href="#enviar">
+              <a className={buttonVariants()} href="#enviar">
                 Programar en Klaviyo
               </a>
             ) : null}
@@ -319,7 +321,7 @@ export function CampaignWorkspace({
               </Btn>
             ) : null}
             {!staff && !hasConsultant && phase === "approved" && !meta ? (
-              <a className={`${s.btn} ${s.ghost}`} href="#enviar">
+              <a className={buttonVariants({ variant: "secondary" })} href="#enviar">
                 Ir a programar
               </a>
             ) : null}

@@ -1,5 +1,6 @@
 "use client";
 
+
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { AlertCircle, Building2, Check, CircleDashed, ImagePlus, Info, LoaderCircle, RotateCcw, Store, Upload } from "lucide-react";
@@ -12,8 +13,10 @@ import { apiFetch } from "@/lib/bootstrap";
 import type { IntegrationsResponse } from "@/app/integraciones/shared";
 import {
   Avatar,
+  avatarInitials,
+  AvatarImage,
+  AvatarFallback,
   Button,
-  Card,
   cn,
   Banner,
   ErrorBlock,
@@ -21,6 +24,25 @@ import {
   Input,
   Select,
   Textarea,
+  TimezoneCombobox,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
+  Progress,
+  ProgressLabel,
+  ProgressValue,
 } from "@/components/ui";
 import {
   isPasswordValid,
@@ -77,34 +99,6 @@ const CURRENCY_OPTIONS = [
   { value: "ZAR", label: "ZAR — Rand sudafricano" },
 ];
 
-const TIMEZONE_OPTIONS = [
-  { value: "Europe/Madrid", label: "España peninsular — Europe/Madrid" },
-  { value: "Atlantic/Canary", label: "Islas Canarias — Atlantic/Canary" },
-  { value: "Europe/Lisbon", label: "Portugal — Europe/Lisbon" },
-  { value: "Europe/London", label: "Reino Unido — Europe/London" },
-  { value: "Europe/Paris", label: "Francia — Europe/Paris" },
-  { value: "Europe/Berlin", label: "Alemania — Europe/Berlin" },
-  { value: "Europe/Rome", label: "Italia — Europe/Rome" },
-  { value: "Europe/Amsterdam", label: "Países Bajos — Europe/Amsterdam" },
-  { value: "America/Mexico_City", label: "México — America/Mexico_City" },
-  { value: "America/Bogota", label: "Colombia — America/Bogota" },
-  { value: "America/Lima", label: "Perú — America/Lima" },
-  { value: "America/Santiago", label: "Chile — America/Santiago" },
-  { value: "America/Argentina/Buenos_Aires", label: "Argentina — America/Argentina/Buenos_Aires" },
-  { value: "America/Sao_Paulo", label: "Brasil — America/Sao_Paulo" },
-  { value: "America/New_York", label: "Estados Unidos (este) — America/New_York" },
-  { value: "America/Chicago", label: "Estados Unidos (centro) — America/Chicago" },
-  { value: "America/Los_Angeles", label: "Estados Unidos (oeste) — America/Los_Angeles" },
-  { value: "America/Toronto", label: "Canadá — America/Toronto" },
-  { value: "Asia/Tokyo", label: "Japón — Asia/Tokyo" },
-  { value: "Asia/Shanghai", label: "China — Asia/Shanghai" },
-  { value: "Asia/Kolkata", label: "India — Asia/Kolkata" },
-  { value: "Asia/Dubai", label: "Emiratos Árabes Unidos — Asia/Dubai" },
-  { value: "Asia/Singapore", label: "Singapur — Asia/Singapore" },
-  { value: "Africa/Johannesburg", label: "Sudáfrica — Africa/Johannesburg" },
-  { value: "Australia/Sydney", label: "Australia — Australia/Sydney" },
-  { value: "UTC", label: "UTC — Tiempo universal coordinado" },
-];
 
 // Solo pregunta datos que no se pueden inferir de forma fiable desde las
 // integraciones. Los datos observables se importarán y se revisarán después.
@@ -436,7 +430,7 @@ function OnboardingPreview() {
         );
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
-          throw new Error(payload.message || payload.error || `No se pudieron consultar las integraciones (${response.status}).`);
+          throw new Error(payload.message || "No se han podido consultar las integraciones. Inténtalo de nuevo en unos segundos.");
         }
 
         const payload = (await response.json()) as IntegrationsResponse;
@@ -586,7 +580,7 @@ function OnboardingPreview() {
         error?: string;
       };
       if (!response.ok || !payload.expires_at) {
-        setError(payload.message || payload.error || "No hemos podido validar el código. Comprueba que esté bien escrito.");
+        setError(payload.message || "No hemos podido validar el código. Comprueba que esté bien escrito.");
         return;
       }
       if (organizationMode === "existing" && !payload.organization) {
@@ -694,7 +688,7 @@ function OnboardingPreview() {
       );
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
-        const message = payload.message || payload.error || `No se pudo iniciar la conexión con ${providerLabel}.`;
+        const message = payload.message || `No se ha podido empezar la conexión con ${providerLabel}. Inténtalo de nuevo.`;
         updateIntegrationProgress(integration, "error", message);
         setAuthorizingIntegration(null);
         setError(message);
@@ -827,7 +821,12 @@ function OnboardingPreview() {
   }
 
   if (isRestoringIntegrationReturn) {
-    return <Card title="Volviendo de la autorización" description="Restaurando el paso 3 y el estado del onboarding…" />;
+    return <Card>
+      <CardHeader>
+        <CardTitle>Volviendo de la autorización</CardTitle>
+        <CardDescription>Restaurando el paso 3 y el estado del onboarding…</CardDescription>
+      </CardHeader>
+    </Card>;
   }
 
   return (
@@ -851,50 +850,56 @@ function OnboardingPreview() {
         );
       })}
 
-      <Card title="Configura la prueba" description="Elige qué variante del alta quieres recorrer.">
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <Field label="Tipo de alta">
-            <Select
-              value={signupKind}
-              onChange={changeSignupKind}
-              options={[
-                { value: "invited", label: "Cuenta invitada: contraseña y perfil" },
-                { value: "self_signup", label: "Registro propio: solo perfil" },
-              ]}
-            />
-          </Field>
-          <Field label="Perfil a simular">
-            <Select
-              value={role}
-              onChange={(value) => {
-                setRole(value as ProfileRole);
-                setError(null);
-                if (completed) {
-                  setCompleted(false);
-                  setStep(1);
-                }
-              }}
-              options={[
-                { value: "client", label: "Cliente" },
-                { value: "consultant", label: "Consultor" },
-              ]}
-            />
-          </Field>
-        </div>
-        <p className="mt-3 text-xs text-muted">
-          Las conexiones reales de prueba solo se habilitan después de validar un código de invitación de la organización. El código determina el destino; no se muestra un listado de organizaciones.
-        </p>
-        <div className="mt-4">
-          <Button variant="secondary" onClick={reset}>
-            <RotateCcw size={16} aria-hidden /> Reiniciar prueba
-          </Button>
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Configura la prueba</CardTitle>
+          <CardDescription>Elige qué variante del alta quieres recorrer.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Field label="Tipo de alta">
+              <Select
+                value={signupKind}
+                onChange={changeSignupKind}
+                options={[
+                  { value: "invited", label: "Cuenta invitada: contraseña y perfil" },
+                  { value: "self_signup", label: "Registro propio: solo perfil" },
+                ]}
+              />
+            </Field>
+            <Field label="Perfil a simular">
+              <Select
+                value={role}
+                onChange={(value) => {
+                  setRole(value as ProfileRole);
+                  setError(null);
+                  if (completed) {
+                    setCompleted(false);
+                    setStep(1);
+                  }
+                }}
+                options={[
+                  { value: "client", label: "Cliente" },
+                  { value: "consultant", label: "Consultor" },
+                ]}
+              />
+            </Field>
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Las conexiones reales de prueba solo se habilitan después de validar un código de invitación de la organización. El código determina el destino; no se muestra un listado de organizaciones.
+          </p>
+          <div className="mt-4">
+            <Button variant="secondary" onClick={reset}>
+              <RotateCcw size={16} aria-hidden /> Reiniciar prueba
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
       {!completed ? (
         <section
           aria-label="Vista previa del onboarding"
-          className="mx-auto w-full max-w-3xl rounded-2xl border border-separator bg-white p-8 shadow-sm sm:p-12"
+          className="mx-auto w-full max-w-3xl py-8 sm:py-12"
         >
           <div className="mb-6 flex items-center gap-2">
             {Array.from({ length: totalSteps }, (_, index) => index + 1).map((item) => (
@@ -909,402 +914,463 @@ function OnboardingPreview() {
           </p>
 
           {hasPasswordStep && step === 1 ? (
-            <Card title="Crea tu contraseña" description="Es lo primero. La usarás para entrar a partir de ahora.">
-              <div className="mt-6 grid gap-6">
-                <Field label="Contraseña">
-                  <PasswordInput
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    minLength={PASSWORD_MIN_LENGTH}
-                  />
-                </Field>
-                <PasswordRequirements password={password} />
-                <Field label="Repite la contraseña">
-                  <PasswordInput
-                    autoComplete="new-password"
-                    value={confirm}
-                    onChange={(event) => setConfirm(event.target.value)}
-                    minLength={PASSWORD_MIN_LENGTH}
-                    aria-invalid={passwordMismatch}
-                    required
-                  />
-                </Field>
-                {passwordMismatch ? <p className="text-xs text-danger" role="alert">Las contraseñas no coinciden.</p> : null}
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <Button
-                  disabled={!isPasswordValid(password) || passwordConfirmationState(password, confirm) !== "match"}
-                  onClick={() => { setError(null); setStep(organizationStep); }}
-                >
-                  Continuar
-                </Button>
-              </div>
-            </Card>
-          ) : step === organizationStep ? (
-            <Card title="¿Con qué organización vas a trabajar?" description="Para acceder a una organización existente, necesitas una invitación válida de esa organización.">
-              <div className="mt-6 grid gap-5">
-                <Field label="Forma de acceso">
-                  <Select
-                    value={organizationMode}
-                    onChange={(value) => {
-                      setOrganizationMode(value as OrganizationMode);
-                      setConsultantCodePreview(null);
-                      setTestOrganizationId("");
-                      setError(null);
-                    }}
-                    options={[
-                      { value: "create", label: "Alta directa · crear una organización" },
-                      { value: "existing", label: "Unirme a una organización existente · tengo una invitación" },
-                      { value: "consultant", label: "Vengo de un consultor · tengo un código" },
-                    ]}
-                  />
-                </Field>
-                {organizationMode === "create" ? (
-                  <Field label="Nombre de la organización">
-                    <Input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="El nombre que quieras" required />
-                  </Field>
-                ) : (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-                      <Field label={organizationMode === "existing" ? "Código de invitación de la organización" : "Código del consultor"}>
-                        <Input value={consultantCode} onChange={(event) => { setConsultantCode(event.target.value.toUpperCase()); setConsultantCodePreview(null); setTestOrganizationId(""); }} placeholder="Ej. ENORA-1234" autoComplete="off" required />
-                      </Field>
-                      <Button variant="secondary" disabled={isCheckingConsultantCode || !consultantCode.trim()} onClick={() => void validateConsultantCode()}>
-                        {isCheckingConsultantCode ? "Comprobando…" : "Validar código"}
-                      </Button>
-                    </div>
-                    {organizationMode === "existing" ? (
-                      <Field label="Correo al que se envió la invitación">
-                        <Input type="email" value={organizationInviteEmail} onChange={(event) => { setOrganizationInviteEmail(event.target.value); setConsultantCodePreview(null); setTestOrganizationId(""); }} autoComplete="email" required />
-                      </Field>
-                    ) : null}
-                    {consultantCodePreview ? (
-                      <div className="rounded-xl border border-separator bg-[#f5f4f2] p-4 text-sm text-foreground">
-                        <div className="flex items-center gap-2 font-semibold"><Check size={17} aria-hidden /> Código válido</div>
-                        {consultantCodePreview.organization ? (
-                          <p className="mt-1">Organización: <span className="font-medium">{consultantCodePreview.organization.display_name}</span>. La prueba y sus conexiones usarán esta organización.</p>
-                        ) : (
-                          <>
-                            <p className="mt-1">Consultor: <span className="font-medium">{consultantCodePreview.consultant?.display_name ?? "Consultor E-NORA"}</span>.</p>
-                            <p className="mt-1">Este código vincula la tienda con el consultor. Indica el nombre de la organización a la que pertenecerá; así cada tienda podrá quedar en una organización distinta.</p>
-                            <Field label="Nombre de tu organización">
-                              <Input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="El nombre que quieras" required />
-                            </Field>
-                          </>
-                        )}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="secondary" onClick={() => setStep(organizationStep)}>Volver</Button>
-                  <Button disabled={organizationMode !== "create" && isCheckingConsultantCode} onClick={continueOrganization}>Continuar</Button>
-                </div>
-              </div>
-            </Card>
-          ) : step === profileStep ? (
-            <Card title="Tu perfil" description="Puedes cambiar el nombre que te asignaron y elegir un avatar.">
-              <div className="mt-6 grid gap-6">
-                <Field label="Nombre personal">
-                  <Input value={name} onChange={(event) => setName(event.target.value)} required />
-                </Field>
-                {role === "consultant" ? (
-                  <Field label="Nombre de tu negocio o agencia">
-                    <Input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Mi agencia" required />
-                  </Field>
-                ) : null}
-                <div>
-                  <p className="text-sm font-medium text-foreground">Avatar</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    {avatar && !AVATAR_PRESETS.includes(avatar) ? (
-                      <span className="rounded-full ring-2 ring-accent ring-offset-2">
-                        <Avatar name={name || "?"} src={avatar} size="md" />
-                      </span>
-                    ) : null}
-                    {AVATAR_PRESETS.map((url) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() => { setAvatar(url); setAvatarFileName(null); }}
-                        className={cn("rounded-full ring-2 ring-offset-2 transition", avatar === url ? "ring-accent" : "ring-transparent")}
-                        aria-label="Elegir avatar"
-                        aria-pressed={avatar === url}
-                      >
-                        <Avatar name={name || "?"} src={url} size="md" />
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-4">
-                    <label className="relative flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-accent/40 bg-accent/5 p-4 transition hover:border-accent hover:bg-accent/10 focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2">
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,image/gif"
-                        aria-label="Elegir foto de perfil"
-                        className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
-                        onChange={(event) => {
-                          const file = event.currentTarget.files?.[0];
-                          previewAvatar(file);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                      <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
-                        <ImagePlus size={20} aria-hidden />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-foreground">
-                          {avatarFileName ?? "Sube una foto de perfil"}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-muted">
-                          {avatarFileName ? "Lista para previsualizar" : "PNG, JPG, WEBP o GIF · solo vista previa"}
-                        </span>
-                      </span>
-                      <span className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-separator bg-white px-3 text-sm font-medium text-foreground shadow-sm">
-                        <Upload size={16} aria-hidden />
-                        Elegir archivo
-                      </span>
-                    </label>
-                    <p className="mt-2 text-xs text-muted">La imagen no se guarda en la cuenta.</p>
-                  </div>
-                </div>
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="secondary" onClick={() => setStep(organizationStep)}>Volver</Button>
-                  <Button onClick={finishPreview}>Continuar</Button>
-                </div>
-              </div>
-            </Card>
-          ) : step === storeStep ? (
-            <Card title="Tu tienda" description={`Esta tienda quedará asociada a «${assignedOrganizationName || "tu organización"}».`}>
-              <div className="mt-6 grid gap-6">
-                <Field label="Marca">
-                  <Input value={brandName} onChange={(event) => setBrandName(event.target.value)} placeholder="Nombre de tu marca" required />
-                </Field>
-                <Field label="Web de la tienda">
-                  <Input type="url" value={websiteUrl} onChange={(event) => updateWebsiteUrl(event.target.value)} placeholder="https://mitienda.com" required />
-                </Field>
-                {showShopifyDomain ? (
-                  <Field label="URL Shopify">
-                    <Input
-                      value={shopifyDomain}
-                      onChange={(event) => setShopifyDomain(event.target.value)}
-                      placeholder="mitienda.myshopify.com"
-                      autoComplete="off"
+            <Card>
+              <CardHeader>
+                <CardTitle>Crea tu contraseña</CardTitle>
+                <CardDescription>Es lo primero. La usarás para entrar a partir de ahora.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mt-6 grid gap-6">
+                  <Field label="Contraseña">
+                    <PasswordInput
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      minLength={PASSWORD_MIN_LENGTH}
                     />
                   </Field>
-                ) : null}
-                <div className="flex items-center gap-2 rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted">
-                  <Building2 size={17} aria-hidden />
-                  <span>Organización de esta tienda: <strong className="text-foreground">{assignedOrganizationName}</strong></span>
+                  <PasswordRequirements password={password} />
+                  <Field label="Repite la contraseña">
+                    <PasswordInput
+                      autoComplete="new-password"
+                      value={confirm}
+                      onChange={(event) => setConfirm(event.target.value)}
+                      minLength={PASSWORD_MIN_LENGTH}
+                      aria-invalid={passwordMismatch}
+                      required
+                    />
+                  </Field>
+                  {passwordMismatch ? <p className="text-xs text-danger" role="alert">Las contraseñas no coinciden.</p> : null}
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <Button
+                    disabled={!isPasswordValid(password) || passwordConfirmationState(password, confirm) !== "match"}
+                    onClick={() => { setError(null); setStep(organizationStep); }}
+                  >
+                    Continuar
+                  </Button>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { id: "shopify", label: "Shopify", src: "/shopify-svgrepo-com.svg", alt: "" },
-                    { id: "meta", label: "Meta", src: "/meta-logo-facebook-svgrepo-com.svg", alt: "" },
-                    { id: "klaviyo", label: "Klaviyo", src: "/logos/klaviyo.png", alt: "" },
-                  ] as const).map((integration) => {
-                    const isDisabled = authorizingIntegration !== null || !testOrganizationId;
-                    return (
-                      <button
-                        key={integration.id}
-                        type="button"
-                        onClick={() => {
-                          if (integration.id === "shopify" && !shopifyDomain.trim()) {
-                            setShowShopifyDomain(true);
-                            return;
-                          }
-                          void connectIntegrationForPreview(integration.id);
-                        }}
-                        disabled={isDisabled}
-                        aria-label={`Conectar ${integration.label}`}
-                        className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-separator bg-white px-2 py-3 text-sm font-medium transition hover:border-accent hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        <Image src={integration.src} alt={integration.alt} width={30} height={30} className="h-7 w-7 object-contain" />
-                        <span>{authorizingIntegration === integration.id ? "Conectando…" : integration.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <details className="rounded-lg border border-separator px-3 py-2">
-                  <summary className="cursor-pointer text-sm font-medium">Moneda y zona horaria</summary>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <Field label="Moneda"><Select value={currencyCode} onChange={setCurrencyCode} options={CURRENCY_OPTIONS} /></Field>
-                    <Field label="Zona horaria"><Select value={timezone} onChange={setTimezone} options={TIMEZONE_OPTIONS} /></Field>
+              </CardContent>
+            </Card>
+          ) : step === organizationStep ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>¿Con qué organización vas a trabajar?</CardTitle>
+                <CardDescription>Para acceder a una organización existente, necesitas una invitación válida de esa organización.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mt-6 grid gap-5">
+                  <Field label="Forma de acceso">
+                    <Select
+                      value={organizationMode}
+                      onChange={(value) => {
+                        setOrganizationMode(value as OrganizationMode);
+                        setConsultantCodePreview(null);
+                        setTestOrganizationId("");
+                        setError(null);
+                      }}
+                      options={[
+                        { value: "create", label: "Alta directa · crear una organización" },
+                        { value: "existing", label: "Unirme a una organización existente · tengo una invitación" },
+                        { value: "consultant", label: "Vengo de un consultor · tengo un código" },
+                      ]}
+                    />
+                  </Field>
+                  {organizationMode === "create" ? (
+                    <Field label="Nombre de la organización">
+                      <Input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="El nombre que quieras" required />
+                    </Field>
+                  ) : (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                        <Field label={organizationMode === "existing" ? "Código de invitación de la organización" : "Código del consultor"}>
+                          <Input value={consultantCode} onChange={(event) => { setConsultantCode(event.target.value.toUpperCase()); setConsultantCodePreview(null); setTestOrganizationId(""); }} placeholder="Ej. ENORA-1234" autoComplete="off" required />
+                        </Field>
+                        <Button variant="secondary" disabled={isCheckingConsultantCode || !consultantCode.trim()} onClick={() => void validateConsultantCode()}>
+                          {isCheckingConsultantCode ? "Comprobando…" : "Validar código"}
+                        </Button>
+                      </div>
+                      {organizationMode === "existing" ? (
+                        <Field label="Correo al que se envió la invitación">
+                          <Input type="email" value={organizationInviteEmail} onChange={(event) => { setOrganizationInviteEmail(event.target.value); setConsultantCodePreview(null); setTestOrganizationId(""); }} autoComplete="email" required />
+                        </Field>
+                      ) : null}
+                      {consultantCodePreview ? (
+                        <Card><CardContent className="text-sm text-foreground">
+                          <div className="flex items-center gap-2 font-semibold"><Check size={17} aria-hidden /> Código válido</div>
+                          {consultantCodePreview.organization ? (
+                            <p className="mt-1">Organización: <span className="font-medium">{consultantCodePreview.organization.display_name}</span>. La prueba y sus conexiones usarán esta organización.</p>
+                          ) : (
+                            <>
+                              <p className="mt-1">Consultor: <span className="font-medium">{consultantCodePreview.consultant?.display_name ?? "Consultor E-NORA"}</span>.</p>
+                              <p className="mt-1">Este código vincula la tienda con el consultor. Indica el nombre de la organización a la que pertenecerá; así cada tienda podrá quedar en una organización distinta.</p>
+                              <Field label="Nombre de tu organización">
+                                <Input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="El nombre que quieras" required />
+                              </Field>
+                            </>
+                          )}
+                        </CardContent></Card>
+                      ) : null}
+                    </>
+                  )}
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <div role="group" aria-label="Navegacion del onboarding" className="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" onClick={() => setStep(organizationStep)}>Volver</Button>
+                    <Button disabled={organizationMode !== "create" && isCheckingConsultantCode} onClick={continueOrganization}>Continuar</Button>
                   </div>
-                </details>
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="secondary" onClick={() => setStep(profileStep)}>Volver</Button>
-                  <Button onClick={continueStoreProfile}>Continuar al cuestionario</Button>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          ) : step === profileStep ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tu perfil</CardTitle>
+                <CardDescription>Puedes cambiar el nombre que te asignaron y elegir un avatar.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mt-6 grid gap-6">
+                  <Field label="Nombre personal">
+                    <Input value={name} onChange={(event) => setName(event.target.value)} required />
+                  </Field>
+                  {role === "consultant" ? (
+                    <Field label="Nombre de tu negocio o agencia">
+                      <Input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Mi agencia" required />
+                    </Field>
+                  ) : null}
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Avatar</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      {avatar && !AVATAR_PRESETS.includes(avatar) ? (
+                        <span className="rounded-full ring-2 ring-accent ring-offset-2">
+                          <Avatar size="lg">
+                            <AvatarImage src={avatar} alt="" />
+                            <AvatarFallback>{avatarInitials(name || "?")}</AvatarFallback>
+                          </Avatar>
+                        </span>
+                      ) : null}
+                      {AVATAR_PRESETS.map((url) => (
+                        <button
+                          key={url}
+                          type="button"
+                          onClick={() => { setAvatar(url); setAvatarFileName(null); }}
+                          className={cn("rounded-full ring-2 ring-offset-2 transition", avatar === url ? "ring-accent" : "ring-transparent")}
+                          aria-label="Elegir avatar"
+                          aria-pressed={avatar === url}
+                        >
+                          <Avatar size="lg">
+                            <AvatarImage src={url} alt="" />
+                            <AvatarFallback>{avatarInitials(name || "?")}</AvatarFallback>
+                          </Avatar>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-4">
+                      <label className="relative flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-accent/40 bg-accent/5 p-4 transition hover:border-accent hover:bg-accent/10 focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          aria-label="Elegir foto de perfil"
+                          className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0];
+                            previewAvatar(file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
+                          <ImagePlus size={20} aria-hidden />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-foreground">
+                            {avatarFileName ?? "Sube una foto de perfil"}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted">
+                            {avatarFileName ? "Lista para previsualizar" : "PNG, JPG, WEBP o GIF · solo vista previa"}
+                          </span>
+                        </span>
+                        <span className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-separator bg-white px-3 text-sm font-medium text-foreground shadow-sm">
+                          <Upload size={16} aria-hidden />
+                          Elegir archivo
+                        </span>
+                      </label>
+                      <p className="mt-2 text-xs text-muted">La imagen no se guarda en la cuenta.</p>
+                    </div>
+                  </div>
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <div role="group" aria-label="Navegacion del onboarding" className="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" onClick={() => setStep(organizationStep)}>Volver</Button>
+                    <Button onClick={finishPreview}>Continuar</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : step === storeStep ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tu tienda</CardTitle>
+                <CardDescription>{`Esta tienda quedará asociada a «${assignedOrganizationName || "tu organización"}».`}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mt-6 grid gap-6">
+                  <Field label="Marca">
+                    <Input value={brandName} onChange={(event) => setBrandName(event.target.value)} placeholder="Nombre de tu marca" required />
+                  </Field>
+                  <Field label="Web de la tienda">
+                    <Input type="url" value={websiteUrl} onChange={(event) => updateWebsiteUrl(event.target.value)} placeholder="https://mitienda.com" required />
+                  </Field>
+                  {showShopifyDomain ? (
+                    <Field label="URL Shopify">
+                      <Input
+                        value={shopifyDomain}
+                        onChange={(event) => setShopifyDomain(event.target.value)}
+                        placeholder="mitienda.myshopify.com"
+                        autoComplete="off"
+                      />
+                    </Field>
+                  ) : null}
+                  <div className="flex items-center gap-2 rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted">
+                    <Building2 size={17} aria-hidden />
+                    <span>Organización de esta tienda: <strong className="text-foreground">{assignedOrganizationName}</strong></span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { id: "shopify", label: "Shopify", src: "/shopify-svgrepo-com.svg", alt: "" },
+                      { id: "meta", label: "Meta", src: "/meta-logo-facebook-svgrepo-com.svg", alt: "" },
+                      { id: "klaviyo", label: "Klaviyo", src: "/logos/klaviyo.png", alt: "" },
+                    ] as const).map((integration) => {
+                      const isDisabled = authorizingIntegration !== null || !testOrganizationId;
+                      return (
+                        <button
+                          key={integration.id}
+                          type="button"
+                          onClick={() => {
+                            if (integration.id === "shopify" && !shopifyDomain.trim()) {
+                              setShowShopifyDomain(true);
+                              return;
+                            }
+                            void connectIntegrationForPreview(integration.id);
+                          }}
+                          disabled={isDisabled}
+                          aria-label={`Conectar ${integration.label}`}
+                          className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-separator bg-white px-2 py-3 text-sm font-medium transition hover:border-accent hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <Image src={integration.src} alt={integration.alt} width={30} height={30} className="h-7 w-7 object-contain" />
+                          <span>{authorizingIntegration === integration.id ? "Conectando…" : integration.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Collapsible className="rounded-lg border border-separator px-3 py-2">
+                    <CollapsibleTrigger className="w-full justify-between text-sm font-medium">Moneda y zona horaria<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                    <CollapsibleContent>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <Field label="Moneda">
+                        <Combobox
+                          items={CURRENCY_OPTIONS}
+                          value={CURRENCY_OPTIONS.find((option) => option.value === currencyCode) ?? null}
+                          onValueChange={(option) => option && setCurrencyCode(option.value)}
+                          autoHighlight
+                        >
+                          <ComboboxInput placeholder="Busca una moneda" />
+                          <ComboboxContent>
+                            <ComboboxEmpty>No hay ninguna moneda con ese nombre.</ComboboxEmpty>
+                            <ComboboxList<(typeof CURRENCY_OPTIONS)[number]>>
+                              {(option) => <ComboboxItem key={option.value} value={option}>{option.label}</ComboboxItem>}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
+                      </Field>
+                      <Field label="Zona horaria"><TimezoneCombobox value={timezone} onChange={setTimezone} /></Field>
+                    </div>
+                  </CollapsibleContent>
+                  </Collapsible>
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <div role="group" aria-label="Navegacion del onboarding" className="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" onClick={() => setStep(profileStep)}>Volver</Button>
+                    <Button onClick={continueStoreProfile}>Continuar al cuestionario</Button>
+                  </div>
+                </div>
+              </CardContent>
             </Card>
           ) : step === importStep ? (
-            <Card title="Preparando los datos de tu tienda" description="Revisamos las conexiones y mostramos el estado de la importación antes del cuestionario.">
-              <div className="mt-4 flex items-center justify-between gap-4 text-sm">
-                <span className="text-muted">
-                  {connectedImportStates.length
-                    ? `${connectedImportStates.filter((state) => state === "complete").length} de ${connectedImportStates.length} aplicaciones sincronizadas`
-                    : "No hay aplicaciones conectadas en el destino seleccionado"}
-                </span>
-                <strong className="tabular-nums">{importProgressPercent}%</strong>
-              </div>
-              <div
-                className="mt-2 h-2 overflow-hidden rounded-full bg-separator"
-                role="progressbar"
-                aria-label="Progreso de importación"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={importProgressPercent}
-              >
-                <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${importProgressPercent}%` }} />
-              </div>
-              <ul className="mt-5 divide-y divide-separator">
-                {(["shopify", "meta", "klaviyo"] as const).map((integration) => {
-                  const progress = integrationProgress[integration] ?? { state: "not_connected" as const, message: "Sin conexión en el destino seleccionado." };
-                  const source = IMPORT_DATA_SOURCES.find((item) => item.id === integration)!;
-                  const StatusIcon = progress.state === "complete" ? Check
-                    : progress.state === "error" ? AlertCircle
-                      : progress.state === "importing" || progress.state === "authorizing" ? LoaderCircle
-                        : progress.state === "pending" ? CircleDashed : Store;
-                  const statusLabel = progress.state === "complete" ? "Completada"
-                    : progress.state === "error" ? "Error"
-                      : progress.state === "importing" ? "Importando"
-                        : progress.state === "authorizing" ? "Conectando"
-                          : progress.state === "pending" ? "Pendiente" : "Sin conectar";
-                  return (
-                    <li key={integration} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                      <Image src={source.src!} alt="" width={28} height={28} className="mt-0.5 h-7 w-7 object-contain" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <span>{source.name}</span>
-                          <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-                            <StatusIcon size={14} aria-hidden className={progress.state === "importing" || progress.state === "authorizing" ? "animate-spin" : undefined} />
-                            {statusLabel}
-                          </span>
+            <Card>
+              <CardHeader>
+                <CardTitle>Preparando los datos de tu tienda</CardTitle>
+                <CardDescription>Revisamos las conexiones y mostramos el estado de la importación antes del cuestionario.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Progress className="mt-4" value={importProgressPercent}>
+                  <ProgressLabel>
+                    {connectedImportStates.length
+                      ? `${connectedImportStates.filter((state) => state === "complete").length} de ${connectedImportStates.length} aplicaciones sincronizadas`
+                      : "No hay aplicaciones conectadas en el destino seleccionado"}
+                  </ProgressLabel>
+                  <ProgressValue />
+                </Progress>
+                <ul className="mt-5 divide-y divide-separator">
+                  {(["shopify", "meta", "klaviyo"] as const).map((integration) => {
+                    const progress = integrationProgress[integration] ?? { state: "not_connected" as const, message: "Sin conexión en el destino seleccionado." };
+                    const source = IMPORT_DATA_SOURCES.find((item) => item.id === integration)!;
+                    const StatusIcon = progress.state === "complete" ? Check
+                      : progress.state === "error" ? AlertCircle
+                        : progress.state === "importing" || progress.state === "authorizing" ? LoaderCircle
+                          : progress.state === "pending" ? CircleDashed : Store;
+                    const statusLabel = progress.state === "complete" ? "Completada"
+                      : progress.state === "error" ? "Error"
+                        : progress.state === "importing" ? "Importando"
+                          : progress.state === "authorizing" ? "Conectando"
+                            : progress.state === "pending" ? "Pendiente" : "Sin conectar";
+                    return (
+                      <li key={integration} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                        <Image src={source.src!} alt="" width={28} height={28} className="mt-0.5 h-7 w-7 object-contain" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <span>{source.name}</span>
+                            <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+                              <StatusIcon size={14} aria-hidden className={progress.state === "importing" || progress.state === "authorizing" ? "animate-spin" : undefined} />
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-muted">{progress.message}</p>
                         </div>
-                        <p className="mt-1 text-sm text-muted">{progress.message}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-              {isLoadingImportReview ? <p className="mt-4 text-sm text-muted" role="status">Consultando las integraciones…</p> : null}
-              {importReviewError ? (
-                <div className="mt-4 grid gap-2">
-                  <ErrorBlock>{importReviewError}</ErrorBlock>
-                  <Button variant="secondary" onClick={() => setImportReviewAttemptKey((current) => current + 1)}>Reintentar consulta</Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {isLoadingImportReview ? <p className="mt-4 text-sm text-muted" role="status">Consultando las integraciones…</p> : null}
+                {importReviewError ? (
+                  <div className="mt-4 grid gap-2">
+                    <ErrorBlock>{importReviewError}</ErrorBlock>
+                    <Button variant="secondary" onClick={() => setImportReviewAttemptKey((current) => current + 1)}>Reintentar consulta</Button>
+                  </div>
+                ) : null}
+                {!testOrganizationId ? (
+                  <p className="mt-4 rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted">Para consultar conexiones reales y datos importados, vuelve al paso de organización y valida un código de invitación a una organización existente.</p>
+                ) : null}
+                <div role="group" aria-label="Navegacion del onboarding" className="flex flex-wrap items-center gap-2 mt-5">
+                  <Button variant="secondary" onClick={() => setStep(storeStep)}>Volver a las conexiones</Button>
+                  <Button onClick={() => setStep(firstQuestionStep)}>Continuar con los datos disponibles</Button>
                 </div>
-              ) : null}
-              {!testOrganizationId ? (
-                <p className="mt-4 rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted">Para consultar conexiones reales y datos importados, vuelve al paso de organización y valida un código de invitación a una organización existente.</p>
-              ) : null}
-              <div className="mt-5 flex flex-wrap gap-3">
-                <Button variant="secondary" onClick={() => setStep(storeStep)}>Volver a las conexiones</Button>
-                <Button onClick={() => setStep(firstQuestionStep)}>Continuar con los datos disponibles</Button>
-              </div>
+              </CardContent>
             </Card>
           ) : currentQuestionCategory ? (
             <>
-            <Card title="Datos que detectamos por aplicación" description="Pulsa una aplicación para ver qué información podrá aportar al análisis.">
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {IMPORT_DATA_SOURCES.map((source) => {
-                  const isOpen = openImportSource === source.id;
-                  const progress = source.id === "web" ? null : integrationProgress[source.id];
-                  return (
-                    <div key={source.id} className="rounded-xl border border-separator bg-white">
-                      <button
-                        type="button"
-                        aria-expanded={isOpen}
-                        onClick={() => setOpenImportSource(isOpen ? null : source.id)}
-                        className="flex w-full items-center gap-3 p-3 text-left hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                      >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-subtle">
-                          {source.src ? <Image src={source.src} alt="" width={26} height={26} className="h-6 w-6 object-contain" /> : <Store size={19} aria-hidden className="text-muted" />}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <strong className="block text-sm">{source.name}</strong>
-                          {source.id === "shopify" && importedRevenueLabel ? (
-                            <span className="block text-xs text-muted">Últimos 30 días: {importedRevenueLabel}</span>
-                          ) : progress?.state ? (
-                            <span className="block text-xs text-muted">{progress.state === "complete" ? "Datos sincronizados" : progress.state === "error" ? "Revisar error de conexión" : progress.state === "not_connected" ? "Sin conectar" : "Importación en curso"}</span>
-                          ) : null}
-                        </span>
-                        <Info size={16} aria-hidden className="shrink-0 text-muted" />
-                      </button>
-                      {isOpen ? (
-                        <p role="note" className="border-t border-separator px-3 py-3 text-sm text-muted">{source.description}</p>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-            <Card title={currentQuestionCategory.label} description="Solo pedimos estos datos si no aparecen tras la importación. Puedes dejar en blanco lo que E-NORA ya haya detectado.">
-              <div className="mb-4 flex items-center justify-between gap-3 text-sm text-muted">
-                <span>Cuestionario · {step - firstQuestionStep + 1} de {ONBOARDING_QUESTION_CATEGORIES.length}</span>
-                <span>{completedAnswerCount}/{onboardingQuestions.length} respuestas</span>
-              </div>
-              <div className="grid gap-4">
-                {currentQuestionCategory.questions.map(renderQuestion)}
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="secondary" onClick={() => moveQuestionnaire(-1)}>Volver</Button>
-                  <Button onClick={() => moveQuestionnaire(1)}>
-                    {step === firstQuestionStep + ONBOARDING_QUESTION_CATEGORIES.length - 1 ? "Completar onboarding" : "Siguiente bloque"}
-                  </Button>
+            <Card>
+              <CardHeader>
+                <CardTitle>Datos que detectamos por aplicación</CardTitle>
+                <CardDescription>Pulsa una aplicación para ver qué información podrá aportar al análisis.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {IMPORT_DATA_SOURCES.map((source) => {
+                    const isOpen = openImportSource === source.id;
+                    const progress = source.id === "web" ? null : integrationProgress[source.id];
+                    return (
+                      <Collapsible key={source.id} open={isOpen} onOpenChange={(open) => setOpenImportSource(open ? source.id : null)} className="rounded-xl border border-separator bg-white">
+                        <CollapsibleTrigger className="flex w-full items-center gap-3 p-3 hover:bg-surface-subtle">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-subtle">
+                            {source.src ? <Image src={source.src} alt="" width={26} height={26} className="h-6 w-6 object-contain" /> : <Store size={19} aria-hidden className="text-muted" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <strong className="block text-sm">{source.name}</strong>
+                            {source.id === "shopify" && importedRevenueLabel ? (
+                              <span className="block text-xs text-muted">Últimos 30 días: {importedRevenueLabel}</span>
+                            ) : progress?.state ? (
+                              <span className="block text-xs text-muted">{progress.state === "complete" ? "Datos sincronizados" : progress.state === "error" ? "Revisar error de conexión" : progress.state === "not_connected" ? "Sin conectar" : "Importación en curso"}</span>
+                            ) : null}
+                          </span>
+                          <Info size={16} aria-hidden className="shrink-0 text-muted" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <p role="note" className="border-t border-separator px-3 py-3 text-sm text-muted">{source.description}</p>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>{currentQuestionCategory.label}</CardTitle>
+                <CardDescription>Solo pedimos estos datos si no aparecen tras la importación. Puedes dejar en blanco lo que E-NORA ya haya detectado.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex items-center justify-between gap-3 text-sm text-muted">
+                  <span>Cuestionario · {step - firstQuestionStep + 1} de {ONBOARDING_QUESTION_CATEGORIES.length}</span>
+                  <span>{completedAnswerCount}/{onboardingQuestions.length} respuestas</span>
+                </div>
+                <div className="grid gap-4">
+                  {currentQuestionCategory.questions.map(renderQuestion)}
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <div role="group" aria-label="Navegacion del onboarding" className="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" onClick={() => moveQuestionnaire(-1)}>Volver</Button>
+                    <Button onClick={() => moveQuestionnaire(1)}>
+                      {step === firstQuestionStep + ONBOARDING_QUESTION_CATEGORIES.length - 1 ? "Completar onboarding" : "Siguiente bloque"}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
             </Card>
             </>
           ) : null}
         </section>
       ) : (
         <div className="grid gap-5">
-          <Card title="Resumen de la prueba" description="Revisa la información que habría recopilado este onboarding.">
-            <div className="mt-4 flex items-center gap-3 rounded-lg bg-[#f5f4f2] p-4 text-sm text-foreground">
-              <Check size={18} aria-hidden />
-              <span>Vista previa completada para {role === "consultant" ? "consultor" : "cliente"}. Las respuestas del cuestionario no se guardaron.</span>
-            </div>
-            <dl className="mt-5 grid gap-3 sm:grid-cols-2">
-              {[
-                ["Nombre personal", name],
-                ["Organización", assignedOrganizationName],
-                ["Tienda → organización", `${brandName} → ${assignedOrganizationName}`],
-                ["Consultor", organizationMode === "consultant" ? consultantCodePreview?.consultant?.display_name || "Código de consultor" : "Alta directa"],
-                ["Negocio o agencia", role === "consultant" ? businessName : "No aplica"],
-                ["Tienda o marca", brandName],
-                ["Web pública", websiteUrl],
-                ["Moneda", currencyCode],
-                ["Zona horaria", timezone],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-separator p-3">
-                  <dt className="text-xs font-medium text-muted">{label}</dt>
-                  <dd className="mt-1 break-words text-sm">{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className="mt-4 text-sm text-muted">
-              Cuestionario: {completedAnswerCount} de {onboardingQuestions.length} respuestas rellenadas.
-              En el flujo real, cada tienda permanecerá asociada a su organización; el usuario podrá cambiar de organización cuando conecte otras tiendas.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Button variant="secondary" onClick={() => { setCompleted(false); setStep(firstQuestionStep + ONBOARDING_QUESTION_CATEGORIES.length - 1); }}>
-                Revisar respuestas
-              </Button>
-              <Button variant="ghost" onClick={reset}><RotateCcw size={16} aria-hidden /> Probar otra vez</Button>
-            </div>
-          </Card>
-          {ONBOARDING_QUESTION_CATEGORIES.map((category) => (
-            <Card key={category.id} title={category.label}>
-              <dl className="divide-y divide-separator">
-                {category.questions.map((question) => (
-                  <div key={question.id} className="py-3 first:pt-0 last:pb-0">
-                    <dt className="text-sm font-medium">{question.question}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap text-sm text-muted">{answers[question.id]?.trim() || "Pendiente"}</dd>
-                  </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Resumen de la prueba</CardTitle>
+              <CardDescription>Revisa la información que habría recopilado este onboarding.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="mt-4 flex items-center gap-3 rounded-lg bg-[#f5f4f2] p-4 text-sm text-foreground">
+                <Check size={18} aria-hidden />
+                <span>Vista previa completada para {role === "consultant" ? "consultor" : "cliente"}. Las respuestas del cuestionario no se guardaron.</span>
+              </div>
+              <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+                {[
+                  ["Nombre personal", name],
+                  ["Organización", assignedOrganizationName],
+                  ["Tienda → organización", `${brandName} → ${assignedOrganizationName}`],
+                  ["Consultor", organizationMode === "consultant" ? consultantCodePreview?.consultant?.display_name || "Código de consultor" : "Alta directa"],
+                  ["Negocio o agencia", role === "consultant" ? businessName : "No aplica"],
+                  ["Tienda o marca", brandName],
+                  ["Web pública", websiteUrl],
+                  ["Moneda", currencyCode],
+                  ["Zona horaria", timezone],
+                ].map(([label, value]) => (
+                  <Card size="sm" key={label}><CardContent>
+                    <dt className="text-xs font-medium text-muted">{label}</dt>
+                    <dd className="mt-1 break-words text-sm">{value}</dd>
+                  </CardContent></Card>
                 ))}
               </dl>
+              <p className="mt-4 text-sm text-muted">
+                Cuestionario: {completedAnswerCount} de {onboardingQuestions.length} respuestas rellenadas.
+                En el flujo real, cada tienda permanecerá asociada a su organización; el usuario podrá cambiar de organización cuando conecte otras tiendas.
+              </p>
+              <div role="group" aria-label="Acciones de finalizacion del onboarding" className="flex flex-wrap items-center gap-2 mt-4">
+                <Button variant="secondary" onClick={() => { setCompleted(false); setStep(firstQuestionStep + ONBOARDING_QUESTION_CATEGORIES.length - 1); }}>
+                  Revisar respuestas
+                </Button>
+                <Button variant="ghost" onClick={reset}><RotateCcw size={16} aria-hidden /> Probar otra vez</Button>
+              </div>
+            </CardContent>
+          </Card>
+          {ONBOARDING_QUESTION_CATEGORIES.map((category) => (
+            <Card key={category.id}>
+              <CardHeader>
+                <CardTitle>{category.label}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="divide-y divide-separator">
+                  {category.questions.map((question) => (
+                    <div key={question.id} className="py-3 first:pt-0 last:pb-0">
+                      <dt className="text-sm font-medium">{question.question}</dt>
+                      <dd className="mt-1 whitespace-pre-wrap text-sm text-muted">{answers[question.id]?.trim() || "Pendiente"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
             </Card>
           ))}
         </div>

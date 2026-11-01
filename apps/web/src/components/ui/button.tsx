@@ -1,87 +1,50 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Button as HeroButton, Tooltip } from "@heroui/react";
+import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
-type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
-type ButtonSize = "sm" | "md";
+// Botón único de la app con la API de shadcn (variant × size). Es un <button>
+// nativo; los estilos viven en globals.css (`.ui-btn`, dentro de
+// @layer components) para que cualquier utilidad de Tailwind pasada en
+// `className` gane sin necesitar tailwind-merge. Primario y secundario son el
+// morado de E-NORA (--btn-primary*, --btn-secondary*), iguales en toda la app.
+// Inventario y plan de la migración: docs/INVENTARIO_BOTONES.md.
 
-// React Aria's Button (base de HeroUI) no acepta onClick -- solo onPress.
-// Los call sites actuales de este proyecto siempre pasan callbacks sin usar
-// el evento (onClick={regenerate}, onClick={() => setTab(...)}), asi que
-// traducir a onPress sin reenviar el evento es seguro aqui.
-export function Button({
-  variant = "primary",
-  size = "md",
-  className,
-  disabled,
-  onClick,
-  type = "button",
-  form,
-  title,
-  children,
-  "aria-expanded": ariaExpanded,
-  "aria-controls": ariaControls,
-  "aria-label": ariaLabel,
-  "aria-pressed": ariaPressed,
-}: {
+export type ButtonVariant = "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
+export type ButtonSize = "default" | "xs" | "sm" | "lg" | "icon" | "icon-xs" | "icon-sm" | "icon-lg";
+
+/** Clases del botón para cualquier elemento: un enlace con aspecto de botón usa esto, no `<Button>`. */
+export function buttonVariants({ variant = "default", size = "default", className }: {
   variant?: ButtonVariant;
   size?: ButtonSize;
   className?: string;
-  disabled?: boolean;
+} = {}) {
+  return cn("ui-btn", `ui-btn--${variant}`, size !== "default" && `ui-btn--${size}`, className);
+}
+
+export function Button({
+  variant = "default",
+  size = "default",
+  className,
+  type = "button",
+  onClick,
+  ...props
+}: Omit<ComponentProps<"button">, "onClick"> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  // Sin evento a propósito: el Button anterior (HeroUI, onPress) nunca lo
+  // pasaba y hay call sites como onClick={regenerate} cuyo primer parámetro
+  // no es un evento.
   onClick?: () => void;
-  type?: "button" | "submit" | "reset";
-  // Id del <form> al que pertenece un `type="submit"` que vive fuera de el:
-  // el pie de un Dialog envia el formulario del cuerpo sin anidarlo.
-  form?: string;
-  title?: string;
-  children?: ReactNode;
-  "aria-expanded"?: boolean;
-  "aria-controls"?: string;
-  "aria-label"?: string;
-  // Botones que son un interruptor (un filtro activado/desactivado): sin esto
-  // el lector de pantalla lee la etiqueta y no dice si esta puesto o quitado.
-  "aria-pressed"?: boolean;
 }) {
-  const button = (
-    <HeroButton
-      type={type}
-      form={form}
-      variant={variant}
-      size={size}
-      isDisabled={disabled}
-      className={cn(
-        "min-w-20 font-medium tracking-[-0.01em] focus-visible:outline-2 focus-visible:outline-offset-2",
-        // 32/36px valen con raton; con el dedo el minimo usable son 44px. La
-        // variante `pointer-coarse` lo aplica por capacidad del dispositivo,
-        // no por ancho de viewport -- un portatil tactil tambien lo necesita.
-        size === "sm" ? "min-h-8 pointer-coarse:min-h-11" : "min-h-9 pointer-coarse:min-h-11",
-        className,
-      )}
-      onPress={onClick}
-      aria-expanded={ariaExpanded}
-      aria-controls={ariaControls}
-      aria-label={ariaLabel}
-      aria-pressed={ariaPressed}
-    >
-      {children}
-    </HeroButton>
-  );
-
-  // El Button de HeroUI (react-aria-components) no acepta el atributo nativo
-  // `title` -- se usa el Tooltip real de HeroUI en su lugar (mejor que el
-  // tooltip nativo del navegador: accesible, con retraso configurable).
-  if (!title) {
-    return button;
-  }
-
   return (
-    <Tooltip delay={300}>
-      {button}
-      <Tooltip.Content>
-        <p>{title}</p>
-      </Tooltip.Content>
-    </Tooltip>
+    <button
+      data-slot="button"
+      data-variant={variant}
+      type={type}
+      className={buttonVariants({ variant, size, className })}
+      onClick={onClick ? () => onClick() : undefined}
+      {...props}
+    />
   );
 }

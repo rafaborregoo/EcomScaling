@@ -5,13 +5,16 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Button,
-  Card,
-  Combobox,
   Input,
   Select,
   SettingRow,
+  TimezoneCombobox,
   toast,
-  type ComboboxOption,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -23,23 +26,6 @@ import {
  * faltaba era dejar entrar al consultor asignado (el `status` sigue siendo de
  * plataforma, porque incluye suspender y cancelar).
  */
-
-/**
- * La lista IANA la trae el propio navegador: `Intl.supportedValuesOf` está en
- * todos los navegadores actuales y evita empaquetar una tabla de zonas que
- * caduca cada vez que un país cambia su horario de verano.
- */
-function timezoneOptions(current: string): ComboboxOption[] {
-  let zones: string[] = [];
-  try {
-    zones = Intl.supportedValuesOf("timeZone");
-  } catch {
-    // Navegador sin soporte: al menos la que ya tiene, para no vaciar el campo.
-    zones = [];
-  }
-  if (current && !zones.includes(current)) zones = [current, ...zones];
-  return zones.map((zone) => ({ value: zone, label: zone }));
-}
 
 // Las que factura la cartera. Si aparece otra, se ve igual porque el valor
 // guardado se añade a la lista.
@@ -108,51 +94,47 @@ export function OrganizationIdentity({
   ).map((code) => ({ value: code, label: code }));
 
   return (
-    <Card
-      title="Organización activa"
-      description="Cómo se llama este cliente y en qué moneda y huso opera."
-    >
-      <form onSubmit={save}>
-        <SettingRow label="Nombre" hint="Cómo aparece en informes y correos." htmlFor="org-name">
-          <Input
-            id="org-name"
-            className="max-w-md"
-            value={displayName}
-            disabled={!canManage}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </SettingRow>
-        <SettingRow label="Zona horaria" hint="La de las llamadas y la agenda. Las cifras diarias se cuentan en hora UTC.">
-          <Combobox
-            className="w-64"
-            label="Zona horaria"
-            value={timezone}
-            options={timezoneOptions(organization.timezone)}
-            onChange={setTimezone}
-            placeholder="Busca una zona"
-          />
-        </SettingRow>
-        <SettingRow label="Moneda" hint="La de la tienda. Las cifras no se convierten entre monedas.">
-          <Select
-            className="w-32"
-            aria-label="Moneda"
-            value={currency}
-            onChange={setCurrency}
-            options={currencyOptions}
-            disabled={!canManage}
-          />
-        </SettingRow>
-        <SettingRow label="Plan">
-          <span className="text-sm">{planLabel}</span>
-        </SettingRow>
-        {canManage && dirty ? (
-          <div className="border-t border-separator pt-4">
-            <Button type="submit" disabled={saving}>
-              {saving ? "Guardando…" : "Guardar cambios"}
-            </Button>
-          </div>
-        ) : null}
-      </form>
+    <Card>
+      <CardHeader>
+        <CardTitle>Organización activa</CardTitle>
+        <CardDescription>Cómo se llama este cliente y en qué moneda y huso opera.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save}>
+          <SettingRow label="Nombre" hint="Cómo aparece en informes y correos." htmlFor="org-name">
+            <Input
+              id="org-name"
+              className="max-w-md"
+              value={displayName}
+              disabled={!canManage}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
+          </SettingRow>
+          <SettingRow label="Zona horaria" hint="La de las llamadas y la agenda. Las cifras diarias se cuentan en hora UTC.">
+            <TimezoneCombobox className="w-72" value={timezone} onChange={setTimezone} disabled={!canManage} />
+          </SettingRow>
+          <SettingRow label="Moneda" hint="La de la tienda. Las cifras no se convierten entre monedas.">
+            <Select
+              className="w-32"
+              aria-label="Moneda"
+              value={currency}
+              onChange={setCurrency}
+              options={currencyOptions}
+              disabled={!canManage}
+            />
+          </SettingRow>
+          <SettingRow label="Plan">
+            <span className="text-sm">{planLabel}</span>
+          </SettingRow>
+          {canManage && dirty ? (
+            <div className="border-t border-separator pt-4">
+              <Button type="submit" disabled={saving}>
+                {saving ? "Guardando…" : "Guardar cambios"}
+              </Button>
+            </div>
+          ) : null}
+        </form>
+      </CardContent>
     </Card>
   );
 }

@@ -1,16 +1,34 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Alert } from "@heroui/react";
+import { Banner } from "./banner";
+import { Button } from "./button";
 
-export function ErrorBlock({ children }: { children: ReactNode }) {
+/**
+ * Algo no se ha podido cargar o hacer. Con `onRetry` lleva el botón
+ * «Reintentar» estándar; `action` es para cualquier otro botón.
+ */
+export function ErrorBlock({
+  title,
+  action,
+  onRetry,
+  className,
+  children,
+}: {
+  title?: ReactNode;
+  action?: ReactNode;
+  onRetry?: () => void;
+  className?: string;
+  children?: ReactNode;
+}) {
   return (
-    <div role="alert" aria-live="assertive">
-      <Alert status="danger">
-        <Alert.Content>
-          <Alert.Description>{children}</Alert.Description>
-        </Alert.Content>
-      </Alert>
-    </div>
+    <Banner
+      tone="danger"
+      title={title}
+      action={action ?? (onRetry ? <Button size="sm" variant="secondary" onClick={onRetry}>Reintentar</Button> : null)}
+      className={className}
+    >
+      {children}
+    </Banner>
   );
 }

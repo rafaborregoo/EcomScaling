@@ -1,5 +1,9 @@
 "use client";
 
+
+import { buttonVariants } from "@/components/ui/button";
+import { Banner } from "@/components/ui/banner";
+import { ErrorBlock } from "@/components/ui/error-block";
 import {
   useCallback,
   useEffect,
@@ -9,6 +13,7 @@ import {
 } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch, apiUrl } from "@/lib/bootstrap";
+import { ScrollArea, EmptyState, Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, DataTable, IconChevronDown } from "@/components/ui";
 
 type MetricValue = number | null;
 type HealthPayload = {
@@ -235,13 +240,13 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-separator bg-surface p-5">
+    <Card className="[--card-spacing:--spacing(5)]"><CardContent>
       <div className="mb-4">
         <h2 className="font-semibold">{title}</h2>
         {detail ? <p className="mt-1 text-sm text-muted">{detail}</p> : null}
       </div>
       {children}
-    </section>
+    </CardContent></Card>
   );
 }
 
@@ -263,13 +268,13 @@ function MetricCard({
         ? "text-warning"
         : "text-foreground";
   return (
-    <div className="rounded-lg border border-separator p-4">
+    <Card><CardContent>
       <p className="text-sm text-muted">{label}</p>
       <p className={`mt-2 text-2xl font-semibold tabular-nums ${toneClass}`}>
         {value}
       </p>
       {detail ? <p className="mt-1 text-xs text-muted">{detail}</p> : null}
-    </div>
+    </CardContent></Card>
   );
 }
 
@@ -388,9 +393,7 @@ function InfrastructurePanel() {
     );
   if (!data)
     return (
-      <p role="alert" className="rounded-lg border border-danger p-5">
-        {error ?? "No hay datos de salud disponibles."}
-      </p>
+      <ErrorBlock>{error ?? "No hay datos de salud disponibles."}</ErrorBlock>
     );
 
   const host = data.host;
@@ -410,26 +413,21 @@ function InfrastructurePanel() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="rounded-md border border-separator px-3 py-2 text-sm"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
         >
           Actualizar ahora
         </button>
       </header>
 
       {error ? (
-        <p
-          role="status"
-          className="rounded-md border border-warning p-3 text-sm"
-        >
-          La última consulta falló; se conservan los datos de{" "}
-          {time(data.generated_at)}. {error}
-        </p>
+        <Banner tone="warn" title={`La última lectura falló: se muestran los datos de las ${time(data.generated_at)}`}>
+          {error}
+        </Banner>
       ) : null}
       {probe.status === "error" ? (
-        <p role="alert" className="rounded-md border border-danger p-3 text-sm">
-          La sonda desde este navegador no pudo llegar a API /health/ready a
-          través de la URL pública. Comprueba DNS, TLS, Caddy y el API.
-        </p>
+        <Banner tone="danger" title="Desde este navegador no se llega a la API">
+          La sonda a /health/ready por la URL pública ha fallado. Revisa DNS, TLS, Caddy y la API.
+        </Banner>
       ) : null}
       {data.alerts.length ? (
         <section aria-label="Alertas activas" className="space-y-2">
@@ -498,24 +496,20 @@ function InfrastructurePanel() {
           </span>
           <span>Contenedores: {data.containers.status}</span>
         </div>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-sm">
-            <thead className="text-xs text-muted"><tr><th className="py-2">Servicio</th><th>Estado</th><th>CPU</th><th>RAM</th><th>Reinicios</th><th>OOM</th></tr></thead>
-            <tbody>
-              {data.containers.containers.map((container) => (
-                <tr key={container.id} className="border-t border-separator">
-                  <td className="py-2 font-medium">{container.service}</td>
-                  <td>{container.health ?? container.state}</td>
-                  <td>{percent(container.cpu_percent)}</td>
-                  <td>{bytes(container.memory_working_set_bytes)}{container.memory_used_percent == null ? "" : ` · ${percent(container.memory_used_percent)}`}</td>
-                  <td>{container.restart_count ?? "n/d"}</td>
-                  <td>{container.oom_events ?? "n/d"}</td>
-                </tr>
-              ))}
-              {!data.containers.containers.length ? <tr><td colSpan={6} className="py-3 text-muted">{data.containers.reason ?? "Sin métricas de contenedores."}</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          className="mt-4"
+          ariaLabel="Contenedores"
+          emptyLabel={data.containers.reason ?? "Sin métricas de contenedores."}
+          rows={data.containers.containers}
+          columns={[
+            { key: "service", label: "Servicio", render: (container) => <span className="font-medium">{container.service}</span> },
+            { key: "state", label: "Estado", value: (container) => container.health ?? container.state, render: (container) => container.health ?? container.state },
+            { key: "cpu_percent", label: "CPU", align: "end", render: (container) => percent(container.cpu_percent) },
+            { key: "memory_working_set_bytes", label: "RAM", align: "end", render: (container) => `${bytes(container.memory_working_set_bytes)}${container.memory_used_percent == null ? "" : ` · ${percent(container.memory_used_percent)}`}` },
+            { key: "restart_count", label: "Reinicios", align: "end", render: (container) => container.restart_count ?? "n/d" },
+            { key: "oom_events", label: "OOM", align: "end", render: (container) => container.oom_events ?? "n/d" },
+          ]}
+        />
       </Panel>
 
       <Panel title="Base de datos y recuperación" detail={`Comprobación ${time(data.database_recovery.checked_at)} · latencia PostgREST y copias Supabase`}>
@@ -631,19 +625,23 @@ function InfrastructurePanel() {
               detail="Pico de pestañas autenticadas de hoy"
             />
           </div>
-          <div className="mt-4 overflow-x-auto">
+          <div className="mt-4">
             <h3 className="mb-2 text-sm font-semibold">Latencia por ruta (p50 / p95 / p99) · 5 min</h3>
-            <table className="w-full min-w-[560px] text-left text-xs">
-              <thead className="text-muted"><tr><th className="py-2">Ruta</th><th>Peticiones</th><th>p50</th><th>p95</th><th>p99</th><th>5xx</th></tr></thead>
-              <tbody>{slo.latency_by_route.map((route) => (
-                <tr key={route.route} className="border-t border-separator">
-                  <td className="py-2 font-mono">{route.route}</td><td>{route.requestCount}</td>
-                  <td>{route.p50LatencyMs == null ? "n/d" : `${Math.round(route.p50LatencyMs)} ms`}</td>
-                  <td>{route.p95LatencyMs == null ? "n/d" : `${Math.round(route.p95LatencyMs)} ms`}</td>
-                  <td>{route.p99LatencyMs == null ? "n/d" : `${Math.round(route.p99LatencyMs)} ms`}</td><td>{route.errorCount}</td>
-                </tr>
-              ))}</tbody>
-            </table>
+            <DataTable
+              ariaLabel="Latencia por ruta"
+              rows={slo.latency_by_route.map((route) => ({ ...route, id: route.route }))}
+              columns={[
+                { key: "route", label: "Ruta", render: (route) => <span className="font-mono text-xs">{route.route}</span> },
+                { key: "requestCount", label: "Peticiones", align: "end" },
+                ...(["p50LatencyMs", "p95LatencyMs", "p99LatencyMs"] as const).map((key) => ({
+                  key,
+                  label: key.slice(0, 3),
+                  align: "end" as const,
+                  render: (route: (typeof slo.latency_by_route)[number]) => (route[key] == null ? "n/d" : `${Math.round(route[key])} ms`),
+                })),
+                { key: "errorCount", label: "5xx", align: "end" },
+              ]}
+            />
             <p className="mt-2 text-xs text-muted">Peticiones por minuto (últimos 5): {slo.requests_per_minute.map((minute) => minute.count).join(" · ")}</p>
           </div>
           <p className="mt-3 text-xs text-muted">
@@ -653,10 +651,7 @@ function InfrastructurePanel() {
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {data.application.worker.queues.map((queue) => (
-              <div
-                key={queue.name}
-                className="rounded-lg border border-separator p-3 text-sm"
-              >
+              <Card size="sm" key={queue.name}><CardContent className="text-sm">
                 <p className="font-medium">{queue.name}</p>
                 {queue.name === "ecomscaling-shopify-sync" ? (
                   <p className="mt-1 text-muted">
@@ -671,7 +666,7 @@ function InfrastructurePanel() {
                   En espera {queue.waiting ?? 0} · activos {queue.active ?? 0} ·
                   fallidos {queue.failed ?? 0} · retrasados {queue.delayed ?? 0}
                 </p>
-              </div>
+              </CardContent></Card>
             ))}
           </div>
           <p className="mt-3 text-xs text-muted">
@@ -721,16 +716,14 @@ function InfrastructurePanel() {
           ) : (
             <div className="space-y-3">
               {data.customers.affected_organizations.map((org) => (
-                <details
-                  key={org.organization_id}
-                  className="rounded-lg border border-separator p-3"
-                >
-                  <summary className="cursor-pointer font-medium">
+                <Collapsible key={org.organization_id} className="rounded-lg border border-separator p-3">
+                  <CollapsibleTrigger className="w-full font-medium">
                     {org.organization_name}
                     <span className="ml-2 text-sm text-muted">
                       {org.sync_failures} sync · {org.agent_failures} IA
                     </span>
-                  </summary>
+                  <IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                  <CollapsibleContent>
                   <p className="mt-2 text-xs text-muted">
                     Último incidente: {time(org.last_issue_at)} · latencia IA
                     media{" "}
@@ -753,7 +746,8 @@ function InfrastructurePanel() {
                       </li>
                     ))}
                   </ul>
-                </details>
+                </CollapsibleContent>
+                </Collapsible>
               ))}
             </div>
           )}
@@ -777,14 +771,11 @@ function InfrastructurePanel() {
             </p>
           ) : null}
           {data.feedback.available && !data.feedback.reports.length ? (
-            <p className="text-sm text-muted">No hay informes pendientes.</p>
+            <EmptyState size="sm" title="No hay informes pendientes" />
           ) : null}
           <ul className="space-y-3">
             {data.feedback.reports.map((report) => (
-              <li
-                key={report.id}
-                className="rounded-lg border border-separator p-3"
-              >
+              <li key={report.id}><Card size="sm"><CardContent>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-medium">
                     {report.organization_name} · {report.category}
@@ -799,7 +790,7 @@ function InfrastructurePanel() {
                 <p className="mt-2 whitespace-pre-wrap text-sm">
                   {report.message}
                 </p>
-                <div className="mt-3 flex gap-2">
+                <div role="group" aria-label="Acciones del informe" className="flex flex-wrap items-center gap-2 mt-3">
                   <button
                     type="button"
                     onClick={() =>
@@ -809,7 +800,7 @@ function InfrastructurePanel() {
                         ),
                       )
                     }
-                    className="rounded-md border border-separator px-3 py-1.5 text-xs"
+                    className={buttonVariants({ variant: "outline", size: "xs" })}
                   >
                     En revisión
                   </button>
@@ -823,12 +814,12 @@ function InfrastructurePanel() {
                           ),
                       )
                     }
-                    className="rounded-md border border-separator px-3 py-1.5 text-xs"
+                    className={buttonVariants({ variant: "outline", size: "xs" })}
                   >
                     Resolver
                   </button>
                 </div>
-              </li>
+              </CardContent></Card></li>
             ))}
           </ul>
         </Panel>
@@ -859,7 +850,7 @@ function InfrastructurePanel() {
               }
             />
           </div>
-          <ul className="max-h-64 space-y-2 overflow-auto text-sm">
+          <ScrollArea className="max-h-64"><ul className="space-y-2 text-sm">
             {data.security.recent_admin_actions.map((event, index) => (
               <li
                 key={`${event.at}-${index}`}
@@ -875,7 +866,7 @@ function InfrastructurePanel() {
             {!data.security.recent_admin_actions.length ? (
               <li className="text-muted">No hay acciones en esta ventana.</li>
             ) : null}
-          </ul>
+          </ul></ScrollArea>
           <h3 className="mt-4 text-sm font-semibold">
             Señales aún pendientes de conexión
           </h3>

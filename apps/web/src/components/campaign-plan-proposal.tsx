@@ -1,4 +1,6 @@
 "use client";
+import { DateRangePicker, Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
+
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -15,6 +17,7 @@ import {
   EmptyState,
   ErrorBlock,
   Field,
+  Input,
   LoadingBlock,
   Select,
   Textarea,
@@ -168,7 +171,7 @@ function CampaignPlanGenerating({ horizon }: { horizon: string }) {
             </p>
           </div>
         </div>
-        <div className="rounded-lg border border-separator bg-background/60 p-3">
+        <Card size="sm"><CardContent>
           <p className="mb-2 text-xs font-medium text-muted">Fuentes que intenta consultar</p>
           <ul className="grid gap-2 sm:grid-cols-2">
             {contextSources.map((source) => (
@@ -178,7 +181,7 @@ function CampaignPlanGenerating({ horizon }: { horizon: string }) {
               </li>
             ))}
           </ul>
-        </div>
+        </CardContent></Card>
         <p className="text-xs text-muted">Puede tardar unos segundos. No cierres esta ventana mientras se prepara.</p>
       </div>
     </section>
@@ -638,13 +641,18 @@ export function CampaignPlanProposal({
     content && actionCount > 0 &&
     (proposal?.applied_indexes?.length ?? 0) >= actionCount,
   );
+  // «Seleccionar todas» solo cuenta las que se pueden marcar (ni pasadas ni ya en el calendario).
+  const selectableIndexes = actions
+    .filter((action) => !((mode !== "select" && proposal?.applied_indexes?.includes(action.index)) || action.scheduled_date < todayInProposalTimezone))
+    .map((action) => action.index);
+  const selectedSelectable = selectableIndexes.filter((index) => selected.has(index)).length;
   const renderAction = (action: PlannedCalendarAction) => (
-    <li key={`action-${action.index}`} className="rounded-md border border-separator p-3">
+    <li key={`action-${action.index}`}><Card size="sm"><CardContent>
       <div className="flex flex-wrap items-start gap-2">
         <Checkbox
           checked={selected.has(action.index)}
           disabled={(mode !== "select" && proposal?.applied_indexes?.includes(action.index)) || action.scheduled_date < todayInProposalTimezone}
-          onChange={() => toggle(action.index)}
+          onCheckedChange={() => toggle(action.index)}
         >
           <span className="text-sm font-medium">{action.title}</span>
         </Checkbox>
@@ -662,7 +670,7 @@ export function CampaignPlanProposal({
         <p className="text-xs text-muted"><span className="font-medium text-foreground">Audiencia: </span>{action.audience}</p>
         <p className="whitespace-pre-line text-xs text-muted"><span className="font-medium text-foreground">Guía para producción: </span>{action.creative_brief}</p>
       </div>
-    </li>
+    </CardContent></Card></li>
   );
 
   return (
@@ -681,7 +689,7 @@ export function CampaignPlanProposal({
           />
           <Button
             type="button"
-            variant={content ? "secondary" : "primary"}
+            variant={content ? "secondary" : "default"}
             disabled={!connectionId || isGenerating || isLoading || isApplying || isRejecting}
             onClick={() => void generate()}
           >
@@ -708,43 +716,45 @@ export function CampaignPlanProposal({
       ) : null}
 
       {horizon === "custom" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Desde">
-            <input className="w-full rounded-md border border-separator bg-background px-3 py-2 text-sm" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          </Field>
-          <Field label="Hasta">
-            <input className="w-full rounded-md border border-separator bg-background px-3 py-2 text-sm" type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
-          </Field>
-        </div>
+        <Field label="Periodo personalizado">
+          <DateRangePicker
+            value={{ from: startDate, to: endDate }}
+            onChange={(range) => {
+              setStartDate(range.from ?? "");
+              setEndDate(range.to ?? "");
+            }}
+            aria-label="Elegir periodo para el plan de campañas"
+          />
+        </Field>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Fijar cantidad de mailings (opcional)">
-          <input className="w-full rounded-md border border-separator bg-background px-3 py-2 text-sm" type="number" min="1" max="30" value={emailTargetCount} onChange={(event) => setEmailTargetCount(event.target.value)} placeholder="A05 la decide con conocimiento e histórico" />
-        </Field>
-        <Field label="Fijar cantidad de creativos Meta (opcional)">
-          <input className="w-full rounded-md border border-separator bg-background px-3 py-2 text-sm" type="number" min="1" max="30" value={creativeTargetCount} onChange={(event) => setCreativeTargetCount(event.target.value)} placeholder="A05 la decide con conocimiento e histórico" />
-        </Field>
-      </div>
-      <p className="-mt-2 text-xs text-muted">Déjalas vacías para que A05 consulte primero el conocimiento relevante y decida las cantidades al contrastarlo con estacionalidad, histórico, audiencia y stock. Nunca se envía ni publica desde aquí.</p>
-
-      <Field label="Mercado para fechas comerciales (opcional)">
-        <input className="w-full rounded-md border border-separator bg-background px-3 py-2 text-sm" value={market} onChange={(event) => setMarket(event.target.value)} placeholder="Ej.: España" />
-        <p className="mt-1 text-xs text-muted">Se usa para tener en cuenta festivos y momentos comerciales locales. No implica que exista demanda sin datos de la tienda.</p>
-      </Field>
-
-      <Field label="Contexto de la llamada (opcional)">
-        <Textarea
-          value={brief}
-          maxLength={2000}
-          onChange={(event) => setBrief(event.target.value)}
-          placeholder="La idea o acuerdo que A05 debe contrastar con los datos de la tienda"
-          rows={3}
-        />
-        <p className="mt-1 text-xs text-muted">
-          La IA lo usará como dirección inicial, pero comprobará su viabilidad con margen, stock y rendimiento actuales.
-        </p>
-      </Field>
+      <Collapsible className="rounded-md border border-separator px-3 py-2 data-[state=open]:pb-3">
+        <CollapsibleTrigger className="w-full justify-between text-sm font-medium">Ajustes opcionales<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+        <CollapsibleContent>
+        <div className="mt-3 grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Cantidad de mailings">
+              <Input type="number" min="1" max="30" value={emailTargetCount} onChange={(event) => setEmailTargetCount(event.target.value)} placeholder="La decide A05" />
+            </Field>
+            <Field label="Cantidad de creativos Meta">
+              <Input type="number" min="1" max="30" value={creativeTargetCount} onChange={(event) => setCreativeTargetCount(event.target.value)} placeholder="La decide A05" />
+            </Field>
+          </div>
+          <Field label="Mercado para fechas comerciales">
+            <Input value={market} onChange={(event) => setMarket(event.target.value)} placeholder="Ej.: España" />
+          </Field>
+          <Field label="Contexto de la llamada">
+            <Textarea
+              value={brief}
+              maxLength={2000}
+              onChange={(event) => setBrief(event.target.value)}
+              placeholder="La idea o acuerdo que A05 debe contrastar con los datos de la tienda"
+              rows={3}
+            />
+          </Field>
+        </div>
+      </CollapsibleContent>
+      </Collapsible>
 
       {isLoading ? (
         <LoadingBlock label="Cargando plan..." />
@@ -785,8 +795,9 @@ export function CampaignPlanProposal({
             </div>
           ) : null}
           {weeklySummary.length ? (
-            <details className="rounded-md border border-separator px-3 py-2 text-sm">
-              <summary className="cursor-pointer font-medium">Ver distribución por semanas</summary>
+            <Collapsible className="rounded-md border border-separator px-3 py-2 text-sm">
+              <CollapsibleTrigger className="w-full justify-between font-medium">Ver distribución por semanas<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+              <CollapsibleContent>
               <ul className="mt-2 grid gap-1 text-xs text-muted sm:grid-cols-2">
                 {weeklySummary.map(([week, counts]) => (
                   <li key={week} className="tabular-nums">
@@ -794,9 +805,23 @@ export function CampaignPlanProposal({
                   </li>
                 ))}
               </ul>
-            </details>
+            </CollapsibleContent>
+            </Collapsible>
           ) : null}
 
+          {selectableIndexes.length > 1 ? (
+            <Checkbox
+              checked={selectedSelectable === selectableIndexes.length}
+              indeterminate={selectedSelectable > 0 && selectedSelectable < selectableIndexes.length}
+              onCheckedChange={(checked) =>
+                setSelected((current) => checked
+                  ? new Set([...current, ...selectableIndexes])
+                  : new Set([...current].filter((index) => !selectableIndexes.includes(index))))
+              }
+            >
+              Seleccionar todas las acciones ({selectedSelectable} de {selectableIndexes.length})
+            </Checkbox>
+          ) : null}
           {actionCount === 0 ? (
             /* Salida legitima del contrato: sin datos suficientes, A05 devuelve
                lista vacia en vez de inventar un plan. */
@@ -809,13 +834,14 @@ export function CampaignPlanProposal({
               {content.initiatives.map((initiative, initiativeIndex) => {
                 const initiativeActions = actions.filter((action) => action.initiative_index === initiativeIndex);
                 return (
-                  <li key={`${initiative.name}-${initiativeIndex}`} className="rounded-lg border border-separator p-4">
-                    <details className="group">
-                      <summary className="flex cursor-pointer flex-wrap items-center gap-2 marker:text-muted">
+                  <li key={`${initiative.name}-${initiativeIndex}`}><Card><CardContent>
+                    <Collapsible className="group">
+                      <CollapsibleTrigger className="flex w-full flex-wrap items-center gap-2">
                         <span className="min-w-0 flex-1 text-sm font-semibold">{initiative.name}</span>
                         <span className="text-xs text-muted">{formatCampaignDate(initiative.start_date)}–{formatCampaignDate(initiative.end_date)}</span>
                         <Badge tone="neutral">{initiativeActions.length} acciones</Badge>
-                      </summary>
+                      <IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                      <CollapsibleContent>
                     <div className="mt-3 space-y-3">
                     <header className="space-y-1">
                       <p className="text-sm">{initiative.objective}</p>
@@ -828,8 +854,9 @@ export function CampaignPlanProposal({
                     </header>
                     <ol className="space-y-2">{initiativeActions.map(renderAction)}</ol>
                     </div>
-                    </details>
-                  </li>
+                    </CollapsibleContent>
+                    </Collapsible>
+                  </CardContent></Card></li>
                 );
               })}
             </ol>
@@ -898,8 +925,8 @@ export function CampaignPlanProposal({
               {confirmReject ? (
                 <div className="space-y-2">
                   <p className="text-sm">Se quitarán del calendario las campañas planificadas de esta propuesta. Esta acción no se puede deshacer.</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="danger" disabled={isRejecting || isGenerating || isApplying} onClick={() => void rejectProposal()}>
+                  <div role="group" aria-label="Confirmacion del rechazo" className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="destructive" disabled={isRejecting || isGenerating || isApplying} onClick={() => void rejectProposal()}>
                       {isRejecting ? "Rechazando..." : "Sí, rechazar y borrar"}
                     </Button>
                     <Button type="button" variant="secondary" disabled={isRejecting} onClick={() => setConfirmReject(false)}>Cancelar</Button>

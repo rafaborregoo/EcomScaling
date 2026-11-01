@@ -4,9 +4,13 @@ import { useRouter } from "next/navigation";
 import { useActiveOrganization } from "@/components/active-organization";
 import {
   ButtonLink,
-  Card,
   EmptyState,
   Heading,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { useMarketingPortal } from "../marketing-portal-context";
@@ -59,10 +63,16 @@ function TemplateLibraryPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <h2 id="nora-templates" className="text-base font-semibold">Plantillas de NORA</h2>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {SYSTEM_TEMPLATES.map((template) => (
-              <Card key={template.id} title={template.name} description={template.description}>
-                <ButtonLink href={`/marketing?section=crear&system=${template.id}`} variant="secondary">
-                  Usar esta plantilla
-                </ButtonLink>
+              <Card key={template.id}>
+                <CardHeader>
+                  <CardTitle>{template.name}</CardTitle>
+                  <CardDescription>{template.description}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ButtonLink href={`/marketing?section=crear&system=${template.id}`} variant="secondary">
+                    Usar esta plantilla
+                  </ButtonLink>
+                </CardContent>
               </Card>
             ))}
           </div>

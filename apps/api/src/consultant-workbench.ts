@@ -15,6 +15,8 @@ export type WorkbenchOrganization = {
   id: string;
   display_name: string;
   store_count: number;
+  /** Tienda propia del consultor: sus integraciones las conecta él. Las de un cliente, solo el cliente. */
+  is_own_store?: boolean;
   attention: {
     open_alerts: number;
     critical_alerts: number;
@@ -90,6 +92,8 @@ export type WorkbenchMilestoneRow = {
   target_date: string;
   status: string;
   phase_name: string | null;
+  /** Tienda del camino al que pertenece: /camino enseña el de la tienda elegida. */
+  connection_id?: string | null;
 };
 
 export type WorkbenchCampaignRow = {
@@ -194,8 +198,15 @@ function providerLabel(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider;
 }
 
-function withOrg(path: string, organizationId: string): string {
-  return `${path}?organizationId=${organizationId}`;
+// El CTA aterriza en el elemento, no en la lista: /tareas abre ?task= y
+// filtra ?alert=, Configuración abre ?section=, la agenda salta a ?date=.
+function withOrg(
+  path: string,
+  organizationId: string,
+  extra: Record<string, string> = {},
+): string {
+  const params = new URLSearchParams({ organizationId, ...extra });
+  return `${path}?${params.toString()}`;
 }
 
 function daysAgo(iso: string | null, nowMs: number): number | null {
@@ -309,7 +320,7 @@ export function buildWorkbench(input: {
       ],
       due_at: null,
       assignee_name: null,
-      href: withOrg("/tareas", alert.organization_id),
+      href: withOrg("/tareas", alert.organization_id, { alert: alert.id }),
       action_label: "Abrir en Tareas",
     });
   }
@@ -359,15 +370,22 @@ export function buildWorkbench(input: {
 
   // --- Propuestas de IA esperando decision humana -------------------------
   // Con una sola propuesta en su salida se decide en la mesa; si no, en /tareas.
+  // Los planes semanal y mensual proponen a menudo lo mismo ("… (semanal)" y
+  // "… (mensual)"): en la mesa sale una vez; se decide en /tareas.
+  const seenProposals = new Set<string>();
   for (const proposal of proposals) {
     if (!inPortfolio(proposal.organization_id)) continue;
+    const baseTitle = proposal.title.replace(/\s*\((semanal|mensual)\)\s*$/i, "");
+    const proposalKey = `${proposal.organization_id}:${baseTitle.toLowerCase()}`;
+    if (seenProposals.has(proposalKey)) continue;
+    seenProposals.add(proposalKey);
     actions.push({
       id: `ai_proposal:${proposal.organization_id}:${proposal.title}`,
       kind: "ai_proposal",
       organization_id: proposal.organization_id,
       organization_name: nameOf(proposal.organization_id),
       priority: proposal.priority === "urgent" ? "high" : "normal",
-      title: `Decide sobre la propuesta: ${proposal.title}`,
+      title: `Decide sobre la propuesta: ${baseTitle}`,
       reason:
         proposal.rationale ||
         "Propuesta de un agente pendiente de aprobar, editar o descartar.",
@@ -481,8 +499,12 @@ export function buildWorkbench(input: {
       ],
       due_at: null,
       assignee_name: null,
-      href: withOrg("/integraciones", organizationId),
-      action_label: "Abrir Integraciones",
+      // El consultor no ve ni reconecta las integraciones de un cliente (la
+      // API le da 404): en su tienda propia va a Integraciones; en un cliente,
+      // al chat para pedírselo.
+      ...(organizations.find((organization) => organization.id === organizationId)?.is_own_store
+        ? { href: withOrg("/integraciones", organizationId), action_label: "Abrir Integraciones" }
+        : { href: withOrg("/mensajes", organizationId), action_label: "Pedir al cliente que reconecte" }),
     });
   }
 
@@ -508,8 +530,8 @@ export function buildWorkbench(input: {
       ],
       due_at: null,
       assignee_name: null,
-      href: withOrg("/configuracion", organization.id),
-      action_label: "Abrir Configuración",
+      href: withOrg("/configuracion", organization.id, { section: "rentabilidad" }),
+      action_label: "Completar costes",
     });
   }
 
@@ -540,7 +562,7 @@ export function buildWorkbench(input: {
       ],
       due_at: new Date(targetMs).toISOString(),
       assignee_name: null,
-      href: withOrg("/camino", milestone.organization_id),
+      href: withOrg("/camino", milestone.organization_id, milestone.connection_id ? { connectionId: milestone.connection_id } : {}),
       action_label: "Abrir Mi Camino",
     });
   }
@@ -568,11 +590,14 @@ export function buildWorkbench(input: {
 
   // --- Proximos siete dias ------------------------------------------------
   const upcoming: UpcomingItem[] = [];
+  // Lo que ya pasó no es "próximo": un hito vencido sale en la bandeja como
+  // "Hito pasado de fecha", no aquí con una fecha de hace dos días.
+  const todayStartMs = Date.parse(`${new Date(nowMs).toISOString().slice(0, 10)}T00:00:00.000Z`);
   for (const milestone of milestones) {
     if (!inPortfolio(milestone.organization_id)) continue;
     if (["completed", "skipped"].includes(milestone.status)) continue;
     const at = Date.parse(`${milestone.target_date}T00:00:00.000Z`);
-    if (Number.isNaN(at) || at > horizonMs) continue;
+    if (Number.isNaN(at) || at < todayStartMs || at > horizonMs) continue;
     upcoming.push({
       id: `milestone:${milestone.id}`,
       kind: "milestone",
@@ -582,13 +607,13 @@ export function buildWorkbench(input: {
         ? `${milestone.name} · ${milestone.phase_name}`
         : milestone.name,
       at: new Date(at).toISOString(),
-      href: withOrg("/camino", milestone.organization_id),
+      href: withOrg("/camino", milestone.organization_id, milestone.connection_id ? { connectionId: milestone.connection_id } : {}),
     });
   }
   for (const campaign of campaigns) {
     if (!inPortfolio(campaign.organization_id)) continue;
     const at = Date.parse(campaign.starts_at);
-    if (Number.isNaN(at) || at > horizonMs) continue;
+    if (Number.isNaN(at) || at < todayStartMs || at > horizonMs) continue;
     upcoming.push({
       id: `campaign:${campaign.id}`,
       kind: "campaign",
@@ -596,7 +621,9 @@ export function buildWorkbench(input: {
       organization_name: nameOf(campaign.organization_id),
       title: `${campaign.title} · ${campaign.channel}`,
       at: new Date(at).toISOString(),
-      href: withOrg("/planificacion", campaign.organization_id),
+      href: withOrg("/planificacion/calendario", campaign.organization_id, {
+        date: new Date(at).toISOString().slice(0, 10),
+      }),
     });
   }
   for (const task of openTasks) {
@@ -610,7 +637,7 @@ export function buildWorkbench(input: {
       organization_name: nameOf(task.organization_id),
       title: task.title,
       at: new Date(at).toISOString(),
-      href: withOrg("/tareas", task.organization_id),
+      href: withOrg("/tareas", task.organization_id, { task: task.id }),
     });
   }
   for (const call of calls) {
@@ -656,6 +683,23 @@ export function buildWorkbench(input: {
     call: "Llamada",
   };
 
+  // El tramo sale de alertas y tareas vencidas (attentionTier), pero lo que
+  // pide la mesa también cuenta: un cliente con una conexión rota (acción
+  // urgente) no puede salir "Al día" mientras el titular dice que necesita
+  // que intervengas. Se queda el peor de los dos.
+  const TIER_RANK: Record<PortfolioHealthRow["status"], number> = { urgente: 3, revisar: 2, vigilar: 1, al_dia: 0 };
+  const tierFromActions = (organizationId: string): PortfolioHealthRow["status"] => {
+    const mine = actions.filter((action) => action.organization_id === organizationId);
+    if (mine.some((action) => action.priority === "urgent")) return "urgente";
+    if (mine.some((action) => action.priority === "high")) return "revisar";
+    return mine.length ? "vigilar" : "al_dia";
+  };
+  const tierOf = (organization: WorkbenchOrganization): PortfolioHealthRow["status"] => {
+    const byScore = attentionTier(organization.attention.score);
+    const byActions = tierFromActions(organization.id);
+    return TIER_RANK[byActions] > TIER_RANK[byScore] ? byActions : byScore;
+  };
+
   const portfolio: PortfolioHealthRow[] = organizations.map((organization) => {
     const dataIssues: string[] = [];
     const broken = brokenByOrg.get(organization.id);
@@ -676,7 +720,7 @@ export function buildWorkbench(input: {
     return {
       organization_id: organization.id,
       organization_name: organization.display_name,
-      status: attentionTier(organization.attention.score),
+      status: tierOf(organization),
       next_action: first
         ? {
             title: first.title,
@@ -698,6 +742,7 @@ export function buildWorkbench(input: {
   // Mismo orden que el resto del producto: quien peor va, arriba.
   portfolio.sort(
     (a, b) =>
+      TIER_RANK[b.status] - TIER_RANK[a.status] ||
       (orgById.get(b.organization_id)?.attention.score ?? 0) -
         (orgById.get(a.organization_id)?.attention.score ?? 0) ||
       a.organization_name.localeCompare(b.organization_name),

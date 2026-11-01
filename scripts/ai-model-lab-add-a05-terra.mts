@@ -1,0 +1,20 @@
+import { readFile, writeFile, rename, copyFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import assert from "node:assert/strict";
+import { aiModelLabReportSchema } from "../packages/contracts/src/ai-model-lab.js";
+import { pendingResult } from "./ai-model-lab-core.js";
+
+const path = resolve(".e-nora-test-lab/ai-models/report.json");
+const report = aiModelLabReportSchema.parse(JSON.parse(await readFile(path, "utf8")));
+assert.ok(!report.results.some((row) => ["pending", "running"].includes(row.status)));
+const item = report.cases.find((row) => row.agent_code === "a05_estrategia_campanas" && row.source === "snapshot_replay");
+assert.ok(item);
+assert.ok(!item.model_ids?.includes("gpt-6.1-terra"), "terra_already_added");
+assert.ok(report.models.some((model) => model.id === "gpt-6.1-terra"));
+await copyFile(path, path + ".before-a05-terra");
+item.model_ids = [...(item.model_ids ?? []), "gpt-6.1-terra"];
+report.results.push(pendingResult(item.id, "gpt-6.1-terra"));
+report.updated_at = new Date().toISOString();
+await writeFile(path + ".tmp", JSON.stringify(aiModelLabReportSchema.parse(report), null, 2));
+await rename(path + ".tmp", path);
+console.log("A05: Terra añadido al snapshot histórico; seis resultados anteriores conservados.");

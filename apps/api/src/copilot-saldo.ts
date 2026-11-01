@@ -1,5 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { estimateCostUsd, pricingFor } from "@e-nora/ai";
+import { COPILOT_DEFAULT_MONTHLY_CREDITS, copilotCreditsForCost } from "@e-nora/contracts";
+import { refreshLiveModelPricing } from "./ai-model-pricing.js";
 import {
   requireOperationalOrganization,
   type AuthContext,
@@ -10,12 +13,22 @@ import {
   finDelPeriodo,
   inicioDelPeriodo,
   modelosDelPlan,
-  TOKENS_POR_MENSAJE,
   type CopilotBalance,
   type CopilotModelTier,
 } from "./copilot-tokens.js";
 
-const SALDO_POR_DEFECTO = 1_000_000;
+const SALDO_POR_DEFECTO = COPILOT_DEFAULT_MONTHLY_CREDITS;
+
+export function copilotModelConsumption(model: (typeof COPILOT_MODELS)[number]) {
+  const price = pricingFor(model.anthropicModel);
+  const exampleCost = estimateCostUsd(model.anthropicModel, 10_000, 1_000);
+  return {
+    input_credits_per_1k: price ? copilotCreditsForCost(price.inputPerMTok / 1000) : null,
+    output_credits_per_1k: price ? copilotCreditsForCost(price.outputPerMTok / 1000) : null,
+    example_credits: exampleCost === null ? null : copilotCreditsForCost(exampleCost),
+    example_cost_usd: exampleCost,
+  };
+}
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -84,7 +97,7 @@ export async function loadCopilotBalance(
       .order("starts_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase.rpc("copilot_tokens_consumidos", {
+    supabase.rpc("copilot_credit_usage", {
       bank_organization_id: bankId,
       desde: inicioDelPeriodo(now).toISOString(),
       hasta: finDelPeriodo(now).toISOString(),
@@ -103,7 +116,9 @@ export async function loadCopilotBalance(
   if (used === null || used === undefined) {
     throw new Error("copilot_usage_missing");
   }
-  const usedTokens = Number(used);
+  const usage = used as { used: number; unpriced_runs: number; by_model: Array<{ model: string; runs: number; credits: number; cost_usd: number }> };
+  if (Number(usage.unpriced_runs) !== 0) throw new Error("copilot_usage_unpriced");
+  const usedTokens = Number(usage.used);
   if (!Number.isFinite(usedTokens) || usedTokens < 0) {
     throw new Error("copilot_usage_invalid");
   }
@@ -117,12 +132,12 @@ export async function loadCopilotBalance(
   const tier = ((subscription?.copilot_model_tier as string) ??
     "sonnet") as CopilotModelTier;
 
-  return describeBalance({
+  return { ...describeBalance({
     granted,
     used: usedTokens,
     tier,
     now,
-  });
+  }), by_model: usage.by_model ?? [] };
 }
 
 /** El saldo mas los modelos que ese plan deja elegir: lo que pinta el panel. */
@@ -133,6 +148,8 @@ export async function getCopilotBalance(
 ) {
   const access = requireOperationalOrganization(context, organizationId);
   if (access.ok === false) return access;
+  await refreshLiveModelPricing(env);
+
 
   const balance = await loadCopilotBalance(
     createServiceClient(env),
@@ -154,15 +171,13 @@ export async function getCopilotBalance(
           : model.provider === "openai" && !env.OPENAI_API_KEY
             ? "No disponible por ahora"
             : "Requiere el plan avanzado";
-        return { id: model.id, label: model.label, description: model.description, available, reason };
+        return { id: model.id, label: model.label, description: model.description, available, reason, ...copilotModelConsumption(model) };
       }),
       models: modelosDelPlan(balance.tier, Boolean(env.OPENAI_API_KEY)).map((model) => ({
         id: model.id,
         label: model.label,
         description: model.description,
-        // Los tokens cuentan igual sea cual sea el modelo; lo que cambia es
-        // la calidad. Se enseña para que elegir modelo sea elegir con el saldo delante.
-        approx_tokens_per_message: TOKENS_POR_MENSAJE,
+        ...copilotModelConsumption(model),
       })),
     },
   };

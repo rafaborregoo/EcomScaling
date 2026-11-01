@@ -19,7 +19,6 @@ revoke all on function public.set_a11_marketing_generation_stage(uuid,uuid,text,
 grant execute on function public.set_a11_marketing_generation_stage(uuid,uuid,text,text) to service_role;
 
 drop function if exists public.marketing_studio_products_by_ids(uuid, uuid, uuid[]);
-
 create or replace function public.marketing_studio_products_by_ids(
   target_organization_id uuid, target_store_id uuid, target_product_ids uuid[]
 ) returns table(product_id uuid,title text,price numeric,currency_code text,image_url text,image_alt text,product_url text,units_30d bigint)

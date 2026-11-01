@@ -1,4 +1,5 @@
 "use client";
+import { EmptyState, Checkbox, DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 
 import { useEffect, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
@@ -12,15 +13,21 @@ import {
   BarChart,
   Banner,
   Button,
-  Card,
   ErrorBlock,
   Field,
   EYEBROW,
   Input,
   Metric,
   Select,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 type Subscription = {
@@ -359,7 +366,7 @@ function FiscalInvoicingPanel() {
     }
   }
 
-  const invoiceColumns: TableColumnDef<BillingInvoice>[] = [
+  const invoiceColumns: DataTableColumn<BillingInvoice>[] = [
     {
       key: "code",
       label: "Factura",
@@ -430,130 +437,131 @@ function FiscalInvoicingPanel() {
 
   return (
     <div className="grid gap-5">
-      <Card
-        kicker="Emisor fiscal"
-        title="Facturación propia y VERI*FACTU"
-        description="Stripe registra el cobro; esta configuración define la factura emitida por tu actividad como autónomo."
-      >
-        {settingsQuery.error && !settingsQuery.data ? (
-          <Banner tone="warn">
-            Aún no hay configuración fiscal guardada. Completa los datos del
-            emisor.
-          </Banner>
-        ) : null}
-        <div className="grid gap-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Nombre o razón social">
-              <Input
-                value={legalName}
-                onChange={(event) => setLegalName(event.target.value)}
-                placeholder="Nombre completo"
-              />
-            </Field>
-            <Field label="NIF">
-              <Input
-                value={taxId}
-                onChange={(event) => setTaxId(event.target.value)}
-                placeholder="12345678A"
-              />
-            </Field>
+      <Card>
+        <CardHeader>
+          <CardKicker>Emisor fiscal</CardKicker>
+          <CardTitle>Facturación propia y VERI*FACTU</CardTitle>
+          <CardDescription>Stripe registra el cobro; esta configuración define la factura emitida por tu actividad como autónomo.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {settingsQuery.error && !settingsQuery.data ? (
+            <Banner tone="warn">
+              Aún no hay configuración fiscal guardada. Completa los datos del
+              emisor.
+            </Banner>
+          ) : null}
+          <div className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Nombre o razón social">
+                <Input
+                  value={legalName}
+                  onChange={(event) => setLegalName(event.target.value)}
+                  placeholder="Nombre completo"
+                />
+              </Field>
+              <Field label="NIF">
+                <Input
+                  value={taxId}
+                  onChange={(event) => setTaxId(event.target.value)}
+                  placeholder="12345678A"
+                />
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr]">
+              <Field label="Dirección">
+                <Input
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                />
+              </Field>
+              <Field label="Código postal">
+                <Input
+                  value={postalCode}
+                  onChange={(event) => setPostalCode(event.target.value)}
+                />
+              </Field>
+              <Field label="Ciudad">
+                <Input
+                  value={city}
+                  onChange={(event) => setCity(event.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-4">
+              <Field label="Provincia">
+                <Input
+                  value={region}
+                  onChange={(event) => setRegion(event.target.value)}
+                />
+              </Field>
+              <Field label="Email fiscal">
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </Field>
+              <Field label="Serie">
+                <Input
+                  value={series}
+                  onChange={(event) => setSeries(event.target.value)}
+                />
+              </Field>
+              <Field label="IVA por defecto (%)">
+                <Input
+                  inputMode="decimal"
+                  value={vatRate}
+                  onChange={(event) => setVatRate(event.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <Checkbox checked={enabled} onCheckedChange={setEnabled}>
+                Activar envío VERI*FACTU
+              </Checkbox>
+              <Field label="Entorno">
+                <Select
+                  value={environment}
+                  onChange={(value) =>
+                    setEnvironment(value as "test" | "production")
+                  }
+                  options={[
+                    { value: "test", label: "Pruebas AEAT" },
+                    { value: "production", label: "Producción" },
+                  ]}
+                />
+              </Field>
+              <Button disabled={busy} onClick={() => void saveSettings()}>
+                {busy ? "Guardando..." : "Guardar configuración"}
+              </Button>
+            </div>
+            <Banner tone="warn">
+              El certificado PFX y su contraseña se configuran como secretos del
+              servidor; no se guardan en esta pantalla ni en Supabase.
+            </Banner>
+            {notice ? <Banner tone="success">{notice}</Banner> : null}
+            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
           </div>
-          <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr]">
-            <Field label="Dirección">
-              <Input
-                value={address}
-                onChange={(event) => setAddress(event.target.value)}
-              />
-            </Field>
-            <Field label="Código postal">
-              <Input
-                value={postalCode}
-                onChange={(event) => setPostalCode(event.target.value)}
-              />
-            </Field>
-            <Field label="Ciudad">
-              <Input
-                value={city}
-                onChange={(event) => setCity(event.target.value)}
-              />
-            </Field>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-4">
-            <Field label="Provincia">
-              <Input
-                value={region}
-                onChange={(event) => setRegion(event.target.value)}
-              />
-            </Field>
-            <Field label="Email fiscal">
-              <Input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </Field>
-            <Field label="Serie">
-              <Input
-                value={series}
-                onChange={(event) => setSeries(event.target.value)}
-              />
-            </Field>
-            <Field label="IVA por defecto (%)">
-              <Input
-                inputMode="decimal"
-                value={vatRate}
-                onChange={(event) => setVatRate(event.target.value)}
-              />
-            </Field>
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-              />{" "}
-              Activar envío VERI*FACTU
-            </label>
-            <Field label="Entorno">
-              <Select
-                value={environment}
-                onChange={(value) =>
-                  setEnvironment(value as "test" | "production")
-                }
-                options={[
-                  { value: "test", label: "Pruebas AEAT" },
-                  { value: "production", label: "Producción" },
-                ]}
-              />
-            </Field>
-            <Button disabled={busy} onClick={() => void saveSettings()}>
-              {busy ? "Guardando..." : "Guardar configuración"}
-            </Button>
-          </div>
-          <Banner tone="warn">
-            El certificado PFX y su contraseña se configuran como secretos del
-            servidor; no se guardan en esta pantalla ni en Supabase.
-          </Banner>
-          {notice ? <Banner tone="success">{notice}</Banner> : null}
-          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        </div>
+        </CardContent>
       </Card>
 
-      <Card
-        kicker="Registro fiscal"
-        title="Facturas emitidas"
-        description="Cada pago confirmado de Stripe queda enlazado a su factura y a su estado de envío."
-      >
-        {invoicesQuery.error && !invoicesQuery.data ? (
-          <ErrorBlock>{invoicesQuery.error}</ErrorBlock>
-        ) : null}
-        <Table
-          ariaLabel="Facturas emitidas"
-          columns={invoiceColumns}
-          rows={invoicesQuery.data?.invoices ?? []}
-          emptyLabel="Todavía no hay facturas emitidas."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Registro fiscal</CardKicker>
+          <CardTitle>Facturas emitidas</CardTitle>
+          <CardDescription>Cada pago confirmado de Stripe queda enlazado a su factura y a su estado de envío.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {invoicesQuery.error && !invoicesQuery.data ? (
+            <ErrorBlock>{invoicesQuery.error}</ErrorBlock>
+          ) : null}
+          <DataTable
+            ariaLabel="Facturas emitidas"
+            columns={invoiceColumns}
+            rows={invoicesQuery.data?.invoices ?? []}
+            emptyLabel="Todavía no hay facturas emitidas."
+          />
+        </CardContent>
       </Card>
     </div>
   );
@@ -576,8 +584,14 @@ function FinancialDashboard() {
   }
   if (error && !data) {
     return (
-      <Card kicker="Ledger Stripe" title="Dashboard financiero">
-        <ErrorBlock>{error}</ErrorBlock>
+      <Card>
+        <CardHeader>
+          <CardKicker>Ledger Stripe</CardKicker>
+          <CardTitle>Dashboard financiero</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorBlock>{error}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
@@ -605,7 +619,7 @@ function FinancialDashboard() {
       }))
     : [];
 
-  const paymentColumns: TableColumnDef<FinancialPayment>[] = [
+  const paymentColumns: DataTableColumn<FinancialPayment>[] = [
     {
       key: "paid_at",
       label: "Fecha",
@@ -664,12 +678,12 @@ function FinancialDashboard() {
 
   return (
     <div className="grid gap-5">
-      <Card
-        kicker="Ledger Stripe"
-        title="Dashboard financiero"
-        description={`Cobros reales de Stripe · últimos ${data.window_days} días${isValidating ? " · actualizando" : ""}`}
-        actions={
-          <div className="flex items-center gap-2">
+      <Card>
+        <CardHeader>
+          <CardKicker>Ledger Stripe</CardKicker>
+          <CardTitle>Dashboard financiero</CardTitle>
+          <CardDescription>{`Cobros reales de Stripe · últimos ${data.window_days} días${isValidating ? " · actualizando" : ""}`}</CardDescription>
+          <CardAction><div className="flex items-center gap-2">
             <Select
               aria-label="Periodo financiero"
               value={String(days)}
@@ -689,172 +703,192 @@ function FinancialDashboard() {
             >
               Actualizar
             </Button>
+          </div></CardAction>
+        </CardHeader>
+        <CardContent>
+          {data.truncated ? (
+            <Banner tone="warn">
+              El periodo tiene más movimientos de los que se han cargado. Reduce
+              el periodo para ver el detalle completo.
+            </Banner>
+          ) : null}
+          {hasMultipleCurrencies ? (
+            <Banner tone="warn">
+              Stripe ha devuelto varias monedas. Se muestran los totales por
+              moneda y no se convierten entre sí.
+            </Banner>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              card
+              label="Cobrado bruto"
+              value={dinero(data.totals.gross_amount, currency)}
+              hint={`${data.totals.successful_payments} pagos confirmados`}
+            />
+            <Metric
+              card
+              label="Comisiones Stripe"
+              value={dinero(data.totals.fee_amount, currency)}
+              hint="Según la transacción de saldo de Stripe"
+              tone="warn"
+            />
+            <Metric
+              card
+              label="Reembolsos"
+              value={dinero(data.totals.refunded_amount, currency)}
+              hint={`${data.payments.filter((payment) => payment.refunded_amount > 0).length} pagos afectados`}
+              tone="danger"
+            />
+            <Metric
+              card
+              label="Neto recibido"
+              value={dinero(data.totals.net_amount, currency)}
+              hint="Después de comisiones y reembolsos"
+              tone="success"
+            />
           </div>
-        }
-      >
-        {data.truncated ? (
-          <Banner tone="warn">
-            El periodo tiene más movimientos de los que se han cargado. Reduce
-            el periodo para ver el detalle completo.
-          </Banner>
-        ) : null}
-        {hasMultipleCurrencies ? (
-          <Banner tone="warn">
-            Stripe ha devuelto varias monedas. Se muestran los totales por
-            moneda y no se convierten entre sí.
-          </Banner>
-        ) : null}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            card
-            label="Cobrado bruto"
-            value={dinero(data.totals.gross_amount, currency)}
-            hint={`${data.totals.successful_payments} pagos confirmados`}
-          />
-          <Metric
-            card
-            label="Comisiones Stripe"
-            value={dinero(data.totals.fee_amount, currency)}
-            hint="Según la transacción de saldo de Stripe"
-            tone="warn"
-          />
-          <Metric
-            card
-            label="Reembolsos"
-            value={dinero(data.totals.refunded_amount, currency)}
-            hint={`${data.payments.filter((payment) => payment.refunded_amount > 0).length} pagos afectados`}
-            tone="danger"
-          />
-          <Metric
-            card
-            label="Neto recibido"
-            value={dinero(data.totals.net_amount, currency)}
-            hint="Después de comisiones y reembolsos"
-            tone="success"
-          />
-        </div>
-        {data.totals.failed_payments || data.totals.pending_payments ? (
-          <p className="mt-4 text-sm text-muted">
-            {data.totals.failed_payments
-              ? `${data.totals.failed_payments} pagos fallidos`
-              : null}
-            {data.totals.failed_payments && data.totals.pending_payments
-              ? " · "
-              : null}
-            {data.totals.pending_payments
-              ? `${data.totals.pending_payments} pagos pendientes`
-              : null}
-          </p>
-        ) : null}
+          {data.totals.failed_payments || data.totals.pending_payments ? (
+            <p className="mt-4 text-sm text-muted">
+              {data.totals.failed_payments
+                ? `${data.totals.failed_payments} pagos fallidos`
+                : null}
+              {data.totals.failed_payments && data.totals.pending_payments
+                ? " · "
+                : null}
+              {data.totals.pending_payments
+                ? `${data.totals.pending_payments} pagos pendientes`
+                : null}
+            </p>
+          ) : null}
+        </CardContent>
       </Card>
 
       {data.by_currency.length > 1 ? (
-        <Card kicker="Conversión no aplicada" title="Totales por moneda">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {data.by_currency.map((row) => (
-              <div
-                key={row.currency}
-                className="rounded-md border border-accent/30 bg-accent-soft/30 p-3"
-              >
-                <p className="text-sm font-semibold text-foreground">
-                  {row.currency}
-                </p>
-                <p className="mt-1 text-xl font-semibold tabular-nums">
-                  {dinero(row.net_amount, row.currency)}
-                </p>
-                <p className="mt-1 text-xs text-muted">
-                  {row.successful_payments} pagos · bruto{" "}
-                  {dinero(row.gross_amount, row.currency)}
-                </p>
-              </div>
-            ))}
-          </div>
+        <Card>
+          <CardHeader>
+            <CardKicker>Conversión no aplicada</CardKicker>
+            <CardTitle>Totales por moneda</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {data.by_currency.map((row) => (
+                <Card size="sm" key={row.currency} className="border-accent/30 bg-accent-soft/30"><CardContent>
+                  <p className="text-sm font-semibold text-foreground">
+                    {row.currency}
+                  </p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums">
+                    {dinero(row.net_amount, row.currency)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    {row.successful_payments} pagos · bruto{" "}
+                    {dinero(row.gross_amount, row.currency)}
+                  </p>
+                </CardContent></Card>
+              ))}
+            </div>
+          </CardContent>
         </Card>
       ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(18rem,1fr)]">
-        <Card
-          kicker="Evolución"
-          title="Bruto y reembolsos"
-          description="Día de cobro según el ledger de Stripe."
-        >
-          {chartData.length ? (
-            <AreaChart
-              data={chartData}
-              xKey="period"
-              series={[
-                { key: "gross", label: "Bruto" },
-                {
-                  key: "refunds",
-                  label: "Reembolsos",
-                  color: "var(--color-danger)",
-                },
-              ]}
-              valueFormatter={(value) => dinero(value, currency)}
-              height={250}
-            />
-          ) : (
-            <p className="text-sm text-muted">
-              El gráfico necesita una sola moneda.
-            </p>
-          )}
+        <Card>
+          <CardHeader>
+            <CardKicker>Evolución</CardKicker>
+            <CardTitle>Bruto y reembolsos</CardTitle>
+            <CardDescription>Día de cobro según el ledger de Stripe.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length ? (
+              <AreaChart
+                data={chartData}
+                xKey="period"
+                series={[
+                  { key: "gross", label: "Bruto" },
+                  {
+                    key: "refunds",
+                    label: "Reembolsos",
+                    color: "var(--color-danger)",
+                  },
+                ]}
+                valueFormatter={(value) => dinero(value, currency)}
+                height={250}
+              />
+            ) : (
+              <p className="text-sm text-muted">
+                El gráfico necesita una sola moneda.
+              </p>
+            )}
+          </CardContent>
         </Card>
-        <Card kicker="Planes" title="Qué se está vendiendo">
-          {planChartData.length ? (
-            <BarChart
-              data={planChartData}
-              xKey="name"
-              series={[{ key: "gross", label: "Bruto" }]}
-              horizontal
-              height={Math.min(260, Math.max(120, planChartData.length * 42))}
-              valueFormatter={(value) => dinero(value, currency)}
-            />
-          ) : (
-            <p className="text-sm text-muted">
-              Todavía no hay cobros confirmados en el periodo.
-            </p>
-          )}
+        <Card>
+          <CardHeader>
+            <CardKicker>Planes</CardKicker>
+            <CardTitle>Qué se está vendiendo</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {planChartData.length ? (
+              <BarChart
+                data={planChartData}
+                xKey="name"
+                series={[{ key: "gross", label: "Bruto" }]}
+                horizontal
+                height={Math.min(260, Math.max(120, planChartData.length * 42))}
+                valueFormatter={(value) => dinero(value, currency)}
+              />
+            ) : (
+              <EmptyState size="sm" title="Todavía no hay cobros confirmados en el periodo" />
+            )}
+          </CardContent>
         </Card>
       </div>
 
-      <Card kicker="Acceso comercial" title="Suscripciones activas">
-        <div className="grid gap-4 sm:grid-cols-4">
-          <Metric
-            label="Activas"
-            value={data.subscriptions.active}
-            hint="Membresías en vigor"
-            tone="success"
-          />
-          <Metric
-            label="En prueba"
-            value={data.subscriptions.trial}
-            hint="Trial vigente"
-          />
-          <Metric
-            label="Pagadas"
-            value={data.subscriptions.paid}
-            hint="Origen Stripe"
-          />
-          <Metric
-            label="Concedidas"
-            value={data.subscriptions.granted}
-            hint="Sin cobro en Stripe"
-            tone="warn"
-          />
-        </div>
+      <Card>
+        <CardHeader>
+          <CardKicker>Acceso comercial</CardKicker>
+          <CardTitle>Suscripciones activas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-4">
+            <Metric
+              label="Activas"
+              value={data.subscriptions.active}
+              hint="Membresías en vigor"
+              tone="success"
+            />
+            <Metric
+              label="En prueba"
+              value={data.subscriptions.trial}
+              hint="Trial vigente"
+            />
+            <Metric
+              label="Pagadas"
+              value={data.subscriptions.paid}
+              hint="Origen Stripe"
+            />
+            <Metric
+              label="Concedidas"
+              value={data.subscriptions.granted}
+              hint="Sin cobro en Stripe"
+              tone="warn"
+            />
+          </div>
+        </CardContent>
       </Card>
 
-      <Card
-        kicker="Detalle"
-        title="Últimos movimientos"
-        description="Máximo 100 movimientos del periodo seleccionado."
-      >
-        <Table
-          ariaLabel="Movimientos financieros de Stripe"
-          columns={paymentColumns}
-          rows={data.payments}
-          emptyLabel="No hay movimientos en este periodo."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Detalle</CardKicker>
+          <CardTitle>Últimos movimientos</CardTitle>
+          <CardDescription>Máximo 100 movimientos del periodo seleccionado.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Movimientos financieros de Stripe"
+            columns={paymentColumns}
+            rows={data.payments}
+            emptyLabel="No hay movimientos en este periodo."
+          />
+        </CardContent>
       </Card>
     </div>
   );
@@ -905,7 +939,7 @@ function BillingPanel() {
   if (loadError && !data) return <ErrorBlock>{loadError}</ErrorBlock>;
   if (!data) return null;
 
-  const columns: TableColumnDef<Subscription>[] = [
+  const columns: DataTableColumn<Subscription>[] = [
     {
       key: "subject",
       label: "Quién",
@@ -983,21 +1017,25 @@ function BillingPanel() {
         <Metric card label="Concedidos manualmente" value={String(grantedCount)} />
       </div>
 
-      <Card
-        kicker="Panel platform admin"
-        title="Suscripciones y acceso"
-        description="Los de Stripe llegan solos por webhook y se cancelan allí. Los concedidos se retiran aquí."
-      >
-        <Table
-          ariaLabel="Suscripciones"
-          columns={columns}
-          rows={data.subscriptions}
-          emptyLabel="Todavía no hay ningún plan."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Panel platform admin</CardKicker>
+          <CardTitle>Suscripciones y acceso</CardTitle>
+          <CardDescription>Los de Stripe llegan solos por webhook y se cancelan allí. Los concedidos se retiran aquí.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Suscripciones"
+            columns={columns}
+            rows={data.subscriptions}
+            emptyLabel="Todavía no hay ningún plan."
+          />
+        </CardContent>
       </Card>
 
-      <details className="admin-settings-disclosure">
-        <summary>Configuración fiscal y acciones de facturación</summary>
+      <Collapsible className="admin-settings-disclosure">
+        <CollapsibleTrigger>Configuración fiscal y acciones de facturación<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+        <CollapsibleContent>
         <div className="admin-settings-disclosure-content">
           <FiscalInvoicingPanel />
           <GrantForm
@@ -1009,7 +1047,8 @@ function BillingPanel() {
             }}
           />
         </div>
-      </details>
+      </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
@@ -1078,108 +1117,100 @@ function GrantForm({
   }
 
   return (
-    <Card
-      kicker="Panel platform admin"
-      title="Conceder un plan sin cobrar"
-      description="Para un socio, una prueba o una compensación. No pasa por Stripe."
-    >
-      <div className="grid gap-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="A quién">
-            <Select
-              value={subjectType}
-              onChange={(value) => {
-                setSubjectType(value);
-                setSubjectId("");
-              }}
-              options={[
-                { value: "user", label: "Una persona (la hace consultora)" },
-                {
-                  value: "organization",
-                  label: "Un cliente (fija sus tiendas)",
-                },
-              ]}
-            />
-          </Field>
-          <Field label={subjectType === "user" ? "Persona" : "Cliente"}>
-            <Select
-              value={subjectId}
-              onChange={setSubjectId}
-              options={opcionesSujeto}
-              placeholder="Seleccionar..."
-            />
-          </Field>
+    <Card>
+      <CardHeader>
+        <CardKicker>Panel platform admin</CardKicker>
+        <CardTitle>Conceder un plan sin cobrar</CardTitle>
+        <CardDescription>Para un socio, una prueba o una compensación. No pasa por Stripe.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="A quién">
+              <Select
+                value={subjectType}
+                onChange={(value) => {
+                  setSubjectType(value);
+                  setSubjectId("");
+                }}
+                options={[
+                  { value: "user", label: "Una persona (la hace consultora)" },
+                  {
+                    value: "organization",
+                    label: "Un cliente (fija sus tiendas)",
+                  },
+                ]}
+              />
+            </Field>
+            <Field label={subjectType === "user" ? "Persona" : "Cliente"}>
+              <Select
+                value={subjectId}
+                onChange={setSubjectId}
+                options={opcionesSujeto}
+                placeholder="Seleccionar..."
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Código de plan">
+              <Input
+                value={planCode}
+                onChange={(event) => setPlanCode(event.target.value)}
+                placeholder="consultor"
+              />
+            </Field>
+            <Field label="Tiendas incluidas">
+              <Input
+                value={storeLimit}
+                onChange={(event) => setStoreLimit(event.target.value)}
+                placeholder="3"
+                disabled={sinLimite}
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="Usuarios incluidos">
+              <Input
+                value={memberLimit}
+                onChange={(event) => setMemberLimit(event.target.value)}
+                placeholder="5"
+                disabled={sinLimiteUsuarios}
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="Caduca (opcional)">
+              <DatePicker
+                value={endsAt}
+                onChange={(value) => setEndsAt(value)}
+              />
+            </Field>
+          </div>
+
+          <Checkbox checked={sinLimite} onCheckedChange={setSinLimite}>
+            Sin límite de tiendas
+          </Checkbox>
+          <Checkbox checked={sinLimiteUsuarios} onCheckedChange={setSinLimiteUsuarios}>
+            Sin límite de usuarios
+          </Checkbox>
+
+          {/* El aviso va aquí y no en un subtexto suelto: es la consecuencia de la
+              acción, y de las dos opciones de arriba solo una cambia el rol. */}
+          {subjectType === "user" ? (
+            <Banner tone="warn">
+              Un plan a nombre de una persona la convierte en consultora: verá su
+              cartera de clientes, no solo una tienda.
+            </Banner>
+          ) : null}
+
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+          <div>
+            <Button disabled={!puedeEnviar || busy} onClick={() => void enviar()}>
+              {busy ? "Concediendo..." : "Conceder plan"}
+            </Button>
+          </div>
         </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Código de plan">
-            <Input
-              value={planCode}
-              onChange={(event) => setPlanCode(event.target.value)}
-              placeholder="consultor"
-            />
-          </Field>
-          <Field label="Tiendas incluidas">
-            <Input
-              value={storeLimit}
-              onChange={(event) => setStoreLimit(event.target.value)}
-              placeholder="3"
-              disabled={sinLimite}
-              inputMode="numeric"
-            />
-          </Field>
-          <Field label="Usuarios incluidos">
-            <Input
-              value={memberLimit}
-              onChange={(event) => setMemberLimit(event.target.value)}
-              placeholder="5"
-              disabled={sinLimiteUsuarios}
-              inputMode="numeric"
-            />
-          </Field>
-          <Field label="Caduca (opcional)">
-            <Input
-              type="date"
-              value={endsAt}
-              onChange={(event) => setEndsAt(event.target.value)}
-            />
-          </Field>
-        </div>
-
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={sinLimite}
-            onChange={(event) => setSinLimite(event.target.checked)}
-          />
-          Sin límite de tiendas
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={sinLimiteUsuarios}
-            onChange={(event) => setSinLimiteUsuarios(event.target.checked)}
-          />
-          Sin límite de usuarios
-        </label>
-
-        {/* El aviso va aquí y no en un subtexto suelto: es la consecuencia de la
-            acción, y de las dos opciones de arriba solo una cambia el rol. */}
-        {subjectType === "user" ? (
-          <Banner tone="warn">
-            Un plan a nombre de una persona la convierte en consultora: verá su
-            cartera de clientes, no solo una tienda.
-          </Banner>
-        ) : null}
-
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-
-        <div>
-          <Button disabled={!puedeEnviar || busy} onClick={() => void enviar()}>
-            {busy ? "Concediendo..." : "Conceder plan"}
-          </Button>
-        </div>
-      </div>
+      </CardContent>
     </Card>
   );
 }

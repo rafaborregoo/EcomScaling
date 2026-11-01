@@ -8,7 +8,6 @@ import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query"
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
@@ -17,10 +16,22 @@ import {
   Select,
   SettingRow,
   Switch,
+  DataTable,
   Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   UploadButton,
   toast,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -93,75 +104,78 @@ export function ConsultoraTeamSection({ currentUserId }: { currentUserId: string
   const rows: Row[] = data.members.map((member) => ({ ...member, id: member.user_id }));
 
   return (
-    <Card
-      title="Consultores"
-      description="Los consultores de tu plan; los extra se facturan aparte. Al aceptar la invitación pasan a tener cartera."
-      actions={<Badge tone="brand">{data.members.filter((member) => member.is_active).length} activos</Badge>}
-    >
-      <Table<Row>
-        ariaLabel="Consultores de la consultora"
-        rows={rows}
-        columns={[
-          {
-            key: "name",
-            label: "Persona",
-            render: (member) => (
-              <div>
-                <p className="text-sm font-medium">
-                  {member.full_name ?? "Sin nombre"}
-                  {member.user_id === currentUserId ? <span className="text-muted"> (tú)</span> : null}
-                </p>
-                <p className="text-xs text-muted">{member.is_active ? "con acceso" : member.joined_at ? "sin acceso" : "invitación pendiente"}</p>
-              </div>
-            ),
-          },
-          {
-            key: "role",
-            label: "Rol",
-            render: (member) =>
-              data.can_manage && member.user_id !== currentUserId && (data.role === "owner" || member.role !== "owner") ? (
-                <Select
-                  className="w-36"
-                  aria-label={`Rol de ${member.full_name ?? "la persona"}`}
-                  value={member.role}
-                  onChange={(next) => void patch(member.user_id, { role: next })}
-                  options={options}
-                />
-              ) : (
-                <Badge tone={member.role === "owner" ? "brand" : "neutral"}>{ROLE_LABEL[member.role] ?? member.role}</Badge>
+    <Card>
+      <CardHeader>
+        <CardTitle>Consultores</CardTitle>
+        <CardDescription>Los consultores de tu plan; los extra se facturan aparte. Al aceptar la invitación pasan a tener cartera.</CardDescription>
+        <CardAction><Badge tone="brand">{data.members.filter((member) => member.is_active).length} activos</Badge></CardAction>
+      </CardHeader>
+      <CardContent>
+        <DataTable<Row>
+          ariaLabel="Consultores de la consultora"
+          rows={rows}
+          columns={[
+            {
+              key: "name",
+              label: "Persona",
+              render: (member) => (
+                <div>
+                  <p className="text-sm font-medium">
+                    {member.full_name ?? "Sin nombre"}
+                    {member.user_id === currentUserId ? <span className="text-muted"> (tú)</span> : null}
+                  </p>
+                  <p className="text-xs text-muted">{member.is_active ? "con acceso" : member.joined_at ? "sin acceso" : "invitación pendiente"}</p>
+                </div>
               ),
-          },
-          { key: "clients", label: "Clientes", render: (member) => <span className="tabular-nums">{member.client_count}</span> },
-          {
-            key: "actions",
-            label: "",
-            render: (member) =>
-              data.can_manage && member.user_id !== currentUserId && (data.role === "owner" || member.role !== "owner") ? (
-                <Button size="sm" variant="ghost" onClick={() => void patch(member.user_id, { is_active: !member.is_active })}>
-                  {member.is_active ? "Quitar acceso" : "Devolver acceso"}
-                </Button>
-              ) : null,
-          },
-        ]}
-      />
-      {data.pending_invites.length > 0 ? (
-        <p className="mt-4 text-xs text-muted">
-          Pendientes: {data.pending_invites.map((invite) => invite.email).join(" · ")}
-        </p>
-      ) : null}
-      {data.can_manage ? (
-        <form className="mt-6 grid gap-4 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] md:items-end" onSubmit={invite}>
-          <Field label="Correo del consultor">
-            <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nombre@tuconsultora.com" />
-          </Field>
-          <Field label="Rol">
-            <Select aria-label="Rol del consultor invitado" value={role} onChange={setRole} options={options.filter((option) => option.value !== "owner")} />
-          </Field>
-          <Button type="submit" disabled={busy || !email.trim()}>
-            {busy ? "Invitando…" : "Invitar"}
-          </Button>
-        </form>
-      ) : null}
+            },
+            {
+              key: "role",
+              label: "Rol",
+              render: (member) =>
+                data.can_manage && member.user_id !== currentUserId && (data.role === "owner" || member.role !== "owner") ? (
+                  <Select
+                    className="w-36"
+                    aria-label={`Rol de ${member.full_name ?? "la persona"}`}
+                    value={member.role}
+                    onChange={(next) => void patch(member.user_id, { role: next })}
+                    options={options}
+                  />
+                ) : (
+                  <Badge tone={member.role === "owner" ? "brand" : "neutral"}>{ROLE_LABEL[member.role] ?? member.role}</Badge>
+                ),
+            },
+            { key: "clients", label: "Clientes", render: (member) => <span className="tabular-nums">{member.client_count}</span> },
+            {
+              key: "actions",
+              label: "",
+              render: (member) =>
+                data.can_manage && member.user_id !== currentUserId && (data.role === "owner" || member.role !== "owner") ? (
+                  <Button size="sm" variant="ghost" onClick={() => void patch(member.user_id, { is_active: !member.is_active })}>
+                    {member.is_active ? "Quitar acceso" : "Devolver acceso"}
+                  </Button>
+                ) : null,
+            },
+          ]}
+        />
+        {data.pending_invites.length > 0 ? (
+          <p className="mt-4 text-xs text-muted">
+            Pendientes: {data.pending_invites.map((invite) => invite.email).join(" · ")}
+          </p>
+        ) : null}
+        {data.can_manage ? (
+          <form className="mt-6 grid gap-4 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] md:items-end" onSubmit={invite}>
+            <Field label="Correo del consultor">
+              <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nombre@tuconsultora.com" />
+            </Field>
+            <Field label="Rol">
+              <Select aria-label="Rol del consultor invitado" value={role} onChange={setRole} options={options.filter((option) => option.value !== "owner")} />
+            </Field>
+            <Button type="submit" disabled={busy || !email.trim()}>
+              {busy ? "Invitando…" : "Invitar"}
+            </Button>
+          </form>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
@@ -176,33 +190,38 @@ const ROLE_MATRIX: Array<[string, [boolean, boolean, boolean]]> = [
 
 export function ConsultoraRolesCard() {
   return (
-    <Card title="Roles en la consultora">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[28rem] text-sm">
-          <thead>
-            <tr className="text-left text-xs text-muted">
-              <th className="pb-2 font-medium">&nbsp;</th>
+    <Card>
+      <CardHeader>
+        <CardTitle>Roles en la consultora</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table className="min-w-[28rem]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <span className="sr-only">Acción</span>
+              </TableHead>
               {["Propietario", "Gestor", "Consultor"].map((role) => (
-                <th key={role} className="pb-2 text-center font-medium">
+                <TableHead key={role} className="text-center">
                   {role}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-separator">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {ROLE_MATRIX.map(([action, allowed]) => (
-              <tr key={action}>
-                <td className="py-2 pr-4">{action}</td>
+              <TableRow key={action}>
+                <TableCell>{action}</TableCell>
                 {allowed.map((value, index) => (
-                  <td key={index} className={`py-2 text-center ${value ? "font-semibold text-success" : "text-muted"}`} aria-label={value ? "Puede" : "No puede"}>
+                  <TableCell key={index} className={`text-center ${value ? "font-semibold text-success" : "text-muted"}`} aria-label={value ? "Puede" : "No puede"}>
                     {value ? "✓" : "—"}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </CardContent>
     </Card>
   );
 }
@@ -269,83 +288,85 @@ export function InviteCodesSection() {
   if (!codes.data) return <LoadingBlock label="Cargando códigos…" />;
   type Row = InviteCode;
   return (
-    <Card
-      id="codigos"
-      title="Códigos de vinculación"
-      description="Un código por cliente nuevo, de un solo uso. Mientras está pendiente ocupa una plaza de cartera."
-    >
-      <form className="mb-6 flex flex-wrap items-end gap-3" onSubmit={generate}>
-        <Field label="Correo del cliente (opcional)">
-          <Input className="w-72" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="cliente@sutienda.com" />
-        </Field>
-        <Button type="submit" disabled={busy}>
-          {busy ? "Creando…" : "Generar código"}
-        </Button>
-      </form>
-      {lastLink ? (
-        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-surface p-4">
-          <p className="min-w-0 flex-1 break-all text-sm">{lastLink}</p>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() =>
-              void navigator.clipboard
-                .writeText(lastLink)
-                .then(() => toast.success("Enlace copiado"))
-                .catch(() => toast.danger("No se pudo copiar."))
-            }
-          >
-            Copiar enlace
+    <Card id="codigos">
+      <CardHeader>
+        <CardTitle>Códigos de vinculación</CardTitle>
+        <CardDescription>Un código por cliente nuevo, de un solo uso. Mientras está pendiente ocupa una plaza de cartera.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="mb-6 flex flex-wrap items-end gap-3" onSubmit={generate}>
+          <Field label="Correo del cliente (opcional)">
+            <Input className="w-72" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="cliente@sutienda.com" />
+          </Field>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Creando…" : "Generar código"}
           </Button>
-        </div>
-      ) : null}
-      {codes.data.codes.length === 0 ? (
-        <EmptyState title="Sin códigos todavía" hint="Genera uno y compártelo con el cliente." />
-      ) : (
-        <Table<Row>
-          ariaLabel="Códigos de vinculación"
-          rows={codes.data.codes}
-          columns={[
-            {
-              key: "for",
-              label: "Para",
-              render: (code) => (
-                <div>
-                  <p className="text-sm font-medium">{code.organization_name ?? code.email ?? "Enlace suelto"}</p>
-                  <p className="text-xs text-muted">
-                    {code.created_by ?? "—"} · {new Date(code.created_at).toLocaleDateString("es-ES")}
-                  </p>
-                </div>
-              ),
-            },
-            {
-              key: "state",
-              label: "Estado",
-              render: (code) => {
-                const state = CODE_STATE[code.state] ?? { label: code.state, tone: "neutral" as Tone };
-                return (
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Badge tone={state.tone}>{state.label}</Badge>
-                    {code.state === "pending" ? (
-                      <span className="text-xs text-muted">caduca el {new Date(code.expires_at).toLocaleDateString("es-ES")}</span>
-                    ) : null}
-                  </span>
-                );
+        </form>
+        {lastLink ? (
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-surface p-4">
+            <p className="min-w-0 flex-1 break-all text-sm">{lastLink}</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(lastLink)
+                  .then(() => toast.success("Enlace copiado"))
+                  .catch(() => toast.danger("No se pudo copiar."))
+              }
+            >
+              Copiar enlace
+            </Button>
+          </div>
+        ) : null}
+        {codes.data.codes.length === 0 ? (
+          <EmptyState title="Sin códigos todavía" hint="Genera uno y compártelo con el cliente." />
+        ) : (
+          <DataTable<Row>
+            ariaLabel="Códigos de vinculación"
+            rows={codes.data.codes}
+            columns={[
+              {
+                key: "for",
+                label: "Para",
+                render: (code) => (
+                  <div>
+                    <p className="text-sm font-medium">{code.organization_name ?? code.email ?? "Enlace suelto"}</p>
+                    <p className="text-xs text-muted">
+                      {code.created_by ?? "—"} · {new Date(code.created_at).toLocaleDateString("es-ES")}
+                    </p>
+                  </div>
+                ),
               },
-            },
-            {
-              key: "actions",
-              label: "",
-              render: (code) =>
-                code.state === "pending" && (code.mine || codes.data?.can_manage) ? (
-                  <Button size="sm" variant="ghost" onClick={() => void revoke(code.id)}>
-                    Revocar
-                  </Button>
-                ) : null,
-            },
-          ]}
-        />
-      )}
+              {
+                key: "state",
+                label: "Estado",
+                render: (code) => {
+                  const state = CODE_STATE[code.state] ?? { label: code.state, tone: "neutral" as Tone };
+                  return (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Badge tone={state.tone}>{state.label}</Badge>
+                      {code.state === "pending" ? (
+                        <span className="text-xs text-muted">caduca el {new Date(code.expires_at).toLocaleDateString("es-ES")}</span>
+                      ) : null}
+                    </span>
+                  );
+                },
+              },
+              {
+                key: "actions",
+                label: "",
+                render: (code) =>
+                  code.state === "pending" && (code.mine || codes.data?.can_manage) ? (
+                    <Button size="sm" variant="ghost" onClick={() => void revoke(code.id)}>
+                      Revocar
+                    </Button>
+                  ) : null,
+              },
+            ]}
+          />
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -356,6 +377,7 @@ type Brand = {
   brand_name: string | null;
   brand_logo_url: string | null;
   brand_reply_to: string | null;
+  brand_accent_color: string | null;
   client_defaults: {
     payment_fee_pct?: number;
     payment_fee_fixed?: number;
@@ -372,7 +394,7 @@ export function ConsultoraBrandSection({ currentUserId }: { currentUserId: strin
   // `key` remonta los formularios cuando llega el dato guardado.
   return (
     <div className="space-y-6">
-      <BrandCard key={`b-${brand.data.brand_name}-${brand.data.brand_logo_url}-${brand.data.brand_reply_to}`} brand={brand.data} userId={currentUserId} onSaved={() => { invalidateCachedQueries(path); brand.reload(); }} />
+      <BrandCard key={`b-${brand.data.brand_name}-${brand.data.brand_logo_url}-${brand.data.brand_reply_to}-${brand.data.brand_accent_color}`} brand={brand.data} userId={currentUserId} onSaved={() => { invalidateCachedQueries(path); brand.reload(); }} />
       <ClientDefaultsCard key={`d-${JSON.stringify(brand.data.client_defaults)}`} brand={brand.data} onSaved={() => { invalidateCachedQueries(path); brand.reload(); }} />
     </div>
   );
@@ -382,9 +404,17 @@ function BrandCard({ brand, userId, onSaved }: { brand: Brand; userId: string; o
   const [name, setName] = useState(brand.brand_name ?? "");
   const [replyTo, setReplyTo] = useState(brand.brand_reply_to ?? "");
   const [logo, setLogo] = useState(brand.brand_logo_url);
+  const [accent, setAccent] = useState(brand.brand_accent_color ?? "#1D4ED8");
   const [busy, setBusy] = useState(false);
 
   async function upload(file: File) {
+    if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 2 * 1024 * 1024) { toast.danger("Elige un logo PNG o JPG de hasta 2 MB para los informes."); return; }
+    try {
+      const bitmap = await createImageBitmap(file);
+      const valid = bitmap.width <= 4096 && bitmap.height <= 4096;
+      bitmap.close();
+      if (!valid) { toast.danger("El logo debe medir como máximo 4096 píxeles por lado."); return; }
+    } catch { toast.danger("No se pudo leer el logo. Elige otra imagen PNG o JPG."); return; }
     const supabase = getSupabaseClient();
     const ext = (file.name.split(".").pop() || "png").toLowerCase();
     const filePath = `${userId}/marca-${crypto.randomUUID()}.${ext}`;
@@ -400,7 +430,7 @@ function BrandCard({ brand, userId, onSaved }: { brand: Brand; userId: string; o
     event.preventDefault();
     setBusy(true);
     try {
-      await send("/v1/consultant/consultora/brand", "PUT", { brand_name: name, brand_reply_to: replyTo, brand_logo_url: logo });
+      await send("/v1/consultant/consultora/brand", "PUT", { brand_name: name, brand_reply_to: replyTo, brand_logo_url: logo, brand_accent_color: accent });
       toast.success("Marca guardada");
       onSaved();
     } catch (error) {
@@ -412,30 +442,39 @@ function BrandCard({ brand, userId, onSaved }: { brand: Brand; userId: string; o
 
   const disabled = !brand.can_edit;
   return (
-    <Card title="Marca de la consultora" description={disabled ? "La cambia el propietario de la consultora." : "Firma los informes PDF y sale en «Tu consultor» de cada cliente."}>
-      <form onSubmit={save}>
-        <SettingRow label="Logo">
-          {logo ? <img src={logo} alt="Logo de la consultora" className="h-10 w-auto max-w-40 object-contain" /> : <span className="text-sm text-muted">Sin logo</span>}
+    <Card>
+      <CardHeader>
+        <CardTitle>Marca de la consultora</CardTitle>
+        <CardDescription>{disabled ? "La cambia el propietario de la consultora." : "Firma los informes PDF y sale en «Tu consultor» de cada cliente."}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save}>
+          <SettingRow label="Logo" hint="PNG o JPG de hasta 2 MB y 4096 píxeles por lado. Se incluye en los nuevos informes PDF.">
+            {logo ? <img src={logo} alt="Logo de la consultora" className="h-10 w-auto max-w-40 object-contain" /> : <span className="text-sm text-muted">Sin logo</span>}
+            {!disabled ? (
+              <UploadButton accept="image/png,image/jpeg" onFile={upload}>
+                {logo ? "Cambiar" : "Subir logo"}
+              </UploadButton>
+            ) : null}
+          </SettingRow>
+          <SettingRow label="Color de los informes" hint="Elige un tono oscuro para que los títulos y gráficos se lean sobre blanco." htmlFor="brand-accent">
+            <Input id="brand-accent" className="max-w-40" value={accent} disabled={disabled} pattern="#[0-9a-fA-F]{6}" maxLength={7} required onChange={(event) => setAccent(event.target.value)} />
+          </SettingRow>
+          <SettingRow label="Nombre comercial" hint={`Si lo dejas vacío se usa «${brand.display_name ?? "el nombre de la consultora"}».`} htmlFor="brand-name">
+            <Input id="brand-name" className="max-w-sm" value={name} disabled={disabled} onChange={(event) => setName(event.target.value)} />
+          </SettingRow>
+          <SettingRow label="Correo de respuesta" hint="Si un cliente responde a un informe, le llega aquí." htmlFor="brand-reply">
+            <Input id="brand-reply" type="email" className="max-w-sm" value={replyTo} disabled={disabled} onChange={(event) => setReplyTo(event.target.value)} />
+          </SettingRow>
           {!disabled ? (
-            <UploadButton accept="image/png,image/svg+xml,image/jpeg,image/webp" onFile={upload}>
-              {logo ? "Cambiar" : "Subir logo"}
-            </UploadButton>
+            <div className="border-t border-separator pt-4">
+              <Button type="submit" disabled={busy}>
+                {busy ? "Guardando…" : "Guardar"}
+              </Button>
+            </div>
           ) : null}
-        </SettingRow>
-        <SettingRow label="Nombre comercial" hint={`Si lo dejas vacío se usa «${brand.display_name ?? "el nombre de la consultora"}».`} htmlFor="brand-name">
-          <Input id="brand-name" className="max-w-sm" value={name} disabled={disabled} onChange={(event) => setName(event.target.value)} />
-        </SettingRow>
-        <SettingRow label="Correo de respuesta" hint="Si un cliente responde a un informe, le llega aquí." htmlFor="brand-reply">
-          <Input id="brand-reply" type="email" className="max-w-sm" value={replyTo} disabled={disabled} onChange={(event) => setReplyTo(event.target.value)} />
-        </SettingRow>
-        {!disabled ? (
-          <div className="border-t border-separator pt-4">
-            <Button type="submit" disabled={busy}>
-              {busy ? "Guardando…" : "Guardar"}
-            </Button>
-          </div>
-        ) : null}
-      </form>
+        </form>
+      </CardContent>
     </Card>
   );
 }
@@ -471,35 +510,38 @@ function ClientDefaultsCard({ brand, onSaved }: { brand: Brand; onSaved: () => v
 
   const disabled = !brand.can_edit;
   return (
-    <Card
-      title="Ajustes de partida para clientes nuevos"
-      description="Se copian cuando un cliente se da de alta con un código. Luego cada uno los ajusta: no se sincronizan."
-    >
-      <form onSubmit={save}>
-        <SettingRow label="Comisión de la pasarela">
-          <Input className="w-24" type="number" step="0.01" min="0" max="100" aria-label="Comisión en porcentaje" value={pct} disabled={disabled} onChange={(event) => setPct(event.target.value)} />
-          <span className="text-sm text-muted">% +</span>
-          <Input className="w-24" type="number" step="0.01" min="0" aria-label="Comisión fija" value={fixed} disabled={disabled} onChange={(event) => setFixed(event.target.value)} />
-          <span className="text-sm text-muted">fijo</span>
-        </SettingRow>
-        <SettingRow label="Envío medio">
-          <Input className="w-24" type="number" step="0.01" min="0" aria-label="Envío medio" value={shipping} disabled={disabled} onChange={(event) => setShipping(event.target.value)} />
-        </SettingRow>
-        <SettingRow label="Pedir permiso para programar campañas" hint="Si lo activas, el cliente nuevo arranca dejándote programar campañas en Klaviyo.">
-          <Switch aria-label="Programar campañas desde el alta" isSelected={publish} isDisabled={disabled} onChange={setPublish}>
-            <Switch.Control>
-              <Switch.Thumb />
-            </Switch.Control>
-          </Switch>
-        </SettingRow>
-        {!disabled ? (
-          <div className="border-t border-separator pt-4">
-            <Button type="submit" disabled={busy}>
-              {busy ? "Guardando…" : "Guardar"}
-            </Button>
-          </div>
-        ) : null}
-      </form>
+    <Card>
+      <CardHeader>
+        <CardTitle>Ajustes de partida para clientes nuevos</CardTitle>
+        <CardDescription>Se copian cuando un cliente se da de alta con un código. Luego cada uno los ajusta: no se sincronizan.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save}>
+          <SettingRow label="Comisión de la pasarela">
+            <Input className="w-24" type="number" step="0.01" min="0" max="100" aria-label="Comisión en porcentaje" value={pct} disabled={disabled} onChange={(event) => setPct(event.target.value)} />
+            <span className="text-sm text-muted">% +</span>
+            <Input id="consultora-fee-fixed" className="w-24" type="number" step="0.01" min="0" aria-label="Comisión fija" value={fixed} disabled={disabled} onChange={(event) => setFixed(event.target.value)} />
+            <span className="text-sm text-muted">fijo</span>
+          </SettingRow>
+          <SettingRow label="Envío medio">
+            <Input className="w-24" type="number" step="0.01" min="0" aria-label="Envío medio" value={shipping} disabled={disabled} onChange={(event) => setShipping(event.target.value)} />
+          </SettingRow>
+          <SettingRow label="Pedir permiso para programar campañas" hint="Si lo activas, el cliente nuevo arranca dejándote programar campañas en Klaviyo.">
+            <Switch aria-label="Programar campañas desde el alta" isSelected={publish} isDisabled={disabled} onChange={setPublish}>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch>
+          </SettingRow>
+          {!disabled ? (
+            <div className="border-t border-separator pt-4">
+              <Button type="submit" disabled={busy}>
+                {busy ? "Guardando…" : "Guardar"}
+              </Button>
+            </div>
+          ) : null}
+        </form>
+      </CardContent>
     </Card>
   );
 }

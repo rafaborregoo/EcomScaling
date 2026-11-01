@@ -8,7 +8,7 @@ import {
   type CampaignItem,
 } from "@/hooks/use-campaign-items";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
-import { Button, ErrorBlock, EYEBROW, Select, toast } from "@/components/ui";
+import { EmptyState, Button, ErrorBlock, EYEBROW, SearchableSelect, toast, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui";
 import { fmtDate } from "./format";
 
 /**
@@ -72,44 +72,44 @@ export function DraftCampaignLink({
       ) : null}
 
       {linked ? (
-        <div className="mt-1 flex flex-wrap items-center gap-3 text-sm">
-          <span
-            aria-hidden
-            className={`h-5 w-1 shrink-0 ${channelStyle(linked.channel).fill}`}
-          />
-          <span className="font-medium">{linked.title}</span>
-          <span className="text-xs text-muted">
-            {fmtDate(linked.starts_at)}
-            {linked.ends_at ? ` → ${fmtDate(linked.ends_at)}` : ""}
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => void save(linked.id, null)}
-          >
-            Desenlazar
-          </Button>
-        </div>
+        <Item size="xs" className="mt-1 px-0">
+          <ItemMedia>
+            <span aria-hidden className={`size-2 rounded-full ${channelStyle(linked.channel).fill}`} />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>{linked.title}</ItemTitle>
+            <ItemDescription>
+              {fmtDate(linked.starts_at)}
+              {linked.ends_at ? ` → ${fmtDate(linked.ends_at)}` : ""}
+            </ItemDescription>
+          </ItemContent>
+          <ItemActions>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void save(linked.id, null)}
+            >
+              Desenlazar
+            </Button>
+          </ItemActions>
+        </Item>
       ) : available.length === 0 ? (
-        <p className="mt-1 text-sm text-muted">
-          No hay campañas libres en el calendario. Llévate un plan al calendario
-          desde la pestaña Plan.
-        </p>
+        <EmptyState size="sm" title="No hay campañas libres en el calendario" hint="Llévate un plan al calendario desde la pestaña Plan." />
       ) : (
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <Select
+          <SearchableSelect
             className="w-72"
             aria-label="Campaña a la que sirve esta pieza"
+            placeholder="Sin campaña"
+            emptyText="No hay ninguna campaña con ese nombre."
+            showClear
             value={selectedId}
             onChange={setSelectedId}
-            options={[
-              { value: "", label: "Sin campaña" },
-              ...available.map((item) => ({
-                value: item.id,
-                label: `${item.title} · ${fmtDate(item.starts_at)}`,
-              })),
-            ]}
+            options={available.map((item) => ({
+              value: item.id,
+              label: `${item.title} · ${fmtDate(item.starts_at)}`,
+            }))}
           />
           <Button
             size="sm"

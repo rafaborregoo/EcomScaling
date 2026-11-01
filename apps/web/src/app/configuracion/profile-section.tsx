@@ -4,17 +4,25 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { AvatarPicker } from "@/components/avatar-picker";
+import { usePortalSession } from "@/components/portal-shell";
 import { getSupabaseClient } from "@/lib/supabase";
 import { displayValue } from "@/lib/display-labels";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import {
   Avatar,
+  avatarInitials,
+  AvatarImage,
+  AvatarFallback,
   Button,
-  Card,
   ErrorBlock,
   Input,
   SettingRow,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -52,15 +60,20 @@ function ReferralConsentCard() {
   }
 
   return (
-    <Card title="Contacto de tu consultor">
-      <SettingRow
-        label="Permiso de contacto"
-        hint="Al registrarte aceptaste que el consultor de tu código pudiera contactarte para ofrecerte sus servicios."
-      >
-        <Button variant="secondary" disabled={busy} onClick={() => void revoke()}>
-          {busy ? "Retirando..." : "Retirar permiso"}
-        </Button>
-      </SettingRow>
+    <Card>
+      <CardHeader>
+        <CardTitle>Contacto de tu consultor</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <SettingRow
+          label="Permiso de contacto"
+          hint="Al registrarte aceptaste que el consultor de tu código pudiera contactarte para ofrecerte sus servicios."
+        >
+          <Button variant="secondary" disabled={busy} onClick={() => void revoke()}>
+            {busy ? "Retirando..." : "Retirar permiso"}
+          </Button>
+        </SettingRow>
+      </CardContent>
     </Card>
   );
 }
@@ -78,7 +91,9 @@ export function ProfileSection({ bootstrap }: { bootstrap: BootstrapResponse }) 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     bootstrap.profile.avatar_url,
   );
+  const { updateProfile } = usePortalSession();
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const dirty =
@@ -88,45 +103,67 @@ export function ProfileSection({ bootstrap }: { bootstrap: BootstrapResponse }) 
   async function save() {
     setBusy(true);
     setError(null);
-    const { error: updateError } = await supabase
+    const fullName = name.trim() || null;
+    // Con `select` un update que RLS deja en 0 filas no pasa por guardado.
+    const { data: saved, error: updateError } = await supabase
       .from("profiles")
-      .update({ full_name: name.trim() || null, avatar_url: avatarUrl })
-      .eq("id", userId);
-    setBusy(false);
-    if (updateError) {
-      setError(updateError.message);
+      .update({ full_name: fullName, avatar_url: avatarUrl })
+      .eq("id", userId)
+      .select("full_name, avatar_url")
+      .maybeSingle();
+    if (updateError || !saved) {
+      setBusy(false);
+      setError(updateError?.message ?? "No se pudo guardar el perfil. Inténtalo de nuevo.");
       return;
     }
-    toast.success("Perfil actualizado. Recarga para verlo en toda la app.");
+    // La API cachea 30 s el contexto (con el perfil dentro) por token: con un
+    // token nuevo, la próxima carga ya lee la foto nueva (mismo motivo que en
+    // /onboarding). Y el shell se actualiza ya, sin esperar a recargar.
+    await supabase.auth.refreshSession();
+    updateProfile({ full_name: saved.full_name, avatar_url: saved.avatar_url });
+    setBusy(false);
+    toast.success("Perfil actualizado.");
   }
 
   return (
     <div className="space-y-4">
-      <Card title="Tú" description="Cómo te ven tu consultor, tu equipo y tus clientes.">
-        <SettingRow label="Foto" hint="Sale junto a tus mensajes y tareas.">
-          <Avatar
-            name={name || bootstrap.user.email || "?"}
-            src={avatarUrl ?? undefined}
-            size="lg"
-            color="accent"
-          />
-          <AvatarPicker name={name} value={avatarUrl} onChange={setAvatarUrl} userId={userId} />
-        </SettingRow>
-        <SettingRow label="Nombre" htmlFor="profile-name">
-          <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} />
-        </SettingRow>
-        <SettingRow label="Correo" hint="Es tu usuario para entrar; no se cambia desde aquí.">
-          <span className="text-sm">{bootstrap.user.email ?? "Sin correo"}</span>
-        </SettingRow>
-        <SettingRow label="Tipo de cuenta">
-          <span className="text-sm">{displayValue(bootstrap.profile.platform_role)}</span>
-        </SettingRow>
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <div className="border-t border-separator pt-4">
-          <Button disabled={busy || !dirty} onClick={() => void save()}>
-            {busy ? "Guardando..." : "Guardar cambios"}
-          </Button>
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tú</CardTitle>
+          <CardDescription>Cómo te ven tu consultor, tu equipo y tus clientes.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SettingRow label="Foto" hint="Sale junto a tus mensajes y tareas.">
+            <Avatar size="lg" className="size-12">
+              <AvatarImage src={avatarUrl ?? undefined} alt="" />
+              <AvatarFallback className="bg-accent text-white">
+                {avatarInitials(name || bootstrap.user.email)}
+              </AvatarFallback>
+            </Avatar>
+            <AvatarPicker
+              name={name}
+              value={avatarUrl}
+              onChange={setAvatarUrl}
+              userId={userId}
+              onUploadingChange={setUploading}
+            />
+          </SettingRow>
+          <SettingRow label="Nombre" htmlFor="profile-name">
+            <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </SettingRow>
+          <SettingRow label="Correo" hint="Es tu usuario para entrar; no se cambia desde aquí.">
+            <span className="text-sm">{bootstrap.user.email ?? "Sin correo"}</span>
+          </SettingRow>
+          <SettingRow label="Tipo de cuenta">
+            <span className="text-sm">{displayValue(bootstrap.profile.platform_role)}</span>
+          </SettingRow>
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <div className="border-t border-separator pt-4">
+            <Button disabled={busy || uploading || !dirty} onClick={() => void save()}>
+              {busy ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
       <ReferralConsentCard />

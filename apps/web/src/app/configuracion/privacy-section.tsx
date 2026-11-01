@@ -1,19 +1,39 @@
 "use client";
 
+import { Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 import {
   Badge,
   Banner,
   Button,
-  Card,
   Link,
   List,
   LoadingBlock,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 
 /**
@@ -120,70 +140,77 @@ export function PrivacySection({
         </Banner>
       ) : null}
 
-      <Card
-        title="Qué datos leemos de tus integraciones"
-        actions={<Link href="/integraciones">Ir a Integraciones</Link>}
-      >
-        {!integrations.data ? (
-          <LoadingBlock label="Cargando integraciones..." />
-        ) : (
-          <List>
-            {providers.map((provider) => {
-              const connected = provider.connection?.status === "connected";
-              return (
-                <List.Item
-                  key={provider.id}
-                  className="flex items-center justify-between gap-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{provider.name}</p>
-                    {dataReadFor(provider) ? (
-                      <p className="text-xs text-muted">{dataReadFor(provider)}</p>
-                    ) : null}
-                  </div>
-                  <Badge tone={connected ? "success" : "neutral"}>
-                    {connected ? "Conectado" : "Sin conectar"}
-                  </Badge>
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
-        <p className="mt-3 text-xs text-muted">
-          Cómo tratamos estos datos y cómo pedir su borrado:{" "}
-          <Link href="/eliminacion-de-datos">Eliminación de datos</Link>. Todos los documentos legales
-          están en el <Link href="/legal">Centro legal</Link>.
-        </p>
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué datos leemos de tus integraciones</CardTitle>
+          <CardAction><Link href="/integraciones">Ir a Integraciones</Link></CardAction>
+        </CardHeader>
+        <CardContent>
+          {!integrations.data ? (
+            <LoadingBlock label="Cargando integraciones..." />
+          ) : (
+            <List>
+              {providers.map((provider) => {
+                const connected = provider.connection?.status === "connected";
+                return (
+                  <Item key={provider.id} role="listitem">
+                    <ItemContent>
+                      <ItemTitle>{provider.name}</ItemTitle>
+                      {dataReadFor(provider) ? (
+                        <ItemDescription>{dataReadFor(provider)}</ItemDescription>
+                      ) : null}
+                    </ItemContent>
+                    <ItemActions>
+                      <Badge tone={connected ? "success" : "neutral"}>
+                        {connected ? "Conectado" : "Sin conectar"}
+                      </Badge>
+                    </ItemActions>
+                  </Item>
+                );
+              })}
+            </List>
+          )}
+          <p className="mt-3 text-xs text-muted">
+            Cómo tratamos estos datos y cómo pedir su borrado:{" "}
+            <Link href="/eliminacion-de-datos">Eliminación de datos</Link>. Todos los documentos legales
+            están en el <Link href="/legal">Centro legal</Link>.
+          </p>
+        </CardContent>
       </Card>
 
       {isOwner ? (
-        <Card
-          title="Descargar tus datos"
-          description="Un archivo JSON con la configuración, tareas, mensajes y cifras de tu tienda. Las credenciales de las integraciones no se incluyen."
-        >
-          <Button
-            variant="secondary"
-            onClick={() => void download()}
-            disabled={exporting}
-          >
-            {exporting ? "Preparando..." : "Descargar"}
-          </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Descargar tus datos</CardTitle>
+            <CardDescription>Un archivo JSON con la configuración, tareas, mensajes y cifras de tu tienda. Las credenciales de las integraciones no se incluyen.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="secondary"
+              onClick={() => void download()}
+              disabled={exporting}
+            >
+              {exporting ? "Preparando..." : "Descargar"}
+            </Button>
+          </CardContent>
         </Card>
       ) : null}
 
       {isOwner ? (
-        <Card
-          title="Eliminar la cuenta"
-          className="border-danger"
-          description={`Desconecta las integraciones y borra los datos de ${organization.display_name} a los 30 días. Hasta entonces se puede recuperar.`}
-        >
-          <Button
-            variant="danger"
-            onClick={() => setConfirming(true)}
-            disabled={deleted}
-          >
-            Eliminar cuenta
-          </Button>
+        <Card className="border-danger">
+          <CardHeader>
+            <CardTitle>Eliminar la cuenta</CardTitle>
+            <CardDescription>{`Desconecta las integraciones y borra los datos de ${organization.display_name} a los 30 días. Hasta entonces se puede recuperar.`}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="destructive"
+              onClick={() => setConfirming(true)}
+              disabled={deleted}
+            >
+              Eliminar cuenta
+            </Button>
+          </CardContent>
         </Card>
       ) : (
         <p className="text-sm text-muted">
@@ -192,17 +219,34 @@ export function PrivacySection({
         </p>
       )}
 
-      {confirming ? (
-        <ConfirmDangerDialog
-          title="Eliminar la cuenta"
-          note="Se marcará para borrado y se eliminará a los 30 días. Durante ese plazo se puede recuperar."
-          confirmPhrase={organization.display_name}
-          actionLabel="Eliminar cuenta"
-          onConfirm={() => void remove()}
-          onCancel={() => setConfirming(false)}
-          isBusy={deleting}
-        />
-      ) : null}
+      {/* `remove` cierra el diálogo al acabar bien; si falla, sigue abierto. */}
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-danger/10 text-danger">
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Eliminar la cuenta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se marcará para borrado y se eliminará a los 30 días. Durante ese plazo se puede recuperar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogConfirmPhrase phrase={organization.display_name} />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              busyLabel="Eliminando…"
+              onClick={async () => {
+                await remove();
+                return false;
+              }}
+            >
+              Eliminar cuenta
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

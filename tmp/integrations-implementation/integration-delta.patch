@@ -1,0 +1,2065 @@
+diff --git a/package.json b/package.json
+index afb397f..9b022f0 100644
+--- a/package.json
++++ b/package.json
+@@ -14,6 +14,7 @@
+     "dev:web": "npm run dev --workspace=web",
+     "dev:api": "npm run dev --workspace=@e-nora/api",
+     "dev:worker": "npm run dev --workspace=@e-nora/worker",
++    "dev:webhooks": "node scripts/dev-webhooks.mjs",
+     "build": "npm run build:packages && npm run build -w @e-nora/api -w web -w @e-nora/worker",
+     "build:packages": "npm run build -w @e-nora/ai -w @e-nora/config -w @e-nora/contracts -w @e-nora/db -w @e-nora/domain -w @e-nora/integrations -w @e-nora/observability",
+     "typecheck": "npm run build:packages && npm run build -w @e-nora/api && npm run typecheck --workspaces --if-present",
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 73bed88..936c3a5 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -4,6 +4,22 @@
+   "private": true,
+   "type": "module",
+   "exports": {
++    "./klaviyo-webhooks": {
++      "types": "./dist/src/klaviyo-webhooks.d.ts",
++      "default": "./dist/src/klaviyo-webhooks.js"
++    },
++    "./integration-sync-queue": {
++      "types": "./dist/src/integration-sync-queue.d.ts",
++      "default": "./dist/src/integration-sync-queue.js"
++    },
++    "./shopify-webhook-queue": {
++      "types": "./dist/src/shopify-webhook-queue.d.ts",
++      "default": "./dist/src/shopify-webhook-queue.js"
++    },
++    "./shopify-webhook-handler": {
++      "types": "./dist/src/shopify-webhook-handler.d.ts",
++      "default": "./dist/src/shopify-webhook-handler.js"
++    },
+     "./shopify-queue-worker": {
+       "types": "./dist/src/shopify-queue-worker.d.ts",
+       "default": "./dist/src/shopify-queue-worker.js"
+@@ -379,8 +395,9 @@
+     "test:hitl-approval": "tsx --test src/hitl-approval-engine.test.ts src/hitl-approval-insights.test.ts",
+     "test:continuous-learning": "tsx --test src/continuous-learning-engine.test.ts src/ai-playbook-insights-api.test.ts",
+     "typecheck": "tsc -p tsconfig.json --noEmit",
++    "test:remote:integration-delivery": "dotenv -e ../../.env.local -- node ../../scripts/run-remote-tests.mjs --test --test-force-exit src/integration-delivery-remote.test.ts",
+     "lint": "tsc -p tsconfig.json --noEmit",
+-    "test:unit": "tsx --test --test-force-exit src/capability-proposals.test.ts src/kpi-snapshots-job.test.ts src/request-gate.test.ts src/swr-cache.test.ts src/shopify-today.test.ts src/camino-objective-changes.test.ts src/decision-context-engine.test.ts src/stock-forecast.test.ts src/agent-release-candidate-eval.test.ts src/agent-release-tool-replay.test.ts src/agent-release-eval-fixtures-auth.test.ts src/agent-release-eval-fixture.test.ts src/agent-judge-dataset.test.ts src/agent-judge-feedback.test.ts src/agent-judge-runtime.test.ts src/agent-tool-input-receipt.test.ts src/agent-judge-route-coverage.test.ts src/agent-release-admin.test.ts src/camino-milestone-readiness.test.ts src/campaign-plan-window.test.ts src/copilot-answer-stream.test.ts src/copilot-evidence.test.ts src/copilot-quality-evals.test.ts src/rag-retrieval-metrics.test.ts src/mailing-campaign-graph.test.ts src/mailing-campaign-contract.test.ts src/action-envelope-engine.test.ts src/camino-routes.test.ts src/camino-task-mapping.test.ts src/camino-context-summary.test.ts src/camino-run-tracker.test.ts src/knowledge-methodology-access.test.ts src/commercial-calendar.test.ts src/camino-event-coverage.test.ts src/camino-seasonality.test.ts src/camino-scaling.test.ts src/camino-campaign-link.test.ts src/camino-recurrence.test.ts src/camino-task-detailer.test.ts src/strategic-plan-currency.test.ts src/campaign-agenda-writer.test.ts src/ai-model-pricing.test.ts src/signal-engine.test.ts src/agent-eval-evidence-store.test.ts src/agent-eval-readiness.test.ts src/agent-eval-runner.test.ts src/ai-context-retention.test.ts src/ai-model-routing.test.ts src/auth-context-operational.test.ts src/auth-context-own-organization.test.ts src/be-07-sql-gateway-evals.test.ts src/closure-handoff-engine.test.ts src/closure-handoff-insights.test.ts src/consultant-client-overview.test.ts src/consultant-attention.test.ts src/referidos-captacion.test.ts src/integration-hardening.test.ts src/copilot-ui-actions.test.ts src/execution-plan-engine.test.ts src/execution-plan-insights.test.ts src/external-url.test.ts src/fathom-webhook-handler.test.ts src/fathom-webhook.test.ts src/hitl-approval-context.test.ts src/integrations-configuration.test.ts src/integrations-connection-severity.test.ts src/klaviyo-oauth.test.ts src/memory-ingestion.test.ts src/meta-ad-write-plan.test.ts src/meta-oauth.test.ts src/meta-sync-batch.test.ts src/meta-sync-concurrency.test.ts src/meta-sync-contract.test.ts src/meta-sync-idempotency.test.ts src/ops-health-check.test.ts src/platform-logs.test.ts src/protected-data-access.test.ts src/readiness-engine.test.ts src/shopify-client.test.ts src/shopify-count-reconcile.test.ts src/shopify-sync-idempotency.test.ts src/single-flight.test.ts src/webhook-retention.test.ts src/shopify-order-journey.test.ts src/meta-cost-rates.test.ts src/execution-supervision-engine.test.ts src/connection-ingestible.test.ts src/klaviyo-subject-patterns.test.ts src/shopify-pixel.test.ts src/tenant-context-api.test.ts src/retention-crm-engine.test.ts src/auth-context-cache.test.ts src/auth-context-rol-derivado.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-autorun-toggle.test.ts src/ai-diagnostic-activity-gate.test.ts src/ai-sin-datos-gate.test.ts src/ai-09-provider-circuit-breaker.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/server-failure-sanitization.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts src/shopify-bulk-url.test.ts src/shopify-webhook-payload.test.ts src/shopify-webhook-ingest-gate.test.ts src/shopify-sessions-rows.test.ts src/shopify-metrics-targets.test.ts src/shopify-product-costs-ownership.test.ts src/shopify-product-costs-import.test.ts src/klaviyo-client.test.ts src/klaviyo-backfill.test.ts src/klaviyo-template-push.test.ts src/klaviyo-permissions.test.ts src/shopify-permissions.test.ts src/klaviyo-subject.test.ts src/klaviyo-report-value-statistics.test.ts src/email-body-text.test.ts src/invoice-mailer.test.ts src/klaviyo-triage.test.ts src/meta-purchase-action-type.test.ts src/marketing-asset-mime.test.ts src/consultor-ia-contexto.test.ts src/camino-proposal.test.ts src/ai-15-call-coaching.test.ts src/consultant-work.test.ts src/consultant-workbench.test.ts src/ai-23-campaign-plan.test.ts src/knowledge-constraints.test.ts src/client-access.test.ts src/consultant-partners.test.ts src/invite-mail-render.test.ts src/task-assignment.test.ts src/work-split.test.ts src/integration-freshness.test.ts src/shopify-discount-classification.test.ts src/shopify-metric-tools.test.ts src/store-triage.test.ts src/meta-insight-numbers.test.ts src/meta-sync-blocks.test.ts src/meta-reauth-error.test.ts src/meta-triage.test.ts src/store-scope.test.ts src/store-limit.test.ts src/stripe.test.ts src/billing-grant.test.ts src/ai-30-trazabilidad.test.ts src/billing-finance.test.ts src/invoicing.test.ts src/platform-finance.test.ts src/copilot-tokens.test.ts src/capacidad-cartera.test.ts src/invite-codes.test.ts src/vinculacion.test.ts src/decision-playbook-chat-context.test.ts src/paid-media-engine.test.ts src/conversion-engine.test.ts src/agent-task-delivery.test.ts src/call-task-due-hint.test.ts src/call-task-ownership.test.ts src/campaign-outcome.test.ts src/consultant-proposal-guidance.test.ts src/decision-blocks-engine.test.ts src/knowledge-catalog.test.ts src/marketing-brand-profile.test.ts src/marketing-playbook-api.test.ts src/marketing-playbook-pdf.test.ts src/marketing-playbook-visual.test.ts src/marketing-playbook.test.ts src/marketing-template-profile.test.ts src/marketing-template-selection.test.ts src/meta-measurement-verdict.test.ts src/plan-horizon-context.test.ts src/shopify-fulfillment-events.test.ts src/stock-risk-evidence.test.ts src/task-outcome.test.ts src/shopify-return-webhook.test.ts src/consultant-specialist-context.test.ts src/camino-review-scheduling.test.ts src/camino-goal-progress.test.ts src/a20-product-repurchase-contract.test.ts src/retention-agent-evidence.test.ts src/klaviyo-performance-tools.test.ts src/shopify-operational-context.test.ts src/visual-asset-sources.test.ts src/meta-static-image.test.ts src/a15-migration-contract.test.ts src/a16-brief-contract.test.ts src/a23-daily-trend-contract.test.ts src/meta-creative-vision.test.ts src/meta-visual-asset.test.ts src/a24-meta-scope.test.ts src/marketing-draft-idempotency.test.ts src/marketing-mailing-sequence.test.ts src/marketing-mailing-production.test.ts src/klaviyo-flow-architect-context.test.ts src/klaviyo-flow-definition-summary.test.ts src/klaviyo-flow-event-volume.test.ts src/a28-flow-architect-contract.test.ts src/klaviyo-email-report-summary.test.ts src/marketing-peer-history.test.ts src/cross-channel-attribution.test.ts src/executive-diagnosis.test.ts src/klaviyo-flow-graph.test.ts src/marketing-klaviyo.test.ts src/marketing-studio.test.ts src/marketing-flows.test.ts src/a21-store-scope.test.ts src/a23-meta-currency-contract.test.ts src/ai-runtime-plan-auth.test.ts src/consultant-chat-store-scope.test.ts src/meta-change-investigation.test.ts src/meta-diagnostic-evidence.test.ts src/operations-alert-store-scope.test.ts src/shopify-delivery-comparison.test.ts src/shopify-discount-allocations.test.ts src/shopify-order-line-money.test.ts src/shopify-product-media.test.ts src/shopify-sync-coverage.test.ts src/shopify-bulk-stream.test.ts src/shopify-catalog-metrics.test.ts src/shopify-discount-metrics.test.ts src/klaviyo-emails.test.ts src/meta-campaigns.test.ts src/ai-a02-panel-scope.test.ts src/campaign-review.test.ts src/campaign-ai-edit.test.ts src/campaign-quick-actions.test.ts src/fx-rates.test.ts src/org-access-guard.test.ts src/notification-email.test.ts src/consultora-settings.test.ts src/studio-ai-chat.test.ts src/ai-usage-admin.test.ts src/agent-schedule.test.ts src/mobile-push.test.ts src/notify.test.ts src/meetings-core.test.ts src/supabase-read-retry.test.ts src/data-quality-connection.test.ts src/klaviyo-active-connection.test.ts",
++    "test:unit": "tsx --test --test-force-exit src/integration-delivery.test.ts src/capability-proposals.test.ts src/kpi-snapshots-job.test.ts src/request-gate.test.ts src/swr-cache.test.ts src/shopify-today.test.ts src/camino-objective-changes.test.ts src/decision-context-engine.test.ts src/stock-forecast.test.ts src/agent-release-candidate-eval.test.ts src/agent-release-tool-replay.test.ts src/agent-release-eval-fixtures-auth.test.ts src/agent-release-eval-fixture.test.ts src/agent-judge-dataset.test.ts src/agent-judge-feedback.test.ts src/agent-judge-runtime.test.ts src/agent-tool-input-receipt.test.ts src/agent-judge-route-coverage.test.ts src/agent-release-admin.test.ts src/camino-milestone-readiness.test.ts src/campaign-plan-window.test.ts src/copilot-answer-stream.test.ts src/copilot-evidence.test.ts src/copilot-quality-evals.test.ts src/rag-retrieval-metrics.test.ts src/mailing-campaign-graph.test.ts src/mailing-campaign-contract.test.ts src/action-envelope-engine.test.ts src/camino-routes.test.ts src/camino-task-mapping.test.ts src/camino-context-summary.test.ts src/camino-run-tracker.test.ts src/knowledge-methodology-access.test.ts src/commercial-calendar.test.ts src/camino-event-coverage.test.ts src/camino-seasonality.test.ts src/camino-scaling.test.ts src/camino-campaign-link.test.ts src/camino-recurrence.test.ts src/camino-task-detailer.test.ts src/strategic-plan-currency.test.ts src/campaign-agenda-writer.test.ts src/ai-model-pricing.test.ts src/signal-engine.test.ts src/agent-eval-evidence-store.test.ts src/agent-eval-readiness.test.ts src/agent-eval-runner.test.ts src/ai-context-retention.test.ts src/ai-model-routing.test.ts src/auth-context-operational.test.ts src/auth-context-own-organization.test.ts src/be-07-sql-gateway-evals.test.ts src/closure-handoff-engine.test.ts src/closure-handoff-insights.test.ts src/consultant-client-overview.test.ts src/consultant-attention.test.ts src/referidos-captacion.test.ts src/integration-hardening.test.ts src/copilot-ui-actions.test.ts src/execution-plan-engine.test.ts src/execution-plan-insights.test.ts src/external-url.test.ts src/fathom-webhook-handler.test.ts src/fathom-webhook.test.ts src/hitl-approval-context.test.ts src/integrations-configuration.test.ts src/integrations-connection-severity.test.ts src/klaviyo-oauth.test.ts src/memory-ingestion.test.ts src/meta-ad-write-plan.test.ts src/meta-oauth.test.ts src/meta-sync-batch.test.ts src/meta-sync-concurrency.test.ts src/meta-sync-contract.test.ts src/meta-sync-idempotency.test.ts src/ops-health-check.test.ts src/platform-logs.test.ts src/protected-data-access.test.ts src/readiness-engine.test.ts src/shopify-client.test.ts src/shopify-count-reconcile.test.ts src/shopify-sync-idempotency.test.ts src/single-flight.test.ts src/webhook-retention.test.ts src/shopify-order-journey.test.ts src/meta-cost-rates.test.ts src/execution-supervision-engine.test.ts src/connection-ingestible.test.ts src/klaviyo-subject-patterns.test.ts src/shopify-pixel.test.ts src/tenant-context-api.test.ts src/retention-crm-engine.test.ts src/auth-context-cache.test.ts src/auth-context-rol-derivado.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-autorun-toggle.test.ts src/ai-diagnostic-activity-gate.test.ts src/ai-sin-datos-gate.test.ts src/ai-09-provider-circuit-breaker.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/server-failure-sanitization.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts src/shopify-bulk-url.test.ts src/shopify-webhook-payload.test.ts src/shopify-webhook-ingest-gate.test.ts src/shopify-sessions-rows.test.ts src/shopify-metrics-targets.test.ts src/shopify-product-costs-ownership.test.ts src/shopify-product-costs-import.test.ts src/klaviyo-client.test.ts src/klaviyo-backfill.test.ts src/klaviyo-template-push.test.ts src/klaviyo-permissions.test.ts src/shopify-permissions.test.ts src/klaviyo-subject.test.ts src/klaviyo-report-value-statistics.test.ts src/email-body-text.test.ts src/invoice-mailer.test.ts src/klaviyo-triage.test.ts src/meta-purchase-action-type.test.ts src/marketing-asset-mime.test.ts src/consultor-ia-contexto.test.ts src/camino-proposal.test.ts src/ai-15-call-coaching.test.ts src/consultant-work.test.ts src/consultant-workbench.test.ts src/ai-23-campaign-plan.test.ts src/knowledge-constraints.test.ts src/client-access.test.ts src/consultant-partners.test.ts src/invite-mail-render.test.ts src/task-assignment.test.ts src/work-split.test.ts src/integration-freshness.test.ts src/shopify-discount-classification.test.ts src/shopify-metric-tools.test.ts src/store-triage.test.ts src/meta-insight-numbers.test.ts src/meta-sync-blocks.test.ts src/meta-reauth-error.test.ts src/meta-triage.test.ts src/store-scope.test.ts src/store-limit.test.ts src/stripe.test.ts src/billing-grant.test.ts src/ai-30-trazabilidad.test.ts src/billing-finance.test.ts src/invoicing.test.ts src/platform-finance.test.ts src/copilot-tokens.test.ts src/capacidad-cartera.test.ts src/invite-codes.test.ts src/vinculacion.test.ts src/decision-playbook-chat-context.test.ts src/paid-media-engine.test.ts src/conversion-engine.test.ts src/agent-task-delivery.test.ts src/call-task-due-hint.test.ts src/call-task-ownership.test.ts src/campaign-outcome.test.ts src/consultant-proposal-guidance.test.ts src/decision-blocks-engine.test.ts src/knowledge-catalog.test.ts src/marketing-brand-profile.test.ts src/marketing-playbook-api.test.ts src/marketing-playbook-pdf.test.ts src/marketing-playbook-visual.test.ts src/marketing-playbook.test.ts src/marketing-template-profile.test.ts src/marketing-template-selection.test.ts src/meta-measurement-verdict.test.ts src/plan-horizon-context.test.ts src/shopify-fulfillment-events.test.ts src/stock-risk-evidence.test.ts src/task-outcome.test.ts src/shopify-return-webhook.test.ts src/consultant-specialist-context.test.ts src/camino-review-scheduling.test.ts src/camino-goal-progress.test.ts src/a20-product-repurchase-contract.test.ts src/retention-agent-evidence.test.ts src/klaviyo-performance-tools.test.ts src/shopify-operational-context.test.ts src/visual-asset-sources.test.ts src/meta-static-image.test.ts src/a15-migration-contract.test.ts src/a16-brief-contract.test.ts src/a23-daily-trend-contract.test.ts src/meta-creative-vision.test.ts src/meta-visual-asset.test.ts src/a24-meta-scope.test.ts src/marketing-draft-idempotency.test.ts src/marketing-mailing-sequence.test.ts src/marketing-mailing-production.test.ts src/klaviyo-flow-architect-context.test.ts src/klaviyo-flow-definition-summary.test.ts src/klaviyo-flow-event-volume.test.ts src/a28-flow-architect-contract.test.ts src/klaviyo-email-report-summary.test.ts src/marketing-peer-history.test.ts src/cross-channel-attribution.test.ts src/executive-diagnosis.test.ts src/klaviyo-flow-graph.test.ts src/marketing-klaviyo.test.ts src/marketing-studio.test.ts src/marketing-flows.test.ts src/a21-store-scope.test.ts src/a23-meta-currency-contract.test.ts src/ai-runtime-plan-auth.test.ts src/consultant-chat-store-scope.test.ts src/meta-change-investigation.test.ts src/meta-diagnostic-evidence.test.ts src/operations-alert-store-scope.test.ts src/shopify-delivery-comparison.test.ts src/shopify-discount-allocations.test.ts src/shopify-order-line-money.test.ts src/shopify-product-media.test.ts src/shopify-sync-coverage.test.ts src/shopify-bulk-stream.test.ts src/shopify-catalog-metrics.test.ts src/shopify-discount-metrics.test.ts src/klaviyo-emails.test.ts src/meta-campaigns.test.ts src/ai-a02-panel-scope.test.ts src/campaign-review.test.ts src/campaign-ai-edit.test.ts src/campaign-quick-actions.test.ts src/fx-rates.test.ts src/org-access-guard.test.ts src/notification-email.test.ts src/consultora-settings.test.ts src/studio-ai-chat.test.ts src/ai-usage-admin.test.ts src/agent-schedule.test.ts src/mobile-push.test.ts src/notify.test.ts src/meetings-core.test.ts src/supabase-read-retry.test.ts src/data-quality-connection.test.ts src/klaviyo-active-connection.test.ts",
+     "test:offer-pricing": "tsx --test --test-force-exit src/offer-pricing-engine.test.ts",
+     "test:retention-crm": "tsx --test --test-force-exit src/retention-crm-engine.test.ts",
+     "test:unit-economics": "tsx --test --test-force-exit src/unit-economics-engine.test.ts",
+diff --git a/apps/api/src/db-04-webhook-idempotency.test.ts b/apps/api/src/db-04-webhook-idempotency.test.ts
+index bae2eb8..d1411b4 100644
+--- a/apps/api/src/db-04-webhook-idempotency.test.ts
++++ b/apps/api/src/db-04-webhook-idempotency.test.ts
+@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
+ import crypto from "node:crypto";
+ import { createClient } from "@supabase/supabase-js";
+ import { loadApiEnv } from "@e-nora/config";
+-import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
++import { handleShopifyWebhookRequest, drainFailedShopifyWebhooks } from "./shopify-webhook-handler.js";
+ 
+ const env = loadApiEnv(process.env);
+ 
+@@ -41,6 +41,18 @@ const SHOP_DOMAIN = `db04-idempotency-test-${RUN_TAG}.myshopify.com`;
+ let orgId = "";
+ let connectionId = "";
+ 
++async function applyQueuedEvent(fingerprint: string) {
++  for (let attempt = 0; attempt < 30; attempt++) {
++    await drainFailedShopifyWebhooks(env, 100);
++    const row = await admin.schema("private").from("webhook_events").select("status")
++      .eq("connection_id", connectionId).eq("fingerprint", fingerprint).single();
++    assert.equal(row.error, null);
++    if (row.data?.status === "processed") return;
++    await new Promise((resolve) => setTimeout(resolve, 100));
++  }
++  assert.fail("Durable webhook was not processed");
++}
++
+ before(async () => {
+   const { data: org, error: orgError } = await admin
+     .from("organizations")
+@@ -129,14 +141,15 @@ test("dos webhooks identicos concurrentes solo se procesan una vez (idempotencia
+   const statuses = [resultA.body.status, resultB.body.status].sort();
+   assert.deepEqual(
+     statuses,
+-    ["duplicate", "processed"],
+-    `se esperaba exactamente un "processed" y un "duplicate", se obtuvo: ${JSON.stringify(statuses)}`,
++    ["duplicate", "queued"],
++    `se esperaba exactamente un "queued" y un "duplicate", se obtuvo: ${JSON.stringify(statuses)}`,
+   );
+ 
+   const fingerprint = crypto
+     .createHash("sha256")
+     .update(rawBody.toString("utf8"))
+     .digest("hex");
++  await applyQueuedEvent(fingerprint);
+   const { data: events, error: eventsError } = await admin
+     .schema("private")
+     .from("webhook_events")
+@@ -194,7 +207,8 @@ test("un webhook que fallo puede reintentarse sin duplicar su efecto", async ()
+   const result = await handleShopifyWebhookRequest(env, headers, rawBody);
+ 
+   assert.equal(result.statusCode, 200);
+-  assert.equal(result.body.status, "processed");
++  assert.equal(result.body.status, "queued");
++  await applyQueuedEvent(fingerprint);
+ 
+   const { data: event, error: eventError } = await admin
+     .schema("private")
+diff --git a/apps/api/src/klaviyo-oauth.ts b/apps/api/src/klaviyo-oauth.ts
+index 1336008..81b3227 100644
+--- a/apps/api/src/klaviyo-oauth.ts
++++ b/apps/api/src/klaviyo-oauth.ts
+@@ -65,6 +65,7 @@ export function resolveKlaviyoOAuthEnv(
+     KLAVIYO_SCOPES: [...new Set([
+       ...parseKlaviyoScopes(env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES),
+       "events:read",
++      ...(env.KLAVIYO_SYSTEM_WEBHOOKS_ENABLED === "true" ? ["webhooks:read", "webhooks:write"] : []),
+     ])].join(" "),
+   };
+ }
+diff --git a/apps/api/src/klaviyo-sync.ts b/apps/api/src/klaviyo-sync.ts
+index 2b6585c..809d05e 100644
+--- a/apps/api/src/klaviyo-sync.ts
++++ b/apps/api/src/klaviyo-sync.ts
+@@ -23,6 +23,9 @@ import {
+ import { mapWithConcurrency } from "./async-concurrency.js";
+ import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
+ import { syncKlaviyoMarketingBlocks } from "./klaviyo-sync-marketing.js";
++import { invalidateIntegrationData } from "./integration-data-cache.js";
++import { enqueueIntegrationSync } from "./integration-sync-queue.js";
++import { ensureKlaviyoWebhooks } from "./klaviyo-webhooks.js";
+ import { readKlaviyoFlowDefinitionSummary, summarizeKlaviyoFlowDefinition } from "./klaviyo-flow-definition-summary.js";
+ import {
+   classifyKlaviyoMetricName,
+@@ -36,7 +39,7 @@ import {
+ 
+ type SyncMode = "initial" | "incremental";
+ 
+-export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 6;
++export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 0.25;
+ export const KLAVIYO_SYNC_STALE_AFTER_MS = 60 * 60 * 1000;
+ 
+ // Ventana de clicks que se re-pide en cada pasada. Lo anterior ya esta
+@@ -376,7 +379,8 @@ export async function runKlaviyoSync(
+       startedAt: string,
+       result: { read: number; error?: string },
+     ) => {
+-      await client.from("integration_sync_runs").upsert(
++      if (result.error && !skipped.includes(scope)) skipped.push(scope);
++      const { error: ledgerError } = await client.from("integration_sync_runs").upsert(
+         {
+           connection_id: connectionId,
+           organization_id: connection.organization_id,
+@@ -394,6 +398,7 @@ export async function runKlaviyoSync(
+         },
+         { onConflict: "provider,idempotency_key" },
+       );
++      if (ledgerError) throw new Error(`klaviyo_block_ledger_failed:${ledgerError.message}`);
+     };
+ 
+     const fetchResource = async (
+@@ -1338,11 +1343,29 @@ export async function runKlaviyoSync(
+     // Bloques de Marketing (diagramas de flows, audiencias, series diarias,
+     // formularios, cat?logo de plantillas). Cada uno se protege solo.
+     try {
+-      const { data: accountMetric } = await client
++      // Select only the unambiguous official Shopify revenue metric. A custom
++      // event with the same name must never silently become the revenue source.
++      const officialOrders = metrics.filter((metric) => {
++        const attributes = attrs(metric);
++        const integration = attributes.integration as { key?: string; name?: string } | undefined;
++        return attributes.name === "Placed Order" &&
++          (integration?.key?.toLowerCase() === "shopify" || integration?.name?.toLowerCase() === "shopify");
++      });
++      if (officialOrders.length === 1) {
++        const { error: selectionError } = await client.from("klaviyo_accounts")
++          .update({ conversion_metric_id: officialOrders[0]!.id })
++          .eq("id", accountRowStored.id).is("conversion_metric_id", null);
++        if (selectionError) throw selectionError;
++      }
++      const { data: accountMetric, error: metricReadError } = await client
+         .from("klaviyo_accounts")
+         .select("conversion_metric_id")
+         .eq("id", accountRowStored.id)
+         .maybeSingle();
++      if (metricReadError) throw metricReadError;
++      if (!accountMetric?.conversion_metric_id) {
++        await recordBlockRun("conversion_metric", now, { read: 0, error: "klaviyo_conversion_metric_not_selected" });
++      }
+       await syncKlaviyoMarketingBlocks({
+         client,
+         api,
+@@ -1356,6 +1379,7 @@ export async function runKlaviyoSync(
+         recordBlockRun,
+       });
+     } catch (error) {
++      if (!skipped.includes("marketing_blocks")) skipped.push("marketing_blocks");
+       console.warn(
+         `klaviyo_marketing_blocks_skipped:${error instanceof Error ? error.message : "unknown_error"}`,
+       );
+@@ -1368,10 +1392,12 @@ export async function runKlaviyoSync(
+       flowMessagesWritten +
+       templatesWritten +
+       clicksWritten;
++    await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
++    await ensureKlaviyoWebhooks(env, connectionId).catch((error: unknown) => console.warn("Klaviyo webhook verification deferred", { connection_id: connectionId, error: error instanceof Error ? error.message : "unknown_error" }));
+     await client
+       .from("integration_sync_runs")
+       .update({
+-        status: "succeeded",
++        status: skipped.length ? "partial" : "succeeded",
+         records_read: recordsRead,
+         records_written: recordsRead,
+         // Limpia el rastro de un intento fallido anterior sobre la misma fila
+@@ -1389,14 +1415,14 @@ export async function runKlaviyoSync(
+     await client
+       .from("integration_connections")
+       .update({
+-        status: "connected",
++        status: skipped.length ? "error" : "connected",
+         last_sync_at: now,
+-        last_error_at: null,
+-        last_error_message: null,
++        last_error_at: skipped.length ? new Date().toISOString() : null,
++        last_error_message: skipped.length ? permissionAwareSkipMessage(skipped, deniedPermissions) : null,
+       })
+       .eq("id", connectionId);
+     return {
+-      status: "succeeded" as const,
++      status: skipped.length ? "partial" as const : "succeeded" as const,
+       recordsRead,
+       recordsWritten: recordsRead,
+     };
+@@ -1465,6 +1491,7 @@ export async function runKlaviyoReport(
+   organizationId: string,
+   connectionId: string,
+   input: KlaviyoReportInput,
++  force = false,
+ ) {
+   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS))
+     throw new Error("klaviyo_integration_disabled");
+@@ -1509,11 +1536,13 @@ export async function runKlaviyoReport(
+   ].join(":");
+   const { data: existingRun } = await client
+     .from("klaviyo_report_runs")
+-    .select("id, status")
++    .select("id, status, finished_at")
+     .eq("account_id", account.id)
+     .eq("idempotency_key", idempotencyKey)
+     .maybeSingle();
+-  if (existingRun?.status === "succeeded") {
++  const recentPeriod = input.periodEnd >= new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
++  const recentlyFetched = Date.now() - Date.parse(existingRun?.finished_at ?? "") < 15 * 60_000;
++  if (existingRun?.status === "succeeded" && (!recentPeriod || (!force && recentlyFetched))) {
+     return {
+       status: "succeeded" as const,
+       reportRunId: existingRun.id,
+@@ -1850,7 +1879,7 @@ export function nextKlaviyoBackfillPeriod(
+   return null;
+ }
+ 
+-export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
++export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv, onlyConnectionId?: string, force = false) {
+   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS)) {
+     return {
+       total: 0,
+@@ -1862,12 +1891,19 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
+   }
+ 
+   const client = serviceClient(env);
+-  const { data: connections, error } = await client
++  const { error: recoveryError } = await client.from("integration_connections")
++    .update({ status: "error", last_error_message: "klaviyo_sync_interrupted_retrying" })
++    .eq("provider", "klaviyo").eq("status", "syncing")
++    .lt("updated_at", new Date(Date.now() - KLAVIYO_SYNC_STALE_AFTER_MS).toISOString());
++  if (recoveryError) throw new Error(`klaviyo_sync_recovery_failed:${recoveryError.message}`);
++  let connectionQuery = client
+     .from("integration_connections")
+     .select("id, organization_id, status, last_error_message")
+     .eq("provider", "klaviyo")
+     .in("status", ["connected", "error"])
+     .order("created_at", { ascending: true });
++  if (onlyConnectionId) connectionQuery = connectionQuery.eq("id", onlyConnectionId);
++  const { data: connections, error } = await connectionQuery;
+   if (error)
+     throw new Error(`klaviyo_connections_list_failed:${error.message}`);
+ 
+@@ -1877,6 +1913,11 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
+     .slice(0, 10);
+   const results = await mapWithConcurrency(connections ?? [], 2, async (connection) => {
+     try {
++      if (!onlyConnectionId) {
++        if (requiresIntegrationReauthorization(connection.last_error_message)) return { connectionId: connection.id, status: "skipped" as const, detail: "reauthorization_required" };
++        await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: connection.id, organizationId: connection.organization_id, mode: "incremental" });
++        return { connectionId: connection.id, status: "queued" as const };
++      }
+       // Cierra las pasadas que sobrevivieron como `running` a la muerte o
+       // reinicio del proceso. Solo toca runs con m?s de una hora: una pasada
+       // activa conserva su fila y no se marca como fallida.
+@@ -1926,7 +1967,7 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
+         } as const;
+       }
+ 
+-      await runKlaviyoSync(env, connection.id, "incremental");
++      await runKlaviyoSync(env, connection.id, "incremental", force);
+       const { data: account } = await client
+         .from("klaviyo_accounts")
+         .select("id, conversion_metric_id")
+@@ -1946,12 +1987,18 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
+           periodStart,
+           periodEnd,
+           group_by: groupByForType(type),
+-        });
++        }, force);
+       }
+ 
++      await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
++      await client.from("integration_connections").update({ last_sync_at: new Date().toISOString() }).eq("id", connection.id);
++
+       // Backfill incremental del historico: un mes pendiente por pasada. Con
+       // el cron de 6 horas el ano completo queda cubierto en pocos dias sin
+       // agotar la cuota de Reporting API ni bloquear el sync reciente.
++      if (new Date().getUTCHours() % 6 !== 0 || new Date().getUTCMinutes() >= 15) {
++        return { connectionId: connection.id, status: "succeeded" as const, detail: "recent_reports_updated" };
++      }
+       const { data: historicRuns } = await client
+         .from("klaviyo_report_runs")
+         .select("report_type, period_start, statistics")
+diff --git a/apps/api/src/klaviyo.ts b/apps/api/src/klaviyo.ts
+index 0d900d0..91faece 100644
+--- a/apps/api/src/klaviyo.ts
++++ b/apps/api/src/klaviyo.ts
+@@ -43,6 +43,7 @@ import {
+   saveKlaviyoTokens,
+ } from "./klaviyo-token-store.js";
+ import { runKlaviyoSync } from "./klaviyo-sync.js";
++import { enqueueIntegrationSync } from "./integration-sync-queue.js";
+ 
+ type Result<T> =
+   | { ok: true; data: T }
+@@ -174,7 +175,7 @@ export async function createKlaviyoConnectionAuthUrl(
+       ok: false,
+       statusCode: 400,
+       error: "klaviyo_app_not_configured",
+-      message: "La app OAuth de Klaviyo no est? configurada en el servidor.",
++      message: "Conectar Klaviyo a?n no est? disponible: falta configurarlo en el servidor.",
+     };
+   }
+   const accessError = canManage(context, organizationId);
+@@ -391,9 +392,7 @@ export async function connectKlaviyoWithApiKey(
+     newData: { provider: "klaviyo", provider_account_id: account.id },
+   });
+ 
+-  void runKlaviyoSync(env, connection.id, "initial").catch((error: unknown) =>
+-    markKlaviyoSyncFailure(env, connection.id, error, "api_key_initial_sync"),
+-  );
++  await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: connection.id, organizationId, mode: "initial" });
+ 
+   return {
+     ok: true,
+@@ -489,10 +488,12 @@ export async function triggerKlaviyoSync(
+   }
+ 
+   // force: es un disparo manual expl?cito -> ignora la idempotencia diaria.
+-  void runKlaviyoSync(env, connection.id, "initial", true).catch(
+-    (error: unknown) =>
+-      markKlaviyoSyncFailure(env, connection.id, error, "manual_sync"),
+-  );
++  try {
++    await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: connection.id, organizationId, mode: "initial" });
++  } catch (error) {
++    await markKlaviyoSyncFailure(env, connection.id, error, "manual_sync");
++    return { ok: false, statusCode: 503, error: "klaviyo_sync_queue_unavailable" };
++  }
+   return {
+     ok: true,
+     data: { status: "syncing", connectionId: connection.id },
+@@ -736,13 +737,7 @@ export async function handleKlaviyoOAuthCallback(
+       },
+     });
+ 
+-    void runKlaviyoSync(
+-      env,
+-      targetId,
+-      isReauthorization ? "incremental" : "initial",
+-    ).catch((error: unknown) =>
+-      markKlaviyoSyncFailure(env, targetId, error, "oauth_initial_sync"),
+-    );
++    await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: targetId, organizationId: pending.organization_id, mode: "initial" });
+     return {
+       ok: true,
+       data: {
+@@ -1084,7 +1079,7 @@ export async function getKlaviyoEmailReport(
+       ok: false,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Klaviyo esta desactivada por feature flag.",
++      message: "La integraci?n con Klaviyo est? desactivada por ahora.",
+     };
+   }
+   let periodDays = KLAVIYO_EMAIL_DEFAULT_DAYS;
+@@ -1259,6 +1254,7 @@ export async function selectKlaviyoConversionMetric(
+   organizationId: string,
+   externalMetricId: string,
+   source: "shopify" | "klaviyo" | "custom" | "other" = "klaviyo",
++  connectionId?: string,
+ ): Promise<
+   Result<{ conversion_metric_id: string; conversion_metric_name: string }>
+ > {
+@@ -1271,13 +1267,14 @@ export async function selectKlaviyoConversionMetric(
+       error: "missing_conversion_metric_id",
+     };
+   const supabase = serviceClient(env);
+-  const { data: account, error: accountError } = await supabase
++  let accountQuery = supabase
+     .from("klaviyo_accounts")
+     .select(
+-      "id, conversion_metric_id, conversion_metric_name, conversion_metric_source",
++      "id, connection_id, conversion_metric_id, conversion_metric_name, conversion_metric_source",
+     )
+-    .eq("organization_id", organizationId)
+-    .maybeSingle();
++    .eq("organization_id", organizationId);
++  if (connectionId) accountQuery = accountQuery.eq("connection_id", connectionId);
++  const { data: accounts, error: accountError } = await accountQuery.limit(2);
+   if (accountError)
+     return {
+       ok: false,
+@@ -1285,6 +1282,8 @@ export async function selectKlaviyoConversionMetric(
+       error: "klaviyo_account_load_failed",
+       detail: accountError.message,
+     };
++  if ((accounts?.length ?? 0) > 1) return { ok: false, statusCode: 409, error: "klaviyo_connection_selection_required", message: "Selecciona la cuenta de Klaviyo que quieres configurar." };
++  const account = accounts?.[0];
+   if (!account)
+     return { ok: false, statusCode: 409, error: "klaviyo_account_not_synced" };
+   const { data: metric, error: metricError } = await supabase
+@@ -1339,6 +1338,10 @@ export async function selectKlaviyoConversionMetric(
+       conversion_metric_source: source,
+     },
+   });
++  await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: account.connection_id,
++    organizationId, mode: "incremental", force: true }).catch(() => {
++      console.warn("Klaviyo metric saved; scheduled reconciliation will refresh its reports", { connection_id: account.connection_id });
++    });
+   return {
+     ok: true,
+     data: {
+diff --git a/apps/api/src/meta-sync.ts b/apps/api/src/meta-sync.ts
+index 73a2cb3..8e02512 100644
+--- a/apps/api/src/meta-sync.ts
++++ b/apps/api/src/meta-sync.ts
+@@ -13,6 +13,8 @@ import {
+ } from "./operational-organization.js";
+ import { mapWithConcurrency } from "./async-concurrency.js";
+ import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
++import { invalidateIntegrationData } from "./integration-data-cache.js";
++import { enqueueIntegrationSync } from "./integration-sync-queue.js";
+ 
+ export { mapWithConcurrency } from "./async-concurrency.js";
+ 
+@@ -30,7 +32,9 @@ export function buildMetaSyncIdempotencyKey(
+   mode: MetaSyncMode,
+   startedAt: string,
+ ) {
+-  return `meta:${mode}:${scope}:${connectionId}:${startedAt.slice(0, 10)}`;
++  const at = new Date(startedAt);
++  const bucket = new Date(Math.floor(at.getTime() / 600_000) * 600_000).toISOString();
++  return `meta:${mode}:${scope}:${connectionId}:${mode === "initial" ? startedAt : bucket}`;
+ }
+ 
+ // Ventana [since, until] en fechas ISO (YYYY-MM-DD). initial/incremental la
+@@ -117,6 +121,7 @@ export function isMetaTokenExpiredError(message: string): boolean {
+     message.includes("Session has expired") ||
+     message.includes("Error validating access token") ||
+     message.includes("meta_access_token_unavailable") ||
++    message.includes("Application has been deleted") ||
+     message.includes("meta_token_expired_reauth_required")
+   );
+ }
+@@ -124,6 +129,9 @@ export function isMetaTokenExpiredError(message: string): boolean {
+ export function metaConnectionErrorMessage(
+   blockErrors: readonly string[],
+ ): string {
++  if (blockErrors.some((message) => message.includes("Application has been deleted"))) {
++    return "meta_reauth_required: Meta indica que la aplicaci?n conectada ha sido eliminada. Configura una aplicaci?n activa y reconecta Meta Ads en Integraciones.";
++  }
+   if (blockErrors.some(isMetaAppSecretProofError)) {
+     return "meta_reauth_required: el token guardado no pertenece a la app configurada (appsecret_proof invalido). Reconecta Meta Ads en Integraciones.";
+   }
+@@ -2119,7 +2127,8 @@ export async function runMetaSync(
+   for (const account of adAccounts ?? []) {
+     const organizationId = connection.organization_id as string;
+     const external = account.external_ad_account_id as string;
+-    const window = lookbackWindow(INSIGHTS_LOOKBACK_DAYS[mode]);
++    const fullRefresh = mode === "initial" || new Date().getUTCMinutes() < 10;
++    const window = lookbackWindow(fullRefresh ? INSIGHTS_LOOKBACK_DAYS[mode] : 3);
+     const insightsMode = resolveMetaInsightsMode(env);
+     const reportContext: MetaReportContext = {
+       supabase,
+@@ -2130,7 +2139,7 @@ export async function runMetaSync(
+ 
+     // La estructura va primero y aparte: los problemas por anuncio y los
+     // insights necesitan que las filas de anuncio ya existan.
+-    const structureOk = await recordSyncRun(
++    const structureOk = !fullRefresh || await recordSyncRun(
+       supabase,
+       connectionId,
+       organizationId,
+@@ -2250,6 +2259,7 @@ export async function runMetaSync(
+     let accountFailed = !structureOk;
+ 
+     for (const [scope, runner] of blocks) {
++      if (!fullRefresh && scope !== `${META_TOTAL_CUT.scope}:${external}`) continue;
+       const ok = await recordSyncRun(
+         supabase,
+         connectionId,
+@@ -2295,6 +2305,7 @@ export async function runMetaSync(
+   }
+ 
+   const now = new Date().toISOString();
++  await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
+   await supabase
+     .from("integration_connections")
+     .update({
+@@ -2312,7 +2323,8 @@ export async function runMetaSync(
+   // Tras la primera importacion: arranca el backfill historico (24 meses) si
+   // hace falta. No bloquea el sync; el avance real lo hace el cron de
+   // reconciliacion, un mes por pasada.
+-  if (mode === "initial" && !anyFailed) {
++  if (anyFailed) throw new Error(metaConnectionErrorMessage(blockErrors));
++  if (mode === "initial") {
+     try {
+       await maybeStartMetaBackfill(
+         env,
+@@ -2603,12 +2615,17 @@ export async function getOrgMetaBackfillStatus(
+  * despues. Recorre las conexiones `connected` y reejecuta el sync en modo
+  * incremental; una conexion que falle no interrumpe al resto.
+  */
+-export async function reconcileAllMetaConnections(env: ApiEnv) {
++export async function reconcileAllMetaConnections(env: ApiEnv, onlyConnectionId?: string) {
+   if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+     return { total: 0, succeeded: 0, failed: 0, results: [] };
+   }
+ 
+   const supabase = createServiceClient(env);
++  const staleBefore = new Date(Date.now() - 60 * 60 * 1000).toISOString();
++  const { error: recoverError } = await supabase.from("integration_connections")
++    .update({ status: "error", last_error_message: "meta_sync_interrupted_retrying" })
++    .eq("provider", "meta_ads").eq("status", "syncing").lt("updated_at", staleBefore);
++  if (recoverError) throw new Error(`meta_sync_recovery_failed: ${recoverError.message}`);
+   // El token de usuario de Meta caduca a los ~60 d?as sin renovaci?n posible:
+   // se avisa una semana antes (20261221110000). Si falla, el reconcile sigue.
+   const { error: expiringError } = await supabase
+@@ -2618,12 +2635,14 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
+     logger.error("meta_expiring_notice_failed", { message: expiringError.message });
+   }
+ 
+-  const { data: connections, error } = await supabase
++  let connectionQuery = supabase
+     .from("integration_connections")
+-    .select("id, status, last_error_message")
++    .select("id, organization_id, status, last_error_message")
+     .eq("provider", "meta_ads")
+     .in("status", ["connected", "error"])
+     .order("created_at", { ascending: true });
++  if (onlyConnectionId) connectionQuery = connectionQuery.eq("id", onlyConnectionId);
++  const { data: connections, error } = await connectionQuery;
+   if (error) throw new Error(`meta_connections_list_failed: ${error.message}`);
+ 
+   const retryableConnections = (connections ?? []).filter(
+@@ -2639,6 +2658,10 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
+ 
+   const results = await mapWithConcurrency(retryableConnections, 3, async (connection) => {
+     try {
++      if (!onlyConnectionId) {
++        await enqueueIntegrationSync(env, { provider: "meta_ads", connectionId: connection.id, organizationId: connection.organization_id, mode: "incremental" });
++        return { connectionId: connection.id, status: "queued" as const };
++      }
+       const { data: claimedConnection, error: claimError } = await supabase
+         .from("integration_connections")
+         .update({ status: "syncing" })
+@@ -2657,6 +2680,9 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
+       // cron (throttle natural). Un fallo aqui no marca la reconciliacion como
+       // fallida: se reintenta el mismo mes en el proximo tick.
+       try {
++        if (new Date().getUTCMinutes() >= 10 || new Date().getUTCHours() !== 0) {
++          return { connectionId: connection.id, status: "succeeded" as const };
++        }
+         const stepSupabase = createServiceClient(env);
+         const { data: conn } = await stepSupabase
+           .from("integration_connections")
+diff --git a/apps/api/src/meta.ts b/apps/api/src/meta.ts
+index 56b6c18..c71605c 100644
+--- a/apps/api/src/meta.ts
++++ b/apps/api/src/meta.ts
+@@ -25,6 +25,7 @@ import {
+ } from "./integration-adapters.js";
+ import { credentialKeyVersion, decryptCredential, encryptCredential } from "./credential-crypto.js";
+ import { recordAuditLog } from "./audit-log.js";
++import { enqueueIntegrationSync } from "./integration-sync-queue.js";
+ import { findConnectionByOAuthState, isOAuthStateExpired, issuedStateMetadata } from "./oauth-state.js";
+ 
+ type ApiEnv = LoadedApiEnv;
+@@ -223,7 +224,7 @@ export async function createMetaConnectionAuthUrl(
+       ok: false,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Meta Ads esta desactivada por feature flag.",
++      message: "La integraci?n con Meta Ads est? desactivada por ahora.",
+     };
+   }
+ 
+@@ -235,7 +236,7 @@ export async function createMetaConnectionAuthUrl(
+       statusCode: 400,
+       error: "meta_app_not_configured",
+       message:
+-        "La app de Meta no esta configurada en el servidor (META_APP_ID/SECRET/REDIRECT_URI).",
++        "Conectar Meta a?n no est? disponible: falta configurarlo en el servidor.",
+     };
+   }
+ 
+@@ -254,7 +255,7 @@ export async function createMetaConnectionAuthUrl(
+       ok: false,
+       statusCode: 403,
+       error: "organization_manage_denied",
+-      message: "Solo owner, manager o platform admin pueden conectar Meta Ads.",
++      message: "Solo el propietario o un gestor pueden conectar Meta Ads.",
+     };
+   }
+ 
+@@ -772,7 +773,7 @@ export async function updateMetaAssetSelection(
+       statusCode: 403,
+       error: "organization_manage_denied",
+       message:
+-        "Solo owner, manager o platform admin pueden seleccionar activos de Meta.",
++        "Solo el propietario o un gestor pueden seleccionar activos de Meta.",
+     };
+   }
+ 
+@@ -1314,24 +1315,7 @@ export async function handleMetaOAuthCallback(
+     },
+   });
+ 
+-  const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
+-  void metaSyncAdapter
+-    .runInitialSync({
+-      mode: "initial",
+-      connection: toIntegrationConnection({
+-        id: pending.id,
+-        organization_id: pending.organization_id,
+-        provider: "meta_ads",
+-        status: "connected",
+-      }),
+-    })
+-    .catch((error: unknown) => {
+-      logger.error("meta_initial_sync_failed", {
+-        connection_id: pending.id,
+-        organization_id: pending.organization_id,
+-        error: error instanceof Error ? error.message : String(error),
+-      });
+-    });
++  await enqueueIntegrationSync(env, { provider: "meta_ads", connectionId: pending.id, organizationId: pending.organization_id, mode: "initial" });
+ 
+   return {
+     ok: true,
+@@ -1388,7 +1372,7 @@ export async function listMetaPurchaseActionTypes(
+       ok: false as const,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Meta Ads esta desactivada por feature flag.",
++      message: "La integraci?n con Meta Ads est? desactivada por ahora.",
+     };
+   }
+   if (!hasOrganizationAccess(authContext, organizationId)) {
+@@ -1482,7 +1466,7 @@ export async function selectMetaPurchaseActionType(
+       ok: false as const,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Meta Ads esta desactivada por feature flag.",
++      message: "La integraci?n con Meta Ads est? desactivada por ahora.",
+     };
+   }
+   if (!canManageOrganization(authContext, organizationId)) {
+@@ -1491,7 +1475,7 @@ export async function selectMetaPurchaseActionType(
+       statusCode: 403,
+       error: "organization_manage_denied",
+       message:
+-        "Solo owner, manager o platform admin pueden elegir el action_type de compra.",
++        "Solo el propietario o un gestor pueden elegir qu? cuenta como compra.",
+     };
+   }
+   const normalizedActionType = actionType?.trim();
+@@ -1580,7 +1564,7 @@ export async function triggerMetaSync(
+       ok: false,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Meta Ads esta desactivada por feature flag.",
++      message: "La integraci?n con Meta Ads est? desactivada por ahora.",
+     };
+   }
+ 
+@@ -1600,7 +1584,7 @@ export async function triggerMetaSync(
+       statusCode: 403,
+       error: "organization_manage_denied",
+       message:
+-        "Solo owner, manager o platform admin pueden lanzar un sync de Meta Ads.",
++        "Solo el propietario o un gestor pueden sincronizar Meta Ads.",
+     };
+   }
+ 
+@@ -1698,20 +1682,12 @@ export async function triggerMetaSync(
+     };
+   }
+ 
+-  const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
+-  void metaSyncAdapter
+-    .runInitialSync({
+-      mode: "initial",
+-      connection: toIntegrationConnection({
+-        id: connection.id,
+-        organization_id: connection.organization_id,
+-        provider: "meta_ads",
+-        status: connectionStatus,
+-      }),
+-    })
+-    .catch((syncError: unknown) =>
+-      markMetaSyncFailure(env, connection.id, syncError, "manual_sync"),
+-    );
++  try {
++    await enqueueIntegrationSync(env, { provider: "meta_ads", connectionId: connection.id, organizationId, mode: "initial" });
++  } catch (error) {
++    await markMetaSyncFailure(env, connection.id, error, "manual_sync");
++    return { ok: false, statusCode: 503, error: "meta_sync_queue_unavailable" };
++  }
+ 
+   return { ok: true, data: { status: "queued", connectionId: connection.id } };
+ }
+diff --git a/apps/api/src/ops-health-check.ts b/apps/api/src/ops-health-check.ts
+index 23acb4a..2ce6db5 100644
+--- a/apps/api/src/ops-health-check.ts
++++ b/apps/api/src/ops-health-check.ts
+@@ -46,7 +46,7 @@ const PURGE_OVERDUE_MS = 2 * 24 * 60 * 60 * 1000;
+ // `received` mas de 30 minutos no tenian ninguna alerta proactiva, solo se
+ // detectaban corriendo la consulta a mano o porque el cliente reportaba
+ // datos desactualizados.
+-const WEBHOOK_BACKLOG_MS = 30 * 60 * 1000;
++const WEBHOOK_BACKLOG_MS = 2 * 60 * 1000;
+ const WEBHOOK_BACKLOG_ROW_LIMIT = 500;
+ const MAX_FINDING_SUMMARY_LENGTH = 500;
+ const MAX_FINDING_DETAIL_STRING_LENGTH = 2_000;
+@@ -128,6 +128,40 @@ function finding(
+   };
+ }
+ 
++/** Continuous integration checks only; the wider ops/cost audit remains opt-in. */
++export async function runIntegrationHealthMonitor(env: ApiEnv): Promise<OpsHealthCheckResult> {
++  const client = createServiceClient(env);
++  const now = Date.now();
++  const results = await Promise.all([
++    client.from("integration_connections").select("id,organization_id,provider,status,updated_at,last_error_message")
++      .in("provider", ["shopify", "meta_ads", "klaviyo"]).in("status", ["error", "syncing"])
++      .not("provider_account_id", "like", "pending:%").limit(500),
++    client.schema("private").from("webhook_events").select("connection_id,organization_id,provider,received_at,status,retry_count")
++      .in("provider", ["shopify", "klaviyo"]).in("status", ["received", "queued", "processing", "failed"])
++      .lt("received_at", new Date(now - WEBHOOK_BACKLOG_MS).toISOString()).order("received_at").limit(500),
++  ]);
++  for (const result of results) if (result.error) throw new Error(`integration_health_read_failed:${result.error.message}`);
++  const findings: OpsHealthFinding[] = [];
++  for (const connection of results[0].data ?? []) {
++    if (connection.status === "syncing" && Date.parse(connection.updated_at) > now - 3_600_000) continue;
++    findings.push(finding({ type: connection.status === "error" ? "connection_error" : "connection_stuck_syncing",
++      summary: `Integraci?n ${connection.provider}: ${connection.status === "error" ? "requiere atenci?n" : "sincronizaci?n interrumpida"}`,
++      runbook: "RB-001-shopify-sync-failed.md", details: connection }));
++  }
++  const grouped = new Map<string, { connection_id: string | null; provider: string; count: number; exhausted: number; oldest_received_at: string }>();
++  for (const event of results[1].data ?? []) {
++    const key = event.connection_id ?? event.provider;
++    const current = grouped.get(key) ?? { connection_id: event.connection_id, provider: event.provider, count: 0, exhausted: 0, oldest_received_at: event.received_at };
++    current.count++;
++    if (event.retry_count >= 16) current.exhausted++;
++    grouped.set(key, current);
++  }
++  for (const backlog of grouped.values()) findings.push(finding({ type: "webhook_backlog",
++    summary: `${backlog.provider}: ${backlog.count} eventos pendientes, ${backlog.exhausted} con reintentos agotados`,
++    runbook: "RB-004-webhook-duplicate-backlog.md", details: backlog }));
++  return { ok: true, checkedAt: new Date(now).toISOString(), findings };
++}
++
+ /**
+  * SQO-02: lee el SLO HTTP de una instancia de la API ya desplegada. Sin
+  * `API_BASE_URL`/`INTERNAL_API_SECRET` configurados no hay nada que consultar
+@@ -320,7 +354,7 @@ export async function runOpsHealthCheck(
+       .schema("private")
+       .from("webhook_events")
+       .select("connection_id, organization_id, provider, received_at")
+-      .eq("status", "received")
++      .in("status", ["received", "queued", "processing", "failed"])
+       .lt("received_at", new Date(now - WEBHOOK_BACKLOG_MS).toISOString())
+       .order("received_at", { ascending: true })
+       .limit(WEBHOOK_BACKLOG_ROW_LIMIT),
+@@ -437,7 +471,7 @@ export async function runOpsHealthCheck(
+     findings.push(
+       finding({
+         type: "webhook_backlog",
+-        summary: `${backlog.count} webhook(s) de ${backlog.provider} atascados en 'received' desde hace mas de 30 min (conexion ${backlog.connectionId ?? "desconocida"})`,
++        summary: `${backlog.count} webhook(s) de ${backlog.provider} pendientes desde hace mas de 2 min (conexion ${backlog.connectionId ?? "desconocida"})`,
+         runbook: "RB-004-webhook-duplicate-backlog.md",
+         details: backlog,
+       }),
+diff --git a/apps/api/src/server.ts b/apps/api/src/server.ts
+index 27dcddb..7e68dab 100644
+--- a/apps/api/src/server.ts
++++ b/apps/api/src/server.ts
+@@ -385,6 +385,7 @@ import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
+ import type { FathomWebhookHeaders } from "./fathom-webhook.js";
+ import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
+ import { purgeProcessedWebhookEvents } from "./webhook-retention.js";
++import { handleKlaviyoWebhookRequest } from "./klaviyo-webhooks.js";
+ import { purgeExpiredAiContext } from "./ai-context-retention.js";
+ import { exportOrganizationData } from "./organization-export.js";
+ import {
+@@ -7875,6 +7876,7 @@ export async function buildApp(): Promise<FastifyInstance> {
+     Params: { organizationId: string };
+     Body: {
+       metricId?: string;
++      connectionId?: string;
+       source?: "shopify" | "klaviyo" | "custom" | "other";
+     };
+   }>(
+@@ -7888,6 +7890,7 @@ export async function buildApp(): Promise<FastifyInstance> {
+         request.params.organizationId,
+         request.body?.metricId ?? "",
+         request.body?.source ?? "klaviyo",
++        request.body?.connectionId,
+       );
+       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+       return result.data;
+@@ -12438,7 +12441,18 @@ export async function buildApp(): Promise<FastifyInstance> {
+       },
+     );
+ 
+-    webhookScope.post("/v1/shopify/webhooks", async (request, reply) => {
++    webhookScope.post<{ Params: { connectionId: string } }>("/v1/klaviyo/webhooks/:connectionId", {
++      bodyLimit: 2 * 1024 * 1024,
++      config: { rateLimit: { max: 1200, timeWindow: "1 minute", keyGenerator: (request: FastifyRequest) => `webhook:klaviyo:${request.ip}` } },
++    }, async (request, reply) => {
++      const result = await handleKlaviyoWebhookRequest(env, request.params.connectionId, request.headers, request.body as Buffer);
++      return reply.code(result.statusCode).send(result.body);
++    });
++
++    webhookScope.post("/v1/shopify/webhooks", {
++      bodyLimit: 2 * 1024 * 1024,
++      config: { rateLimit: { max: 1200, timeWindow: "1 minute", keyGenerator: (request: FastifyRequest) => `webhook:shopify:${request.ip}` } },
++    }, async (request, reply) => {
+       const result = await handleShopifyWebhookRequest(
+         env,
+         request.headers as Record<string, string | string[] | undefined>,
+diff --git a/apps/api/src/shopify-metrics.ts b/apps/api/src/shopify-metrics.ts
+index 666ee6f..24f131d 100644
+--- a/apps/api/src/shopify-metrics.ts
++++ b/apps/api/src/shopify-metrics.ts
+@@ -2,6 +2,7 @@ import { createLogger } from "@e-nora/observability";
+ import { type AuthContext, createUserScopedClient, membershipCoversStore } from "./auth-context.js";
+ import { getCached, setCached } from "./redis-cache.js";
+ import { createSwrCache } from "./swr-cache.js";
++import { integrationDataVersion } from "./integration-data-cache.js";
+ import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
+ import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
+ import { parseShopifyScopes } from "./shopify-permissions.js";
+@@ -383,7 +384,7 @@ async function computeShopifyMetrics(
+       ok: false as const,
+       statusCode: 403,
+       error: "organization_access_denied",
+-      message: "El usuario no pertenece a la organizacion solicitada.",
++      message: "No tienes acceso a esta tienda.",
+     };
+   }
+ 
+@@ -523,7 +524,8 @@ async function computeShopifyMetrics(
+ 
+     // El v4 incorpora moneda, alcance hist?rico y cobertura por tienda. Evita servir
+     // respuestas antiguas cacheadas sin moneda tras desplegar este contrato.
+-    const cacheKey = `shopify:metrics:v4:${organizationId}:${storeId}:${periodDays}`;
++    const version = await integrationDataVersion(env.REDIS_URL, organizationId);
++    const cacheKey = `shopify:metrics:v5:${organizationId}:${storeId}:${periodDays}:${version}`;
+     const cached = await getCached<ShopifyMetricsData>(env.REDIS_URL, cacheKey);
+ 
+     if (cached) {
+@@ -1061,12 +1063,14 @@ export async function getShopifyMetrics(
+   daysInput: string | undefined,
+   connectionId?: string,
+ ) {
++  const version = await integrationDataVersion(env.REDIS_URL, organizationId);
+   return swr({
+     store: {
+       get: (key) => getCached(env.REDIS_URL, key),
+       set: (key, value, ttl) => setCached(env.REDIS_URL, key, value, ttl),
+     },
+     key: `shopify:metrics:swr:v1:${context.user.id}:${organizationId}:${connectionId ?? "all"}:${daysInput ?? ""}`,
++    revision: version,
+     freshSeconds: METRICS_CACHE_TTL_SECONDS,
+     staleSeconds: METRICS_STALE_SECONDS,
+     load: () => computeShopifyMetrics(env, authorization, context, organizationId, daysInput, connectionId),
+diff --git a/apps/api/src/shopify-queue-worker.ts b/apps/api/src/shopify-queue-worker.ts
+index aa717f9..3b9fade 100644
+--- a/apps/api/src/shopify-queue-worker.ts
++++ b/apps/api/src/shopify-queue-worker.ts
+@@ -4,6 +4,7 @@ import { backfillOrderJourneys } from "./shopify-order-journey.js";
+ import { ensureShopifyWebPixel } from "./shopify-pixel.js";
+ import { runShopifyInitialSync } from "./shopify-sync.js";
+ import { drainFailedShopifyWebhooks } from "./shopify-webhook-handler.js";
++import { ensureShopifyWebhooks } from "./shopify-webhooks.js";
+ import type { ShopifyQueueJob } from "./shopify-sync-queue.js";
+ 
+ export type ShopifyQueueWorkerJob = ShopifyQueueJob;
+@@ -22,6 +23,9 @@ export async function runShopifyQueueJob(env: LoadedApiEnv, job: ShopifyQueueWor
+     return { status: "reconcile_finalized", inventory_snapshot: data ?? null };
+   }
+ 
++  try { await ensureShopifyWebhooks(env, job.connectionId, job.source === "oauth"); }
++  catch (error) { console.error("Shopify webhook verification failed", { connection_id: job.connectionId, error: error instanceof Error ? error.message : String(error) }); }
++
+   if (job.source === "reconcile") {
+     try {
+       await backfillOrderJourneys(env, job.connectionId);
+diff --git a/apps/api/src/shopify-sync.ts b/apps/api/src/shopify-sync.ts
+index 9e8a65d..d73b1c5 100644
+--- a/apps/api/src/shopify-sync.ts
++++ b/apps/api/src/shopify-sync.ts
+@@ -24,6 +24,7 @@ import { isMissingShopifyProductMetadataSchema } from "./shopify-product-metadat
+ import { explainShopifyError } from "./shopify-permissions.js";
+ import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
+ import { mapWithConcurrency } from "./async-concurrency.js";
++import { invalidateIntegrationData } from "./integration-data-cache.js";
+ import {
+   ShopifyReportsScopeError,
+   syncShopifySessions,
+@@ -790,7 +791,8 @@ export function buildShopifySyncIdempotencyKey(
+   if (syncType === "initial_import") {
+     return `${syncType}:${syncScope}:${connectionId}`;
+   }
+-  return `${syncType}:${syncScope}:${connectionId}:${now.slice(0, 13)}`;
++  const bucket = new Date(Math.floor(Date.parse(now) / 900_000) * 900_000).toISOString();
++  return `${syncType}:${syncScope}:${connectionId}:${bucket}`;
+ }
+ 
+ async function ensureSyncRun(
+@@ -1973,6 +1975,7 @@ export async function runShopifyInitialSync(
+               const locationId = locationMap.get(level.location.id);
+               if (!locationId) continue;
+               inventorySnapshotRows.push({
++                source_updated_at: now,
+                 organization_id: connection.organization_id,
+                 external_inventory_item_id: inventoryItem.id,
+                 location_id: locationId,
+@@ -2487,6 +2490,7 @@ export async function runShopifyInitialSync(
+                   quantities.map((quantity) => [quantity.name, quantity.quantity]),
+                 ) as Record<string, number>;
+                 snapshotRows.push({
++                  source_updated_at: now,
+                   organization_id: connection.organization_id,
+                   inventory_item_id: inventoryItemId,
+                   location_id: locationId,
+@@ -2923,6 +2927,7 @@ export async function runShopifyInitialSync(
+         ]),
+       );
+ 
++      const orderVersions = new Map(orderRows.map((row) => [orderMap.get(row.external_order_id), row.external_updated_at]));
+       const orderItemRows = lineItemsByOrderId.map(({ orderId, lineItem }) => {
+         const matchedVariant = lineItem.variant?.id
+           ? lineItemVariantMap.get(lineItem.variant.id)
+@@ -2933,6 +2938,7 @@ export async function runShopifyInitialSync(
+         return {
+           organization_id: connection.organization_id,
+           order_id: orderId,
++          source_updated_at: orderVersions.get(orderId) ?? now,
+           product_id: matchedVariant?.product_id ?? null,
+           variant_id: matchedVariant?.id ?? null,
+           external_line_item_id: lineItem.id,
+@@ -3260,6 +3266,7 @@ export async function runShopifyInitialSync(
+             organization_id: connection.organization_id,
+             store_id: storeId,
+             order_id: orderId,
++            source_updated_at: orderVersions.get(orderId) ?? now,
+             // El enlace a `shopify_discounts` lo pone el bloque de promociones,
+             // que es quien conoce los ids. Aqui se guarda el texto, que es lo
+             // que sobrevive si la promocion se borra en Shopify.
+@@ -4481,6 +4488,8 @@ export async function runShopifyInitialSync(
+ 
+   const finishedAt = new Date().toISOString();
+ 
++  await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
++
+   for (const key of Object.keys(blocks) as BlockKey[]) {
+     const block = blocks[key];
+     await finishSyncRun(
+diff --git a/apps/api/src/shopify-webhook-handler.ts b/apps/api/src/shopify-webhook-handler.ts
+index 650083a..db4c478 100644
+--- a/apps/api/src/shopify-webhook-handler.ts
++++ b/apps/api/src/shopify-webhook-handler.ts
+@@ -16,6 +16,8 @@ import {
+ } from "./klaviyo-tracking.js";
+ import { getValidShopifyAccessToken } from "./shopify-token-store.js";
+ import { shopifyGraphql } from "./shopify-client.js";
++import { invalidateIntegrationData } from "./integration-data-cache.js";
++import { wakeShopifyWebhooks } from "./shopify-webhook-queue.js";
+ 
+ type ApiEnv = LoadedApiEnv;
+ const logger = createLogger("shopify-webhook-handler");
+@@ -188,6 +190,7 @@ async function syncOrderDiscountApplications(
+         : null,
+       amount: amountsByIndex.get(position) ?? 0,
+       amount_coverage: allocationsComplete ? "complete" : "partial",
++      source_updated_at: (payload.updated_at as string | undefined) ?? null,
+       position,
+     };
+   });
+@@ -239,7 +242,8 @@ async function syncOrderDiscountApplications(
+     .eq("organization_id", ctx.organizationId)
+     .eq("store_id", ctx.storeId)
+     .eq("order_id", orderId)
+-    .in("id", staleIds);
++    .in("id", staleIds)
++    .or(`source_updated_at.is.null,source_updated_at.lte.${payload.updated_at ?? new Date(0).toISOString()}`);
+   if (deleteError && !isShopifyDiscountApplicationsSchemaMissing(deleteError)) {
+     throw new Error(`shopify_webhook_discount_applications_retire_failed: ${deleteError.message}`);
+   }
+@@ -280,7 +284,7 @@ async function recordBlockRun(
+   errorMessage?: string,
+ ) {
+   const now = new Date().toISOString();
+-  await supabase.from("integration_sync_runs").insert({
++  const { error } = await supabase.from("integration_sync_runs").insert({
+     connection_id: connectionId,
+     organization_id: organizationId,
+     provider: "shopify",
+@@ -295,6 +299,7 @@ async function recordBlockRun(
+     records_failed: status === "failed" ? 1 : 0,
+     ...(errorMessage ? { error_message: errorMessage } : {}),
+   });
++  if (error) throw new Error(`shopify_webhook_receipt_failed: ${error.message}`);
+ }
+ 
+ type ConnectionContext = {
+@@ -317,7 +322,7 @@ async function resolveConnectionContext(
+   supabase: SupabaseClient,
+   shopDomain: string,
+ ): Promise<ConnectionContext | null> {
+-  const { data: connection } = await supabase
++  const { data: connection, error: connectionError } = await supabase
+     .from("integration_connections")
+     .select("id, organization_id, status, provider_account_id")
+     .eq("provider", "shopify")
+@@ -326,19 +331,20 @@ async function resolveConnectionContext(
+     .limit(1)
+     .maybeSingle();
+ 
++  if (connectionError) throw new Error(`shopify_webhook_connection_lookup_failed: ${connectionError.message}`);
++
+   if (!connection || !acceptsWebhookIngest(connection.status)) {
+     return null;
+   }
+ 
+-  const { data: store } = await supabase
++  const { data: store, error: storeError } = await supabase
+     .from("shopify_stores")
+     .select("id")
+     .eq("connection_id", connection.id)
+     .maybeSingle();
+ 
+-  if (!store) {
+-    return null;
+-  }
++  if (storeError) throw new Error(`shopify_webhook_store_lookup_failed: ${storeError.message}`);
++  if (!store) throw new Error("shopify_webhook_store_initializing");
+ 
+   if (!connection.provider_account_id) return null;
+   return {
+@@ -677,7 +683,7 @@ async function processInventoryLevelUpdate(
+         external_location_id: externalLocationId,
+       },
+     );
+-    return;
++    throw new Error("shopify_inventory_references_pending");
+   }
+ 
+   const available =
+@@ -693,6 +699,7 @@ async function processInventoryLevelUpdate(
+         external_inventory_level_id: null,
+         available_quantity: available,
+         quantities_data: { available },
++        source_updated_at: (payload.updated_at as string | undefined) ?? null,
+         is_active: true,
+         updated_at:
+           (payload.updated_at as string | undefined) ??
+@@ -782,7 +789,7 @@ async function processOrderCreateOrUpdate(
+       },
+       { onConflict: "store_id,external_order_id" },
+     )
+-    .select("id")
++    .select("id, external_updated_at")
+     .single();
+ 
+   if (orderError || !orderRow) {
+@@ -791,6 +798,10 @@ async function processOrderCreateOrUpdate(
+     );
+   }
+ 
++  // The database guard may return the newer stored row instead of this older payload.
++  if (payload.updated_at && orderRow.external_updated_at &&
++      Date.parse(orderRow.external_updated_at) > Date.parse(String(payload.updated_at))) return;
++
+   await recordShopifyOrderTracking(supabase, {
+     organizationId: ctx.organizationId,
+     storeId: ctx.storeId,
+@@ -867,6 +878,7 @@ async function processOrderCreateOrUpdate(
+         typeof item.admin_graphql_api_id === "string"
+           ? item.admin_graphql_api_id
+           : gid("LineItem", item.id),
++      source_updated_at: (payload.updated_at as string | undefined) ?? null,
+       title: (item.title as string | undefined) ?? "Sin titulo",
+       sku_snapshot: (item.sku as string | undefined) ?? null,
+       vendor_snapshot: (item.vendor as string | undefined) ?? null,
+@@ -1467,7 +1479,13 @@ export async function handleShopifyWebhookRequest(
+   }
+ 
+   const supabase = createServiceClient(env);
+-  const ctx = await resolveConnectionContext(supabase, shopDomain);
++  let ctx: ConnectionContext | null;
++  try {
++    ctx = await resolveConnectionContext(supabase, shopDomain);
++  } catch (error) {
++    logger.error("Shopify webhook context temporarily unavailable", { shop_domain: shopDomain, error: error instanceof Error ? error.message : String(error) });
++    return { statusCode: 503, body: { error: "shopify_webhook_context_unavailable" } };
++  }
+ 
+   if (!ctx) {
+     logger.info("Shopify webhook received for unknown connection", {
+@@ -1547,6 +1565,7 @@ export async function handleShopifyWebhookRequest(
+           Number(existingEvent.retry_count ?? 0) < WEBHOOK_DRAIN_MAX_ATTEMPTS);
+ 
+       if (!retryable) {
++        if (existingEvent.status === "queued") void wakeShopifyWebhooks(env).catch(() => {});
+         return { statusCode: 200, body: { status: "duplicate" } };
+       }
+ 
+@@ -1554,7 +1573,7 @@ export async function handleShopifyWebhookRequest(
+       const { data: claimedEvent, error: claimError } = await supabase
+         .schema("private")
+         .from("webhook_events")
+-        .update({ status: "queued", processed_at: null, error_message: null })
++        .update({ status: "queued", processed_at: null, error_message: null, next_retry_at: null })
+         .eq("id", existingEvent.id)
+         .eq("status", expectedStatus)
+         .select("id")
+@@ -1591,29 +1610,36 @@ export async function handleShopifyWebhookRequest(
+     }
+   }
+ 
++  try { await wakeShopifyWebhooks(env); } catch (error) {
++    logger.error("Shopify webhook wakeup failed; durable inbox will be swept", { error: error instanceof Error ? error.message : String(error) });
++  }
+   return { statusCode: 200, body: { status: "queued" } };
+ }
+ 
+ /**
+  * Procesa eventos persistidos en tandas acotadas. La API solo valida y encola;
+- * este drenaje se ejecuta en el worker compartiendo concurrencia y rate limit
+- * con las sincronizaciones de tiendas.
++ * este drenaje usa una cola independiente de las importaciones largas.
+  */
+-export const WEBHOOK_DRAIN_MAX_ATTEMPTS = 5;
++export const WEBHOOK_DRAIN_MAX_ATTEMPTS = 16;
++
++export function shopifyWebhookRetryAt(attempt: number, now = Date.now()) {
++  return new Date(now + Math.min(3_600_000, 5_000 * 2 ** Math.max(0, attempt - 1))).toISOString();
++}
+ 
+ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
+   const supabase = createServiceClient(env);
+   const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+-  const batchLimit = Math.max(1, Math.min(25, Math.floor(limit) || 1));
++  const leaseBefore = new Date(Date.now() - 2 * 60 * 1000).toISOString();
++  const batchLimit = Math.max(1, Math.min(100, Math.floor(limit) || 1));
+   const summary = { candidates: 0, processed: 0, failed: 0, skipped: 0 };
+ 
+   const { error: recoverError } = await supabase
+     .schema("private")
+     .from("webhook_events")
+-    .update({ status: "queued", claimed_at: null })
++    .update({ status: "queued", claimed_at: null, next_retry_at: null })
+     .eq("provider", "shopify")
+     .eq("status", "processing")
+-    .lt("claimed_at", staleBefore);
++    .lt("claimed_at", leaseBefore);
+   if (recoverError) throw new Error(`webhook_drain_recover_failed: ${recoverError.message}`);
+ 
+   const { data: events, error } = await supabase
+@@ -1622,7 +1648,7 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
+     .select("id, connection_id, topic, status, payload, retry_count")
+     .eq("provider", "shopify")
+     .lt("retry_count", WEBHOOK_DRAIN_MAX_ATTEMPTS)
+-    .or(`status.eq.queued,status.eq.failed,and(status.eq.received,received_at.lt.${staleBefore})`)
++    .or(`and(status.in.(queued,failed),or(next_retry_at.is.null,next_retry_at.lte.${new Date().toISOString()})),and(status.eq.received,received_at.lt.${staleBefore})`)
+     .order("received_at", { ascending: true })
+     .limit(batchLimit);
+   if (error) throw new Error(`webhook_drain_load_failed: ${error.message}`);
+@@ -1638,6 +1664,7 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
+       .update({ status: "processing", claimed_at: new Date().toISOString(), retry_count: attempts })
+       .eq("id", event.id as string)
+       .eq("status", event.status as string)
++      .eq("retry_count", event.retry_count as number)
+       .select("id")
+       .maybeSingle();
+     if (claimError) throw new Error(`webhook_drain_claim_failed: ${claimError.message}`);
+@@ -1649,10 +1676,11 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
+     const entry = TOPIC_HANDLERS[event.topic as string];
+     const complianceHandler = COMPLIANCE_TOPIC_HANDLERS[event.topic as string];
+     const handle = entry?.handle ?? complianceHandler;
+-    const ctx = event.connection_id
+-      ? await resolveConnectionContextById(supabase, event.connection_id as string, Boolean(complianceHandler))
+-      : null;
+-    if (!handle || !ctx) {
++    try {
++      const ctx = event.connection_id
++        ? await resolveConnectionContextById(supabase, event.connection_id as string, Boolean(complianceHandler))
++        : null;
++      if (!handle || !ctx) {
+       await supabase
+         .schema("private")
+         .from("webhook_events")
+@@ -1664,32 +1692,33 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
+         .eq("id", event.id as string)
+         .eq("status", "processing");
+       summary.skipped += 1;
+-      continue;
+-    }
+-
+-    try {
++        continue;
++      }
+       await handle(supabase, ctx, event.payload as Record<string, unknown>, env);
+-      await supabase
++      await invalidateIntegrationData(env.REDIS_URL, ctx.organizationId);
++      if (entry?.scope) {
++        await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, entry.scope, "succeeded");
++      }
++      const { error: finishError } = await supabase
+         .schema("private")
+         .from("webhook_events")
+-        .update({ status: "processed", processed_at: new Date().toISOString(), claimed_at: null, error_message: null })
++        .update({ status: "processed", processed_at: new Date().toISOString(), claimed_at: null, error_message: null, next_retry_at: null })
+         .eq("id", event.id as string)
+         .eq("status", "processing");
+-      if (entry?.scope) {
+-        await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, entry.scope, "succeeded");
+-      }
++      if (finishError) throw new Error(`shopify_webhook_finish_failed: ${finishError.message}`);
+       summary.processed += 1;
+     } catch (processError) {
+       const message = processError instanceof Error ? processError.message : "webhook_retry_failed";
+-      await supabase
++      const { error: failureError } = await supabase
+         .schema("private")
+         .from("webhook_events")
+-        .update({ status: "failed", processed_at: new Date().toISOString(), claimed_at: null, error_message: message })
++        .update({ status: "failed", processed_at: new Date().toISOString(), claimed_at: null, error_message: message, next_retry_at: shopifyWebhookRetryAt(attempts) })
+         .eq("id", event.id as string)
+         .eq("status", "processing");
+       summary.failed += 1;
++      if (failureError) throw new Error(`shopify_webhook_failure_store_failed: ${failureError.message}`);
+       logger.error("Shopify webhook retry failed", {
+-        organization_id: ctx.organizationId,
++        connection_id: event.connection_id,
+         topic: event.topic,
+         attempt: attempts,
+         error: message,
+@@ -1718,6 +1747,6 @@ async function resolveConnectionContextById(
+     .eq("connection_id", connection.id)
+     .maybeSingle();
+   if (storeError) throw new Error(`shopify_webhook_store_lookup_failed: ${storeError.message}`);
+-  if (!store || !connection.provider_account_id) return null;
++  if (!store || !connection.provider_account_id) throw new Error("shopify_webhook_store_initializing");
+   return { connectionId: connection.id, organizationId: connection.organization_id, storeId: store.id, shopDomain: connection.provider_account_id };
+ }
+diff --git a/apps/api/src/shopify-webhooks.ts b/apps/api/src/shopify-webhooks.ts
+index 91f7e87..66c3cc5 100644
+--- a/apps/api/src/shopify-webhooks.ts
++++ b/apps/api/src/shopify-webhooks.ts
+@@ -49,8 +49,8 @@ export const SHOPIFY_COMPLIANCE_WEBHOOK_TOPICS = [
+   "shop/redact",
+ ] as const;
+ 
+-export function shopifyWebhookCallbackUrl(redirectUri: string) {
+-  return `${new URL(redirectUri).origin}/v1/shopify/webhooks`;
++export function shopifyWebhookCallbackUrl(redirectUri: string, publicBaseUrl?: string) {
++  return `${new URL(publicBaseUrl ?? redirectUri).origin}/v1/shopify/webhooks`;
+ }
+ 
+ export function verifyShopifyWebhookHmac(rawBody: Buffer, hmacHeader: string | undefined, secret: string) {
+@@ -80,8 +80,48 @@ export async function registerShopifyWebhooks(
+   callbackUrl: string,
+   organizationId?: string,
+ ) {
++  const failed: Array<{ topic: string; error: string }> = [];
++  let confirmed = 0;
++  const subscriptions: Array<{ id: string; topic: string; uri: string }> = [];
++  try {
++    if (new URL(callbackUrl).protocol !== "https:") throw new Error("webhook_public_https_required");
++    let after: string | null = null;
++    do {
++      const page: { webhookSubscriptions: { nodes: Array<{ id: string; topic: string; uri: string }>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } = await shopifyGraphql(
++        shopDomain, accessToken,
++        `query IntegrationWebhooks($after: String) {
++          webhookSubscriptions(first: 100, after: $after) {
++            nodes { id topic uri }
++            pageInfo { hasNextPage endCursor }
++          }
++        }`, { after },
++      );
++      subscriptions.push(...page.webhookSubscriptions.nodes);
++      const next = page.webhookSubscriptions.pageInfo;
++      if (!next.hasNextPage) break;
++      if (!next.endCursor || next.endCursor === after) throw new Error("webhook_subscription_pagination_invalid");
++      after = next.endCursor;
++    } while (after);
++  } catch (error) {
++    failed.push({ topic: "subscriptions", error: error instanceof Error ? error.message : String(error) });
++  }
+   for (const topic of SHOPIFY_WEBHOOK_TOPICS) {
++    if (failed.some((item) => item.topic === "subscriptions")) break;
+     try {
++      const existing = subscriptions.find((item) => item.topic === topic.graphqlTopic && item.uri === callbackUrl)
++        ?? subscriptions.find((item) => item.topic === topic.graphqlTopic);
++      if (existing?.uri === callbackUrl) { confirmed += 1; continue; }
++      if (existing) {
++        const updated = await shopifyGraphql<{ webhookSubscriptionUpdate: { userErrors: Array<{ message: string }> } }>(
++          shopDomain, accessToken,
++          `mutation IntegrationWebhookUpdate($id: ID!, $input: WebhookSubscriptionInput!) {
++            webhookSubscriptionUpdate(id: $id, webhookSubscription: $input) { userErrors { message } }
++          }`, { id: existing.id, input: { uri: callbackUrl } },
++        );
++        if (updated.webhookSubscriptionUpdate.userErrors.length) throw new Error(updated.webhookSubscriptionUpdate.userErrors.map((item) => item.message).join("; "));
++        confirmed += 1;
++        continue;
++      }
+       const result = await shopifyGraphql<{
+         webhookSubscriptionCreate: {
+           webhookSubscription: { id: string } | null;
+@@ -113,9 +153,12 @@ export async function registerShopifyWebhooks(
+           topic: topic.graphqlTopic,
+           errors: userErrors.map((item) => item.message).join("; "),
+         });
++        failed.push({ topic: topic.graphqlTopic, error: userErrors.map((item) => item.message).join("; ") });
+         continue;
+       }
+ 
++      confirmed += 1;
++
+       logger.info("Shopify webhook subscription registered", {
+         shop_domain: shopDomain,
+         organization_id: organizationId,
+@@ -123,6 +166,7 @@ export async function registerShopifyWebhooks(
+         subscription_id: result.webhookSubscriptionCreate.webhookSubscription?.id,
+       });
+     } catch (error) {
++      failed.push({ topic: topic.graphqlTopic, error: error instanceof Error ? error.message : String(error) });
+       logger.error("Shopify webhook subscription failed", {
+         shop_domain: shopDomain,
+         organization_id: organizationId,
+@@ -131,6 +175,28 @@ export async function registerShopifyWebhooks(
+       });
+     }
+   }
++  const result = { status: failed.length ? "failed" : "healthy", confirmed, expected: SHOPIFY_WEBHOOK_TOPICS.length, checked_at: new Date().toISOString(), callback_url: callbackUrl, failures: failed.map((item) => ({ topic: item.topic, error: item.error.slice(0,300) })) };
++  return result;
++}
++
++export async function persistShopifyWebhookHealth(env: ApiEnv, connectionId: string, health: Awaited<ReturnType<typeof registerShopifyWebhooks>>) {
++  const { error } = await createServiceClient(env).rpc("set_integration_webhook_health", { target_connection: connectionId, health });
++  if (error) throw new Error(`shopify_webhook_health_store_failed: ${error.message}`);
++}
++
++export async function ensureShopifyWebhooks(env: ApiEnv, connectionId: string, force = false) {
++  const client = createServiceClient(env);
++  const { data: connection, error } = await client.from("integration_connections")
++    .select("provider_account_id, organization_id, metadata").eq("id", connectionId).eq("provider", "shopify").single();
++  if (error || !connection) throw new Error(`shopify_webhook_connection_lookup_failed: ${error?.message}`);
++  const callbackUrl = shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI, env.INTEGRATION_WEBHOOK_BASE_URL);
++  const previous = connection.metadata?.webhooks as { status?: string; checked_at?: string; callback_url?: string } | undefined;
++  if (!force && previous?.status === "healthy" && previous.callback_url === callbackUrl &&
++    Date.now() - Date.parse(previous.checked_at ?? "") < 60 * 60 * 1000) return previous;
++  const accessToken = await getValidShopifyAccessToken(env, connectionId);
++  const result = await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
++  await persistShopifyWebhookHealth(env, connectionId, result);
++  return result;
+ }
+ 
+ /**
+@@ -155,7 +221,7 @@ export async function resendShopifyWebhookRegistrations(env: ApiEnv) {
+     throw new Error(`shopify_connections_lookup_failed: ${error.message}`);
+   }
+ 
+-  const callbackUrl = shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI);
++  const callbackUrl = shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI, env.INTEGRATION_WEBHOOK_BASE_URL);
+   let attempted = 0;
+   let failed = 0;
+ 
+@@ -168,7 +234,9 @@ export async function resendShopifyWebhookRegistrations(env: ApiEnv) {
+ 
+     try {
+       const accessToken = await getValidShopifyAccessToken(env, connection.id);
+-      await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
++      const result = await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
++      await persistShopifyWebhookHealth(env, connection.id, result);
++      if (result.status !== "healthy") failed += 1;
+       logger.info("Shopify webhook registration resent", {
+         connection_id: connection.id,
+         organization_id: connection.organization_id,
+diff --git a/apps/api/src/shopify.ts b/apps/api/src/shopify.ts
+index 722ae27..2622823 100644
+--- a/apps/api/src/shopify.ts
++++ b/apps/api/src/shopify.ts
+@@ -234,7 +234,7 @@ export async function createShopifyConnectionAuthUrl(
+       ok: false,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Shopify esta desactivada por feature flag.",
++      message: "La integraci?n con Shopify est? desactivada por ahora.",
+     };
+   }
+ 
+@@ -249,7 +249,7 @@ export async function createShopifyConnectionAuthUrl(
+       statusCode: 400,
+       error: "shopify_custom_app_not_configured",
+       message:
+-        "La app Shopify de distribucion personalizada no esta configurada todavia.",
++        "Conectar Shopify a?n no est? disponible: falta configurarlo en el servidor.",
+     };
+   }
+ 
+@@ -258,7 +258,7 @@ export async function createShopifyConnectionAuthUrl(
+       ok: false,
+       statusCode: 403,
+       error: "inactive_user",
+-      message: "El usuario autenticado no esta activo.",
++      message: "El usuario autenticado no est? activo.",
+     };
+   }
+ 
+@@ -286,7 +286,7 @@ export async function createShopifyConnectionAuthUrl(
+       ok: false,
+       statusCode: 403,
+       error: "organization_manage_denied",
+-      message: "Solo owner, manager o platform admin pueden conectar Shopify.",
++      message: "Solo el propietario o un gestor pueden conectar Shopify.",
+     };
+   }
+ 
+@@ -374,7 +374,7 @@ export async function triggerShopifySync(
+       ok: false,
+       statusCode: 404,
+       error: "integration_disabled",
+-      message: "La integracion Shopify esta desactivada por feature flag.",
++      message: "La integraci?n con Shopify est? desactivada por ahora.",
+     };
+   }
+ 
+@@ -383,7 +383,7 @@ export async function triggerShopifySync(
+       ok: false,
+       statusCode: 403,
+       error: "inactive_user",
+-      message: "El usuario autenticado no esta activo.",
++      message: "El usuario autenticado no est? activo.",
+     };
+   }
+ 
+@@ -403,7 +403,7 @@ export async function triggerShopifySync(
+       statusCode: 403,
+       error: "organization_manage_denied",
+       message:
+-        "Solo owner, manager o platform admin pueden sincronizar Shopify.",
++        "Solo el propietario o un gestor pueden sincronizar Shopify.",
+     };
+   }
+ 
+@@ -454,7 +454,7 @@ export async function triggerShopifySync(
+         statusCode: 409,
+         error: "shopify_sync_already_running",
+         message:
+-          "Ya hay una sincronizacion de Shopify en curso para esta organizacion.",
++          "Ya hay una sincronizaci?n de Shopify en marcha. Espera a que termine.",
+       };
+     }
+ 
+@@ -464,7 +464,7 @@ export async function triggerShopifySync(
+         status: "error",
+         last_error_at: new Date().toISOString(),
+         last_error_message:
+-          "La sincronizacion anterior quedo abierta y fue marcada como error automaticamente.",
++          "La sincronizaci?n anterior qued? abierta y fue marcada como error autom?ticamente.",
+       })
+       .eq("id", connection.id);
+ 
+@@ -485,7 +485,7 @@ export async function triggerShopifySync(
+       statusCode: 409,
+       error: "shopify_connection_not_ready",
+       message:
+-        "La conexion Shopify debe estar conectada antes de poder sincronizar.",
++        "Conecta Shopify antes de sincronizar.",
+     };
+   }
+ 
+@@ -654,7 +654,7 @@ export async function handleShopifyOAuthCallback(
+       statusCode: 500,
+       error: "shopify_custom_app_not_configured",
+       message:
+-        "La app Shopify de distribucion personalizada no esta configurada en el servidor.",
++        "Conectar Shopify a?n no est? disponible: falta configurarlo en el servidor.",
+     };
+   }
+ 
+@@ -885,18 +885,7 @@ export async function handleShopifyOAuthCallback(
+     },
+   });
+ 
+-  void registerShopifyWebhooks(
+-    shop,
+-    tokenResult.accessToken,
+-    shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI),
+-    pendingConnection.organization_id,
+-  ).catch((error: unknown) => {
+-    console.error("Shopify webhook registration failed", {
+-      connection_id: pendingConnection.id,
+-      organization_id: pendingConnection.organization_id,
+-      error: error instanceof Error ? error.message : String(error),
+-    });
+-  });
++  // The durable import job also verifies/repairs webhook subscriptions before syncing.
+ 
+   let initialSyncQueued = true;
+   try {
+diff --git a/apps/web/src/components/portal-shell.tsx b/apps/web/src/components/portal-shell.tsx
+index 90ba63f..d43fa36 100644
+--- a/apps/web/src/components/portal-shell.tsx
++++ b/apps/web/src/components/portal-shell.tsx
+@@ -23,6 +23,9 @@ import { invalidateCachedQueries } from "@/lib/use-cached-query";
+ import { clearViewAs, getViewAs, setViewAs, type ViewAs } from "@/lib/view-as";
+ import {
+   Avatar,
++  avatarInitials,
++  AvatarImage,
++  AvatarFallback,
+   Banner,
+   AsyncState,
+   BrandLogo,
+@@ -63,6 +66,7 @@ import { FocusTarget } from "@/components/focus-target";
+ import { PortalFeedback } from "@/components/portal-feedback";
+ import { InsightsProvider } from "@/components/insights-context";
+ import { SettingsNavStatus } from "@/app/configuracion/settings-status";
++import { IntegrationLiveUpdates } from "@/components/integration-live-updates";
+ import { MfaRequiredBanner } from "@/components/mfa-required-banner";
+ import {
+   getActivePortalModule,
+@@ -1130,12 +1134,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
+           aria-label="Abrir men? de perfil"
+           className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent pointer-coarse:size-11"
+         >
+-          <Avatar
+-            name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
+-            src={bootstrap.profile.avatar_url ?? undefined}
+-            size="sm"
+-            color="accent"
+-          />
++          <Avatar><AvatarImage src={bootstrap.profile.avatar_url ?? undefined} alt="" /><AvatarFallback className="bg-accent text-white">{avatarInitials(bootstrap.profile.full_name ?? bootstrap.user.email ?? "?")}</AvatarFallback></Avatar>
+         </button>
+       </Popover.Trigger>
+       <Popover.Content
+@@ -1332,6 +1331,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
+           la pagina siempre quedaba un poco scrolleable aunque no hubiera
+           contenido de sobra. */}
+       <PortalSessionContext.Provider value={{ bootstrap, token }}>
++        <IntegrationLiveUpdates organizationId={activeOrganizationId} />
+         <InsightsProvider
+           scope={{
+             organizationId: activeOrganizationId,
+diff --git a/apps/web/src/lib/use-cached-query.ts b/apps/web/src/lib/use-cached-query.ts
+index 1bcbb1e..7d43f3b 100644
+--- a/apps/web/src/lib/use-cached-query.ts
++++ b/apps/web/src/lib/use-cached-query.ts
+@@ -1,7 +1,8 @@
+ "use client";
+ 
+-import { useCallback, useEffect, useMemo, useState } from "react";
+-import { apiFetch } from "@/lib/bootstrap";
++import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
++import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
++import { readApiFailure } from "@/lib/api-error";
+ 
+ // Cach? de datos de p?gina estilo stale-while-revalidate, en el mismo esp?ritu
+ // que `bootstrapCache` de PortalShell. Objetivo: al volver a una vista que ya
+@@ -13,6 +14,18 @@ type Entry = { data: unknown; at: number };
+ 
+ const cache = new Map<string, Entry>();
+ const inflight = new Map<string, Promise<unknown>>();
++const keyVersions = new Map<string, number>();
++let invalidationVersion = 0;
++const invalidationListeners = new Set<() => void>();
++const subscribeInvalidation = (listener: () => void) => {
++  invalidationListeners.add(listener);
++  return () => { invalidationListeners.delete(listener); };
++};
++const readServerInvalidation = () => 0;
++function useInvalidationVersion(signature: string) {
++  const readInvalidation = useCallback(() => Math.max(0, ...signature.split("\u0000").map((key) => keyVersions.get(key) ?? 0)), [signature]);
++  return useSyncExternalStore(subscribeInvalidation, readInvalidation, readServerInvalidation);
++}
+ 
+ // Dentro de esta ventana desde el ?ltimo fetch, montar la vista NO dispara
+ // refetch: se considera fresco. Fuera de ella, se revalida en segundo plano.
+@@ -20,25 +33,25 @@ const FRESH_MS = 30_000;
+ 
+ async function fetchJson(key: string): Promise<unknown> {
+   const response = await apiFetch(key);
+-  if (!response.ok) {
+-    const body = (await response.json().catch(() => null)) as {
+-      error?: string;
+-      message?: string;
+-    } | null;
+-    throw new Error(body?.message || body?.error || `HTTP ${response.status}`);
+-  }
++  if (!response.ok) throw await readApiFailure(response);
+   return response.json();
+ }
+ 
+ function run(key: string): Promise<unknown> {
+   let promise = inflight.get(key);
+   if (!promise) {
++    const version = keyVersions.get(key) ?? 0;
+     promise = fetchJson(key)
+       .then((data) => {
++        // Publish a completed snapshot even under a continuous event stream.
++        // Then fetch once more if this particular resource changed meanwhile.
++        if (version !== (keyVersions.get(key) ?? 0)) {
++          setTimeout(() => invalidateCachedQueries(key), 0);
++        }
+         cache.set(key, { data, at: Date.now() });
+         return data;
+       })
+-      .finally(() => inflight.delete(key));
++      .finally(() => { if (inflight.get(key) === promise) inflight.delete(key); });
+     inflight.set(key, promise);
+   }
+   return promise;
+@@ -53,19 +66,34 @@ export function prefetchCachedQuery(key: string): void {
+ 
+ /** Borra entradas de cach?. Sin prefijo, todo (p.ej. al cambiar de organizaci?n
+  *  activa: los datos son de otro tenant). Con prefijo, solo las que empiezan por ?l. */
+-export function invalidateCachedQueries(prefix?: string): void {
+-  if (!prefix) {
+-    cache.clear();
+-    return;
++export function invalidateCachedQueries(prefix?: string | string[]): void {
++  invalidateApiGetCache();
++  const prefixes = typeof prefix === "string" ? [prefix] : prefix;
++  for (const key of new Set([...cache.keys(), ...inflight.keys()])) {
++    if (prefixes && !prefixes.some((value) => key.startsWith(value))) continue;
++    keyVersions.set(key, invalidationVersion + 1);
++    if (!prefixes) cache.delete(key);
++    else if (cache.has(key)) cache.set(key, { ...cache.get(key)!, at: 0 });
+   }
+-  for (const key of [...cache.keys()]) {
+-    if (key.startsWith(prefix)) cache.delete(key);
++  invalidationVersion += 1;
++  invalidationListeners.forEach((listener) => listener());
++}
++
++type Failure = { message: string; code: string | null };
++
++function toFailure(reason: unknown): Failure {
++  if (reason instanceof Error) {
++    return { message: reason.message, code: "code" in reason && typeof reason.code === "string" ? reason.code : null };
+   }
++  return { message: "No se ha podido cargar. Int?ntalo de nuevo en unos segundos.", code: null };
+ }
+ 
+ export type CachedQuery<T> = {
+   data: T | undefined;
++  /** Texto para ense?ar. */
+   error: string | null;
++  /** C?digo de la API (`shopify_store_selection_required`...) para decidir, nunca para ense?ar. */
++  errorCode: string | null;
+   /** true solo en la PRIMERA carga (sin datos cacheados y sin error). */
+   isLoading: boolean;
+   /** true mientras revalida por detr?s, aunque ya se muestren datos. */
+@@ -74,8 +102,9 @@ export type CachedQuery<T> = {
+ };
+ 
+ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
++  const invalidation = useInvalidationVersion(key ?? "");
+   const [, forceRender] = useState(0);
+-  const [error, setError] = useState<string | null>(null);
++  const [failure, setError] = useState<Failure | null>(null);
+   const [isValidating, setIsValidating] = useState(false);
+ 
+   useEffect(() => {
+@@ -97,9 +126,7 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
+       .catch((e: unknown) => {
+         if (cancelled) return;
+         // Si ya hab?a datos cacheados, un fallo de red no debe tapar la vista.
+-        if (!cache.has(key)) {
+-          setError(e instanceof Error ? e.message : "No se pudo cargar.");
+-        }
++        if (!cache.has(key)) setError(toFailure(e));
+       })
+       .finally(() => {
+         if (!cancelled) setIsValidating(false);
+@@ -108,7 +135,7 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
+     return () => {
+       cancelled = true;
+     };
+-  }, [key]);
++  }, [key, invalidation]);
+ 
+   const reload = useCallback(() => {
+     if (!key) return;
+@@ -119,17 +146,17 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
+         setError(null);
+         forceRender((n) => n + 1);
+       })
+-      .catch((e: unknown) => {
+-        setError(e instanceof Error ? e.message : "No se pudo cargar.");
+-      })
++      .catch((e: unknown) => setError(toFailure(e)))
+       .finally(() => setIsValidating(false));
+   }, [key]);
+ 
+   const data = key ? (cache.get(key)?.data as T | undefined) : undefined;
++  const error = failure?.message ?? null;
+ 
+   return {
+     data,
+     error,
++    errorCode: failure?.code ?? null,
+     // `key` null = la pagina todavia no sabe QUE pedir (no hay cliente activo,
+     // por ejemplo), asi que no hay fetch en marcha. Sin esta condicion se
+     // devolvia `isLoading: true` para siempre: sin datos, sin error y sin nada
+@@ -148,13 +175,14 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
+  * de un `map`.
+  */
+ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
++  const invalidation = useInvalidationVersion(keys.join("\u0000"));
+   const keySignature = keys.join("\u0000");
+   const stableKeys = useMemo(
+     () => [...new Set(keys.filter(Boolean))],
+     [keySignature],
+   );
+   const [, forceRender] = useState(0);
+-  const [error, setError] = useState<string | null>(null);
++  const [failure, setError] = useState<Failure | null>(null);
+   const [isValidating, setIsValidating] = useState(false);
+ 
+   useEffect(() => {
+@@ -174,11 +202,7 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
+         forceRender((n) => n + 1);
+       })
+       .catch((reason: unknown) => {
+-        if (!cancelled) {
+-          setError(
+-            reason instanceof Error ? reason.message : "No se pudo cargar.",
+-          );
+-        }
++        if (!cancelled) setError(toFailure(reason));
+       })
+       .finally(() => {
+         if (!cancelled) setIsValidating(false);
+@@ -187,7 +211,7 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
+     return () => {
+       cancelled = true;
+     };
+-  }, [forceRender, keySignature, stableKeys]);
++  }, [forceRender, keySignature, stableKeys, invalidation]);
+ 
+   const hasAllData = stableKeys.every((key) => cache.has(key));
+   const data = hasAllData
+@@ -203,17 +227,16 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
+         setError(null);
+         forceRender((n) => n + 1);
+       })
+-      .catch((reason: unknown) => {
+-        setError(
+-          reason instanceof Error ? reason.message : "No se pudo cargar.",
+-        );
+-      })
++      .catch((reason: unknown) => setError(toFailure(reason)))
+       .finally(() => setIsValidating(false));
+   }, [forceRender, stableKeys]);
+ 
++  const error = failure?.message ?? null;
++
+   return {
+     data,
+     error,
++    errorCode: failure?.code ?? null,
+     isLoading: stableKeys.length > 0 && data === undefined && error === null,
+     isValidating,
+     reload,
+@@ -229,6 +252,7 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
+ export function useCachedQueriesSettled<T>(
+   keys: string[],
+ ): CachedQuery<Array<T | undefined>> & { errors: Array<string | null> } {
++  const invalidation = useInvalidationVersion(keys.join("\u0000"));
+   const keySignature = keys.join("\u0000");
+   const stableKeys = useMemo(
+     () => [...new Set(keys.filter(Boolean))],
+@@ -261,7 +285,7 @@ export function useCachedQueriesSettled<T>(
+           } catch (reason: unknown) {
+             return reason instanceof Error
+               ? reason.message
+-              : "No se pudo cargar.";
++              : "No se ha podido cargar. Int?ntalo de nuevo en unos segundos.";
+           }
+         }),
+       )
+@@ -284,7 +308,7 @@ export function useCachedQueriesSettled<T>(
+ 
+   useEffect(() => {
+     load();
+-  }, [load]);
++  }, [load, invalidation]);
+ 
+   const data = hasSettled
+     ? stableKeys.map((key) => cache.get(key)?.data as T | undefined)
+@@ -295,6 +319,7 @@ export function useCachedQueriesSettled<T>(
+   return {
+     data,
+     error: firstError,
++    errorCode: null,
+     errors,
+     isLoading: stableKeys.length > 0 && data === undefined && !firstError,
+     isValidating,
+diff --git a/apps/worker/src/repeatable-jobs.ts b/apps/worker/src/repeatable-jobs.ts
+index e6df3c1..c36b455 100644
+--- a/apps/worker/src/repeatable-jobs.ts
++++ b/apps/worker/src/repeatable-jobs.ts
+@@ -1,10 +1,10 @@
+-export const SHOPIFY_RECONCILE_CRON = "0 2 * * *";
++export const SHOPIFY_RECONCILE_CRON = "*/15 * * * *";
+ export const SHOPIFY_RECONCILE_TZ = "Europe/Madrid";
+ // Conserva la cadencia del crontab del VPS, ahora registrada en BullMQ para
+ // que el mismo worker la ejecute tambi?n en desarrollo local.
+-export const META_RECONCILE_CRON = "17 0 * * *";
++export const META_RECONCILE_CRON = "*/10 * * * *";
+ export const META_RECONCILE_TZ = "UTC";
+-export const KLAVIYO_RECONCILE_CRON = "43 */6 * * *";
++export const KLAVIYO_RECONCILE_CRON = "3,18,33,48 * * * *";
+ export const KLAVIYO_RECONCILE_TZ = "UTC";
+ export const FATHOM_WEBHOOK_CRON = "* * * * *";
+ export const FATHOM_WEBHOOK_TZ = "Europe/Madrid";
+@@ -47,6 +47,15 @@ export function isStaleShopifyReconcileRepeatable(
+   );
+ }
+ 
++export function isStaleIntegrationRepeatable(repeatable: { name: string; pattern?: string | null }) {
++  const expected: Record<string, string> = {
++    "shopify-reconcile": SHOPIFY_RECONCILE_CRON,
++    "meta-reconcile": META_RECONCILE_CRON,
++    "klaviyo-reconcile": KLAVIYO_RECONCILE_CRON,
++  };
++  return repeatable.name in expected && repeatable.pattern !== expected[repeatable.name];
++}
++
+ // ?Para hoy? y propuestas de la IA pendientes (notification-daily.ts).
+ export const NOTIFICATION_DAILY_CRON = "0 8 * * *";
+ export const NOTIFICATION_DAILY_TZ = "Europe/Madrid";
+diff --git a/apps/worker/src/worker.ts b/apps/worker/src/worker.ts
+index c254753..5e783d2 100644
+--- a/apps/worker/src/worker.ts
++++ b/apps/worker/src/worker.ts
+@@ -9,6 +9,13 @@ import { runShopifyQueueJob } from "@e-nora/api/shopify-queue-worker";
+ import type { ShopifyQueueWorkerJob } from "@e-nora/api/shopify-queue-worker";
+ import { reconcileAllMetaConnections } from "@e-nora/api/meta-sync";
+ import { reconcileAllKlaviyoConnections } from "@e-nora/api/klaviyo-sync";
++import { SHOPIFY_WEBHOOK_QUEUE_NAME } from "@e-nora/api/shopify-webhook-queue";
++import { drainFailedShopifyWebhooks } from "@e-nora/api/shopify-webhook-handler";
++import { INTEGRATION_SYNC_QUEUE_NAME, INTEGRATION_SYNC_QUEUE_NAMES, enqueueIntegrationSync, type IntegrationSyncJob } from "@e-nora/api/integration-sync-queue";
++import { runMetaSync } from "@e-nora/api/meta-sync";
++import { runKlaviyoSync } from "@e-nora/api/klaviyo-sync";
++import { processQueuedKlaviyoWebhooks } from "@e-nora/api/klaviyo-webhooks";
++import { runIntegrationHealthMonitor } from "@e-nora/api/ops-health-check";
+ import {
+   SHOPIFY_SYNC_QUEUE_NAME,
+ } from "@e-nora/api/shopify-sync-queue";
+@@ -38,7 +45,7 @@ import {
+   NOTIFICATION_DAILY_TZ,
+   NOTIFICATION_OUTBOX_CRON,
+   NOTIFICATION_OUTBOX_TZ,
+-  isStaleShopifyReconcileRepeatable,
++  isStaleIntegrationRepeatable,
+ } from "./repeatable-jobs.js";
+ import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
+ import { recordWorkerJobMetric, workerMetrics } from "./metrics.js";
+@@ -266,18 +273,62 @@ async function runNotificationDailyTick(
+ }
+ 
+ const queue = new Queue("ecomscaling-default", { connection });
++await queue.add("integration-health", {}, {
++  repeat: { every: 300_000 }, jobId: "integration-health-repeat",
++  removeOnComplete: { count: 20 }, removeOnFail: { count: 100 },
++});
+ const shopifyQueueControl = new Queue(SHOPIFY_SYNC_QUEUE_NAME, { connection });
+ await shopifyQueueControl.setGlobalConcurrency(1);
+ await shopifyQueueControl.setGlobalRateLimit(1, 5_000);
+-await shopifyQueueControl.add(
+-  "shopify-webhook-drain",
+-  { kind: "webhook_drain" },
+-  {
+-    repeat: { pattern: "* * * * *", tz: "Europe/Madrid" },
+-    jobId: "shopify-webhook-drain-repeat",
+-  },
+-);
+-logger.info("Scheduled Shopify webhook drain every minute (shared Shopify queue)");
++// Remove the old shared-queue sweep; imports must never block live events.
++for (const repeatable of await shopifyQueueControl.getRepeatableJobs()) {
++  if (repeatable.name === "shopify-webhook-drain") await shopifyQueueControl.removeRepeatableByKey(repeatable.key);
++}
++const webhookQueue = new Queue(SHOPIFY_WEBHOOK_QUEUE_NAME, { connection });
++const runIntegrationJob = async (job: { data: IntegrationSyncJob }) => {
++  const apiEnv = loadApiEnv(process.env);
++  if (job.data.provider === "meta_ads") {
++    if (job.data.mode === "initial") return runMetaSync(apiEnv, job.data.connectionId, "initial");
++    const result = await reconcileAllMetaConnections(apiEnv, job.data.connectionId);
++    if (result.failed) throw new Error("meta_sync_failed_retry_scheduled");
++    return result;
++  }
++  if (job.data.mode === "initial") {
++    const result = await runKlaviyoSync(apiEnv, job.data.connectionId, "initial", true);
++    if (result.status === "partial") throw new Error("klaviyo_sync_partial_retry_scheduled");
++    return result;
++  }
++  const result = await reconcileAllKlaviyoConnections(apiEnv, job.data.connectionId, job.data.force);
++  if (result.failed) throw new Error("klaviyo_sync_failed_retry_scheduled");
++  return result;
++};
++// Drain jobs from the earlier shared queue without letting a large Klaviyo
++// import occupy every Meta consumer. Each provider has independent capacity.
++const integrationWorker = new Worker<IntegrationSyncJob>(INTEGRATION_SYNC_QUEUE_NAME, (job) => enqueueIntegrationSync(loadApiEnv(process.env), job.data), { connection, concurrency: 2 });
++const providerWorkers = Object.entries(INTEGRATION_SYNC_QUEUE_NAMES).map(([provider, name]) => {
++  const consumer = new Worker<IntegrationSyncJob>(name, runIntegrationJob, { connection, concurrency: provider === "klaviyo" ? 2 : 1 });
++  consumer.on("failed", (job, error) => logger.error("Provider sync failed", { provider, connection_id: job?.data.connectionId, error: error.message }));
++  return consumer;
++});
++integrationWorker.on("failed", (_job, error) => logger.error("Integration sync job failed", { error: error.message }));
++await webhookQueue.setGlobalConcurrency(1);
++await webhookQueue.add("sweep", {}, {
++  repeat: { every: 5_000 }, jobId: "webhook-recovery-sweep",
++  removeOnComplete: true, removeOnFail: { count: 500 },
++});
++const webhookWorker = new Worker(SHOPIFY_WEBHOOK_QUEUE_NAME, async () => {
++  const apiEnv = loadApiEnv(process.env);
++  const deadline = Date.now() + 25_000;
++  await processQueuedKlaviyoWebhooks(apiEnv);
++  let total = 0;
++  do {
++    const result = await drainFailedShopifyWebhooks(apiEnv, 100);
++    total += result.processed;
++    if (result.candidates < 100) break;
++  } while (Date.now() < deadline);
++  return { processed: total };
++}, { connection, concurrency: 1 });
++webhookWorker.on("failed", (_job, error) => logger.error("Shopify webhook consumer failed", { error: error.message }));
+ 
+ await queue.add(
+   "meta-reconcile",
+@@ -295,14 +346,14 @@ await queue.add(
+     jobId: "klaviyo-reconcile-repeat",
+   },
+ );
+-logger.info("Scheduled Meta reconciliation daily and Klaviyo every 6 hours (UTC)");
++logger.info("Scheduled Meta reconciliation every 10 minutes and Klaviyo every 15 minutes (UTC)");
+ 
+ const staleRepeatables = await queue.getRepeatableJobs();
+ for (const repeatable of staleRepeatables) {
+-  if (isStaleShopifyReconcileRepeatable(repeatable, SHOPIFY_RECONCILE_CRON)) {
++  if (isStaleIntegrationRepeatable(repeatable)) {
+     await queue.removeRepeatableByKey(repeatable.key);
+     logger.info(
+-      `Removed stale shopify-reconcile repeatable job (${repeatable.key})`,
++      `Removed stale integration repeatable job (${repeatable.key})`,
+     );
+   }
+ }
+@@ -317,7 +368,7 @@ if (env.INTERNAL_API_SECRET) {
+     },
+   );
+   logger.info(
+-    `Scheduled shopify-reconcile daily at 2am (${SHOPIFY_RECONCILE_TZ})`,
++    `Scheduled shopify-reconcile every 15 minutes (${SHOPIFY_RECONCILE_TZ})`,
+   );
+   await queue.add(
+     "fathom-webhook-processing",
+@@ -424,6 +475,12 @@ const worker = new Worker(
+     if (job.name === "shopify-reconcile") {
+       return runShopifyReconcile(context);
+     }
++    if (job.name === "integration-health") {
++      const result = await runIntegrationHealthMonitor(loadApiEnv(process.env));
++      const findings = result.findings;
++      for (const finding of findings) logger.error("Integration health alert", finding);
++      return { checkedAt: result.checkedAt, findings };
++    }
+     if (job.name === "meta-reconcile") {
+       const result = await reconcileAllMetaConnections(loadApiEnv(process.env));
+       logger.info("Meta reconciliation completed", workerJobMeta(context, result));
+@@ -559,3 +616,15 @@ const workerHeartbeatTimer = setInterval(() => {
+ workerHeartbeatTimer.unref();
+ 
+ logger.info("Worker started");
++
++let shuttingDown = false;
++for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => {
++  if (shuttingDown) return;
++  shuttingDown = true;
++  clearInterval(workerHeartbeatTimer);
++  const deadline = setTimeout(() => process.exit(1), 30_000);
++  void Promise.all([worker.close(), shopifySyncWorker.close(), webhookWorker.close(), integrationWorker.close(), ...providerWorkers.map((consumer) => consumer.close())])
++    .then(() => Promise.all([queue.close(), shopifyQueueControl.close(), webhookQueue.close()]))
++    .then(() => { clearTimeout(deadline); process.exit(0); })
++    .catch((error: unknown) => { logger.error("Worker shutdown failed", { error: error instanceof Error ? error.message : "unknown_error" }); process.exit(1); });
++});
+diff --git a/packages/config/src/index.ts b/packages/config/src/index.ts
+index d323874..6fb8ed5 100644
+--- a/packages/config/src/index.ts
++++ b/packages/config/src/index.ts
+@@ -37,6 +37,9 @@ const apiEnvSchema = z.object({
+   SHOPIFY_API_SECRET: z.string().min(1).optional(),
+   SHOPIFY_SCOPES: z.string().min(1).optional(),
+   SHOPIFY_REDIRECT_URI: z.string().url().optional(),
++  // Public ingress can differ from browser OAuth redirects in local development.
++  INTEGRATION_WEBHOOK_BASE_URL: z.string().url().optional(),
++  KLAVIYO_SYSTEM_WEBHOOKS_ENABLED: z.enum(["true", "false"]).optional(),
+   SHOPIFY_API_VERSION: z
+     .string()
+     .regex(/^\d{4}-\d{2}$/)
+@@ -202,6 +205,8 @@ export type LoadedApiEnv = {
+   SHOPIFY_SCOPES: string;
+   SHOPIFY_REDIRECT_URI: string;
+   SHOPIFY_API_VERSION?: string;
++  INTEGRATION_WEBHOOK_BASE_URL?: string;
++  KLAVIYO_SYSTEM_WEBHOOKS_ENABLED?: "true" | "false";
+   SHOPIFY_CUSTOM_API_KEY?: string;
+   SHOPIFY_CUSTOM_API_SECRET?: string;
+   SHOPIFY_CUSTOM_SCOPES?: string;
+@@ -419,6 +424,8 @@ export function loadApiEnv(
+     SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
+     SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
+     SHOPIFY_REDIRECT_URI: env.SHOPIFY_REDIRECT_URI,
++    ...(env.INTEGRATION_WEBHOOK_BASE_URL ? { INTEGRATION_WEBHOOK_BASE_URL: env.INTEGRATION_WEBHOOK_BASE_URL } : {}),
++    ...(env.KLAVIYO_SYSTEM_WEBHOOKS_ENABLED ? { KLAVIYO_SYSTEM_WEBHOOKS_ENABLED: env.KLAVIYO_SYSTEM_WEBHOOKS_ENABLED } : {}),
+     ...(env.SHOPIFY_API_VERSION
+       ? { SHOPIFY_API_VERSION: env.SHOPIFY_API_VERSION }
+       : {}),

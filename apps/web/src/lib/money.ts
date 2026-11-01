@@ -6,7 +6,7 @@
  */
 export function formatMoney(value: number | null | undefined, currency: string | null = "EUR") {
   if (currency === null) return "—";
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency, useGrouping: "always" }).format(
     Number(value ?? 0),
   );
 }

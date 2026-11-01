@@ -1,5 +1,7 @@
 "use client";
 
+
+import { StoreIcon, UnlinkIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
@@ -13,8 +15,6 @@ import {
   Banner,
   Button,
   ButtonLink,
-  Card,
-  ConfirmDialog,
   ErrorBlock,
   IconChevronLeft,
   Link,
@@ -22,6 +22,33 @@ import {
   ProviderIcon,
   TrashIcon,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 import { PROVIDER_SLUG, StateBadge, useIntegrations, useStoreScope } from "../../shared";
 import {
@@ -86,112 +113,131 @@ function ProviderCard({
     .filter(Boolean);
 
   return (
-    <Card
-      title={
-        <span className="flex items-center gap-2">
+    <Card>
+      <CardHeader>
+        <CardTitle><span className="flex items-center gap-2">
           <ProviderIcon provider={provider.provider} size={18} />
           {provider.name}
-        </span>
-      }
-      actions={
-        <StateBadge connection={provider.target} providerId={provider.provider} available={provider.available} />
-      }
-    >
-      {explanation.detail ? (
-        <p className="max-w-prose text-sm leading-6">{explanation.detail}</p>
-      ) : (
-        <p className="max-w-prose text-sm leading-6 text-muted">
-          Los datos de {provider.name} para {storeName} están al día.
-        </p>
-      )}
+        </span></CardTitle>
+        <CardAction><StateBadge connection={provider.target} providerId={provider.provider} available={provider.available} /></CardAction>
+      </CardHeader>
+      <CardContent>
+        {explanation.detail ? (
+          <p className="max-w-prose text-sm leading-6">{explanation.detail}</p>
+        ) : (
+          <p className="max-w-prose text-sm leading-6 text-muted">
+            Los datos de {provider.name} para {storeName} están al día.
+          </p>
+        )}
 
-      {/* El error del proveedor, traducido. El texto crudo no se tira: se
-          guarda detras de "detalle tecnico", que es donde lo busca quien
-          depura y donde no molesta a quien solo quiere su tienda arreglada. */}
-      {provider.error ? (
-        <Banner className="mt-3" tone="warn">
-          {provider.error.text}
-          {provider.error.technical ? (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-muted">
-                Detalle técnico
-              </summary>
-              <p className="mt-1 break-words font-mono text-xs">
-                {provider.error.technical}
-              </p>
-            </details>
+        {/* El error del proveedor, traducido. El texto crudo no se tira: se
+            guarda detras de "detalle tecnico", que es donde lo busca quien
+            depura y donde no molesta a quien solo quiere su tienda arreglada. */}
+        {provider.error ? (
+          <Banner className="mt-3" tone="warn">
+            {provider.error.text}
+            {provider.error.technical ? (
+              <Collapsible className="mt-2">
+                <CollapsibleTrigger className="text-xs text-muted">
+                  Detalle técnico
+                  <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                <p className="mt-1 break-words font-mono text-xs">
+                  {provider.error.technical}
+                </p>
+              </CollapsibleContent>
+              </Collapsible>
+            ) : null}
+          </Banner>
+        ) : null}
+
+        {connected ? (
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-muted">
+                {cuentas.length > 1 ? "Cuentas" : "Cuenta"}
+              </dt>
+              <dd className="break-words">{cuentas.join(", ") || "Sin nombre"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Última sincronización</dt>
+              <dd>{lastSyncText(provider.lastSyncAt)}</dd>
+            </div>
+          </dl>
+        ) : null}
+
+        <div role="group" aria-label="Acciones de la conexion" className="flex flex-wrap items-center gap-2 mt-4">
+          {explanation.fix === "retry" && onRetry ? (
+            <Button size="sm" onClick={onRetry} disabled={retrying}>
+              {retrying ? "Reintentando..." : "Reintentar sincronización"}
+            </Button>
           ) : null}
-        </Banner>
-      ) : null}
-
-      {connected ? (
-        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-muted">
-              {cuentas.length > 1 ? "Cuentas" : "Cuenta"}
-            </dt>
-            <dd className="break-words">{cuentas.join(", ") || "Sin nombre"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted">Última sincronización</dt>
-            <dd>{lastSyncText(provider.lastSyncAt)}</dd>
-          </div>
-        </dl>
-      ) : null}
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {explanation.fix === "retry" && onRetry ? (
-          <Button size="sm" onClick={onRetry} disabled={retrying}>
-            {retrying ? "Reintentando..." : "Reintentar sincronización"}
-          </Button>
-        ) : null}
-        {slug && provider.available ? (
-          <ButtonLink
-            variant={
-              explanation.fix === "reconnect" ||
-              explanation.fix === "connect" ||
-              explanation.fix === "discard"
-                ? "primary"
-                : "secondary"
-            }
-            href={`/integraciones/${slug}`}
-          >
-            {explanation.fix === "discard"
-              ? "Retomar la conexión"
-              : explanation.fix === "reconnect"
-                ? `Reconectar ${provider.name}`
-                : explanation.fix === "connect"
-                  ? `Conectar ${provider.name}`
-                  : "Configurar"}
-          </ButtonLink>
-        ) : null}
-        {/* Descartar borra de verdad y al momento: sin datos detras que
-            perder, el borrado programado de 30 dias solo dejaria ocupando
-            cupo del plan un mes por nada. */}
-        {onDiscard ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onDiscard}
-            disabled={discarding}
-          >
-            {discarding ? "Eliminando..." : (discardLabel ?? "Descartar intento")}
-          </Button>
-        ) : null}
-        {onUnlink ? (
-          <ConfirmDialog
-            trigger={
-              <Button variant="secondary" size="sm" disabled={unlinking}>
-                {unlinking ? "Desvinculando…" : "Desvincular de esta tienda"}
-              </Button>
-            }
-            title={`Desvincular ${provider.name} de ${storeName}`}
-            description={`Las cuentas de ${provider.name} dejarán de atribuirse a esta tienda. La conexión de ${provider.name} seguirá activa en E-NORA y podrás asignarla a otra tienda; el histórico ya sincronizado no se elimina.`}
-            confirmLabel={unlinking ? "Desvinculando…" : "Desvincular cuenta"}
-            onConfirm={() => void onUnlink()}
-          />
-        ) : null}
-      </div>
+          {slug && provider.available ? (
+            <ButtonLink
+              variant={
+                explanation.fix === "reconnect" ||
+                explanation.fix === "connect" ||
+                explanation.fix === "discard"
+                  ? "default"
+                  : "secondary"
+              }
+              href={`/integraciones/${slug}`}
+            >
+              {explanation.fix === "discard"
+                ? "Retomar la conexión"
+                : explanation.fix === "reconnect"
+                  ? `Reconectar ${provider.name}`
+                  : explanation.fix === "connect"
+                    ? `Conectar ${provider.name}`
+                    : "Configurar"}
+            </ButtonLink>
+          ) : null}
+          {/* Descartar borra de verdad y al momento: sin datos detras que
+              perder, el borrado programado de 30 dias solo dejaria ocupando
+              cupo del plan un mes por nada. */}
+          {onDiscard ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onDiscard}
+              disabled={discarding}
+            >
+              {discarding ? "Eliminando..." : (discardLabel ?? "Descartar intento")}
+            </Button>
+          ) : null}
+          {onUnlink ? (
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button variant="secondary" size="sm" disabled={unlinking}>
+                    {unlinking ? "Desvinculando…" : "Desvincular de esta tienda"}
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogMedia>
+                    <UnlinkIcon />
+                  </AlertDialogMedia>
+                  <AlertDialogTitle>
+                    ¿Desvincular {provider.name} de {storeName}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Las cuentas de {provider.name} dejarán de atribuirse a esta tienda. La conexión de {provider.name} seguirá activa en E-NORA y podrás asignarla a otra tienda; el histórico ya sincronizado no se elimina.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction busyLabel="Desvinculando…" onClick={() => onUnlink()}>
+                    Desvincular cuenta
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -369,76 +415,90 @@ function StoreDetail({
     <div className="portal-page space-y-6">
       <BackToStores />
 
-      <Card
-        kicker="Tienda"
-        title={
-          <span className="flex items-center gap-3">
+      <Card>
+        <CardHeader>
+          <CardKicker>Tienda</CardKicker>
+          <CardTitle><span className="flex items-center gap-3">
             <ProviderIcon provider="shopify" size={24} />
             {store.name}
-          </span>
-        }
-        description={store.domain}
-        actions={
-          <Badge tone={store.severity === 0 ? "success" : store.severity >= 4 ? "danger" : "warn"}>
+          </span></CardTitle>
+          <CardDescription>{store.domain}</CardDescription>
+          <CardAction><Badge tone={store.severity === 0 ? "success" : store.severity >= 4 ? "danger" : "warn"}>
             {store.status === "syncing" ? "Importando" : store.severity === 0 ? "Al d\u00eda" : "Necesita atenci\u00f3n"}
-          </Badge>
-        }
-      >
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <ButtonLink variant="secondary" href="/shopify">
-              Ver datos de la tienda
-            </ButtonLink>
-            {canManageStore && !removalPending ? (
-              <ConfirmDialog
-                trigger={
-                  <Button
-                    type="button"
-                    variant="danger"
-                    size="sm"
-                    disabled={pending === `remove-${connectionId}`}
-                  >
-                    <TrashIcon aria-hidden className="size-4" />
-                    Eliminar tienda
-                  </Button>
-                }
-                title="Eliminar esta tienda de E-NORA"
-                description="La tienda desaparecerá de E-NORA y dejará de sincronizar ahora. Sus datos se conservarán 30 días para que puedas restaurarla desde Integraciones; después se eliminarán definitivamente. Esto no desinstala E-NORA en Shopify ni desconecta cuentas de Meta o Klaviyo que puedas usar con otras tiendas."
-                confirmLabel={pending === `remove-${connectionId}` ? "Eliminando…" : "Eliminar tienda"}
-                confirmPhrase={store.name}
-                onConfirm={() => removeStore()}
-              />
-            ) : null}
-            {canManageStore && removalPending ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={pending === `restore-${connectionId}`}
-                onClick={() => void restoreStore()}
-              >
-                {pending === `restore-${connectionId}` ? "Restaurando…" : "Restaurar tienda"}
-              </Button>
-            ) : null}
-          </div>
-        <p className="max-w-prose text-sm leading-6 text-muted">
-          {store.status === "syncing"
-            ? "Shopify está trayendo datos ahora. La sincronización todavía no ha terminado."
-            : store.severity === 0
-              ? "Las conexiones de esta tienda están trayendo datos con normalidad."
-              : "Algo de esta tienda no está trayendo datos. Abajo está qué es y qué hacer."}
-        </p>
+          </Badge></CardAction>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div role="group" aria-label="Acciones de la tienda" className="flex flex-wrap items-center gap-2">
+              <ButtonLink variant="secondary" href="/shopify">
+                Ver datos de la tienda
+              </ButtonLink>
+              {canManageStore && !removalPending ? (
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={pending === `remove-${connectionId}`}
+                      >
+                        <TrashIcon aria-hidden className="size-4" />
+                        Eliminar tienda
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogMedia className="bg-danger/10 text-danger">
+                        <StoreIcon />
+                      </AlertDialogMedia>
+                      <AlertDialogTitle>¿Eliminar esta tienda de E-NORA?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        La tienda desaparecerá de E-NORA y dejará de sincronizar ahora. Sus datos se conservarán 30 días para que puedas restaurarla desde Integraciones; después se eliminarán definitivamente. Esto no desinstala E-NORA en Shopify ni desconecta cuentas de Meta o Klaviyo que puedas usar con otras tiendas.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogConfirmPhrase phrase={store.name} />
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" busyLabel="Eliminando…" onClick={() => removeStore()}>
+                        Eliminar tienda
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : null}
+              {canManageStore && removalPending ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={pending === `restore-${connectionId}`}
+                  onClick={() => void restoreStore()}
+                >
+                  {pending === `restore-${connectionId}` ? "Restaurando…" : "Restaurar tienda"}
+                </Button>
+              ) : null}
+            </div>
+          <p className="max-w-prose text-sm leading-6 text-muted">
+            {store.status === "syncing"
+              ? "Shopify está trayendo datos ahora. La sincronización todavía no ha terminado."
+              : store.severity === 0
+                ? "Las conexiones de esta tienda están trayendo datos con normalidad."
+                : "Algo de esta tienda no está trayendo datos. Abajo está qué es y qué hacer."}
+          </p>
 
-        {/* Sin fila en shopify_stores no hay a que colgar las cuentas de Meta y
-            Klaviyo, asi que se veria "sin conectar" aunque existan. */}
-        {!store.storeId ? (
-          <Banner className="mt-3" tone="warn">
-            Esta tienda todavía no está dada de alta del todo, así que sus
-            cuentas de Meta y Klaviyo no se pueden asignar. Termina de conectar
-            Shopify y vuelve.
-          </Banner>
-        ) : null}
-        </div>
+          {/* Sin fila en shopify_stores no hay a que colgar las cuentas de Meta y
+              Klaviyo, asi que se veria "sin conectar" aunque existan. */}
+          {!store.storeId ? (
+            <Banner className="mt-3" tone="warn">
+              Esta tienda todavía no está dada de alta del todo, así que sus
+              cuentas de Meta y Klaviyo no se pueden asignar. Termina de conectar
+              Shopify y vuelve.
+            </Banner>
+          ) : null}
+          </div>
+        </CardContent>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -499,37 +559,40 @@ function StoreDetail({
       </div>
 
       {store.storeId ? (
-        <Card title="Cuentas de esta tienda">
-          <List as="ul">
-            {store.providers
-              .filter((provider) => provider.provider !== "shopify")
-              .map((provider) => (
-                <List.Item
-                  as="li"
-                  key={provider.provider}
-                  className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"
-                >
-                  <span className="flex items-center gap-2">
-                    <ProviderIcon provider={provider.provider} />
-                    {provider.name}
-                  </span>
-                  <span className="text-muted">
-                    {provider.connections.length === 0
-                      ? "Ninguna cuenta asignada a esta tienda"
-                      : `${provider.connections.length} ${
+        <Card>
+          <CardHeader>
+            <CardTitle>Cuentas de esta tienda</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <List as="ul">
+              {store.providers
+                .filter((provider) => provider.provider !== "shopify")
+                .map((provider) => (
+                  <Item key={provider.provider} render={<li />}>
+                    <ItemMedia>
+                      <ProviderIcon provider={provider.provider} />
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>{provider.name}</ItemTitle>
+                    </ItemContent>
+                    <ItemDescription>
+                      {provider.connections.length === 0
+                        ? "Ninguna cuenta asignada a esta tienda"
+                        : `${provider.connections.length} ${
                           provider.connections.length === 1
                             ? "cuenta"
                             : "cuentas"
                         }`}
-                  </span>
-                </List.Item>
-              ))}
-          </List>
-          <p className="mt-3 text-sm text-muted">
-            Una cuenta de Meta o Klaviyo que no cuelgue de una tienda no entra en
-            sus cifras.{" "}
-            <Link href="/integraciones/cuentas">Revisar la asignación</Link>
-          </p>
+                    </ItemDescription>
+                  </Item>
+                ))}
+            </List>
+            <p className="mt-3 text-sm text-muted">
+              Una cuenta de Meta o Klaviyo que no cuelgue de una tienda no entra en
+              sus cifras.{" "}
+              <Link href="/integraciones/cuentas">Revisar la asignación</Link>
+            </p>
+          </CardContent>
         </Card>
       ) : null}
     </div>

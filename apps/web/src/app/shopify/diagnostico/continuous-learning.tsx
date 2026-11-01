@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 import {
   continuousLearningTone,
   continuousLearningViewModel,
@@ -72,41 +72,43 @@ export function ContinuousLearningPanel({ organizationId }: { organizationId?: s
   const model = continuousLearningViewModel(runs);
 
   return (
-    <Card
-      id="insight-continuous-learning"
-      title="Aprendizaje continuo"
-      description="Qué se puede aprender de lo ejecutado, con qué evidencia y qué falta. Propone; no promociona conocimiento ni cambia la autonomía."
-    >
-      <div className="grid gap-3 sm:grid-cols-4">
-        <div>
-          <p className="text-muted text-xs">Evaluados</p>
-          <p className="text-lg font-semibold">{model.evaluated}/40</p>
+    <Card id="insight-continuous-learning">
+      <CardHeader>
+        <CardTitle>Aprendizaje continuo</CardTitle>
+        <CardDescription>Qué se puede aprender de lo ejecutado, con qué evidencia y qué falta. Propone; no promociona conocimiento ni cambia la autonomía.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <div>
+            <p className="text-muted text-xs">Evaluados</p>
+            <p className="text-lg font-semibold">{model.evaluated}/40</p>
+          </div>
+          <div>
+            <p className="text-muted text-xs">Listos</p>
+            <p className="text-lg font-semibold">{model.ready}</p>
+          </div>
+          <div>
+            <p className="text-muted text-xs">Esperan evidencia</p>
+            <p className="text-lg font-semibold">{model.waiting}</p>
+          </div>
+          <div>
+            <p className="text-muted text-xs">Revisión / bloqueados</p>
+            <p className="text-lg font-semibold">
+              {model.review} / {model.blocked}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-muted text-xs">Listos</p>
-          <p className="text-lg font-semibold">{model.ready}</p>
-        </div>
-        <div>
-          <p className="text-muted text-xs">Esperan evidencia</p>
-          <p className="text-lg font-semibold">{model.waiting}</p>
-        </div>
-        <div>
-          <p className="text-muted text-xs">Revisión / bloqueados</p>
-          <p className="text-lg font-semibold">
-            {model.review} / {model.blocked}
-          </p>
-        </div>
-      </div>
-      {model.sections.map((section) => (
-        <section key={section.id} id={section.anchor} className="mt-6">
-          <p className="text-xs uppercase tracking-wide">{section.title}</p>
-          <ul className="mt-2">
-            {section.items.map((item) => (
-              <BlockRow key={item.block} item={item} />
-            ))}
-          </ul>
-        </section>
-      ))}
+        {model.sections.map((section) => (
+          <section key={section.id} id={section.anchor} className="mt-6">
+            <p className="text-xs uppercase tracking-wide">{section.title}</p>
+            <ul className="mt-2">
+              {section.items.map((item) => (
+                <BlockRow key={item.block} item={item} />
+              ))}
+            </ul>
+          </section>
+        ))}
+      </CardContent>
     </Card>
   );
 }

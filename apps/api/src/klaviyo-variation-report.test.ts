@@ -23,7 +23,8 @@ test("joins variation metrics only to the exact Klaviyo account and message", ()
 
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0]?.campaign_name, "Launch");
-  assert.deepEqual(result.rows[0]?.statistics, { recipients: 100, conversion_value: 25 });
+  assert.deepEqual(result.rows[0]?.statistics, { recipients: 100 });
+  assert.equal(result.rows[0]?.monetary_metrics_withheld, true);
   assert.equal(result.unmatchedCount, 1);
 });
 

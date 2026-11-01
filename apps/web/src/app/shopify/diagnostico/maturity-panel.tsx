@@ -24,7 +24,6 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   Checkbox,
   EmptyState,
   ErrorBlock,
@@ -32,6 +31,11 @@ import {
   LoadingBlock,
   Select,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -107,10 +111,10 @@ function DeclarationForm({
         options={REQUIRED_LEVEL_OPTIONS}
         disabled={saving}
       />
-      <Checkbox checked={influences} onChange={setInfluences} disabled={saving}>
+      <Checkbox checked={influences} onCheckedChange={setInfluences} disabled={saving}>
         La medida cambia decisiones
       </Checkbox>
-      <Checkbox checked={ownership} onChange={setOwnership} disabled={saving}>
+      <Checkbox checked={ownership} onCheckedChange={setOwnership} disabled={saving}>
         Tiene responsable
       </Checkbox>
       {ownership ? (
@@ -189,73 +193,74 @@ function ProfileCard({
   const huecos = sortUnobserved(profile.unobserved);
 
   return (
-    <Card
-      title={
-        profile.organization_name
+    <Card>
+      <CardHeader>
+        <CardTitle>{profile.organization_name
           ? `De qué es capaz ${profile.organization_name}`
-          : "De qué es capaz el negocio"
-      }
-      description="Lo que el dato de la tienda demuestra, y lo que no puede ver. Ninguna de estas dos listas es una nota."
-    >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Badge tone={cambio.tone}>{cambio.label}</Badge>
-        {profile.change_summary ? (
-          <span className="text-muted text-sm">{profile.change_summary}</span>
-        ) : null}
-      </div>
-
-      {profile.complexity.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
-          {profile.complexity.map((m) => (
-            <div key={m.key}>
-              <p className="text-muted text-xs uppercase tracking-wide">{m.label}</p>
-              <p className="font-mono tabular-nums">{formatMeasure(m)}</p>
-            </div>
-          ))}
+          : "De qué es capaz el negocio"}</CardTitle>
+        <CardDescription>Lo que el dato de la tienda demuestra, y lo que no puede ver. Ninguna de estas dos listas es una nota.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Badge tone={cambio.tone}>{cambio.label}</Badge>
+          {profile.change_summary ? (
+            <span className="text-muted text-sm">{profile.change_summary}</span>
+          ) : null}
         </div>
-      ) : null}
 
-      {profile.capabilities.length > 0 ? (
-        <ul className="mt-5">
-          {profile.capabilities.map((c) => (
-            <CapabilityRow
-              key={c.id}
-              capability={c}
-              organizationId={profile.organization_id}
-              declaration={profile.declarations?.find(
-                (d) => d.capability === c.capability,
-              )}
-              onSaved={onSaved}
-            />
-          ))}
-        </ul>
-      ) : (
-        <EmptyState
-          title="Sin capacidades observadas"
-          hint="El dato de esta tienda todavía no demuestra ninguna capacidad."
-        />
-      )}
+        {profile.complexity.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+            {profile.complexity.map((m) => (
+              <div key={m.key}>
+                <p className="text-muted text-xs uppercase tracking-wide">{m.label}</p>
+                <p className="font-mono tabular-nums">{formatMeasure(m)}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
-      {huecos.length > 0 ? (
-        // La mitad util de la pantalla. Un hueco con su numero es una pregunta
-        // concreta para la llamada; sin el numero es un encogimiento de hombros.
-        <div className="mt-6 border-t border-default-200 pt-4">
-          <p className="font-medium">Lo que el dato no puede ver</p>
-          <p className="text-muted mt-1 max-w-prose text-sm leading-6">
-            No es que el negocio no lo tenga: es que desde aquí no se sabe. Lo de arriba se
-            arregla conectando o rellenando algo; lo de abajo se pregunta.
-          </p>
-          <ul className="mt-3 space-y-1 text-sm">
-            {huecos.map((h) => (
-              <li key={h.capability} className="flex flex-wrap items-baseline gap-2">
-                <span className="font-medium">{capabilityLabel(h.capability)}</span>
-                <span className="text-muted">{h.reason}</span>
-                {h.actionable ? <Badge tone="warn">Se puede cerrar</Badge> : null}
-              </li>
+        {profile.capabilities.length > 0 ? (
+          <ul className="mt-5">
+            {profile.capabilities.map((c) => (
+              <CapabilityRow
+                key={c.id}
+                capability={c}
+                organizationId={profile.organization_id}
+                declaration={profile.declarations?.find(
+                  (d) => d.capability === c.capability,
+                )}
+                onSaved={onSaved}
+              />
             ))}
           </ul>
-        </div>
-      ) : null}
+        ) : (
+          <EmptyState
+            title="Sin capacidades observadas"
+            hint="El dato de esta tienda todavía no demuestra ninguna capacidad."
+          />
+        )}
+
+        {huecos.length > 0 ? (
+          // La mitad util de la pantalla. Un hueco con su numero es una pregunta
+          // concreta para la llamada; sin el numero es un encogimiento de hombros.
+          <div className="mt-6 border-t border-default-200 pt-4">
+            <p className="font-medium">Lo que el dato no puede ver</p>
+            <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+              No es que el negocio no lo tenga: es que desde aquí no se sabe. Lo de arriba se
+              arregla conectando o rellenando algo; lo de abajo se pregunta.
+            </p>
+            <ul className="mt-3 space-y-1 text-sm">
+              {huecos.map((h) => (
+                <li key={h.capability} className="flex flex-wrap items-baseline gap-2">
+                  <span className="font-medium">{capabilityLabel(h.capability)}</span>
+                  <span className="text-muted">{h.reason}</span>
+                  {h.actionable ? <Badge tone="warn">Se puede cerrar</Badge> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

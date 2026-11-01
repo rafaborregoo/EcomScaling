@@ -1,6 +1,7 @@
 import { loadApiEnv } from "@e-nora/config";
 import { createLogger } from "@e-nora/observability";
 import { reconcileAllMetaConnections } from "@e-nora/api/meta-sync";
+import { closeIntegrationSyncQueues } from "@e-nora/api/integration-sync-queue";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("meta-reconcile-cron");
@@ -24,7 +25,7 @@ async function main() {
   if (result.failed > 0) process.exitCode = 1;
 }
 
-main().catch((error: unknown) => {
+main().finally(closeIntegrationSyncQueues).catch((error: unknown) => {
   logger.error("Meta Ads reconciliation cron crashed", {
     ...workerJobMeta(jobContext),
     error,

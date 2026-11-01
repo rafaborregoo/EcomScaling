@@ -214,9 +214,8 @@ select ad.id, 'v3', coalesce(latest.model, 'claude-sonnet-5'), 'a15_analista_ima
 from public.agent_definitions ad
 left join lateral (select av.model from public.agent_versions av where av.definition_id = ad.id order by av.created_at desc limit 1) latest on true
 where ad.code = 'a15_analista_imagenes'
-on conflict (definition_id, version) do update set model = excluded.model, prompt_code = excluded.prompt_code, prompt_version = excluded.prompt_version, allowed_tools = '[]'::jsonb, approval_mode = 'none', is_active = false;
+on conflict (definition_id, version) do update set model = excluded.model, prompt_code = excluded.prompt_code, prompt_version = excluded.prompt_version, allowed_tools = '[]'::jsonb, approval_mode = 'none';
 
 select public.promote_agent_version(v.id)
-from public.agent_versions v
-join public.agent_definitions d on d.id = v.definition_id
+from public.agent_versions v join public.agent_definitions d on d.id = v.definition_id
 where d.code = 'a15_analista_imagenes' and v.version = 'v3';

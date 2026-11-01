@@ -2,11 +2,11 @@
 
 import type { ReactNode } from "react";
 import { cn } from "./cn";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 import { IconChevronDown } from "./icons";
 
-// Bloque plegable con disparador nativo <details>/<summary>: sin estado, sin
-// JS, accesible por teclado. El boton es discreto a proposito -- color de
-// fondo y borde minimo, no una tarjeta destacada.
+// Caja plegable con título y flecha, sobre Collapsible. El disparador es
+// discreto a propósito: borde mínimo, no una tarjeta destacada.
 export function CollapsibleSection({
   title,
   defaultOpen = false,
@@ -19,21 +19,12 @@ export function CollapsibleSection({
   className?: string;
 }) {
   return (
-    <details
-      open={defaultOpen}
-      className={cn(
-        "group rounded-md border border-separator bg-background",
-        className,
-      )}
-    >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-2.5 text-sm font-medium text-foreground pointer-coarse:py-3 [&::-webkit-details-marker]:hidden">
+    <Collapsible defaultOpen={defaultOpen} className={cn("ui-collapsible-section", className)}>
+      <CollapsibleTrigger>
         {title}
-        <IconChevronDown
-          aria-hidden
-          className="size-3.5 text-muted transition-transform group-open:rotate-180"
-        />
-      </summary>
-      <div className="border-t border-separator px-4 pb-4 pt-4">{children}</div>
-    </details>
+        <IconChevronDown aria-hidden className="ui-collapsible__chevron size-3.5" />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="ui-collapsible-section__body">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }

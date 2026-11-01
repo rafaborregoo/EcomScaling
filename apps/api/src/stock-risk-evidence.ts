@@ -5,6 +5,42 @@ export const STOCK_COVERAGE_MIN_UNITS = 5;
 export const STOCK_COVERAGE_MIN_SELLING_DAYS = 3;
 export const STOCK_SYNC_STALE_AFTER_HOURS = 48;
 
+export type StockScenarioProjection = {
+  target_date: string;
+  days_from_now: number;
+  projected_units: number;
+  stockout_date: string | null;
+};
+
+/** Projects only a fresh, mature baseline; campaign uplift is never inferred. */
+export function projectStockScenario(input: {
+  available: number | null;
+  averageDailySales: number | null;
+  inventoryReliable: boolean;
+  sampleMature: boolean;
+  asOf: string;
+  targetDate: string;
+}): StockScenarioProjection | null {
+  const asOf = Date.parse(input.asOf);
+  const target = Date.parse(input.targetDate);
+  if (!input.inventoryReliable || !input.sampleMature || input.available === null ||
+      input.averageDailySales === null || input.averageDailySales <= 0 ||
+      !Number.isFinite(asOf) || !Number.isFinite(target) || target < asOf) return null;
+  const days = Math.ceil((target - asOf) / 86_400_000);
+  const startingUnits = Math.max(0, input.available);
+  const depletionDays = startingUnits / input.averageDailySales;
+  const stockoutAt = Math.max(0, Math.ceil(depletionDays));
+  const stockoutDate = stockoutAt <= days
+    ? new Date(asOf + stockoutAt * 86_400_000).toISOString().slice(0, 10)
+    : null;
+  return {
+    target_date: new Date(target).toISOString().slice(0, 10),
+    days_from_now: days,
+    projected_units: Math.max(0, Math.floor(startingUnits - input.averageDailySales * days)),
+    stockout_date: stockoutDate,
+  };
+}
+
 type OpenTaskRow = { store_id?: unknown; metadata?: unknown };
 
 /** Exact product-ID dedupe for active restock tasks; never infer identity from similar titles. */
@@ -88,6 +124,7 @@ export function enrichStockRiskEvidence(
     return [{
       ...row,
       product_id: productId,
+      available_quantity: available,
       quantity_sold_in_period: sold,
       period_days: Math.round(periodDays * 10) / 10,
       selling_days: sellingDays,

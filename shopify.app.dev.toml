@@ -20,12 +20,13 @@ embedded = true
 #   read_products / read_inventory / read_locations -> productos, medios, inventoryLevels, locations
 #   read_customers -> bulk de clientes (requiere Protected customer data access)
 #   read_discounts -> discountNodes y métricas por código promocional
+#   write_discounts -> aplicar códigos de descuento aprobados en E-NORA
 #   read_marketing_events -> eventos/canales de marketing
 #   read_reports -> ShopifyQL, bloque `sessions`
 #   read_returns -> devoluciones y margen neto
 # read_all_orders (historico >60 dias) NO esta: necesita Access request aprobada en
 # el Partner Dashboard; sin ella el deploy falla con "scopes: read_all_orders".
-scopes = "read_customer_events,read_customers,read_discounts,read_inventory,read_locations,read_marketing_events,read_orders,read_products,read_reports,read_returns,write_pixels"
+scopes = "read_customer_events,read_customers,read_discounts,read_inventory,read_locations,read_marketing_events,read_orders,read_products,read_reports,read_returns,write_discounts,write_pixels"
 optional_scopes = [ ]
 use_legacy_install_flow = true
 

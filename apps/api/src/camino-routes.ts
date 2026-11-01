@@ -1,3 +1,4 @@
+import { currentReviewOutput } from "./camino-structured-change.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -11,7 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * con el cliente de servicio acotado a esos ids.
  */
 
-export type RouteStop = "done" | "current" | "late" | "pending" | "locked";
+export type RouteStop = "done" | "skipped" | "current" | "late" | "pending" | "locked";
 
 type PhaseRow = { id: string; plan_id: string; name: string; status: string; position: number };
 type MilestoneRow = { id: string; phase_id: string; name: string; status: string; position: number; target_date: string | null };
@@ -38,7 +39,8 @@ export function buildCaminoRoute(phasesIn: PhaseRow[], milestonesIn: MilestoneRo
     name: phase.name,
     status: phase.status,
     stops: byPhase(phase.id).map((m): RouteStop => {
-      if (CLOSED.includes(m.status) || phase.status === "completed") return "done";
+      if (m.status === "skipped") return "skipped";
+      if (m.status === "completed") return "done";
       if (phase.status !== "active") return "locked";
       if (isLate(m)) late += 1;
       if (m.id === focus?.id) return isLate(m) ? "late" : "current";
@@ -54,7 +56,8 @@ export function buildCaminoRoute(phasesIn: PhaseRow[], milestonesIn: MilestoneRo
     phases: routePhases,
     focus: focus ? { code: focusCode, name: focus.name, target_date: focus.target_date, days } : null,
     late_milestones: late,
-    milestones_done: all.filter((m) => CLOSED.includes(m.status)).length,
+    milestones_done: all.filter((m) => m.status === "completed").length,
+    milestones_skipped: all.filter((m) => m.status === "skipped").length,
     milestones_total: all.length,
   };
 }
@@ -109,7 +112,7 @@ export async function loadCaminoRoutes(
     service.from("strategic_plan_phases").select("id, plan_id, name, status, position").in("plan_id", safe(planIds)),
     service
       .from("strategic_plan_weekly_reviews")
-      .select("plan_id, period_end, created_at, agent_outputs(output)")
+      .select("plan_id, period_end, created_at, goal_snapshot, agent_outputs(output)")
       .in("plan_id", safe(planIds))
       .eq("status", "succeeded")
       .order("created_at", { ascending: false }),
@@ -155,7 +158,7 @@ export async function loadCaminoRoutes(
     const planMilestones = milestones.filter((m) => phaseIds.has(m.phase_id));
     const review = latestReview.get(plan.id as string);
     const relation = review?.agent_outputs as unknown as { output?: Record<string, unknown> } | Array<{ output?: Record<string, unknown> }> | null;
-    const output = (Array.isArray(relation) ? relation[0] : relation)?.output as
+    const output = currentReviewOutput((Array.isArray(relation) ? relation[0] : relation)?.output, review?.goal_snapshot, plan.goal, review?.period_end as string | undefined) as
       | { executive_summary?: string; goal_progress?: { observed_value?: number | null; expected_value?: number | null } }
       | undefined;
     return {

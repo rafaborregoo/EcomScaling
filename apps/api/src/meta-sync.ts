@@ -13,6 +13,8 @@ import {
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
 import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
+import { invalidateIntegrationData } from "./integration-data-cache.js";
+import { enqueueIntegrationSync } from "./integration-sync-queue.js";
 
 export { mapWithConcurrency } from "./async-concurrency.js";
 
@@ -30,7 +32,9 @@ export function buildMetaSyncIdempotencyKey(
   mode: MetaSyncMode,
   startedAt: string,
 ) {
-  return `meta:${mode}:${scope}:${connectionId}:${startedAt.slice(0, 10)}`;
+  const at = new Date(startedAt);
+  const bucket = new Date(Math.floor(at.getTime() / 600_000) * 600_000).toISOString();
+  return `meta:${mode}:${scope}:${connectionId}:${mode === "initial" ? startedAt : bucket}`;
 }
 
 // Ventana [since, until] en fechas ISO (YYYY-MM-DD). initial/incremental la
@@ -117,6 +121,7 @@ export function isMetaTokenExpiredError(message: string): boolean {
     message.includes("Session has expired") ||
     message.includes("Error validating access token") ||
     message.includes("meta_access_token_unavailable") ||
+    message.includes("Application has been deleted") ||
     message.includes("meta_token_expired_reauth_required")
   );
 }
@@ -124,6 +129,9 @@ export function isMetaTokenExpiredError(message: string): boolean {
 export function metaConnectionErrorMessage(
   blockErrors: readonly string[],
 ): string {
+  if (blockErrors.some((message) => message.includes("Application has been deleted"))) {
+    return "meta_reauth_required: Meta indica que la aplicación conectada ha sido eliminada. Configura una aplicación activa y reconecta Meta Ads en Integraciones.";
+  }
   if (blockErrors.some(isMetaAppSecretProofError)) {
     return "meta_reauth_required: el token guardado no pertenece a la app configurada (appsecret_proof invalido). Reconecta Meta Ads en Integraciones.";
   }
@@ -887,7 +895,8 @@ async function syncAdAccountStructure(
           external_created_at: (campaign.created_time as string) ?? null,
           external_updated_at: (campaign.updated_time as string) ?? null,
           raw_data: campaign,
-          last_synced_at: now,
+          // Only mark a successful sync after the pixel statistics payload has
+          // been parsed and persisted below.
         },
         { onConflict: "ad_account_id,external_campaign_id" },
       )
@@ -1094,25 +1103,6 @@ async function syncAdAccountStructure(
   );
   read += ads.length;
 
-  // Que creatividad lleva ahora mismo cada anuncio: cuando el rendimiento
-  // cambia, esto es lo que dice si cambio el anuncio o cambio el mercado.
-  const { data: openAssignments, error: assignmentLookupError } =
-    await supabase
-      .from("meta_ad_creative_assignments")
-      .select("id, ad_id, creative_id, valid_from")
-      .eq("organization_id", organizationId)
-      .is("valid_until", null);
-
-  if (assignmentLookupError) {
-    throw new Error(
-      `meta_ad_creative_assignments_lookup_failed: ${assignmentLookupError.message}`,
-    );
-  }
-
-  const openByAd = new Map(
-    (openAssignments ?? []).map((row) => [row.ad_id as string, row]),
-  );
-
   for (const ad of ads) {
     const adSetRowId = adSetIdMap.get(ad.adset_id as string);
 
@@ -1153,62 +1143,21 @@ async function syncAdAccountStructure(
     written += 1;
 
     if (creativeRowId) {
-      const open = openByAd.get(adRow.id);
-
-      if (!open) {
-        const { error: openError } = await supabase
-          .from("meta_ad_creative_assignments")
-          .insert({
-            organization_id: organizationId,
-            ad_id: adRow.id,
-            creative_id: creativeRowId,
-            valid_from: asText(ad.updated_time) ?? now,
-          });
-
-        if (openError) {
-          throw new Error(
-            `meta_ad_creative_assignment_insert_failed: ${openError.message}`,
-          );
-        }
-        written += 1;
-      } else if (open.creative_id !== creativeRowId) {
-        // La tabla exige valid_until > valid_from. Si el cambio se detecta
-        // en el mismo instante en que se abrio la fila, se cierra un
-        // segundo despues en vez de romper el bloque entero.
-        const closedAt = new Date(
-          Math.max(
-            Date.now(),
-            Date.parse(open.valid_from as string) + 1000,
-          ),
-        ).toISOString();
-
-        const { error: closeError } = await supabase
-          .from("meta_ad_creative_assignments")
-          .update({ valid_until: closedAt })
-          .eq("id", open.id);
-
-        if (closeError) {
-          throw new Error(
-            `meta_ad_creative_assignment_close_failed: ${closeError.message}`,
-          );
-        }
-
-        const { error: reopenError } = await supabase
-          .from("meta_ad_creative_assignments")
-          .insert({
-            organization_id: organizationId,
-            ad_id: adRow.id,
-            creative_id: creativeRowId,
-            valid_from: closedAt,
-          });
-
-        if (reopenError) {
-          throw new Error(
-            `meta_ad_creative_assignment_insert_failed: ${reopenError.message}`,
-          );
-        }
-        written += 1;
+      const { data: assignmentId, error: assignmentError } = await supabase.rpc(
+        "sync_meta_ad_creative_assignment",
+        {
+          p_organization_id: organizationId,
+          p_ad_id: adRow.id,
+          p_creative_id: creativeRowId,
+          p_observed_at: now,
+        },
+      );
+      if (assignmentError || !assignmentId) {
+        throw new Error(
+          `meta_ad_creative_assignment_sync_failed: ${assignmentError?.message ?? "empty_assignment_id"}`,
+        );
       }
+      written += 1;
     }
   }
 
@@ -1607,7 +1556,7 @@ async function syncAdAccountProfile(
  * que no sabemos leer se ven igual desde fuera.
  */
 export function parseMetaPixelStats(
-  entries: unknown[],
+  payload: unknown,
 ): Array<{ metricDate: string; eventName: string; eventCount: number }> {
   const rows: Array<{
     metricDate: string;
@@ -1615,11 +1564,26 @@ export function parseMetaPixelStats(
     eventCount: number;
   }> = [];
 
+  const entries = Array.isArray(payload) ? payload : payload && typeof payload === "object" ? [payload] : [];
   for (const raw of entries) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const entry = raw as Record<string, unknown>;
     const startTime = asText(entry.start_time) ?? asText(entry.timestamp);
-    if (!startTime) continue;
-    const metricDate = startTime.slice(0, 10);
+    const metricDate = startTime?.slice(0, 10);
+    if (!metricDate || !/^\d{4}-\d{2}-\d{2}$/.test(metricDate)) continue;
+
+    // AdsPixelStatsResult wraps rows in `data`; child rows carry event/count
+    // and inherit the parent's bucket date.
+    if (Array.isArray(entry.data)) {
+      for (const nestedRaw of entry.data) {
+        if (!nestedRaw || typeof nestedRaw !== "object" || Array.isArray(nestedRaw)) continue;
+        const nested = nestedRaw as Record<string, unknown>;
+        const eventName = asText(nested.event) ?? asText(nested.action_type);
+        const parsed = readInsightNumber(nested.count ?? nested.value);
+        if (eventName && parsed != null) rows.push({ metricDate, eventName, eventCount: parsed });
+      }
+      continue;
+    }
 
     const value = entry.value;
     if (value != null && typeof value === "object" && !Array.isArray(value)) {
@@ -1685,7 +1649,6 @@ async function syncAdAccountPixels(
           enable_automatic_matching: asBool(pixel.enable_automatic_matching),
           first_party_cookie_status: asText(pixel.first_party_cookie_status),
           external_created_at: asText(pixel.creation_time),
-          last_synced_at: now,
         },
         { onConflict: "ad_account_id,external_pixel_id" },
       )
@@ -1718,6 +1681,7 @@ async function syncAdAccountPixels(
         entries: stats.length,
         keys: Object.keys(stats[0] ?? {}),
       });
+      throw new Error("meta_pixel_stats_shape_unexpected");
     }
 
     // Meta puede repetir el mismo evento en varios buckets del mismo dia: se
@@ -1737,24 +1701,45 @@ async function syncAdAccountPixels(
       );
     }
 
-    if (byKey.size > 0) {
-      const { error: statsError } = await supabase
-        .from("meta_pixel_daily_stats")
-        .upsert(
-          [...byKey.values()].map((row) => ({
-            organization_id: organizationId,
-            pixel_id: pixelRow.id,
-            metric_date: row.metricDate,
-            event_name: row.eventName,
-            event_count: row.eventCount,
-          })),
-          { onConflict: "pixel_id,metric_date,event_name" },
-        );
+    const snapshotRows = [...byKey.values()].map((row) => ({
+      metric_date: row.metricDate,
+      event_name: row.eventName,
+      event_count: row.eventCount,
+    }));
+    const { data: snapshotWritten, error: statsError } = await (supabase as any).rpc(
+      "meta_replace_pixel_stats_snapshot",
+      {
+        target_organization_id: organizationId,
+        target_pixel_id: pixelRow.id,
+        window_start: window.since.slice(0, 10),
+        window_end: window.until.slice(0, 10),
+        snapshot_rows: snapshotRows,
+      },
+    );
+    if (statsError) throw new Error(`meta_pixel_stats_snapshot_failed: ${statsError.message}`);
+    written += Number(snapshotWritten ?? 0);
 
-      if (statsError) {
-        throw new Error(`meta_pixel_stats_upsert_failed: ${statsError.message}`);
-      }
-      written += byKey.size;
+    const { error: receiptError } = await (supabase as any)
+      .from("meta_pixel_sync_receipts")
+      .upsert({
+        organization_id: organizationId,
+        pixel_id: pixelRow.id,
+        window_start: window.since.slice(0, 10),
+        window_end: window.until.slice(0, 10),
+        status: "complete",
+        records_read: stats.length,
+        records_written: Number(snapshotWritten ?? 0),
+        payload_shape: stats.length === 0 ? "empty" : stats.some((entry) => Array.isArray(entry.data)) ? "nested_data" : "flat",
+      }, { onConflict: "pixel_id" });
+    if (receiptError) throw new Error(`meta_pixel_receipt_failed: ${receiptError.message}`);
+
+    const { error: pixelFreshnessError } = await supabase
+      .from("meta_pixels")
+      .update({ last_synced_at: now })
+      .eq("id", pixelRow.id)
+      .eq("organization_id", organizationId);
+    if (pixelFreshnessError) {
+      throw new Error(`meta_pixel_freshness_update_failed: ${pixelFreshnessError.message}`);
     }
   }
 
@@ -1907,8 +1892,8 @@ async function syncAdAccountActivities(
 /**
  * Problemas de revision por anuncio.
  *
- * Un anuncio rechazado deja de gastar y en las cifras se ve igual que uno que
- * dejo de funcionar. Es un retrato del momento: lo que ya no viene, se borra.
+ * Sustituye la fotografía de incidencias solo cuando la lectura completa de
+ * Meta ha terminado. El RPC realiza la sustitución en una transacción.
  */
 async function syncAdIssues(
   env: ApiEnv,
@@ -1940,7 +1925,7 @@ async function syncAdIssues(
     ]),
   );
 
-  const touchedAdIds: string[] = [];
+  const touchedExternalAdIds: string[] = [];
   const issues: Record<string, unknown>[] = [];
   const detectedAt = new Date().toISOString();
 
@@ -1948,8 +1933,7 @@ async function syncAdIssues(
     const known = ad.id ? adIdMap.get(ad.id) : undefined;
     if (!known) continue;
     const adRowId = known.id;
-    touchedAdIds.push(adRowId);
-
+    touchedExternalAdIds.push(ad.id!);
     // Solo se escribe si cambio. La mayoria de los anuncios no tienen
     // veredicto de revision nunca, y sin esta comparacion cada sync haria
     // una escritura por anuncio para dejar el mismo null.
@@ -1988,25 +1972,18 @@ async function syncAdIssues(
     issues.push(...byCode.values());
   }
 
-  if (touchedAdIds.length > 0) {
-    const { error: deleteError } = await supabase
-      .from("meta_ad_issues")
-      .delete()
-      .in("ad_id", touchedAdIds);
-
-    if (deleteError) {
-      throw new Error(`meta_ad_issues_delete_failed: ${deleteError.message}`);
-    }
-  }
-
-  if (issues.length > 0) {
-    const { error: insertError } = await supabase
-      .from("meta_ad_issues")
-      .insert(issues);
-
-    if (insertError) {
-      throw new Error(`meta_ad_issues_insert_failed: ${insertError.message}`);
-    }
+  const { error: snapshotError } = await (supabase as any).rpc(
+    "meta_replace_ad_issues_snapshot",
+    {
+      target_organization_id: organizationId,
+      target_external_ad_account_id: externalAdAccountId,
+      target_ad_ids: [...new Set(touchedExternalAdIds)],
+      snapshot_rows: issues,
+      snapshot_at: detectedAt,
+    },
+  );
+  if (snapshotError) {
+    throw new Error(`meta_ad_issues_snapshot_failed: ${snapshotError.message}`);
   }
 
   return { read: ads.length, written: issues.length };
@@ -2150,7 +2127,8 @@ export async function runMetaSync(
   for (const account of adAccounts ?? []) {
     const organizationId = connection.organization_id as string;
     const external = account.external_ad_account_id as string;
-    const window = lookbackWindow(INSIGHTS_LOOKBACK_DAYS[mode]);
+    const fullRefresh = mode === "initial" || new Date().getUTCMinutes() < 10;
+    const window = lookbackWindow(fullRefresh ? INSIGHTS_LOOKBACK_DAYS[mode] : 3);
     const insightsMode = resolveMetaInsightsMode(env);
     const reportContext: MetaReportContext = {
       supabase,
@@ -2161,7 +2139,7 @@ export async function runMetaSync(
 
     // La estructura va primero y aparte: los problemas por anuncio y los
     // insights necesitan que las filas de anuncio ya existan.
-    const structureOk = await recordSyncRun(
+    const structureOk = !fullRefresh || await recordSyncRun(
       supabase,
       connectionId,
       organizationId,
@@ -2281,6 +2259,7 @@ export async function runMetaSync(
     let accountFailed = !structureOk;
 
     for (const [scope, runner] of blocks) {
+      if (!fullRefresh && scope !== `${META_TOTAL_CUT.scope}:${external}`) continue;
       const ok = await recordSyncRun(
         supabase,
         connectionId,
@@ -2297,7 +2276,36 @@ export async function runMetaSync(
     anyFailed = anyFailed || accountFailed;
   }
 
+  const { data: linkedAccounts, error: linkedAccountsError } = await supabase
+    .from("meta_ad_accounts")
+    .select("store_id")
+    .eq("organization_id", connection.organization_id)
+    .eq("connection_id", connectionId);
+  if (linkedAccountsError) {
+    logger.error("a24_measurement_cache_invalidation_scope_failed", {
+      organization_id: connection.organization_id,
+      connection_id: connectionId,
+    });
+  } else {
+    const storeIds = [...new Set((linkedAccounts ?? []).flatMap((row) => typeof row.store_id === "string" ? [row.store_id] : []))];
+    if (storeIds.length) {
+      const { error: cacheInvalidationError } = await (supabase as any)
+        .from("meta_measurement_verdict_cache")
+        .delete()
+        .eq("organization_id", connection.organization_id)
+        .in("store_id", storeIds);
+      if (cacheInvalidationError) {
+        logger.error("a24_measurement_cache_invalidation_failed", {
+          organization_id: connection.organization_id,
+          connection_id: connectionId,
+          store_count: storeIds.length,
+        });
+      }
+    }
+  }
+
   const now = new Date().toISOString();
+  await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
   await supabase
     .from("integration_connections")
     .update({
@@ -2315,7 +2323,8 @@ export async function runMetaSync(
   // Tras la primera importacion: arranca el backfill historico (24 meses) si
   // hace falta. No bloquea el sync; el avance real lo hace el cron de
   // reconciliacion, un mes por pasada.
-  if (mode === "initial" && !anyFailed) {
+  if (anyFailed) throw new Error(metaConnectionErrorMessage(blockErrors));
+  if (mode === "initial") {
     try {
       await maybeStartMetaBackfill(
         env,
@@ -2606,12 +2615,17 @@ export async function getOrgMetaBackfillStatus(
  * despues. Recorre las conexiones `connected` y reejecuta el sync en modo
  * incremental; una conexion que falle no interrumpe al resto.
  */
-export async function reconcileAllMetaConnections(env: ApiEnv) {
+export async function reconcileAllMetaConnections(env: ApiEnv, onlyConnectionId?: string) {
   if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
     return { total: 0, succeeded: 0, failed: 0, results: [] };
   }
 
   const supabase = createServiceClient(env);
+  const staleBefore = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { error: recoverError } = await supabase.from("integration_connections")
+    .update({ status: "error", last_error_message: "meta_sync_interrupted_retrying" })
+    .eq("provider", "meta_ads").eq("status", "syncing").lt("updated_at", staleBefore);
+  if (recoverError) throw new Error(`meta_sync_recovery_failed: ${recoverError.message}`);
   // El token de usuario de Meta caduca a los ~60 días sin renovación posible:
   // se avisa una semana antes (20261221110000). Si falla, el reconcile sigue.
   const { error: expiringError } = await supabase
@@ -2621,12 +2635,14 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
     logger.error("meta_expiring_notice_failed", { message: expiringError.message });
   }
 
-  const { data: connections, error } = await supabase
+  let connectionQuery = supabase
     .from("integration_connections")
-    .select("id, status, last_error_message")
+    .select("id, organization_id, status, last_error_message")
     .eq("provider", "meta_ads")
     .in("status", ["connected", "error"])
     .order("created_at", { ascending: true });
+  if (onlyConnectionId) connectionQuery = connectionQuery.eq("id", onlyConnectionId);
+  const { data: connections, error } = await connectionQuery;
   if (error) throw new Error(`meta_connections_list_failed: ${error.message}`);
 
   const retryableConnections = (connections ?? []).filter(
@@ -2642,6 +2658,10 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
 
   const results = await mapWithConcurrency(retryableConnections, 3, async (connection) => {
     try {
+      if (!onlyConnectionId) {
+        await enqueueIntegrationSync(env, { provider: "meta_ads", connectionId: connection.id, organizationId: connection.organization_id, mode: "incremental" });
+        return { connectionId: connection.id, status: "queued" as const };
+      }
       const { data: claimedConnection, error: claimError } = await supabase
         .from("integration_connections")
         .update({ status: "syncing" })
@@ -2660,6 +2680,9 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
       // cron (throttle natural). Un fallo aqui no marca la reconciliacion como
       // fallida: se reintenta el mismo mes en el proximo tick.
       try {
+        if (new Date().getUTCMinutes() >= 10 || new Date().getUTCHours() !== 0) {
+          return { connectionId: connection.id, status: "succeeded" as const };
+        }
         const stepSupabase = createServiceClient(env);
         const { data: conn } = await stepSupabase
           .from("integration_connections")

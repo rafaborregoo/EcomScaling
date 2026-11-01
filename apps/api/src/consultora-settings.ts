@@ -12,6 +12,7 @@ import { recordAuditLog } from "./audit-log.js";
 import { consultingOrganizationIdOf } from "./capacidad-cartera.js";
 import { inviteClientMember, leavesClientWithoutOwner } from "./consultant.js";
 import { AI_AGENT_GROUPS } from "./ai-agent-groups.js";
+import { isReportAccentColor } from "./report-branding.js";
 import {
   CONSULTANT_PERMISSION_KEYS,
   type ConsultantPermissions,
@@ -287,7 +288,7 @@ export async function getConsultoraBrand(env: ApiEnv, context: AuthContext) {
   if (!consultora) return fail(404, "consulting_organization_missing");
   const { data, error } = await createServiceClient(env)
     .from("organizations")
-    .select("display_name, brand_name, brand_logo_url, brand_reply_to, client_defaults")
+    .select("display_name, brand_name, brand_logo_url, brand_reply_to, brand_accent_color, client_defaults")
     .eq("id", consultora.organizationId)
     .maybeSingle();
   if (error) return { ok: false as const, statusCode: 500, error: "consultora_brand_load_failed", detail: error.message };
@@ -299,6 +300,7 @@ export async function getConsultoraBrand(env: ApiEnv, context: AuthContext) {
       brand_name: data?.brand_name ?? null,
       brand_logo_url: data?.brand_logo_url ?? null,
       brand_reply_to: data?.brand_reply_to ?? null,
+      brand_accent_color: data?.brand_accent_color ?? null,
       client_defaults: (data?.client_defaults as ClientDefaults | null) ?? null,
     },
   };
@@ -309,12 +311,17 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function setConsultoraBrand(
   env: ApiEnv,
   context: AuthContext,
-  body: { brand_name?: unknown; brand_logo_url?: unknown; brand_reply_to?: unknown; client_defaults?: unknown },
+  body: { brand_name?: unknown; brand_logo_url?: unknown; brand_reply_to?: unknown; brand_accent_color?: unknown; client_defaults?: unknown },
 ) {
   const consultora = consultoraOf(context);
   if (!consultora || consultora.role !== "owner") return fail(403, "consultora_brand_denied", "La marca la cambia el propietario de la consultora.");
   const patch: Record<string, unknown> = {};
   const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim().slice(0, 200) : null);
+  if (body.brand_accent_color !== undefined) {
+    if (body.brand_accent_color === null || body.brand_accent_color === "") patch.brand_accent_color = null;
+    else if (!isReportAccentColor(body.brand_accent_color)) return fail(400, "invalid_brand_color", "Usa un color hexadecimal oscuro (#RRGGBB), con contraste suficiente sobre blanco.");
+    else patch.brand_accent_color = body.brand_accent_color.toUpperCase();
+  }
   if (body.brand_name !== undefined) patch.brand_name = text(body.brand_name);
   if (body.brand_logo_url !== undefined) {
     const url = text(body.brand_logo_url);

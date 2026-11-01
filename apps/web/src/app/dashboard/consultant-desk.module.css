@@ -338,6 +338,11 @@
   color: var(--ink);
 }
 .actR {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  /* El porqué de un agente puede ser un párrafo: dos líneas en la bandeja; entero en el title. */
+  -webkit-line-clamp: 2;
   margin-top: 3px !important;
   color: var(--ink-2);
   font-size: 13px;
@@ -379,6 +384,7 @@
   background: transparent;
   color: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 .thr:first-child {

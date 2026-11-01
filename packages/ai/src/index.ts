@@ -237,6 +237,15 @@ export const agentFindingSchema = z.object({
   // lista es distinta por agente y un area desconocida es inerte, no un error
   // que tumbe una salida por lo demas util.
   area: z.string().nullish(),
+  // Las cifras que cita el hallazgo, aparte del texto: la pantalla las pinta
+  // como datos (valor, antes, variacion) en vez de dejarlas perdidas en la
+  // prosa. Por defecto vacio: las salidas ya guardadas no las traen.
+  figures: z.array(z.object({
+    label: z.string(),
+    value: z.string(),
+    previous: z.string().nullable(),
+    change_pct: z.number().finite().nullable(),
+  })).default([]),
 });
 
 export const agentRecommendationSchema = z.object({
@@ -275,6 +284,9 @@ export const agentProposedWriteSchema = z.object({
   phase: z.string().trim().min(1).max(120).nullable().optional(),
   plan_id: z.string().uuid().nullable().optional(),
   plan_version: z.number().int().positive().nullable().optional(),
+  plan_revision: z.number().int().positive().nullable().optional(),
+  architecture_candidate_index: z.number().int().nonnegative().nullable().optional(),
+  source_flow_refs: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
   alignment_rationale: z.string().trim().min(1).max(500).nullable().optional(),
   categories: z.array(z.enum(["shopify", "meta", "klaviyo", "general"])).max(4).optional(),
   // Internal entity link used for deterministic A06 restock-task dedupe.
@@ -363,6 +375,51 @@ export const AGENT_OUTPUT_SCHEMA_VERSION = "v1";
 const severityEnum = ["info", "low", "medium", "high", "critical"];
 const priorityEnum = ["low", "medium", "high", "urgent"];
 
+// La pantalla pinta cada intervencion de la IA con la misma estructura
+// (apps/web/src/components/ai-insight.tsx): conclusion corta, cifras como
+// datos y "Que hacer" como lista. Estas descripciones son lo que le cuenta esa
+// estructura al modelo, a todos los agentes que usan este contrato a la vez.
+const findingFiguresJsonSchema = {
+  type: "array",
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["label", "value", "previous", "change_pct"],
+    properties: {
+      label: { type: "string", description: "Que mide, corto y en lenguaje de negocio. Ej: 'Pedidos', 'Ticket medio', 'Descuentos sobre venta bruta'." },
+      value: { type: "string", description: "Valor actual tal cual se lee, con unidad. Ej: '965', '52.639,40 EUR', '0,5 %'." },
+      previous: { type: ["string", "null"], description: "Valor del periodo anterior con la misma unidad, o null si no lo comparas." },
+      change_pct: { type: ["number", "null"], description: "Variacion en % frente a previous (negativa si baja), o null." },
+    },
+  },
+  description:
+    "Cada cifra que citas en este hallazgo, una por elemento (1-4). La pantalla las pinta como datos junto al hallazgo; por eso no van dentro de title ni de evidence. Lista vacia si el hallazgo no tiene cifras.",
+} as const;
+const findingJsonProperties = {
+  title: { type: "string", description: "El hallazgo en una frase corta, sin cifras (van en figures)." },
+  severity: { type: "string", enum: severityEnum },
+  evidence: {
+    type: "string",
+    description: "Contexto en una frase: periodo, fuente y por que importa. Sin repetir las cifras de figures.",
+  },
+  // Requerido y nulable, como `period` en sources: el resto del
+  // esquema no tiene propiedades opcionales y no se abre esa puerta
+  // por un campo. Los agentes cuyo prompt no define lista devuelven
+  // null, y la pantalla dibuja el hallazgo sin enlace.
+  area: {
+    type: ["string", "null"],
+    description:
+      "Donde se arregla esto. UNICAMENTE una de las claves que enumere tu propio prompt, tal cual. null si tu prompt no las enumera o si ninguna encaja. Nunca una URL ni texto libre.",
+  },
+  figures: findingFiguresJsonSchema,
+} as const;
+const recommendationJsonProperties = {
+  action: { type: "string", description: "Que hacer, en una frase que empiece por un verbo. Se muestra en la lista 'Que hacer'." },
+  priority: { type: "string", enum: priorityEnum },
+  expected_impact: { type: "string", description: "Que deberia mover y cuanto, en una frase corta; se muestra bajo la accion." },
+  owner: { type: "string", enum: ["cliente", "consultor"] },
+} as const;
+
 export const agentOutputJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -379,31 +436,16 @@ export const agentOutputJsonSchema = {
   properties: {
     answer: {
       type: "string",
-      description: "Explicacion autosuficiente para el usuario, en espanol.",
+      description:
+        "La conclusion para el usuario, en espanol: 1-3 frases cortas que digan que pasa y por que. Las cifras van en findings[].figures y las acciones en recommendations; la pantalla las pinta aparte, no las repitas aqui.",
     },
     findings: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "severity", "evidence", "area"],
-        properties: {
-          title: { type: "string" },
-          severity: { type: "string", enum: severityEnum },
-          evidence: {
-            type: "string",
-            description: "Cifra concreta y periodo del que sale.",
-          },
-          // Requerido y nulable, como `period` en sources: el resto del
-          // esquema no tiene propiedades opcionales y no se abre esa puerta
-          // por un campo. Los agentes cuyo prompt no define lista devuelven
-          // null, y la pantalla dibuja el hallazgo sin enlace.
-          area: {
-            type: ["string", "null"],
-            description:
-              "Donde se arregla esto. UNICAMENTE una de las claves que enumere tu propio prompt, tal cual. null si tu prompt no las enumera o si ninguna encaja. Nunca una URL ni texto libre.",
-          },
-        },
+        required: ["title", "severity", "evidence", "area", "figures"],
+        properties: findingJsonProperties,
       },
     },
     recommendations: {
@@ -412,12 +454,7 @@ export const agentOutputJsonSchema = {
         type: "object",
         additionalProperties: false,
         required: ["action", "priority", "expected_impact", "owner"],
-        properties: {
-          action: { type: "string" },
-          priority: { type: "string", enum: priorityEnum },
-          expected_impact: { type: "string" },
-          owner: { type: "string", enum: ["cliente", "consultor"] },
-        },
+        properties: recommendationJsonProperties,
       },
     },
     sources: {
@@ -451,6 +488,12 @@ export const agentOutputJsonSchema = {
           "priority",
           "rationale",
           "milestone_id",
+          "plan_id",
+          "plan_version",
+          "plan_revision",
+          "architecture_candidate_index",
+          "source_flow_refs",
+          "phase",
           "related_product_id",
           "effort_estimate",
           "financial_cost_estimate",
@@ -468,6 +511,12 @@ export const agentOutputJsonSchema = {
           description: { type: "string" },
           priority: { type: "string", enum: priorityEnum },
           milestone_id: { type: ["string", "null"], format: "uuid" },
+          plan_id: { type: ["string", "null"], format: "uuid" },
+          plan_version: { type: ["integer", "null"], minimum: 1 },
+          plan_revision: { type: ["integer", "null"], minimum: 1 },
+          architecture_candidate_index: { type: ["integer", "null"], minimum: 0 },
+          source_flow_refs: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 40 } },
+          phase: { type: ["string", "null"], minLength: 1, maxLength: 120 },
           related_product_id: { type: ["string", "null"], format: "uuid" },
           effort_estimate: {
             type: ["string", "null"],
@@ -586,6 +635,25 @@ export const agentOutputJsonSchema = {
  * el historial y las rutas existentes, pero esos campos agregados no se piden
  * al modelo ni se muestran duplicados en la UI.
  */
+export const MONITOR_METRIC_KEYS = [
+  "sales_net_sales", "orders_count", "net_profit", "conversion_rate", "cac_blended",
+  "average_order_value", "gross_margin", "discount_rate", "stock_units", "stock_risk",
+  "net_revenue_ex_tax", "net_margin", "average_order_value_ex_tax", "new_customers",
+  "meta_spend", "meta_attributed_sales", "meta_roas", "meta_cost_per_purchase",
+  "klaviyo_attributed_revenue", "klaviyo_attributed_purchases", "klaviyo_revenue_per_recipient",
+  "klaviyo_recipients", "klaviyo_open_rate", "klaviyo_click_rate", "klaviyo_unsubscribe_rate",
+  "klaviyo_spam_rate",
+] as const;
+
+export const monitorMetricReviewSchema = z.object({
+  metric_key: z.enum(MONITOR_METRIC_KEYS),
+  rating: z.enum(["positive", "neutral", "attention", "critical", "insufficient"]),
+  summary: z.string().trim().min(1).max(140).refine(
+    (value) => value.split(/\s+/u).filter(Boolean).length <= 10,
+    "El resumen de KPI no puede superar diez palabras",
+  ),
+});
+
 export const monitorSectionSchema = z.object({
   key: z.enum([
     "ventas",
@@ -597,17 +665,42 @@ export const monitorSectionSchema = z.object({
     "integraciones",
   ]),
   label: z.string().min(1).max(80),
-  findings: z.array(agentFindingSchema),
+  findings: z.array(agentFindingSchema.extend({
+    figures: z.array(agentFindingSchema.shape.figures.unwrap().element.extend({
+      metric_key: z.enum(MONITOR_METRIC_KEYS).nullable().default(null),
+    })).default([]),
+  })),
   recommendations: z.array(agentRecommendationSchema),
 });
 
 const monitorOutputBaseSchema = z.object({
   headline: z.string().min(1).max(255),
   sections: z.array(monitorSectionSchema).max(8),
+  metric_reviews: z.array(monitorMetricReviewSchema).default([]),
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
 });
+
+const monitorFindingFiguresJsonSchema = {
+  ...findingFiguresJsonSchema,
+  items: {
+    ...findingFiguresJsonSchema.items,
+    required: [...findingFiguresJsonSchema.items.required, "metric_key"],
+    properties: {
+      ...findingFiguresJsonSchema.items.properties,
+      metric_key: {
+        type: ["string", "null"],
+        enum: [...MONITOR_METRIC_KEYS, null],
+        description: "Clave estable de la tarjeta a la que corresponde esta cifra. Usa solo una clave del catálogo A02; null si la cifra no corresponde exactamente a una métrica visible.",
+      },
+    },
+  },
+} as const;
+const monitorFindingJsonProperties = {
+  ...findingJsonProperties,
+  figures: monitorFindingFiguresJsonSchema,
+};
 
 export const monitorOutputSchema = monitorOutputBaseSchema.transform(
   (output) => ({
@@ -634,7 +727,7 @@ export type MonitorOutput = z.infer<typeof monitorOutputSchema>;
 export const monitorOutputJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["headline", "sections", "sources", "confidence", "warnings"],
+  required: ["headline", "sections", "metric_reviews", "sources", "confidence", "warnings"],
   properties: {
     headline: {
       type: "string",
@@ -657,13 +750,8 @@ export const monitorOutputJsonSchema = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["title", "severity", "evidence", "area"],
-              properties: {
-                title: { type: "string" },
-                severity: { type: "string", enum: severityEnum },
-                evidence: { type: "string" },
-                area: { type: ["string", "null"] },
-              },
+              required: ["title", "severity", "evidence", "area", "figures"],
+              properties: monitorFindingJsonProperties,
             },
           },
           recommendations: {
@@ -672,14 +760,23 @@ export const monitorOutputJsonSchema = {
               type: "object",
               additionalProperties: false,
               required: ["action", "priority", "expected_impact", "owner"],
-              properties: {
-                action: { type: "string" },
-                priority: { type: "string", enum: priorityEnum },
-                expected_impact: { type: "string" },
-                owner: { type: "string", enum: ["cliente", "consultor"] },
-              },
+              properties: recommendationJsonProperties,
             },
           },
+        },
+      },
+    },
+    metric_reviews: {
+      type: "array",
+      description: "Una valoración y un resumen de hasta diez palabras para cada metric_key del inventario de KPI recibido en el contexto. Debe incluir exactamente una fila por clave, sin duplicados.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["metric_key", "rating", "summary"],
+        properties: {
+          metric_key: { type: "string", enum: MONITOR_METRIC_KEYS },
+          rating: { type: "string", enum: ["positive", "neutral", "attention", "critical", "insufficient"] },
+          summary: { type: "string", description: "Mini resumen en español de diez palabras como máximo. Describe la métrica y la evidencia disponible; sin contexto suficiente, explica qué falta." },
         },
       },
     },
@@ -1069,7 +1166,7 @@ export const caminoWeeklyReviewSchema = z.object({
     confidence: z.enum(["low", "medium", "high"]),
   })),
   next_actions: z.array(z.object({ priority: z.enum(["low", "medium", "high"]), title: z.string(), rationale: z.string(), owner: z.enum(["client", "consultant", "shared", "unknown"]), due_in_days: z.number().int().min(0).max(30) })),
-  change_proposals: z.array(z.object({ change: z.enum(["add", "edit", "retire"]), target_type: z.enum(["phase", "milestone", "goal"]), target_id: z.string().nullable(), description: z.string(), reason: z.string(), evidence: z.string() })),
+  change_proposals: z.array(z.object({ change: z.enum(["add", "edit", "retire"]), target_type: z.enum(["phase", "milestone", "goal"]), target_id: z.string().nullable(), description: z.string(), reason: z.string(), evidence: z.string(), structured_change: z.object({ field: z.enum(["target", "target_date", "name", "description"]), value: z.union([z.string(), z.number()]) }).nullable().optional() })),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
 });
@@ -1803,7 +1900,7 @@ export const campaignPlanJsonSchema = {
 // ---------------------------------------------------------------------------
 
 export const weeklyMailingEmailSchema = z.object({
-  sequence_number: z.number().int().min(1),
+  sequence_number: z.number().int().min(1).max(7),
   title: z.string(),
   sequence_role: z.string().min(1),
   objective: z.string(),
@@ -1815,9 +1912,13 @@ export const weeklyMailingEmailSchema = z.object({
   copy_brief: z.string(),
   visual_modules: z.string().min(1),
   evidence: z.array(agentEvidenceItemSchema).default([]),
+  source_refs: z.array(z.string().min(1).max(240)).max(12).default([]),
 });
 
 export const weeklyMailingPlanOutputSchema = z.object({
+  decision: z.enum(["ready", "needs_input", "hold", "no_send"]).default("ready"),
+  decision_reasons: z.array(z.string().min(1)).max(6).default([]),
+  questions: z.array(z.string().min(1)).max(4).default([]),
   plan_name: z.string(),
   diagnosis: z.string(),
   strategy_decision: z.string().min(1),
@@ -1830,7 +1931,7 @@ export const weeklyMailingPlanOutputSchema = z.object({
   cadence: z.object({
     recommendation: z.string().min(1),
     requested_schedule_assessment: z.string().min(1),
-    requires_user_approval: z.boolean(),
+    requires_user_approval: z.literal(true).default(true),
   }).strict(),
   experiment: z.object({
     hypothesis: z.string().min(1),
@@ -1839,15 +1940,44 @@ export const weeklyMailingPlanOutputSchema = z.object({
     design: z.string().min(1),
     decision_rule: z.string().min(1),
     evidence_status: z.enum(["ready", "insufficient_evidence", "not_applicable"]),
+    evaluation: z.object({
+      denominator: z.string().min(1).max(200), cohort: z.string().min(1).max(500),
+      window_days: z.number().int().min(1).max(90), minimum_sample: z.number().int().min(1),
+      unit: z.enum(["count", "rate", "currency"]), currency_code: z.string().regex(/^[A-Z]{3}$/).nullable(),
+      success_operator: z.enum(["gte", "lte"]), success_threshold: z.number(),
+      stop_operator: z.enum(["gte", "lte"]), stop_threshold: z.number(),
+      review_at: z.string().datetime(), review_owner: z.enum(["organization_owner", "consultant"]),
+    }).strict().nullable().default(null),
   }).strict(),
   success_criteria: z.array(z.string().min(1)).min(1).max(4),
   stop_criteria: z.array(z.string().min(1)).min(1).max(4),
   sequence_rationale: z.string(),
   visual_direction: z.string().min(1),
-  emails: z.array(weeklyMailingEmailSchema).min(1).max(7),
+  emails: z.array(weeklyMailingEmailSchema).max(7),
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
+}).superRefine((output, ctx) => {
+  if (output.decision === "ready" && !output.emails.length) {
+    ctx.addIssue({ code: "custom", path: ["emails"], message: "Una secuencia lista necesita emails." });
+  }
+  if (output.decision !== "ready" && (output.emails.length || !output.decision_reasons.length)) {
+    ctx.addIssue({ code: "custom", path: ["decision"], message: "Una decisión de esperar requiere motivos y no produce emails." });
+  }
+  if (!output.sources.length && (output.confidence === "high" || output.experiment.evidence_status === "ready")) {
+    ctx.addIssue({ code: "custom", path: ["sources"], message: "Sin fuentes no hay confianza alta ni experimento listo." });
+  }
+  if (output.experiment.evidence_status === "ready" && !output.experiment.evaluation) {
+    ctx.addIssue({ code: "custom", path: ["experiment", "evaluation"], message: "Un experimento listo requiere cohorte, denominador, muestra, ventana, umbrales y revisión." });
+  }
+  if (output.experiment.evaluation?.unit === "currency" && !output.experiment.evaluation.currency_code) {
+    ctx.addIssue({ code: "custom", path: ["experiment", "evaluation", "currency_code"], message: "El umbral monetario requiere moneda explícita." });
+  }
+  const evaluation = output.experiment.evaluation;
+  if (evaluation && (evaluation.unit === "rate" && [evaluation.success_threshold, evaluation.stop_threshold].some((value) => value < 0 || value > 1) ||
+    evaluation.unit === "count" && [evaluation.success_threshold, evaluation.stop_threshold].some((value) => value < 0))) {
+    ctx.addIssue({ code: "custom", path: ["experiment", "evaluation"], message: "Las tasas usan valores entre 0 y 1 y los recuentos no pueden ser negativos." });
+  }
 });
 
 export type WeeklyMailingPlanOutput = z.infer<
@@ -1858,6 +1988,7 @@ export const weeklyMailingPlanJsonSchema = {
   type: "object",
   additionalProperties: false,
   required: [
+    "decision", "decision_reasons", "questions",
     "plan_name",
     "diagnosis",
     "strategy_decision",
@@ -1876,6 +2007,9 @@ export const weeklyMailingPlanJsonSchema = {
     "warnings",
   ],
   properties: {
+    decision: { type: "string", enum: ["ready", "needs_input", "hold", "no_send"] },
+    decision_reasons: { type: "array", maxItems: 6, items: { type: "string" } },
+    questions: { type: "array", maxItems: 4, items: { type: "string" } },
     plan_name: { type: "string" },
     diagnosis: { type: "string" },
     strategy_decision: { type: "string" },
@@ -1886,15 +2020,27 @@ export const weeklyMailingPlanJsonSchema = {
     },
     objective_rationale: { type: "string" },
     audience_rationale: { type: "string" },
-    cadence: { type: "object", additionalProperties: false, required: ["recommendation", "requested_schedule_assessment", "requires_user_approval"], properties: { recommendation: { type: "string" }, requested_schedule_assessment: { type: "string" }, requires_user_approval: { type: "boolean" } } },
-    experiment: { type: "object", additionalProperties: false, required: ["hypothesis", "primary_metric", "guardrail_metrics", "design", "decision_rule", "evidence_status"], properties: { hypothesis: { type: "string" }, primary_metric: { type: "string" }, guardrail_metrics: { type: "array", maxItems: 4, items: { type: "string" } }, design: { type: "string" }, decision_rule: { type: "string" }, evidence_status: { type: "string", enum: ["ready", "insufficient_evidence", "not_applicable"] } } },
+    cadence: { type: "object", additionalProperties: false, required: ["recommendation", "requested_schedule_assessment", "requires_user_approval"], properties: { recommendation: { type: "string" }, requested_schedule_assessment: { type: "string" }, requires_user_approval: { type: "boolean", enum: [true] } } },
+    experiment: { type: "object", additionalProperties: false,
+      required: ["hypothesis", "primary_metric", "guardrail_metrics", "design", "decision_rule", "evidence_status", "evaluation"],
+      properties: { hypothesis: { type: "string" }, primary_metric: { type: "string" }, guardrail_metrics: { type: "array", maxItems: 4, items: { type: "string" } },
+        design: { type: "string" }, decision_rule: { type: "string" }, evidence_status: { type: "string", enum: ["ready", "insufficient_evidence", "not_applicable"] },
+        evaluation: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false,
+          required: ["denominator", "cohort", "window_days", "minimum_sample", "unit", "currency_code", "success_operator", "success_threshold", "stop_operator", "stop_threshold", "review_at", "review_owner"],
+          properties: { denominator: { type: "string", minLength: 1, maxLength: 200 }, cohort: { type: "string", minLength: 1, maxLength: 500 },
+            window_days: { type: "integer", minimum: 1, maximum: 90 }, minimum_sample: { type: "integer", minimum: 1 },
+            unit: { type: "string", enum: ["count", "rate", "currency"] }, currency_code: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
+            success_operator: { type: "string", enum: ["gte", "lte"] }, success_threshold: { type: "number" },
+            stop_operator: { type: "string", enum: ["gte", "lte"] }, stop_threshold: { type: "number" },
+            review_at: { type: "string", format: "date-time" }, review_owner: { type: "string", enum: ["organization_owner", "consultant"] },
+          } }] },
+      } },
     success_criteria: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" } },
     stop_criteria: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" } },
     sequence_rationale: { type: "string" },
     visual_direction: { type: "string" },
     emails: {
       type: "array",
-      minItems: 1,
       maxItems: 7,
       items: {
         type: "object",
@@ -1912,6 +2058,7 @@ export const weeklyMailingPlanJsonSchema = {
           "copy_brief",
           "visual_modules",
           "evidence",
+          "source_refs",
         ],
         properties: {
           sequence_number: { type: "integer", minimum: 1 },
@@ -1926,6 +2073,7 @@ export const weeklyMailingPlanJsonSchema = {
           copy_brief: { type: "string" },
           visual_modules: { type: "string" },
           evidence: caminoEvidenceJsonSchema,
+          source_refs: { type: "array", maxItems: 12, items: { type: "string", minLength: 1, maxLength: 240 } },
         },
       },
     },
@@ -2929,6 +3077,12 @@ export const callConversationSignalSchema = z.object({
 export const callSummaryOutputSchema = z.object({
   summary: z.string(),
   facts: z.array(z.string()),
+  product_mentions: z.array(z.object({
+    product_title: z.string().max(240),
+    mention_type: z.enum(["discussed", "problem", "opportunity", "decision"]),
+    evidence_quote: z.string().max(500),
+    relevance: z.string().max(400),
+  })).max(20).default([]),
   decisions: z.array(z.string()),
   recommendations: z.array(
     z.object({
@@ -2970,6 +3124,7 @@ export const callSummaryJsonSchema = {
   required: [
     "summary",
     "facts",
+    "product_mentions",
     "decisions",
     "recommendations",
     "risks",
@@ -2994,6 +3149,13 @@ export const callSummaryJsonSchema = {
       items: { type: "string" },
       description:
         "Hechos objetivos mencionados en la llamada (que paso / que se dijo), sin interpretacion.",
+    },
+    product_mentions: {
+      type: "array", maxItems: 20,
+      description: "Productos del catálogo de la tienda mencionados explícitamente. No infieras productos. Usa el título exacto del catálogo y una cita literal de la transcripción.",
+      items: { type: "object", additionalProperties: false, required: ["product_title", "mention_type", "evidence_quote", "relevance"], properties: {
+        product_title: { type: "string" }, mention_type: { type: "string", enum: ["discussed", "problem", "opportunity", "decision"] }, evidence_quote: { type: "string" }, relevance: { type: "string" },
+      } },
     },
     decisions: {
       type: "array",
@@ -3415,7 +3577,7 @@ export function buildA13OperationalOutputContract(): OutputContract<AgentOutput>
   const writes = jsonSchema.properties.proposed_writes as {
     items: { required: string[]; properties: Record<string, unknown> };
   };
-  writes.items.required.push("phase", "plan_id", "plan_version", "alignment_rationale");
+  writes.items.required = [...new Set([...writes.items.required, "phase", "plan_id", "plan_version", "alignment_rationale"])];
   Object.assign(writes.items.properties, {
     phase: { type: ["string", "null"], minLength: 1, maxLength: 120 },
     plan_id: { type: ["string", "null"], format: "uuid" },
@@ -3435,7 +3597,7 @@ export function buildA14OperationalOutputContract(
   const writes = jsonSchema.properties.proposed_writes as {
     items: { required: string[]; properties: Record<string, unknown> };
   };
-  writes.items.required.push("phase", "plan_id", "plan_version", "alignment_rationale", "categories");
+  writes.items.required = [...new Set([...writes.items.required, "phase", "plan_id", "plan_version", "alignment_rationale", "categories"])];
   Object.assign(writes.items.properties, {
     phase: { type: ["string", "null"], minLength: 1, maxLength: 120 },
     plan_id: { type: ["string", "null"], format: "uuid" },
@@ -3544,6 +3706,37 @@ export function buildReadOnlyOutputContract(): OutputContract<AgentOutput> {
   };
 }
 
+/** Contrato breve y de solo lectura para A29. El estado sigue perteneciendo a las reglas. */
+export function buildMetricAnalystOutputContract(canonical: AgentOutput): OutputContract<AgentOutput> {
+  const recommendations = z.array(agentRecommendationSchema.extend({
+    action: z.string().trim().min(1).max(240).refine((text) => !/\d/.test(text), "Do not invent numbers in actions."),
+    expected_impact: z.string().trim().max(200).refine((text) => !/\d/.test(text), "Do not invent numeric outcomes."),
+  })).max(2);
+  const jsonSchema = {
+    type: "object", additionalProperties: false, required: ["recommendations"],
+    properties: {
+      recommendations: {
+        type: "array", maxItems: 2, items: {
+          type: "object", additionalProperties: false,
+          required: ["action", "priority", "expected_impact", "owner"],
+          properties: {
+            action: { type: "string", minLength: 1, maxLength: 240, description: "One concrete action without numbers or factual claims." },
+            priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+            expected_impact: { type: "string", maxLength: 200, description: "What to investigate or improve; no promises or numeric results." },
+            owner: { type: "string", enum: ["cliente", "consultor"] },
+          },
+        },
+      },
+    },
+  };
+  // Factual content is assembled from rules, never regenerated as model prose.
+  const schema = z.object({ recommendations }).strict().transform((value) => ({
+    ...structuredClone(canonical), recommendations: value.recommendations,
+    proposed_writes: [], approval_required: false,
+  }));
+  return { jsonSchema, schema: schema as z.ZodType<AgentOutput> };
+}
+
 const a23MeasurementVerdicts = [
   "usable_with_attribution_limits",
   "restricted",
@@ -3555,7 +3748,12 @@ function createA23CreativeDecisionSchema(
   expectedVerdict?: typeof a23MeasurementVerdicts[number],
 ) {
   return z.object({
+    decision_ref: z.string().trim().regex(/^a23-[1-5]$/),
     action: z.enum(["observe", "test_variant", "investigate_landing_offer", "propose_pause"]),
+    store_id: z.string().uuid().nullable(),
+    account_id: z.string().uuid().nullable(),
+    ad_id: z.string().uuid().nullable(),
+    creative_id: z.string().uuid().nullable(),
     signal: z.string().trim().min(1).max(500),
     window: z.string().trim().min(1).max(120),
     spend_implicated: z.number().finite().nonnegative().nullable(),
@@ -3563,6 +3761,11 @@ function createA23CreativeDecisionSchema(
     uncertainty: z.string().trim().min(1).max(500),
     hypothesis: z.string().trim().min(1).max(500),
     success_criterion: z.string().trim().min(1).max(300),
+    primary_metric: z.string().trim().min(1).max(120),
+    metric_denominator: z.string().trim().min(1).max(160),
+    comparator: z.string().trim().min(1).max(200),
+    evaluation_window_days: z.number().int().min(1).max(90),
+    maturity_days: z.number().int().min(0).max(90).nullable(),
     measurement_verdict: expectedVerdict ? z.literal(expectedVerdict) : z.enum(a23MeasurementVerdicts),
   }).superRefine((decision, ctx) => {
   if (decision.action === "propose_pause" && decision.measurement_verdict !== "usable_with_attribution_limits") {
@@ -3590,6 +3793,12 @@ export type A23CreativeOutput = AgentOutput & { creative_decisions: A23CreativeD
 /** A23 keeps its user-facing payload lean but requires an evidence-backed, gated decision record. */
 export function buildA23CreativeOutputContract(
   measurementVerdict: A23CreativeDecision["measurement_verdict"] = "unknown",
+  evidenceScope?: {
+    storeId: string | null;
+    accountIds: readonly string[];
+    adAccountById: Readonly<Record<string, string>>;
+    creativeByAdId: Readonly<Record<string, string>>;
+  },
 ): OutputContract<A23CreativeOutput> {
   const creativeDecisionSchema = createA23CreativeDecisionSchema(measurementVerdict);
   const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
@@ -3601,6 +3810,17 @@ export function buildA23CreativeOutputContract(
     jsonSchema.required = jsonSchema.required.filter((key) => key !== field);
   }
   jsonSchema.required.push("creative_decisions");
+  const writes = jsonSchema.properties.proposed_writes as {
+    required?: string[];
+    items?: { required?: string[]; properties?: Record<string, unknown> };
+  };
+  if (writes.items) {
+    writes.items.required = [...(writes.items.required ?? []), "decision_ref"];
+    writes.items.properties = {
+      ...(writes.items.properties ?? {}),
+      decision_ref: { type: ["string", "null"], minLength: 1, maxLength: 80 },
+    };
+  }
   jsonSchema.properties.creative_decisions = {
     type: "array",
     maxItems: 5,
@@ -3609,6 +3829,11 @@ export function buildA23CreativeOutputContract(
       additionalProperties: false,
       required: [
         "action",
+        "decision_ref",
+        "store_id",
+        "account_id",
+        "ad_id",
+        "creative_id",
         "signal",
         "window",
         "spend_implicated",
@@ -3616,10 +3841,20 @@ export function buildA23CreativeOutputContract(
         "uncertainty",
         "hypothesis",
         "success_criterion",
+        "primary_metric",
+        "metric_denominator",
+        "comparator",
+        "evaluation_window_days",
+        "maturity_days",
         "measurement_verdict",
       ],
       properties: {
         action: { type: "string", enum: ["observe", "test_variant", "investigate_landing_offer", "propose_pause"] },
+        decision_ref: { type: "string", minLength: 1, maxLength: 80 },
+        store_id: { anyOf: [{ type: "string", format: "uuid" }, { type: "null" }] },
+        account_id: { anyOf: [{ type: "string", format: "uuid" }, { type: "null" }] },
+        ad_id: { anyOf: [{ type: "string", format: "uuid" }, { type: "null" }] },
+        creative_id: { anyOf: [{ type: "string", format: "uuid" }, { type: "null" }] },
         signal: { type: "string", minLength: 1, maxLength: 500 },
         window: { type: "string", minLength: 1, maxLength: 120 },
         spend_implicated: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
@@ -3627,6 +3862,11 @@ export function buildA23CreativeOutputContract(
         uncertainty: { type: "string", minLength: 1, maxLength: 500 },
         hypothesis: { type: "string", minLength: 1, maxLength: 500 },
         success_criterion: { type: "string", minLength: 1, maxLength: 300 },
+        primary_metric: { type: "string", minLength: 1, maxLength: 120 },
+        metric_denominator: { type: "string", minLength: 1, maxLength: 160 },
+        comparator: { type: "string", minLength: 1, maxLength: 200 },
+        evaluation_window_days: { type: "integer", minimum: 1, maximum: 90 },
+        maturity_days: { anyOf: [{ type: "integer", minimum: 0, maximum: 90 }, { type: "null" }] },
         measurement_verdict: {
           type: "string",
           enum: [measurementVerdict],
@@ -3635,9 +3875,49 @@ export function buildA23CreativeOutputContract(
     },
   };
 
+  const a23ProposedWriteSchema = agentProposedWriteSchema.extend({
+    decision_ref: z.string().trim().min(1).max(80).nullable(),
+  });
   const schema = agentOutputSchema
     .partial({ answer: true, findings: true, recommendations: true })
-    .extend({ creative_decisions: z.array(creativeDecisionSchema).max(5) })
+    .extend({
+      proposed_writes: z.array(a23ProposedWriteSchema).max(5),
+      creative_decisions: z.array(creativeDecisionSchema).max(5),
+    })
+    .superRefine((value, ctx) => {
+      const decisions = new Map(value.creative_decisions.map((decision) => [decision.decision_ref, decision]));
+      if (new Set(value.creative_decisions.map((decision) => decision.decision_ref)).size !== value.creative_decisions.length) {
+        ctx.addIssue({ code: "custom", path: ["creative_decisions"], message: "Cada decision A23 necesita una referencia unica de esta ejecucion." });
+      }
+      value.creative_decisions.forEach((decision, index) => {
+        if (evidenceScope?.storeId && decision.store_id !== evidenceScope.storeId) {
+          ctx.addIssue({ code: "custom", path: ["creative_decisions", index, "store_id"], message: "La decision no corresponde a la tienda analizada." });
+        }
+        if (decision.account_id && evidenceScope && !evidenceScope.accountIds.includes(decision.account_id)) {
+          ctx.addIssue({ code: "custom", path: ["creative_decisions", index, "account_id"], message: "La cuenta no forma parte de las cuentas elegibles del snapshot." });
+        }
+        if (decision.ad_id && evidenceScope && !Object.hasOwn(evidenceScope.adAccountById, decision.ad_id)) {
+          ctx.addIssue({ code: "custom", path: ["creative_decisions", index, "ad_id"], message: "El anuncio no aparece en la evidencia de esta ejecucion." });
+        }
+        if (decision.ad_id && evidenceScope?.adAccountById[decision.ad_id] !== decision.account_id) {
+          ctx.addIssue({ code: "custom", path: ["creative_decisions", index, "account_id"], message: "El anuncio y la cuenta no coinciden en el snapshot." });
+        }
+        if (decision.ad_id && evidenceScope?.creativeByAdId[decision.ad_id] && evidenceScope.creativeByAdId[decision.ad_id] !== decision.creative_id) {
+          ctx.addIssue({ code: "custom", path: ["creative_decisions", index, "creative_id"], message: "La creatividad no está vinculada al anuncio en la evidencia visual." });
+        }
+      });
+      value.proposed_writes.forEach((write, index) => {
+        const linked = write.decision_ref ? decisions.get(write.decision_ref) : undefined;
+        if (!linked) {
+          ctx.addIssue({ code: "custom", path: ["proposed_writes", index, "decision_ref"], message: "Cada propuesta A23 debe enlazar una decision creativa de esta ejecucion." });
+          return;
+        }
+        const pauseLanguage = /\b(paus(ar|a)|deten(er|erlo)|retir(ar|a)|desactiv(ar|a))\b/i.test(`${write.title} ${write.description}`);
+        if (pauseLanguage && (linked.action !== "propose_pause" || linked.measurement_verdict !== "usable_with_attribution_limits")) {
+          ctx.addIssue({ code: "custom", path: ["proposed_writes", index], message: "Una tarea de pausa requiere una decision vinculada y el gate A24 vigente." });
+        }
+      });
+    })
     .transform((value) => ({
       ...value,
       answer: value.answer ?? describeProposals(value.proposed_writes.length),
@@ -3649,6 +3929,149 @@ export function buildA23CreativeOutputContract(
     jsonSchema: jsonSchema as unknown as Record<string, unknown>,
     schema: schema as unknown as z.ZodType<A23CreativeOutput>,
   };
+}
+
+export type A26EvidenceMessage = {
+  message_id: string; account_id: string; content_hash: string;
+  asunto: unknown; preheader: unknown; cuerpo: unknown; enlaces: unknown;
+  quote_sources?: string[]; visual_evidence?: boolean; analisis_html?: unknown;
+};
+
+export function buildA26ContentOutputContract(messages: readonly A26EvidenceMessage[]): OutputContract<AgentOutput> {
+  const reviewSchema = z.object({
+    review_ref: z.string().min(1).max(80), message_id: z.string().uuid(),
+    account_id: z.string().uuid(), content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+    dimension: z.enum(["subject", "preheader", "body", "link", "structure", "visual"]),
+    claim_type: z.enum(["observed_fact", "editorial_hypothesis"]), confidence: z.enum(["low", "medium", "high"]),
+    quote: z.string().min(1).max(600).nullable(),
+    observation: z.string().min(1).max(700), limitation: z.string().min(1).max(400),
+    permitted_change: z.string().min(1).max(700), acceptance_criterion: z.string().min(1).max(400),
+    destination: z.enum(["a11", "a12", "a28", "observe"]),
+  });
+  const writeSchema = agentProposedWriteSchema.extend({ review_ref: z.string().min(1).max(80), plan_revision: z.number().int().positive().nullable().optional() });
+  const schema = agentOutputSchema.extend({
+    content_decision: z.enum(["no_change", "needs_evidence", "revision_proposal"]),
+    content_reviews: z.array(reviewSchema).max(10), proposed_writes: z.array(writeSchema).max(4),
+  }).superRefine((output, ctx) => {
+    if ((output.content_decision === "revision_proposal" && !output.content_reviews.length) ||
+      (output.content_decision !== "revision_proposal" && output.proposed_writes.length)) {
+      ctx.addIssue({ code: "custom", path: ["content_decision"], message: "Una propuesta de revision requiere evidencia; la abstencion no puede crear tareas." });
+    }
+    const refs = new Set<string>();
+    for (const [i, review] of output.content_reviews.entries()) {
+      const message = messages.find((m) => m.message_id === review.message_id && m.account_id === review.account_id && m.content_hash === review.content_hash);
+      if (!message || refs.has(review.review_ref)) {
+        ctx.addIssue({ code: "custom", path: ["content_reviews", i], message: "La revision requiere un mensaje/version del snapshot y una referencia unica." });
+      }
+      refs.add(review.review_ref);
+      if (review.quote && /contenido intermedio omitido|HTML limitado;/i.test(review.quote)) ctx.addIssue({ code: "custom", path: ["content_reviews", i, "quote"], message: "Una marca de omision del servidor no es texto del email." });
+      if (message && review.quote) {
+        const fields: Record<string, unknown> = { subject: message.asunto, preheader: message.preheader, body: message.cuerpo, link: JSON.stringify(message.enlaces) };
+        const text = fields[review.dimension];
+        const toolQuote = review.dimension === "body" && message.quote_sources?.some((source) => source.includes(review.quote!));
+        if (!toolQuote && (typeof text !== "string" || !text.includes(review.quote))) ctx.addIssue({ code: "custom", path: ["content_reviews", i, "quote"], message: "La cita no aparece literalmente en la fuente declarada." });
+      }
+      if (message && ((review.dimension === "visual" && !message.visual_evidence) || (review.dimension === "structure" && !message.analisis_html))) ctx.addIssue({ code: "custom", path: ["content_reviews", i, "dimension"], message: "Falta la evidencia visual/estructural para ese mensaje." });
+      if (["subject", "preheader", "body", "link"].includes(review.dimension) && !review.quote) ctx.addIssue({ code: "custom", path: ["content_reviews", i, "quote"], message: "Los hallazgos textuales requieren cita verificable." });
+    }
+    output.proposed_writes.forEach((write, i) => {
+      if (!refs.has(write.review_ref) || write.kind !== "task") ctx.addIssue({ code: "custom", path: ["proposed_writes", i], message: "A26 solo propone tareas vinculadas a una revision editorial." });
+      if ((write.plan_id && (!write.plan_version || !write.plan_revision)) || (!write.plan_id && (write.plan_version || write.plan_revision || write.milestone_id))) ctx.addIssue({ code: "custom", path: ["proposed_writes", i], message: "El vinculo a Mi Camino requiere plan, version y revision exactos." });
+    });
+  });
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as { required: string[]; properties: Record<string, any> };
+  jsonSchema.required.push("content_reviews", "content_decision");
+  jsonSchema.properties.content_decision = { type: "string", enum: ["no_change", "needs_evidence", "revision_proposal"] };
+  jsonSchema.properties.content_reviews = { type: "array", maxItems: 10, items: z.toJSONSchema(reviewSchema) };
+  jsonSchema.properties.proposed_writes.maxItems = 4;
+  jsonSchema.properties.proposed_writes.items.properties.review_ref = { type: "string", minLength: 1, maxLength: 80 };
+  jsonSchema.properties.proposed_writes.items.required.push("review_ref");
+  jsonSchema.properties.proposed_writes.items.properties.plan_revision = { type: ["integer", "null"], minimum: 1 };
+  if (!jsonSchema.properties.proposed_writes.items.required.includes("plan_revision")) jsonSchema.properties.proposed_writes.items.required.push("plan_revision");
+  return { jsonSchema: jsonSchema as Record<string, unknown>, schema: schema as unknown as z.ZodType<AgentOutput> };
+}
+
+const a25Actions = ["investigate", "document", "review", "handoff"] as const;
+
+export type A25ChangeObservation = {
+  event_ref: string | null;
+  action: typeof a25Actions[number];
+  interpretation: string;
+  limitation: string;
+  next_review_at: string | null;
+};
+export type A25ChangeOutput = AgentOutput & { change_observations: A25ChangeObservation[] };
+
+/** A25 must return an evidence-linked diagnosis even when it proposes no task. */
+export function buildA25ChangeOutputContract(input: {
+  eventStatuses: Readonly<Record<string, string>>;
+  measurementVerdict: string;
+}): OutputContract<A25ChangeOutput> {
+  const eventIds = Object.keys(input.eventStatuses);
+  const observationSchema = z.object({
+    event_ref: z.string().uuid().nullable(),
+    action: z.enum(a25Actions),
+    interpretation: z.string().trim().min(1).max(700),
+    limitation: z.string().trim().min(1).max(400),
+    next_review_at: z.string().datetime().nullable(),
+  });
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
+    required: string[];
+    properties: Record<string, any>;
+  };
+  jsonSchema.properties.change_observations = {
+    type: "array",
+    minItems: 1,
+    maxItems: 8,
+    description: `Diagnóstico de cambios. El estado de comparabilidad y el gate A24 los fija el servidor (${input.measurementVerdict}); no los repitas como una decisión del modelo.`,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["event_ref", "action", "interpretation", "limitation", "next_review_at"],
+      properties: {
+        event_ref: { anyOf: [eventIds.length ? { type: "string", format: "uuid", enum: eventIds } : { type: "string", format: "uuid" }, { type: "null" }] },
+        action: { type: "string", enum: [...a25Actions] },
+        interpretation: { type: "string", minLength: 1, maxLength: 700 },
+        limitation: { type: "string", minLength: 1, maxLength: 400 },
+        next_review_at: { anyOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
+      },
+    },
+  };
+  jsonSchema.required.push("change_observations");
+  const writes = jsonSchema.properties.proposed_writes as { items: { required: string[]; properties: Record<string, unknown> } };
+  writes.items.required.push("investigation_action", "event_ref");
+  writes.items.properties.investigation_action = { type: "string", enum: [...a25Actions] };
+  writes.items.properties.event_ref = eventIds.length
+    ? { type: "string", format: "uuid", enum: eventIds }
+    : { type: "string", format: "uuid" };
+  if (!eventIds.length) (jsonSchema.properties.proposed_writes as { maxItems?: number }).maxItems = 0;
+  const a25WriteSchema = agentProposedWriteSchema.extend({
+    investigation_action: z.enum(a25Actions),
+    event_ref: z.string().uuid(),
+  });
+  const schema = agentOutputSchema.extend({
+    proposed_writes: z.array(a25WriteSchema).max(5),
+    change_observations: z.array(observationSchema).min(1).max(8),
+  }).superRefine((output, ctx) => {
+    output.change_observations.forEach((observation, index) => {
+      if (observation.event_ref && !Object.hasOwn(input.eventStatuses, observation.event_ref)) {
+        ctx.addIssue({ code: "custom", path: ["change_observations", index, "event_ref"], message: "La observación debe apuntar a un evento de esta ejecución." });
+      }
+    });
+    for (const [index, write] of output.proposed_writes.entries()) {
+      if (!Object.hasOwn(input.eventStatuses, write.event_ref)) {
+        ctx.addIssue({ code: "custom", path: ["proposed_writes", index, "event_ref"], message: "La tarea debe quedar vinculada a un cambio de esta ejecución." });
+      }
+      const text = `${write.title} ${write.description ?? ""}`;
+      if (/\b(aument\w*|increment\w*|escal\w*|subir (el )?presupuesto|aumentar inversion|paus\w*|borr\w*|elimin\w*|revert\w*|reactiv\w*|desactiv\w*|increase spend|scale up|delete audience)\b/i.test(text)) {
+        ctx.addIssue({ code: "custom", path: ["proposed_writes", index], message: "A25 solo crea tareas de investigación, documentación, revisión o derivación; las decisiones operativas pertenecen a A14 y requieren sus controles." });
+      }
+      if (write.plan_id || write.milestone_id) {
+        ctx.addIssue({ code: "custom", path: ["proposed_writes", index], message: "A25 crea tareas libres; los vínculos a Mi Camino requieren una revisión de plan/hito compatible." });
+      }
+    }
+  });
+  return { jsonSchema: jsonSchema as Record<string, unknown>, schema: schema as unknown as z.ZodType<A25ChangeOutput> };
 }
 
 /**
@@ -4114,10 +4537,12 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
     outputTokens: 0,
     cacheReadTokens: null as number | null,
     cacheCreationTokens: null as number | null,
+    reasoningTokens: null as number | null,
     modelCalls: 0,
     toolCallCount: 0,
     webSearchRequests: 0,
   };
+  let modelCostUsd = estimateCostUsd(model, 0, 0);
 
   // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
   // no puede evaluarse: cortar por "0 > max" seria falso, y no frenar nada
@@ -4125,7 +4550,7 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
   // numero de tool calls -- y el turno se marca `unknown_model` para que quede
   // visible en el panel en vez de pasar por gratis.
   const costSoFarOrZero = () =>
-    (estimateCostUsd(model, usage.inputTokens, usage.outputTokens) ?? 0) +
+    (modelCostUsd ?? 0) +
     usage.webSearchRequests * WEB_SEARCH_USD_PER_REQUEST;
 
   const enforceBudget = () => {
@@ -4152,11 +4577,11 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
         outputTokens: usage.outputTokens,
         cacheReadTokens: usage.cacheReadTokens,
         cacheCreationTokens: usage.cacheCreationTokens,
-        reasoningTokens: null,
+        reasoningTokens: usage.reasoningTokens,
         ...pricing,
-        estimatedCostUsd: pricing.estimatedCostUsd === null
+        estimatedCostUsd: modelCostUsd === null
           ? null
-          : pricing.estimatedCostUsd + usage.webSearchRequests * WEB_SEARCH_USD_PER_REQUEST,
+          : modelCostUsd + usage.webSearchRequests * WEB_SEARCH_USD_PER_REQUEST,
         modelCalls: usage.modelCalls,
         toolCallCount: usage.toolCallCount,
       };
@@ -4168,10 +4593,15 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
       outputTokens: number | null | undefined;
       cacheReadTokens?: number | null | undefined;
       cacheCreationTokens?: number | null | undefined;
+      cacheCreation1hTokens?: number | null | undefined;
+      reasoningTokens?: number | null | undefined;
     }) {
       usage.modelCalls += 1;
       usage.inputTokens += reported.inputTokens ?? 0;
       usage.outputTokens += reported.outputTokens ?? 0;
+      const callCost = estimateCostUsd(model, reported.inputTokens ?? 0, reported.outputTokens ?? 0, reported.cacheReadTokens, reported.cacheCreationTokens, reported.cacheCreation1hTokens);
+      modelCostUsd = modelCostUsd === null || callCost === null ? null : modelCostUsd + callCost;
+      usage.reasoningTokens = addReported(usage.reasoningTokens, reported.reasoningTokens);
       usage.cacheReadTokens = addReported(
         usage.cacheReadTokens,
         reported.cacheReadTokens,
@@ -4713,6 +5143,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
         outputTokens: message.usage.output_tokens,
         cacheReadTokens: message.usage.cache_read_input_tokens,
         cacheCreationTokens: message.usage.cache_creation_input_tokens,
+        cacheCreation1hTokens: message.usage.cache_creation?.ephemeral_1h_input_tokens,
       });
     } finally {
       try {
@@ -4830,9 +5261,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     // modelos: `null` (desconocido), nunca 0.
     reasoningTokens: null,
     ...pricing,
-    estimatedCostUsd: pricing.estimatedCostUsd === null
-      ? null
-      : pricing.estimatedCostUsd + usage.webSearchRequests * 0.01,
+    estimatedCostUsd: accounting.snapshot("anthropic").estimatedCostUsd,
     latencyMs,
     stopReason: response.stop_reason,
     modelCalls: usage.modelCalls,
@@ -4952,6 +5381,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   /** Límites acotados por llamada para consumidores con evidencia grande. */
   contextLimits?: { maxBlockChars?: number; maxContextChars?: number };
 }): Promise<AgentTurnResult<TOutput>> {
+  if (params.model === "gpt-6.1-sol" || params.model === "gpt-6.1-terra") return runAgentTurnOpenAIResponses(params);
   const input = "scope" in params.input
     ? platformAgentInputSchema.parse(params.input)
     : agentInputSchema.parse(params.input);
@@ -5178,10 +5608,127 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     // modelos de razonamiento, que hoy no usamos. No se inventa un 0.
     reasoningTokens: null,
     ...turnPricingFields(params.model, usage.inputTokens, usage.outputTokens),
+    estimatedCostUsd: accounting.snapshot("openai").estimatedCostUsd,
     latencyMs,
     stopReason: choice.finish_reason,
     modelCalls: usage.modelCalls,
     toolCallCount: usage.toolCallCount,
+    ...turnPromptFields(systemPrompt, tools, context.truncated),
+  };
+}
+
+/** Sol 6.1 conserva razonamiento y function tools mediante Responses, sin estado remoto. */
+async function runAgentTurnOpenAIResponses<TOutput>(
+  params: Parameters<typeof runAgentTurnOpenAI<TOutput>>[0],
+): Promise<AgentTurnResult<TOutput>> {
+  const input = "scope" in params.input
+    ? platformAgentInputSchema.parse(params.input)
+    : agentInputSchema.parse(params.input);
+  const startedAt = Date.now();
+  const tools = params.tools ?? [];
+  const outputContract = params.outputContract ?? (defaultOutputContract as unknown as OutputContract<TOutput>);
+  const resilience = { ...DEFAULT_AGENT_RESILIENCE_POLICY, ...params.resilience };
+  const client = new OpenAI({ apiKey: params.apiKey, timeout: Math.max(600_000, resilience.timeoutMs + 60_000) });
+  const context = serializeContextWithSecurityEvents(
+    params.contextBlocks, params.onSecurityEvent,
+    params.contextLimits,
+  );
+  // No resumir una reunión como completa si se ha recortado su evidencia.
+  if (input.agent_code === "a01_analista_llamadas" && context.truncated)
+    throw new AgentOutputValidationError("a01_transcript_context_truncated", "");
+  const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
+  const images = validateAgentImageAttachments(params.images);
+  const content: OpenAI.Responses.ResponseInputContent[] = [
+    { type: "input_text", text: buildTurnUserText(input, context.text, images.length ? [
+      "Imagenes adjuntas: " + images.map((image, index) => String(index + 1) + ". " + imageLabel(image)).join("; "),
+    ] : []) },
+    ...images.map((image) => ({
+      type: "input_image" as const,
+      image_url: "url" in image ? image.url : "data:" + image.mediaType + ";base64," + image.base64,
+      detail: "auto" as const,
+    })),
+  ];
+  const history: OpenAI.Responses.ResponseInput = [{ role: "user", content }];
+  const base: OpenAI.Responses.ResponseCreateParamsNonStreaming = {
+    model: params.model,
+    instructions: systemPrompt,
+    store: false,
+    include: ["reasoning.encrypted_content"],
+    reasoning: { effort: params.reasoningEffort && params.reasoningEffort !== "none" ? params.reasoningEffort : "medium" },
+    max_output_tokens: params.maxCompletionTokens ?? 16000,
+    text: { format: { type: "json_schema", name: "agent_output", schema: outputContract.jsonSchema, strict: true } },
+    ...(tools.length ? { tools: tools.map((tool) => ({
+      type: "function" as const, name: tool.name, description: tool.description,
+      parameters: tool.inputSchema, strict: false,
+    })) } : {}),
+  };
+  const accounting = createTurnAccounting(params.model, params.budget);
+  const createResponse = async (withoutTools = false): Promise<OpenAI.Responses.Response> => {
+    const request = { ...(withoutTools ? requestWithoutTools(base) : base), input: history };
+    const response = await withAgentResilience(async (signal) => {
+      if (!params.onTextDelta && resilience.timeoutMs <= STREAMING_ABOVE_MS)
+        return client.responses.create(request, { signal });
+      params.onTextReset?.();
+      const stream = client.responses.stream({ ...request, stream: true }, { signal });
+      stream.on("response.output_text.delta", (event) => params.onTextDelta?.(event.delta));
+      return stream.finalResponse();
+    }, resilience, { ...(params.signal ? { signal: params.signal } : {}) });
+    try {
+      accounting.recordModelCall({
+        inputTokens: response.usage?.input_tokens,
+        outputTokens: response.usage?.output_tokens,
+        cacheReadTokens: response.usage?.input_tokens_details?.cached_tokens,
+        reasoningTokens: response.usage?.output_tokens_details?.reasoning_tokens,
+      });
+    } finally {
+      try { await params.onUsage?.({ ...accounting.snapshot("openai"), model: response.model ?? params.model }); }
+      catch { /* La telemetría no invalida una respuesta recibida. */ }
+    }
+    if (response.status === "incomplete")
+      throw new AgentOutputValidationError(response.incomplete_details?.reason === "content_filter" ? "agent_refusal" : "agent_output_truncated_max_tokens", "");
+    if (response.status !== "completed")
+      throw new AgentOutputValidationError("agent_response_failed", "");
+    return response;
+  };
+  let response = await createResponse();
+  const functionCalls = (result: OpenAI.Responses.Response) => result.output.filter((item): item is OpenAI.Responses.ResponseFunctionToolCall => item.type === "function_call");
+  let calls = functionCalls(response);
+  while (calls.length) {
+    const finalRound = accounting.isFinalRound();
+    accounting.recordToolCalls(calls.length);
+    params.onToolCall?.();
+    const executed = await mapWithConcurrency(calls, MAX_PARALLEL_TOOL_CALLS, (call) =>
+      trackToolActivity(params.onToolActivity, tools, call.call_id, call.name, () =>
+        executeModelToolCall(tools, call.name,
+          () => call.arguments ? JSON.parse(call.arguments) as Record<string, unknown> : {},
+          params.onSecurityEvent,
+        ),
+      ),
+    );
+    // Incluye los items de razonamiento cifrados junto a function_call y sus resultados.
+    for (const item of response.output) {
+      if (item.type === "function_call" || item.type === "reasoning" || item.type === "message") history.push(item);
+      else throw new AgentOutputValidationError("agent_response_unsupported_tool", "");
+    }
+    calls.forEach((call, index) => history.push({
+      type: "function_call_output", call_id: call.call_id, output: executed[index]!.content,
+    }));
+    if (finalRound) history.push({ role: "user", content: TOOL_BUDGET_NOTICE });
+    response = await createResponse(finalRound);
+    calls = functionCalls(response);
+    if (finalRound) break;
+  }
+  if (calls.length) throw new AgentOutputValidationError("agent_output_unfinished_tools", "");
+  const refusal = response.output.some((item) => item.type === "message" && item.content.some((part) => part.type === "refusal"));
+  if (refusal) throw new AgentOutputValidationError("agent_refusal", "");
+  const text = response.output_text;
+  if (!text) throw new AgentOutputValidationError("agent_output_missing_text", "");
+  return {
+    output: parseTurnOutput(text, outputContract),
+    ...accounting.snapshot("openai"),
+    model: response.model ?? params.model,
+    latencyMs: Date.now() - startedAt,
+    stopReason: response.status ?? null,
     ...turnPromptFields(systemPrompt, tools, context.truncated),
   };
 }

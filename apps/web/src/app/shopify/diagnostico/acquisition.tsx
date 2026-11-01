@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type AcquisitionRun = {
   organization_id: string;
@@ -67,40 +67,42 @@ export function AcquisitionPlaybookPanel() {
   const current = runs[0];
   const profile = current?.result?.selected_instance?.domain_extension?.acquisition;
   return (
-    <Card
-      id="insight-acquisition"
-      title="Adquisición y demanda"
-      description="Distingue demanda cualificada de tráfico y conserva la incertidumbre de canal, audiencia, economics y capacidad."
-    >
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">
-            {current.candidate_count
-              ? `${current.candidate_count} playbook(s) de adquisición evaluado(s).`
-              : "No hay templates ACQUISITION activos; no se inventa un canal ni una audiencia."}
-          </p>
-          {profile ? (
-            <p className="text-muted mt-2 text-xs">
-              Movimiento: {profile.acquisition_motion}; alcance: {profile.channel_scope}.
-              {profile.target_population_ref
-                ? ` Población: ${profile.target_population_ref}.`
-                : " Población no declarada."}
+    <Card id="insight-acquisition">
+      <CardHeader>
+        <CardTitle>Adquisición y demanda</CardTitle>
+        <CardDescription>Distingue demanda cualificada de tráfico y conserva la incertidumbre de canal, audiencia, economics y capacidad.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">
+              {current.candidate_count
+                ? `${current.candidate_count} playbook(s) de adquisición evaluado(s).`
+                : "No hay templates ACQUISITION activos; no se inventa un canal ni una audiencia."}
             </p>
-          ) : null}
-          <p className="text-muted mt-2 text-xs">
-            {current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada."}
-            {current.unresolved_unknowns.length
-              ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.`
-              : ""}
-          </p>
-        </article>
-      ) : (
-        <p className="text-muted text-sm">Todavía no hay evaluaciones de adquisición.</p>
-      )}
+            {profile ? (
+              <p className="text-muted mt-2 text-xs">
+                Movimiento: {profile.acquisition_motion}; alcance: {profile.channel_scope}.
+                {profile.target_population_ref
+                  ? ` Población: ${profile.target_population_ref}.`
+                  : " Población no declarada."}
+              </p>
+            ) : null}
+            <p className="text-muted mt-2 text-xs">
+              {current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada."}
+              {current.unresolved_unknowns.length
+                ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.`
+                : ""}
+            </p>
+          </CardContent></Card>
+        ) : (
+          <EmptyState title="Todavía no hay evaluaciones de adquisición" />
+        )}
+      </CardContent>
     </Card>
   );
 }

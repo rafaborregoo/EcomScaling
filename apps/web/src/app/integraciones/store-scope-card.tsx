@@ -24,9 +24,18 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   EmptyState,
   LoadingBlock,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
 } from "@/components/ui";
 import {
   storeLabel,
@@ -139,22 +148,27 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
     // Contenido dentro de su propia tarjeta: que esta llamada falle no puede
     // dejar el resto de /integraciones sin pintar.
     return (
-      <Card title="Cuentas por tienda">
-        {loadError ? (
-          <>
-            <Banner tone="danger">{loadError}</Banner>
-            <Button
-              className="mt-3"
-              variant="secondary"
-              size="sm"
-              onClick={() => void load()}
-            >
-              Reintentar
-            </Button>
-          </>
-        ) : (
-          <LoadingBlock label="Cargando asignación de tiendas..." />
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Cuentas por tienda</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadError ? (
+            <>
+              <Banner tone="danger">{loadError}</Banner>
+              <Button
+                className="mt-3"
+                variant="secondary"
+                size="sm"
+                onClick={() => void load()}
+              >
+                Reintentar
+              </Button>
+            </>
+          ) : (
+            <LoadingBlock label="Cargando asignación de tiendas..." />
+          )}
+        </CardContent>
       </Card>
     );
   }
@@ -162,11 +176,16 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
   // La relación se puede y se debe guardar aunque solo exista una tienda.
   if (scope.store_count === 0) {
     return (
-      <Card title="Cuentas por tienda">
-        <EmptyState
-          title="Conecta una tienda primero"
-          hint="Conecta Shopify para poder asignar aquí tus cuentas de Meta y Klaviyo."
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Cuentas por tienda</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="Conecta una tienda primero"
+            hint="Conecta Shopify para poder asignar aquí tus cuentas de Meta y Klaviyo."
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -189,11 +208,16 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
 
   if (accounts.length === 0) {
     return (
-      <Card title="Cuentas por tienda">
-        <EmptyState
-          title="Todavía no hay cuentas que repartir"
-          hint="Conecta Meta Ads o Klaviyo y aquí podrás decir a qué tienda pertenece cada cuenta."
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Cuentas por tienda</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="Todavía no hay cuentas que repartir"
+            hint="Conecta Meta Ads o Klaviyo y aquí podrás decir a qué tienda pertenece cada cuenta."
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -240,208 +264,209 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
   ].filter((group) => group.rows.length > 0);
 
   return (
-    <Card
-      title="Cuentas por tienda"
-      description="Cada cuenta de Meta y Klaviyo pertenece a una tienda. Sin asignar, sus cifras no se filtran al cambiar de tienda."
-      actions={
-        scope.unassigned_count > 0 ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cuentas por tienda</CardTitle>
+        <CardDescription>Cada cuenta de Meta y Klaviyo pertenece a una tienda. Sin asignar, sus cifras no se filtran al cambiar de tienda.</CardDescription>
+        <CardAction>{scope.unassigned_count > 0 ? (
           <Badge tone="warn">
             {scope.unassigned_count}{" "}
             {scope.unassigned_count === 1 ? "cuenta" : "cuentas"} sin asignar
           </Badge>
-        ) : null
-      }
-    >
-      <section
-        className="mb-4 rounded-lg border border-separator p-3"
-        aria-labelledby={`${domId}-diagnostics`}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3
-              id={`${domId}-diagnostics`}
-              className="text-sm font-semibold text-foreground"
-            >
-              Diagnóstico de vínculos
-            </h3>
-            <p className="mt-1 text-sm text-muted">
-              {diagnostics.length === 0
-                ? "E-NORA todavía no ha detectado cuentas de Klaviyo o Meta Ads para esta organización."
-                : "E-NORA ha detectado " +
-                  diagnostics.length +
-                  " cuenta" +
-                  (diagnostics.length === 1 ? "" : "s") +
-                  " de proveedores."}
-              {diagnostics.length > 0 && unassignedDiagnostics.length > 0
-                ? ` ${unassignedDiagnostics.length} todavía no tiene una tienda registrada aquí.`
-                : diagnostics.length > 0
-                  ? " Todas tienen una tienda registrada aquí."
-                  : ""}
-            </p>
+        ) : null}</CardAction>
+      </CardHeader>
+      <CardContent>
+        <Card size="sm" role="region" aria-labelledby={`${domId}-diagnostics`} className="mb-4"><CardContent>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3
+                id={`${domId}-diagnostics`}
+                className="text-sm font-semibold text-foreground"
+              >
+                Diagnóstico de vínculos
+              </h3>
+              <p className="mt-1 text-sm text-muted">
+                {diagnostics.length === 0
+                  ? "E-NORA todavía no ha detectado cuentas de Klaviyo o Meta Ads para esta organización."
+                  : "E-NORA ha detectado " +
+                    diagnostics.length +
+                    " cuenta" +
+                    (diagnostics.length === 1 ? "" : "s") +
+                    " de proveedores."}
+                {diagnostics.length > 0 && unassignedDiagnostics.length > 0
+                  ? ` ${unassignedDiagnostics.length} todavía no tiene una tienda registrada aquí.`
+                  : diagnostics.length > 0
+                    ? " Todas tienen una tienda registrada aquí."
+                    : ""}
+              </p>
+            </div>
+            {diagnostics.length === 0 ? (
+              <Badge tone="neutral">Sin cuentas detectadas</Badge>
+            ) : unassignedDiagnostics.length > 0 ? (
+              <Badge tone="warn">
+                {unassignedDiagnostics.length} sin vínculo interno
+              </Badge>
+            ) : (
+              <Badge tone="success">Vínculos internos completos</Badge>
+            )}
           </div>
-          {diagnostics.length === 0 ? (
-            <Badge tone="neutral">Sin cuentas detectadas</Badge>
-          ) : unassignedDiagnostics.length > 0 ? (
-            <Badge tone="warn">
-              {unassignedDiagnostics.length} sin vínculo interno
-            </Badge>
-          ) : (
-            <Badge tone="success">Vínculos internos completos</Badge>
-          )}
+
+          <p className="mt-3 text-sm leading-6 text-muted">
+            La relación que ya configuraste entre Shopify, Klaviyo o Meta no se
+            importa automáticamente a E-NORA. Esta pantalla comprueba el vínculo
+            interno que usa E-NORA para atribuir datos a cada tienda; no consulta
+            ni cambia la configuración de las otras plataformas.
+          </p>
+
+          <ul className="mt-3 space-y-2">
+            {diagnostics.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-subtle px-3 py-2 text-sm"
+              >
+                <span className="min-w-0">
+                  <span className="font-medium text-foreground">
+                    {item.accountName}
+                  </span>
+                  <span className="ml-2 text-muted">{item.provider}</span>
+                </span>
+                <span className="text-muted">
+                  {item.status === "assigned"
+                    ? `Vinculada a ${item.storeName}`
+                    : item.status === "stale"
+                      ? "La tienda guardada ya no existe"
+                      : "Cuenta detectada; falta registrar la tienda"}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <Collapsible className="mt-3 text-sm">
+            <CollapsibleTrigger className="font-medium text-foreground">
+              Casos de prueba reproducibles
+              <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+            <ul className="mt-2 list-inside list-disc space-y-1 text-muted">
+              <li>Cuenta presente y asignada a una tienda existente.</li>
+              <li>Cuenta presente, pero sin vínculo interno de tienda.</li>
+              <li>Cuenta cuyo vínculo apunta a una tienda eliminada.</li>
+            </ul>
+            <p className="mt-2 text-muted">
+              Prueba automatizada: <code>apps/web/src/app/integraciones/store-link-diagnostics.test.ts</code>.
+            </p>
+          </CollapsibleContent>
+          </Collapsible>
+        </CardContent></Card>
+
+        <p className="text-sm text-muted">
+          Viendo ahora:{" "}
+          <span className="font-medium text-foreground">
+            {activeStore ? storeLabel(activeStore) : "Todas las tiendas"}
+          </span>
+          {activeStore
+            ? null
+            : " · elige una en el selector del encabezado para verla por separado."}
+        </p>
+
+        <div className="mt-4 space-y-5">
+          {groups.map((group) => (
+            <section key={group.key} aria-labelledby={`${domId}-${group.key}`}>
+              <div className="flex flex-wrap items-baseline gap-2 border-b border-separator pb-1">
+                <h3
+                  id={`${domId}-${group.key}`}
+                  className="text-sm font-medium text-foreground"
+                >
+                  {group.title}
+                </h3>
+                {group.isActive ? <Badge tone="brand">Tienda activa</Badge> : null}
+                <span className="text-xs text-muted">{group.subtitle}</span>
+              </div>
+
+              <ul className="mt-2 space-y-3">
+                {group.rows.map(({ account, provider, label }) => {
+                  const rowError = rowErrors[account.id];
+                  const rowErrorId = `${domId}-err-${account.id}`;
+                  const diagnostic = diagnosticById.get(account.id);
+                  return (
+                    <li
+                      key={account.id}
+                      className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate">{label}</p>
+                        <p className="text-muted">
+                          {provider} · {diagnostic?.status === "assigned"
+                            ? "tienda registrada en E-NORA"
+                            : diagnostic?.status === "stale"
+                              ? "vínculo interno obsoleto"
+                              : "sin tienda registrada en E-NORA"}
+                        </p>
+                      </div>
+                      <div
+                        className="flex flex-wrap gap-1.5 sm:max-w-[32rem] sm:justify-end"
+                        role="group"
+                        aria-label={`Tienda de ${label} (${provider})`}
+                        aria-describedby={rowError ? rowErrorId : undefined}
+                      >
+                        {storeOptions.map((option) => {
+                          const selected = (draft[account.id] ?? UNASSIGNED) === option.value;
+                          return (
+                            <Button
+                              key={option.value || "unassigned"}
+                              type="button"
+                              size="sm"
+                              variant={selected ? "default" : "secondary"}
+                              aria-pressed={selected}
+                              disabled={isSaving}
+                              onClick={() =>
+                                setDraft((current) => ({
+                                  ...current,
+                                  [account.id]: option.value,
+                                }))
+                              }
+                            >
+                              {option.label}
+                            </Button>
+                          );
+                        })}
+                        {rowError ? (
+                          <p
+                            id={rowErrorId}
+                            className="mt-1 text-xs text-danger"
+                          >
+                            {rowError}
+                          </p>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
         </div>
 
-        <p className="mt-3 text-sm leading-6 text-muted">
-          La relación que ya configuraste entre Shopify, Klaviyo o Meta no se
-          importa automáticamente a E-NORA. Esta pantalla comprueba el vínculo
-          interno que usa E-NORA para atribuir datos a cada tienda; no consulta
-          ni cambia la configuración de las otras plataformas.
-        </p>
+        {saveError ? (
+          <Banner className="mt-3" tone="danger">
+            {saveError}
+          </Banner>
+        ) : null}
 
-        <ul className="mt-3 space-y-2">
-          {diagnostics.map((item) => (
-            <li
-              key={item.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-subtle px-3 py-2 text-sm"
-            >
-              <span className="min-w-0">
-                <span className="font-medium text-foreground">
-                  {item.accountName}
-                </span>
-                <span className="ml-2 text-muted">{item.provider}</span>
-              </span>
-              <span className="text-muted">
-                {item.status === "assigned"
-                  ? `Vinculada a ${item.storeName}`
-                  : item.status === "stale"
-                    ? "La tienda guardada ya no existe"
-                    : "Cuenta detectada; falta registrar la tienda"}
-              </span>
-            </li>
-          ))}
-        </ul>
-
-        <details className="mt-3 text-sm">
-          <summary className="cursor-pointer font-medium text-foreground">
-            Casos de prueba reproducibles
-          </summary>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-muted">
-            <li>Cuenta presente y asignada a una tienda existente.</li>
-            <li>Cuenta presente, pero sin vínculo interno de tienda.</li>
-            <li>Cuenta cuyo vínculo apunta a una tienda eliminada.</li>
-          </ul>
-          <p className="mt-2 text-muted">
-            Prueba automatizada: <code>apps/web/src/app/integraciones/store-link-diagnostics.test.ts</code>.
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button
+            onClick={() => void save(accounts)}
+            disabled={!isDirty || isSaving}
+          >
+            {isSaving ? "Guardando..." : "Guardar asignación"}
+          </Button>
+          {/* El resultado de guardar solo existia como cambio de la lista: con
+              lector de pantalla, pulsar el boton no anunciaba nada. */}
+          <p role="status" aria-live="polite" className="text-sm text-muted">
+            {status}
           </p>
-        </details>
-      </section>
-
-      <p className="text-sm text-muted">
-        Viendo ahora:{" "}
-        <span className="font-medium text-foreground">
-          {activeStore ? storeLabel(activeStore) : "Todas las tiendas"}
-        </span>
-        {activeStore
-          ? null
-          : " · elige una en el selector del encabezado para verla por separado."}
-      </p>
-
-      <div className="mt-4 space-y-5">
-        {groups.map((group) => (
-          <section key={group.key} aria-labelledby={`${domId}-${group.key}`}>
-            <div className="flex flex-wrap items-baseline gap-2 border-b border-separator pb-1">
-              <h3
-                id={`${domId}-${group.key}`}
-                className="text-sm font-medium text-foreground"
-              >
-                {group.title}
-              </h3>
-              {group.isActive ? <Badge tone="brand">Tienda activa</Badge> : null}
-              <span className="text-xs text-muted">{group.subtitle}</span>
-            </div>
-
-            <ul className="mt-2 space-y-3">
-              {group.rows.map(({ account, provider, label }) => {
-                const rowError = rowErrors[account.id];
-                const rowErrorId = `${domId}-err-${account.id}`;
-                const diagnostic = diagnosticById.get(account.id);
-                return (
-                  <li
-                    key={account.id}
-                    className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate">{label}</p>
-                      <p className="text-muted">
-                        {provider} · {diagnostic?.status === "assigned"
-                          ? "tienda registrada en E-NORA"
-                          : diagnostic?.status === "stale"
-                            ? "vínculo interno obsoleto"
-                            : "sin tienda registrada en E-NORA"}
-                      </p>
-                    </div>
-                    <div
-                      className="flex flex-wrap gap-1.5 sm:max-w-[32rem] sm:justify-end"
-                      role="group"
-                      aria-label={`Tienda de ${label} (${provider})`}
-                      aria-describedby={rowError ? rowErrorId : undefined}
-                    >
-                      {storeOptions.map((option) => {
-                        const selected = (draft[account.id] ?? UNASSIGNED) === option.value;
-                        return (
-                          <Button
-                            key={option.value || "unassigned"}
-                            type="button"
-                            size="sm"
-                            variant={selected ? "primary" : "secondary"}
-                            aria-pressed={selected}
-                            disabled={isSaving}
-                            onClick={() =>
-                              setDraft((current) => ({
-                                ...current,
-                                [account.id]: option.value,
-                              }))
-                            }
-                          >
-                            {option.label}
-                          </Button>
-                        );
-                      })}
-                      {rowError ? (
-                        <p
-                          id={rowErrorId}
-                          className="mt-1 text-xs text-danger"
-                        >
-                          {rowError}
-                        </p>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </div>
-
-      {saveError ? (
-        <Banner className="mt-3" tone="danger">
-          {saveError}
-        </Banner>
-      ) : null}
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button
-          onClick={() => void save(accounts)}
-          disabled={!isDirty || isSaving}
-        >
-          {isSaving ? "Guardando..." : "Guardar asignación"}
-        </Button>
-        {/* El resultado de guardar solo existia como cambio de la lista: con
-            lector de pantalla, pulsar el boton no anunciaba nada. */}
-        <p role="status" aria-live="polite" className="text-sm text-muted">
-          {status}
-        </p>
-      </div>
+        </div>
+      </CardContent>
     </Card>
   );
 }

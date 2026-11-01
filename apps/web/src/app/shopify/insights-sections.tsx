@@ -1,5 +1,6 @@
 "use client";
 
+import { readApiError } from "@/lib/api-error";
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
@@ -9,15 +10,19 @@ import {
   BarChart,
   Badge,
   Banner,
-  Card,
   EmptyState,
   ErrorBlock,
   Heading,
   Link,
   LoadingBlock,
   Metric,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 export type ShopifyInsights = {
@@ -350,119 +355,121 @@ function CustomersSection({
   const allUnknown = unknown > 0 && known === 0;
 
   return (
-    <Card
-      id="shopify-clientes"
-      title="Clientes"
-      description="Cuántos vuelven y cuánto vale cada uno."
-    >
-      {allUnknown ? (
-        <Banner tone="warn" className="text-sm">
-          <p className="font-medium">
-            No sabemos cuáles de los {count(unknown)} pedidos son de clientes
-            que repiten.
-          </p>
-          <p className="text-muted">
-            Shopify marca en cada pedido qué número de compra es para ese
-            cliente, y ese campo no se ha sincronizado nunca. Vuelve a conectar
-            la tienda en <Link href="/integraciones">Integraciones</Link> y
-            lanza un sincronizado para tenerlo.
-          </p>
-        </Banner>
-      ) : recurrence ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            card
-            label="Pedidos de clientes que repiten"
-            value={count(recurrence.returning_orders)}
-            hint={formatMoney(recurrence.returning_revenue, currency)}
-          />
-          <Metric
-            card
-            label="Pedidos de clientes nuevos"
-            value={count(recurrence.new_orders)}
-            hint={formatMoney(recurrence.new_revenue, currency)}
-          />
-          <Metric
-            card
-            label="Tasa de recompra"
-            value={percent(recurrence.repeat_order_rate)}
-            tone={
-              recurrence.repeat_order_rate == null
-                ? "default"
-                : recurrence.repeat_order_rate < 0.15
-                  ? "warn"
-                  : "success"
-            }
-          />
-          <Metric
-            card
-            label="Sin clasificar"
-            value={count(unknown)}
-            tone={unknown > 0 ? "warn" : "default"}
-            hint={unknown > 0 ? "pedidos sin el dato de Shopify" : undefined}
-          />
-        </div>
-      ) : null}
+    <Card id="shopify-clientes">
+      <CardHeader>
+        <CardTitle>Clientes</CardTitle>
+        <CardDescription>Cuántos vuelven y cuánto vale cada uno.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {allUnknown ? (
+          <Banner tone="warn" className="text-sm">
+            <p className="font-medium">
+              No sabemos cuáles de los {count(unknown)} pedidos son de clientes
+              que repiten.
+            </p>
+            <p className="text-muted">
+              Shopify marca en cada pedido qué número de compra es para ese
+              cliente, y ese campo no se ha sincronizado nunca. Vuelve a conectar
+              la tienda en <Link href="/integraciones">Integraciones</Link> y
+              lanza un sincronizado para tenerlo.
+            </p>
+          </Banner>
+        ) : recurrence ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              card
+              label="Pedidos de clientes que repiten"
+              value={count(recurrence.returning_orders)}
+              hint={formatMoney(recurrence.returning_revenue, currency)}
+            />
+            <Metric
+              card
+              label="Pedidos de clientes nuevos"
+              value={count(recurrence.new_orders)}
+              hint={formatMoney(recurrence.new_revenue, currency)}
+            />
+            <Metric
+              card
+              label="Tasa de recompra"
+              value={percent(recurrence.repeat_order_rate)}
+              tone={
+                recurrence.repeat_order_rate == null
+                  ? "default"
+                  : recurrence.repeat_order_rate < 0.15
+                    ? "warn"
+                    : "success"
+              }
+            />
+            <Metric
+              card
+              label="Sin clasificar"
+              value={count(unknown)}
+              tone={unknown > 0 ? "warn" : "default"}
+              hint={unknown > 0 ? "pedidos sin el dato de Shopify" : undefined}
+            />
+          </div>
+        ) : null}
 
-      {value ? (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            card
-            label="Clientes"
-            value={count(value.customers)}
-            hint={
-              value.guest_orders > 0
-                ? `${count(value.guest_orders)} pedidos sin cliente`
-                : undefined
-            }
-          />
-          <Metric
-            card
-            label="Pedidos por cliente"
-            value={
-              value.avg_orders_per_customer == null
-                ? "—"
-                : Number(value.avg_orders_per_customer).toLocaleString(
-                    "es-ES",
-                    { maximumFractionDigits: 2 },
-                  )
-            }
-          />
-          <Metric
-            card
-            label="Gasto medio por cliente"
-            value={
-              value.avg_revenue_per_customer == null
-                ? "—"
-                : formatMoney(value.avg_revenue_per_customer, currency)
-            }
-            hint={
-              value.median_revenue_per_customer == null
-                ? undefined
-                : `mediana ${formatMoney(value.median_revenue_per_customer, currency)}`
-            }
-          />
-          <Metric
-            card
-            label="El 10% que más gasta"
-            value={
-              value.p90_revenue_per_customer == null
-                ? "—"
-                : `desde ${formatMoney(value.p90_revenue_per_customer, currency)}`
-            }
-          />
-        </div>
-      ) : null}
+        {value ? (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              card
+              label="Clientes"
+              value={count(value.customers)}
+              hint={
+                value.guest_orders > 0
+                  ? `${count(value.guest_orders)} pedidos sin cliente`
+                  : undefined
+              }
+            />
+            <Metric
+              card
+              label="Pedidos por cliente"
+              value={
+                value.avg_orders_per_customer == null
+                  ? "—"
+                  : Number(value.avg_orders_per_customer).toLocaleString(
+                      "es-ES",
+                      { maximumFractionDigits: 2 },
+                    )
+              }
+            />
+            <Metric
+              card
+              label="Gasto medio por cliente"
+              value={
+                value.avg_revenue_per_customer == null
+                  ? "—"
+                  : formatMoney(value.avg_revenue_per_customer, currency)
+              }
+              hint={
+                value.median_revenue_per_customer == null
+                  ? undefined
+                  : `mediana ${formatMoney(value.median_revenue_per_customer, currency)}`
+              }
+            />
+            <Metric
+              card
+              label="El 10% que más gasta"
+              value={
+                value.p90_revenue_per_customer == null
+                  ? "—"
+                  : `desde ${formatMoney(value.p90_revenue_per_customer, currency)}`
+              }
+            />
+          </div>
+        ) : null}
 
-      <LifetimeMetrics insights={insights} currency={currency} />
+        <LifetimeMetrics insights={insights} currency={currency} />
 
-      {/* El valor por cliente no se recorta al periodo: un LTV de 30 dias es
-          un numero mas pequeño que no significa nada. */}
-      <p className="mt-3 text-xs text-muted">
-        Las cifras de cliente usan los pedidos disponibles en la tienda y no el
-        periodo seleccionado. El alcance histórico depende de los permisos y de
-        la sincronización completada.
-      </p>
+        {/* El valor por cliente no se recorta al periodo: un LTV de 30 dias es
+            un numero mas pequeño que no significa nada. */}
+        <p className="mt-3 text-xs text-muted">
+          Las cifras de cliente usan los pedidos disponibles en la tienda y no el
+          periodo seleccionado. El alcance histórico depende de los permisos y de
+          la sincronización completada.
+        </p>
+      </CardContent>
     </Card>
   );
 }
@@ -470,8 +477,14 @@ function CustomersSection({
 function CohortsSection({ insights }: { insights: ShopifyInsights }) {
   if (!insights.cohorts.length) {
     return (
-      <Card id="shopify-cohortes" title="Cohortes" description="Quién vuelve, mes a mes.">
-        <PendingSync what="suficientes pedidos con cliente" />
+      <Card id="shopify-cohortes">
+        <CardHeader>
+          <CardTitle>Cohortes</CardTitle>
+          <CardDescription>Quién vuelve, mes a mes.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="suficientes pedidos con cliente" />
+        </CardContent>
       </Card>
     );
   }
@@ -481,7 +494,7 @@ function CohortsSection({ insights }: { insights: ShopifyInsights }) {
     MAX_COHORT_OFFSET,
   );
 
-  const columns: TableColumnDef<CohortRow>[] = [
+  const columns: DataTableColumn<CohortRow>[] = [
     {
       key: "month",
       label: "Primera compra",
@@ -495,7 +508,7 @@ function CohortsSection({ insights }: { insights: ShopifyInsights }) {
       render: (row) => count(row.cohortCustomers),
     },
     ...Array.from({ length: maxOffset }, (_unused, index) => index + 1).map(
-      (offset): TableColumnDef<CohortRow> => ({
+      (offset): DataTableColumn<CohortRow> => ({
         key: `offset-${offset}`,
         label: `+${offset} mes${offset === 1 ? "" : "es"}`,
         render: (row) => {
@@ -515,17 +528,19 @@ function CohortsSection({ insights }: { insights: ShopifyInsights }) {
   ];
 
   return (
-    <Card
-      id="shopify-cohortes"
-      title="Cohortes"
-      description="De los clientes que compraron por primera vez cada mes, cuántos volvieron después."
-    >
-      <Table
-        ariaLabel="Retención por cohorte mensual"
-        columns={columns}
-        rows={rows}
-        emptyLabel="Sin cohortes en los últimos 12 meses."
-      />
+    <Card id="shopify-cohortes">
+      <CardHeader>
+        <CardTitle>Cohortes</CardTitle>
+        <CardDescription>De los clientes que compraron por primera vez cada mes, cuántos volvieron después.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DataTable
+          ariaLabel="Retención por cohorte mensual"
+          columns={columns}
+          rows={rows}
+          emptyLabel="Sin cohortes en los últimos 12 meses."
+        />
+      </CardContent>
     </Card>
   );
 }
@@ -577,7 +592,7 @@ function AttributionSection({
     .slice(0, 8)
     .map(([channel, revenue]) => ({ channel, revenue }));
 
-  const columns: TableColumnDef<AttributionRow>[] = [
+  const columns: DataTableColumn<AttributionRow>[] = [
     {
       key: "channel",
       label: "Canal",
@@ -612,62 +627,64 @@ function AttributionSection({
   ];
 
   return (
-    <Card
-      id="shopify-origen"
-      title="De dónde vienen"
-      description="Primera visita del comprador, según Shopify."
-    >
-      {totalOrders > 0 && attributedOrders === 0 ? (
-        <Banner tone="warn" className="text-sm">
-          <p className="font-medium">
-            Ninguno de los {count(totalOrders)} pedidos trae de dónde vino el
-            cliente.
-          </p>
-          <p className="text-muted">
-            El recorrido del comprador se pide en el mismo sincronizado que el
-            número de compra. Vuelve a conectar la tienda en{" "}
-            <Link href="/integraciones">Integraciones</Link> y lanza un
-            sincronizado.
-          </p>
-        </Banner>
-      ) : (
-        <>
-          {channelChartData.length ? (
-            <div className="mb-4 border-t border-edge pt-4">
-              <div className="mb-2">
-                <p className="text-sm font-medium text-foreground">
-                  Ingresos atribuidos por canal
-                </p>
-                <p className="text-xs text-muted">
-                  Canales con más ingresos según la primera visita registrada por Shopify.
-                </p>
+    <Card id="shopify-origen">
+      <CardHeader>
+        <CardTitle>De dónde vienen</CardTitle>
+        <CardDescription>Primera visita del comprador, según Shopify.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {totalOrders > 0 && attributedOrders === 0 ? (
+          <Banner tone="warn" className="text-sm">
+            <p className="font-medium">
+              Ninguno de los {count(totalOrders)} pedidos trae de dónde vino el
+              cliente.
+            </p>
+            <p className="text-muted">
+              El recorrido del comprador se pide en el mismo sincronizado que el
+              número de compra. Vuelve a conectar la tienda en{" "}
+              <Link href="/integraciones">Integraciones</Link> y lanza un
+              sincronizado.
+            </p>
+          </Banner>
+        ) : (
+          <>
+            {channelChartData.length ? (
+              <div className="mb-4 border-t border-edge pt-4">
+                <div className="mb-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Ingresos atribuidos por canal
+                  </p>
+                  <p className="text-xs text-muted">
+                    Canales con más ingresos según la primera visita registrada por Shopify.
+                  </p>
+                </div>
+                <BarChart
+                  data={channelChartData}
+                  xKey="channel"
+                  series={[
+                    { key: "revenue", label: "Ingresos", color: "#2563eb" },
+                  ]}
+                  horizontal
+                  height={Math.max(180, channelChartData.length * 42)}
+                  valueFormatter={(amount) => formatMoney(amount, currency)}
+                />
               </div>
-              <BarChart
-                data={channelChartData}
-                xKey="channel"
-                series={[
-                  { key: "revenue", label: "Ingresos", color: "#2563eb" },
-                ]}
-                horizontal
-                height={Math.max(180, channelChartData.length * 42)}
-                valueFormatter={(amount) => formatMoney(amount, currency)}
-              />
-            </div>
-          ) : null}
-          <Table
-            ariaLabel="Pedidos por canal de primera visita"
-            columns={columns}
-            rows={rows}
-            emptyLabel="Sin pedidos en el periodo seleccionado."
-          />
-          {/* ADR-0021: cada plataforma mide su propia atribucion con su propia
-              ventana. Sumarlas cuenta el mismo pedido varias veces. */}
-          <p className="mt-3 text-xs text-muted">
-            Medido por Shopify sobre la sesión del comprador. No se suma con lo
-            que atribuyen Meta o Klaviyo, que miden otra cosa.
-          </p>
-        </>
-      )}
+            ) : null}
+            <DataTable
+              ariaLabel="Pedidos por canal de primera visita"
+              columns={columns}
+              rows={rows}
+              emptyLabel="Sin pedidos en el periodo seleccionado."
+            />
+            {/* ADR-0021: cada plataforma mide su propia atribucion con su propia
+                ventana. Sumarlas cuenta el mismo pedido varias veces. */}
+            <p className="mt-3 text-xs text-muted">
+              Medido por Shopify sobre la sesión del comprador. No se suma con lo
+              que atribuyen Meta o Klaviyo, que miden otra cosa.
+            </p>
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -705,7 +722,7 @@ function DiscountsSection({
 
   const anyShared = rows.some((row) => row.shared > 0);
 
-  const columns: TableColumnDef<DiscountRow>[] = [
+  const columns: DataTableColumn<DiscountRow>[] = [
     { key: "code", label: "Código", render: (row) => row.code },
     { key: "orders", label: "Pedidos", render: (row) => count(row.orders) },
     {
@@ -738,33 +755,35 @@ function DiscountsSection({
   ];
 
   return (
-    <Card
-      id="shopify-promociones"
-      title="Promociones"
-      description="Qué código se usó y qué trajo a cambio."
-    >
-      {rows.length === 0 ? (
-        <PendingSync what="los descuentos aplicados en los pedidos" />
-      ) : (
-        <>
-          <Table
-            ariaLabel="Uso y coste de los códigos de descuento"
-            columns={columns}
-            rows={rows}
-            emptyLabel="Sin códigos usados en el periodo."
-          />
-          {anyShared ? (
-            <p className="mt-3 text-xs text-muted">
-              Algunos pedidos llevan más de un código, así que el mismo
-              descuento aparece en varias filas y el total suma de más.
-            </p>
-          ) : (
-            <p className="mt-3 text-xs text-muted">
-              El descuento es el del pedido completo, no solo el de este código.
-            </p>
-          )}
-        </>
-      )}
+    <Card id="shopify-promociones">
+      <CardHeader>
+        <CardTitle>Promociones</CardTitle>
+        <CardDescription>Qué código se usó y qué trajo a cambio.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <PendingSync what="los descuentos aplicados en los pedidos" />
+        ) : (
+          <>
+            <DataTable
+              ariaLabel="Uso y coste de los códigos de descuento"
+              columns={columns}
+              rows={rows}
+              emptyLabel="Sin códigos usados en el periodo."
+            />
+            {anyShared ? (
+              <p className="mt-3 text-xs text-muted">
+                Algunos pedidos llevan más de un código, así que el mismo
+                descuento aparece en varias filas y el total suma de más.
+              </p>
+            ) : (
+              <p className="mt-3 text-xs text-muted">
+                El descuento es el del pedido completo, no solo el de este código.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -805,7 +824,7 @@ function OperationsSection({
 
   const anyReturn = returnRows.some((row) => row.returned > 0);
 
-  const columns: TableColumnDef<ReturnRow>[] = [
+  const columns: DataTableColumn<ReturnRow>[] = [
     {
       key: "title",
       label: "Producto",
@@ -858,85 +877,87 @@ function OperationsSection({
   ];
 
   return (
-    <Card
-      id="shopify-operativa"
-      title="Operativa"
-      description="Cuánto se tarda en entregar y qué vuelve."
-    >
-      {delivery && delivery.fulfillments > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            card
-            label="Hasta salir del almacén"
-            value={decimal(delivery.avg_hours_to_ship, "h")}
-            hint={`${count(delivery.fulfillments)} envíos`}
-          />
-          <Metric
-            card
-            label="Hasta llegar al cliente"
-            value={decimal(delivery.avg_days_to_deliver, "días")}
-            hint={`${count(delivery.delivered)} entregados`}
-          />
-          <Metric
-            card
-            label="En tránsito"
-            value={count(delivery.in_transit)}
-          />
-          {/* Sin fecha estimada no hay con que comparar: decir "0 tarde" ahi
-              seria afirmar algo que no sabemos. */}
-          <Metric
-            card
-            label="Entregados tarde"
-            value={
-              delivery.with_estimate === 0
-                ? "Sin fecha prometida"
-                : count(delivery.late_deliveries)
-            }
-            tone={
-              delivery.with_estimate === 0
-                ? "default"
-                : delivery.late_deliveries > 0
-                  ? "warn"
-                  : "success"
-            }
-            hint={
-              delivery.with_estimate === 0
-                ? "Shopify no da fecha estimada en estos envíos"
-                : delivery.avg_delay_days != null
-                  ? `${decimal(delivery.avg_delay_days, "días")} de retraso medio`
-                  : undefined
-            }
-          />
-        </div>
-      ) : (
-        <PendingSync what="los envíos" />
-      )}
+    <Card id="shopify-operativa">
+      <CardHeader>
+        <CardTitle>Operativa</CardTitle>
+        <CardDescription>Cuánto se tarda en entregar y qué vuelve.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {delivery && delivery.fulfillments > 0 ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              card
+              label="Hasta salir del almacén"
+              value={decimal(delivery.avg_hours_to_ship, "h")}
+              hint={`${count(delivery.fulfillments)} envíos`}
+            />
+            <Metric
+              card
+              label="Hasta llegar al cliente"
+              value={decimal(delivery.avg_days_to_deliver, "días")}
+              hint={`${count(delivery.delivered)} entregados`}
+            />
+            <Metric
+              card
+              label="En tránsito"
+              value={count(delivery.in_transit)}
+            />
+            {/* Sin fecha estimada no hay con que comparar: decir "0 tarde" ahi
+                seria afirmar algo que no sabemos. */}
+            <Metric
+              card
+              label="Entregados tarde"
+              value={
+                delivery.with_estimate === 0
+                  ? "Sin fecha prometida"
+                  : count(delivery.late_deliveries)
+              }
+              tone={
+                delivery.with_estimate === 0
+                  ? "default"
+                  : delivery.late_deliveries > 0
+                    ? "warn"
+                    : "success"
+              }
+              hint={
+                delivery.with_estimate === 0
+                  ? "Shopify no da fecha estimada en estos envíos"
+                  : delivery.avg_delay_days != null
+                    ? `${decimal(delivery.avg_delay_days, "días")} de retraso medio`
+                    : undefined
+              }
+            />
+          </div>
+        ) : (
+          <PendingSync what="los envíos" />
+        )}
 
-      <div className="mt-5">
-        <Heading level={3} size="md">
-          Devoluciones por producto
-        </Heading>
-        <div className="mt-3">
-          {returnRows.length === 0 ? (
-            <PendingSync what="las devoluciones" />
-          ) : (
-            <>
-              <Table
-                ariaLabel="Devoluciones por producto"
-                columns={columns}
-                rows={returnRows}
-                emptyLabel="Sin ventas en el periodo seleccionado."
-              />
-              {!anyReturn ? (
-                <p className="mt-3 text-xs text-muted">
-                  Ninguna devolución registrada sobre lo vendido en este
-                  periodo.
-                </p>
-              ) : null}
-            </>
-          )}
+        <div className="mt-5">
+          <Heading level={3} size="md">
+            Devoluciones por producto
+          </Heading>
+          <div className="mt-3">
+            {returnRows.length === 0 ? (
+              <PendingSync what="las devoluciones" />
+            ) : (
+              <>
+                <DataTable
+                  ariaLabel="Devoluciones por producto"
+                  columns={columns}
+                  rows={returnRows}
+                  emptyLabel="Sin ventas en el periodo seleccionado."
+                />
+                {!anyReturn ? (
+                  <p className="mt-3 text-xs text-muted">
+                    Ninguna devolución registrada sobre lo vendido en este
+                    periodo.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      </CardContent>
     </Card>
   );
 }
@@ -951,57 +972,59 @@ function RecoverySection({
   const recovery = insights.checkout_recovery;
 
   return (
-    <Card
-      id="shopify-carritos"
-      title="Carritos abandonados"
-      description="Gente que llegó al pago y se fue."
-    >
-      {!recovery || recovery.checkouts === 0 ? (
-        <PendingSync what="los carritos abandonados" />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            card
-            label="Carritos"
-            value={count(recovery.checkouts)}
-            hint={
-              recovery.avg_checkout_value == null
-                ? undefined
-                : `${formatMoney(recovery.avg_checkout_value, currency)} de media`
-            }
-          />
-          <Metric
-            card
-            label="Recuperados"
-            value={count(recovery.recovered)}
-            hint={formatMoney(recovery.recovered_value, currency)}
-            tone="success"
-          />
-          <Metric
-            card
-            label="Tasa de recuperación"
-            value={percent(recovery.recovery_rate)}
-            tone={
-              recovery.recovery_rate == null
-                ? "default"
-                : recovery.recovery_rate < 0.05
-                  ? "warn"
-                  : "success"
-            }
-            hint={
-              recovery.avg_hours_to_recover == null
-                ? undefined
-                : `${decimal(recovery.avg_hours_to_recover, "h")} hasta volver`
-            }
-          />
-          <Metric
-            card
-            label="Sin recuperar"
-            value={formatMoney(recovery.lost_value, currency)}
-            tone={recovery.lost_value > 0 ? "warn" : "default"}
-          />
-        </div>
-      )}
+    <Card id="shopify-carritos">
+      <CardHeader>
+        <CardTitle>Carritos abandonados</CardTitle>
+        <CardDescription>Gente que llegó al pago y se fue.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!recovery || recovery.checkouts === 0 ? (
+          <PendingSync what="los carritos abandonados" />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              card
+              label="Carritos"
+              value={count(recovery.checkouts)}
+              hint={
+                recovery.avg_checkout_value == null
+                  ? undefined
+                  : `${formatMoney(recovery.avg_checkout_value, currency)} de media`
+              }
+            />
+            <Metric
+              card
+              label="Recuperados"
+              value={count(recovery.recovered)}
+              hint={formatMoney(recovery.recovered_value, currency)}
+              tone="success"
+            />
+            <Metric
+              card
+              label="Tasa de recuperación"
+              value={percent(recovery.recovery_rate)}
+              tone={
+                recovery.recovery_rate == null
+                  ? "default"
+                  : recovery.recovery_rate < 0.05
+                    ? "warn"
+                    : "success"
+              }
+              hint={
+                recovery.avg_hours_to_recover == null
+                  ? undefined
+                  : `${decimal(recovery.avg_hours_to_recover, "h")} hasta volver`
+              }
+            />
+            <Metric
+              card
+              label="Sin recuperar"
+              value={formatMoney(recovery.lost_value, currency)}
+              tone={recovery.lost_value > 0 ? "warn" : "default"}
+            />
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -1034,45 +1057,47 @@ function DeliveryExceptionsSection({ insights }: { insights: ShopifyInsights }) 
   const exceptions = insights.delivery_exceptions;
 
   return (
-    <Card
-      id="shopify-incidencias-entrega"
-      title="Incidencias de entrega"
-      description="Seguimiento de envíos que requieren revisión; una señal no determina por sí sola quién es responsable."
-    >
-      {exceptions == null ? (
-        <Banner tone="warn" className="text-sm">
-          No se pudo cargar la cola de incidencias. No equivale a que no haya envíos afectados.
-        </Banner>
-      ) : exceptions.length === 0 ? (
-        <EmptyState title="No hay incidencias abiertas en los envíos sincronizados" hint="Esto no confirma que todos los pedidos estén ya sincronizados; las señales aparecerán cuando Shopify comunique un problema o venza la fecha estimada." />
-      ) : (
-        <ul className="divide-y divide-edge">
-          {exceptions.map((item) => (
-            <li key={item.id} className="grid gap-2 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-foreground">
-                    {item.order_name ? `Pedido ${item.order_name}` : "Pedido sin número disponible"}
-                  </span>
-                  <Badge tone="warn">{DELIVERY_EXCEPTION_LABELS[item.exception_type] ?? "Incidencia de entrega"}</Badge>
+    <Card id="shopify-incidencias-entrega">
+      <CardHeader>
+        <CardTitle>Incidencias de entrega</CardTitle>
+        <CardDescription>Seguimiento de envíos que requieren revisión; una señal no determina por sí sola quién es responsable.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {exceptions == null ? (
+          <Banner tone="warn" className="text-sm">
+            No se pudo cargar la cola de incidencias. No equivale a que no haya envíos afectados.
+          </Banner>
+        ) : exceptions.length === 0 ? (
+          <EmptyState title="No hay incidencias abiertas en los envíos sincronizados" hint="Esto no confirma que todos los pedidos estén ya sincronizados; las señales aparecerán cuando Shopify comunique un problema o venza la fecha estimada." />
+        ) : (
+          <ul className="divide-y divide-edge">
+            {exceptions.map((item) => (
+              <li key={item.id} className="grid gap-2 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-foreground">
+                      {item.order_name ? `Pedido ${item.order_name}` : "Pedido sin número disponible"}
+                    </span>
+                    <Badge tone="warn">{DELIVERY_EXCEPTION_LABELS[item.exception_type] ?? "Incidencia de entrega"}</Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-muted">
+                    {DELIVERY_NEXT_ACTIONS[item.next_action_code] ?? "Revisar el seguimiento del envío."}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    {item.tracking_company || "Transportista no identificado"} · {DELIVERY_AREAS[item.likely_area] ?? DELIVERY_AREAS.unknown}
+                    {item.latest_event_status ? ` · Último estado: ${item.latest_event_status}` : ""}
+                  </p>
                 </div>
-                <p className="mt-1 text-sm text-muted">
-                  {DELIVERY_NEXT_ACTIONS[item.next_action_code] ?? "Revisar el seguimiento del envío."}
-                </p>
-                <p className="mt-1 text-xs text-muted">
-                  {item.tracking_company || "Transportista no identificado"} · {DELIVERY_AREAS[item.likely_area] ?? DELIVERY_AREAS.unknown}
-                  {item.latest_event_status ? ` · Último estado: ${item.latest_event_status}` : ""}
-                </p>
-              </div>
-              <div className="text-xs text-muted sm:text-right">
-                <div>Abierta hace {decimal(item.age_hours, " h")}</div>
-                <div>Fiabilidad de la señal: {Math.round(item.reason_confidence * 100)}%</div>
-                <div className="mt-1">Última observación: {new Date(item.last_observed_at).toLocaleDateString("es-ES")}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+                <div className="text-xs text-muted sm:text-right">
+                  <div>Abierta hace {decimal(item.age_hours, " h")}</div>
+                  <div>Fiabilidad de la señal: {Math.round(item.reason_confidence * 100)}%</div>
+                  <div className="mt-1">Última observación: {new Date(item.last_observed_at).toLocaleDateString("es-ES")}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -1109,15 +1134,7 @@ export function ShopifyInsightsSections({
         if (!isCurrent()) return;
 
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: string;
-            message?: string;
-          } | null;
-          setError(
-            [body?.error ?? `HTTP ${response.status}`, body?.message]
-              .filter(Boolean)
-              .join(" - "),
-          );
+          setError(await readApiError(response));
           return;
         }
 
@@ -1144,7 +1161,9 @@ export function ShopifyInsightsSections({
   if (error) {
     return (
       <Card>
-        <ErrorBlock>{error}</ErrorBlock>
+        <CardContent>
+          <ErrorBlock>{error}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
@@ -1152,7 +1171,9 @@ export function ShopifyInsightsSections({
   if (!insights) {
     return (
       <Card>
-        <LoadingBlock label="Cargando clientes, canales y operativa..." />
+        <CardContent>
+          <LoadingBlock label="Cargando clientes, canales y operativa..." />
+        </CardContent>
       </Card>
     );
   }

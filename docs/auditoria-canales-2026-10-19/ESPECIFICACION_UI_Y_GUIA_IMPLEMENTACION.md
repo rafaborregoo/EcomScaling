@@ -215,12 +215,12 @@ Los formularios de descuentos deben especificar tipo, valor, productos/coleccion
 | Campañas | Nombre, objetivo, estado remoto, presupuesto aplicable y cuenta | Abrir jerarquía; no presentar dry run como creación |
 | Conjuntos | Campaña, audiencia, presupuesto/calendario y optimización | Inspeccionar configuración soportada y anuncios |
 | Anuncios | Preview, nombre, estado de revisión/entrega, conjunto y creativo | Abrir anuncio con creativo y landing |
-| Creativos | Rejilla visual con filtros; origen, formato, producto, versión y usos | Abrir pieza local o creativo remoto según identidad |
+| Creativos | Rejilla visual con búsqueda; origen, formato, copy, destino, estado remoto, presupuesto y usos | MVP de lectura implementado local en `/meta/creativos`; abrir pieza local/Studio y explorar variantes queda para evolución |
 | Audiencias | Nombre, tipo, disponibilidad/tamaño cuando exista y estado | Inspeccionar; edición condicionada a permiso y origen |
 | Medición | Dataset/píxel, eventos y fecha de evidencia, incidencias | Resolver configuración; no declarar “medición correcta” por conexión activa |
 | Catálogos | Fuente, catálogo, conjuntos y correspondencia de productos | Ver errores de correspondencia antes de ofrecer escritura |
 
-Detalle de creativo: preview, texto, formato/ubicación, producto/landing, versión aprobada, anuncios que lo usan y resultados atribuidos con periodo. La maqueta local lleva etiqueta “Vista previa E-NORA”; preview oficial lleva su procedencia. Biblioteca global y biblioteca Meta son vistas de recursos relacionados, sin duplicar archivos.
+Detalle de creativo: preview disponible, texto, formato, landing y anuncios que lo usan con campaña, conjunto, estado de revisión/entrega y presupuesto sincronizados. F5 implementa la biblioteca remota de solo lectura; producto, versión aprobada, vínculo a pieza del Studio y resultados atribuidos con periodo quedan pendientes. La maqueta local lleva etiqueta “Vista previa E-NORA”; preview oficial lleva su procedencia. Biblioteca global y biblioteca Meta son vistas de recursos relacionados, sin duplicar archivos.
 
 Entrega inicial de escritura: crear en pausa, verificar recurso remoto y presentar estado. Activar requiere capacidad efectiva y revisión del presupuesto, destino y audiencia. El estado de revisión de Meta sigue visible aunque la petición de creación haya sido correcta.
 

@@ -13,6 +13,7 @@ export type KlaviyoTemplateVersionRequestBatch = {
 
 export type KlaviyoTemplateVersionMatch = {
   html_content: string | null;
+  text_content?: string | null;
   version_source: string | null;
   version_observed_at: string | null;
   version_superseded_at: string | null;
@@ -31,6 +32,8 @@ export type KlaviyoEmailAuditSelection = {
 export function selectKlaviyoEmailsForContentAudit(
   rows: readonly Record<string, unknown>[],
   maxMessages = 30,
+  rotation = 0,
+  requireKnownEmail = false,
 ): KlaviyoEmailAuditSelection {
   const limit = Math.max(0, Math.floor(maxMessages));
   const flows = new Map<string, Record<string, unknown>[]>();
@@ -41,6 +44,14 @@ export function selectKlaviyoEmailsForContentAudit(
   for (const row of rows) {
     const source = String(row.source ?? "").toLowerCase();
     const status = String(row.parent_status ?? "").toLowerCase();
+    const channel = String(row.channel ?? "").toLowerCase();
+    const messageStatus = String(row.message_status ?? "").toLowerCase();
+    const actionStatus = String(row.action_status ?? "").toLowerCase();
+    const excludedStates = ["draft", "archived", "cancelled", "canceled", "deleted", "disabled"];
+    if ((requireKnownEmail && channel !== "email") || (channel && channel !== "email") || excludedStates.includes(messageStatus) || excludedStates.includes(actionStatus)) {
+      excludedCount++;
+      continue;
+    }
     if (source === "flow" && ["live", "active", "manual"].includes(status)) {
       eligibleCount++;
       const key = String(row.account_id ?? "") + "|" + String(row.parent_id ?? "");
@@ -60,16 +71,23 @@ export function selectKlaviyoEmailsForContentAudit(
       key,
       rows: group.sort((a, b) => Number(a.position_in_parent ?? 0) - Number(b.position_in_parent ?? 0)),
       status: String(group[0]?.parent_status ?? "").toLowerCase(),
+      priority: Math.min(...group.map((row) => Number(row.sample_priority ?? 0))),
     }))
     .sort((a, b) =>
+      a.priority - b.priority ||
       Number(b.status === "live") - Number(a.status === "live") ||
       a.key.localeCompare(b.key),
     );
   const campaignRows = campaigns.sort((a, b) => {
     const timeA = typeof a.send_time === "string" ? Date.parse(a.send_time) : Number.NaN;
     const timeB = typeof b.send_time === "string" ? Date.parse(b.send_time) : Number.NaN;
-    return (Number.isFinite(timeB) ? timeB : -Infinity) - (Number.isFinite(timeA) ? timeA : -Infinity);
+    return Number(a.sample_priority ?? 0) - Number(b.sample_priority ?? 0) || (Number.isFinite(timeB) ? timeB : -Infinity) - (Number.isFinite(timeA) ? timeA : -Infinity);
   });
+  // Rotate whole flow groups, preserving their internal order and partial flags.
+  const urgentFlowCount = flowGroups.filter((group) => group.priority === flowGroups[0]?.priority).length;
+  const urgentCampaignCount = campaignRows.filter((row) => Number(row.sample_priority ?? 0) === Number(campaignRows[0]?.sample_priority ?? 0)).length;
+  if (urgentFlowCount) flowGroups.splice(urgentFlowCount - Math.abs(rotation) % urgentFlowCount, 0, ...flowGroups.splice(0, Math.abs(rotation) % urgentFlowCount));
+  if (urgentCampaignCount) campaignRows.splice(urgentCampaignCount - Math.abs(rotation) % urgentCampaignCount, 0, ...campaignRows.splice(0, Math.abs(rotation) % urgentCampaignCount));
 
   const rowsOut: Record<string, unknown>[] = [];
   const selectedFlowGroups = new Set<string>();
@@ -86,7 +104,10 @@ export function selectKlaviyoEmailsForContentAudit(
       continue;
     }
     if (selectedFlowGroups.size === 0) {
-      rowsOut.push(...group.rows.slice(0, flowSlots));
+      const prioritized = [...group.rows].sort((a,b) => Number(a.sample_priority ?? 0)-Number(b.sample_priority ?? 0));
+      const urgent = prioritized.filter((row) => Number(row.sample_priority ?? 0) === Number(prioritized[0]?.sample_priority ?? 0)).length;
+      const offset = (Math.abs(rotation) * flowSlots) % Math.max(1,urgent);
+      rowsOut.push(...[...prioritized.slice(offset,urgent), ...prioritized.slice(0, offset), ...prioritized.slice(urgent)].slice(0, flowSlots));
       selectedFlowGroups.add(group.key);
       truncatedFlowIds.push(String(group.rows[0]?.parent_id ?? group.key));
       flowSlots = 0;
@@ -122,7 +143,8 @@ export function selectKlaviyoTemplateBody(
   currentHtml: string | null,
   historical: KlaviyoTemplateVersionMatch | undefined,
   sendTime: string | null,
-): { html: string | null; provenance: string | Record<string, string | null> } {
+  currentText?: string | null,
+): { html: string | null; text?: string; provenance: string | Record<string, string | null> } {
   if (historical?.html_content !== null && historical?.html_content !== undefined && historical.version_source) {
     return {
       html: historical.html_content,
@@ -134,6 +156,15 @@ export function selectKlaviyoTemplateBody(
       },
     };
   }
+  if (historical?.text_content?.trim() && historical.version_source) {
+    return { html: null, text: historical.text_content, provenance: {
+      tipo: historical.version_source, formato: "texto_plano_observado",
+      observado_en: historical.version_observed_at, sustituido_en: historical.version_superseded_at,
+      exactitud: "observacion historica de texto plano; no verifica personalizacion ni entrega",
+    } };
+  }
+  if (currentHtml === null && currentText?.trim()) return { html: null, text: currentText,
+    provenance: "texto_plano_actual_no_verificado_como_enviado" };
   if (currentHtml === null) return { html: null, provenance: "sin_html_disponible" };
   if (historical) {
     return {

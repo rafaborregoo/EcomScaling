@@ -9,12 +9,22 @@ import {
   Badge,
   Button,
   ButtonLink,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
-  ProgressBar,
+  Progress,
   type Tone,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui";
 import { BillingSection } from "./billing-section";
 
@@ -40,11 +50,16 @@ export function ConsultoraSection() {
   const consultora = query.data?.consultora ?? null;
   if (!consultora) {
     return (
-      <Card title="Plan y plazas">
-        <EmptyState
-          title="Tu cuenta no está en ninguna consultora"
-          hint="Las plazas de cartera se contratan por consultora. Si eres consultor y ves esto, avisa a soporte."
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Plan y plazas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="Tu cuenta no está en ninguna consultora"
+            hint="Las plazas de cartera se contratan por consultora. Si eres consultor y ves esto, avisa a soporte."
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -66,31 +81,34 @@ export function ConsultoraSection() {
           : "Cada cliente activo y cada código de alta pendiente ocupa una plaza."}
       </HeroBlock>
       {contracted > 0 ? (
-        <Card title="Plazas de cartera">
-          <ProgressBar
-            value={Math.min(100, (occupied / contracted) * 100)}
-            aria-label={`${occupied} de ${contracted} plazas ocupadas`}
-          >
-            <ProgressBar.Track>
-              <ProgressBar.Fill />
-            </ProgressBar.Track>
-          </ProgressBar>
-          <div className="mt-4">
-            <StatusStrip
-              items={[
-                { value: contracted, label: "Contratadas" },
-                { value: occupied, label: "Ocupadas" },
-                { value: available, label: "Libres", tone: full ? "warn" : undefined },
-              ]}
-            />
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Plazas de cartera</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Progress value={Math.min(100, (occupied / contracted) * 100)} aria-label={`${occupied} de ${contracted} plazas ocupadas`} />
+            <div className="mt-4">
+              <StatusStrip
+                items={[
+                  { value: contracted, label: "Contratadas" },
+                  { value: occupied, label: "Ocupadas" },
+                  { value: available, label: "Libres", tone: full ? "warn" : undefined },
+                ]}
+              />
+            </div>
+          </CardContent>
         </Card>
       ) : null}
       {consultora.role === "owner" ? (
         <BillingSection organizationId={consultora.organization_id} />
       ) : (
-        <Card title="Facturación de la consultora">
-          <p className="text-sm text-muted">La gestiona el propietario de la consultora.</p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Facturación de la consultora</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted">La gestiona el propietario de la consultora.</p>
+          </CardContent>
         </Card>
       )}
     </div>
@@ -144,40 +162,46 @@ export function PortfolioSettingsMatrix() {
         Sin costes ni gastos fijos, el beneficio de un cliente no es fiable. Elige
         uno para completarlo, o cambia de cliente en la cabecera.
       </HeroBlock>
-      <Card title="Qué le falta a cada cliente" description="Solo clientes con Shopify conectado: sin pedidos no hay margen que calcular.">
-        {profitability.error && !profitability.data ? (
-          <ErrorBlock>No se pudo leer la cartera. Revisa la conexión e inténtalo de nuevo.</ErrorBlock>
-        ) : profitability.isLoading ? (
-          <LoadingBlock label="Leyendo la cartera..." />
-        ) : clients.length === 0 ? (
-          <EmptyState title="Aún no hay clientes con tienda" hint="Cuando un cliente conecte Shopify aparecerá aquí." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[40rem] text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted">
-                  <th className="pb-2 font-medium">Cliente</th>
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué le falta a cada cliente</CardTitle>
+          <CardDescription>Solo clientes con Shopify conectado: sin pedidos no hay margen que calcular.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {profitability.error && !profitability.data ? (
+            <ErrorBlock>No se pudo leer la cartera. Revisa la conexión e inténtalo de nuevo.</ErrorBlock>
+          ) : profitability.isLoading ? (
+            <LoadingBlock label="Leyendo la cartera..." />
+          ) : clients.length === 0 ? (
+            <EmptyState title="Aún no hay clientes con tienda" hint="Cuando un cliente conecte Shopify aparecerá aquí." />
+          ) : (
+            <Table className="min-w-[40rem]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
                   {cellsOf(clients[0]!).map((item) => (
-                    <th key={item.key} className="pb-2 text-center font-medium">{item.title}</th>
+                    <TableHead key={item.key} className="text-center">{item.title}</TableHead>
                   ))}
-                  <th className="pb-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-separator">
+                  <TableHead>
+                    <span className="sr-only">Acción</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {[...clients]
                   .sort((a, b) => Number(pending.includes(b)) - Number(pending.includes(a)))
                   .map((client) => {
                     const cells = cellsOf(client);
                     const firstGap = cells.find((item) => item.cell !== OK);
                     return (
-                      <tr key={client.organization_id}>
-                        <td className="py-3 pr-4 font-medium">{client.name}</td>
+                      <TableRow key={client.organization_id}>
+                        <TableCell className="font-medium">{client.name}</TableCell>
                         {cells.map((item) => (
-                          <td key={item.key} className="py-3 text-center">
+                          <TableCell key={item.key} className="text-center">
                             <Badge tone={item.cell.tone}>{item.cell.label}</Badge>
-                          </td>
+                          </TableCell>
                         ))}
-                        <td className="py-3 text-right">
+                        <TableCell className="text-right">
                           {firstGap ? (
                             <Button size="sm" onClick={() => open(client.organization_id, firstGap.section)}>
                               Completar
@@ -187,14 +211,14 @@ export function PortfolioSettingsMatrix() {
                               Abrir
                             </Button>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
       <p className="text-xs text-muted">
         Tus plazas y tu facturación están en{" "}

@@ -48,6 +48,8 @@ export type LinkClicks = {
 };
 
 export type EmailReport = {
+  /** Moneda de la cuenta de Klaviyo; los importes vienen en ella, no en la de la tienda. */
+  currency_code?: string | null;
   connected: boolean;
   totals: Totals;
   previous: Totals | null;

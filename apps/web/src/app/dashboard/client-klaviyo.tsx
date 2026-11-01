@@ -1,5 +1,7 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
+import Link from "next/link";
 import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -7,19 +9,22 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
-import { Skeleton, toast } from "@/components/ui";
+import { Skeleton, ToggleGroup, ToggleGroupItem, toast } from "@/components/ui";
 import { BarRows } from "@/components/data-bars";
 import { salesChangePct } from "./store-pulse";
 import { fmtEur, fmtNum } from "./client-pulse-model";
 import {
   cx,
+  a02FindingText,
   Delta,
   Empty,
   findingFor,
   Kpi,
+  A02MetricNotice,
   MONTHS,
   prioClass,
   SectionHead,
+  DiagnosticScopeNote,
   dayLabel,
   type Diagnostic,
 } from "./client-pulse";
@@ -192,12 +197,12 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           </p>
           {!asConsultant ? (
             <div className={s.heroActions}>
-              <a className={cx(s.btn, s.acc)} href="/integraciones/klaviyo">
+              <a className={buttonVariants()} href="/integraciones/klaviyo">
                 {report.error ? "Revisar conexión de Klaviyo" : "Conectar Klaviyo"}
               </a>
             </div>
           ) : null}
-          {report.error ? <div className={s.heroActions}><button type="button" className={cx(s.btn, s.ghost)} onClick={report.reload}>Reintentar la carga</button></div> : null}
+          {report.error ? <div className={s.heroActions}><button type="button" className={buttonVariants({ variant: "secondary" })} onClick={report.reload}>Reintentar la carga</button></div> : null}
         </div>
       </div>
     );
@@ -206,8 +211,11 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   // ---- derivados ----
   const { totals, previous } = data;
   const emailDiag = emailAi.data;
+  const a02KlaviyoFinding = findingFor(monitor.data, /email|klaviyo|crm|flujo|newsletter/i);
+  const klaviyoFindingFor = (pattern: RegExp) => findingFor(emailDiag, pattern) ?? findingFor(monitor.data, pattern);
+  const klaviyoFindingText = (pattern: RegExp) => klaviyoFindingFor(pattern)?.title ?? a02FindingText(monitor.data, pattern);
   const aiHeadline =
-    emailDiag?.output.headline ?? emailDiag?.output.findings[0]?.title ?? findingFor(monitor.data, /email|klaviyo|crm|flujo|newsletter/i)?.title ?? null;
+    emailDiag?.output.headline ?? emailDiag?.output.findings?.[0]?.title ?? a02KlaviyoFinding?.title ?? null;
   const channelRevenue = totals.flow_revenue + totals.campaign_revenue;
   const flowShare = channelRevenue > 0 ? totals.flow_revenue / channelRevenue : null;
   const storeSales = store.data?.sales.net_sales ?? null;
@@ -243,15 +251,15 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           <div>
             <div className={s.heroMeta} style={{ alignItems: "center" }}>
               <span>{organizationName} · Klaviyo</span>
-              <div className={cx(s.seg, s.heroSeg)} role="group" aria-label="Periodo">
+              <ToggleGroup aria-label="Periodo" value={period} onValueChange={setPeriod}>
                 {PERIODS.map((p) => (
-                  <button key={p.key} type="button" aria-pressed={p.key === period} onClick={() => setPeriod(p.key)}>
+                  <ToggleGroupItem key={p.key} value={p.key}>
                     {p.label}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
             </div>
-            <h1 id="kl-headline" className={s.headline}>
+            <h1 id="kl-headline" className={`${s.headline} client-sr-title`}>
               Klaviyo: email y retención
             </h1>
             <p className={s.headlineDetail}>{aiHeadline ? <span className={s.ia}>{(emailDiag?.output.headline ?? emailDiag?.output.findings[0]?.title) ? "A12" : "A02"}</span> : null}{headline}</p>
@@ -259,15 +267,15 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
               {fmtNum(totals.conversions)} compras atribuidas a {fmtNum(totals.recipients)} envíos. Es lo que Klaviyo se atribuye con su ventana de conversión, no ventas exclusivas del email.
             </p>
             <div className={s.heroActions}>
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("En el periodo analizado, ¿qué email o flujo de Klaviyo revisaría primero y qué métrica lo justifica? Cita la fuente y ventana; distingue ingresos atribuidos de ventas de Shopify.", "Klaviyo")}>
+              <button type="button" className={buttonVariants()} onClick={() => askCopilot("En el periodo analizado, ¿qué email o flujo de Klaviyo revisaría primero y qué métrica lo justifica? Cita la fuente y ventana; distingue ingresos atribuidos de ventas de Shopify.", "Klaviyo")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
                   IA
                 </span>
                 Preguntar qué mejorar
               </button>
-              <a className={cx(s.btn, s.ghost)} href="/klaviyo">
+              <Link className={buttonVariants({ variant: "secondary" })} href="/klaviyo">
                 Analítica completa
-              </a>
+              </Link>
             </div>
           </div>
           <aside className={s.heroSide} aria-label="Cómo se reparte">
@@ -342,10 +350,13 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
 
       <section className={s.sec} aria-label="Lectura ejecutiva de Klaviyo">
         <div className={s.panel}>
-          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> Lectura de Klaviyo</h2>
+          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> {monitor.data?.result_scope === "overview" ? "Lectura general del negocio" : "Lectura de Klaviyo"}</h2>
           <p className={s.headlineDetail}>
-            {monitor.data?.output.headline ?? "El análisis específico de Klaviyo aparecerá aquí cuando termine su primera ejecución."}
+            {monitor.data?.result_scope === "overview"
+              ? a02KlaviyoFinding?.title ?? "La lectura general de A02 no tiene datos suficientes para señalar un hallazgo específico de Klaviyo."
+              : monitor.data?.output.headline ?? "El análisis específico de Klaviyo aparecerá aquí cuando termine su primera ejecución."}
           </p>
+          <DiagnosticScopeNote diagnostic={monitor.data} />
         </div>
       </section>
 
@@ -364,6 +375,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
       <div className={cx(s.kpis, s.kpis4)} aria-label="Cifras de email">
         <Kpi
           label="Ingresos atribuidos"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Ingresos atribuidos a Klaviyo" metricKey="klaviyo_attributed_revenue" pattern={/ingresos.*klaviyo|email.*revenue|ingresos atribuid/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={fmtEur(totals.revenue)}
           delta={<Delta change={previous ? salesChangePct(totals.revenue, previous.revenue) : null} />}
           vs={previous ? fmtEur(previous.revenue) : null}
@@ -371,6 +383,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Compras atribuidas"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Compras atribuidas a Klaviyo" metricKey="klaviyo_attributed_purchases" pattern={/compras.*klaviyo|conversiones.*email|compras atribuid/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={fmtNum(totals.conversions)}
           delta={<Delta change={previous ? salesChangePct(totals.conversions, previous.conversions) : null} />}
           vs={previous ? fmtNum(previous.conversions) : null}
@@ -378,6 +391,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Ingresos por destinatario"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Ingresos por destinatario" metricKey="klaviyo_revenue_per_recipient" pattern={/ingresos por destinatario|revenue per recipient|valor.*email/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={totals.revenue_per_recipient != null ? fmtEur(totals.revenue_per_recipient, 2) : "—"}
           delta={<Delta change={previous ? salesChangePct(totals.revenue_per_recipient ?? 0, previous.revenue_per_recipient) : null} />}
           vs={previous?.revenue_per_recipient != null ? fmtEur(previous.revenue_per_recipient, 2) : null}
@@ -385,6 +399,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Destinatarios"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Destinatarios" metricKey="klaviyo_recipients" pattern={/destinatarios|recipients|entregabilidad/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={fmtNum(totals.recipients)}
           delta={<Delta change={previous ? salesChangePct(totals.recipients, previous.recipients) : null} />}
           vs={previous ? fmtNum(previous.recipients) : null}
@@ -394,6 +409,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
           verdict={<MetricVerdict analysis={verdictOf("email_open_rate")} />}
           anchorId="insight-metric-email_open_rate"
           label="Apertura"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Tasa de apertura" metricKey="klaviyo_open_rate" pattern={/apertura|open rate|email.*open/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={pct(totals.open_rate)}
           delta={<Delta change={ppChange(totals.open_rate, previous?.open_rate)} suffix="pp" />}
           vs={previous ? pct(previous.open_rate) : null}
@@ -401,6 +417,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Clics"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Clics de email" metricKey="klaviyo_click_rate" pattern={/clic|click rate|ctr/i} audience={asConsultant ? "consultor" : "cliente"} />}
           value={pct(totals.click_rate, 2)}
           delta={<Delta change={ppChange(totals.click_rate, previous?.click_rate)} suffix="pp" />}
           vs={previous ? pct(previous.click_rate, 2) : null}
@@ -408,6 +425,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Bajas"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Bajas de email" metricKey="klaviyo_unsubscribe_rate" pattern={/bajas|unsubscribe|cancelaci/i} audience={asConsultant ? "consultor" : "cliente"} />}
           tag={totals.unsub_rate != null && totals.unsub_rate > UNSUB_LIMIT ? "alto" : undefined}
           value={pct(totals.unsub_rate, 2)}
           delta={<Delta change={ppChange(totals.unsub_rate, previous?.unsub_rate)} suffix="pp" invert />}
@@ -416,6 +434,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         />
         <Kpi
           label="Quejas de spam"
+          aiNotice={<A02MetricNotice diagnostic={monitor.data} metricLabel="Quejas de spam" metricKey="klaviyo_spam_rate" pattern={/spam|rebote|bounce|queja/i} audience={asConsultant ? "consultor" : "cliente"} />}
           tag={(totals.spam_rate ?? 0) > SPAM_LIMIT || (totals.bounce_rate ?? 0) > BOUNCE_LIMIT ? "revisar" : undefined}
           value={pct(totals.spam_rate, 2)}
           slot={<p className={s.trackTxt}>Rebotes: {pct(totals.bounce_rate, 1)}</p>}
@@ -427,7 +446,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         <SectionHead
           id="kl-flows"
           title="Flujos"
-          ai={findingFor(emailDiag, /flujo|flow|automat|bienvenida|carrito/i)?.title ?? null}
+          ai={klaviyoFindingText(/flujo|flow|automat|bienvenida|carrito/i)}
           tag="A12"
           fallback={
             weakestFlow
@@ -490,7 +509,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         <SectionHead
           id="kl-camp"
           title="Campañas"
-          ai={findingFor(emailDiag, /campa|env[ií]o|newsletter|frecuen/i)?.title ?? null}
+          ai={klaviyoFindingText(/campa|env[ií]o|newsletter|frecuen/i)}
           tag="A12"
           fallback={bestCampaign ? `La que más rindió por destinatario fue «${bestCampaign.name}».` : "Los envíos puntuales a tu lista, del más reciente al más antiguo."}
           onAsk={() => askCopilot("¿Qué rasgos comparten las campañas con mejores resultados observados y qué elemento convendría probar de nuevo? Cita campañas y métricas comparables; no atribuyas causalidad a una diferencia aislada.", "Campañas de Klaviyo")}
@@ -546,7 +565,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         <SectionHead
           id="kl-subj"
           title="Qué funciona"
-          ai={findingFor(emailDiag, /asunto|subject|apertura|enlace|clic/i)?.title ?? null}
+          ai={klaviyoFindingText(/asunto|subject|apertura|enlace|clic/i)}
           tag="A12"
           fallback="Qué rasgos de tus asuntos se abren más y dónde hace clic la gente."
           onAsk={() => askCopilot("¿Qué asuntos tienen mejores aperturas en una comparación válida? Cita el tamaño o periodo disponible y propone una dirección para el próximo asunto sin asegurar que vaya a mejorar el resultado.", "Asuntos de email")}
@@ -638,7 +657,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         <SectionHead
           id="kl-health"
           title="Salud de la cuenta"
-          ai={findingFor(emailDiag, /entregab|spam|rebote|baja|utm|seguimiento|medici/i)?.title ?? null}
+          ai={klaviyoFindingText(/entregab|spam|rebote|baja|utm|seguimiento|medici/i)}
           tag="A12"
           fallback="Lo que hace que tus emails lleguen a la bandeja y que sus ventas se puedan medir."
           onAsk={() => askCopilot("¿Qué señales verificables afectan a la entregabilidad o a la medición de Klaviyo? Cita el indicador y la fecha; distingue problemas confirmados de datos que todavía no se han recibido.", "Salud de Klaviyo")}
@@ -736,10 +755,10 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
             )}
           </div>
         </div>
-        {!hasConsultant && emailDiag?.output_status === "pending_approval" && emailDiag.output.proposed_writes.length ? (
+        {!hasConsultant && emailDiag?.output_status === "pending_approval" && (emailDiag.output.proposed_writes?.length ?? 0) > 0 ? (
           <p className={s.aiNote}>
             <span className={s.ia}>A12</span>
-            El analista de email propone {emailDiag.output.proposed_writes.length} mejora(s). Apruébalas en <a href="/dashboard?tab=todo#pulse-hoy">Prioridades</a>.
+            El analista de email propone {emailDiag.output.proposed_writes?.length ?? 0} mejora(s). Apruébalas en <a href="/dashboard?tab=todo#pulse-hoy">Prioridades</a>.
           </p>
         ) : null}
       </section>

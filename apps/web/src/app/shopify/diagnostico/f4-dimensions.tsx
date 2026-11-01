@@ -1,6 +1,6 @@
 "use client";
 import { useCachedQueries } from "@/lib/use-cached-query";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 const dimensions = [
   ["P07", "Riesgo y reversibilidad", "/v1/consultant/risk", "risk_assessment"],
   [
@@ -42,45 +42,45 @@ export function F4DimensionsPanel() {
   if (Object.keys(values).length < dimensions.length)
     return <LoadingBlock label="Cargando dimensiones de decisión F4..." />;
   return (
-    <Card
-      title="Dimensiones finales"
-      description="Riesgo, allocation, fit, ranking, portfolio y salida decisional permanecen separados y auditables."
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        {dimensions.map(([key, title, , field]) => {
-          const rows = values[key] ?? [];
-          const item = rows[0];
-          const value = item?.[field];
-          return (
-            <article
-              key={key}
-              className="border-default-200 rounded border p-4"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted text-xs">{key}</span>
-                <Badge
-                  tone={
-                    value === "UNKNOWN" ||
-                    value === "ABSTAIN" ||
-                    value === "VALIDATION_REQUIRED"
-                      ? "warn"
-                      : "neutral"
-                  }
-                >
-                  {String(value ?? "sin datos")}
-                </Badge>
-              </div>
-              <p className="mt-2 text-sm font-medium">{title}</p>
-              <p className="text-muted mt-1 text-xs">
-                {rows.length
-                  ? `${rows.length} snapshot(s)`
-                  : "Todavía no hay snapshots"}
-                . La salida no sustituye revisión humana.
-              </p>
-            </article>
-          );
-        })}
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Dimensiones finales</CardTitle>
+        <CardDescription>Riesgo, allocation, fit, ranking, portfolio y salida decisional permanecen separados y auditables.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 md:grid-cols-2">
+          {dimensions.map(([key, title, , field]) => {
+            const rows = values[key] ?? [];
+            const item = rows[0];
+            const value = item?.[field];
+            return (
+              <Card key={key} role="article"><CardContent>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted text-xs">{key}</span>
+                  <Badge
+                    tone={
+                      value === "UNKNOWN" ||
+                      value === "ABSTAIN" ||
+                      value === "VALIDATION_REQUIRED"
+                        ? "warn"
+                        : "neutral"
+                    }
+                  >
+                    {String(value ?? "sin datos")}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm font-medium">{title}</p>
+                <p className="text-muted mt-1 text-xs">
+                  {rows.length
+                    ? `${rows.length} snapshot(s)`
+                    : "Todavía no hay snapshots"}
+                  . La salida no sustituye revisión humana.
+                </p>
+              </CardContent></Card>
+            );
+          })}
+        </div>
+      </CardContent>
     </Card>
   );
 }

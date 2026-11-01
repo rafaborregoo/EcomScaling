@@ -1,12 +1,13 @@
 "use client";
 
 import { type FormEvent, useEffect, useState } from "react";
+import { forecastStockDemand } from "@e-nora/contracts";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
-import { AsyncState, EmptyState, ErrorBlock } from "@/components/ui";
+import { Select, AsyncState, Pagination, EmptyState, ErrorBlock, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 import { cx } from "../../dashboard/client-pulse";
 import { fmtNum } from "../../dashboard/client-pulse-model";
 import pulse from "../../dashboard/client-pulse.module.css";
@@ -17,9 +18,8 @@ import type {
   CatalogProductsResponse,
   CatalogSort,
 } from "../catalog-types";
-import { StockForecastCard } from "./stock-forecast";
 
-type View = "grid" | "table";
+type View = "list" | "grid";
 
 const STATUSES: Array<{ value: string; label: string; count: (summary: NonNullable<CatalogProductsResponse["summary"]>) => number }> = [
   { value: "ACTIVE", label: "Activos", count: (summary) => summary.active },
@@ -32,23 +32,19 @@ const SORTS: Array<{ value: CatalogSort; label: string }> = [
   { value: "sales", label: "Más vendidos" },
   { value: "stock", label: "Menos stock" },
   { value: "margin", label: "Menor margen" },
-  { value: "updated", label: "Actualizados recientemente" },
+  { value: "updated", label: "Actualizados" },
   { value: "name", label: "Nombre" },
 ];
 
 const PERIODS = [30, 90, 365] as const;
 
 function statusLabel(status: string | null) {
-  return status === "ACTIVE" ? "Activo" : status === "DRAFT" ? "Borrador" : status === "ARCHIVED" ? "Archivado" : status === "DELETED" ? "Eliminado en Shopify" : status ?? "Sin estado";
+  return status === "DRAFT" ? "Borrador" : status === "ARCHIVED" ? "Archivado" : status === "DELETED" ? "Eliminado en Shopify" : status ?? "Sin estado";
 }
 
-function statusChip(status: string | null) {
-  return status === "ACTIVE" ? pulse.chipGood : status === "DRAFT" ? pulse.chipWarn : undefined;
-}
-
-function money(value: number | null | undefined, currency: string | null, decimals = 2) {
+function money(value: number | null | undefined, currency: string | null) {
   if (value == null) return "—";
-  return currency ? formatMoney(value, currency) : `${fmtNum(value, decimals)} (moneda no informada)`;
+  return currency ? formatMoney(value, currency) : `${fmtNum(value, 2)} (moneda no informada)`;
 }
 
 function priceText(product: CatalogProduct) {
@@ -59,37 +55,45 @@ function priceText(product: CatalogProduct) {
     : money(m.price_min, product.currency_code);
 }
 
-const marginChip = (pct: number) => (pct < 0.2 ? pulse.chipBad : pct < 0.35 ? pulse.chipWarn : pulse.chipGood);
-
-/** El aviso mas importante de un producto, para la esquina de su foto. */
-function productAlert(product: CatalogProduct, periodDays: number): { text: string; tone: string | undefined } | null {
+/** El aviso mas importante de un producto: una linea de texto, sin pildora. */
+function productAlert(product: CatalogProduct, periodDays: number): { text: string; tone: string } | null {
   const m = product.metrics;
   if (!m) return null;
-  if (m.tracked_variants > 0 && (m.stock_available ?? 0) <= 0) return { text: "Agotado", tone: pulse.chipBad };
-  if (m.variants_out > 0) return { text: m.variants_out === 1 ? "1 variante agotada" : `${m.variants_out} variantes agotadas`, tone: pulse.chipBad };
-  if (m.return_rate != null && m.return_rate >= 0.1 && m.units_ordered >= 10) return { text: `${fmtNum(m.return_rate * 100, 0)} % devuelve`, tone: pulse.chipBad };
-  if (m.stock_available != null && m.stock_available > 0 && m.stock_available <= 5) return { text: `Quedan ${m.stock_available}`, tone: pulse.chipWarn };
-  if (product.status === "ACTIVE" && m.units_ordered === 0) return { text: `Sin ventas ${periodDays} d`, tone: undefined };
+  if (m.tracked_variants > 0 && (m.stock_available ?? 0) <= 0) return { text: "Agotado", tone: s.bad };
+  if (m.variants_out > 0) return { text: m.variants_out === 1 ? "1 variante agotada" : `${m.variants_out} variantes agotadas`, tone: s.bad };
+  if (m.return_rate != null && m.return_rate >= 0.1 && m.units_ordered >= 10) return { text: `${fmtNum(m.return_rate * 100, 0)} % devuelto`, tone: s.bad };
+  if (m.stock_available != null && m.stock_available > 0 && m.stock_available <= 5) return { text: `Quedan ${m.stock_available}`, tone: s.warn };
+  if (product.status === "ACTIVE" && m.units_ordered === 0) return { text: `Sin ventas en ${periodDays} días`, tone: s.dim };
   return null;
 }
 
-function Thumb({ product, className }: { product: CatalogProduct; className: string }) {
-  return (
-    <span className={className}>
-      {product.primary_image_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={product.primary_image_url} alt={product.primary_image_alt || product.title} loading="lazy" decoding="async" />
-      ) : null}
-    </span>
-  );
+function coverage(product: CatalogProduct) {
+  const m = product.metrics;
+  const tracked = (m?.tracked_variants ?? 0) > 0;
+  const result = forecastStockDemand(product.weekly_units ?? [], m?.stock_available ?? null, tracked);
+  const tone = result.risk === "high" ? s.bad : result.risk === "watch" ? s.warn : undefined;
+  return {
+    days: result.coverageDays == null ? "—" : Math.round(result.coverageDays) === 1 ? "1 día" : `${fmtNum(result.coverageDays, 0)} días`,
+    perMonth: result.forecast30d == null ? null : `≈ ${fmtNum(result.forecast30d)}/mes`,
+    tone,
+  };
 }
 
-function MarginChip({ product }: { product: CatalogProduct }) {
+function marginCell(product: CatalogProduct) {
   const m = product.metrics;
-  if (!m) return null;
-  if (m.margin_pct != null) return <span className={cx(pulse.chip, marginChip(m.margin_pct))}>margen {fmtNum(m.margin_pct * 100, 0)} %</span>;
-  if (m.variants_without_cost > 0) return <span className={cx(pulse.chip, pulse.chipWarn)}>sin coste</span>;
-  return <span className={pulse.chip}>sin ventas para el margen</span>;
+  if (!m) return { text: "—", tone: s.dim };
+  if (m.margin_pct != null) return { text: `${fmtNum(m.margin_pct * 100, 0)} %`, tone: m.margin_pct < 0.2 ? s.bad : m.margin_pct < 0.35 ? s.warn : undefined };
+  if (m.variants_without_cost > 0) return { text: "Sin coste", tone: s.warn };
+  return { text: "—", tone: s.dim };
+}
+
+function metaLine(product: CatalogProduct) {
+  return [
+    product.status === "ACTIVE" ? null : statusLabel(product.status),
+    product.vendor,
+    product.shopify_category_name || product.product_type,
+    product.metrics && product.metrics.variants_total > 1 ? `${product.metrics.variants_total} variantes` : null,
+  ].filter(Boolean).join(" · ");
 }
 
 function detailHref(productId: string, organizationId: string, connectionId: string) {
@@ -98,47 +102,89 @@ function detailHref(productId: string, organizationId: string, connectionId: str
   return `/shopify/productos/${productId}?${params.toString()}`;
 }
 
-function ProductCard({ product, href, periodDays }: { product: CatalogProduct; href: string; periodDays: number }) {
-  const m = product.metrics;
-  const alert = productAlert(product, periodDays);
-  const sold = m && (m.units_ordered > 0 || product.status === "ACTIVE") ? fmtNum(m.units_ordered) : "—";
-  const stockText = m?.stock_available == null ? "—" : fmtNum(m.stock_available);
-  const stockTone = m && m.stock_available != null ? ((m.tracked_variants > 0 && m.stock_available <= 0) ? "var(--bad)" : m.stock_available <= 5 ? "var(--warn)" : undefined) : undefined;
+function Thumb({ product, className }: { product: CatalogProduct; className: string }) {
   return (
-    <a className={s.card} href={href} aria-label={`Abrir ficha de ${product.title}`}>
-      <div className={cx(s.img, !product.primary_image_url && s.imgEmpty)}>
-        {product.primary_image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={product.primary_image_url} alt={product.primary_image_alt || product.title} loading="lazy" decoding="async" />
-        ) : (
-          "Sin foto"
-        )}
-        {product.status === "ACTIVE" ? null : <span className={cx(pulse.chip, statusChip(product.status), s.imgSt)}>{statusLabel(product.status)}</span>}
-        {alert ? <span className={cx(pulse.chip, alert.tone, s.imgWarn)}>{alert.text}</span> : null}
-      </div>
-      <div className={s.body}>
-        <div>
-          <p className={s.name}>{product.title}</p>
-          <p className={s.meta}>
-            {[product.vendor, product.shopify_category_name || product.product_type, m ? `${m.variants_total} variante${m.variants_total === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-        <div className={s.price}>
-          <b>{priceText(product)}</b>
-          <MarginChip product={product} />
-        </div>
-        <div className={s.stats}>
-          <div><span>Vendidas</span><span>{sold}</span></div>
-          <div><span>Stock</span><span style={{ color: stockTone }}>{stockText}</span></div>
-          <div>
-            <span>Devoluciones</span>
-            <span style={{ color: m?.return_rate != null && m.return_rate >= 0.1 ? "var(--bad)" : undefined }}>{m?.return_rate != null ? `${fmtNum(m.return_rate * 100, 1)} %` : "—"}</span>
-          </div>
-        </div>
-        <StockForecastCard compact history={product.weekly_units} available={m?.stock_available ?? null} tracked={(m?.tracked_variants ?? 0) > 0} />
-        {product.status === "DRAFT" ? <p className={s.meta}>Sin publicar: no recibe ventas todavía.</p> : null}
-      </div>
-    </a>
+    <span className={className} aria-hidden="true">
+      {product.primary_image_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={product.primary_image_url} alt="" loading="lazy" decoding="async" />
+      ) : (
+        product.title.trim().charAt(0).toUpperCase()
+      )}
+    </span>
+  );
+}
+
+function ProductList({ rows, href, periodDays }: { rows: CatalogProduct[]; href: (id: string) => string; periodDays: number }) {
+  return (
+    <table className={s.list}>
+      <thead>
+        <tr>
+          <th scope="col">Producto</th>
+          <th scope="col" className={s.num}>Precio</th>
+          <th scope="col" className={cx(s.num, s.opt)}>Vendidas</th>
+          <th scope="col" className={s.num}>Stock</th>
+          <th scope="col" className={cx(s.num, s.opt)}>Cobertura</th>
+          <th scope="col" className={cx(s.num, s.opt)}>Margen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((product) => {
+          const m = product.metrics;
+          const alert = productAlert(product, periodDays);
+          const cov = coverage(product);
+          const margin = marginCell(product);
+          const meta = metaLine(product);
+          return (
+            <tr key={product.id} className="task-lift">
+              <td>
+                <a className={s.prodLink} href={href(product.id)}>
+                  <Thumb product={product} className={s.thumb} />
+                  <span className={s.prodText}>
+                    <span className={s.prodName}>{product.title}</span>
+                    {meta ? <span className={s.dim}>{meta}</span> : null}
+                    {alert ? <span className={alert.tone}>{alert.text}</span> : null}
+                  </span>
+                </a>
+              </td>
+              <td className={s.num}>{priceText(product)}</td>
+              <td className={cx(s.num, s.opt)}>{m ? fmtNum(m.units_ordered) : "—"}</td>
+              <td className={s.num}>{m?.stock_available == null ? <span className={s.dim}>—</span> : fmtNum(m.stock_available)}</td>
+              <td className={cx(s.num, s.opt)}>
+                <span className={cov.tone}>{cov.days}</span>
+                {cov.perMonth ? <small className={s.dim}>{cov.perMonth}</small> : null}
+              </td>
+              <td className={cx(s.num, s.opt)}><span className={margin.tone}>{margin.text}</span></td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function ProductGrid({ rows, href, periodDays }: { rows: CatalogProduct[]; href: (id: string) => string; periodDays: number }) {
+  return (
+    <ul className={s.tiles}>
+      {rows.map((product) => {
+        const m = product.metrics;
+        const alert = productAlert(product, periodDays);
+        const facts = m
+          ? [`${fmtNum(m.units_ordered)} vendidas`, m.stock_available == null ? null : `${fmtNum(m.stock_available)} en stock`].filter(Boolean).join(" · ")
+          : null;
+        return (
+          <li key={product.id}>
+            <a className={`${s.tile} task-lift`} href={href(product.id)}>
+              <Thumb product={product} className={s.tileImg} />
+              <span className={s.prodName}>{product.title}</span>
+              <span className={s.tilePrice}>{priceText(product)}</span>
+              {facts ? <span className={s.dim}>{facts}</span> : null}
+              {alert ? <span className={alert.tone}>{alert.text}</span> : null}
+            </a>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -150,7 +196,7 @@ function CatalogContent() {
   const [status, setStatus] = useState("ACTIVE");
   const [filter, setFilter] = useState<CatalogFilter>("");
   const [sort, setSort] = useState<CatalogSort>("sales");
-  const [view, setView] = useState<View>("grid");
+  const [view, setView] = useState<View>("list");
   const [periodDays, setPeriodDays] = useState<(typeof PERIODS)[number]>(90);
   const [page, setPage] = useState(1);
 
@@ -171,6 +217,7 @@ function CatalogContent() {
   const query = useCachedQuery<CatalogProductsResponse>(key);
   const data = query.data;
   const summary = data?.summary ?? null;
+  const metricsPending = data?.metrics_coverage === "migration_pending";
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -187,178 +234,93 @@ function CatalogContent() {
   const rows = data?.products ?? [];
   const from = data && data.total ? (page - 1) * data.page_size + 1 : 0;
   const to = data ? Math.min(page * data.page_size, data.total) : 0;
+  const href = (id: string) => detailHref(id, organizationId ?? "", connectionId);
 
-  const tiles: Array<{ key: CatalogFilter; label: string; value: number; hint: string; tone?: string }> = summary
+  // Las alertas solo aparecen si hay algo que mirar; el total siempre.
+  const alerts: Array<{ key: CatalogFilter; label: string; value: number; tone?: string }> = summary
     ? [
-        { key: "", label: "Productos", value: summary.total, hint: `${summary.active} activos · ${summary.draft} borradores · ${summary.archived} archivados` },
-        { key: "out", label: "Sin stock", value: summary.out_of_stock, hint: "activos con 0 disponibles", tone: summary.out_of_stock ? "var(--bad)" : undefined },
-        { key: "low", label: "Stock bajo", value: summary.low_stock, hint: "5 unidades o menos", tone: summary.low_stock ? "var(--warn)" : undefined },
-        { key: "no_cost", label: "Sin coste", value: summary.without_cost, hint: "el margen no se puede calcular", tone: summary.without_cost ? "var(--warn)" : undefined },
-        { key: "no_sales", label: `Sin ventas en ${periodDays} días`, value: summary.without_sales, hint: "activos que no se mueven" },
-      ]
+        { key: "out" as const, label: "sin stock", value: summary.out_of_stock, tone: s.bad },
+        { key: "low" as const, label: "stock bajo", value: summary.low_stock, tone: s.warn },
+        { key: "no_cost" as const, label: "sin coste", value: summary.without_cost, tone: s.warn },
+        { key: "no_sales" as const, label: `sin ventas en ${periodDays} días`, value: summary.without_sales },
+      ].filter((item) => item.value > 0 || filter === item.key)
     : [];
 
   return (
-    <div className={pulse.root}>
-      <header className={s.top}>
-        <div>
-          <h1>Productos</h1>
-        </div>
+    <div className={cx(pulse.root, s.cat)}>
+      <header className={`${s.top} client-sr-title`}>
+        <h1>Productos</h1>
       </header>
 
       {!organizationId ? (
         <EmptyState title="Selecciona un cliente" hint="Elige una organización en la barra superior para consultar su catálogo." />
       ) : (
         <>
-          {tiles.length ? (
-            <div className={s.sum} role="group" aria-label="Resumen del catálogo">
-              {tiles.map((tile) => (
-                <button key={tile.label} type="button" className={s.sumC} aria-pressed={filter === tile.key && tile.key !== ""} onClick={() => pickFilter(tile.key)}>
-                  <span className={pulse.lbl}>{tile.label}</span>
-                  <strong style={{ color: tile.tone }}>{fmtNum(tile.value)}</strong>
-                  <small>{tile.hint}</small>
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className={s.bar}>
-            <form className={s.search} role="search" onSubmit={submitSearch}>
+          <div className={s.toolbar}>
+            <form className={s.find} role="search" onSubmit={submitSearch}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" />
                 <path d="m20 20-3.5-3.5" />
               </svg>
               <input type="search" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} maxLength={120} placeholder="Buscar por nombre, SKU, proveedor o tipo" aria-label="Buscar productos" />
             </form>
-            <div className={s.barR}>
-              <div className={pulse.seg} role="group" aria-label="Estado">
-                {STATUSES.map((item) => (
-                  <button key={item.value || "all"} type="button" aria-pressed={status === item.value} onClick={() => { setStatus(item.value); setPage(1); }}>
-                    {item.label}
-                    {summary ? <b>{fmtNum(item.count(summary))}</b> : null}
-                  </button>
-                ))}
-              </div>
-              <label className={s.selectL}>
-                Ordenar
-                <select value={sort} onChange={(event) => { setSort(event.target.value as CatalogSort); setPage(1); }} aria-label="Ordenar por" disabled={data?.metrics_coverage === "migration_pending"}>
-                  {SORTS.map((item) => (
-                    <option key={item.value} value={item.value}>{item.value === "sales" ? `${item.label} (${periodDays} días)` : item.label}</option>
-                  ))}
-                </select>
-              </label>
-              <div className={pulse.seg} role="group" aria-label="Periodo de ventas">
-                {PERIODS.map((p) => (
-                  <button key={p} type="button" aria-pressed={periodDays === p} onClick={() => { setPeriodDays(p); setPage(1); }}>
-                    {p === 365 ? "1 año" : `${p} días`}
-                  </button>
-                ))}
-              </div>
-              <div className={pulse.seg} role="group" aria-label="Vista">
-                <button type="button" aria-pressed={view === "grid"} onClick={() => setView("grid")}>Tarjetas</button>
-                <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>Tabla</button>
-              </div>
+            <div className={s.controls}>
+              <Select bare className="w-auto" value={status} onChange={(value) => { setStatus(value); setPage(1); }} aria-label="Estado" options={STATUSES.map((item) => ({ value: item.value, label: summary ? `${item.label} (${fmtNum(item.count(summary))})` : item.label }))} />
+              <Select bare className="w-auto" value={sort} onChange={(value) => { setSort(value as CatalogSort); setPage(1); }} aria-label="Ordenar por" disabled={metricsPending} options={SORTS} />
+              <Select bare className="w-auto" value={String(periodDays)} onChange={(value) => { setPeriodDays(Number(value) as (typeof PERIODS)[number]); setPage(1); }} aria-label="Periodo de ventas" options={PERIODS.map((p) => ({ value: String(p), label: p === 365 ? "Último año" : `Últimos ${p} días` }))} />
+              <ToggleGroup aria-label="Vista" value={view} onValueChange={setView}>
+                <ToggleGroupItem value="list" size="icon-sm" aria-label="Lista" title="Lista">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="grid" size="icon-sm" aria-label="Cuadrícula" title="Cuadrícula">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" /></svg>
+                </ToggleGroupItem>
+              </ToggleGroup>
             </div>
           </div>
 
-          {data?.metrics_coverage === "migration_pending" ? (
+          {summary ? (
+            <ToggleGroup aria-label="Filtrar por aviso" className={s.alerts} spacing={1.5} value={filter} onValueChange={pickFilter}>
+              <ToggleGroupItem value="">
+                <b>{fmtNum(data?.total ?? summary.total)}</b> productos
+              </ToggleGroupItem>
+              {alerts.map((item) => (
+                <ToggleGroupItem key={item.key} value={item.key}>
+                  <b className={item.tone}>{fmtNum(item.value)}</b> {item.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          ) : null}
+
+          {metricsPending ? (
             <p className={pulse.error}>Las ventas, el stock y el margen por producto estarán disponibles cuando se aplique la migración de métricas del catálogo. Mientras tanto se muestra el catálogo sin ordenar por ellas.</p>
           ) : null}
           {data?.metrics_coverage === "unavailable" ? (
             <p className={pulse.error}>No se pudieron cargar las métricas de los productos. No significa que no tengan ventas: reintenta en un rato.</p>
           ) : null}
-          {query.error && !data ? <ErrorBlock>{query.error}</ErrorBlock> : null}
+          {query.error && !data ? <ErrorBlock onRetry={() => query.reload()}>No se han podido cargar los datos. Inténtalo de nuevo en unos segundos.</ErrorBlock> : null}
           {!data && !query.error ? <AsyncState status="loading" loadingLabel="Cargando productos…" /> : null}
 
           {data && rows.length === 0 ? (
-            <div className={pulse.panel}>
-              <p className={pulse.empty}>No hay productos con estos filtros. Si acabas de conectar la tienda, revisa la sincronización.</p>
-            </div>
+            <p className={cx(s.dim, s.none)}>No hay productos con estos filtros. Si acabas de conectar la tienda, revisa la sincronización.</p>
           ) : null}
 
-          {data && rows.length && view === "grid" ? (
-            <div className={s.grid}>
-              {rows.map((product) => (
-                <ProductCard key={product.id} product={product} periodDays={periodDays} href={detailHref(product.id, organizationId, connectionId)} />
-              ))}
-            </div>
+          {data && rows.length ? (
+            view === "list"
+              ? <ProductList rows={rows} href={href} periodDays={periodDays} />
+              : <ProductGrid rows={rows} href={href} periodDays={periodDays} />
           ) : null}
 
-          {data && rows.length && view === "table" ? (
-            <div className={pulse.panel}>
-              <div className={pulse.tblWrap} style={{ marginTop: 0 }}>
-                <table className={pulse.tbl}>
-                  <thead>
-                    <tr>
-                      <th>Producto</th>
-                      <th>Estado</th>
-                      <th>Tienda</th>
-                      <th style={{ textAlign: "right" }}>Precio</th>
-                      <th style={{ textAlign: "right" }}>Margen</th>
-                      <th style={{ textAlign: "right" }}>Vendidas</th>
-                      <th style={{ textAlign: "right" }}>Stock</th>
-                      <th>Previsión · 30 d</th>
-                      <th style={{ textAlign: "right" }}>Devol.</th>
-                      <th>Actualizado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((product) => {
-                      const m = product.metrics;
-                      const stock = m?.stock_available;
-                      const stockColor = m && stock != null ? ((m.tracked_variants > 0 && stock <= 0) ? "var(--bad)" : stock <= 5 ? "var(--warn)" : "var(--good)") : "var(--ink-3)";
-                      return (
-                        <tr key={product.id}>
-                          <td>
-                            <a className={s.prod} href={detailHref(product.id, organizationId, connectionId)} aria-label={`Abrir ficha de ${product.title}`}>
-                              <Thumb product={product} className={s.th} />
-                              <span>
-                                <b style={{ fontWeight: 600 }}>{product.title}</b>
-                                <br />
-                                <span className={pulse.muted} style={{ fontSize: 12 }}>
-                                  {[product.vendor, product.shopify_category_name || product.product_type, m ? `${m.variants_total} variantes` : null].filter(Boolean).join(" · ")}
-                                </span>
-                              </span>
-                            </a>
-                          </td>
-                          <td><span className={cx(pulse.chip, statusChip(product.status))}>{statusLabel(product.status)}</span></td>
-                          <td>{product.store_name}</td>
-                          <td className={pulse.tdN}>{priceText(product)}</td>
-                          <td className={pulse.tdN}><MarginChip product={product} /></td>
-                          <td className={pulse.tdN}>{m ? fmtNum(m.units_ordered) : "—"}</td>
-                          <td className={pulse.tdN}>
-                            <span className={s.stockBar}>
-                              <span style={{ color: stockColor }}>{stock == null ? "—" : fmtNum(stock)}</span>
-                              <i><b style={{ width: `${stock == null ? 0 : Math.min(stock / 100, 1) * 100}%`, background: stockColor }} /></i>
-                            </span>
-                          </td>
-                          <td><StockForecastCard compact history={product.weekly_units} available={stock ?? null} tracked={(m?.tracked_variants ?? 0) > 0} /></td>
-                          <td className={pulse.tdN} style={{ color: m?.return_rate != null && m.return_rate >= 0.1 ? "var(--bad)" : undefined }}>{m?.return_rate != null ? `${fmtNum(m.return_rate * 100, 1)} %` : "—"}</td>
-                          <td className={pulse.muted}>{product.external_updated_at ? new Date(product.external_updated_at).toLocaleDateString("es-ES") : "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
-
-          {data && totalPages > 1 ? (
-            <div className={s.pager}>
-              <span className={pulse.muted} style={{ fontSize: 12.5 }}>
-                {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}
+          {data && data.total ? (
+            <div className={s.pages}>
+              <span className={s.dim}>
+                {fmtNum(from)}–{fmtNum(to)} de {fmtNum(data.total)} · ventas, devoluciones y margen de los últimos {periodDays} días sincronizados
               </span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
-              </div>
+              {totalPages > 1 ? (
+                <Pagination page={page} pageCount={totalPages} onChange={setPage} />
+              ) : null}
             </div>
           ) : null}
-
-          <footer className={s.foot}>
-            <span>Catálogo sincronizado de Shopify. Ventas, devoluciones y margen: pedidos sincronizados de los últimos {periodDays} días, no necesariamente todo el historial.</span>
-          </footer>
         </>
       )}
     </div>

@@ -118,7 +118,10 @@ semántico. La retirada de los alias `--color-brand*` legacy es una pasada apart
 
 ### 7. Superficies superpuestas (modales, hojas, confirmaciones) — añadido 2026-10-06
 
-Una página **no** importa `Modal` ni `Drawer` de HeroUI: usa `Dialog`, `Sheet` o `ConfirmDialog` de `@/components/ui` (`dialog.tsx`, `confirm-dialog.tsx`). Garantizan lo que antes cada pantalla resolvía a mano.
+Una página **no** importa `Modal` ni `Drawer` de HeroUI: usa `Dialog`, `Drawer` o `AlertDialog` de `@/components/ui` (`dialog.tsx`, `drawer.tsx`, `alert-dialog.tsx`, API de shadcn). Garantizan lo que antes cada pantalla resolvía a mano. (`Sheet` se retiró el 2026-10-27; lo vigila `src/lib/one-drawer.test.ts`.)
+
+- **Cuál usar:** `Dialog` para formularios cortos y decisiones (crear, editar, conectar, programar). `Drawer` para fichas y detalle (tarea, reunión, acción, informe, conexión, ejecución de un agente), hilos (mensajes, «Escribir sobre esto», notas de tarjeta), lecturas largas (documento, revisión de una propuesta o de un camino importado) y flujos anchos (planificadores, campaña, pieza). `AlertDialog` solo para confirmar.
+- **Drawer responsive:** a la derecha en escritorio y abajo con asa en móvil: `swipeDirection={isDesktop ? "right" : "down"} showSwipeHandle={!isDesktop}` con `useIsDesktop()`. Ancho con `sm:max-w-[40rem]` (ficha) o `sm:max-w-[60rem]` (flujo). Cuerpo en `<div className="flex-1 overflow-y-auto p-4 sm:px-6">`; pie apilado, primaria primero y `DrawerClose` (outline) al final.
 
 - **Medidas:** cabecera/cuerpo/pie a 16 px (24 px desde `sm`); título 16 px/600 (= `card-title`); un radio y una sombra. Diálogo: `sm` 24 · `md` 32 · `lg` 44 · `xl` 60 rem. Hoja lateral: `sm` 28 · `md` 40 · `lg` 60 rem. En móvil, hoja inferior a todo el ancho.
 - **Color:** superficie blanca. El acento del rol (cliente petróleo+azafrán, consultor grafito+mandarina, admin grafito) solo pinta la acción primaria, el borde de los botones secundarios, el foco y la selección. Los overlays se montan en un portal, así que toman los tokens de `body[data-role]` (lo pone `<OverlayRole>` desde `PortalShell` y `PlatformAdminShell`), no de `.trabajo-theme`.

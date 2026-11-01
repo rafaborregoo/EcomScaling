@@ -14,10 +14,13 @@ import {
   AsyncState,
   Badge,
   ButtonLink,
-  Card,
   ErrorBlock,
   Metric,
   toast,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 function ClientControlPanel({ clientId }: { clientId: string }) {
@@ -36,13 +39,18 @@ function ClientControlPanel({ clientId }: { clientId: string }) {
 
   if (!client) {
     return (
-      <Card title="No encontramos este cliente">
-        <p className="text-sm text-muted">
-          Puede que se haya eliminado o que ya no tengas acceso a su ficha.
-        </p>
-        <ButtonLink className="mt-4" href="/admin/clientes" variant="secondary">
-          Volver al directorio
-        </ButtonLink>
+      <Card>
+        <CardHeader>
+          <CardTitle>No encontramos este cliente</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted">
+            Puede que se haya eliminado o que ya no tengas acceso a su ficha.
+          </p>
+          <ButtonLink className="mt-4" href="/admin/clientes" variant="secondary">
+            Volver al directorio
+          </ButtonLink>
+        </CardContent>
       </Card>
     );
   }

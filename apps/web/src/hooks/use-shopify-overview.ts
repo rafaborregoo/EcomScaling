@@ -1,5 +1,6 @@
 "use client";
 
+import { readApiError } from "@/lib/api-error";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 
@@ -173,21 +174,9 @@ export function useShopifyOverview(
 
       if (!isLatest()) return;
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-          message?: string;
-          detail?: string;
-        } | null;
+        const message = await readApiError(response);
         if (!isLatest()) return;
-        setError(
-          [
-            body?.error ?? `HTTP ${response.status}`,
-            body?.message,
-            body?.detail,
-          ]
-            .filter(Boolean)
-            .join(" - "),
-        );
+        setError(message);
         setIsLoading(false);
         setIsRefreshing(false);
         return;
@@ -230,16 +219,7 @@ export function useShopifyOverview(
     }
 
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setSyncError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-          .filter(Boolean)
-          .join(" - "),
-      );
+      setSyncError(await readApiError(response));
       setIsSyncing(false);
       return false;
     }

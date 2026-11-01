@@ -2,7 +2,7 @@
 
 import { HeroBlock } from "@/components/trabajo-ui";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { Badge, ButtonLink, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, ButtonLink, EmptyState, ErrorBlock, LoadingBlock, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
 
 /**
  * Los permisos vistos por el consultor: qué le deja hacer cada cliente. Solo
@@ -59,39 +59,40 @@ export function ConsultantOwnPermissions({ organizationId, storeName }: { organi
       <HeroBlock label="Tus permisos" title={`Lo que puedes hacer en ${storeName}`}>
         Lo decide el propietario de la cuenta y te avisamos cada vez que lo cambia. Si necesitas algo más, pídeselo por Mensajes.
       </HeroBlock>
-      <Card
-        title="Permisos"
-        description={changedLabel(query.data?.updated_at ?? null, null)}
-        actions={
-          <ButtonLink href="/configuracion?section=permisos" size="sm" variant="ghost">
+      <Card>
+        <CardHeader>
+          <CardTitle>Permisos</CardTitle>
+          <CardDescription>{changedLabel(query.data?.updated_at ?? null, null)}</CardDescription>
+          <CardAction><ButtonLink href="/configuracion?section=permisos" size="sm" variant="ghost">
             Ver toda la cartera
-          </ButtonLink>
-        }
-      >
-        {query.error && !query.data ? (
-          <ErrorBlock>No se pudieron cargar tus permisos.</ErrorBlock>
-        ) : !permissions ? (
-          <LoadingBlock label="Cargando permisos…" />
-        ) : (
-          <ul className="divide-y divide-separator">
-            <li className="flex items-start justify-between gap-6 py-4 first:pt-0">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">Ver cifras, tareas, informes y conversaciones</p>
-                <p className="mt-1 text-xs text-muted">Va con la vinculación: sin esto no podrías asesorar.</p>
-              </div>
-              <Badge tone="success">Siempre</Badge>
-            </li>
-            {KEYS.map((key) => (
-              <li key={key} data-focus-id={`perm-${key}`} className="flex items-start justify-between gap-6 rounded-lg py-4 last:pb-0">
+          </ButtonLink></CardAction>
+        </CardHeader>
+        <CardContent>
+          {query.error && !query.data ? (
+            <ErrorBlock>No se pudieron cargar tus permisos.</ErrorBlock>
+          ) : !permissions ? (
+            <LoadingBlock label="Cargando permisos…" />
+          ) : (
+            <ul className="divide-y divide-separator">
+              <li className="flex items-start justify-between gap-6 py-4 first:pt-0">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{COPY[key].label}</p>
-                  <p className="mt-1 text-xs text-muted">{permissions[key] ? COPY[key].detail : COPY[key].without}</p>
+                  <p className="text-sm font-medium text-foreground">Ver cifras, tareas, informes y conversaciones</p>
+                  <p className="mt-1 text-xs text-muted">Va con la vinculación: sin esto no podrías asesorar.</p>
                 </div>
-                <Badge tone={permissions[key] ? "success" : "neutral"}>{permissions[key] ? "Puedes" : "No puedes"}</Badge>
+                <Badge tone="success">Siempre</Badge>
               </li>
-            ))}
-          </ul>
-        )}
+              {KEYS.map((key) => (
+                <li key={key} data-focus-id={`perm-${key}`} className="flex items-start justify-between gap-6 rounded-lg py-4 last:pb-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">{COPY[key].label}</p>
+                    <p className="mt-1 text-xs text-muted">{permissions[key] ? COPY[key].detail : COPY[key].without}</p>
+                  </div>
+                  <Badge tone={permissions[key] ? "success" : "neutral"}>{permissions[key] ? "Puedes" : "No puedes"}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
     </div>
   );
@@ -120,6 +121,8 @@ export function ConsultantPortfolioPermissions() {
         title={
           query.isLoading
             ? "Leyendo tus permisos…"
+            : query.error
+              ? "No se pudieron comprobar tus permisos"
             : clients.length === 0
               ? "Aún no tienes clientes asignados"
               : limited.length === 0
@@ -130,59 +133,67 @@ export function ConsultantPortfolioPermissions() {
         Cada propietario decide qué puedes tocar en su cuenta y te avisamos cuando lo cambia. Ver sus cifras, tareas e informes va
         siempre con la vinculación.
       </HeroBlock>
-      <Card title="Qué puedes hacer en cada cliente">
-        {query.error && !query.data ? (
-          <ErrorBlock>No se pudieron cargar tus permisos.</ErrorBlock>
-        ) : query.isLoading ? (
-          <LoadingBlock label="Cargando permisos…" />
-        ) : clients.length === 0 ? (
-          <EmptyState title="Sin clientes" hint="Cuando un cliente se vincule contigo, verás aquí lo que te deja hacer." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted">
-                  <th className="pb-2 font-medium">Cliente</th>
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué puedes hacer en cada cliente</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {query.error ? (
+            <ErrorBlock onRetry={query.reload}>No se pudieron cargar tus permisos. Vuelve a intentarlo.</ErrorBlock>
+          ) : query.isLoading ? (
+            <LoadingBlock label="Cargando permisos…" />
+          ) : clients.length === 0 ? (
+            <EmptyState title="Sin clientes" hint="Cuando un cliente se vincule contigo, verás aquí lo que te deja hacer." />
+          ) : (
+            <Table className="min-w-[46rem]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
                   {KEYS.map((key) => (
-                    <th key={key} className="pb-2 text-center font-medium">
+                    <TableHead key={key} className="text-center">
                       {COPY[key].label}
-                    </th>
+                    </TableHead>
                   ))}
-                  <th className="pb-2 text-right font-medium">Último cambio</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-separator">
+                  <TableHead className="text-right">Último cambio</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {clients.map((client) => (
-                  <tr key={client.organization_id} data-focus-id={client.organization_id}>
-                    <td className="py-3 pr-4 font-medium">{client.name}</td>
+                  <TableRow key={client.organization_id} data-focus-id={client.organization_id}>
+                    <TableCell className="font-medium">{client.name}</TableCell>
                     {KEYS.map((key) => (
-                      <td key={key} className="py-3 text-center">
+                      <TableCell key={key} className="text-center">
                         <Badge tone={client.permissions[key] ? "success" : "neutral"}>
                           {client.permissions[key] ? "Puedes" : "No"}
                         </Badge>
-                      </td>
+                      </TableCell>
                     ))}
-                    <td className="py-3 text-right text-xs text-muted">
+                    <TableCell className="text-right text-xs text-muted">
                       {client.is_default ? "Por defecto" : changedLabel(client.updated_at, client.updated_by_name)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
-      <Card title="Qué significa cada permiso">
-        <dl className="grid gap-4 sm:grid-cols-2">
-          {KEYS.map((key) => (
-            <div key={key}>
-              <dt className="text-sm font-medium text-foreground">{COPY[key].label}</dt>
-              <dd className="mt-1 text-xs text-muted">
-                {COPY[key].detail} Si no lo tienes: {COPY[key].without.charAt(0).toLowerCase() + COPY[key].without.slice(1)}
-              </dd>
-            </div>
-          ))}
-        </dl>
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué significa cada permiso</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid gap-4 sm:grid-cols-2">
+            {KEYS.map((key) => (
+              <div key={key}>
+                <dt className="text-sm font-medium text-foreground">{COPY[key].label}</dt>
+                <dd className="mt-1 text-xs text-muted">
+                  {COPY[key].detail} Si no lo tienes: {COPY[key].without.charAt(0).toLowerCase() + COPY[key].without.slice(1)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
       </Card>
     </div>
   );

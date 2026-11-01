@@ -46,7 +46,7 @@ const PURGE_OVERDUE_MS = 2 * 24 * 60 * 60 * 1000;
 // `received` mas de 30 minutos no tenian ninguna alerta proactiva, solo se
 // detectaban corriendo la consulta a mano o porque el cliente reportaba
 // datos desactualizados.
-const WEBHOOK_BACKLOG_MS = 30 * 60 * 1000;
+const WEBHOOK_BACKLOG_MS = 2 * 60 * 1000;
 const WEBHOOK_BACKLOG_ROW_LIMIT = 500;
 const MAX_FINDING_SUMMARY_LENGTH = 500;
 const MAX_FINDING_DETAIL_STRING_LENGTH = 2_000;
@@ -126,6 +126,40 @@ function finding(
         : value.summary,
     details: sanitizeOpsHealthDetails(value.details),
   };
+}
+
+/** Continuous integration checks only; the wider ops/cost audit remains opt-in. */
+export async function runIntegrationHealthMonitor(env: ApiEnv): Promise<OpsHealthCheckResult> {
+  const client = createServiceClient(env);
+  const now = Date.now();
+  const results = await Promise.all([
+    client.from("integration_connections").select("id,organization_id,provider,status,updated_at,last_error_message")
+      .in("provider", ["shopify", "meta_ads", "klaviyo"]).in("status", ["error", "syncing"])
+      .not("provider_account_id", "like", "pending:%").limit(500),
+    client.schema("private").from("webhook_events").select("connection_id,organization_id,provider,received_at,status,retry_count")
+      .in("provider", ["shopify", "klaviyo"]).in("status", ["received", "queued", "processing", "failed"])
+      .lt("received_at", new Date(now - WEBHOOK_BACKLOG_MS).toISOString()).order("received_at").limit(500),
+  ]);
+  for (const result of results) if (result.error) throw new Error(`integration_health_read_failed:${result.error.message}`);
+  const findings: OpsHealthFinding[] = [];
+  for (const connection of results[0].data ?? []) {
+    if (connection.status === "syncing" && Date.parse(connection.updated_at) > now - 3_600_000) continue;
+    findings.push(finding({ type: connection.status === "error" ? "connection_error" : "connection_stuck_syncing",
+      summary: `Integración ${connection.provider}: ${connection.status === "error" ? "requiere atención" : "sincronización interrumpida"}`,
+      runbook: "RB-001-shopify-sync-failed.md", details: connection }));
+  }
+  const grouped = new Map<string, { connection_id: string | null; provider: string; count: number; exhausted: number; oldest_received_at: string }>();
+  for (const event of results[1].data ?? []) {
+    const key = event.connection_id ?? event.provider;
+    const current = grouped.get(key) ?? { connection_id: event.connection_id, provider: event.provider, count: 0, exhausted: 0, oldest_received_at: event.received_at };
+    current.count++;
+    if (event.retry_count >= 16) current.exhausted++;
+    grouped.set(key, current);
+  }
+  for (const backlog of grouped.values()) findings.push(finding({ type: "webhook_backlog",
+    summary: `${backlog.provider}: ${backlog.count} eventos pendientes, ${backlog.exhausted} con reintentos agotados`,
+    runbook: "RB-004-webhook-duplicate-backlog.md", details: backlog }));
+  return { ok: true, checkedAt: new Date(now).toISOString(), findings };
 }
 
 /**
@@ -320,7 +354,7 @@ export async function runOpsHealthCheck(
       .schema("private")
       .from("webhook_events")
       .select("connection_id, organization_id, provider, received_at")
-      .eq("status", "received")
+      .in("status", ["received", "queued", "processing", "failed"])
       .lt("received_at", new Date(now - WEBHOOK_BACKLOG_MS).toISOString())
       .order("received_at", { ascending: true })
       .limit(WEBHOOK_BACKLOG_ROW_LIMIT),
@@ -437,7 +471,7 @@ export async function runOpsHealthCheck(
     findings.push(
       finding({
         type: "webhook_backlog",
-        summary: `${backlog.count} webhook(s) de ${backlog.provider} atascados en 'received' desde hace mas de 30 min (conexion ${backlog.connectionId ?? "desconocida"})`,
+        summary: `${backlog.count} webhook(s) de ${backlog.provider} pendientes desde hace mas de 2 min (conexion ${backlog.connectionId ?? "desconocida"})`,
         runbook: "RB-004-webhook-duplicate-backlog.md",
         details: backlog,
       }),

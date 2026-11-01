@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import {
   useCallback,
   useEffect,
@@ -13,12 +14,16 @@ import {
   Badge,
   CheckIcon,
   CloseIcon,
-  IconChevronDown,
+  cn,
   Input,
   Textarea,
   toast,
   type Tone,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
 } from "@/components/ui";
+import p from "@/app/dashboard/client-pulse.module.css";
 
 export type ProposedEvidence = {
   label: string;
@@ -148,88 +153,45 @@ export function ProposedTaskRow({
   onApprove: () => void;
   onDiscard: () => void;
 }) {
-  // El canal sale de la linea meta y sube a badge: junto a tareas de otras
-  // plataformas, saber si es Shopify, Klaviyo o Meta es lo primero que hay que
-  // distinguir, y en gris pequeño se perdia.
-  const meta = [
-    "propuesta sin aprobar",
-    task.phase ?? "tarea libre",
-    task.evidence.length
-      ? `${task.evidence[0]?.label}: ${task.evidence[0]?.value}`
-      : null,
-  ].filter(Boolean);
-
+  // Mismos elementos que una propuesta en Prioridades del panel del cliente:
+  // punto de prioridad, antetitulo "IA", titulo, una linea de datos e iconos.
+  const evidence = task.evidence[0];
   return (
-    <div className="task-lift py-3">
-      <div className="flex items-start justify-between gap-4">
-        {/* Toda la fila abre el detalle: pulsar en cualquier sitio, no en un
-            enlace concreto. Los botones de decidir van fuera del boton para no
-            anidar controles. */}
-        <button
-          type="button"
-          aria-expanded={isExpanded}
-          onClick={onToggle}
-          className="min-w-0 flex-1 text-left"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <IconChevronDown
-              aria-hidden
-              className={`size-3 shrink-0 text-muted transition-transform ${
-                isExpanded ? "rotate-180" : ""
-              }`}
-            />
-            <Badge tone="brand">IA</Badge>
-            <Badge tone={AREA_TONE[task.area]}>{AREA_LABEL[task.area]}</Badge>
-            {["urgent", "high"].includes(task.priority) ? (
-              <Badge tone={priorityTone(task.priority)}>
-                {PRIORITY_LABEL[task.priority] ?? task.priority}
-              </Badge>
-            ) : null}
-            <span className="truncate text-sm font-medium text-foreground">
-              {task.title}
+    <li className={cn(p.qi, "task-lift")}>
+      <span className={cn(p.pr, task.priority === "urgent" || task.priority === "urgente" ? p.prUrgent : task.priority === "high" ? p.prHigh : undefined)} aria-hidden="true" />
+      <Collapsible open={isExpanded} onOpenChange={onToggle}>
+        {/* El titulo abre el detalle; los botones de decidir van aparte para
+            no anidar controles. */}
+        <p className={p.qiT}>
+          <CollapsibleTrigger className="hover:underline underline-offset-4">
+            {task.title}
+          </CollapsibleTrigger>
+        </p>
+        <div className={p.qiM}>
+          <span className={p.chip}>Propuesta IA · {AREA_LABEL[task.area]}</span>
+          {["urgent", "urgente", "high"].includes(task.priority) ? (
+            <span className={cn(p.prioL, task.priority === "high" ? p.prioHigh : p.prioUrgent)}>
+              {PRIORITY_LABEL[task.priority] ?? task.priority}
             </span>
-          </div>
-          {/* El cliente, como texto con peso propio: en badge gris competia con
-              los badges que si clasifican la tarea y no se leia. */}
-          <p className="mt-0.5 text-xs text-muted">
-            {clientName ? (
-              <>
-                <span className="font-medium text-foreground">
-                  {clientName}
-                </span>
-                {" · "}
-              </>
-            ) : null}
-            {meta.join(" · ")}
-          </p>
-        </button>
-
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={onApprove}
-            title={approveHint}
-            aria-label={approveHint}
-            className="rounded-full p-1.5 text-success transition-colors hover:bg-success/10 disabled:opacity-40"
-          >
-            <CheckIcon aria-hidden className="size-4" />
-          </button>
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={onDiscard}
-            title="Descartar esta propuesta"
-            aria-label="Descartar esta propuesta"
-            className="rounded-full p-1.5 text-danger transition-colors hover:bg-danger/10 disabled:opacity-40"
-          >
-            <CloseIcon aria-hidden className="size-4" />
-          </button>
+          ) : null}
+          {clientName ? <span className={p.who}>{clientName}</span> : null}
+          <span className={p.chip}>{task.phase ?? "Tarea libre"}</span>
+          {evidence ? <span className={p.chip}>{evidence.label}: {evidence.value}</span> : null}
+          <CollapsibleTrigger className={p.qiToggle}>
+            Detalle
+          </CollapsibleTrigger>
         </div>
+        <CollapsibleContent className="pt-3">{children}</CollapsibleContent>
+      </Collapsible>
+      <div className={p.qiA}>
+        <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: p.iconOk })} disabled={isPending} onClick={onApprove} title={approveHint} aria-label={approveHint}>
+          <CheckIcon aria-hidden="true" />
+        </button>
+        <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: p.iconNo })} disabled={isPending} onClick={onDiscard} title="Descartar esta propuesta" aria-label="Descartar esta propuesta">
+          <CloseIcon aria-hidden="true" />
+        </button>
       </div>
-
-      {isExpanded ? <div className="mt-3 pl-5">{children}</div> : null}
-    </div>
+    </li>
   );
 }
 

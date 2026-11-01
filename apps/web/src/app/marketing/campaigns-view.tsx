@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useNewFromUrl } from "@/hooks/use-new-from-url";
 import type { CampaignItem } from "@/hooks/use-campaign-items";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import { useActiveConnection } from "@/components/active-connection";
@@ -59,6 +60,8 @@ export type CampaignsViewProps = {
 };
 
 export function CampaignsView(props: CampaignsViewProps) {
+  // El cliente crea en su propia vista (ClientView lee ?nueva=1); el consultor va a Crear.
+  useNewFromUrl(props.onCreate, props.viewer === "consultant");
   if (props.campaignId) return <OpenCampaign {...props} campaignId={props.campaignId} />;
   if (props.quickActions && props.viewer === "consultant" && props.organizationId) {
     return (

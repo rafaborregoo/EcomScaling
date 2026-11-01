@@ -7,6 +7,12 @@ import {
   Banner,
   Button,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   LoadingBlock,
   ProviderIcon,
@@ -147,24 +153,11 @@ export function ShopifyAccountAssignmentModal({
   const waitingForStore = Boolean(scope && !store);
 
   return (
-    <Dialog
-      isOpen
-      onOpenChange={(open) => !open && onClose()}
-      size="lg"
-      title="Asigna las cuentas a esta tienda"
-      isBusy={isSaving}
-      cancelLabel={noAccounts ? "Cerrar" : "Ahora no"}
-      primary={
-        scope && store && rows.length > 0
-          ? {
-              label: "Guardar asignación",
-              busyLabel: "Guardando…",
-              disabled: !isDirty,
-              onClick: () => void save(),
-            }
-          : undefined
-      }
-    >
+    <Dialog open onOpenChange={(open) => !open && onClose()} busy={isSaving}>
+      <DialogContent className="sm:max-w-[44rem]">
+              <DialogHeader>
+                <DialogTitle>Asigna las cuentas a esta tienda</DialogTitle>
+              </DialogHeader>
               <div className="space-y-4">
                 <p className="text-sm leading-6 text-muted">
                   Shopify ya está conectado. Elige qué cuentas de Meta Ads y Klaviyo
@@ -183,7 +176,7 @@ export function ShopifyAccountAssignmentModal({
                   <div className="space-y-3">
                     <LoadingBlock label="Shopify está terminando de registrar la tienda. Esta ventana se actualizará automáticamente…" />
                     {noAccounts ? (
-                      <p className="text-sm text-muted">Todavía no hay cuentas de Meta Ads o Klaviyo conectadas en E-NORA.</p>
+                      <EmptyState size="sm" title="Todavía no hay cuentas de Meta Ads o Klaviyo conectadas en E-NORA" />
                     ) : null}
                   </div>
                 ) : noAccounts ? (
@@ -237,6 +230,15 @@ export function ShopifyAccountAssignmentModal({
 
                 {saveError ? <Banner tone="danger">{saveError}</Banner> : null}
               </div>
+              <DialogFooter>
+                <DialogClose>{noAccounts ? "Cerrar" : "Ahora no"}</DialogClose>
+                {scope && store && rows.length > 0 ? (
+                  <Button disabled={isSaving || !isDirty} onClick={() => void save()}>
+                    {isSaving ? "Guardando…" : "Guardar asignación"}
+                  </Button>
+                ) : null}
+              </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

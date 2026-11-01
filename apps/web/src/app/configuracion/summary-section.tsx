@@ -1,7 +1,7 @@
 "use client";
 
 import { useSettingsStatus } from "./settings-status";
-import { Badge, Button, Card, ProgressBar, type Tone } from "@/components/ui";
+import { Badge, Button, Progress, type Tone, Card, CardContent, CardHeader, CardTitle, Item, ItemActions, ItemContent, ItemDescription, ItemTitle, List } from "@/components/ui";
 
 /**
  * Qué falta para que las cifras de la tienda sean fiables. Cada fila sale de un
@@ -187,55 +187,56 @@ export function SummarySection({
   return (
     <div className="space-y-6">
       <Card>
-        <div className="grid gap-8 md:grid-cols-2 md:items-center">
-          <div>
-            <p className="text-sm text-muted">Configuración completa</p>
-            <p className="mt-1 text-5xl font-semibold tabular-nums leading-none">
-              {doneCount} <span className="text-xl font-medium text-muted">de {items.length} ajustes</span>
-            </p>
-            <ProgressBar
-              className="mt-4"
-              value={items.length ? (doneCount / items.length) * 100 : 0}
-              aria-label={`${doneCount} de ${items.length} ajustes listos`}
-            >
-              <ProgressBar.Track>
-                <ProgressBar.Fill />
-              </ProgressBar.Track>
-            </ProgressBar>
+        <CardContent>
+          <div className="grid gap-8 md:grid-cols-2 md:items-center">
+            <div>
+              <p className="text-sm text-muted">Configuración completa</p>
+              <p className="mt-1 text-5xl font-semibold tabular-nums leading-none">
+                {doneCount} <span className="text-xl font-medium text-muted">de {items.length} ajustes</span>
+              </p>
+              <Progress className="mt-4" value={items.length ? (doneCount / items.length) * 100 : 0} aria-label={`${doneCount} de ${items.length} ajustes listos`} />
+            </div>
+            {nextItem ? (
+              <div className="grid justify-items-start gap-2 rounded-lg bg-surface p-6">
+                <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted">Lo siguiente</p>
+                <p className="text-base font-semibold">{nextItem.next.title}</p>
+                <p className="text-sm text-muted">{nextItem.next.body}</p>
+                <Button className="mt-2" onClick={() => go(nextItem)}>
+                  {nextItem.action}
+                </Button>
+              </div>
+            ) : known.length === items.length ? (
+              <div className="grid gap-2 rounded-lg bg-surface p-6">
+                <p className="text-base font-semibold">Todo en orden</p>
+                <p className="text-sm text-muted">Tus cifras se calculan con tus costes, tus gastos y tus objetivos reales.</p>
+              </div>
+            ) : null}
           </div>
-          {nextItem ? (
-            <div className="grid justify-items-start gap-2 rounded-lg bg-surface p-6">
-              <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted">Lo siguiente</p>
-              <p className="text-base font-semibold">{nextItem.next.title}</p>
-              <p className="text-sm text-muted">{nextItem.next.body}</p>
-              <Button className="mt-2" onClick={() => go(nextItem)}>
-                {nextItem.action}
-              </Button>
-            </div>
-          ) : known.length === items.length ? (
-            <div className="grid gap-2 rounded-lg bg-surface p-6">
-              <p className="text-base font-semibold">Todo en orden</p>
-              <p className="text-sm text-muted">Tus cifras se calculan con tus costes, tus gastos y tus objetivos reales.</p>
-            </div>
-          ) : null}
-        </div>
+        </CardContent>
       </Card>
 
       {pending.length > 1 ? (
-        <Card title="Por arreglar">
-          <ul className="divide-y divide-separator">
-            {pending.map((item) => (
-              <li key={item.key} className="flex flex-wrap items-center justify-between gap-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{item.label}</p>
-                  <p className="text-xs text-muted">{item.next.body}</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => go(item)}>
-                  {item.action}
-                </Button>
-              </li>
-            ))}
-          </ul>
+        <Card>
+          <CardHeader>
+            <CardTitle>Por arreglar</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <List as="ul">
+              {pending.map((item) => (
+                <Item key={item.key} render={<li />}>
+                  <ItemContent>
+                    <ItemTitle>{item.label}</ItemTitle>
+                    <ItemDescription>{item.next.body}</ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button variant="ghost" size="sm" onClick={() => go(item)}>
+                      {item.action}
+                    </Button>
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          </CardContent>
         </Card>
       ) : null}
 

@@ -1,10 +1,12 @@
 "use client";
+import { Select, DatePicker } from "@/components/ui";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { ErrorBlock, LoadingBlock, toast } from "@/components/ui";
+import { ErrorBlock, LoadingBlock, ToggleGroup, ToggleGroupItem, toast } from "@/components/ui";
 import { cx } from "../dashboard/client-pulse";
 import pulse from "../dashboard/client-pulse.module.css";
 import r from "./reglas.module.css";
@@ -17,15 +19,13 @@ import {
   ruleSuggestions,
   SOON_DAYS,
   SUGGESTION_QUESTION_IDS,
-  type RuleState,
-} from "./rule-state";
+  type RuleState } from "./rule-state";
 import {
   type AnsweredDoc,
   fetchDocumentContent,
   latestByTitle,
   questionDocumentTitle,
-  STORE_QUESTIONS,
-} from "./store-knowledge";
+  STORE_QUESTIONS } from "./store-knowledge";
 
 /**
  * Reglas del cliente: lo único que el copiloto tiene delante en CADA respuesta.
@@ -260,14 +260,14 @@ export function ClientRules({
       <div className={r.main}>
         <div className={r.list}>
           <div className={r.bar}>
-            <div className={pulse.seg} role="group" aria-label="Filtrar por estado">
+            <ToggleGroup aria-label="Filtrar por estado" value={filter} onValueChange={setFilter}>
               {filters.map(([value, label, count]) => (
-                <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>
+                <ToggleGroupItem key={value} value={value}>
                   {label}
-                  <b>{count}</b>
-                </button>
+                  <span className="text-xs text-muted tabular-nums">{count}</span>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           </div>
 
           {rules === null && !query.error ? (
@@ -299,7 +299,7 @@ export function ClientRules({
                     {canManage ? (
                       <button
                         type="button"
-                        className={cx(pulse.btn, r.link, pulse.sm)}
+                        className={buttonVariants({ variant: "ghost", size: "sm" })}
                         onClick={() => startDraft({ category: category.value })}
                       >
                         + Añadir en {category.label.toLowerCase()}
@@ -337,7 +337,7 @@ export function ClientRules({
                             {state === "expired" ? (
                               <button
                                 type="button"
-                                className={cx(pulse.btn, pulse.ghost, pulse.sm)}
+                                className={buttonVariants({ variant: "secondary", size: "sm" })}
                                 onClick={() =>
                                   void send(
                                     `/${rule.id}`,
@@ -352,7 +352,7 @@ export function ClientRules({
                             {rule.status === "active" && state !== "expired" ? (
                               <button
                                 type="button"
-                                className={cx(pulse.btn, r.link, pulse.sm)}
+                                className={buttonVariants({ variant: "ghost", size: "sm" })}
                                 onClick={() =>
                                   startDraft({
                                     text: rule.statement,
@@ -368,7 +368,7 @@ export function ClientRules({
                             ) : null}
                             <button
                               type="button"
-                              className={cx(pulse.btn, rule.status === "active" ? r.link : pulse.ghost, pulse.sm)}
+                              className={buttonVariants({ variant: rule.status === "active" ? "ghost" : "secondary", size: "sm" })}
                               onClick={() =>
                                 void send(
                                   `/${rule.id}`,
@@ -414,53 +414,41 @@ export function ClientRules({
                   {draft.text.length}/{MAX_LENGTH}
                 </span>
               </div>
-              <div className={r.topics} role="group" aria-label="Tema">
+              <ToggleGroup aria-label="Tema" spacing={1.5} value={draft.category} onValueChange={(category) => setDraft({ ...draft, category })}>
                 {RULE_CATEGORIES.map((category) => (
-                  <button
-                    key={category.value}
-                    type="button"
-                    aria-pressed={draft.category === category.value}
-                    onClick={() => setDraft({ ...draft, category: category.value })}
-                  >
+                  <ToggleGroupItem key={category.value} value={category.value}>
                     {category.label}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
               <div className={r.row2}>
                 <label className={r.fld}>
                   Deja de aplicar (opcional)
-                  <input
-                    type="date"
+                  <DatePicker
                     min={today}
                     value={draft.validUntil}
-                    onChange={(event) => setDraft({ ...draft, validUntil: event.target.value })}
+                    onChange={(value) => setDraft({ ...draft, validUntil: value })}
                   />
                 </label>
                 {stores.length > 1 ? (
                   <label className={r.fld}>
                     Aplica a
-                    <select
+                    <Select
                       value={draft.storeId}
                       disabled={Boolean(draft.editingId)}
-                      onChange={(event) => setDraft({ ...draft, storeId: event.target.value })}
-                    >
-                      <option value="">Todas las tiendas</option>
-                      {stores.map((store) => (
-                        <option key={store.id} value={store.id}>
-                          {store.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(value) => setDraft({ ...draft, storeId: value })}
+                      options={[{ value: "", label: "Todas las tiendas" }, ...stores.map((store) => ({ value: store.id, label: store.label }))]}
+                    />
                   </label>
                 ) : null}
               </div>
               <div className={r.formActs}>
                 {draft.editingId ? (
-                  <button type="button" className={cx(pulse.btn, pulse.ghost)} onClick={() => setDraft({ ...EMPTY_DRAFT, category: draft.category })}>
+                  <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => setDraft({ ...EMPTY_DRAFT, category: draft.category })}>
                     Cancelar
                   </button>
                 ) : null}
-                <button type="button" className={cx(pulse.btn, pulse.acc)} disabled={isSaving || !draft.text.trim()} onClick={() => void save()}>
+                <button type="button" className={buttonVariants()} disabled={isSaving || !draft.text.trim()} onClick={() => void save()}>
                   {isSaving ? "Guardando…" : draft.editingId ? "Guardar cambios" : "Añadir regla"}
                 </button>
               </div>
@@ -475,7 +463,7 @@ export function ClientRules({
                       </span>
                       <button
                         type="button"
-                        className={cx(pulse.btn, pulse.ghost, pulse.sm)}
+                        className={buttonVariants({ variant: "secondary", size: "sm" })}
                         onClick={() => startDraft({ text: suggestion.text, category: suggestion.category })}
                       >
                         Usar

@@ -1,12 +1,14 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState, type FormEvent } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { MessageThread } from "@/components/consultant-messages";
-import { toast } from "@/components/ui";
-import { Chip } from "./panel-parts";
+import Link from "next/link";
+import { CheckIcon, toast } from "@/components/ui";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import { createLeverTask } from "./panel-data";
 import s from "./panel.module.css";
 
@@ -20,7 +22,7 @@ export function ClientThread({ organizationId, name }: { organizationId: string;
       <MessageThread
         organizationId={organizationId}
         className="min-h-0 flex-1"
-        placeholder={`Escribe a ${name.split(" ")[0]}…`}
+        placeholder={`Escribe a ${name}…`}
       />
     </div>
   );
@@ -35,12 +37,14 @@ type OpenTask = {
   is_visible_to_client: boolean;
 };
 
-const STATUS_LABEL: Record<string, string> = { pending: "Pendiente", in_progress: "En curso" };
+const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+const SHOWN = 5;
+const dueText = (iso: string) => new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 
 /**
- * Bandeja de acciones del cliente: las tareas abiertas de la organización
- * (las que se crean con «Crear tarea» desde cualquier palanca llegan aquí),
- * con alta rápida y cierre sin salir del panel.
+ * Acciones del cliente: las más urgentes de sus tareas abiertas (las que se
+ * crean con «Crear tarea» desde cualquier palanca llegan aquí), con cierre de
+ * un toque. La lista entera vive en Tareas; aquí solo lo que toca mirar ya.
  */
 export function ClientActions({ organizationId }: { organizationId: string }) {
   const base = `/v1/organizations/${organizationId}`;
@@ -48,7 +52,14 @@ export function ClientActions({ organizationId }: { organizationId: string }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
-  const open = (query.data?.tasks ?? []).filter((task) => task.status === "pending" || task.status === "in_progress");
+  const open = (query.data?.tasks ?? [])
+    .filter((task) => task.status === "pending" || task.status === "in_progress")
+    .sort(
+      (a, b) =>
+        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2) ||
+        (a.due_at ?? "9999").localeCompare(b.due_at ?? "9999"),
+    );
+  const today = new Date().toISOString().slice(0, 10);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,18 +74,19 @@ export function ClientActions({ organizationId }: { organizationId: string }) {
     }
   }
 
-  async function setStatus(task: OpenTask, status: "in_progress" | "completed") {
+  async function complete(task: OpenTask) {
     setBusy(task.id);
     try {
       const response = await apiFetch(`${base}/tasks/${task.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: "completed" }),
       });
       if (!response.ok) {
         toast.danger(await readApiError(response));
         return;
       }
+      toast.success("Tarea hecha.");
       invalidateApiGetCache();
       query.reload();
     } catch {
@@ -91,24 +103,39 @@ export function ClientActions({ organizationId }: { organizationId: string }) {
         <p className={s.empty}>Sin acciones abiertas. Crea una aquí o con «Crear tarea» en cualquier palanca.</p>
       ) : null}
       <ul>
-        {open.map((task) => (
-          <li key={task.id} className={`${s.qi} task-lift`}>
-            <span className={s.qn}>{task.status === "in_progress" ? "▶" : "·"}</span>
-            <b>{task.title}</b>
-            <span className={s.liR}>
-              {task.status === "in_progress" ? <Chip tone="acc">{STATUS_LABEL.in_progress}</Chip> : <Chip>{STATUS_LABEL[task.status] ?? task.status}</Chip>}
-              {task.status === "pending" ? (
-                <button type="button" className={`${s.btn} ${s.ghost} ${s.sm}`} disabled={busy === task.id} onClick={() => setStatus(task, "in_progress")}>
-                  Empezar
-                </button>
-              ) : null}
-              <button type="button" className={`${s.btn} ${s.sm}`} disabled={busy === task.id} onClick={() => setStatus(task, "completed")}>
-                Hecha
+        {open.slice(0, SHOWN).map((task) => {
+          const late = task.due_at !== null && task.due_at.slice(0, 10) < today;
+          return (
+            <li key={task.id} className={`${s.act} task-lift`}>
+              <button
+                type="button"
+                className={s.actCheck}
+                data-priority={task.priority}
+                disabled={busy === task.id}
+                aria-label={`Marcar como hecha: ${task.title}`}
+                title="Marcar como hecha"
+                onClick={() => complete(task)}
+              >
+                <CheckIcon aria-hidden="true" />
               </button>
-            </span>
-          </li>
-        ))}
+              <span className={s.actBody}>
+                <Link href={withPortalRouteContext(`/tareas?task=${encodeURIComponent(task.id)}`, organizationId)}>{task.title}</Link>
+                <span className={s.actMeta}>
+                  {task.priority === "urgent" ? <b className={s.neg}>Urgente</b> : task.priority === "high" ? <b>Prioridad alta</b> : null}
+                  {task.status === "in_progress" ? <span>En curso</span> : null}
+                  {task.due_at ? <span className={late ? s.neg : undefined}>{late ? "Vencida · " : ""}{dueText(task.due_at)}</span> : null}
+                  {task.is_visible_to_client ? <span>La ve el cliente</span> : <span>Interna</span>}
+                </span>
+              </span>
+            </li>
+          );
+        })}
       </ul>
+      {open.length > SHOWN ? (
+        <p className={s.foot} style={{ marginTop: 10 }}>
+          <Link href={withPortalRouteContext("/tareas", organizationId)}>Ver las {open.length} en Tareas</Link>
+        </p>
+      ) : null}
       <form className={s.say} onSubmit={create}>
         <label className={s.sr} htmlFor="panel-accion">
           Nueva acción
@@ -121,7 +148,7 @@ export function ClientActions({ organizationId }: { organizationId: string }) {
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Nueva acción para este cliente…"
         />
-        <button type="submit" className={`${s.btn} ${s.sm}`} disabled={busy === "new" || !draft.trim()}>
+        <button type="submit" className={buttonVariants({ size: "sm" })} disabled={busy === "new" || !draft.trim()}>
           {busy === "new" ? "Creando…" : "Crear"}
         </button>
       </form>

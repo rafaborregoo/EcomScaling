@@ -13,7 +13,6 @@ import {
   inicioDelPeriodo,
   modelosDelPlan,
   resolveCopilotModel,
-  TOKENS_POR_MENSAJE,
 } from "./copilot-tokens.js";
 
 test("el plan basico ofrece Sonnet y no Opus", () => {
@@ -83,13 +82,13 @@ test("el saldo restante nunca se enseña en negativo", () => {
     now: new Date("2026-09-16T10:00:00Z"),
   });
   assert.equal(saldo.remaining, 0);
-  assert.equal(saldo.approx_messages_left, 0);
+  assert.equal(saldo.approx_messages_left, null);
   assert.equal(saldo.exhausted, true);
   // El consumo real sigue estando, para quien tenga que mirarlo.
   assert.equal(saldo.used, 1_400_000);
 });
 
-test("el saldo se traduce a mensajes con el consumo real medido", () => {
+test("el saldo son créditos con un presupuesto fijo, sin inventar preguntas restantes", () => {
   const saldo = describeBalance({
     granted: 1_000_000,
     used: 0,
@@ -97,10 +96,10 @@ test("el saldo se traduce a mensajes con el consumo real medido", () => {
     now: new Date("2026-09-16T10:00:00Z"),
   });
   assert.equal(saldo.remaining, 1_000_000);
-  assert.equal(
-    saldo.approx_messages_left,
-    Math.floor(1_000_000 / TOKENS_POR_MENSAJE),
-  );
+  assert.equal(saldo.approx_messages_left, null);
+  assert.equal(saldo.unit, "credits");
+  assert.equal(saldo.monthly_budget_usd, 5);
+  assert.equal(saldo.credits_per_usd, 200_000);
 });
 
 test("se renueva el 1 del mes siguiente y se dicen los dias que faltan", () => {

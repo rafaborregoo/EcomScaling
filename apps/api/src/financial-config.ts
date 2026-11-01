@@ -55,7 +55,7 @@ function assertCanManage(context: AuthContext, organizationId: string) {
       statusCode: 403,
       error: "organization_manage_denied",
       message:
-        "Solo owner, manager, consultor o platform admin pueden gestionar la configuracion financiera.",
+        "Solo el propietario, un gestor o el consultor pueden gestionar la configuración financiera.",
     };
   }
 

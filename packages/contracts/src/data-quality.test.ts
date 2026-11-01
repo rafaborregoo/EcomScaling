@@ -360,6 +360,13 @@ test("no ve el mismo fallo mientras sigue sin verificar", () => {
   assert.equal(isVisibleToClient(i), false);
 });
 
+test("no ve un fallo ya resuelto ni un falso positivo", () => {
+  for (const status of ["resolved", "false_positive"] as const) {
+    const i = issue({ issue_type: "permission_gap", client_actionable: true, status, explanation: "x" });
+    assert.equal(isVisibleToClient(i), false, status);
+  }
+});
+
 test("no ve un fallo que es nuestro, aunque este verificado", () => {
   const i = issue({
     issue_type: "rate_limited",

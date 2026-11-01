@@ -56,7 +56,6 @@
 }
 .studio button,
 .studio input,
-.studio select,
 .studio textarea {
   font: inherit;
   color: inherit;
@@ -67,22 +66,6 @@
 .studio :focus-visible {
   outline: 2px solid var(--st-accent);
   outline-offset: 2px;
-}
-.recovery {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--st-line);
-  background: var(--st-warn-soft);
-  color: var(--st-ink);
-}
-.recovery button {
-  border: 1px solid var(--st-line-strong);
-  border-radius: 6px;
-  padding: 5px 9px;
-  background: var(--st-surface);
 }
 .mono {
   font-family: var(--st-mono);
@@ -162,38 +145,7 @@
   background: #fca5a5;
 }
 .channels {
-  display: flex;
-  background: var(--st-surface-2);
-  border-radius: 8px;
-  padding: 3px;
-  gap: 2px;
   margin-inline: auto;
-}
-.channels button {
-  border: 0;
-  background: transparent;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--st-ink-2);
-  min-height: 40px;
-  white-space: nowrap;
-}
-.channels button[aria-pressed="true"] {
-  background: var(--st-accent);
-  color: var(--st-on-accent);
-  opacity: 1;
-  font-weight: 600;
-}
-.channels button i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.6;
 }
 .topActions {
   display: flex;
@@ -268,22 +220,20 @@
 }
 
 /* ---------- estudio ---------- */
+/* Paneles redimensionables (components/ui/resizable.tsx): izquierda, centro y
+   ajustes son ResizablePanel; la línea entre ellos es el asa (se recuerda). */
 .work {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 272px minmax(0, 1fr) 348px;
+  display: flex;
+}
+.work > [data-slot="resizable-handle"]:not(:hover):not(:focus-visible) {
+  background: var(--st-line);
 }
 .pane {
   min-height: 0;
   overflow: auto;
   background: var(--st-surface);
-}
-.left {
-  border-right: 1px solid var(--st-line);
-}
-.right {
-  border-left: 1px solid var(--st-line);
 }
 .tabs {
   display: flex;
@@ -295,6 +245,10 @@
   background: var(--st-surface);
   z-index: 2;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 .tabs button {
   border: 0;
@@ -312,8 +266,8 @@
   padding-inline: 6px;
 }
 .tabs button[aria-selected="true"] {
-  color: var(--st-ink);
-  border-bottom-color: var(--st-accent);
+  color: var(--nav-active);
+  border-bottom-color: var(--nav-active);
   font-weight: 600;
 }
 .badge {
@@ -508,35 +462,6 @@
   grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
-.bank button {
-  border: 1px solid var(--st-line);
-  border-radius: 6px;
-  padding: 0;
-  overflow: hidden;
-  background: var(--st-surface);
-  text-align: left;
-  cursor: grab;
-}
-.bank button[aria-pressed="true"] {
-  outline: 2px solid var(--st-accent);
-  outline-offset: -1px;
-}
-.thumb {
-  display: block;
-  width: 100%;
-  height: 64px;
-  object-fit: cover;
-  background: var(--st-surface-2);
-}
-.bank button span {
-  display: block;
-  font-size: 11.5px;
-  padding: 5px 7px;
-  color: var(--st-ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* ---------- lienzo ---------- */
 .center {
@@ -561,28 +486,7 @@
   width: 100%;
   max-width: 760px;
 }
-.seg {
-  display: inline-flex;
-  border: 1px solid var(--st-line);
-  background: var(--st-surface);
-  border-radius: 8px;
-  padding: 2px;
-}
-.seg button {
-  border: 0;
-  background: transparent;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--st-ink-2);
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
-.seg button[aria-pressed="true"] {
-  background: var(--st-ink);
-  color: #ffffff;
-}
+
 .chk {
   display: inline-flex;
   align-items: center;
@@ -774,8 +678,11 @@
 .blk[data-selected="true"] .blkTools {
   display: flex;
 }
-.blkTools button,
-.blkTools span {
+/* Solo los hijos directos: los Popover de la barra (enlace, variables,
+   color) cuelgan de aquí y su contenido no debe heredar estos botones. */
+.blkTools > button,
+.blkTools > span {
+  position: relative;
   border: 0;
   background: transparent;
   color: #ffffff;
@@ -784,12 +691,23 @@
   display: grid;
   place-items: center;
 }
-.blkTools button:hover,
-.blkTools span:hover {
+.blkTools > button:hover,
+.blkTools > span:hover {
   background: rgb(255 255 255 / 0.14);
 }
-.blkTools span {
+.blkTools > span {
   cursor: grab;
+}
+/* Botón o imagen sin enlace: punto ámbar en el icono de enlace. */
+.blkTools > button[data-warn]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #f59e0b;
 }
 .editable {
   outline: none;
@@ -1549,37 +1467,7 @@ textarea.inp {
   flex-direction: column;
   gap: 6px;
 }
-.start {
-  border: 1px solid var(--st-line);
-  background: var(--st-surface);
-  border-radius: 10px;
-  padding: 10px 12px;
-  text-align: left;
-  display: grid;
-  grid-template-columns: 30px 1fr;
-  gap: 10px;
-  align-items: center;
-}
-.start[aria-pressed="true"] {
-  border-color: var(--st-accent);
-  background: var(--st-accent-soft);
-}
-.start .g {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--st-surface-2);
-  display: grid;
-  place-items: center;
-}
-.start b {
-  display: block;
-  font-size: 13.5px;
-}
-.start small {
-  color: var(--st-ink-3);
-  font-size: 11.5px;
-}
+
 .optList {
   display: flex;
   flex-direction: column;
@@ -1625,12 +1513,15 @@ textarea.inp {
   display: none;
 }
 
-@media (max-width: 1280px) {
-  .work {
-    grid-template-columns: 240px minmax(0, 1fr) 312px;
-  }
-}
 @media (max-width: 1020px) {
+  /* Un panel cada vez: sin asas y a todo el ancho. */
+  .work > [data-slot="resizable-handle"] {
+    display: none;
+  }
+  .work > [data-slot="resizable-panel"] {
+    min-width: 0 !important;
+    max-width: none !important;
+  }
   .studio {
     height: auto;
     min-height: 0;
@@ -1648,22 +1539,14 @@ textarea.inp {
     padding: 8px 12px;
     gap: 6px;
   }
-  .mswitch button {
-    min-height: 44px;
-    flex: 1;
-    border: 1px solid var(--st-line);
-    background: var(--st-surface);
-    border-radius: 8px;
-    padding: 7px;
-    font-size: 13px;
+  .mswitch > * {
+    width: 100%;
   }
-  .mswitch button[aria-pressed="true"] {
-    background: var(--st-accent-soft);
-    color: var(--st-accent-ink);
-    border-color: var(--st-accent);
+  .mswitch button {
+    flex: 1;
   }
   .work {
-    grid-template-columns: minmax(0, 1fr);
+    display: block;
   }
   .pane,
   .center {

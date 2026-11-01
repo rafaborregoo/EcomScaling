@@ -6,7 +6,6 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   Checkbox,
   EmptyState,
   ErrorBlock,
@@ -16,6 +15,12 @@ import {
   LoadingBlock,
   Select,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import {
   SEVERITY_OPTIONS,
@@ -102,7 +107,7 @@ function RuleRow({
       <div className="flex flex-wrap items-center gap-3">
         <Checkbox
           checked={enabled}
-          onChange={setEnabled}
+          onCheckedChange={setEnabled}
           disabled={!canManage}
           className="min-w-0 flex-1"
         >
@@ -221,37 +226,38 @@ export function AlertRulesSection({
   const activeCount = (rules ?? []).filter((rule) => rule.is_enabled).length;
 
   return (
-    <Card
-      title="Avisos de este cliente"
-      description="Qué vigila el sistema por su cuenta y a partir de qué punto avisa. Cada cliente puede tener los suyos."
-      actions={
-        rules ? <Badge tone="success">{activeCount} activos</Badge> : undefined
-      }
-    >
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+    <Card>
+      <CardHeader>
+        <CardTitle>Avisos de este cliente</CardTitle>
+        <CardDescription>Qué vigila el sistema por su cuenta y a partir de qué punto avisa. Cada cliente puede tener los suyos.</CardDescription>
+        <CardAction>{rules ? <Badge tone="success">{activeCount} activos</Badge> : undefined}</CardAction>
+      </CardHeader>
+      <CardContent>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      {rules === null && !error ? (
-        <LoadingBlock label="Cargando avisos…" />
-      ) : rules && rules.length === 0 ? (
-        <EmptyState
-          title="No hay avisos disponibles"
-          hint="Las plantillas de aviso las define la plataforma; cuando haya alguna activa, aparecerá aquí para ajustarla."
-        />
-      ) : rules ? (
-        <List as="ul">
-          {rules.map((rule) => (
-            <RuleRow
-              // La key incluye lo guardado: al recargar tras guardar, la fila
-              // se remonta con los valores nuevos en vez de quedarse con el
-              // borrador anterior.
-              key={`${rule.template_id}:${rule.is_enabled}:${rule.severity}:${rule.threshold}`}
-              rule={rule}
-              canManage={canManage}
-              onSave={save}
-            />
-          ))}
-        </List>
-      ) : null}
+        {rules === null && !error ? (
+          <LoadingBlock label="Cargando avisos…" />
+        ) : rules && rules.length === 0 ? (
+          <EmptyState
+            title="No hay avisos disponibles"
+            hint="Las plantillas de aviso las define la plataforma; cuando haya alguna activa, aparecerá aquí para ajustarla."
+          />
+        ) : rules ? (
+          <List as="ul">
+            {rules.map((rule) => (
+              <RuleRow
+                // La key incluye lo guardado: al recargar tras guardar, la fila
+                // se remonta con los valores nuevos en vez de quedarse con el
+                // borrador anterior.
+                key={`${rule.template_id}:${rule.is_enabled}:${rule.severity}:${rule.threshold}`}
+                rule={rule}
+                canManage={canManage}
+                onSave={save}
+              />
+            ))}
+          </List>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

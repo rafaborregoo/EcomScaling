@@ -168,7 +168,7 @@ export async function listWorkSplit(env: ApiEnv, context: AuthContext) {
       .from("organizations")
       .select("id, display_name")
       .in("id", sharedOrgIds),
-    supabase.from("profiles").select("id, full_name").in("id", consultantIds),
+    supabase.from("profiles").select("id, full_name, avatar_url").in("id", consultantIds),
   ]);
 
   const nameByOrg = new Map(
@@ -182,6 +182,9 @@ export async function listWorkSplit(env: ApiEnv, context: AuthContext) {
       row.id as string,
       row.full_name as string | null,
     ]),
+  );
+  const avatarByUser = new Map(
+    (profiles ?? []).map((row) => [row.id as string, row.avatar_url as string | null]),
   );
 
   // La misma cuenta que usa el reparto (cartera entera, no esta tienda), para
@@ -207,6 +210,7 @@ export async function listWorkSplit(env: ApiEnv, context: AuthContext) {
           consultants: (byOrg.get(orgId) ?? []).map((entry) => ({
             ...entry,
             full_name: nameByUser.get(entry.user_id) ?? null,
+            avatar_url: avatarByUser.get(entry.user_id) ?? null,
           })),
         }))
         .sort((a, b) => a.display_name.localeCompare(b.display_name)),

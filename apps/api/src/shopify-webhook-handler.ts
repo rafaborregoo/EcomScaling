@@ -16,6 +16,8 @@ import {
 } from "./klaviyo-tracking.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";
 import { shopifyGraphql } from "./shopify-client.js";
+import { invalidateIntegrationData } from "./integration-data-cache.js";
+import { wakeShopifyWebhooks } from "./shopify-webhook-queue.js";
 
 type ApiEnv = LoadedApiEnv;
 const logger = createLogger("shopify-webhook-handler");
@@ -188,6 +190,7 @@ async function syncOrderDiscountApplications(
         : null,
       amount: amountsByIndex.get(position) ?? 0,
       amount_coverage: allocationsComplete ? "complete" : "partial",
+      source_updated_at: (payload.updated_at as string | undefined) ?? null,
       position,
     };
   });
@@ -239,7 +242,8 @@ async function syncOrderDiscountApplications(
     .eq("organization_id", ctx.organizationId)
     .eq("store_id", ctx.storeId)
     .eq("order_id", orderId)
-    .in("id", staleIds);
+    .in("id", staleIds)
+    .or(`source_updated_at.is.null,source_updated_at.lte.${payload.updated_at ?? new Date(0).toISOString()}`);
   if (deleteError && !isShopifyDiscountApplicationsSchemaMissing(deleteError)) {
     throw new Error(`shopify_webhook_discount_applications_retire_failed: ${deleteError.message}`);
   }
@@ -280,7 +284,7 @@ async function recordBlockRun(
   errorMessage?: string,
 ) {
   const now = new Date().toISOString();
-  await supabase.from("integration_sync_runs").insert({
+  const { error } = await supabase.from("integration_sync_runs").insert({
     connection_id: connectionId,
     organization_id: organizationId,
     provider: "shopify",
@@ -295,6 +299,7 @@ async function recordBlockRun(
     records_failed: status === "failed" ? 1 : 0,
     ...(errorMessage ? { error_message: errorMessage } : {}),
   });
+  if (error) throw new Error(`shopify_webhook_receipt_failed: ${error.message}`);
 }
 
 type ConnectionContext = {
@@ -317,7 +322,7 @@ async function resolveConnectionContext(
   supabase: SupabaseClient,
   shopDomain: string,
 ): Promise<ConnectionContext | null> {
-  const { data: connection } = await supabase
+  const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
     .select("id, organization_id, status, provider_account_id")
     .eq("provider", "shopify")
@@ -326,19 +331,20 @@ async function resolveConnectionContext(
     .limit(1)
     .maybeSingle();
 
+  if (connectionError) throw new Error(`shopify_webhook_connection_lookup_failed: ${connectionError.message}`);
+
   if (!connection || !acceptsWebhookIngest(connection.status)) {
     return null;
   }
 
-  const { data: store } = await supabase
+  const { data: store, error: storeError } = await supabase
     .from("shopify_stores")
     .select("id")
     .eq("connection_id", connection.id)
     .maybeSingle();
 
-  if (!store) {
-    return null;
-  }
+  if (storeError) throw new Error(`shopify_webhook_store_lookup_failed: ${storeError.message}`);
+  if (!store) throw new Error("shopify_webhook_store_initializing");
 
   if (!connection.provider_account_id) return null;
   return {
@@ -677,7 +683,7 @@ async function processInventoryLevelUpdate(
         external_location_id: externalLocationId,
       },
     );
-    return;
+    throw new Error("shopify_inventory_references_pending");
   }
 
   const available =
@@ -693,6 +699,7 @@ async function processInventoryLevelUpdate(
         external_inventory_level_id: null,
         available_quantity: available,
         quantities_data: { available },
+        source_updated_at: (payload.updated_at as string | undefined) ?? null,
         is_active: true,
         updated_at:
           (payload.updated_at as string | undefined) ??
@@ -782,7 +789,7 @@ async function processOrderCreateOrUpdate(
       },
       { onConflict: "store_id,external_order_id" },
     )
-    .select("id")
+    .select("id, external_updated_at")
     .single();
 
   if (orderError || !orderRow) {
@@ -790,6 +797,10 @@ async function processOrderCreateOrUpdate(
       orderError?.message ?? "shopify_webhook_order_upsert_failed",
     );
   }
+
+  // The database guard may return the newer stored row instead of this older payload.
+  if (payload.updated_at && orderRow.external_updated_at &&
+      Date.parse(orderRow.external_updated_at) > Date.parse(String(payload.updated_at))) return;
 
   await recordShopifyOrderTracking(supabase, {
     organizationId: ctx.organizationId,
@@ -867,6 +878,7 @@ async function processOrderCreateOrUpdate(
         typeof item.admin_graphql_api_id === "string"
           ? item.admin_graphql_api_id
           : gid("LineItem", item.id),
+      source_updated_at: (payload.updated_at as string | undefined) ?? null,
       title: (item.title as string | undefined) ?? "Sin titulo",
       sku_snapshot: (item.sku as string | undefined) ?? null,
       vendor_snapshot: (item.vendor as string | undefined) ?? null,
@@ -1467,7 +1479,13 @@ export async function handleShopifyWebhookRequest(
   }
 
   const supabase = createServiceClient(env);
-  const ctx = await resolveConnectionContext(supabase, shopDomain);
+  let ctx: ConnectionContext | null;
+  try {
+    ctx = await resolveConnectionContext(supabase, shopDomain);
+  } catch (error) {
+    logger.error("Shopify webhook context temporarily unavailable", { shop_domain: shopDomain, error: error instanceof Error ? error.message : String(error) });
+    return { statusCode: 503, body: { error: "shopify_webhook_context_unavailable" } };
+  }
 
   if (!ctx) {
     logger.info("Shopify webhook received for unknown connection", {
@@ -1547,6 +1565,7 @@ export async function handleShopifyWebhookRequest(
           Number(existingEvent.retry_count ?? 0) < WEBHOOK_DRAIN_MAX_ATTEMPTS);
 
       if (!retryable) {
+        if (existingEvent.status === "queued") void wakeShopifyWebhooks(env).catch(() => {});
         return { statusCode: 200, body: { status: "duplicate" } };
       }
 
@@ -1554,7 +1573,7 @@ export async function handleShopifyWebhookRequest(
       const { data: claimedEvent, error: claimError } = await supabase
         .schema("private")
         .from("webhook_events")
-        .update({ status: "queued", processed_at: null, error_message: null })
+        .update({ status: "queued", processed_at: null, error_message: null, next_retry_at: null })
         .eq("id", existingEvent.id)
         .eq("status", expectedStatus)
         .select("id")
@@ -1591,29 +1610,36 @@ export async function handleShopifyWebhookRequest(
     }
   }
 
+  try { await wakeShopifyWebhooks(env); } catch (error) {
+    logger.error("Shopify webhook wakeup failed; durable inbox will be swept", { error: error instanceof Error ? error.message : String(error) });
+  }
   return { statusCode: 200, body: { status: "queued" } };
 }
 
 /**
  * Procesa eventos persistidos en tandas acotadas. La API solo valida y encola;
- * este drenaje se ejecuta en el worker compartiendo concurrencia y rate limit
- * con las sincronizaciones de tiendas.
+ * este drenaje usa una cola independiente de las importaciones largas.
  */
-export const WEBHOOK_DRAIN_MAX_ATTEMPTS = 5;
+export const WEBHOOK_DRAIN_MAX_ATTEMPTS = 16;
+
+export function shopifyWebhookRetryAt(attempt: number, now = Date.now()) {
+  return new Date(now + Math.min(3_600_000, 5_000 * 2 ** Math.max(0, attempt - 1))).toISOString();
+}
 
 export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
   const supabase = createServiceClient(env);
   const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const batchLimit = Math.max(1, Math.min(25, Math.floor(limit) || 1));
+  const leaseBefore = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const batchLimit = Math.max(1, Math.min(100, Math.floor(limit) || 1));
   const summary = { candidates: 0, processed: 0, failed: 0, skipped: 0 };
 
   const { error: recoverError } = await supabase
     .schema("private")
     .from("webhook_events")
-    .update({ status: "queued", claimed_at: null })
+    .update({ status: "queued", claimed_at: null, next_retry_at: null })
     .eq("provider", "shopify")
     .eq("status", "processing")
-    .lt("claimed_at", staleBefore);
+    .lt("claimed_at", leaseBefore);
   if (recoverError) throw new Error(`webhook_drain_recover_failed: ${recoverError.message}`);
 
   const { data: events, error } = await supabase
@@ -1622,7 +1648,7 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
     .select("id, connection_id, topic, status, payload, retry_count")
     .eq("provider", "shopify")
     .lt("retry_count", WEBHOOK_DRAIN_MAX_ATTEMPTS)
-    .or(`status.eq.queued,status.eq.failed,and(status.eq.received,received_at.lt.${staleBefore})`)
+    .or(`and(status.in.(queued,failed),or(next_retry_at.is.null,next_retry_at.lte.${new Date().toISOString()})),and(status.eq.received,received_at.lt.${staleBefore})`)
     .order("received_at", { ascending: true })
     .limit(batchLimit);
   if (error) throw new Error(`webhook_drain_load_failed: ${error.message}`);
@@ -1638,6 +1664,7 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
       .update({ status: "processing", claimed_at: new Date().toISOString(), retry_count: attempts })
       .eq("id", event.id as string)
       .eq("status", event.status as string)
+      .eq("retry_count", event.retry_count as number)
       .select("id")
       .maybeSingle();
     if (claimError) throw new Error(`webhook_drain_claim_failed: ${claimError.message}`);
@@ -1649,10 +1676,11 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
     const entry = TOPIC_HANDLERS[event.topic as string];
     const complianceHandler = COMPLIANCE_TOPIC_HANDLERS[event.topic as string];
     const handle = entry?.handle ?? complianceHandler;
-    const ctx = event.connection_id
-      ? await resolveConnectionContextById(supabase, event.connection_id as string, Boolean(complianceHandler))
-      : null;
-    if (!handle || !ctx) {
+    try {
+      const ctx = event.connection_id
+        ? await resolveConnectionContextById(supabase, event.connection_id as string, Boolean(complianceHandler))
+        : null;
+      if (!handle || !ctx) {
       await supabase
         .schema("private")
         .from("webhook_events")
@@ -1664,32 +1692,33 @@ export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
         .eq("id", event.id as string)
         .eq("status", "processing");
       summary.skipped += 1;
-      continue;
-    }
-
-    try {
+        continue;
+      }
       await handle(supabase, ctx, event.payload as Record<string, unknown>, env);
-      await supabase
-        .schema("private")
-        .from("webhook_events")
-        .update({ status: "processed", processed_at: new Date().toISOString(), claimed_at: null, error_message: null })
-        .eq("id", event.id as string)
-        .eq("status", "processing");
+      await invalidateIntegrationData(env.REDIS_URL, ctx.organizationId);
       if (entry?.scope) {
         await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, entry.scope, "succeeded");
       }
+      const { error: finishError } = await supabase
+        .schema("private")
+        .from("webhook_events")
+        .update({ status: "processed", processed_at: new Date().toISOString(), claimed_at: null, error_message: null, next_retry_at: null })
+        .eq("id", event.id as string)
+        .eq("status", "processing");
+      if (finishError) throw new Error(`shopify_webhook_finish_failed: ${finishError.message}`);
       summary.processed += 1;
     } catch (processError) {
       const message = processError instanceof Error ? processError.message : "webhook_retry_failed";
-      await supabase
+      const { error: failureError } = await supabase
         .schema("private")
         .from("webhook_events")
-        .update({ status: "failed", processed_at: new Date().toISOString(), claimed_at: null, error_message: message })
+        .update({ status: "failed", processed_at: new Date().toISOString(), claimed_at: null, error_message: message, next_retry_at: shopifyWebhookRetryAt(attempts) })
         .eq("id", event.id as string)
         .eq("status", "processing");
       summary.failed += 1;
+      if (failureError) throw new Error(`shopify_webhook_failure_store_failed: ${failureError.message}`);
       logger.error("Shopify webhook retry failed", {
-        organization_id: ctx.organizationId,
+        connection_id: event.connection_id,
         topic: event.topic,
         attempt: attempts,
         error: message,
@@ -1718,6 +1747,6 @@ async function resolveConnectionContextById(
     .eq("connection_id", connection.id)
     .maybeSingle();
   if (storeError) throw new Error(`shopify_webhook_store_lookup_failed: ${storeError.message}`);
-  if (!store || !connection.provider_account_id) return null;
+  if (!store || !connection.provider_account_id) throw new Error("shopify_webhook_store_initializing");
   return { connectionId: connection.id, organizationId: connection.organization_id, storeId: store.id, shopDomain: connection.provider_account_id };
 }

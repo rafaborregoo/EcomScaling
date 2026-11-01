@@ -1,4 +1,5 @@
 import { TRACK_LABELS, TRACK_ORDER, cadenceLabel, growthRoutines, type GrowthTask, type TaskTrack } from "./task-tracks";
+import { Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown, Progress, ProgressLabel, ProgressValue } from "@/components/ui";
 
 const dayLabel = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -30,36 +31,36 @@ export function GrowthCycle({ tasks }: { tasks: TrackTask[] }) {
       </div>
       <ul className="grid gap-2 sm:grid-cols-3">
         {byTrack.map(({ track, total, done }) => (
-          <li key={track} className="rounded-lg border border-separator bg-surface p-3 text-sm">
-            <div className="flex items-baseline justify-between gap-2">
-              <strong>{TRACK_LABELS[track]}</strong>
-              <span className="text-xs text-muted">{done} de {total}</span>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-default" aria-hidden="true">
-              <div className="h-full rounded-full bg-accent" style={{ width: `${total ? Math.max(2, Math.round((done / total) * 100)) : 0}%` }} />
-            </div>
+          <li key={track}><Card size="sm"><CardContent className="text-sm">
+            <Progress value={done} max={total || 1} aria-valuetext={`${done} de ${total}`}>
+              <ProgressLabel className="font-semibold">{TRACK_LABELS[track]}</ProgressLabel>
+              <ProgressValue>{() => `${done} de ${total}`}</ProgressValue>
+            </Progress>
             <p className="mt-2 text-xs text-muted">{TRACK_HINT[track]}</p>
-          </li>
+          </CardContent></Card></li>
         ))}
       </ul>
       {routines.length ? (
-        <details className="space-y-1.5">
-          <summary className="cursor-pointer text-sm font-semibold">
+        <Collapsible className="space-y-1.5">
+          <CollapsibleTrigger className="text-sm font-semibold">
             Ciclo de crecimiento <span className="font-normal text-muted">· {routines.length} rutinas que se repiten</span>
-          </summary>
+            <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
           <ul className="mt-2 space-y-1.5">
             {routines.map((routine) => (
-              <li key={routine.name} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-lg border border-separator bg-surface px-3 py-2 text-sm">
+              <li key={routine.name}><Card size="sm"><CardContent className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm">
                 <span className="min-w-0 flex-1 break-words">{routine.name}</span>
                 <span className="text-xs text-muted">
                   {[cadenceLabel(routine.cadence), `${routine.done} de ${routine.total} hechas`, routine.nextDue ? `siguiente ${dayLabel.format(new Date(routine.nextDue))}` : null]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
-              </li>
+              </CardContent></Card></li>
             ))}
           </ul>
-        </details>
+        </CollapsibleContent>
+        </Collapsible>
       ) : null}
     </section>
   );

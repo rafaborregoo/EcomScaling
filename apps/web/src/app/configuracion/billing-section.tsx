@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -12,7 +13,6 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Link,
@@ -20,6 +20,15 @@ import {
   LoadingBlock,
   toast,
   type Tone,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 
 /**
@@ -159,83 +168,97 @@ export function BillingSection({ organizationId }: { organizationId: string }) {
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card title="Saldo del Consultor IA">
-          {balance ? (
-            <>
-              <p className="text-3xl font-semibold tabular-nums">
-                {new Intl.NumberFormat("es-ES").format(balance.remaining)}
-              </p>
-              <p className="mt-1 text-xs text-muted">
-                Se renueva el{" "}
-                {new Date(balance.renews_at).toLocaleDateString("es-ES", {
-                  day: "numeric",
-                  month: "long",
-                })}
-                .
-              </p>
-            </>
-          ) : (
-            <LoadingBlock label="Leyendo saldo..." />
-          )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Saldo del Consultor IA</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {balance ? (
+              <>
+                <p className="text-3xl font-semibold tabular-nums">
+                  {new Intl.NumberFormat("es-ES").format(balance.remaining)}
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Se renueva el{" "}
+                  {new Date(balance.renews_at).toLocaleDateString("es-ES", {
+                    day: "numeric",
+                    month: "long",
+                  })}
+                  .
+                </p>
+              </>
+            ) : (
+              <LoadingBlock label="Leyendo saldo..." />
+            )}
+          </CardContent>
         </Card>
-        <Card title="Datos de facturación">
-          <p className="text-sm">
-            Tarjeta, razón social, NIF y cancelación se gestionan en el portal
-            seguro de Stripe.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => void openPortal()} disabled={!canUsePortal || opening}>
-              {opening ? "Abriendo..." : "Gestionar facturación"}
-            </Button>
-            <Link
-              href="/planes"
-              className={saldoBajo ? "inline-flex min-h-9 items-center rounded bg-accent px-3 text-sm font-medium text-white" : "inline-flex items-center text-sm"}
-            >
-              {saldoBajo ? "Mejorar plan" : "Cambiar de plan"}
-            </Link>
-          </div>
-          {!canUsePortal ? (
-            <p className="mt-3 text-xs text-muted">
-              Tu plan no se cobra por Stripe, así que no hay portal que abrir.
+        <Card>
+          <CardHeader>
+            <CardTitle>Datos de facturación</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm">
+              Tarjeta, razón social, NIF y cancelación se gestionan en el portal
+              seguro de Stripe.
             </p>
-          ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={() => void openPortal()} disabled={!canUsePortal || opening}>
+                {opening ? "Abriendo..." : "Gestionar facturación"}
+              </Button>
+              <Link
+                href="/planes"
+                className={buttonVariants({ variant: saldoBajo ? "default" : "secondary" })}
+              >
+                {saldoBajo ? "Mejorar plan" : "Cambiar de plan"}
+              </Link>
+            </div>
+            {!canUsePortal ? (
+              <p className="mt-3 text-xs text-muted">
+                Tu plan no se cobra por Stripe, así que no hay portal que abrir.
+              </p>
+            ) : null}
+          </CardContent>
         </Card>
       </div>
 
-      <Card title="Facturas">
-        {billing.invoices.length === 0 ? (
-          <EmptyState title="Todavía no hay facturas" />
-        ) : (
-          <List>
-            {billing.invoices.map((invoice) => {
-              const status = invoice.status ? INVOICE_STATUS[invoice.status] : null;
-              return (
-                <List.Item
-                  key={invoice.id}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{date(invoice.created_at)}</p>
-                    <p className="text-xs text-muted">{invoice.number ?? "Sin número"}</p>
-                  </div>
-                  <span className="font-mono text-sm">
-                    {money(invoice.total, invoice.currency)}
-                  </span>
-                  {status ? <Badge tone={status.tone}>{status.label}</Badge> : null}
-                  {invoice.pdf_url ? (
-                    <Link href={invoice.pdf_url} className="text-sm">
-                      PDF
-                    </Link>
-                  ) : invoice.hosted_invoice_url ? (
-                    <Link href={invoice.hosted_invoice_url} className="text-sm">
-                      Ver
-                    </Link>
-                  ) : null}
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Facturas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {billing.invoices.length === 0 ? (
+            <EmptyState title="Todavía no hay facturas" />
+          ) : (
+            <List>
+              {billing.invoices.map((invoice) => {
+                const status = invoice.status ? INVOICE_STATUS[invoice.status] : null;
+                return (
+                  <Item key={invoice.id} role="listitem">
+                    <ItemContent>
+                      <ItemTitle>{date(invoice.created_at)}</ItemTitle>
+                      <ItemDescription>{invoice.number ?? "Sin número"}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                    <span className="font-mono text-sm">
+                      {money(invoice.total, invoice.currency)}
+                    </span>
+                    {status ? <Badge tone={status.tone}>{status.label}</Badge> : null}
+                    {invoice.pdf_url ? (
+                      <Link href={invoice.pdf_url} className="text-sm">
+                        PDF
+                      </Link>
+                    ) : invoice.hosted_invoice_url ? (
+                      <Link href={invoice.hosted_invoice_url} className="text-sm">
+                        Ver
+                      </Link>
+                    ) : null}
+                    </ItemActions>
+                  </Item>
+                );
+              })}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

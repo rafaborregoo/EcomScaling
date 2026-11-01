@@ -18,7 +18,6 @@ revoke all on public.a11_marketing_generation_requests from anon, authenticated;
 grant select, insert, update on public.a11_marketing_generation_requests to service_role;
 
 drop function if exists public.reserve_a11_marketing_generation(uuid, uuid, text, text, integer);
-
 create or replace function public.reserve_a11_marketing_generation(
   p_organization_id uuid,
   p_actor_user_id uuid,
@@ -90,6 +89,7 @@ $$;
 revoke all on function public.reserve_a11_marketing_generation(uuid, uuid, text, text, integer) from public, anon, authenticated;
 grant execute on function public.reserve_a11_marketing_generation(uuid, uuid, text, text, integer) to service_role;
 
+drop function if exists public.finish_a11_marketing_generation(uuid, uuid, text, text, uuid, text);
 create or replace function public.finish_a11_marketing_generation(
   p_organization_id uuid,
   p_actor_user_id uuid,

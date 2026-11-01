@@ -1,10 +1,35 @@
 "use client";
 
+
 import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { Badge, Button, Card, ErrorBlock, LoadingBlock, toast } from "@/components/ui";
+import { RocketIcon } from "lucide-react";
+import {
+  EmptyState,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Badge,
+  Button,
+  ErrorBlock,
+  LoadingBlock,
+  toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
+} from "@/components/ui";
 
 type EvaluationStatus = { status: string; evaluated_at: string | null } | null;
 type ReleaseCandidate = {
@@ -47,7 +72,6 @@ export function AgentReleaseGatePanel() {
 
   async function promote(candidate: ReleaseCandidate) {
     if (!candidate.can_promote || candidate.is_active) return;
-    if (!window.confirm(`¿Activar ${candidate.name} ${candidate.version}?`)) return;
     setBusy(candidate.id);
     try {
       const response = await apiFetch(
@@ -68,74 +92,96 @@ export function AgentReleaseGatePanel() {
   }
 
   return (
-    <Card
-      kicker="Calidad y despliegue"
-      title="Versiones candidatas"
-      description="La activación exige una suite real de la versión candidata y una calibración aprobada del juez. La base de datos aplica ambos bloqueos."
-    >
-      {isLoading ? <LoadingBlock label="Cargando versiones…" /> : null}
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-      {!isLoading && !error && (data?.candidates.length ?? 0) === 0 ? (
-        <p className="text-sm text-muted">No hay versiones registradas en el catálogo activo.</p>
-      ) : null}
-      <ul className="grid gap-3">
-        {(data?.candidates ?? []).map((candidate) => {
-          const offlinePassed = candidate.evaluations.offline?.status === "passed";
-          const livePassed = candidate.evaluations.live?.status === "passed";
-          return (
-            <li key={candidate.id} className="flex flex-col gap-3 rounded-lg border border-separator p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-medium text-foreground">{candidate.name} · {candidate.version}</p>
-                  <p className="mt-1 truncate font-mono text-xs text-muted">{candidate.code} · {candidate.model}</p>
+    <Card>
+      <CardHeader>
+        <CardKicker>Calidad y despliegue</CardKicker>
+        <CardTitle>Versiones candidatas</CardTitle>
+        <CardDescription>La activación exige una suite real de la versión candidata y una calibración aprobada del juez. La base de datos aplica ambos bloqueos.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? <LoadingBlock label="Cargando versiones…" /> : null}
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        {!isLoading && !error && (data?.candidates.length ?? 0) === 0 ? (
+          <EmptyState size="sm" title="No hay versiones registradas en el catálogo activo" />
+        ) : null}
+        <ul className="grid gap-3">
+          {(data?.candidates ?? []).map((candidate) => {
+            const offlinePassed = candidate.evaluations.offline?.status === "passed";
+            const livePassed = candidate.evaluations.live?.status === "passed";
+            return (
+              <li key={candidate.id}><Card><CardContent className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">{candidate.name} · {candidate.version}</p>
+                    <p className="mt-1 truncate font-mono text-xs text-muted">{candidate.code} · {candidate.model}</p>
+                  </div>
+                  <Badge tone={candidate.is_active ? "success" : "neutral"}>
+                    {candidate.is_active ? "Activa" : "Candidata"}
+                  </Badge>
                 </div>
-                <Badge tone={candidate.is_active ? "success" : "neutral"}>
-                  {candidate.is_active ? "Activa" : "Candidata"}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone={offlinePassed ? "success" : "neutral"}>
-                  Offline: {candidate.evaluations.offline?.status ?? "pendiente"}
-                </Badge>
-                <Badge tone={livePassed ? "success" : "neutral"}>
-                  Live: {candidate.evaluations.live?.status ?? "pendiente"}
-                </Badge>
-                <Badge tone={candidate.judge_calibration ? "success" : "neutral"}>
-                  Juez: {candidate.judge_calibration ? `aprobado · ${candidate.judge_calibration.dataset_version}` : "sin calibrar"}
-                </Badge>
-              </div>
-              {candidate.evaluations.offline?.status === "incomplete"
-                || candidate.evaluations.live?.status === "incomplete" ? (
-                <p className="text-xs text-muted">
-                  Las pruebas incompletas no habilitan la activación. Se necesita ejecutar esta versión y superar la suite adjudicada: 10 casos gold y 3 holdout por agente.
-                </p>
-              ) : null}
-              {!candidate.is_active ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busy !== null}
-                    onClick={() => void evaluateOffline(candidate)}
-                  >
-                    {busy === candidate.id ? "Ejecutando…" : "Evaluar offline"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={busy !== null || !candidate.can_promote}
-                    onClick={() => void promote(candidate)}
-                  >
-                    Activar versión
-                  </Button>
-                  {!livePassed || !candidate.judge_calibration ? (
-                    <span className="text-xs text-muted">Falta completar la suite live del candidato y la calibración aprobada del juez.</span>
-                  ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone={offlinePassed ? "success" : "neutral"}>
+                    Offline: {candidate.evaluations.offline?.status ?? "pendiente"}
+                  </Badge>
+                  <Badge tone={livePassed ? "success" : "neutral"}>
+                    Live: {candidate.evaluations.live?.status ?? "pendiente"}
+                  </Badge>
+                  <Badge tone={candidate.judge_calibration ? "success" : "neutral"}>
+                    Juez: {candidate.judge_calibration ? `aprobado · ${candidate.judge_calibration.dataset_version}` : "sin calibrar"}
+                  </Badge>
                 </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+                {candidate.evaluations.offline?.status === "incomplete"
+                  || candidate.evaluations.live?.status === "incomplete" ? (
+                  <p className="text-xs text-muted">
+                    Las pruebas incompletas no habilitan la activación. Se necesita ejecutar esta versión y superar la suite adjudicada: 10 casos gold y 3 holdout por agente.
+                  </p>
+                ) : null}
+                {!candidate.is_active ? (
+                  <div role="group" aria-label="Acciones de publicación" className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy !== null}
+                      onClick={() => void evaluateOffline(candidate)}
+                    >
+                      {busy === candidate.id ? "Ejecutando…" : "Evaluar offline"}
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger
+                        render={
+                          <Button size="sm" disabled={busy !== null || !candidate.can_promote}>
+                            Activar versión
+                          </Button>
+                        }
+                      />
+                      <AlertDialogContent size="sm">
+                        <AlertDialogHeader>
+                          <AlertDialogMedia>
+                            <RocketIcon />
+                          </AlertDialogMedia>
+                          <AlertDialogTitle>¿Activar {candidate.name} {candidate.version}?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Pasa a ser la versión activa del agente.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction busyLabel="Activando…" onClick={() => promote(candidate)}>
+                            Activar
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                    {!livePassed || !candidate.judge_calibration ? (
+                      <span className="text-xs text-muted">Falta completar la suite live del candidato y la calibración aprobada del juez.</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </CardContent></Card></li>
+            );
+          })}
+        </ul>
+      </CardContent>
     </Card>
   );
 }

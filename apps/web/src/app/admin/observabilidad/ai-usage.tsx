@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { AsyncState, Badge, Button, Card, ErrorBlock, Table, type TableColumnDef } from "@/components/ui";
+import { AsyncState, Badge, Button, ErrorBlock, DataTable, type DataTableColumn, Card, CardAction, CardContent, CardDescription, CardHeader, CardKicker, CardTitle } from "@/components/ui";
 
 type Range = "all" | "90d" | "30d" | "7d";
 
@@ -62,22 +62,34 @@ export function AiUsagePanel() {
 
   if (isLoading && !data) {
     return (
-      <Card kicker={kicker} title={title}>
-        <AsyncState status="loading" loadingLabel="Contando ejecuciones y tokens..." />
+      <Card>
+        <CardHeader>
+          <CardKicker>{kicker}</CardKicker>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AsyncState status="loading" loadingLabel="Contando ejecuciones y tokens..." />
+        </CardContent>
       </Card>
     );
   }
   if (error || !data) {
     return (
-      <Card kicker={kicker} title={title}>
-        <ErrorBlock>{error ?? "Sin datos."}</ErrorBlock>
+      <Card>
+        <CardHeader>
+          <CardKicker>{kicker}</CardKicker>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorBlock>{error ?? "Sin datos."}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
 
   const rows = data.agents.map((row) => ({ ...row, id: row.agent_code }));
   const t = data.totals;
-  const columns: TableColumnDef<(typeof rows)[number]>[] = [
+  const columns: DataTableColumn<(typeof rows)[number]>[] = [
     {
       key: "agent_name",
       label: "Agente",
@@ -111,38 +123,39 @@ export function AiUsagePanel() {
   ];
 
   return (
-    <Card
-      kicker={kicker}
-      title={title}
-      description="Veces que corre cada agente y tokens de entrada y salida de todas sus ejecuciones. No incluye el copiloto, que tiene su saldo propio."
-      actions={
-        <span className="flex gap-1" role="group" aria-label="Periodo">
+    <Card>
+      <CardHeader>
+        <CardKicker>{kicker}</CardKicker>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>Veces que corre cada agente y tokens de entrada y salida de todas sus ejecuciones. No incluye el copiloto, que tiene su saldo propio.</CardDescription>
+        <CardAction><span className="flex gap-1" role="group" aria-label="Periodo">
           {RANGES.map(([key, label]) => (
-            <Button key={key} size="sm" variant={range === key ? "primary" : "secondary"} onClick={() => setRange(key)}>
+            <Button key={key} size="sm" variant={range === key ? "default" : "secondary"} onClick={() => setRange(key)}>
               {label}
             </Button>
           ))}
-        </span>
-      }
-    >
-      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
-        <Figure label="Ejecuciones" value={n(t.run_count)} hint={`${n(t.failed_count + t.rejected_count)} fallidas`} />
-        <Figure label="Tokens de entrada" value={n(t.input_tokens)} hint={`${n(t.cache_read_tokens)} leídos de caché`} />
-        <Figure label="Tokens de salida" value={n(t.output_tokens)} />
-        <Figure label="Entrada + salida" value={n(t.input_tokens + t.output_tokens)} />
-        <Figure label="Coste estimado" value={usd(t.total_cost_usd)} />
-      </div>
-      {rows.length ? (
-        <Table ariaLabel="Consumo de IA por agente" columns={columns} rows={rows} />
-      ) : (
-        <AsyncState status="empty" emptyTitle="Sin ejecuciones en este periodo" emptyHint="Prueba con «Todo»." />
-      )}
-      {data.copilot ? (
-        <p className="mt-3 text-xs text-muted">
-          Aparte, el copiloto (saldo propio) ha corrido {n(data.copilot.run_count)} veces con {n(data.copilot.input_tokens + data.copilot.output_tokens)} tokens
-          de entrada y salida ({usd(data.copilot.total_cost_usd)}).
-        </p>
-      ) : null}
+        </span></CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
+          <Figure label="Ejecuciones" value={n(t.run_count)} hint={`${n(t.failed_count + t.rejected_count)} fallidas`} />
+          <Figure label="Tokens de entrada" value={n(t.input_tokens)} hint={`${n(t.cache_read_tokens)} leídos de caché`} />
+          <Figure label="Tokens de salida" value={n(t.output_tokens)} />
+          <Figure label="Entrada + salida" value={n(t.input_tokens + t.output_tokens)} />
+          <Figure label="Coste estimado" value={usd(t.total_cost_usd)} />
+        </div>
+        {rows.length ? (
+          <DataTable ariaLabel="Consumo de IA por agente" columns={columns} rows={rows} />
+        ) : (
+          <AsyncState status="empty" emptyTitle="Sin ejecuciones en este periodo" emptyHint="Prueba con «Todo»." />
+        )}
+        {data.copilot ? (
+          <p className="mt-3 text-xs text-muted">
+            Aparte, el copiloto (saldo propio) ha corrido {n(data.copilot.run_count)} veces con {n(data.copilot.input_tokens + data.copilot.output_tokens)} tokens
+            de entrada y salida ({usd(data.copilot.total_cost_usd)}).
+          </p>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

@@ -3,6 +3,28 @@ import { fetch as streamFetch } from "expo/fetch";
 
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
 
+// La URL y la ruta se quedan en los logs: a la persona se le dice qué pasa y qué hacer.
+const OFFLINE = "No hay conexión con E-NORA. Revisa tu conexión a internet y vuelve a intentarlo.";
+
+function genericMessage(status: number) {
+  if (status === 401) return "Tu sesión ha caducado. Vuelve a entrar.";
+  if (status === 402) return "No queda saldo para hacer esto.";
+  if (status === 403) return "No tienes permiso para hacer esto.";
+  if (status === 404) return "No lo encontramos: puede que se haya borrado o movido.";
+  if (status === 409) return "Ha cambiado mientras lo tenías abierto. Recarga y vuelve a intentarlo.";
+  if (status === 429) return "Demasiadas peticiones seguidas. Espera un minuto.";
+  if (status >= 400 && status < 500) return "Revisa los datos e inténtalo de nuevo.";
+  return "Algo ha fallado por nuestra parte. Inténtalo de nuevo en unos segundos.";
+}
+
+/** Igual que la web: solo el `message` que la API escribe para la persona; nunca el código ni la ruta. */
+async function failure(res: Response): Promise<ApiError> {
+  const body = (await res.json().catch(() => null)) as { error?: string; message?: string; statusCode?: number; can_upgrade?: boolean } | null;
+  const code = typeof body?.error === "string" && /^[a-z0-9_]+$/.test(body.error) ? body.error : null;
+  const human = body?.message && code && !/^[a-z0-9_]+$/.test(body.message) ? body.message : genericMessage(res.status);
+  return Object.assign(new Error(human), { status: res.status, canUpgrade: body?.can_upgrade === true, code });
+}
+
 // Misma API que la web: Bearer con el JWT de Supabase.
 export async function apiGet<T>(path: string): Promise<T> {
   const { data } = await supabase.auth.getSession();
@@ -12,9 +34,9 @@ export async function apiGet<T>(path: string): Promise<T> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: AbortSignal.timeout(10_000),
   }).catch(() => {
-    throw new Error(`No llego a la API (${apiUrl}). Revisa wifi y firewall.`);
+    throw new Error(OFFLINE);
   });
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  if (!res.ok) throw await failure(res);
   return (await res.json()) as T;
 }
 
@@ -31,7 +53,7 @@ export type Bootstrap = {
 
 // Escrituras (POST/DELETE...). Devuelve el JSON; en error lanza el mensaje de la API para enseñarlo tal cual.
 /** Error de apiSend: el estado HTTP y, si es de saldo agotado, si quien lo lee puede subir el plan. */
-export type ApiError = Error & { status?: number; canUpgrade?: boolean };
+export type ApiError = Error & { status?: number; canUpgrade?: boolean; code?: string | null };
 
 export async function apiSend<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown, timeoutMs = 15_000): Promise<T> {
   const { data } = await supabase.auth.getSession();
@@ -42,11 +64,10 @@ export async function apiSend<T = unknown>(method: "POST" | "PUT" | "PATCH" | "D
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   }).catch(() => {
-    throw new Error(`No llego a la API (${apiUrl}). Revisa wifi y firewall.`);
+    throw new Error(OFFLINE);
   });
   if (!res.ok) {
-    const detail = (await res.json().catch(() => null)) as { error?: string; message?: string; can_upgrade?: boolean } | null;
-    throw Object.assign(new Error(detail?.message ?? detail?.error ?? `${path} -> ${res.status}`), { status: res.status, canUpgrade: detail?.can_upgrade === true });
+    throw await failure(res);
   }
   return (await res.json().catch(() => ({}))) as T;
 }
@@ -61,11 +82,10 @@ export async function apiStream(path: string, body: unknown, onEvent: (event: { 
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   }).catch(() => {
-    throw new Error(`No llego a la API (${apiUrl}). Revisa wifi y firewall.`);
+    throw new Error(OFFLINE);
   });
   if (!res.ok) {
-    const detail = (await res.json().catch(() => null)) as { error?: string; message?: string; can_upgrade?: boolean } | null;
-    throw Object.assign(new Error(detail?.message ?? detail?.error ?? `${path} -> ${res.status}`), { status: res.status, canUpgrade: detail?.can_upgrade === true });
+    throw await failure(res);
   }
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No se pudo leer la respuesta en directo.");

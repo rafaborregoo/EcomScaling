@@ -7,11 +7,14 @@ import {
   Banner,
   BrandLogo,
   Button,
-  Card,
   ErrorBlock,
   Field,
   Heading,
   Input,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 export default function RecuperarPage() {
@@ -55,37 +58,44 @@ export default function RecuperarPage() {
       </div>
 
       {enviado ? (
-        <Card title="Revisa tu correo">
-          {/* A proposito no se dice si ese correo tiene cuenta o no: seria una
-              forma de averiguar quien esta registrado probando direcciones. */}
-          <Banner tone="success">
-            Si {email} tiene cuenta, te llega un enlace para poner una
-            contraseña nueva.
-          </Banner>
-          <p className="mt-4 text-sm leading-6 text-muted">
-            El enlace caduca en una hora. Si no aparece, mira en spam.
-          </p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Revisa tu correo</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* A proposito no se dice si ese correo tiene cuenta o no: seria una
+                forma de averiguar quien esta registrado probando direcciones. */}
+            <Banner tone="success">
+              Si {email} tiene cuenta, te llega un enlace para poner una
+              contraseña nueva.
+            </Banner>
+            <p className="mt-4 text-sm leading-6 text-muted">
+              El enlace caduca en una hora. Si no aparece, mira en spam.
+            </p>
+          </CardContent>
         </Card>
       ) : (
         <Card>
-          <form className="grid gap-4" onSubmit={handleSubmit}>
-            <Field label="Email">
-              <Input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                placeholder="tu@empresa.com"
-                required
-              />
-            </Field>
+          <CardContent>
+            <form className="grid gap-4" onSubmit={handleSubmit}>
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  placeholder="tu@empresa.com"
+                  required
+                />
+              </Field>
 
-            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+              {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Enviando..." : "Enviarme el enlace"}
-            </Button>
-          </form>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Enviando..." : "Enviarme el enlace"}
+              </Button>
+            </form>
+          </CardContent>
         </Card>
       )}
 

@@ -8,16 +8,29 @@ import { useActiveConnection } from "@/components/active-connection";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { PortfolioAttention } from "@/components/portfolio-attention";
 import { KlaviyoAnalytics } from "./klaviyo-analytics";
-import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import r from "../shopify/legible.module.css";
+import { AiSpecialistItem } from "@/components/ai-diagnostic-section";
+import { A26_EMAIL_AUDIT } from "@/components/a26-email-audit";
 import {
+  Accordion,
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   List,
   LoadingBlock,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
@@ -34,7 +47,9 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (!organizationId) {
     return (
       <Card>
-        <EmptyState title="Elige un cliente para ver su email marketing." />
+        <CardContent>
+          <EmptyState title="Elige un cliente para ver su email marketing." />
+        </CardContent>
       </Card>
     );
   }
@@ -43,19 +58,31 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="portal-page grid gap-5 sm:gap-6">
       {/* Lo esencial del email: ingresos, tasas, fiabilidad, flujos y asuntos.
           Crear y programar vive en Marketing. */}
+      <div className={`nora-min ${r.min}`}>
       <KlaviyoAnalytics
         organizationId={organizationId}
         organizationName={organization?.display_name ?? "Klaviyo"}
         connectionId={connectionId || null}
         isConsultant={isConsultant}
       />
+      </div>
 
       {/* Los especialistas, como en Shopify y Meta: del consultor y plegados. */}
       {isConsultant ? (
-      <details id="klaviyo-ia" className="rounded-xl border border-separator bg-surface p-4">
-      <summary className="cursor-pointer text-base font-semibold">Análisis de los especialistas IA</summary>
-      <div className="mt-4 grid gap-5 sm:gap-6">
-      <AiDiagnosticSection
+      <section id="klaviyo-ia" aria-labelledby="klaviyo-ia-title" className="border-t border-separator pt-4">
+      <h2 id="klaviyo-ia-title" className="text-base font-semibold">Análisis de los especialistas IA</h2>
+      <Accordion multiple className="mt-1">
+      {/* El ancla la usan Marketing y Flows (/klaviyo#revision-contenido-email): abre esta fila. */}
+      <AiSpecialistItem
+        key={`${organizationId}:${connectionId ?? "auto"}`}
+        value="contenido"
+        id="revision-contenido-email"
+        organizationId={organizationId}
+        connectionIdOverride={connectionId}
+        {...A26_EMAIL_AUDIT}
+      />
+      <AiSpecialistItem
+        value="email"
         organizationId={organizationId}
         title="Análisis de email"
         getPath="/ai/email-analyst"
@@ -71,18 +98,19 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           medicion: { label: "Ver medición", href: "#klaviyo-medicion" },
         }}
       />
-      <AiDiagnosticSection
+      <AiSpecialistItem
+        value="flujos"
         organizationId={organizationId}
         title="Arquitectura de flujos"
         getPath="/ai/klaviyo-flow-architect"
         runPath="/ai/klaviyo-flow-architect-run"
         loadingLabel="Revisando los flujos y oportunidades de automatización…"
         tasksLabelSingular="tarea"
-        days={90}
+        days={60}
         showInternals={isConsultant}
       />
-      </div>
-      </details>
+      </Accordion>
+      </section>
       ) : null}
     </div>
   );
@@ -137,7 +165,9 @@ function ConsultantAccountsView() {
   if (error) {
     return (
       <Card>
-        <ErrorBlock>{error}</ErrorBlock>
+        <CardContent>
+          <ErrorBlock>{error}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
@@ -145,7 +175,9 @@ function ConsultantAccountsView() {
   if (!ranking) {
     return (
       <Card>
-        <LoadingBlock label="Revisando el email de la cartera..." />
+        <CardContent>
+          <LoadingBlock label="Revisando el email de la cartera..." />
+        </CardContent>
       </Card>
     );
   }
@@ -171,79 +203,79 @@ function ConsultantAccountsView() {
           blind: account.blind,
         }))}
       />
-      <Card
-        title="Email por cliente"
-        description="Ordenado por lo que cuesta no mirarlo."
-        actions={
-          <Button
-            variant={onlyNeedsReview ? "primary" : "secondary"}
+      <Card>
+        <CardHeader>
+          <CardTitle>Email por cliente</CardTitle>
+          <CardDescription>Ordenado por lo que cuesta no mirarlo.</CardDescription>
+          <CardAction><Button
+            variant={onlyNeedsReview ? "default" : "secondary"}
             onClick={() => setOnlyNeedsReview((value) => !value)}
           >
             Solo los que piden revisión
-          </Button>
-        }
-      >
-        {ranking.length === 0 ? (
-          <EmptyState
-            title="No hay clientes en tu cartera."
-            hint="Los clientes se asignan desde Configuración."
-          />
-        ) : shown.length === 0 ? (
-          <EmptyState title="Ningún cliente pide revisión ahora mismo." />
-        ) : (
-          <List>
-            {shown.map((account, index) => {
-              const level = LEVEL_PRESENTATION[account.level];
+          </Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          {ranking.length === 0 ? (
+            <EmptyState
+              title="No hay clientes en tu cartera."
+              hint="Los clientes se asignan desde Configuración."
+            />
+          ) : shown.length === 0 ? (
+            <EmptyState title="Ningún cliente pide revisión ahora mismo." />
+          ) : (
+            <List>
+              {shown.map((account, index) => {
+                const level = LEVEL_PRESENTATION[account.level];
 
-              return (
-                <List.Item
-                  key={account.organization_id}
-                  as="button"
-                  type="button"
-                  onClick={() => setOrganizationId(account.organization_id)}
-                  className="flex w-full items-start gap-4 py-3 text-left"
-                >
-                  {/* El puesto solo mientras la lista está entera: con el
-                      filtro puesto, un "3" sería el tercero de lo que queda en
-                      pantalla, no de la cartera. */}
-                  <span className="w-6 shrink-0 pt-0.5 text-sm tabular-nums text-muted">
-                    {onlyNeedsReview ? "·" : index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={level.tone}>{level.label}</Badge>
-                      {/* "No sabemos cómo va" no es lo mismo que "va mal". */}
-                      {account.blind ? (
-                        <Badge tone="neutral">sin datos fiables</Badge>
-                      ) : null}
-                      <span className="font-medium">
-                        {account.organization_name}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {syncLabel(account.last_sync_at)}
-                      {` · ${account.flows_active} flujo${account.flows_active === 1 ? "" : "s"} activo${account.flows_active === 1 ? "" : "s"}`}
-                      {` · ${account.emails_total} email${account.emails_total === 1 ? "" : "s"}`}
-                    </p>
-                    {account.reasons.length ? (
-                      <ul className="mt-2 space-y-1">
-                        {account.reasons.map((reason) => (
-                          <li key={reason.text} className="text-sm">
-                            {reason.text}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted">
-                        Sin nada roto que contar.
-                      </p>
-                    )}
-                  </div>
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
+                return (
+                  <Item
+                    key={account.organization_id}
+                    role="listitem"
+                    className="flex-nowrap items-start"
+                    render={<button type="button" onClick={() => setOrganizationId(account.organization_id)} />}
+                  >
+                    {/* El puesto solo mientras la lista está entera: con el
+                        filtro puesto, un "3" sería el tercero de lo que queda en
+                        pantalla, no de la cartera. */}
+                    <ItemMedia className="w-6 pt-0.5 text-sm tabular-nums text-muted">
+                      {onlyNeedsReview ? "·" : index + 1}
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>
+                        <Badge tone={level.tone}>{level.label}</Badge>
+                        {/* "No sabemos cómo va" no es lo mismo que "va mal". */}
+                        {account.blind ? (
+                          <Badge tone="neutral">sin datos fiables</Badge>
+                        ) : null}
+                        <span>
+                          {account.organization_name}
+                        </span>
+                      </ItemTitle>
+                      <ItemDescription>
+                        {syncLabel(account.last_sync_at)}
+                        {` · ${account.flows_active} flujo${account.flows_active === 1 ? "" : "s"} activo${account.flows_active === 1 ? "" : "s"}`}
+                        {` · ${account.emails_total} email${account.emails_total === 1 ? "" : "s"}`}
+                      </ItemDescription>
+                      {account.reasons.length ? (
+                        <ul className="mt-2 space-y-1">
+                          {account.reasons.map((reason) => (
+                            <li key={reason.text} className="text-sm">
+                              {reason.text}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted">
+                          Sin nada roto que contar.
+                        </p>
+                      )}
+                    </ItemContent>
+                  </Item>
+                );
+              })}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

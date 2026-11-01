@@ -102,6 +102,8 @@ export type ConsultantProfitability = {
   totals: ReturnType<typeof aggregateTotals>;
   /** Serie mensual de las tiendas en la moneda de los totales. */
   monthly: ProfitabilityMonth[];
+  /** Ingresos mes a mes de cada tienda (solo cartera): para compararlas entre sí. */
+  store_monthly: Array<{ store_id: string; months: Array<{ month: string; revenue: number }> }>;
   /** Tiendas cuya lectura fallo: no se enseñan con datos a medias. */
   failed_stores: Array<{ store_id: string; shop_name: string }>;
   truncated: boolean;
@@ -143,7 +145,7 @@ export async function getConsultantProfitability(
     }
   }
 
-  const cacheKey = `consultant:profitability:v2:${context.user.id}:${query.organizationId ?? "all"}:${days}`;
+  const cacheKey = `consultant:profitability:v4:${context.user.id}:${query.organizationId ?? "all"}:${days}`;
   const cached = await getCached<ConsultantProfitability>(env.REDIS_URL, cacheKey);
   if (cached) return { ok: true as const, data: cached };
 
@@ -202,6 +204,36 @@ export async function getConsultantProfitability(
   const stores = allStores.slice(0, MAX_STORES);
   const targetRows = (targetsResult.data ?? []) as unknown as TargetRow[];
   const withDaily = Boolean(query.organizationId);
+
+  // La serie mensual va por organización y no depende de las tiendas: se pide a
+  // la vez que ellas en lugar de esperar a que terminen (antes sumaban latencias).
+  const monthlyPending = mapLimit([...new Set(stores.map((store) => store.organization_id))], CONCURRENCY, async (org) => ({
+    org,
+    result: await supabase.rpc("shopify_financial_monthly", {
+      target_organization_id: org,
+      months_back: MONTHLY_SERIES_MONTHS,
+      target_store_id: null,
+    }),
+  }));
+
+  // Cartera: ingresos mes a mes de cada tienda. La de un cliente con una sola
+  // tienda es la serie del cliente; solo las de clientes con varias piden la suya.
+  const storesPerOrg = new Map<string, number>();
+  for (const store of stores) storesPerOrg.set(store.organization_id, (storesPerOrg.get(store.organization_id) ?? 0) + 1);
+  const storeMonthlyPending = query.organizationId
+    ? Promise.resolve([])
+    : mapLimit(
+        stores.filter((store) => (storesPerOrg.get(store.organization_id) ?? 0) > 1),
+        CONCURRENCY,
+        async (store) => ({
+          store_id: store.id,
+          result: await supabase.rpc("shopify_financial_monthly", {
+            target_organization_id: store.organization_id,
+            months_back: MONTHLY_SERIES_MONTHS,
+            target_store_id: store.id,
+          }),
+        }),
+      );
 
   const loaded = await mapLimit(stores, CONCURRENCY, async (store) => {
     const rpcArgs = (periodStart: Date, periodEnd: Date) => ({
@@ -287,17 +319,13 @@ export async function getConsultantProfitability(
   // Serie mensual por ORGANIZACION (no por tienda): la funcion SQL reparte los
   // fijos una sola vez a nivel de cliente. Solo clientes cuyas tiendas estan
   // todas en la moneda de los totales: no se suman divisas.
-  const monthlyOrgs = [...new Set(sorted.map((row) => row.organization_id))].filter((org) =>
-    sorted.filter((row) => row.organization_id === org).every((row) => row.currency_code === totals.currency_code),
+  const monthlyOrgs = new Set(
+    [...new Set(sorted.map((row) => row.organization_id))].filter((org) =>
+      sorted.filter((row) => row.organization_id === org).every((row) => row.currency_code === totals.currency_code),
+    ),
   );
-  const monthlyResults = await mapLimit(monthlyOrgs, CONCURRENCY, async (org) => {
-    const result = await supabase.rpc("shopify_financial_monthly", {
-      target_organization_id: org,
-      months_back: MONTHLY_SERIES_MONTHS,
-      target_store_id: null,
-    });
-    return result;
-  });
+  const orgMonthly = await monthlyPending;
+  const monthlyResults = orgMonthly.filter((item) => monthlyOrgs.has(item.org)).map((item) => item.result);
   const months = new Map<string, ProfitabilityMonth>();
   for (const result of monthlyResults) {
     if (result.error || !Array.isArray(result.data)) continue;
@@ -310,6 +338,21 @@ export async function getConsultantProfitability(
     }
   }
 
+  const seriesOf = new Map<string, (typeof orgMonthly)[number]["result"]>(
+    (await storeMonthlyPending).map((item) => [item.store_id, item.result]),
+  );
+  const orgSeries = new Map(orgMonthly.map((item) => [item.org, item.result]));
+  const storeMonthly = query.organizationId
+    ? []
+    : sorted.map((row) => {
+        const result = seriesOf.get(row.store_id) ?? orgSeries.get(row.organization_id);
+        const monthRows = result && !result.error && Array.isArray(result.data) ? (result.data as MonthlyRow[]) : [];
+        return {
+          store_id: row.store_id,
+          months: monthRows.map((month) => ({ month: month.bucket_month, revenue: Number(month.net_revenue_ex_tax) || 0 })),
+        };
+      });
+
   const data: ConsultantProfitability = {
     level: query.organizationId ? "client" : "portfolio",
     organization_id: query.organizationId ?? null,
@@ -319,6 +362,7 @@ export async function getConsultantProfitability(
     clients: aggregateClients(sorted),
     totals,
     monthly: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
+    store_monthly: storeMonthly,
     failed_stores: failed,
     truncated,
     connections: (
@@ -352,6 +396,7 @@ function emptyResult(organizationId: string | null, days: number): ConsultantPro
     clients: [],
     totals: aggregateTotals([]),
     monthly: [],
+    store_monthly: [],
     failed_stores: [],
     truncated: false,
     connections: [],

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@e-nora/config";
-import type { AuthContext } from "./auth-context.js";
+import { requireOperationalOrganization, type AuthContext } from "./auth-context.js";
+import { resolveMarketingStoreScope } from "./marketing-store-scope.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
 import {
@@ -48,10 +49,6 @@ function serviceClient(env: LoadedApiEnv) {
   });
 }
 
-function isMember(context: AuthContext, organizationId: string) {
-  return context.memberships.some((item) => item.organization_id === organizationId);
-}
-
 function num(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -81,14 +78,15 @@ async function resolveStoreId(
   organizationId: string,
   connectionId?: string,
 ) {
-  if (!connectionId) return null;
-  const { data } = await supabase
+  if (!connectionId) return resolveMarketingStoreScope(null, { data: null });
+  const result = await supabase
     .from("shopify_stores")
-    .select("id")
+    .select("id, shop_name")
     .eq("organization_id", organizationId)
     .eq("connection_id", connectionId)
+    .eq("is_active", true)
     .maybeSingle();
-  return (data?.id as string | undefined) ?? null;
+  return resolveMarketingStoreScope(connectionId, result);
 }
 
 export async function getMarketingKlaviyoWorkspace(
@@ -97,12 +95,13 @@ export async function getMarketingKlaviyoWorkspace(
   organizationId: string,
   input: { days?: string | undefined; connectionId?: string | undefined },
 ): Promise<Result<Record<string, unknown>>> {
-  if (!isMember(context, organizationId)) {
-    return { ok: false, statusCode: 403, error: "organization_access_denied" };
-  }
+  const access = requireOperationalOrganization(context, organizationId);
+  if (!access.ok) return access;
   const days = Math.min(365, Math.max(7, Math.floor(num(input.days) || 30)));
   const supabase = serviceClient(env);
-  const storeId = await resolveStoreId(supabase, organizationId, input.connectionId);
+  const scope = await resolveStoreId(supabase, organizationId, input.connectionId);
+  if (!scope.ok) return scope;
+  const storeId = scope.storeId;
 
   let accountQuery = supabase
     .from("klaviyo_accounts")
@@ -114,13 +113,11 @@ export async function getMarketingKlaviyoWorkspace(
   if (accountError) {
     return { ok: false, statusCode: 500, error: "klaviyo_account_load_failed", detail: accountError.message };
   }
-  let account = accounts?.[0] ?? null;
-  // Sin tienda indicada (el móvil no tiene selector) y con varias cuentas Klaviyo no vale
-  // la primera que salga: se prefiere la de la tienda activa.
+  const account = accounts?.[0] ?? null;
+  // An organization with several accounts requires an explicit store scope.
+  // Picking the first account would mix its resources with aggregate statistics.
   if (!storeId && accounts && accounts.length > 1) {
-    const { data: active } = await supabase.from("shopify_stores").select("id").eq("organization_id", organizationId).eq("is_active", true);
-    const activeIds = new Set((active ?? []).map((store) => store.id as string));
-    account = accounts.find((row) => activeIds.has(row.store_id as string)) ?? account;
+    return { ok: false, statusCode: 409, error: "klaviyo_store_selection_required", message: "Elige una tienda para consultar su cuenta de Klaviyo." };
   }
   const end = new Date();
   const start = new Date(end.getTime() - days * DAY_MS);
@@ -145,6 +142,7 @@ export async function getMarketingKlaviyoWorkspace(
   const { data: connection } = await supabase
     .from("integration_connections")
     .select("id, status, scopes, last_sync_at")
+    .eq("organization_id", organizationId)
     .eq("id", account.connection_id as string)
     .maybeSingle();
 
@@ -461,9 +459,8 @@ export async function getMarketingKlaviyoTemplateHtml(
   organizationId: string,
   templateId: string,
 ): Promise<Result<{ html: string | null }>> {
-  if (!isMember(context, organizationId)) {
-    return { ok: false, statusCode: 403, error: "organization_access_denied" };
-  }
+  const access = requireOperationalOrganization(context, organizationId);
+  if (!access.ok) return access;
   const supabase = serviceClient(env);
   const { data, error } = await supabase
     .from("klaviyo_templates")
@@ -490,9 +487,8 @@ export async function getMarketingKlaviyoCampaignClicks(
   organizationId: string,
   externalCampaignId: string,
 ): Promise<Result<{ links: Array<{ url: string; clicks: number; people: number }> }>> {
-  if (!isMember(context, organizationId)) {
-    return { ok: false, statusCode: 403, error: "organization_access_denied" };
-  }
+  const access = requireOperationalOrganization(context, organizationId);
+  if (!access.ok) return access;
   const { data, error } = await serviceClient(env).rpc("klaviyo_campaign_link_clicks", {
     target_organization_id: organizationId,
     target_external_campaign_id: externalCampaignId,

@@ -12,7 +12,6 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   ErrorBlock,
   Field,
   Input,
@@ -20,6 +19,16 @@ import {
   Select,
   Textarea,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+  List,
 } from "@/components/ui";
 
 /**
@@ -277,10 +286,10 @@ export function CaminoProposal({
     ) ?? 0;
 
   return (
-    <Card
-      title="Nueva versión con IA"
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
+    <Card>
+      <CardHeader>
+        <CardTitle>Nueva versión con IA</CardTitle>
+        <CardAction><div className="flex flex-wrap items-center gap-2">
           <Select
             className="w-36"
             aria-label="Horizonte del camino"
@@ -294,7 +303,7 @@ export function CaminoProposal({
           />
           <Button
             type="button"
-            variant={content ? "secondary" : "primary"}
+            variant={content ? "secondary" : "default"}
             disabled={isGenerating}
             onClick={() => void generate()}
           >
@@ -304,173 +313,169 @@ export function CaminoProposal({
                 ? "Proponer otro"
                 : "Proponer camino"}
           </Button>
-        </div>
-      }
-    >
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <Field label="Acuerdo o cambio citado en una llamada (opcional)">
-        <Textarea
-          value={brief}
-          maxLength={2000}
-          onChange={(event) => setBrief(event.target.value)}
-          placeholder="Qué pidió cambiar el cliente; la IA lo contrastará con resultados y margen"
-          rows={3}
-        />
-      </Field>
+        <Field label="Acuerdo o cambio citado en una llamada (opcional)">
+          <Textarea
+            value={brief}
+            maxLength={2000}
+            onChange={(event) => setBrief(event.target.value)}
+            placeholder="Qué pidió cambiar el cliente; la IA lo contrastará con resultados y margen"
+            rows={3}
+          />
+        </Field>
 
-      {isLoading ? (
-        <LoadingBlock label="Cargando propuesta..." />
-      ) : isGenerating ? (
-        <LoadingBlock label="La IA está analizando ventas, margen, stock y adquisición..." />
-      ) : !content ? null : (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="min-w-0 flex-1 text-sm font-semibold">
-              {content.plan_name}
-            </p>
-            <Badge
-              tone={
-                content.confidence === "high"
-                  ? "success"
-                  : content.confidence === "medium"
-                    ? "neutral"
-                    : "warn"
-              }
-            >
-              {CONFIDENCE_LABEL[content.confidence] ?? content.confidence}
-            </Badge>
-            <Badge tone="neutral">
-              {content.phases.length} fases · {totalMilestones} hitos
-            </Badge>
-          </div>
-
-          <p className="text-sm leading-6">{content.diagnosis}</p>
-
-          {content.goal ? (
-            <div className="rounded-lg border border-separator bg-surface-subtle p-3">
-              <p className="text-xs font-medium text-muted">Objetivo recomendado</p>
-              <p className="mt-1 text-sm font-semibold">
-                  {content.goal.metric_label}: {goalValue(content.goal, content.goal.baseline)}
-                  {content.goal.target === null ? " → objetivo por definir" : ` → ${goalValue(content.goal, content.goal.target)}`}
-              </p>
-              <p className="mt-1 text-xs text-muted">
-                Plazo recomendado: {Math.max(1, Math.ceil(content.goal.target_offset_days / 30))} meses · {content.goal.rationale}
-              </p>
-              {content.goal.monthly_targets?.length ? (
-                <div className="mt-3 rounded-md border border-separator bg-surface p-3">
-                  <p className="text-xs font-medium">Trayectoria de revisión mensual</p>
-                  <ol className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {content.goal.monthly_targets.map((checkpoint) => (
-                      <li key={checkpoint.month} className="rounded border border-separator p-2 text-xs">
-                        <strong>Mes {checkpoint.month}: {goalValue(content.goal!, checkpoint.target_value)}</strong>
-                        <p className="mt-1 text-muted">{checkpoint.rationale}</p>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-medium">
-                  Plazo al crear el borrador
-                  <Select className="mt-1 w-full" aria-label="Plazo ajustado para el Camino" value={adjustedHorizon} disabled={isCreating || alreadyApplied} onChange={setAdjustedHorizon} options={HORIZONS} />
-                </label>
-                <label className="text-xs font-medium">
-                  Objetivo ajustado ({content.goal.unit === "money" ? content.goal.currency_code ?? "moneda" : content.goal.unit})
-                  <Input className="mt-1" type="number" step="any" value={adjustedGoalTarget} disabled={isCreating || alreadyApplied} onChange={(event) => setAdjustedGoalTarget(event.target.value)} placeholder="Sin objetivo cuantificado" />
-                </label>
-              </div>
-              {Number(adjustedHorizon) !== (content.horizon_months ?? proposal?.horizon_months ?? Number(horizon)) ? <p className="mt-2 text-xs text-muted">Al crear el borrador, las fechas de hitos y del objetivo se reajustarán proporcionalmente al plazo elegido. Podrás revisarlas antes de activar el Camino.</p> : null}
-              {content.goal.assumptions.length ? (
-                <p className="mt-1 text-xs text-muted">Supuestos: {content.goal.assumptions.join(" · ")}</p>
-              ) : null}
-            </div>
-          ) : null}
-
-          <ol className="space-y-3">
-            {content.phases.map((phase, phaseIndex) => (
-              <li
-                key={`${phase.name}-${phaseIndex}`}
-                className="rounded-lg border border-separator p-3"
-              >
-                <div className="flex items-baseline gap-2">
-                  <span className="shrink-0 text-xs font-medium text-muted">
-                    Fase {phaseIndex + 1}
-                  </span>
-                  <h3 className="min-w-0 text-sm font-semibold">
-                    {phase.name}
-                  </h3>
-                </div>
-                <p className="mt-1 text-xs text-muted">{phase.description}</p>
-                {phase.rationale ? (
-                  <p className="mt-1 text-xs text-muted">
-                    <span className="font-medium text-foreground">
-                      Por qué ahora:{" "}
-                    </span>
-                    {phase.rationale}
-                  </p>
-                ) : null}
-                <EvidenceChips evidence={phase.evidence} />
-
-                <ul className="mt-3 space-y-2">
-                  {phase.milestones.map((milestone, milestoneIndex) => (
-                    <li
-                      key={`${milestone.name}-${milestoneIndex}`}
-                      className="border-t border-separator pt-2 first:border-t-0 first:pt-0"
-                    >
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        <p className="min-w-0 text-xs font-medium">
-                          {milestone.name}
-                        </p>
-                        <span className="shrink-0 text-[0.65rem] text-muted">
-                          {targetDateLabel(scaledMilestoneOffset(milestone.target_offset_days))}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {milestone.description}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        <span className="font-medium text-foreground">
-                          Se cumple cuando:{" "}
-                        </span>
-                        {milestone.success_metric}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ol>
-
-          <AiEvidence sources={content.sources} warnings={content.warnings} />
-
-          {alreadyApplied ? (
-            <Banner tone="success">
-              Esta propuesta ya se convirtió en un plan.
-            </Banner>
-          ) : hasOpenPlan ? (
-            <Banner tone="warn">
-              Ya hay un plan en borrador o activo. Archívalo o complétalo antes
-              de crear este camino; mientras tanto puedes usar la propuesta como
-              guía para editar el plan actual.
-            </Banner>
-          ) : (
+        {isLoading ? (
+          <LoadingBlock label="Cargando propuesta..." />
+        ) : isGenerating ? (
+          <LoadingBlock label="La IA está analizando ventas, margen, stock y adquisición..." />
+        ) : !content ? null : (
+          <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                disabled={isCreating}
-                onClick={() => void acceptProposal()}
+              <p className="min-w-0 flex-1 text-sm font-semibold">
+                {content.plan_name}
+              </p>
+              <Badge
+                tone={
+                  content.confidence === "high"
+                    ? "success"
+                    : content.confidence === "medium"
+                      ? "neutral"
+                      : "warn"
+                }
               >
-                {isCreating ? "Creando..." : "Crear este camino"}
-              </Button>
-              <span className="text-xs text-muted">
-                Se crea como borrador: podrás editar fases e hitos antes de
-                activarlo.
-              </span>
+                {CONFIDENCE_LABEL[content.confidence] ?? content.confidence}
+              </Badge>
+              <Badge tone="neutral">
+                {content.phases.length} fases · {totalMilestones} hitos
+              </Badge>
             </div>
-          )}
-        </div>
-      )}
+
+            <p className="text-sm leading-6">{content.diagnosis}</p>
+
+            {content.goal ? (
+              <Card size="sm"><CardContent>
+                <p className="text-xs font-medium text-muted">Objetivo recomendado</p>
+                <p className="mt-1 text-sm font-semibold">
+                    {content.goal.metric_label}: {goalValue(content.goal, content.goal.baseline)}
+                    {content.goal.target === null ? " → objetivo por definir" : ` → ${goalValue(content.goal, content.goal.target)}`}
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Plazo recomendado: {Math.max(1, Math.ceil(content.goal.target_offset_days / 30))} meses · {content.goal.rationale}
+                </p>
+                {content.goal.monthly_targets?.length ? (
+                  <Card size="sm" className="mt-3"><CardContent>
+                    <p className="text-xs font-medium">Trayectoria de revisión mensual</p>
+                    <ol className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {content.goal.monthly_targets.map((checkpoint) => (
+                        <li key={checkpoint.month} className="rounded border border-separator p-2 text-xs">
+                          <strong>Mes {checkpoint.month}: {goalValue(content.goal!, checkpoint.target_value)}</strong>
+                          <p className="mt-1 text-muted">{checkpoint.rationale}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </CardContent></Card>
+                ) : null}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Field label="Plazo al crear el borrador"><Select className="w-full" value={adjustedHorizon} disabled={isCreating || alreadyApplied} onChange={setAdjustedHorizon} options={HORIZONS} /></Field>
+                  <Field label={`Objetivo ajustado (${content.goal.unit === "money" ? content.goal.currency_code ?? "moneda" : content.goal.unit})`}>
+                    <Input type="number" step="any" value={adjustedGoalTarget} disabled={isCreating || alreadyApplied} onChange={(event) => setAdjustedGoalTarget(event.target.value)} placeholder="Sin objetivo cuantificado" />
+                  </Field>
+                </div>
+                {Number(adjustedHorizon) !== (content.horizon_months ?? proposal?.horizon_months ?? Number(horizon)) ? <p className="mt-2 text-xs text-muted">Al crear el borrador, las fechas de hitos y del objetivo se reajustarán proporcionalmente al plazo elegido. Podrás revisarlas antes de activar el Camino.</p> : null}
+                {content.goal.assumptions.length ? (
+                  <p className="mt-1 text-xs text-muted">Supuestos: {content.goal.assumptions.join(" · ")}</p>
+                ) : null}
+              </CardContent></Card>
+            ) : null}
+
+            <ol className="space-y-3">
+              {content.phases.map((phase, phaseIndex) => (
+                <li key={`${phase.name}-${phaseIndex}`}><Card size="sm"><CardContent>
+                  <div className="flex items-baseline gap-2">
+                    <span className="shrink-0 text-xs font-medium text-muted">
+                      Fase {phaseIndex + 1}
+                    </span>
+                    <h3 className="min-w-0 text-sm font-semibold">
+                      {phase.name}
+                    </h3>
+                  </div>
+                  <p className="mt-1 text-xs text-muted">{phase.description}</p>
+                  {phase.rationale ? (
+                    <p className="mt-1 text-xs text-muted">
+                      <span className="font-medium text-foreground">
+                        Por qué ahora:{" "}
+                      </span>
+                      {phase.rationale}
+                    </p>
+                  ) : null}
+                  <EvidenceChips evidence={phase.evidence} />
+
+                  <List as="ul" className="mt-3">
+                    {phase.milestones.map((milestone, milestoneIndex) => (
+                      <Item
+                        key={`${milestone.name}-${milestoneIndex}`}
+                        size="xs"
+                        className="items-start px-0"
+                        render={<li />}
+                      >
+                        <ItemContent>
+                          <ItemTitle>
+                            <span className="min-w-0">{milestone.name}</span>
+                            <span className="text-sm font-normal text-muted">
+                              {targetDateLabel(scaledMilestoneOffset(milestone.target_offset_days))}
+                            </span>
+                          </ItemTitle>
+                          <ItemDescription>
+                            {milestone.description}
+                          </ItemDescription>
+                          <ItemDescription>
+                          <span className="font-medium text-foreground">
+                            Se cumple cuando:{" "}
+                          </span>
+                          {milestone.success_metric}
+                          </ItemDescription>
+                        </ItemContent>
+                      </Item>
+                    ))}
+                  </List>
+                </CardContent></Card></li>
+              ))}
+            </ol>
+
+            <AiEvidence sources={content.sources} warnings={content.warnings} />
+
+            {alreadyApplied ? (
+              <Banner tone="success">
+                Esta propuesta ya se convirtió en un plan.
+              </Banner>
+            ) : hasOpenPlan ? (
+              <Banner tone="warn">
+                Ya hay un plan en borrador o activo. Archívalo o complétalo antes
+                de crear este camino; mientras tanto puedes usar la propuesta como
+                guía para editar el plan actual.
+              </Banner>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  disabled={isCreating}
+                  onClick={() => void acceptProposal()}
+                >
+                  {isCreating ? "Creando..." : "Crear este camino"}
+                </Button>
+                <span className="text-xs text-muted">
+                  Se crea como borrador: podrás editar fases e hitos antes de
+                  activarlo.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

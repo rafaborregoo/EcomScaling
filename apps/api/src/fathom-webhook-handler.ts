@@ -5,6 +5,7 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import type { FathomWebhookEventRow } from "@e-nora/db";
 import type { AuthContext } from "./auth-context.js";
 import { runCallAnalyst } from "./ai-runtime.js";
+import { pickScheduledCall } from "./meetings-core.js";
 import {
   fathomWebhookDeduplicationKey,
   parseFathomMeetingWebhook,
@@ -222,6 +223,43 @@ export async function processQueuedFathomWebhookEvents(
         .eq("organization_id", connection.organization_id)
         .eq("external_recording_id", parsed.recording_id)
         .maybeSingle();
+      if (!call) {
+        // Si la grabación es de una reunión reservada en E-NORA, se completa SU
+        // llamada programada en vez de crear otra: así el resumen del agente
+        // aparece en la reunión.
+        const recordedIso = parsed.created_at ?? "";
+        const recordedAt = Date.parse(recordedIso);
+        const { data: scheduled } = Number.isFinite(recordedAt)
+          ? await supabase
+              .from("consulting_calls")
+              .select("id, scheduled_at, consultant_user_id")
+              .eq("organization_id", connection.organization_id)
+              .eq("status", "scheduled")
+              .is("external_recording_id", null)
+              .gte("scheduled_at", new Date(recordedAt - 3 * 3_600_000).toISOString())
+              .lte("scheduled_at", new Date(recordedAt + 3 * 3_600_000).toISOString())
+          : { data: [] };
+        const matchId = pickScheduledCall(
+          (scheduled ?? []) as Array<{ id: string; scheduled_at: string; consultant_user_id: string | null }>,
+          recordedIso,
+          connection.connected_by as string,
+        );
+        if (matchId) {
+          const { error: matchError } = await supabase
+            .from("consulting_calls")
+            .update({
+              status: "held",
+              held_at: parsed.created_at,
+              recording_url: parsed.share_url ?? parsed.url,
+              recording_provider: "fathom",
+              external_recording_id: parsed.recording_id,
+            })
+            .eq("id", matchId);
+          if (matchError) throw matchError;
+          await supabase.from("meetings").update({ status: "completed" }).eq("call_id", matchId).eq("status", "scheduled");
+          call = { id: matchId };
+        }
+      }
       if (!call) {
         const { data: created, error: createError } = await supabase
           .from("consulting_calls")

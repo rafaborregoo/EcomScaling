@@ -23,6 +23,8 @@ MAILTO=""
 # Informes mensuales programados (Informes › Envío mensual). Diario e idempotente:
 # cada programacion envia el ultimo mes completo una vez; si el dia 1 falla, se recupera.
 20 7 * * * /opt/e-nora/run-worker-job.sh scheduled-reports
+# Tracking semanal (Planificacion > Tracking): los lunes cierra la semana pasada de cada tienda.
+30 6 * * 1 /opt/e-nora/run-worker-job.sh kpi-snapshots
 
 # --- Cadena nocturna F3 -> F7 (diagnostico, decision, playbooks, 6.00-6.04,
 # 7.01-7.14), en orden y en serie dentro de un solo job. Tiene hasta las 3:35,

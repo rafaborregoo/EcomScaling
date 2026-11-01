@@ -1,5 +1,6 @@
 "use client";
 
+
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PasswordInput } from "@/components/password-input";
 import { PasswordRequirements } from "@/components/password-requirements";
@@ -10,7 +11,7 @@ import {
   passwordConfirmationState,
 } from "@/lib/password-policy";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Banner, Button, Card, ErrorBlock, Field, Input, toast } from "@/components/ui";
+import { Badge, Banner, Button, ErrorBlock, Field, InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot, toast, Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui";
 
 /**
  * Seguridad de la cuenta con Supabase Auth, sin API propia: contraseña, segundo
@@ -72,46 +73,51 @@ function PasswordCard({ email }: { email: string | null }) {
   }
 
   return (
-    <Card title="Contraseña">
-      <form className="grid max-w-md gap-4" onSubmit={submit}>
-        <Field label="Actual">
-          <PasswordInput
-            value={current}
-            onChange={(event) => setCurrent(event.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </Field>
-        <Field label="Nueva">
-          <PasswordInput
-            value={next}
-            onChange={(event) => setNext(event.target.value)}
-            autoComplete="new-password"
-            required
-          />
-        </Field>
-        <PasswordRequirements password={next} />
-        <Field label="Repite la nueva">
-          <PasswordInput
-            value={confirm}
-            onChange={(event) => setConfirm(event.target.value)}
-            autoComplete="new-password"
-            aria-invalid={mismatch}
-            required
-          />
-        </Field>
-        {mismatch ? (
-          <p className="text-xs text-danger" role="alert">
-            Las contraseñas no coinciden.
-          </p>
-        ) : null}
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <div>
-          <Button type="submit" disabled={!canSubmit}>
-            {busy ? "Cambiando..." : "Cambiar contraseña"}
-          </Button>
-        </div>
-      </form>
+    <Card>
+      <CardHeader>
+        <CardTitle>Contraseña</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="grid max-w-md gap-4" onSubmit={submit}>
+          <Field label="Actual">
+            <PasswordInput
+              value={current}
+              onChange={(event) => setCurrent(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </Field>
+          <Field label="Nueva">
+            <PasswordInput
+              value={next}
+              onChange={(event) => setNext(event.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </Field>
+          <PasswordRequirements password={next} />
+          <Field label="Repite la nueva">
+            <PasswordInput
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              autoComplete="new-password"
+              aria-invalid={mismatch}
+              required
+            />
+          </Field>
+          {mismatch ? (
+            <p className="text-xs text-danger" role="alert">
+              Las contraseñas no coinciden.
+            </p>
+          ) : null}
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <div>
+            <Button type="submit" disabled={!canSubmit}>
+              {busy ? "Cambiando..." : "Cambiar contraseña"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
     </Card>
   );
 }
@@ -164,11 +170,12 @@ function TwoFactorCard({ isConsultant }: { isConsultant: boolean }) {
     setError(null);
     const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({
       factorId: enrollment.factorId,
-      code: code.trim(),
+      code,
     });
     setBusy(false);
     if (verifyError) {
       setError("El código no es correcto. Prueba con el que muestra ahora tu app.");
+      setCode("");
       return;
     }
     setEnrollment(null);
@@ -201,85 +208,89 @@ function TwoFactorCard({ isConsultant }: { isConsultant: boolean }) {
   }
 
   return (
-    <Card
-      title="Verificación en dos pasos"
-      actions={
-        loaded ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>Verificación en dos pasos</CardTitle>
+        <CardAction>{loaded ? (
           <Badge tone={verifiedFactorId ? "success" : "warn"}>
             {verifiedFactorId ? "Activada" : "Desactivada"}
           </Badge>
-        ) : null
-      }
-    >
-      {enrollment ? (
-        <form className="grid max-w-md gap-4" onSubmit={verify}>
-          <p className="text-sm">
-            Escanea el código con tu app de autenticación y escribe el número de
-            6 cifras que te muestre.
-          </p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={enrollment.qr}
-            alt="Código QR para la app de autenticación"
-            className="size-40 rounded-lg border border-edge bg-white p-2"
-          />
-          <p className="text-xs text-muted">
-            ¿No puedes escanearlo? Introduce esta clave a mano:{" "}
-            <span className="select-all font-mono">{enrollment.secret}</span>
-          </p>
-          <Field label="Código de 6 cifras">
-            <Input
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              className="max-w-40 font-mono"
-              required
+        ) : null}</CardAction>
+      </CardHeader>
+      <CardContent>
+        {enrollment ? (
+          <form className="grid max-w-md gap-4" onSubmit={verify}>
+            <p className="text-sm">
+              Escanea el código con tu app de autenticación y escribe el número de
+              6 cifras que te muestre.
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={enrollment.qr}
+              alt="Código QR para la app de autenticación"
+              className="size-40 rounded-lg border border-edge bg-white p-2"
             />
-          </Field>
-          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-          <div className="flex gap-2">
-            <Button type="submit" disabled={busy || code.trim().length !== 6}>
-              {busy ? "Comprobando..." : "Activar"}
-            </Button>
-            <Button variant="ghost" onClick={() => void cancel()} disabled={busy}>
-              Cancelar
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <div className="grid gap-3">
-          <p className="text-sm">
-            Pide un código de tu app de autenticación al entrar. Aunque alguien
-            tenga tu contraseña, no podrá acceder sin él.
-          </p>
-          {/* El consultor entra en todas las tiendas de su cartera: su cuenta
-              es la más valiosa de robar. */}
-          {isConsultant && loaded && !verifiedFactorId ? (
-            <Banner tone="warn">
-              Con tu cuenta se entra en las tiendas de todos tus clientes. Actívala
-              antes de seguir.
-            </Banner>
-          ) : null}
-          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-          <div>
-            {verifiedFactorId ? (
-              <Button variant="secondary" onClick={() => void disable()} disabled={busy}>
-                Desactivar
+            <p className="text-xs text-muted">
+              ¿No puedes escanearlo? Introduce esta clave a mano:{" "}
+              <span className="select-all font-mono">{enrollment.secret}</span>
+            </p>
+            <Field label="Código de 6 cifras" error={error ?? undefined}>
+              <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} required>
+                <InputOTPGroup>
+                  <InputOTPSlot index={0} />
+                  <InputOTPSlot index={1} />
+                  <InputOTPSlot index={2} />
+                </InputOTPGroup>
+                <InputOTPSeparator />
+                <InputOTPGroup>
+                  <InputOTPSlot index={3} />
+                  <InputOTPSlot index={4} />
+                  <InputOTPSlot index={5} />
+                </InputOTPGroup>
+              </InputOTP>
+            </Field>
+            <div role="group" aria-label="Acciones de verificacion" className="flex flex-wrap items-center gap-2">
+              <Button type="submit" disabled={busy || code.length !== 6}>
+                {busy ? "Comprobando..." : "Activar"}
               </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                onClick={() => void start()}
-                disabled={busy || !loaded}
-              >
-                Activar
+              <Button variant="ghost" onClick={() => void cancel()} disabled={busy}>
+                Cancelar
               </Button>
-            )}
+            </div>
+          </form>
+        ) : (
+          <div className="grid gap-3">
+            <p className="text-sm">
+              Pide un código de tu app de autenticación al entrar. Aunque alguien
+              tenga tu contraseña, no podrá acceder sin él.
+            </p>
+            {/* El consultor entra en todas las tiendas de su cartera: su cuenta
+                es la más valiosa de robar. */}
+            {isConsultant && loaded && !verifiedFactorId ? (
+              <Banner tone="warn">
+                Con tu cuenta se entra en las tiendas de todos tus clientes. Actívala
+                antes de seguir.
+              </Banner>
+            ) : null}
+            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+            <div>
+              {verifiedFactorId ? (
+                <Button variant="secondary" onClick={() => void disable()} disabled={busy}>
+                  Desactivar
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={() => void start()}
+                  disabled={busy || !loaded}
+                >
+                  Activar
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -302,16 +313,21 @@ function SessionsCard() {
   }
 
   return (
-    <Card title="Sesiones abiertas">
-      <p className="text-sm">
-        Cierra tu cuenta en el resto de dispositivos si has entrado desde un
-        ordenador ajeno o sospechas de un acceso que no reconoces.
-      </p>
-      <div className="mt-4">
-        <Button variant="secondary" onClick={() => void closeOthers()} disabled={busy}>
-          {busy ? "Cerrando..." : "Cerrar las demás sesiones"}
-        </Button>
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Sesiones abiertas</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm">
+          Cierra tu cuenta en el resto de dispositivos si has entrado desde un
+          ordenador ajeno o sospechas de un acceso que no reconoces.
+        </p>
+        <div className="mt-4">
+          <Button variant="secondary" onClick={() => void closeOthers()} disabled={busy}>
+            {busy ? "Cerrando..." : "Cerrar las demás sesiones"}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }

@@ -29,6 +29,9 @@ action-envelope|execution-supervision|continuous-learning)
   # Tarifa de modelos de IA desde LiteLLM (apps/worker/src/ai-pricing-sync-once.ts)
   ai-pricing-sync)
     ;;
+  # Tracking semanal: cierra la semana pasada de cada tienda (apps/worker/src/kpi-snapshots-once.ts)
+  kpi-snapshots)
+    ;;
   # Informes PDF mensuales programados (apps/worker/src/scheduled-reports-once.ts)
   scheduled-reports)
     ;;

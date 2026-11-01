@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
-import { Badge, Button, EmptyState, Input } from "@/components/ui";
+import { Badge, Button, EmptyState, ErrorBlock, Input, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 
 type TemplateFilter = "all" | "analyzed" | "pending";
 type TemplateItem = Pick<
@@ -156,35 +156,30 @@ export function TemplateLibrary({
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar por nombre u origen"
           />
-          <div className="flex rounded-lg border border-edge bg-surface p-1" aria-label="Filtrar plantillas">
+          <ToggleGroup aria-label="Filtrar plantillas" value={filter} onValueChange={setFilter}>
             {([
               ["all", "Todas"],
               ["analyzed", "Analizadas"],
               ["pending", "Pendientes"],
             ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
-                className={`min-h-9 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${filter === value ? "bg-subtle text-foreground shadow-sm" : "text-muted hover:text-foreground"}`}
-              >
+              <ToggleGroupItem key={value} value={value}>
                 {label}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         </div>
       </div>
 
       {error ? (
-        <div className="flex flex-wrap items-center justify-between gap-3" role="alert">
-          <p className="text-sm text-danger">{error}</p>
-          {!cursor ? (
-            <Button type="button" variant="secondary" onClick={() => void loadPage(null, true)} disabled={isLoading}>
+        <ErrorBlock
+          action={!cursor ? (
+            <Button type="button" size="sm" variant="secondary" onClick={() => void loadPage(null, true)} disabled={isLoading}>
               Reintentar
             </Button>
           ) : null}
-        </div>
+        >
+          {error}
+        </ErrorBlock>
       ) : null}
       {isLoading && templates.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted" role="status">Cargando biblioteca…</p>

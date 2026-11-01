@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { renderReportPdf } from "./report-pdf.js";
+import { isReportAccentColor, isReportLogo, reportLogoStoragePath } from "./report-branding.js";
 import { buildLiveReportDocument, reportDigest } from "./report-data.js";
 import {
   getReportTemplate,
@@ -52,12 +53,25 @@ const firstRow = (value: unknown): Row => {
 const rows = (value: unknown) => Array.isArray(value) ? value.filter((row): row is Row => Boolean(row && typeof row === "object")) : [];
 
 /** Marca de la consultora que lleva a un cliente: nombre comercial (o el de la organización) y correo de respuesta. */
-export async function consultoraBrandFor(supabase: SupabaseClient, organizationId: string): Promise<{ name: string | null; replyTo: string | null }> {
+export async function consultoraBrandFor(supabase: SupabaseClient, organizationId: string): Promise<{ name: string | null; replyTo: string | null; logoUrl: string | null; accentColor: string | null }> {
   const { data: assignment } = await supabase.from("consultant_assignments").select("consulting_organization_id").eq("organization_id", organizationId).eq("is_active", true).not("consulting_organization_id", "is", null).order("is_primary", { ascending: false }).limit(1).maybeSingle();
-  if (!assignment?.consulting_organization_id) return { name: null, replyTo: null };
-  const { data: consultora } = await supabase.from("organizations").select("display_name, brand_name, brand_reply_to").eq("id", assignment.consulting_organization_id).maybeSingle();
+  const fields = "display_name, brand_name, brand_reply_to, brand_logo_url, brand_accent_color, kind, created_by";
+  const organizationResult = await supabase.from("organizations").select(fields).eq("id", assignment?.consulting_organization_id ?? organizationId).maybeSingle();
+  let consultora: Row | null = organizationResult.data;
+  if (!assignment?.consulting_organization_id && consultora?.kind !== "consulting") {
+    // Own stores have a real owner membership, not a consultant assignment.
+    const creator = consultora?.created_by;
+    consultora = null;
+    if (creator) {
+      const memberships = await supabase.from("organization_members").select(`organizations!inner(${fields})`).eq("user_id", creator).eq("is_active", true).eq("organizations.kind", "consulting").limit(2);
+      if (memberships.data?.length === 1) {
+        const joined = memberships.data[0]!.organizations;
+        consultora = (Array.isArray(joined) ? joined[0] : joined) as Row | null;
+      }
+    }
+  }
   const pick = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
-  return { name: pick(consultora?.brand_name) ?? pick(consultora?.display_name), replyTo: pick(consultora?.brand_reply_to) };
+  return { name: pick(consultora?.brand_name) ?? pick(consultora?.display_name), replyTo: pick(consultora?.brand_reply_to), logoUrl: pick(consultora?.brand_logo_url), accentColor: isReportAccentColor(consultora?.brand_accent_color) ? consultora.brand_accent_color : null };
 }
 
 /** Consultora que firma los informes de un cliente; null si no tiene o no se puede leer. */
@@ -257,7 +271,20 @@ export async function saveReport(
   report: ReportDocument,
   meta: { organizationId: string; storeId: string | null; source: ReportSource; requestedBy: string | null },
 ): Promise<ReportFailure | { ok: true; reportId: string; fileName: string; pdf: Buffer; historyError: string | null }> {
-  const pdf = await renderReportPdf(report);
+  const brand = await consultoraBrandFor(supabase, meta.organizationId).catch(() => ({ name: null, replyTo: null, logoUrl: null, accentColor: null }));
+  const brandedReport = brand.name ? { ...report, preparedBy: brand.name } : report;
+  let logo: Buffer | undefined;
+  const logoPath = reportLogoStoragePath(brand.logoUrl);
+  if (logoPath) {
+    try {
+      const file = await supabase.storage.from("avatars").download(logoPath);
+      if (file.data && file.data.size <= 2 * 1024 * 1024) {
+        const buffer = Buffer.from(await file.data.arrayBuffer());
+        if (isReportLogo(buffer)) logo = buffer;
+      }
+    } catch { /* Keep the text signature if the logo cannot be read. */ }
+  }
+  const pdf = await renderReportPdf(brandedReport, { ...(logo ? { logo } : {}), accentColor: brand.accentColor });
   const reportId = crypto.randomUUID();
   const fileName = `informe-${report.templateId}-${report.periodStart}-${report.periodEnd}.pdf`;
   const storagePath = `${meta.organizationId}/${reportId}.pdf`;
@@ -281,7 +308,7 @@ export async function saveReport(
     storage_path: storagePath,
     source: meta.source,
     requested_by: meta.requestedBy,
-    prepared_by: report.preparedBy ?? null,
+    prepared_by: brandedReport.preparedBy ?? null,
     highlights: reading?.kind === "summary" ? reading.points : [],
     recommendations: actions?.kind === "summary" ? actions.points : [],
     key_metrics: reportDigest(report),

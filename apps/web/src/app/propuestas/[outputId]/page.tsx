@@ -8,7 +8,7 @@ import { EvidenceChips } from "@/components/ai-proposed-tasks";
 import { WorkPageHeader } from "@/components/trabajo-ui";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, ButtonLink, Card, ErrorBlock, LoadingBlock, type Tone } from "@/components/ui";
+import { Badge, ButtonLink, ErrorBlock, LoadingBlock, type Tone, Card, CardAction, CardContent, CardHeader, CardKicker, CardTitle } from "@/components/ui";
 
 /**
  * Una propuesta de la IA en solo lectura, explicada al detalle: quién la hizo,
@@ -82,7 +82,7 @@ const when = (iso: string) =>
 /** Quita el código interno del agente («A05 · ») si lo lleva. */
 const agentLabel = (name: string | null) => (name ?? "La IA").replace(/^A\d+[\s·:_-]+/i, "").trim() || "La IA";
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function DetailItem({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
       <dt className="text-xs font-medium text-muted">{label}</dt>
@@ -124,8 +124,13 @@ function ProposalDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (query.error && !data) {
     return (
       <div className="portal-page">
-        <Card title="No se pudo abrir la propuesta">
-          <ErrorBlock>{query.error}</ErrorBlock>
+        <Card>
+          <CardHeader>
+            <CardTitle>No se pudo abrir la propuesta</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ErrorBlock>{query.error}</ErrorBlock>
+          </CardContent>
         </Card>
       </div>
     );
@@ -140,25 +145,33 @@ function ProposalDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
         {agentLabel(data.agent.name)} · {store} · {when(data.created_at)}
       </WorkPageHeader>
 
-      <Card
-        title={verdict(data, store)}
-        actions={<ButtonLink href={tasksHref} size="sm" variant="secondary">Ir a Tareas</ButtonLink>}
-      >
-        {data.decision && (data.decision.reason || data.decision.reason_category) ? (
-          <dl className="grid gap-4 sm:grid-cols-[12rem_1fr]">
-            {data.decision.reason_category ? (
-              <Field label="Tipo de motivo">{REASON_CATEGORY[data.decision.reason_category] ?? data.decision.reason_category}</Field>
-            ) : null}
-            {data.decision.reason ? <Field label="Lo que dijo">«{data.decision.reason}»</Field> : null}
-          </dl>
-        ) : data.decision ? (
-          <p className="text-sm text-muted">No dejó motivo.</p>
-        ) : null}
+      <Card>
+        <CardHeader>
+          <CardTitle>{verdict(data, store)}</CardTitle>
+          <CardAction><ButtonLink href={tasksHref} size="sm" variant="secondary">Ir a Tareas</ButtonLink></CardAction>
+        </CardHeader>
+        <CardContent>
+          {data.decision && (data.decision.reason || data.decision.reason_category) ? (
+            <dl className="grid gap-4 sm:grid-cols-[12rem_1fr]">
+              {data.decision.reason_category ? (
+                <DetailItem label="Tipo de motivo">{REASON_CATEGORY[data.decision.reason_category] ?? data.decision.reason_category}</DetailItem>
+              ) : null}
+              {data.decision.reason ? <DetailItem label="Lo que dijo">«{data.decision.reason}»</DetailItem> : null}
+            </dl>
+          ) : data.decision ? (
+            <p className="text-sm text-muted">No dejó motivo.</p>
+          ) : null}
+        </CardContent>
       </Card>
 
       {data.summary || data.agent.description ? (
-        <Card title="Qué vio la IA">
-          <p className="whitespace-pre-line text-sm text-foreground">{data.summary ?? data.agent.description}</p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Qué vio la IA</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-line text-sm text-foreground">{data.summary ?? data.agent.description}</p>
+          </CardContent>
         </Card>
       ) : null}
 
@@ -167,39 +180,39 @@ function ProposalDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           {data.proposals.length === 1 ? "La tarea que proponía" : `Las ${data.proposals.length} tareas que proponía`}
         </h2>
         {data.proposals.map((proposal) => (
-          <Card
-            key={proposal.index}
-            kicker={<Badge tone={STATUS[proposal.status].tone}>{STATUS[proposal.status].label}</Badge>}
-            title={proposal.title}
-            actions={
-              proposal.task ? (
+          <Card key={proposal.index}>
+            <CardHeader>
+              <CardKicker><Badge tone={STATUS[proposal.status].tone}>{STATUS[proposal.status].label}</Badge></CardKicker>
+              <CardTitle>{proposal.title}</CardTitle>
+              <CardAction>{proposal.task ? (
                 <ButtonLink href={`/tareas?organizationId=${organizationId}&task=${proposal.task.id}`} size="sm" variant="ghost">
                   Ver la tarea{proposal.task.status ? ` (${TASK_STATUS[proposal.task.status] ?? proposal.task.status})` : ""}
                 </ButtonLink>
-              ) : undefined
-            }
-          >
-            <dl className="grid gap-4">
-              {proposal.original_title && proposal.original_title !== proposal.title ? (
-                <Field label="Título original de la IA">{proposal.original_title}</Field>
-              ) : null}
-              {proposal.description ? <Field label="Qué proponía">{proposal.description}</Field> : null}
-              {proposal.rationale ? <Field label="Por qué">{proposal.rationale}</Field> : null}
-              {proposal.evidence.length ? (
-                <Field label="Los datos en que se apoya">
-                  <EvidenceChips
-                    evidence={proposal.evidence.map((item) => ({ ...item, source: item.source ?? "interno" }))}
-                  />
-                </Field>
-              ) : null}
-              <div className="grid gap-4 sm:grid-cols-3">
-                {proposal.expected_metric ? <Field label="Qué debería mejorar">{proposal.expected_metric}</Field> : null}
-                {proposal.completion_criteria ? <Field label="Cuándo está hecha">{proposal.completion_criteria}</Field> : null}
-                {proposal.due_hint ? <Field label="Plazo">{proposal.due_hint}</Field> : null}
-                {proposal.priority ? <Field label="Prioridad">{PRIORITY[proposal.priority] ?? proposal.priority}</Field> : null}
-                {proposal.owner_role ? <Field label="La haría">{proposal.owner_role === "cliente" ? "El cliente" : "El consultor"}</Field> : null}
-              </div>
-            </dl>
+              ) : undefined}</CardAction>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4">
+                {proposal.original_title && proposal.original_title !== proposal.title ? (
+                  <DetailItem label="Título original de la IA">{proposal.original_title}</DetailItem>
+                ) : null}
+                {proposal.description ? <DetailItem label="Qué proponía">{proposal.description}</DetailItem> : null}
+                {proposal.rationale ? <DetailItem label="Por qué">{proposal.rationale}</DetailItem> : null}
+                {proposal.evidence.length ? (
+                  <DetailItem label="Los datos en que se apoya">
+                    <EvidenceChips
+                      evidence={proposal.evidence.map((item) => ({ ...item, source: item.source ?? "interno" }))}
+                    />
+                  </DetailItem>
+                ) : null}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {proposal.expected_metric ? <DetailItem label="Qué debería mejorar">{proposal.expected_metric}</DetailItem> : null}
+                  {proposal.completion_criteria ? <DetailItem label="Cuándo está hecha">{proposal.completion_criteria}</DetailItem> : null}
+                  {proposal.due_hint ? <DetailItem label="Plazo">{proposal.due_hint}</DetailItem> : null}
+                  {proposal.priority ? <DetailItem label="Prioridad">{PRIORITY[proposal.priority] ?? proposal.priority}</DetailItem> : null}
+                  {proposal.owner_role ? <DetailItem label="La haría">{proposal.owner_role === "cliente" ? "El cliente" : "El consultor"}</DetailItem> : null}
+                </div>
+              </dl>
+            </CardContent>
           </Card>
         ))}
       </section>

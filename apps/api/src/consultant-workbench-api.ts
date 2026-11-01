@@ -26,6 +26,7 @@ import {
 } from "./consultant.js";
 import { listClientMessageThreads } from "./consultant-messages.js";
 import { singleCurrency } from "./cross-channel-attribution.js";
+import { buildClientOnboarding } from "./consultant-onboarding.js";
 import {
   UPCOMING_DAYS,
   buildWorkbench,
@@ -112,7 +113,7 @@ export async function getDailyWorkbench(
   env: ApiEnv,
   authorization: string,
   context: AuthContext,
-  params: { days?: number | undefined; organizationId?: string | undefined },
+  params: { days?: number | undefined; organizationId?: string | undefined; connectionId?: string | undefined },
 ) {
   const orgsResult = await listConsultantOrganizations(
     env,
@@ -124,8 +125,9 @@ export async function getDailyWorkbench(
   }
 
   const allOrganizations = orgsResult.data.organizations;
-  const windowDays: 7 | 30 | 90 = [7, 30, 90].includes(params.days ?? 30)
-    ? (params.days as 7 | 30 | 90)
+  const requestedDays = params.days ?? 30;
+  const windowDays: 7 | 30 | 90 = [7, 30, 90].includes(requestedDays)
+    ? (requestedDays as 7 | 30 | 90)
     : 30;
 
   // El filtro por cliente se valida contra la cartera autorizada; nunca se
@@ -148,6 +150,7 @@ export async function getDailyWorkbench(
     id: org.id,
     display_name: org.display_name,
     store_count: org.store_count,
+    is_own_store: org.is_own_store,
     attention: org.attention,
   }));
 
@@ -160,6 +163,13 @@ export async function getDailyWorkbench(
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
+  let selectedStoreId: string | null = null;
+  if (params.connectionId) {
+    if (!focusId) return { ok: false as const, statusCode: 400, error: "organization_required" };
+    const store = await supabase.from("shopify_stores").select("id").eq("organization_id", focusId).eq("connection_id", params.connectionId).eq("is_active", true).maybeSingle();
+    if (store.error || !store.data) return { ok: false as const, statusCode: store.error ? 503 : 404, error: "store_scope_unavailable" };
+    selectedStoreId = store.data.id;
+  }
 
   const [
     alerts,
@@ -275,7 +285,7 @@ export async function getDailyWorkbench(
         supabase
           .from("strategic_plan_milestones")
           .select(
-            "id, organization_id, name, target_date, status, strategic_plan_phases(name)",
+            "id, organization_id, name, target_date, status, strategic_plan_phases(name, strategic_plans(shopify_stores(connection_id)))",
           )
           .in("organization_id", safeIds)
           .not("target_date", "is", null)
@@ -291,6 +301,9 @@ export async function getDailyWorkbench(
           status: str(row.status),
           phase_name:
             nullableStr(firstOf(row.strategic_plan_phases)?.name) ?? null,
+          connection_id: nullableStr(
+            firstOf(firstOf(firstOf(row.strategic_plan_phases)?.strategic_plans)?.shopify_stores)?.connection_id,
+          ),
         })),
     ),
     block<WorkbenchCampaignRow[]>(
@@ -433,12 +446,27 @@ export async function getDailyWorkbench(
     nowMs,
   });
 
+  const reviews = await block<Array<{ organization_id: string; reviewed_at: string }>>([], () => supabase
+    .from("consultant_client_review_events").select("organization_id, reviewed_at").in("organization_id", safeIds)
+    .order("reviewed_at", { ascending: false }).limit(ROW_LIMIT),
+    (rows) => rows.map((row) => ({ organization_id: str(row.organization_id), reviewed_at: str(row.reviewed_at) })));
+  const onboarding = organizations.map((org) => buildClientOnboarding({
+    organizationId: org.id,
+    connections: connections.rows.filter((row) => row.organization_id === org.id),
+    hasFinancialSettings: financial.rows.includes(org.id),
+    reviewedAt: reviews.rows.find((row) => row.organization_id === org.id)?.reviewed_at ?? null,
+    tasks: rawTasks.rows.filter((row) => row.organization_id === org.id),
+    sources: { connections: connections.state, financial: financial.state, reviews: reviews.state, tasks: rawTasks.state },
+    nowMs,
+  }));
+
   if (!focusId) {
-    return { ok: true as const, data: workbench };
+    return { ok: true as const, data: { ...workbench, onboarding } };
   }
 
   const client = await loadClientDesk({
     supabase,
+    selectedStoreId,
     organizationId: focusId,
     organization: allOrganizations.find((org) => org.id === focusId) ?? null,
     connections: connections.rows,
@@ -451,7 +479,7 @@ export async function getDailyWorkbench(
     nowMs,
   });
 
-  return { ok: true as const, data: { ...workbench, client } };
+  return { ok: true as const, data: { ...workbench, onboarding, client } };
 }
 
 type OrganizationSummary = {
@@ -470,6 +498,7 @@ type OrganizationSummary = {
  */
 async function loadClientDesk(input: {
   supabase: ReturnType<typeof createUserScopedClient>;
+  selectedStoreId: string | null;
   organizationId: string;
   organization: OrganizationSummary | null;
   connections: WorkbenchConnectionRow[];
@@ -483,6 +512,7 @@ async function loadClientDesk(input: {
 }) {
   const {
     supabase,
+    selectedStoreId,
     organizationId,
     organization,
     connections,
@@ -496,6 +526,14 @@ async function loadClientDesk(input: {
 
   const periodEnd = new Date(nowMs).toISOString();
   const prevStart = new Date(nowMs - 2 * windowDays * DAY_MS).toISOString();
+
+  const plans = await block<Array<{ id: string; connection_id: string | null; store_name: string | null }>>([], () => {
+    let query = supabase.from("strategic_plans").select("id, shopify_stores(connection_id, shop_name)").eq("organization_id", organizationId).eq("status", "active");
+    if (selectedStoreId) query = query.eq("store_id", selectedStoreId);
+    return query.order("created_at", { ascending: false }).limit(2);
+  }, (rows) => rows.map((row) => ({ id: str(row.id), connection_id: nullableStr(firstOf(row.shopify_stores)?.connection_id), store_name: nullableStr(firstOf(row.shopify_stores)?.shop_name) })));
+  // A single phase cannot represent two stores' plans. Require an explicit store.
+  const plan = plans.rows.length === 1 ? plans.rows[0] : null;
 
   // "Desde mi ultima revision" es personal: la RLS de la tabla ya limita las
   // filas a las de este usuario, asi que no hay filtro por user_id aqui.
@@ -597,6 +635,7 @@ async function loadClientDesk(input: {
             .from("strategic_plan_phases")
             .select("id, name, status, position")
             .eq("organization_id", organizationId)
+            .eq("plan_id", plan?.id ?? SENTINEL)
             .order("position", { ascending: true }),
         (rows) =>
           rows.map((row) => ({
@@ -660,6 +699,7 @@ async function loadClientDesk(input: {
         .from("strategic_plan_milestones")
         .select("id, name, status, target_date, phase_id")
         .eq("organization_id", organizationId)
+        .in("phase_id", phases.rows.length ? phases.rows.map((phase) => phase.id) : [SENTINEL])
         .order("position", { ascending: true }),
     (rows) =>
       rows.map((row) => ({
@@ -676,6 +716,8 @@ async function loadClientDesk(input: {
 
   // Lo que no se puede interpretar se dice; no se rellena con ceros.
   const coverage: string[] = [];
+  if (plans.rows.length > 1) coverage.push("Hay varios planes activos. Selecciona una tienda para revisar su Camino.");
+  if (plans.state === "error") coverage.push("No se pudo leer el plan estratégico.");
   if (!hasFinancialSettings) {
     coverage.push(
       "Sin configuración financiera: no se muestran beneficio ni margen.",
@@ -696,7 +738,7 @@ async function loadClientDesk(input: {
   const shopifyCurrency = singleCurrency(shopifyCurrencies.rows);
   const metaCurrency = singleCurrency(metaCurrencies.rows);
   if (shopify.length > 0 && !shopifyCurrency) {
-    coverage.push("Las tiendas Shopify usan monedas distintas o sin identificar; no se agregan ventas sin conversiÃ³n.");
+    coverage.push("Las tiendas Shopify usan monedas distintas o sin identificar; no se agregan ventas sin conversión.");
   }
   if (meta.length > 0 && !metaCurrency) {
     coverage.push("Las cuentas de Meta usan monedas distintas o sin identificar; no se agregan importes ni ROAS.");
@@ -773,6 +815,7 @@ async function loadClientDesk(input: {
 
   return {
     organization_id: organizationId,
+    camino_notice: plans.state === "error" ? "No se pudo cargar el plan estratégico. Reintenta la carga." : plans.rows.length > 1 ? "Hay varios planes activos. Selecciona una tienda para revisar su Camino." : null,
     organization_name: organization?.display_name ?? organizationId,
     status: organization?.status ?? null,
     currency_code: organization?.currency_code ?? null,
@@ -803,6 +846,8 @@ async function loadClientDesk(input: {
     },
     camino: activePhase
       ? {
+          connection_id: plan?.connection_id ?? null,
+          store_name: plan?.store_name ?? null,
           phase_name: activePhase.name,
           phase_status: activePhase.status,
           milestones_total: phaseMilestones.length,

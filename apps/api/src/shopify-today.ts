@@ -49,7 +49,7 @@ export async function getShopifyToday(
 ) {
   const membership = [...context.memberships, ...(context.storeMemberships ?? [])].find((item) => item.organization_id === organizationId);
   if (!membership) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied", message: "El usuario no pertenece a la organizacion solicitada." };
+    return { ok: false as const, statusCode: 403, error: "organization_access_denied", message: "No tienes acceso a esta tienda." };
   }
 
   const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length));

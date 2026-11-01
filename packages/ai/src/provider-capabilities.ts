@@ -79,9 +79,16 @@ const MANAGED_INFERENCE_BASE = {
 export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapabilities>> = {
   "claude-opus-4-8": anthropicModel(),
   "claude-opus-5": anthropicModel(),
+  "claude-opus-5-5": anthropicModel(),
   "claude-sonnet-5": anthropicModel(),
+  "claude-sonnet-5-5": anthropicModel(),
   "claude-haiku-4-5": anthropicModel(),
+  "claude-haiku-5-5": anthropicModel(),
   "gpt-5.5": openaiModel(),
+  "gpt-6-sol": openaiModel(),
+  "gpt-6.1-sol": { ...openaiModel(), contextWindowMax: 1_050_000, reasoningEffortControl: "supported", reportsReasoningTokens: "supported" },
+  "gpt-6.1-terra": { ...openaiModel(), contextWindowMax: 1_050_000, reasoningEffortControl: "supported", reportsReasoningTokens: "supported" },
+  "gpt-6-luna": openaiModel(),
   "gpt-4.1": openaiModel(),
   "gpt-4.1-mini": openaiModel(),
   "gpt-4.1-nano": openaiModel(),
@@ -157,11 +164,16 @@ export function getModelCapabilities(
  *
  * Formato: fecha ISO del ultimo cambio de una tarifa.
  */
-export const PRICING_VERSION = "2026-09-25";
+export const PRICING_VERSION = "2026-10-28";
 
 export type ModelPricing = {
   inputPerMTok: number;
   outputPerMTok: number;
+  cacheReadPerMTok?: number;
+  cacheWritePerMTok?: number;
+  longContextThreshold?: number;
+  longInputMultiplier?: number;
+  longOutputMultiplier?: number;
 };
 
 /**
@@ -175,10 +187,18 @@ export type ModelPricing = {
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
   "claude-opus-5": { inputPerMTok: 5, outputPerMTok: 25 },
+  "claude-opus-5-5": { inputPerMTok: 4, outputPerMTok: 20, cacheReadPerMTok: 0.2 },
   "claude-sonnet-5": { inputPerMTok: 2, outputPerMTok: 10 },
+  "claude-sonnet-5-5": { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1 },
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
+  "claude-haiku-5-5": { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, longContextThreshold: 100_000, longInputMultiplier: 5, longOutputMultiplier: 5 },
   "gpt-5.5": { inputPerMTok: 5, outputPerMTok: 30 },
-  "gpt-6-luna": { inputPerMTok: 0.1, outputPerMTok: 0.5 },
+  "gpt-6-luna": { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, longContextThreshold: 272_000, longInputMultiplier: 2, longOutputMultiplier: 1.5 },
+  "gpt-6-sol": { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.2 },
+  // https://developers.openai.com/api/docs/models/gpt-6.1-sol · 2026-10-28
+  "gpt-6.1-sol": { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1, longContextThreshold: 272_000, longInputMultiplier: 2, longOutputMultiplier: 1.5 },
+  // https://developers.openai.com/api/docs/models/gpt-6.1-terra · 2026-10-28
+  "gpt-6.1-terra": { inputPerMTok: 1, outputPerMTok: 5, cacheReadPerMTok: 0.05, longContextThreshold: 272_000, longInputMultiplier: 2, longOutputMultiplier: 1.5 },
   "gpt-4.1": { inputPerMTok: 2, outputPerMTok: 8 },
   "gpt-4.1-mini": { inputPerMTok: 0.4, outputPerMTok: 1.6 },
   "gpt-4.1-nano": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
@@ -207,7 +227,7 @@ function modelAlias(model: string): string {
 export function pricingFor(model: string): ModelPricing | undefined {
   for (const id of [model, modelAlias(model)]) {
     const price = livePricing?.prices[id] ?? MODEL_PRICING[id];
-    if (price) return price;
+    if (price) return { ...MODEL_PRICING[id], ...price };
   }
   return undefined;
 }
@@ -229,6 +249,9 @@ export function estimateCostUsd(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  cacheReadTokens?: number | null,
+  cacheCreationTokens?: number | null,
+  cacheCreation1hTokens?: number | null,
 ): number | null {
   const pricing = pricingFor(model);
 
@@ -236,10 +259,20 @@ export function estimateCostUsd(
     return null;
   }
 
-  return (
-    (inputTokens / 1_000_000) * pricing.inputPerMTok +
-    (outputTokens / 1_000_000) * pricing.outputPerMTok
-  );
+  // Anthropic informa entrada sin caché; OpenAI la incluye en inputTokens.
+  const anthropic = model.startsWith("claude-");
+  const cached = Math.max(0, cacheReadTokens ?? 0);
+  const reads = anthropic ? cached : Math.min(inputTokens, cached);
+  const writes = anthropic ? Math.max(0, cacheCreationTokens ?? 0) : 0;
+  const writes1h = Math.min(writes, Math.max(0, cacheCreation1hTokens ?? 0));
+  const contextTokens = inputTokens + (anthropic ? reads + writes : 0);
+  const long = pricing.longContextThreshold !== undefined && contextTokens > pricing.longContextThreshold;
+  const inputCost = (inputTokens - (anthropic ? 0 : reads)) * pricing.inputPerMTok
+    + reads * (pricing.cacheReadPerMTok ?? pricing.inputPerMTok * (anthropic ? 0.1 : 1))
+    + (writes - writes1h) * (pricing.cacheWritePerMTok ?? pricing.inputPerMTok * 1.25)
+    + writes1h * pricing.inputPerMTok * 2;
+  return (inputCost * (long ? pricing.longInputMultiplier ?? 1 : 1)
+    + outputTokens * pricing.outputPerMTok * (long ? pricing.longOutputMultiplier ?? 1 : 1)) / 1_000_000;
 }
 
 export function costBasisFor(model: string): CostBasis {

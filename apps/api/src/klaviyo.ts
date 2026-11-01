@@ -12,6 +12,7 @@ import { sanitizeGeneratedEmailHtml } from "@e-nora/ai";
 import { sanitizeMarketingEmailHtml, reviewMarketingEmailHtml } from "./marketing-email-safety.js";
 import {
   requireOperationalOrganization,
+  requireOperationalStore,
   requireOwnOrganizationAccess,
   isOperationalOrganizationError,
   type AuthContext,
@@ -42,6 +43,7 @@ import {
   saveKlaviyoTokens,
 } from "./klaviyo-token-store.js";
 import { runKlaviyoSync } from "./klaviyo-sync.js";
+import { enqueueIntegrationSync } from "./integration-sync-queue.js";
 
 type Result<T> =
   | { ok: true; data: T }
@@ -173,7 +175,7 @@ export async function createKlaviyoConnectionAuthUrl(
       ok: false,
       statusCode: 400,
       error: "klaviyo_app_not_configured",
-      message: "La app OAuth de Klaviyo no está configurada en el servidor.",
+      message: "Conectar Klaviyo aún no está disponible: falta configurarlo en el servidor.",
     };
   }
   const accessError = canManage(context, organizationId);
@@ -390,9 +392,7 @@ export async function connectKlaviyoWithApiKey(
     newData: { provider: "klaviyo", provider_account_id: account.id },
   });
 
-  void runKlaviyoSync(env, connection.id, "initial").catch((error: unknown) =>
-    markKlaviyoSyncFailure(env, connection.id, error, "api_key_initial_sync"),
-  );
+  await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: connection.id, organizationId, mode: "initial" });
 
   return {
     ok: true,
@@ -488,10 +488,12 @@ export async function triggerKlaviyoSync(
   }
 
   // force: es un disparo manual explícito -> ignora la idempotencia diaria.
-  void runKlaviyoSync(env, connection.id, "initial", true).catch(
-    (error: unknown) =>
-      markKlaviyoSyncFailure(env, connection.id, error, "manual_sync"),
-  );
+  try {
+    await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: connection.id, organizationId, mode: "initial" });
+  } catch (error) {
+    await markKlaviyoSyncFailure(env, connection.id, error, "manual_sync");
+    return { ok: false, statusCode: 503, error: "klaviyo_sync_queue_unavailable" };
+  }
   return {
     ok: true,
     data: { status: "syncing", connectionId: connection.id },
@@ -735,13 +737,7 @@ export async function handleKlaviyoOAuthCallback(
       },
     });
 
-    void runKlaviyoSync(
-      env,
-      targetId,
-      isReauthorization ? "incremental" : "initial",
-    ).catch((error: unknown) =>
-      markKlaviyoSyncFailure(env, targetId, error, "oauth_initial_sync"),
-    );
+    await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: targetId, organizationId: pending.organization_id, mode: "initial" });
     return {
       ok: true,
       data: {
@@ -1043,6 +1039,8 @@ export function summariseKlaviyoEmailRows(rows: KlaviyoEmailReportRow[]) {
 }
 
 type KlaviyoEmailReport = {
+  /** Moneda de la cuenta de Klaviyo: los importes del informe vienen en ella, no en la de la tienda. */
+  currency_code?: string | null;
   organization_id: string;
   connected: boolean;
   period: { days: number; start: string; end: string };
@@ -1081,15 +1079,17 @@ export async function getKlaviyoEmailReport(
       ok: false,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Klaviyo esta desactivada por feature flag.",
+      message: "La integración con Klaviyo está desactivada por ahora.",
     };
   }
-  if (
-    !context.memberships.some((item) => item.organization_id === organizationId)
-  ) {
+  const organizationMembership = context.memberships.find((item) => item.organization_id === organizationId);
+  if (organizationMembership && organizationMembership.access_scope !== "store") {
+    const access = requireOperationalOrganization(context, organizationId);
+    if (!access.ok) return access;
+  } else if (!(context.storeMemberships ?? []).some((item) => item.organization_id === organizationId)
+    && organizationMembership?.access_scope !== "store") {
     return { ok: false, statusCode: 403, error: "organization_access_denied" };
   }
-
   let periodDays = KLAVIYO_EMAIL_DEFAULT_DAYS;
   if (daysInput && daysInput !== "all") {
     const parsed = Number(daysInput);
@@ -1120,13 +1120,23 @@ export async function getKlaviyoEmailReport(
   // de tienda en todas las pantallas.
   let storeId: string | null = null;
   if (connectionId) {
-    const { data: store } = await supabase
+    const { data: store, error: storeError } = await supabase
       .from("shopify_stores")
       .select("id")
       .eq("organization_id", organizationId)
       .eq("connection_id", connectionId)
+      .eq("is_active", true)
       .maybeSingle();
+    if (storeError || !store) return { ok: false, statusCode: storeError ? 503 : 404, error: "store_scope_unavailable", message: "No se pudo resolver la tienda seleccionada. Revisa su conexión." };
     storeId = (store?.id as string | undefined) ?? null;
+  }
+  if (organizationMembership && organizationMembership.access_scope !== "store") {
+    // Organization scope is authorized by the existing organization membership.
+  } else if (storeId) {
+    const scoped = requireOperationalStore(context, organizationId, storeId);
+    if (scoped.ok === false) return scoped;
+  } else {
+    return { ok: false, statusCode: 403, error: "organization_access_denied" };
   }
 
   // Antes era maybeSingle(), que con dos cuentas de Klaviyo en un mismo cliente
@@ -1134,7 +1144,7 @@ export async function getKlaviyoEmailReport(
   // hay tienda activa, se mira solo la suya.
   let accountQuery = supabase
     .from("klaviyo_accounts")
-    .select("id")
+    .select("id, currency_code")
     .eq("organization_id", organizationId);
   if (storeId) accountQuery = accountQuery.eq("store_id", storeId);
   const { data: accounts, error: accountError } = await accountQuery.limit(1);
@@ -1220,6 +1230,7 @@ export async function getKlaviyoEmailReport(
     data: {
       organization_id: organizationId,
       connected: true,
+      currency_code: (account.currency_code as string | null | undefined) ?? null,
       period,
       totals: current.totals,
       previous,
@@ -1251,6 +1262,7 @@ export async function selectKlaviyoConversionMetric(
   organizationId: string,
   externalMetricId: string,
   source: "shopify" | "klaviyo" | "custom" | "other" = "klaviyo",
+  connectionId?: string,
 ): Promise<
   Result<{ conversion_metric_id: string; conversion_metric_name: string }>
 > {
@@ -1263,13 +1275,14 @@ export async function selectKlaviyoConversionMetric(
       error: "missing_conversion_metric_id",
     };
   const supabase = serviceClient(env);
-  const { data: account, error: accountError } = await supabase
+  let accountQuery = supabase
     .from("klaviyo_accounts")
     .select(
-      "id, conversion_metric_id, conversion_metric_name, conversion_metric_source",
+      "id, connection_id, conversion_metric_id, conversion_metric_name, conversion_metric_source",
     )
-    .eq("organization_id", organizationId)
-    .maybeSingle();
+    .eq("organization_id", organizationId);
+  if (connectionId) accountQuery = accountQuery.eq("connection_id", connectionId);
+  const { data: accounts, error: accountError } = await accountQuery.limit(2);
   if (accountError)
     return {
       ok: false,
@@ -1277,6 +1290,8 @@ export async function selectKlaviyoConversionMetric(
       error: "klaviyo_account_load_failed",
       detail: accountError.message,
     };
+  if ((accounts?.length ?? 0) > 1) return { ok: false, statusCode: 409, error: "klaviyo_connection_selection_required", message: "Selecciona la cuenta de Klaviyo que quieres configurar." };
+  const account = accounts?.[0];
   if (!account)
     return { ok: false, statusCode: 409, error: "klaviyo_account_not_synced" };
   const { data: metric, error: metricError } = await supabase
@@ -1331,6 +1346,10 @@ export async function selectKlaviyoConversionMetric(
       conversion_metric_source: source,
     },
   });
+  await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: account.connection_id,
+    organizationId, mode: "incremental", force: true }).catch(() => {
+      console.warn("Klaviyo metric saved; scheduled reconciliation will refresh its reports", { connection_id: account.connection_id });
+    });
   return {
     ok: true,
     data: {
@@ -1350,10 +1369,27 @@ export async function activeKlaviyoConnectionId(
     .eq("organization_id", organizationId)
     .eq("provider", "klaviyo")
     .in("status", ["connected", "syncing", "error"])
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return data?.id ?? null;
+    .order("updated_at", { ascending: false });
+  const rows = (data ?? []) as Array<{ id: string }>;
+  if (rows.length <= 1) return rows[0]?.id ?? null;
+  const { data: assigned } = await supabase
+    .from("klaviyo_accounts")
+    .select("connection_id")
+    .eq("organization_id", organizationId)
+    .not("store_id", "is", null)
+    .in("connection_id", rows.map((row) => row.id));
+  return pickActiveKlaviyoConnection(rows, (assigned ?? []).map((row) => row.connection_id as string));
+}
+
+/**
+ * Con varias cuentas de Klaviyo en la organización (la de la tienda y, por
+ * ejemplo, la de la agencia), la activa es la ASIGNADA a una tienda, no la que
+ * se haya sincronizado la última: esa cambiaba cada hora y con ella las métricas,
+ * las plantillas y los flows que se veían. `rows` viene de más a menos reciente.
+ */
+export function pickActiveKlaviyoConnection(rows: Array<{ id: string }>, assignedConnectionIds: string[]): string | null {
+  const assigned = new Set(assignedConnectionIds);
+  return rows.find((row) => assigned.has(row.id))?.id ?? rows[0]?.id ?? null;
 }
 
 type KlaviyoTemplateSummary = {

@@ -25,10 +25,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -129,7 +133,7 @@ function Cuello({ constraint }: { constraint: ConstraintView }) {
       ) : null}
 
       {test ? (
-        <div className="mt-3 rounded-md border border-default-200 p-3">
+        <Card size="sm" className="mt-3"><CardContent>
           <p className="text-xs uppercase tracking-wide">
             El test que lo resolvería
           </p>
@@ -140,7 +144,7 @@ function Cuello({ constraint }: { constraint: ConstraintView }) {
             <li>Si limita: {test.expected_if_binding}</li>
             <li>Si no limita: {test.expected_if_not_binding}</li>
           </ul>
-        </div>
+        </CardContent></Card>
       ) : null}
     </li>
   );
@@ -197,48 +201,54 @@ export function RootCausePanel() {
 
   return (
     <div className="space-y-6">
-      <Card
-        title="Por qué pasó"
-        description="La cadena mejor sostenida de cada caso, con su cierre. Casi siempre sale «sin resolver»: la evidencia de hoy es co-movimiento, y cerrar más sería mentir."
-      >
-        {casosCausa.length === 0 ? (
-          <EmptyState
-            title="Sin causas evaluadas"
-            hint="Aparecen cuando D08 ha dejado hipótesis vivas sobre un caso abierto."
-          />
-        ) : (
-          <div className="space-y-6">
-            {casosCausa.map(({ caseId, rootCauses: lista }) => (
-              <ul key={caseId}>
-                {lista.map((rc) => (
-                  <CausaRaiz key={rc.id} rootCause={rc} />
-                ))}
-              </ul>
-            ))}
-          </div>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Por qué pasó</CardTitle>
+          <CardDescription>La cadena mejor sostenida de cada caso, con su cierre. Casi siempre sale «sin resolver»: la evidencia de hoy es co-movimiento, y cerrar más sería mentir.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {casosCausa.length === 0 ? (
+            <EmptyState
+              title="Sin causas evaluadas"
+              hint="Aparecen cuando D08 ha dejado hipótesis vivas sobre un caso abierto."
+            />
+          ) : (
+            <div className="space-y-6">
+              {casosCausa.map(({ caseId, rootCauses: lista }) => (
+                <ul key={caseId}>
+                  {lista.map((rc) => (
+                    <CausaRaiz key={rc.id} rootCause={rc} />
+                  ))}
+                </ul>
+              ))}
+            </div>
+          )}
+        </CardContent>
       </Card>
 
-      <Card
-        title="Qué le está limitando"
-        description="Capacidades con salud mala que podrían estar frenando el objetivo. Ninguna se declara vinculante sin capacidad y demanda medidas: hoy son candidatas, con el test que haría falta correr."
-      >
-        {casosConstraint.length === 0 ? (
-          <EmptyState
-            title="Sin límites candidatos"
-            hint="Aparecen cuando alguna capacidad tiene salud mala o crítica en D04."
-          />
-        ) : (
-          <div className="space-y-6">
-            {casosConstraint.map(({ caseId, constraints: lista }) => (
-              <ul key={caseId}>
-                {lista.map((k) => (
-                  <Cuello key={k.id} constraint={k} />
-                ))}
-              </ul>
-            ))}
-          </div>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué le está limitando</CardTitle>
+          <CardDescription>Capacidades con salud mala que podrían estar frenando el objetivo. Ninguna se declara vinculante sin capacidad y demanda medidas: hoy son candidatas, con el test que haría falta correr.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {casosConstraint.length === 0 ? (
+            <EmptyState
+              title="Sin límites candidatos"
+              hint="Aparecen cuando alguna capacidad tiene salud mala o crítica en D04."
+            />
+          ) : (
+            <div className="space-y-6">
+              {casosConstraint.map(({ caseId, constraints: lista }) => (
+                <ul key={caseId}>
+                  {lista.map((k) => (
+                    <Cuello key={k.id} constraint={k} />
+                  ))}
+                </ul>
+              ))}
+            </div>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

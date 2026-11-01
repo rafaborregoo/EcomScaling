@@ -1,5 +1,8 @@
 "use client";
 
+import { ButtonGroup } from "@/components/ui/button-group";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import {
@@ -12,13 +15,17 @@ import {
 } from "@/lib/calendar-dates";
 import {
   Button,
-  Card,
+  EmptyState,
   ErrorBlock,
   IconChevronLeft,
   IconChevronRight,
   Link,
   LoadingBlock,
   Select,
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
 } from "@/components/ui";
 
 type AgendaTask = {
@@ -150,14 +157,18 @@ function buildEntries(
 
   for (const task of data.tasks) {
     const at = new Date(task.due_at);
+    // Un plazo guardado a medianoche UTC es una fecha sin hora: no se pinta una hora inventada.
+    const dateOnly = at.getUTCHours() === 0 && at.getUTCMinutes() === 0;
     entries.push({
       id: `task:${task.id}`,
       kind: "task",
       day: dayKey(at),
-      time: at.toLocaleTimeString("es-ES", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: dateOnly
+        ? null
+        : at.toLocaleTimeString("es-ES", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
       sortAt: at.getTime(),
       title: task.title,
       orgId: task.organization_id,
@@ -371,7 +382,7 @@ export function ConsultantAgenda({
     );
   }
 
-  const rangeLabel =
+  const rangeLabelRaw =
     view === "month"
       ? new Intl.DateTimeFormat("es-ES", {
           month: "long",
@@ -385,27 +396,24 @@ export function ConsultantAgenda({
           month: "short",
         })}`;
 
+  const rangeLabel = rangeLabelRaw.charAt(0).toUpperCase() + rangeLabelRaw.slice(1);
+
   const totalEntries = [...byDay.values()].reduce(
     (sum, list) => sum + list.length,
     0,
   );
 
   return (
-    <Card
-      title="Agenda"
-      actions={
-        <div className="flex flex-wrap items-center gap-3">
-          {(["day", "week", "month"] as View[]).map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={chipClass(view === option)}
-              aria-pressed={view === option}
-              onClick={() => setView(option)}
-            >
-              {VIEW_LABEL[option]}
-            </button>
-          ))}
+    <Card>
+      <CardHeader>
+        <CardAction><div className="flex flex-wrap items-center gap-3">
+          <ToggleGroup aria-label="Vista de la agenda" value={view} onValueChange={setView}>
+            {(["day", "week", "month"] as View[]).map((option) => (
+              <ToggleGroupItem key={option} value={option}>
+                {VIEW_LABEL[option]}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
           <span className="text-separator" aria-hidden>
             |
           </span>
@@ -417,160 +425,159 @@ export function ConsultantAgenda({
           >
             Hitos de Mi Camino
           </button>
-        </div>
-      }
-    >
-      {/* Alcance (oculto cuando la agenda ya está fijada a una tienda) */}
-      {fixedScope ? null : (
-        <div className="mb-3">
-          <Select
-            bare
-            aria-label="Alcance de la agenda"
-            value={scope}
-            onChange={(value) => setScope(value || "all")}
-            options={[
-              { value: "own", label: "Mi calendario" },
-              { value: "all", label: "Todas las tiendas" },
-              ...clientOptions.map((client) => ({
-                value: client.organization_id,
-                label: client.display_name,
-                section: "Clientes",
-              })),
-            ]}
-          />
-        </div>
-      )}
-
-      {/* Navegación */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-3">
-        <div className="flex items-center gap-1 sm:gap-2">
-          <Button size="sm" variant="ghost" onClick={() => move(-1)}>
-            <IconChevronLeft aria-hidden className="sm:hidden" />
-            <span className="sr-only sm:not-sr-only">Anterior</span>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setCursor(startOfDay(new Date()))}
-          >
-            Hoy
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => move(1)}>
-            <IconChevronRight aria-hidden className="sm:hidden" />
-            <span className="sr-only sm:not-sr-only">Siguiente</span>
-          </Button>
-        </div>
-        <span className="text-sm font-medium capitalize">{rangeLabel}</span>
-      </div>
-
-      {error ? (
-        <ErrorBlock>{error}</ErrorBlock>
-      ) : isLoading && !data ? (
-        <LoadingBlock label="Cargando agenda..." />
-      ) : totalEntries === 0 ? (
-        <p className="py-6 text-center text-sm text-muted">
-          Nada agendado en {view === "month" ? "este mes" : "este rango"}.
-        </p>
-      ) : view === "day" ? (
-        <div className="space-y-1">
-          {(byDay.get(dayKey(from)) ?? []).map((entry) => (
-            <EntryRow
-              key={entry.id}
-              entry={entry}
-              showOrg={showOrg}
-              onSelectClient={onSelectClient}
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        {/* Alcance (oculto cuando la agenda ya está fijada a una tienda) */}
+        {fixedScope ? null : (
+          <div className="mb-3">
+            <Select
+              bare
+              aria-label="Alcance de la agenda"
+              value={scope}
+              onChange={(value) => setScope(value || "all")}
+              options={[
+                { value: "own", label: "Mi calendario" },
+                { value: "all", label: "Todas las tiendas" },
+                ...clientOptions.map((client) => ({
+                  value: client.organization_id,
+                  label: client.display_name,
+                  section: "Clientes",
+                })),
+              ]}
             />
-          ))}
+          </div>
+        )}
+
+        {/* Navegación */}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-3">
+          <ButtonGroup aria-label="Navegacion de la agenda">
+            <Button size="sm" variant="outline" onClick={() => move(-1)}>
+              <IconChevronLeft aria-hidden className="sm:hidden" />
+              <span className="sr-only sm:not-sr-only">Anterior</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCursor(startOfDay(new Date()))}
+            >
+              Hoy
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => move(1)}>
+              <IconChevronRight aria-hidden className="sm:hidden" />
+              <span className="sr-only sm:not-sr-only">Siguiente</span>
+            </Button>
+          </ButtonGroup>
+          <span className="text-sm font-medium">{rangeLabel}</span>
         </div>
-      ) : (
-        <>
-          {/* Móvil y tablet estrecha (<768px): una rejilla de 7 columnas es
-              ilegible. Se lista solo lo que tiene algo, agrupado por día. */}
-          <div className="space-y-3 md:hidden">
-            {days
-              .map((date) => ({ date, entries: byDay.get(dayKey(date)) ?? [] }))
-              .filter(({ entries }) => entries.length > 0)
-              .map(({ date, entries }) => (
-                <div key={dayKey(date)}>
-                  <p
-                    className={`mb-1 text-xs font-medium ${
+
+        {error ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : isLoading && !data ? (
+          <LoadingBlock label="Cargando agenda..." />
+        ) : totalEntries === 0 ? (
+          <EmptyState size="sm" title={`Nada agendado en ${view === "month" ? "este mes" : "este rango"}`} />
+        ) : view === "day" ? (
+          <div className="space-y-1">
+            {(byDay.get(dayKey(from)) ?? []).map((entry) => (
+              <EntryRow
+                key={entry.id}
+                entry={entry}
+                showOrg={showOrg}
+                onSelectClient={onSelectClient}
+              />
+            ))}
+          </div>
+        ) : (
+          <>
+            {/* Móvil y tablet estrecha (<768px): una rejilla de 7 columnas es
+                ilegible. Se lista solo lo que tiene algo, agrupado por día. */}
+            <div className="space-y-3 md:hidden">
+              {days
+                .map((date) => ({ date, entries: byDay.get(dayKey(date)) ?? [] }))
+                .filter(({ entries }) => entries.length > 0)
+                .map(({ date, entries }) => (
+                  <div key={dayKey(date)}>
+                    <p
+                      className={`mb-1 text-xs font-medium ${
                       dayKey(date) === dayKey(startOfDay(new Date()))
                         ? "text-accent"
                         : "text-muted"
                     }`}
-                  >
-                    {date.toLocaleDateString("es-ES", {
-                      weekday: "long",
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </p>
-                  <div className="space-y-1">
-                    {entries.map((entry) => (
-                      <EntryRow
-                        key={entry.id}
-                        entry={entry}
-                        showOrg={showOrg}
-                        onSelectClient={onSelectClient}
-                      />
-                    ))}
+                    >
+                      {date.toLocaleDateString("es-ES", {
+                        weekday: "long",
+                        day: "numeric",
+                        month: "short",
+                      })}
+                    </p>
+                    <div className="space-y-1">
+                      {entries.map((entry) => (
+                        <EntryRow
+                          key={entry.id}
+                          entry={entry}
+                          showOrg={showOrg}
+                          onSelectClient={onSelectClient}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-          </div>
+                ))}
+            </div>
 
-          {/* Desde 768px: rejilla de calendario. */}
-          <div
-            className={`hidden gap-px overflow-hidden rounded-md border border-separator bg-separator md:grid ${
+            {/* Desde 768px: rejilla de calendario. */}
+            <div
+              className={`hidden gap-px overflow-hidden rounded-md border border-separator bg-separator md:grid ${
               view === "week"
                 ? "md:grid-cols-4 lg:grid-cols-7"
                 : "md:grid-cols-7"
             }`}
-          >
-            {days.map((date) => {
-              const key = dayKey(date);
-              const dayEntries = byDay.get(key) ?? [];
-              const isToday = key === dayKey(startOfDay(new Date()));
-              const dimmed =
-                view === "month" && date.getMonth() !== cursor.getMonth();
-              return (
-                <div
-                  key={key}
-                  className={`min-h-24 bg-surface p-2 ${dimmed ? "opacity-40" : ""}`}
-                >
-                  <div className="mb-1 flex items-center justify-between">
-                    <span
-                      className={`text-[0.7rem] font-medium ${
+            >
+              {days.map((date) => {
+                const key = dayKey(date);
+                const dayEntries = byDay.get(key) ?? [];
+                const isToday = key === dayKey(startOfDay(new Date()));
+                const dimmed =
+                  view === "month" && date.getMonth() !== cursor.getMonth();
+                return (
+                  <div
+                    key={key}
+                    className={`min-h-24 bg-surface p-2 ${dimmed ? "opacity-40" : ""}`}
+                  >
+                    <div className="mb-1 flex items-center justify-between">
+                      <span
+                        className={`text-[0.7rem] font-medium ${
                         isToday ? "text-accent" : "text-muted"
                       }`}
-                    >
-                      {date.toLocaleDateString("es-ES", {
-                        weekday: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                    {dayEntries.length > 0 ? (
-                      <span className="text-xs text-muted">
-                        {dayEntries.length}
+                      >
+                        {date.toLocaleDateString("es-ES", {
+                          weekday: "short",
+                          day: "numeric",
+                        })}
                       </span>
-                    ) : null}
+                      {dayEntries.length > 0 ? (
+                        <span className="text-xs text-muted">
+                          {dayEntries.length}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      {dayEntries.map((entry) => (
+                        <EntryRow
+                          key={entry.id}
+                          entry={entry}
+                          showOrg={showOrg && !embedded}
+                          onSelectClient={onSelectClient}
+                        />
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {dayEntries.map((entry) => (
-                      <EntryRow
-                        key={entry.id}
-                        entry={entry}
-                        showOrg={showOrg && !embedded}
-                        onSelectClient={onSelectClient}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }

@@ -1,15 +1,34 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { AriaRouterProvider } from "@/components/aria-router-provider";
 import { PersistentPortalFrame } from "@/components/persistent-portal-frame";
 import { Toast } from "@/components/ui";
 import "./globals.css";
 
-// Fuente estandar de todo el CRM, self-hosted en build (sin request a Google
-// en runtime). IBM Plex Sans no es variable: hay que declarar los pesos.
-const plexSans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+// Archivos locales para evitar depender de Google Fonts durante el build.
+const plexSans = localFont({
+  src: [
+    {
+      path: "./fonts/ibm-plex-sans-latin-400-normal.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "./fonts/ibm-plex-sans-latin-500-normal.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "./fonts/ibm-plex-sans-latin-600-normal.woff2",
+      weight: "600",
+      style: "normal",
+    },
+    {
+      path: "./fonts/ibm-plex-sans-latin-700-normal.woff2",
+      weight: "700",
+      style: "normal",
+    },
+  ],
   variable: "--font-plex-sans",
   display: "swap",
 });

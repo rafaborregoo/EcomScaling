@@ -15,7 +15,7 @@ name = "e-nora scale"
 # solicitarla y volver a anadirlo aqui cuando este aprobada.
 # read_products habilita Product.media y MediaImage; read_files no es necesario
 # para la galeria del catalogo y ampliaria el acceso a ficheros de la tienda.
-scopes = "read_customer_events,read_customers,read_discounts,read_inventory,read_locations,read_marketing_events,read_orders,read_products,read_reports,read_returns,write_pixels"
+scopes = "read_customer_events,read_customers,read_discounts,read_inventory,read_locations,read_marketing_events,read_orders,read_products,read_reports,read_returns,write_discounts,write_pixels"
 optional_scopes = [ ]
 use_legacy_install_flow = true
 

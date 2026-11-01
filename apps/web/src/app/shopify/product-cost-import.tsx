@@ -1,9 +1,10 @@
 "use client";
 
+
 import { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Banner, Button, Field, Textarea } from "@/components/ui";
+import { Badge, Banner, Button, Field, Textarea, Card, CardContent } from "@/components/ui";
 import {
   COST_IMPORT_OUTCOME_LABELS,
   COST_PASTE_PROBLEM_LABELS,
@@ -166,7 +167,7 @@ export function ProductCostImport({
       ) : null}
 
       {preview ? (
-        <div className="rounded-md border border-separator p-3">
+        <Card size="sm"><CardContent>
           <p className="text-sm font-medium">
             Se aplicarán {preview.summary.applicable} de {preview.summary.total}{" "}
             líneas.
@@ -191,13 +192,13 @@ export function ProductCostImport({
               </ul>
             </>
           ) : null}
-        </div>
+        </CardContent></Card>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Acciones de importacion de costes" className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          variant={preview ? "ghost" : "primary"}
+          variant={preview ? "ghost" : "default"}
           disabled={isBusy || sendable.length === 0}
           onClick={() => void callImport(true)}
         >

@@ -3,7 +3,18 @@ import assert from "node:assert/strict";
 import {
   SHOPIFY_RECONCILE_CRON,
   isStaleShopifyReconcileRepeatable,
+  isStaleIntegrationRepeatable,
+  META_RECONCILE_CRON,
+  KLAVIYO_RECONCILE_CRON,
 } from "./repeatable-jobs.js";
+
+test("removes legacy Meta/Klaviyo schedules while retaining the current cadence", () => {
+  assert.equal(isStaleIntegrationRepeatable({ name: "meta-reconcile", pattern: "17 0 * * *" }), true);
+  assert.equal(isStaleIntegrationRepeatable({ name: "klaviyo-reconcile", pattern: "0 */6 * * *" }), true);
+  assert.equal(isStaleIntegrationRepeatable({ name: "meta-reconcile", pattern: META_RECONCILE_CRON }), false);
+  assert.equal(isStaleIntegrationRepeatable({ name: "klaviyo-reconcile", pattern: KLAVIYO_RECONCILE_CRON }), false);
+  assert.equal(isStaleIntegrationRepeatable({ name: "unrelated", pattern: null }), false);
+});
 
 // Regresion del bug real documentado en worker.ts: al cambiar de `every` (6h)
 // a `pattern` (cron diario), BullMQ dejaba el job repetible viejo huerfano en

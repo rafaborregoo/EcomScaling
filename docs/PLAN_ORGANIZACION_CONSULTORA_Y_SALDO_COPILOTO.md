@@ -1,5 +1,10 @@
 # Plan: organización consultora, vinculación y saldo del copiloto
 
+> **Actualización 2026-10-29:** el saldo de A09 pasa a créditos ponderados por
+> coste. Las referencias históricas de este documento a tokens y preguntas por
+> mes quedan sustituidas por [COPILOTO_CREDITOS_PONDERADOS.md](COPILOTO_CREDITOS_PONDERADOS.md).
+> Esta actualización está aplicada en TEST ES IA y pendiente en producción.
+
 > **Qué es esto.** El plan de obra para llevar a código
 > [MODELO_PLANES_Y_VINCULACION.md](MODELO_PLANES_Y_VINCULACION.md), más el saldo
 > de tokens del copiloto y el cambio de modelo.

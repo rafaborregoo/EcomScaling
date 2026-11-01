@@ -1,16 +1,16 @@
 "use client";
+import { DatePicker } from "@/components/ui";
 
 import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Banner, Button, ErrorBlock, Field, Input, Select } from "@/components/ui";
+import { Banner, Button, Checkbox, ErrorBlock, Field, Input, Select } from "@/components/ui";
 import {
   concesionDesde,
   concesionInicial,
   concesionValida,
   grantPlanBody,
-  type ConcesionDePlanValue,
-} from "./concesion-de-plan-model";
+  type ConcesionDePlanValue } from "./concesion-de-plan-model";
 
 // La logica pura vive en concesion-de-plan-model.ts; se reexporta para que
 // nadie tenga que saber que esta partida en dos ficheros.
@@ -90,36 +90,27 @@ export function ConcesionDePlan({
               />
             </Field>
             <Field label="Caduca (opcional)">
-              <Input
-                type="date"
+              <DatePicker
                 value={value.endsAt}
-                onChange={(event) =>
-                  onChange({ ...value, endsAt: event.target.value })
+                onChange={(date) =>
+                  onChange({ ...value, endsAt: date })
                 }
               />
             </Field>
           </div>
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={value.sinLimite}
-              onChange={(event) =>
-                onChange({ ...value, sinLimite: event.target.checked })
-              }
-            />
+          <Checkbox
+            checked={value.sinLimite}
+            onCheckedChange={(sinLimite) => onChange({ ...value, sinLimite })}
+          >
             Sin límite de tiendas
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={value.sinLimiteUsuarios}
-              onChange={(event) =>
-                onChange({ ...value, sinLimiteUsuarios: event.target.checked })
-              }
-            />
+          </Checkbox>
+          <Checkbox
+            checked={value.sinLimiteUsuarios}
+            onCheckedChange={(sinLimiteUsuarios) => onChange({ ...value, sinLimiteUsuarios })}
+          >
             Sin límite de usuarios
-          </label>
+          </Checkbox>
         </>
       ) : (
         <Banner tone="warn">{avisoSinPlan}</Banner>

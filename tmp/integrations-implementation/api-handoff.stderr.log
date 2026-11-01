@@ -1,0 +1,2 @@
+{"level":"error","service":"api:shopify-metrics","message":"shopify_financial_daily_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"canceling statement due to statement timeout"}}
+{"level":"error","service":"api:shopify-metrics","message":"shopify_financial_daily_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"canceling statement due to statement timeout"}}

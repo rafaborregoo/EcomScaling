@@ -16,7 +16,7 @@ import { getConsultantProfitability, normalizeProfitabilityDays } from "./consul
 import { normalizeReportRecipient, sendReportEmail } from "./copilot-report-sharing.js";
 import { buildPortfolioReportDocument } from "./report-data.js";
 import { buildOrganizationReport, consultoraBrandFor, isoDate, lastFullMonth, previousPeriod, REPORT_BUCKET, saveReport } from "./report-generate.js";
-import { listReportTemplates, resolveReportTemplateId } from "./report-templates.js";
+import { getReportTemplate, listReportTemplates, resolveReportTemplateId } from "./report-templates.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -37,7 +37,8 @@ function canManage(context: AuthContext, organizationId: string) {
     || ["owner", "manager"].includes(operational.membership.role);
 }
 
-const REPORT_COLUMNS = "id, template_id, title, period_start, period_end, currency_code, file_name, source, prepared_by, highlights, recommendations, emailed_to, created_at";
+const REPORT_COLUMNS = "id, store_id, template_id, title, period_start, period_end, currency_code, file_name, source, prepared_by, highlights, recommendations, emailed_to, created_at";
+const SCHEDULE_COLUMNS = "id, template_id, store_id, recipients, is_active, last_period_end, pending_period_end, pending_report_id, last_delivery_error, last_delivery_attempt_at, delivery_attempts, updated_at";
 
 export async function listReports(env: ApiEnv, context: AuthContext, organizationId: string) {
   const access = requireOperationalOrganization(context, organizationId);
@@ -45,11 +46,11 @@ export async function listReports(env: ApiEnv, context: AuthContext, organizatio
   const supabase = createServiceClient(env);
   const [reports, schedules, stores] = await Promise.all([
     supabase.from("copilot_reports").select(REPORT_COLUMNS).eq("organization_id", organizationId).order("created_at", { ascending: false }).limit(100),
-    supabase.from("report_schedules").select("id, template_id, recipients, is_active, last_period_end, updated_at").eq("organization_id", organizationId).order("created_at"),
-    supabase.from("shopify_stores").select("id, shop_name, myshopify_domain").eq("organization_id", organizationId).eq("is_active", true).order("shop_name"),
+    supabase.from("report_schedules").select(SCHEDULE_COLUMNS).eq("organization_id", organizationId).order("created_at"),
+    supabase.from("shopify_stores").select("id, connection_id, shop_name, myshopify_domain").eq("organization_id", organizationId).eq("is_active", true).order("shop_name"),
   ]);
-  if (reports.error || schedules.error) {
-    return denied("reports_unavailable", reports.error?.message ?? schedules.error?.message ?? "", 500);
+  if (reports.error || schedules.error || stores.error) {
+    return denied("reports_unavailable", reports.error?.message ?? schedules.error?.message ?? stores.error?.message ?? "", 500);
   }
   return {
     ok: true as const,
@@ -58,7 +59,7 @@ export async function listReports(env: ApiEnv, context: AuthContext, organizatio
       schedules: schedules.data ?? [],
       can_manage: canManage(context, organizationId),
       // Con varias tiendas hay que elegir una: no se mezclan monedas en un informe.
-      stores: (stores.data ?? []).map((store) => ({ id: store.id, name: store.shop_name || store.myshopify_domain })),
+      stores: (stores.data ?? []).map((store) => ({ id: store.id, connection_id: store.connection_id, name: store.shop_name || store.myshopify_domain })),
       templates: listReportTemplates().map(({ id, name, description, applications }) => ({ id, name, description, applications })),
     },
   };
@@ -100,7 +101,7 @@ export async function upsertReportSchedule(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
-  body: { template_id?: unknown; recipients?: unknown; is_active?: unknown },
+  body: { template_id?: unknown; store_id?: unknown; recipients?: unknown; is_active?: unknown },
 ) {
   if (!canManage(context, organizationId)) {
     return denied("report_schedule_manage_denied", "Solo owner, manager o el consultor pueden programar informes.");
@@ -112,14 +113,25 @@ export async function upsertReportSchedule(
   if (recipients.some((email) => email === null) || recipients.length === 0 || recipients.length > 10) {
     return denied("invalid_recipients", "Indica entre 1 y 10 correos válidos.", 400);
   }
-  const { data, error } = await createServiceClient(env).from("report_schedules").upsert({
+  const supabase = createServiceClient(env);
+  const requestedStoreId = typeof body.store_id === "string" && body.store_id ? body.store_id : null;
+  let storesQuery = supabase.from("shopify_stores").select("id").eq("organization_id", organizationId).eq("is_active", true);
+  if (requestedStoreId) storesQuery = storesQuery.eq("id", requestedStoreId);
+  const { data: stores, error: storesError } = await storesQuery.limit(2);
+  if (storesError) return denied("report_store_scope_unavailable", "No se pudieron comprobar las tiendas. Reintenta la operación.", 503);
+  if (requestedStoreId && !stores?.length) return denied("invalid_store", "La tienda no está activa en este cliente.", 400);
+  if (!requestedStoreId && (stores?.length ?? 0) > 1) return denied("shopify_store_selection_required", "Selecciona la tienda del envío mensual.", 400);
+  const storeId = requestedStoreId ?? stores?.[0]?.id ?? null;
+  if (!storeId && getReportTemplate(templateId)?.applications.includes("Shopify")) return denied("shopify_store_unavailable", "Conecta una tienda Shopify antes de programar el informe.", 400);
+  const { data, error } = await supabase.from("report_schedules").upsert({
     organization_id: organizationId,
     template_id: templateId,
+    store_id: storeId,
     recipients,
     is_active: body.is_active !== false,
     created_by: context.user.id,
     updated_at: new Date().toISOString(),
-  }, { onConflict: "organization_id,template_id" }).select("id, template_id, recipients, is_active, last_period_end, updated_at").single();
+  }, { onConflict: "organization_id,template_id,store_id" }).select(SCHEDULE_COLUMNS).single();
   if (error) return denied("report_schedule_failed", error.message, 500);
   return { ok: true as const, data: { schedule: data } };
 }
@@ -175,8 +187,9 @@ export async function generatePortfolioReport(env: ApiEnv, authorization: string
 
 /**
  * Envío mensual (worker `scheduled-reports`, diario). Cada programación genera
- * el último mes completo una sola vez (`last_period_end`), así que si un día
- * falla, la siguiente pasada lo recupera sin duplicar.
+ * el último mes completo. El PDF pendiente se conserva hasta su entrega.
+ * `last_period_end` solo avanza tras el envío; una concesión temporal evita
+ * que dos ejecuciones envíen a la vez la misma programación.
  */
 export async function runScheduledReports(env: ApiEnv, now = new Date()) {
   const supabase = createServiceClient(env);
@@ -184,9 +197,9 @@ export async function runScheduledReports(env: ApiEnv, now = new Date()) {
   const periodEnd = isoDate(period.end);
   const { data: schedules, error } = await supabase
     .from("report_schedules")
-    .select("id, organization_id, template_id, store_id, recipients, last_period_end")
+    .select("id, organization_id, template_id, store_id, recipients, last_period_end, pending_report_id, pending_period_end, delivery_attempts")
     .eq("is_active", true)
-    .or(`last_period_end.is.null,last_period_end.lt.${periodEnd}`);
+    .or(`pending_report_id.not.is.null,last_period_end.is.null,last_period_end.lt.${periodEnd}`);
   if (error) throw new Error(`report_schedules: ${error.message}`);
 
   const result = { due: schedules?.length ?? 0, sent: 0, failed: 0, failures: [] as Array<{ schedule_id: string; error: string }> };
@@ -200,43 +213,81 @@ export async function runScheduledReports(env: ApiEnv, now = new Date()) {
       fail("invalid_template");
       continue;
     }
+    const leaseId = crypto.randomUUID();
+    let leaseQuery = supabase.from("report_schedules").update({
+      delivery_lease_id: leaseId,
+      delivery_lease_until: new Date(now.getTime() + 15 * 60_000).toISOString(),
+    }).eq("id", schedule.id).eq("is_active", true)
+      .or(`delivery_lease_until.is.null,delivery_lease_until.lt.${now.toISOString()}`);
+    // A worker may have completed between the initial read and this claim.
+    leaseQuery = schedule.last_period_end === null ? leaseQuery.is("last_period_end", null) : leaseQuery.eq("last_period_end", schedule.last_period_end);
+    const lease = await leaseQuery.select("id").maybeSingle();
+    if (lease.error) { fail("report_delivery_claim_failed"); continue; }
+    if (!lease.data) continue;
     try {
-      const built = await buildOrganizationReport(supabase, { organizationId: schedule.organization_id, storeId: schedule.store_id, templateId, periodStart: period.start, periodEnd: period.end });
-      if (!built.ok) {
-        fail(built.error);
-        continue;
+      const update = async (patch: Record<string, unknown>) => {
+        const changed = await supabase.from("report_schedules").update(patch).eq("id", schedule.id).eq("delivery_lease_id", leaseId).select("id").single();
+        if (changed.error) throw new Error("report_delivery_state_failed");
+      };
+      await update({ last_delivery_attempt_at: now.toISOString(), delivery_attempts: (schedule.delivery_attempts ?? 0) + 1 });
+      const organization = await supabase.from("organizations").select("status").eq("id", schedule.organization_id).maybeSingle();
+      if (organization.error || !organization.data) throw new Error("report_organization_unavailable");
+      if (!["onboarding", "active"].includes(organization.data.status)) throw new Error("report_organization_inactive");
+      if (schedule.store_id) {
+        const store = await supabase.from("shopify_stores").select("id").eq("organization_id", schedule.organization_id).eq("id", schedule.store_id).eq("is_active", true).maybeSingle();
+        if (store.error || !store.data) throw new Error("report_store_scope_unavailable");
       }
-      const saved = await saveReport(supabase, built.report, { organizationId: schedule.organization_id, storeId: built.storeId, source: "scheduled", requestedBy: null });
-      if (!saved.ok) {
-        fail(saved.error);
-        continue;
+      let reportId: string | null = schedule.pending_report_id;
+      let deliveryPeriodEnd: string = schedule.pending_period_end ?? periodEnd;
+      if (!reportId) {
+        const built = await buildOrganizationReport(supabase, { organizationId: schedule.organization_id, storeId: schedule.store_id, templateId, periodStart: period.start, periodEnd: period.end });
+        if (!built.ok) throw new Error(built.error);
+        const saved = await saveReport(supabase, built.report, { organizationId: schedule.organization_id, storeId: built.storeId, source: "scheduled", requestedBy: null });
+        if (!saved.ok) throw new Error(saved.error);
+        if (saved.historyError) throw new Error("report_history_unavailable");
+        reportId = saved.reportId;
+        deliveryPeriodEnd = periodEnd;
+        await update({ pending_report_id: reportId, pending_period_end: deliveryPeriodEnd, last_delivery_error: null });
       }
-      const changes = built.report.sections.find((section) => section.kind === "summary");
+      const { data: report, error: reportError } = await supabase.from("copilot_reports")
+        .select("id, title, period_start, period_end, prepared_by, highlights, file_name, storage_path, emailed_to")
+        .eq("id", reportId).eq("organization_id", schedule.organization_id).single();
+      if (reportError || !report) throw new Error("report_history_unavailable");
+      const { data: file, error: downloadError } = await supabase.storage.from(REPORT_BUCKET).download(report.storage_path);
+      if (downloadError || !file) throw new Error("report_storage_unavailable");
+      if (file.size > 20 * 1024 * 1024) throw new Error("report_too_large");
       const recipients = (schedule.recipients ?? []) as string[];
+      const alreadySent = (report.emailed_to ?? []) as string[];
+      const remaining = recipients.filter((email) => !alreadySent.includes(email));
       const { replyTo } = await consultoraBrandFor(supabase, schedule.organization_id);
-      const sent = await sendReportEmail(env, {
-        to: recipients,
+      const sent = remaining.length ? await sendReportEmail(env, {
+        to: remaining,
         replyTo,
-        pdf: saved.pdf,
-        filename: saved.fileName,
+        pdf: Buffer.from(await file.arrayBuffer()),
+        filename: report.file_name,
         summary: {
-          title: built.report.title,
-          period_start: built.report.periodStart,
-          period_end: built.report.periodEnd,
-          prepared_by: built.report.preparedBy ?? null,
-          highlights: changes?.kind === "summary" ? changes.points : [],
+          title: report.title,
+          period_start: report.period_start,
+          period_end: report.period_end,
+          prepared_by: report.prepared_by,
+          highlights: report.highlights ?? [],
         },
-      });
-      // El mes se da por hecho aunque el correo falle: el PDF ya está en el
-      // historial y reintentarlo cada día solo duplicaría informes.
-      await Promise.all([
-        supabase.from("report_schedules").update({ last_period_end: periodEnd }).eq("id", schedule.id),
-        sent.ok ? supabase.from("copilot_reports").update({ emailed_to: recipients }).eq("id", saved.reportId) : Promise.resolve(),
-      ]);
-      if (sent.ok) result.sent += 1;
-      else fail(sent.error);
+      }) : { ok: true as const, accepted: [] as string[] };
+      const accepted = sent.accepted ?? [];
+      if (accepted.length) {
+        const history = await supabase.from("copilot_reports").update({ emailed_to: [...new Set([...alreadySent, ...accepted])] }).eq("id", reportId).eq("organization_id", schedule.organization_id);
+        if (history.error) throw new Error("report_email_history_failed");
+      }
+      if (!sent.ok) throw new Error(sent.error);
+      await update({ last_period_end: deliveryPeriodEnd, pending_report_id: null, pending_period_end: null, last_delivery_error: null, delivery_attempts: 0 });
+      result.sent += 1;
     } catch (cause) {
-      fail(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const recorded = await supabase.from("report_schedules").update({ last_delivery_error: message.slice(0, 500) }).eq("id", schedule.id).eq("delivery_lease_id", leaseId);
+      fail(recorded.error ? "report_delivery_state_failed" : message);
+    } finally {
+      const released = await supabase.from("report_schedules").update({ delivery_lease_id: null, delivery_lease_until: null }).eq("id", schedule.id).eq("delivery_lease_id", leaseId);
+      if (released.error) result.failures.push({ schedule_id: schedule.id, error: "report_delivery_lease_release_failed" });
     }
   }
   return result;

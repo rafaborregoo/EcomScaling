@@ -1,16 +1,21 @@
 "use client";
+import { ScrollArea, DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { BookingDialog } from "@/app/reuniones/booking-dialog";
+import { fmtDay, fmtTime, KIND_LABEL, STATUS_LABEL, type Meeting } from "@/app/reuniones/meetings-model";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { getViewAs } from "@/lib/view-as";
-import { channelStyle } from "@/components/marketing-channel";
+import { ChannelBadge, channelStyle } from "@/components/marketing-channel";
 import { DiscussModal } from "@/components/discuss-modal";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { StatusStrip, WorkPageHeader } from "@/components/trabajo-ui";
 import s from "./calendario.module.css";
 import {
@@ -18,19 +23,34 @@ import {
   Banner,
   Button,
   ButtonLink,
-  Card,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  EYEBROW,
   EmptyState,
   ErrorBlock,
   Field,
+  IconChevronLeft,
+  IconChevronRight,
   Input,
-  List,
   LoadingBlock,
   Select,
   Textarea,
   toast,
 } from "@/components/ui";
 import { agendaSignal, sortAgenda } from "../agenda-signal";
+import { PlanningPortfolio } from "../portfolio-view";
 import { groupByLocalDay, localDayKey } from "../calendar-days";
 
 type CalendarItem = {
@@ -56,6 +76,24 @@ type CalendarItem = {
 /** Acción propuesta por el cliente que su consultor aún no ha aceptado. */
 const isPendingSuggestion = (item: CalendarItem) =>
   Boolean(item.metadata?.client_suggestion?.pending);
+
+function CampaignSuggestionDetails({ description }: { description: string }) {
+  const campaign = /^Campaña paraguas:\s*(.+)$/m.exec(description)?.[1]?.trim();
+  const objective = /^Objetivo:\s*(.+)$/m.exec(description)?.[1]?.trim();
+  const summary = objective || description.split(/\n\s*\n/)[0]?.trim() || "Plan de campaña pendiente de revisión";
+  return (
+    <div className="space-y-2">
+      {campaign ? <p className="text-sm font-medium">{campaign}</p> : null}
+      <p className="line-clamp-2 text-sm text-muted">{summary}</p>
+      <Collapsible className="text-sm">
+        <CollapsibleTrigger className="font-medium text-muted">Ver propuesta completa<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+        <CollapsibleContent>
+        <ScrollArea className="mt-2 max-h-72 whitespace-pre-wrap rounded-md bg-surface-subtle p-3 text-xs leading-5 text-muted">{description}</ScrollArea>
+      </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
 type Planning = {
   calendars?: Array<{ id: string; name: string; year: number }>;
   items?: CalendarItem[];
@@ -156,6 +194,7 @@ function ItemEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState("worked");
+  const isDesktop = useIsDesktop();
   const [verdictReason, setVerdictReason] = useState("");
   const [savingVerdict, setSavingVerdict] = useState(false);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
@@ -288,65 +327,183 @@ function ItemEditor({
     const signal = agendaSignal(item);
     const milestone = milestones.find((m) => m.id === item.milestone_id);
     return (
-      <Dialog
-        isOpen={open}
+      <Drawer
+        open={open}
         onOpenChange={onOpenChange}
-        eyebrow={item.channel}
-        title={item.title}
-        cancelLabel="Cerrar"
-        primary={{ label: "Escribir sobre esto", onClick: () => onDiscuss(item) }}
+        swipeDirection={isDesktop ? "right" : "down"}
+        showSwipeHandle={!isDesktop}
       >
-        <div className="flex flex-wrap gap-2">
-          <Badge tone={signal.tone}>
-            {item.status === "completed" ? "Completada" : signal.label}
-          </Badge>
-          {isPendingSuggestion(item) ? <Badge tone="warn">Propuesta pendiente</Badge> : null}
-        </div>
-        <dl className="divide-y divide-line border-y border-line">
-          <div className="flex justify-between gap-4 py-3">
-            <dt className="text-muted">Día</dt>
-            <dd className="font-medium text-ink">
-              {new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long" }).format(new Date(item.starts_at))}
-            </dd>
-          </div>
-          {milestone ? (
+        <DrawerContent className="sm:max-w-[40rem]">
+          <DrawerHeader>
+            {item.channel ? <span className={EYEBROW}>{item.channel}</span> : null}
+            <DrawerTitle>{item.title}</DrawerTitle>
+            <DrawerDescription>
+              <Badge tone={signal.tone}>
+                {item.status === "completed" ? "Completada" : signal.label}
+              </Badge>
+              {isPendingSuggestion(item) ? <Badge tone="warn">Propuesta pendiente</Badge> : null}
+            </DrawerDescription>
+          </DrawerHeader>
+          <ScrollArea className="flex-1 space-y-4 p-4 sm:px-6">
+          <dl className="divide-y divide-line border-y border-line">
             <div className="flex justify-between gap-4 py-3">
-              <dt className="text-muted">Hito</dt>
-              <dd className="font-medium text-ink">{milestone.name}</dd>
+              <dt className="text-muted">Día</dt>
+              <dd className="font-medium text-ink">
+                {new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long" }).format(new Date(item.starts_at))}
+              </dd>
             </div>
-          ) : null}
-          {item.blocked_reason ? (
-            <div className="flex justify-between gap-4 py-3">
-              <dt className="text-muted">Bloqueo</dt>
-              <dd className="font-medium text-ink">{item.blocked_reason}</dd>
-            </div>
-          ) : null}
-        </dl>
-        {item.description ? <p className="text-muted">{item.description}</p> : null}
-      </Dialog>
+            {milestone ? (
+              <div className="flex justify-between gap-4 py-3">
+                <dt className="text-muted">Hito</dt>
+                <dd className="font-medium text-ink">{milestone.name}</dd>
+              </div>
+            ) : null}
+            {item.blocked_reason ? (
+              <div className="flex justify-between gap-4 py-3">
+                <dt className="text-muted">Bloqueo</dt>
+                <dd className="font-medium text-ink">{item.blocked_reason}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {item.description ? isPendingSuggestion(item) ? <CampaignSuggestionDetails description={item.description} /> : <p className="whitespace-pre-line text-sm text-muted">{item.description}</p> : null}
+          </ScrollArea>
+          <DrawerFooter>
+            <Button onClick={() => onDiscuss(item)}>Escribir sobre esto</Button>
+            <DrawerClose render={<Button variant="outline" />}>Cerrar</DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     );
   }
 
   return (
-    <Dialog
-      isOpen={open}
-      onOpenChange={onOpenChange}
-      title={item ? "Editar acción" : "Nueva acción"}
-      isBusy={saving || savingVerdict}
-      isDirty={
-        item
+    <Dialog open={open} onOpenChange={onOpenChange} busy={saving || savingVerdict} dirty={item
           ? title.trim() !== item.title ||
             channel !== item.channel ||
             date !== localDayKey(new Date(item.starts_at)) ||
             status !== item.status ||
             verdictChanged
-          : Boolean(title.trim())
-      }
-      formId="calendar-item-form"
-      // Archivar vive donde está la acción y se confirma en el propio pie, sin
-      // abrir un segundo modal encima.
-      start={
-        item ? (
+          : Boolean(title.trim())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{item ? "Editar acción" : "Nueva acción"}</DialogTitle>
+        </DialogHeader>
+        <form
+          id="calendar-item-form"
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          {item && isPendingSuggestion(item) ? (
+            <Banner tone="warn">
+              <span className="block">
+                <strong>Propuesta del cliente.</strong>
+                {item.description ? <CampaignSuggestionDetails description={item.description} /> : <span className="ml-1">Pendiente de revisión por el consultor.</span>}
+              </span>
+              <span className="mt-2 block">
+                <Button size="sm" onClick={acceptSuggestion} disabled={saving}>
+                  Aceptar propuesta
+                </Button>
+              </span>
+            </Banner>
+          ) : null}
+          <Field label="Título">
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Canal">
+              <Select
+                aria-label="Canal de la acción"
+                value={channel}
+                onChange={setChannel}
+                options={CHANNELS.map((value) => ({ value, label: value }))}
+              />
+            </Field>
+            <Field label="Día">
+              <DatePicker value={date} onChange={(value) => setDate(value)} />
+            </Field>
+          </div>
+          {/* El estado solo tiene sentido sobre algo que ya existe: una
+              acción nueva nace planificada. */}
+          {item ? (
+            <Field label="Estado">
+              <Select aria-label="Estado de la acción" value={status} onChange={setStatus} options={STATUSES} />
+            </Field>
+          ) : null}
+          {!item && milestones.length > 0 ? (
+            <Field label="Hito de Mi Camino (opcional)">
+              <Select
+                aria-label="Hito de Mi Camino"
+                value={milestoneId}
+                onChange={setMilestoneId}
+                options={[
+                  { value: "", label: "Sin vincular" },
+                  ...milestones.map((milestone) => ({
+                    value: milestone.id,
+                    label: `${milestone.name}${milestone.target_date ? ` · ${milestone.target_date}` : ""}`,
+                  })),
+                ]}
+              />
+              {milestoneId ? (
+                <p className="mt-1 text-xs text-muted">Se creará también una tarea enlazada a este hito.</p>
+              ) : null}
+            </Field>
+          ) : null}
+          {item?.milestone_id ? (
+            <Badge tone="brand">
+              Hito · {milestones.find((m) => m.id === item.milestone_id)?.name ?? "Mi Camino"}
+            </Badge>
+          ) : null}
+          {item?.marketing_draft_id ? (
+            <ButtonLink
+              variant="secondary"
+              href={`/marketing?draft=${encodeURIComponent(item.marketing_draft_id)}${storeId ? `&connectionId=${encodeURIComponent(storeId)}` : ""}`}
+            >
+              Abrir pieza creada
+            </ButtonLink>
+          ) : item?.channel && ["Email", "Meta", "Instagram"].includes(item.channel) ? (
+            <ButtonLink
+              variant="secondary"
+              href={`/marketing?section=crear&campaignId=${encodeURIComponent(item.id)}${storeId ? `&connectionId=${encodeURIComponent(storeId)}` : ""}`}
+            >
+              {item.channel === "Email"
+                ? "Preparar mailing con este brief"
+                : item.channel === "Meta"
+                  ? "Preparar creativo Meta con este brief"
+                  : "Preparar publicación de Instagram con este brief"}
+            </ButtonLink>
+          ) : null}
+          {canRecordVerdict && item && ["published", "completed"].includes(status) ? (
+            <div className="space-y-4 border-t border-line pt-4">
+              <div>
+                <h3 className="text-sm font-semibold text-ink">Aprendizaje tras la ejecución</h3>
+                <p className="mt-1 text-xs text-muted">Veredicto del consultor. No se deduce automáticamente de las métricas.</p>
+              </div>
+              <Field label="¿Cómo funcionó?">
+                <Select
+                  value={verdict}
+                  onChange={setVerdict}
+                  options={[
+                    { value: "worked", label: "Funcionó" },
+                    { value: "did_not_work", label: "No funcionó" },
+                    { value: "mixed", label: "Resultado mixto" },
+                  ]}
+                />
+              </Field>
+              <Field label="Motivo y contexto (mínimo 8 caracteres)">
+                <Textarea maxLength={2000} value={verdictReason} onChange={(event) => setVerdictReason(event.target.value)} />
+              </Field>
+              {item.outcome_decided_at ? (
+                <p className="text-xs text-muted">Última revisión: {new Date(item.outcome_decided_at).toLocaleDateString("es-ES")}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </form>
+        <DialogFooter>
+          <div className="flex flex-wrap items-center gap-2 empty:hidden sm:mr-auto">{item ? (
           confirmingArchive ? (
             <span className="text-[13px] font-medium text-ink">
               ¿Archivar esta acción? El histórico se conserva.
@@ -356,140 +513,24 @@ function ItemEditor({
               Archivar
             </Button>
           )
-        ) : undefined
-      }
-      footer={
-        confirmingArchive && item ? (
+        ) : undefined}</div>
+          {confirmingArchive && item ? (
           <>
             <Button variant="ghost" onClick={() => setConfirmingArchive(false)}>
               Volver
             </Button>
-            <Button variant="danger" onClick={() => void onArchive(item)}>
+            <Button variant="destructive" onClick={() => void onArchive(item)}>
               Archivar
             </Button>
           </>
-        ) : undefined
-      }
-      primary={{
-        label: item ? "Guardar cambios" : "Añadir",
-        busyLabel: "Guardando…",
-        disabled: !title.trim() || !date,
-      }}
-    >
-      <form
-        id="calendar-item-form"
-        className="space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save();
-        }}
-      >
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        {item && isPendingSuggestion(item) ? (
-          <Banner tone="warn">
-            <span className="block">
-              <strong>Propuesta del cliente.</strong>
-              {item.description ? ` ${item.description}` : ""}
-            </span>
-            <span className="mt-2 block">
-              <Button size="sm" onClick={acceptSuggestion} disabled={saving}>
-                Aceptar propuesta
-              </Button>
-            </span>
-          </Banner>
-        ) : null}
-        <Field label="Título">
-          <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Canal">
-            <Select
-              aria-label="Canal de la acción"
-              value={channel}
-              onChange={setChannel}
-              options={CHANNELS.map((value) => ({ value, label: value }))}
-            />
-          </Field>
-          <Field label="Día">
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-          </Field>
-        </div>
-        {/* El estado solo tiene sentido sobre algo que ya existe: una
-            acción nueva nace planificada. */}
-        {item ? (
-          <Field label="Estado">
-            <Select aria-label="Estado de la acción" value={status} onChange={setStatus} options={STATUSES} />
-          </Field>
-        ) : null}
-        {!item && milestones.length > 0 ? (
-          <Field label="Hito de Mi Camino (opcional)">
-            <Select
-              aria-label="Hito de Mi Camino"
-              value={milestoneId}
-              onChange={setMilestoneId}
-              options={[
-                { value: "", label: "Sin vincular" },
-                ...milestones.map((milestone) => ({
-                  value: milestone.id,
-                  label: `${milestone.name}${milestone.target_date ? ` · ${milestone.target_date}` : ""}`,
-                })),
-              ]}
-            />
-            {milestoneId ? (
-              <p className="mt-1 text-xs text-muted">Se creará también una tarea enlazada a este hito.</p>
-            ) : null}
-          </Field>
-        ) : null}
-        {item?.milestone_id ? (
-          <Badge tone="brand">
-            Hito · {milestones.find((m) => m.id === item.milestone_id)?.name ?? "Mi Camino"}
-          </Badge>
-        ) : null}
-        {item?.marketing_draft_id ? (
-          <ButtonLink
-            variant="secondary"
-            href={`/marketing?draft=${encodeURIComponent(item.marketing_draft_id)}${storeId ? `&connectionId=${encodeURIComponent(storeId)}` : ""}`}
-          >
-            Abrir pieza creada
-          </ButtonLink>
-        ) : item?.channel && ["Email", "Meta", "Instagram"].includes(item.channel) ? (
-          <ButtonLink
-            variant="secondary"
-            href={`/marketing?section=crear&campaignId=${encodeURIComponent(item.id)}${storeId ? `&connectionId=${encodeURIComponent(storeId)}` : ""}`}
-          >
-            {item.channel === "Email"
-              ? "Preparar mailing con este brief"
-              : item.channel === "Meta"
-                ? "Preparar creativo Meta con este brief"
-                : "Preparar publicación de Instagram con este brief"}
-          </ButtonLink>
-        ) : null}
-        {canRecordVerdict && item && ["published", "completed"].includes(status) ? (
-          <div className="space-y-4 border-t border-line pt-4">
-            <div>
-              <h3 className="text-sm font-semibold text-ink">Aprendizaje tras la ejecución</h3>
-              <p className="mt-1 text-xs text-muted">Veredicto del consultor. No se deduce automáticamente de las métricas.</p>
-            </div>
-            <Field label="¿Cómo funcionó?">
-              <Select
-                value={verdict}
-                onChange={setVerdict}
-                options={[
-                  { value: "worked", label: "Funcionó" },
-                  { value: "did_not_work", label: "No funcionó" },
-                  { value: "mixed", label: "Resultado mixto" },
-                ]}
-              />
-            </Field>
-            <Field label="Motivo y contexto (mínimo 8 caracteres)">
-              <Textarea maxLength={2000} value={verdictReason} onChange={(event) => setVerdictReason(event.target.value)} />
-            </Field>
-            {item.outcome_decided_at ? (
-              <p className="text-xs text-muted">Última revisión: {new Date(item.outcome_decided_at).toLocaleDateString("es-ES")}</p>
-            ) : null}
-          </div>
-        ) : null}
-      </form>
+        ) : (
+            <>
+              <DialogClose>Cancelar</DialogClose>
+              <Button type="submit" form="calendar-item-form" disabled={saving || savingVerdict || !title.trim() || !date}>{saving || savingVerdict ? "Guardando…" : item ? "Guardar cambios" : "Añadir"}</Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -505,6 +546,7 @@ function SuggestModal({
   organizationId,
   storeId,
   onSaved,
+  initialDate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -512,10 +554,16 @@ function SuggestModal({
   organizationId: string;
   storeId: string | null;
   onSaved: () => Promise<void>;
+  /** Día pulsado en la rejilla (YYYY-MM-DD). */
+  initialDate?: string | null;
 }) {
   const [title, setTitle] = useState("");
   const [channel, setChannel] = useState("Email");
   const [date, setDate] = useState("");
+
+  useEffect(() => {
+    if (open) setDate(initialDate ?? "");
+  }, [open, initialDate]);
   const [why, setWhy] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -559,44 +607,96 @@ function SuggestModal({
   }
 
   return (
-    <Dialog
-      isOpen={open}
-      onOpenChange={onOpenChange}
-      title="Sugerir una acción"
-      isBusy={saving}
-      isDirty={Boolean(title.trim() || why.trim())}
-      formId="calendar-suggest-form"
-      primary={{
-        label: "Enviar a mi consultor",
-        busyLabel: "Enviando…",
-        disabled: !title.trim() || !date,
-      }}
-    >
-      <form
-        id="calendar-suggest-form"
-        className="space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <Field label="Qué propones">
-          <Input placeholder="Sorteo en Instagram por el aniversario" value={title} onChange={(event) => setTitle(event.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Canal">
-            <Select aria-label="Canal" value={channel} onChange={setChannel} options={CHANNELS.map((value) => ({ value, label: value }))} />
+    <Dialog open={open} onOpenChange={onOpenChange} busy={saving} dirty={Boolean(title.trim() || why.trim())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Sugerir una acción</DialogTitle>
+        </DialogHeader>
+        <form
+          id="calendar-suggest-form"
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
+        >
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <Field label="Qué propones">
+            <Input placeholder="Sorteo en Instagram por el aniversario" value={title} onChange={(event) => setTitle(event.target.value)} />
           </Field>
-          <Field label="Cuándo">
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Canal">
+              <Select aria-label="Canal" value={channel} onChange={setChannel} options={CHANNELS.map((value) => ({ value, label: value }))} />
+            </Field>
+            <Field label="Cuándo">
+              <DatePicker value={date} onChange={(value) => setDate(value)} />
+            </Field>
+          </div>
+          <Field label="Por qué (opcional)">
+            <Textarea maxLength={300} value={why} onChange={(event) => setWhy(event.target.value)} />
           </Field>
-        </div>
-        <Field label="Por qué (opcional)">
-          <Textarea maxLength={300} value={why} onChange={(event) => setWhy(event.target.value)} />
-        </Field>
-      </form>
+        </form>
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button type="submit" form="calendar-suggest-form" disabled={saving || !title.trim() || !date}>{saving ? "Enviando…" : "Enviar a mi consultor"}</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
+  );
+}
+
+/** «+» de cada día: lo que se puede crear ese día según quién mira. */
+function DayAdd({
+  day,
+  items,
+  onAction,
+}: {
+  day: string;
+  items: Array<{ id: string; label: string }>;
+  onAction: (id: string) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="sm" aria-label={`Añadir el ${day}`} className={s.add} />}>
+        +
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {items.map((item) => (
+          <DropdownMenuItem key={item.id} onSelect={() => onAction(item.id)}>
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Reunión con el consultor dentro de una celda: abre su ficha en Reuniones; al pasar, un adelanto. */
+function MeetingChip({ meeting }: { meeting: Meeting }) {
+  const status = STATUS_LABEL[meeting.status];
+  return (
+    <HoverCard>
+      <HoverCardTrigger
+        render={
+          <Link href={`/reuniones?meeting=${meeting.id}`} className={`${s.event} ${s.meeting}`}>
+            <span className={s.time}>{fmtTime(meeting.starts_at)}</span>
+            <span className={s.eventTitle}>{meeting.title}</span>
+          </Link>
+        }
+      />
+      <HoverCardContent side="right" align="start">
+        <p className="font-medium">{meeting.title}</p>
+        <p className="text-muted">
+          <span className="first-letter:uppercase">{fmtDay(meeting.starts_at)}</span> · <span className="whitespace-nowrap">{fmtTime(meeting.starts_at)}–{fmtTime(meeting.ends_at)}</span>
+        </p>
+        <p className="flex flex-wrap items-center gap-2">
+          <Badge tone={status.tone}>{status.label}</Badge>
+          <span className="text-muted">{KIND_LABEL[meeting.kind]}</span>
+        </p>
+        {meeting.organization_name ? <p className="text-muted">{meeting.organization_name}</p> : null}
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -612,28 +712,32 @@ function ItemChip({
   const signal = agendaSignal(item);
   const done = item.status === "completed";
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      title={`${item.title} · ${signal.label}`}
-      className={`${s.event} ${style.soft} ${
-        done ? "line-through" : ""
-      }`}
-    >
-      <span aria-hidden className={`h-3 w-1 shrink-0 ${style.fill}`} />
-      <span className={s.eventTitle}>{item.title}</span>
-      {isPendingSuggestion(item) ? (
-        <span className="shrink-0 text-[10px] font-semibold">Propuesta</span>
-      ) : null}
-      {item.milestone_id ? (
-        <span className="shrink-0 text-[10px] font-medium">Camino</span>
-      ) : null}
-      {signal.state === "blocked" || signal.state === "overdue" ? (
-        <span aria-label={signal.label} className="shrink-0 text-danger">
-          ●
-        </span>
-      ) : null}
-    </button>
+    <HoverCard>
+      <HoverCardTrigger
+        render={
+          <button type="button" onClick={onSelect} className={`${s.event} ${style.soft} ${done ? "text-muted line-through" : ""}`}>
+            <span aria-hidden className={`${s.dot} ${style.fill}`} />
+            <span className={s.eventTitle}>{item.title}</span>
+            {isPendingSuggestion(item) ? <span className={s.tag}>Propuesta</span> : null}
+            {signal.state === "blocked" || signal.state === "overdue" ? (
+              <span aria-label={signal.label} className="shrink-0 text-danger">
+                ●
+              </span>
+            ) : null}
+          </button>
+        }
+      />
+      <HoverCardContent side="right" align="start">
+        <p className="font-medium">{item.title}</p>
+        <p className="flex flex-wrap items-center gap-2">
+          <ChannelBadge channel={item.channel} />
+          <Badge tone={done ? "success" : signal.tone}>{done ? "Hecha" : signal.label}</Badge>
+          {isPendingSuggestion(item) ? <Badge tone="brand">Propuesta del cliente</Badge> : null}
+        </p>
+        {item.blocked_reason ? <p className="text-danger">{item.blocked_reason}</p> : null}
+        {item.description ? <p className="line-clamp-3 whitespace-pre-line text-muted">{item.description}</p> : null}
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -663,6 +767,31 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [discuss, setDiscuss] = useState<CalendarItem | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestDay, setSuggestDay] = useState<string | null>(null);
+  // null = cerrado; "" = sin día elegido (botón de la cabecera).
+  const [bookingDay, setBookingDay] = useState<string | null>(null);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+
+  // Las reuniones con el consultor también son de la agenda. Si fallan, la
+  // agenda sigue: solo faltan sus chips.
+  const loadMeetings = useCallback(async () => {
+    if (!organizationId) return;
+    try {
+      const response = await apiFetch(`/v1/organizations/${organizationId}/meetings`, { cache: "no-store" });
+      if (response.ok) setMeetings(((await response.json()) as { meetings: Meeting[] }).meetings);
+    } catch {
+      /* sin chips de reunión */
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    void loadMeetings();
+  }, [loadMeetings]);
+
+  const meetingsByDay = useMemo(
+    () => groupByLocalDay(meetings.filter((meeting) => meeting.status !== "cancelled")),
+    [meetings],
+  );
 
   useEffect(() => {
     if (!focusDate || !/^\d{4}-\d{2}-\d{2}$/.test(focusDate)) return;
@@ -816,6 +945,8 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
     setEditorOpen(true);
   }
 
+  // Sin cliente activo el consultor ve la cartera: a quién le urge la agenda.
+  if (!organizationId && isConsultant) return <PlanningPortfolio />;
   if (!organizationId)
     return (
       <Banner tone="warn">
@@ -830,11 +961,18 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
   const pending = sortAgenda(planning.items ?? []);
   const signals = pending.map((item) => agendaSignal(item).state);
   const count = (state: string) => signals.filter((st) => st === state).length;
+  const withoutPiece = pending.filter(
+    (item) => ["Email", "Meta", "Instagram"].includes(item.channel) && !item.marketing_draft_id,
+  ).length;
   const weekStrip = [
     { value: signals.filter((st) => st === "today" || st === "soon").length, label: "Próximos 7 días" },
     { value: count("overdue"), label: "Vencidas", tone: count("overdue") ? ("bad" as const) : undefined },
     { value: count("blocked"), label: "Paradas", tone: count("blocked") ? ("warn" as const) : undefined },
     { value: pending.filter((item) => item.milestone_id).length, label: "Ligadas a Mi Camino" },
+    // Planificadas para un canal que produce pieza, pero sin borrador en Marketing.
+    ...(isConsultant && withoutPiece
+      ? [{ value: withoutPiece, label: "Sin pieza escrita", tone: "warn" as const }]
+      : []),
   ];
 
   return (
@@ -851,9 +989,19 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
           canEdit ? (
             <Button onClick={() => openNew(null)}>Nueva acción</Button>
           ) : (
-            <Button onClick={() => setSuggesting(true)}>Sugerir una acción</Button>
+            <Button
+              onClick={() => {
+                setSuggestDay(null);
+                setSuggesting(true);
+              }}
+            >
+              Sugerir una acción
+            </Button>
           )
         ) : null}
+        <Button variant="secondary" onClick={() => setBookingDay("")}>
+          {isConsultant ? "Reservar reunión" : "Solicitar reunión"}
+        </Button>
       </div>
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
       {calendars.length ? <StatusStrip items={weekStrip} /> : null}
@@ -872,28 +1020,22 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
           <EmptyState title="Tu consultor aún no ha preparado la agenda" />
         )
       ) : (
-        <Card>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator pb-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => move(-1)}>
-                Anterior
+        <div>
+          <div className={s.toolbar}>
+            <div className={s.toolbarNav}>
+              <Button size="sm" variant="ghost" aria-label="Anterior" onClick={() => move(-1)}>
+                <IconChevronLeft />
               </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => setCursor(startOfDay(new Date()))}
-              >
+              <Button size="sm" variant="ghost" aria-label="Siguiente" onClick={() => move(1)}>
+                <IconChevronRight />
+              </Button>
+              <span className={s.label}>{label}</span>
+              <Button size="sm" variant="ghost" onClick={() => setCursor(startOfDay(new Date()))}>
                 Hoy
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => move(1)}>
-                Siguiente
-              </Button>
-              <span className="px-2 text-sm font-medium capitalize">
-                {label}
-              </span>
             </div>
             <Select
-              className="w-40"
+              className="w-32"
               aria-label="Horizonte del calendario"
               value={view}
               onChange={(value) => setView(value as View)}
@@ -912,6 +1054,14 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
               horizontal con ancho minimo: la forma de calendario se conserva. */}
           {GRID_VIEWS.includes(view) ? (
             <div className={s.scroll} role="region" aria-label="Calendario de acciones; desplázate para ver todos los días" tabIndex={0}>
+              <div className={s.board}>
+              <div className={s.weekdays} aria-hidden>
+                {gridDays.slice(0, 7).map((date) => (
+                  <span key={localDayKey(date)}>
+                    {new Intl.DateTimeFormat("es-ES", { weekday: "short" }).format(date)}
+                  </span>
+                ))}
+              </div>
               <div className={s.grid}>
                 {gridDays.map((date) => {
                   const key = localDayKey(date);
@@ -921,32 +1071,41 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
                   return (
                     <div
                       key={key}
-                      className={`${s.day} ${outsideMonth ? s.outside : ""} ${
+                      className={`${s.day} ${outsideMonth ? s.outside : [0, 6].includes(date.getDay()) ? s.weekend : ""} ${
                         key === todayKey ? s.today : ""
                       }`}
                       aria-current={key === todayKey ? "date" : undefined}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium">
-                          {new Intl.DateTimeFormat("es-ES", {
-                            weekday: "short",
-                            day: "numeric",
-                          }).format(date)}
-                        </span>
+                      <div>
+                        <span className={s.num}>{date.getDate()}</span>
                         {/* Añadir en el día que se está mirando, sin volver a
-                          teclear la fecha en el formulario. */}
-                        {canEdit ? (
-                        <button
-                          type="button"
-                          aria-label={`Añadir acción el ${key}`}
-                          className={s.add}
-                          onClick={() => openNew(key)}
-                        >
-                          +
-                        </button>
-                        ) : null}
+                          teclear la fecha en el formulario. Reunión solo de
+                          hoy en adelante: no hay huecos hacia atrás. */}
+                        <DayAdd
+                          day={key}
+                          items={[
+                            ...(canEdit
+                              ? [{ id: "action", label: "Nueva acción" }]
+                              : calendarId
+                                ? [{ id: "suggest", label: "Sugerir una acción" }]
+                                : []),
+                            ...(key >= todayKey
+                              ? [{ id: "meeting", label: isConsultant ? "Reservar reunión" : "Solicitar reunión" }]
+                              : []),
+                          ]}
+                          onAction={(id) => {
+                            if (id === "action") openNew(key);
+                            else if (id === "suggest") {
+                              setSuggestDay(key);
+                              setSuggesting(true);
+                            } else setBookingDay(key);
+                          }}
+                        />
                       </div>
-                      <div className="mt-2 space-y-1">
+                      <div className={s.events}>
+                        {(meetingsByDay.get(key) ?? []).map((meeting) => (
+                          <MeetingChip key={meeting.id} meeting={meeting} />
+                        ))}
                         {dayItems.map((item) => (
                           <ItemChip
                             key={item.id}
@@ -959,34 +1118,28 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
                   );
                 })}
               </div>
+              </div>
             </div>
           ) : (
-            <div className="mt-4 space-y-5">
+            <div>
               {months.map(({ month, items }) => (
-                <div key={month.toISOString()}>
-                  <h3 className="text-sm font-semibold capitalize text-foreground">
+                <div key={month.toISOString()} className={s.month}>
+                  <h3 className={s.monthTitle}>
                     {new Intl.DateTimeFormat("es-ES", {
                       month: "long",
                       year: "numeric",
                     }).format(month)}
                   </h3>
                   {items.length === 0 ? (
-                    <p className="mt-1 text-xs text-muted">Sin acciones.</p>
+                    <p className={s.monthEmpty}>Sin acciones.</p>
                   ) : (
-                    <List as="ul">
+                    <ul>
                       {items.map((item) => {
                         const signal = agendaSignal(item);
                         const style = channelStyle(item.channel);
                         return (
-                          <List.Item
-                            as="li"
-                            key={item.id}
-                            className="flex flex-wrap items-center gap-3 py-2"
-                          >
-                            <span
-                              aria-hidden
-                              className={`h-6 w-1 shrink-0 ${style.fill}`}
-                            />
+                          <li key={item.id} className={s.row}>
+                            <span aria-hidden className={`${s.dot} ${style.fill}`} />
                             <button
                               type="button"
                               onClick={() => openEdit(item)}
@@ -1004,10 +1157,10 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
                             {item.milestone_id ? (
                               <Badge tone="brand">Mi Camino</Badge>
                             ) : null}
-                          </List.Item>
+                          </li>
                         );
                       })}
-                    </List>
+                    </ul>
                   )}
                 </div>
               ))}
@@ -1026,7 +1179,7 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
               />
             </div>
           ) : null}
-        </Card>
+        </div>
       )}
 
       <ItemEditor
@@ -1061,8 +1214,18 @@ function CalendarContent({ isConsultant }: { isConsultant: boolean }) {
           organizationId={organizationId}
           storeId={connectionId || null}
           onSaved={load}
+          initialDate={suggestDay}
         />
       ) : null}
+      <BookingDialog
+        organizationId={organizationId}
+        open={bookingDay !== null}
+        onOpenChange={(open) => {
+          if (!open) setBookingDay(null);
+        }}
+        onDone={loadMeetings}
+        initialDay={bookingDay || null}
+      />
       <DiscussModal
         organizationId={organizationId}
         title={discuss?.title ?? null}

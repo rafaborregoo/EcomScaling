@@ -1,6 +1,8 @@
 "use client";
 
+
 import { useState } from "react";
+import { Trash2Icon } from "lucide-react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -18,13 +20,35 @@ import {
   Banner,
   Button,
   ButtonLink,
-  Card,
-  ConfirmDialog,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
   ErrorBlock,
   Metric,
   Select,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
+  AvatarGroup,
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+  AvatarGroupCount,
+  avatarInitials,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 function ClientsPanel() {
@@ -65,7 +89,7 @@ function ClientsPanel() {
     return null;
   }
 
-  const columns: TableColumnDef<Client>[] = [
+  const columns: DataTableColumn<Client>[] = [
     {
       key: "display_name",
       label: "Cliente",
@@ -96,10 +120,24 @@ function ClientsPanel() {
         row.consultants.length === 0 ? (
           <Badge tone="warn">sin consultor</Badge>
         ) : (
-          <span className="text-xs text-muted">
-            {row.consultants
-              .map((c) => c.full_name ?? c.user_id)
-              .join(", ")}
+          <span className="flex items-center gap-2">
+            {/* Tres caras como mucho; el resto, en el contador. */}
+            <AvatarGroup>
+              {row.consultants.slice(0, 3).map((c) => (
+                <Avatar key={c.user_id} size="sm" title={c.full_name ?? c.user_id}>
+                  <AvatarImage src={c.avatar_url ?? undefined} alt="" />
+                  <AvatarFallback>{avatarInitials(c.full_name)}</AvatarFallback>
+                </Avatar>
+              ))}
+              {row.consultants.length > 3 ? (
+                <AvatarGroupCount className="size-6 text-[0.625rem]">+{row.consultants.length - 3}</AvatarGroupCount>
+              ) : null}
+            </AvatarGroup>
+            <span className="text-xs text-muted">
+              {row.consultants
+                .map((c) => c.full_name ?? c.user_id)
+                .join(", ")}
+            </span>
           </span>
         ),
     },
@@ -112,7 +150,7 @@ function ClientsPanel() {
       key: "actions",
       label: "",
       render: (row) => (
-        <div className="flex justify-end gap-2">
+        <div role="group" aria-label="Acciones del cliente" className="flex flex-wrap items-center gap-2 ml-auto">
           <VerComoButton organizationId={row.id} displayName={row.display_name} />
           <ButtonLink
             href={`/admin/clientes/${row.id}`}
@@ -139,19 +177,33 @@ function ClientsPanel() {
               Restaurar
             </Button>
           ) : null}
-          <ConfirmDialog
-            trigger={
-              <Button size="sm" variant="ghost">
-                {row.status === "pending_deletion" ? "Eliminar ya" : "Borrar"}
-              </Button>
-            }
-            title={`Eliminar ${row.display_name}`}
-            note="Borra TODO al instante: datos de Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay vuelta atrás."
-            irreversible
-            confirmPhrase={row.display_name}
-            confirmLabel="Eliminar definitivamente"
-            onConfirm={() => deleteClient(row.id)}
-          />
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button size="sm" variant="ghost">
+                  {row.status === "pending_deletion" ? "Eliminar ya" : "Borrar"}
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogMedia className="bg-danger/10 text-danger">
+                  <Trash2Icon />
+                </AlertDialogMedia>
+                <AlertDialogTitle>¿Eliminar {row.display_name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Borra todo al instante: datos de Shopify, Meta y Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay vuelta atrás.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogConfirmPhrase phrase={row.display_name} />
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={() => deleteClient(row.id)}>
+                  Eliminar definitivamente
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       ),
     },
@@ -179,12 +231,12 @@ function ClientsPanel() {
         <Metric card label="Baja pendiente" value={String((counts.cancelled ?? 0) + (counts.pending_deletion ?? 0))} />
       </div>
 
-      <Card
-        kicker="Panel platform admin"
-        title="Directorio de clientes"
-        description={`${filteredClients.length} de ${clients.length} organizaciones · estado, consultoría y acceso en una sola vista.`}
-        actions={
-          <div className="admin-table-actions">
+      <Card>
+        <CardHeader>
+          <CardKicker>Panel platform admin</CardKicker>
+          <CardTitle>Directorio de clientes</CardTitle>
+          <CardDescription>{`${filteredClients.length} de ${clients.length} organizaciones · estado, consultoría y acceso en una sola vista.`}</CardDescription>
+          <CardAction><div className="admin-table-actions">
             <Select
               className="w-48"
               aria-label="Filtrar por estado"
@@ -196,15 +248,16 @@ function ClientsPanel() {
             <Button onClick={() => setCreating((value) => !value)}>
               {creating ? "Cerrar alta" : "Nuevo cliente"}
             </Button>
-          </div>
-        }
-      >
-        <Table
-          ariaLabel="Clientes"
-          columns={columns}
-          rows={filteredClients}
-          emptyLabel="Ningún cliente coincide con el filtro."
-        />
+          </div></CardAction>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Clientes"
+            columns={columns}
+            rows={filteredClients}
+            emptyLabel="Ningún cliente coincide con el filtro."
+          />
+        </CardContent>
       </Card>
 
       <CreateClientSheet

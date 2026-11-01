@@ -17539,6 +17539,10 @@ export type Database = {
         Args: { bank_organization_id: string; desde: string; hasta: string }
         Returns: number
       }
+      copilot_credit_usage: {
+        Args: { bank_organization_id: string; desde: string; hasta: string }
+        Returns: Json
+      }
       es_consultor: { Args: never; Returns: boolean }
       klaviyo_email_inventory: {
         Args: { target_organization_id: string; target_store_id?: string }

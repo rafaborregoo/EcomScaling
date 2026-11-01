@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Popover } from "@heroui/react";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import { Badge, type Tone } from "./badge";
 import { Button } from "./button";
 import { Checkbox } from "./checkbox";
@@ -81,8 +81,8 @@ export function MetricInsights({
       {/* <button> nativo, no el Button del catalogo: aqui hace falta un area
           de pulsacion minima pegada al texto de la etiqueta, y el Button
           arrastra min-w-20 y alturas de boton de formulario. */}
-      <Popover.Trigger>
-        <button
+      <PopoverTrigger
+        render={<button
           type="button"
           aria-label={`Análisis de la IA sobre ${metricLabel}: ${insights.length}`}
           className="relative inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-transparent text-accent transition-colors hover:bg-accent-soft"
@@ -99,14 +99,11 @@ export function MetricInsights({
               {count}
             </span>
           ) : null}
-        </button>
-      </Popover.Trigger>
+        </button>}
+      />
 
-      <Popover.Content placement="bottom end" className="max-w-[22rem]">
-        <Popover.Dialog
-          aria-label={`Análisis de la IA sobre ${metricLabel}`}
-          className="max-h-[26rem] overflow-y-auto p-4"
-        >
+      <PopoverContent side="bottom" align="end" className="w-[22rem] max-h-[26rem] gap-0" aria-label={`Análisis de la IA sobre ${metricLabel}`}>
+        <div>
           <p className={EYEBROW}>{metricLabel} · lo que ve la IA</p>
 
           {href ? (
@@ -150,7 +147,7 @@ export function MetricInsights({
                       {onCreateTask ? (
                         <Checkbox
                           checked={selected.includes(insight.id)}
-                          onChange={(checked) =>
+                          onCheckedChange={(checked) =>
                             setSelected((prev) =>
                               checked
                                 ? [...prev, insight.id]
@@ -214,8 +211,8 @@ export function MetricInsights({
               {createError ? <p role="alert" className="mt-2 text-xs text-danger">{createError}</p> : null}
             </>
           )}
-        </Popover.Dialog>
-      </Popover.Content>
+        </div>
+      </PopoverContent>
     </Popover>
   );
 }

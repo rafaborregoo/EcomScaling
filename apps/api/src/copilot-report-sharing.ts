@@ -178,7 +178,7 @@ ${points.length ? `<p style="margin:0 0 6px;font-weight:600">Lo más importante<
 export async function sendReportEmail(
   env: ReportSharingEnv,
   input: { to: string[]; pdf: Buffer; filename: string; summary: ReportEmailSummary | null; replyTo?: string | null },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; accepted: string[] } | { ok: false; error: string; accepted?: string[] }> {
   if (!env.SMTP_USER || !env.SMTP_BREVO) return { ok: false, error: "email_not_configured" };
   const host = env.SMTP_HOST ?? "smtp-relay.brevo.com";
   const port = env.SMTP_PORT ?? 587;
@@ -195,7 +195,7 @@ export async function sendReportEmail(
       socketTimeout: 15_000,
       auth: { user: env.SMTP_USER, pass: env.SMTP_BREVO },
     });
-    await transporter.sendMail({
+    const receipt = await transporter.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to: input.to,
       ...(input.replyTo ? { replyTo: input.replyTo } : {}),
@@ -204,7 +204,9 @@ export async function sendReportEmail(
       html,
       attachments: [{ filename: input.filename, content: input.pdf, contentType: "application/pdf" }],
     });
-    return { ok: true };
+    const accepted = (Array.isArray(receipt.accepted) ? receipt.accepted : []).map((value: unknown) => normalizeReportRecipient(value)).filter((value: string | null): value is string => value !== null);
+    if (!input.to.every((recipient) => accepted.includes(recipient.toLowerCase()))) return { ok: false, error: "report_email_recipients_rejected", accepted };
+    return { ok: true, accepted };
   } catch {
     return { ok: false, error: "report_email_send_failed" };
   }

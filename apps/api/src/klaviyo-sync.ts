@@ -23,6 +23,9 @@ import {
 import { mapWithConcurrency } from "./async-concurrency.js";
 import { requiresIntegrationReauthorization } from "./integration-sync-retry.js";
 import { syncKlaviyoMarketingBlocks } from "./klaviyo-sync-marketing.js";
+import { invalidateIntegrationData } from "./integration-data-cache.js";
+import { enqueueIntegrationSync } from "./integration-sync-queue.js";
+import { ensureKlaviyoWebhooks } from "./klaviyo-webhooks.js";
 import { readKlaviyoFlowDefinitionSummary, summarizeKlaviyoFlowDefinition } from "./klaviyo-flow-definition-summary.js";
 import {
   classifyKlaviyoMetricName,
@@ -36,7 +39,7 @@ import {
 
 type SyncMode = "initial" | "incremental";
 
-export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 6;
+export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 0.25;
 export const KLAVIYO_SYNC_STALE_AFTER_MS = 60 * 60 * 1000;
 
 // Ventana de clicks que se re-pide en cada pasada. Lo anterior ya esta
@@ -376,7 +379,8 @@ export async function runKlaviyoSync(
       startedAt: string,
       result: { read: number; error?: string },
     ) => {
-      await client.from("integration_sync_runs").upsert(
+      if (result.error && !skipped.includes(scope)) skipped.push(scope);
+      const { error: ledgerError } = await client.from("integration_sync_runs").upsert(
         {
           connection_id: connectionId,
           organization_id: connection.organization_id,
@@ -394,6 +398,7 @@ export async function runKlaviyoSync(
         },
         { onConflict: "provider,idempotency_key" },
       );
+      if (ledgerError) throw new Error(`klaviyo_block_ledger_failed:${ledgerError.message}`);
     };
 
     const fetchResource = async (
@@ -1338,11 +1343,29 @@ export async function runKlaviyoSync(
     // Bloques de Marketing (diagramas de flows, audiencias, series diarias,
     // formularios, catálogo de plantillas). Cada uno se protege solo.
     try {
-      const { data: accountMetric } = await client
+      // Select only the unambiguous official Shopify revenue metric. A custom
+      // event with the same name must never silently become the revenue source.
+      const officialOrders = metrics.filter((metric) => {
+        const attributes = attrs(metric);
+        const integration = attributes.integration as { key?: string; name?: string } | undefined;
+        return attributes.name === "Placed Order" &&
+          (integration?.key?.toLowerCase() === "shopify" || integration?.name?.toLowerCase() === "shopify");
+      });
+      if (officialOrders.length === 1) {
+        const { error: selectionError } = await client.from("klaviyo_accounts")
+          .update({ conversion_metric_id: officialOrders[0]!.id })
+          .eq("id", accountRowStored.id).is("conversion_metric_id", null);
+        if (selectionError) throw selectionError;
+      }
+      const { data: accountMetric, error: metricReadError } = await client
         .from("klaviyo_accounts")
         .select("conversion_metric_id")
         .eq("id", accountRowStored.id)
         .maybeSingle();
+      if (metricReadError) throw metricReadError;
+      if (!accountMetric?.conversion_metric_id) {
+        await recordBlockRun("conversion_metric", now, { read: 0, error: "klaviyo_conversion_metric_not_selected" });
+      }
       await syncKlaviyoMarketingBlocks({
         client,
         api,
@@ -1356,6 +1379,7 @@ export async function runKlaviyoSync(
         recordBlockRun,
       });
     } catch (error) {
+      if (!skipped.includes("marketing_blocks")) skipped.push("marketing_blocks");
       console.warn(
         `klaviyo_marketing_blocks_skipped:${error instanceof Error ? error.message : "unknown_error"}`,
       );
@@ -1368,10 +1392,12 @@ export async function runKlaviyoSync(
       flowMessagesWritten +
       templatesWritten +
       clicksWritten;
+    await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
+    await ensureKlaviyoWebhooks(env, connectionId).catch((error: unknown) => console.warn("Klaviyo webhook verification deferred", { connection_id: connectionId, error: error instanceof Error ? error.message : "unknown_error" }));
     await client
       .from("integration_sync_runs")
       .update({
-        status: "succeeded",
+        status: skipped.length ? "partial" : "succeeded",
         records_read: recordsRead,
         records_written: recordsRead,
         // Limpia el rastro de un intento fallido anterior sobre la misma fila
@@ -1389,14 +1415,14 @@ export async function runKlaviyoSync(
     await client
       .from("integration_connections")
       .update({
-        status: "connected",
+        status: skipped.length ? "error" : "connected",
         last_sync_at: now,
-        last_error_at: null,
-        last_error_message: null,
+        last_error_at: skipped.length ? new Date().toISOString() : null,
+        last_error_message: skipped.length ? permissionAwareSkipMessage(skipped, deniedPermissions) : null,
       })
       .eq("id", connectionId);
     return {
-      status: "succeeded" as const,
+      status: skipped.length ? "partial" as const : "succeeded" as const,
       recordsRead,
       recordsWritten: recordsRead,
     };
@@ -1465,6 +1491,7 @@ export async function runKlaviyoReport(
   organizationId: string,
   connectionId: string,
   input: KlaviyoReportInput,
+  force = false,
 ) {
   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS))
     throw new Error("klaviyo_integration_disabled");
@@ -1509,11 +1536,13 @@ export async function runKlaviyoReport(
   ].join(":");
   const { data: existingRun } = await client
     .from("klaviyo_report_runs")
-    .select("id, status")
+    .select("id, status, finished_at")
     .eq("account_id", account.id)
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
-  if (existingRun?.status === "succeeded") {
+  const recentPeriod = input.periodEnd >= new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+  const recentlyFetched = Date.now() - Date.parse(existingRun?.finished_at ?? "") < 15 * 60_000;
+  if (existingRun?.status === "succeeded" && (!recentPeriod || (!force && recentlyFetched))) {
     return {
       status: "succeeded" as const,
       reportRunId: existingRun.id,
@@ -1850,7 +1879,7 @@ export function nextKlaviyoBackfillPeriod(
   return null;
 }
 
-export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
+export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv, onlyConnectionId?: string, force = false) {
   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS)) {
     return {
       total: 0,
@@ -1862,12 +1891,19 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
   }
 
   const client = serviceClient(env);
-  const { data: connections, error } = await client
+  const { error: recoveryError } = await client.from("integration_connections")
+    .update({ status: "error", last_error_message: "klaviyo_sync_interrupted_retrying" })
+    .eq("provider", "klaviyo").eq("status", "syncing")
+    .lt("updated_at", new Date(Date.now() - KLAVIYO_SYNC_STALE_AFTER_MS).toISOString());
+  if (recoveryError) throw new Error(`klaviyo_sync_recovery_failed:${recoveryError.message}`);
+  let connectionQuery = client
     .from("integration_connections")
     .select("id, organization_id, status, last_error_message")
     .eq("provider", "klaviyo")
     .in("status", ["connected", "error"])
     .order("created_at", { ascending: true });
+  if (onlyConnectionId) connectionQuery = connectionQuery.eq("id", onlyConnectionId);
+  const { data: connections, error } = await connectionQuery;
   if (error)
     throw new Error(`klaviyo_connections_list_failed:${error.message}`);
 
@@ -1877,6 +1913,11 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
     .slice(0, 10);
   const results = await mapWithConcurrency(connections ?? [], 2, async (connection) => {
     try {
+      if (!onlyConnectionId) {
+        if (requiresIntegrationReauthorization(connection.last_error_message)) return { connectionId: connection.id, status: "skipped" as const, detail: "reauthorization_required" };
+        await enqueueIntegrationSync(env, { provider: "klaviyo", connectionId: connection.id, organizationId: connection.organization_id, mode: "incremental" });
+        return { connectionId: connection.id, status: "queued" as const };
+      }
       // Cierra las pasadas que sobrevivieron como `running` a la muerte o
       // reinicio del proceso. Solo toca runs con más de una hora: una pasada
       // activa conserva su fila y no se marca como fallida.
@@ -1926,7 +1967,7 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
         } as const;
       }
 
-      await runKlaviyoSync(env, connection.id, "incremental");
+      await runKlaviyoSync(env, connection.id, "incremental", force);
       const { data: account } = await client
         .from("klaviyo_accounts")
         .select("id, conversion_metric_id")
@@ -1946,12 +1987,18 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
           periodStart,
           periodEnd,
           group_by: groupByForType(type),
-        });
+        }, force);
       }
+
+      await invalidateIntegrationData(env.REDIS_URL, connection.organization_id);
+      await client.from("integration_connections").update({ last_sync_at: new Date().toISOString() }).eq("id", connection.id);
 
       // Backfill incremental del historico: un mes pendiente por pasada. Con
       // el cron de 6 horas el ano completo queda cubierto en pocos dias sin
       // agotar la cuota de Reporting API ni bloquear el sync reciente.
+      if (new Date().getUTCHours() % 6 !== 0 || new Date().getUTCMinutes() >= 15) {
+        return { connectionId: connection.id, status: "succeeded" as const, detail: "recent_reports_updated" };
+      }
       const { data: historicRuns } = await client
         .from("klaviyo_report_runs")
         .select("report_type, period_start, statistics")

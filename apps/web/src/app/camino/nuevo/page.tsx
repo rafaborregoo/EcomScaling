@@ -1,5 +1,7 @@
 "use client";
 
+
+import { ArchiveIcon } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
@@ -10,13 +12,26 @@ import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries } from "@/lib/use-cached-query";
 import {
   ButtonLink,
-  Card,
-  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
   toast,
   Button,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import { CaminoCreatePanel } from "../camino-create-panel";
 import type { ComparablePhase } from "../plan-compare";
@@ -165,33 +180,48 @@ function NuevoCaminoContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         </>
       ) : hasOpenPlan && plan ? (
-        <Card
-          title={`Ya hay un camino ${plan.status === "draft" ? "en borrador" : "activo"}: «${plan.name}»`}
-          description="En cada tienda solo puede haber un camino en borrador o activo."
-        >
-          <div className="space-y-4">
-            <p className="max-w-prose text-sm">
-              Puedes pedirle a la IA que lo replanifique con los datos de hoy y ver qué cambia antes de reemplazarlo, o
-              archivarlo y empezar de cero. No se borra nada: sus fases, hitos, tareas y revisiones se conservan en el
-              historial. Si solo quieres cambiarlo, edítalo desde Mi Camino.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => setReplanning(true)}>
-                Replanificar con IA
-              </Button>
-              <ButtonLink href="/camino" variant="secondary">
-                Volver a Mi Camino
-              </ButtonLink>
-              <ConfirmDialog
-                trigger={<Button type="button" variant="secondary" disabled={isArchiving}>Archivar este camino y crear uno nuevo</Button>}
-                title="Archivar el camino actual"
-                description={`«${plan.name}» dejará de estar ${plan.status === "draft" ? "en borrador" : "en marcha"}. Sus tareas siguen disponibles en Tareas. Después podrás crear uno nuevo.`}
-                confirmLabel="Archivar camino"
-                status="default"
-                onConfirm={() => archiveCurrent()}
-              />
+        <Card>
+          <CardHeader>
+            <CardTitle>{`Ya hay un camino ${plan.status === "draft" ? "en borrador" : "activo"}: «${plan.name}»`}</CardTitle>
+            <CardDescription>En cada tienda solo puede haber un camino en borrador o activo.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <p className="max-w-prose text-sm">
+                Puedes pedirle a la IA que lo replanifique con los datos de hoy y ver qué cambia antes de reemplazarlo, o
+                archivarlo y empezar de cero. No se borra nada: sus fases, hitos, tareas y revisiones se conservan en el
+                historial. Si solo quieres cambiarlo, edítalo desde Mi Camino.
+              </p>
+              <div role="group" aria-label="Acciones del camino" className="flex flex-wrap items-center gap-2">
+                <Button type="button" onClick={() => setReplanning(true)}>
+                  Replanificar con IA
+                </Button>
+                <ButtonLink href="/camino" variant="secondary">
+                  Volver a Mi Camino
+                </ButtonLink>
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={<Button type="button" variant="secondary" disabled={isArchiving}>Archivar este camino y crear uno nuevo</Button>}
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogMedia>
+                        <ArchiveIcon />
+                      </AlertDialogMedia>
+                      <AlertDialogTitle>¿Archivar el camino actual?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        «{plan.name}» dejará de estar {plan.status === "draft" ? "en borrador" : "en marcha"}. Sus tareas siguen disponibles en Tareas. Después podrás crear uno nuevo.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => archiveCurrent()}>Archivar camino</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
             </div>
-          </div>
+          </CardContent>
         </Card>
       ) : (
         <CaminoCreatePanel

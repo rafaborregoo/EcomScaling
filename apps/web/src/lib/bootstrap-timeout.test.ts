@@ -90,5 +90,7 @@ test("las rutas de IA reciben un timeout largo y el resto el general", () => {
     300_000,
   );
   assert.equal(defaultTimeoutFor("/v1/organizations/x/ai/plan/week"), 300_000);
+  assert.equal(defaultTimeoutFor("/v1/organizations/x/metric-analysis/conversion/explanation?days=30"), 300_000);
+  assert.equal(defaultTimeoutFor("/v1/organizations/x/metric-analysis?days=30"), undefined);
   assert.equal(defaultTimeoutFor("/v1/consultant/organizations"), undefined);
 });

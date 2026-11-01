@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { loadApiEnv } from "@e-nora/config";
-import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
+import { handleShopifyWebhookRequest, drainFailedShopifyWebhooks } from "./shopify-webhook-handler.js";
 
 const env = loadApiEnv(process.env);
 
@@ -40,6 +40,18 @@ const SHOP_DOMAIN = `db04-idempotency-test-${RUN_TAG}.myshopify.com`;
 
 let orgId = "";
 let connectionId = "";
+
+async function applyQueuedEvent(fingerprint: string) {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await drainFailedShopifyWebhooks(env, 100);
+    const row = await admin.schema("private").from("webhook_events").select("status")
+      .eq("connection_id", connectionId).eq("fingerprint", fingerprint).single();
+    assert.equal(row.error, null);
+    if (row.data?.status === "processed") return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.fail("Durable webhook was not processed");
+}
 
 before(async () => {
   const { data: org, error: orgError } = await admin
@@ -129,14 +141,15 @@ test("dos webhooks identicos concurrentes solo se procesan una vez (idempotencia
   const statuses = [resultA.body.status, resultB.body.status].sort();
   assert.deepEqual(
     statuses,
-    ["duplicate", "processed"],
-    `se esperaba exactamente un "processed" y un "duplicate", se obtuvo: ${JSON.stringify(statuses)}`,
+    ["duplicate", "queued"],
+    `se esperaba exactamente un "queued" y un "duplicate", se obtuvo: ${JSON.stringify(statuses)}`,
   );
 
   const fingerprint = crypto
     .createHash("sha256")
     .update(rawBody.toString("utf8"))
     .digest("hex");
+  await applyQueuedEvent(fingerprint);
   const { data: events, error: eventsError } = await admin
     .schema("private")
     .from("webhook_events")
@@ -194,7 +207,8 @@ test("un webhook que fallo puede reintentarse sin duplicar su efecto", async () 
   const result = await handleShopifyWebhookRequest(env, headers, rawBody);
 
   assert.equal(result.statusCode, 200);
-  assert.equal(result.body.status, "processed");
+  assert.equal(result.body.status, "queued");
+  await applyQueuedEvent(fingerprint);
 
   const { data: event, error: eventError } = await admin
     .schema("private")

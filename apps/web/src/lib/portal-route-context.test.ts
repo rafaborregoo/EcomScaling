@@ -22,3 +22,26 @@ test("preserves the URL hash for focused entities", () => {
     "/tareas?task=task-1&organizationId=org-1#task-1",
   );
 });
+
+test("Meta, Klaviyo and Marketing deep links preserve the selected store", () => {
+  for (const route of ["/meta/creativos", "/klaviyo/flows", "/marketing?section=contenido"]) {
+    const target = new URL(withPortalRouteContext(route, "org-1", "conn-1"), "http://local");
+    assert.equal(target.searchParams.get("organizationId"), "org-1");
+    assert.equal(target.searchParams.get("connectionId"), "conn-1", route);
+  }
+  assert.equal(new URL(withPortalRouteContext("/web", "org-1", "conn-1"), "http://local").searchParams.has("connectionId"), false);
+  assert.equal(new URL(withPortalRouteContext("/shopify-tools", "org-1", "conn-1"), "http://local").searchParams.has("connectionId"), false);
+});
+
+test("external and protocol-relative links are never rewritten as internal destinations", () => {
+  for (const href of ["https://shop.example/path", "//shop.example/path", "/\\shop.example/path"]) {
+    assert.equal(withPortalRouteContext(href, "org-1", "conn-1"), href);
+  }
+});
+
+test("opening a store in dashboard and following work keeps the selected connection", () => {
+  for (const route of ["/dashboard", "/tareas", "/camino", "/informes", "/panel"]) {
+    const url = new URL(withPortalRouteContext(route, "client", "store-connection"), "http://local");
+    assert.equal(url.searchParams.get("connectionId"), "store-connection");
+  }
+});

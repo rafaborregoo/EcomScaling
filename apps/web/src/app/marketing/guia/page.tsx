@@ -1,5 +1,6 @@
 "use client";
 
+import { Undo2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -9,12 +10,24 @@ import { useMarketingPortal } from "../marketing-portal-context";
 import {
   Banner,
   Button,
-  ConfirmDialog,
   EmptyState,
   Field,
   Input,
   LoadingBlock,
   Textarea,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Progress,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 import {
   BRAND_PROFILE_FIELDS,
@@ -226,41 +239,48 @@ export default function MarketingBrandGuidePage() {
   return (
     <div className={styles.page}>
       <header className={styles.top}>
-        <div className="min-w-0">
+        <div className="min-w-0 client-sr-title">
           <h1 className={styles.title}>Guía de marca</h1>
         </div>
-        <div className={styles.scopeGroup} role="group" aria-label="Qué guía editas">
-          <button type="button" className={styles.scopeBtn} aria-pressed={scope === "org"} onClick={() => setScope("org")}>
-            Marca general
-          </button>
-          <button
-            type="button"
-            className={styles.scopeBtn}
-            aria-pressed={scope === "store"}
+        <ToggleGroup aria-label="Qué guía editas" value={scope} onValueChange={setScope}>
+          <ToggleGroupItem value="org">Marca general</ToggleGroupItem>
+          <ToggleGroupItem
+            value="store"
             disabled={!connectionId}
-            onClick={() => setScope("store")}
             title={connectionId ? undefined : "Selecciona una tienda en el selector superior"}
           >
             Tienda activa
-            <small>{connectionId ? `${storeOwnFieldCount} ajustes propios` : "sin tienda"}</small>
-          </button>
-        </div>
+            <span className="text-xs text-muted">{connectionId ? `${storeOwnFieldCount} ajustes propios` : "sin tienda"}</span>
+          </ToggleGroupItem>
+        </ToggleGroup>
         <div className="flex items-center gap-2">
           <span className={styles.state}>
             {dirty ? "Cambios sin guardar" : orgUpdatedAt || storeUpdatedAt ? `Guardado ${timeAgo(isStoreScope ? storeUpdatedAt : orgUpdatedAt)}` : ""}
           </span>
-          <ConfirmDialog
-            trigger={
-              <Button variant="secondary" size="sm" disabled={!anyDirty || saving}>
-                Descartar
-              </Button>
-            }
-            title="Descartar los cambios"
-            description="Se pierden las ediciones sin guardar de la guía de marca."
-            confirmLabel="Descartar"
-            cancelLabel="Seguir editando"
-            onConfirm={discard}
-          />
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button variant="secondary" size="sm" disabled={!anyDirty || saving}>
+                  Descartar
+                </Button>
+              }
+            />
+            <AlertDialogContent size="sm">
+              <AlertDialogHeader>
+                <AlertDialogMedia>
+                  <Undo2Icon />
+                </AlertDialogMedia>
+                <AlertDialogTitle>¿Descartar los cambios?</AlertDialogTitle>
+                <AlertDialogDescription>Se pierden las ediciones sin guardar de la guía de marca.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Seguir editando</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={discard}>
+                  Descartar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button size="sm" disabled={!anyDirty || saving} onClick={() => void save()}>{saving ? "Guardando…" : "Guardar"}</Button>
         </div>
       </header>
@@ -282,12 +302,12 @@ export default function MarketingBrandGuidePage() {
                 {BRAND_PROFILE_FIELDS.length - missing.length}/{BRAND_PROFILE_FIELDS.length} campos
                 {missing.length > 0 ? ". Donde falte información, el contenido generado usará un tono neutro y lo indicará." : ": la guía está completa."}
               </p>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-edge/50">
-                <div
-                  className="h-full rounded-full bg-success"
-                  style={{ width: `${Math.round(((BRAND_PROFILE_FIELDS.length - missing.length) / BRAND_PROFILE_FIELDS.length) * 100)}%` }}
-                />
-              </div>
+              <Progress
+                className="mt-2"
+                value={BRAND_PROFILE_FIELDS.length - missing.length}
+                max={BRAND_PROFILE_FIELDS.length}
+                aria-label="Campos de la guía de marca completados"
+              />
             </div>
             <ul className={styles.toc}>
               {SECTIONS.map((section) => {

@@ -1,16 +1,22 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
+import { buttonVariants } from "@/components/ui/button";
+import { SparklesIcon } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { withPortalRouteContext } from "@/lib/portal-route-context";
+import { useActiveConnection } from "@/components/active-connection";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { AiExplanation, MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
+import { A29Insight, MetricVerdict, useAiExplanation, useMetricAnalysis } from "@/components/metric-verdict";
+import { AiFigure, AiInsight, AiTag, type AiFindingData, type AiStepData } from "@/components/ai-insight";
+import type { MetricAnalysis } from "@e-nora/contracts";
 import { ZoneCard, ZoneNoteMark, zoneAnchor } from "@/components/zone-notes";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArchiveIcon, CheckIcon, CloseIcon, MessageIcon, PlusIcon, Skeleton, toast } from "@/components/ui";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, ArchiveIcon, ToggleGroup, ToggleGroupItem, Attachment, AttachmentContent, AttachmentDescription, AttachmentMedia, AttachmentTitle, AttachmentTrigger, Banner, Bubble, BubbleContent, Message, MessageContent, MessageFooter, ErrorBlock, CheckIcon, CloseIcon, MessageIcon, PlusIcon, Skeleton, toast, Collapsible, CollapsibleContent, CollapsibleMore, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
+import { FileTypeIcon, fileMeta } from "@/lib/file-meta";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
 import {
@@ -27,6 +33,8 @@ import {
   type Evidence,
   type PulseFinancial,
 } from "./client-pulse-model";
+import { Area, AreaChart as RechartsAreaChart, CartesianGrid, Line, LineChart as RechartsLineChart, ReferenceDot, ReferenceLine, XAxis, YAxis } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import s from "./client-pulse.module.css";
 
 /**
@@ -92,7 +100,7 @@ export type Metrics = {
     financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null };
     conversion_rate_own?: number | null;
   } | null;
-  daily: Array<{ date: string; net_sales: number; orders_count: number }>;
+  daily: Array<{ date: string; net_sales: number; orders_count: number; net_profit: number | null }>;
   funnel: {
     has_sessions: boolean;
     sessions: number;
@@ -157,19 +165,27 @@ export type Alert = {
 };
 export type Operations = { tasks: Task[]; alerts: Alert[] };
 
-export type Finding = { title: string; severity: string; evidence: Evidence; area?: string };
+export type Finding = { title: string; severity: string; evidence: Evidence; area?: string; figures?: AiFindingData["figures"] };
+export type A02MetricReview = { metric_key: string; rating: "positive" | "neutral" | "attention" | "critical" | "insufficient"; summary: string };
+type DiagnosticRecommendation = { action: string; priority: string; owner?: string; expected_impact?: string };
 export type Diagnostic = {
   output_id: string;
   output_status: string;
   generated_at: string;
+  pending_outputs?: Diagnostic[];
+  agent_code?: string;
+  scope_label?: string;
+  requested_scope?: string;
+  result_scope?: string;
   output: {
     headline?: string;
     answer?: string;
-    sections?: Array<{ key: string; label: string; findings: Finding[] }>;
+    sections?: Array<{ key: string; label: string; findings: Finding[]; recommendations?: DiagnosticRecommendation[] }>;
+    metric_reviews?: A02MetricReview[];
     findings: Finding[];
-    recommendations: Array<{ action: string; priority: string }>;
+    recommendations: DiagnosticRecommendation[];
     warnings?: string[];
-    proposed_writes: Array<{
+    proposed_writes?: Array<{
       title: string;
       description: string;
       priority: string;
@@ -201,12 +217,12 @@ type IntegrationsPayload = {
   }>;
 };
 
-type Message = {
+type ThreadMessage = {
   id: string;
   author_kind: "consultant" | "client" | "platform" | "system";
   author_name: string | null;
   body: string;
-  attachments: Array<{ filename: string; signed_url: string | null }>;
+  attachments: Array<{ filename: string; signed_url: string | null; content_type?: string; byte_size?: number }>;
   created_at: string;
 };
 
@@ -223,6 +239,7 @@ export function dayLabel(iso: string, long = false) {
 export function ago(iso: string | null) {
   if (!iso) return "sin sincronizar";
   const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (minutes < 1) return "ahora mismo";
   if (minutes < 60) return `hace ${minutes} min`;
   const hours = Math.round(minutes / 60);
   if (hours < 48) return `hace ${hours} h`;
@@ -270,12 +287,14 @@ export function Spark({ values, color = "var(--store)" }: { values: number[]; co
   );
 }
 
-export function TargetBar({ value, target, max, lowerIsBetter = false, text }: {
+export function TargetBar({ value, target, max, lowerIsBetter = false, text, color }: {
   value: number;
   target: number;
   max: number;
   lowerIsBetter?: boolean;
   text: string;
+  /** Si se indica, la barra usa este color en vez del verde/ámbar según objetivo. */
+  color?: string;
 }) {
   const ok = lowerIsBetter ? value <= target : value >= target;
   return (
@@ -283,23 +302,24 @@ export function TargetBar({ value, target, max, lowerIsBetter = false, text }: {
       <div className={s.track}>
         <span
           className={s.fill}
-          style={{ width: `${Math.min(Math.max(value / max, 0), 1) * 100}%`, background: ok ? "var(--good)" : "var(--warn)" }}
+          style={{ width: `${Math.min(Math.max(value / max, 0), 1) * 100}%`, background: color ?? (ok ? "var(--good)" : "var(--warn)") }}
         />
         <span className={s.mark} style={{ left: `${Math.min(target / max, 1) * 100}%` }} />
       </div>
-      <p className={s.trackTxt}>{text}</p>
+      <p className={s.trackTxt} data-tone={value < 0 ? "bad" : undefined}>{text}</p>
     </div>
   );
 }
 
-export function niceStep(raw: number) {
-  const power = Math.pow(10, Math.floor(Math.log10(raw || 1)));
-  const m = raw / power;
-  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * power;
-}
+export { niceStep } from "./client-pulse-model";
 
 export function findingFor(diagnostic: Diagnostic | undefined, pattern: RegExp, taken?: Set<Finding>): Finding | null {
   return pickFinding(diagnostic, pattern, taken);
+}
+
+export function a02FindingText(diagnostic: Diagnostic | undefined, pattern: RegExp): string | null {
+  if (!diagnostic) return null;
+  return findingFor(diagnostic, pattern)?.title ?? "A02 no ha señalado un hallazgo específico en esta sección.";
 }
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -319,6 +339,7 @@ export type ChartPoint = { date: string; value: number; detail?: string };
 
 export type Pin = { index: number; title: string; source: string; date: string };
 
+// Official shadcn/ui chart-area-linear, adapted to existing data and annotations.
 export function SalesChart({ daily, previousAverage, averageLabel = "Media diaria del periodo anterior", pins, active, onPin, currencyCode, label = "Ventas netas por día", format }: {
   daily: ChartPoint[];
   previousAverage: number | null;
@@ -328,139 +349,206 @@ export function SalesChart({ daily, previousAverage, averageLabel = "Media diari
   onPin: (k: number) => void;
   currencyCode?: string | null;
   label?: string;
-  /** Formato de los valores cuando la serie no es dinero (pedidos, %). */
   format?: (value: number) => string;
 }) {
-  const chartId = useId();
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  const [hover, setHover] = useState<number | null>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const n = daily.length;
-  const height = width < 620 ? 220 : 270;
-  const m = { l: 2, r: 64, t: pins.length ? 40 : 14, b: 26 };
-  const innerW = Math.max(width - m.l - m.r, 1);
-  const innerH = height - m.t - m.b;
-  const peak = Math.max(...daily.map((d) => d.value), previousAverage ?? 0, 1);
-  const step = niceStep(peak / 3);
-  const top = step * Math.ceil(peak / step);
-  const x = (i: number) => m.l + (i * innerW) / Math.max(n - 1, 1);
-  const y = (v: number) => m.t + innerH - (v / top) * innerH;
-  const line = daily.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(d.value).toFixed(1)}`).join("");
-  const tickCount = Math.min(width < 620 ? 3 : 5, n);
-  const ticks = [...new Set(Array.from({ length: tickCount }, (_, k) => Math.round((k * (n - 1)) / Math.max(tickCount - 1, 1))))];
-  const selectedIndex = hover ?? (active !== null ? pins[active]?.index ?? null : null);
-  const shown = selectedIndex !== null && n > 0 ? Math.max(0, Math.min(n - 1, selectedIndex)) : null;
-  const formatChartMoney = format ?? ((value: number) => currencyCode ? fmtCurrency(value, currencyCode) : fmtEur(value));
-
+  const formatValue = format ?? ((value: number) => currencyCode ? fmtCurrency(value, currencyCode) : fmtEur(value));
+  const config = { value: { label, color: "#2563eb" } } satisfies ChartConfig;
+  const selectedPin = active === null ? undefined : pins[active];
   return (
-    <div ref={ref} className={s.chart} role="group" aria-label={label}>
-      {width > 0 && n > 1 ? (
-        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-          <defs>
-            <linearGradient id={chartId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" style={{ stopColor: "var(--hero-series)", stopOpacity: 0.14 }} />
-              <stop offset="1" style={{ stopColor: "var(--hero-series)", stopOpacity: 0 }} />
-            </linearGradient>
-          </defs>
-          {Array.from({ length: Math.round(top / step) + 1 }, (_, k) => k * step).map((v) => (
-            <g key={v}>
-              <line className={s.hcGrid} x1={m.l} x2={width - m.r} y1={y(v)} y2={y(v)} />
-              <text className={s.hcLabel} x={width - m.r + 10} y={y(v) + 3.5}>
-                {v ? formatChartMoney(v) : "0"}
-              </text>
-            </g>
-          ))}
-          {ticks.map((i, k) => (
-            <text
-              key={i}
-              className={s.hcLabel}
-              x={x(i)}
-              y={height - 6}
-              textAnchor={k === 0 ? "start" : k === ticks.length - 1 ? "end" : "middle"}
-            >
-              {dayLabel(daily[i].date)}
-            </text>
-          ))}
-          <path className={s.hcArea} d={`${line}L${x(n - 1)} ${y(0)}L${x(0)} ${y(0)}Z`} style={{ fill: `url(#${chartId})` }} />
-          {previousAverage !== null ? (
-            <line className={s.hcPrev} x1={m.l} x2={width - m.r} y1={y(previousAverage)} y2={y(previousAverage)} />
-          ) : null}
-          <path className={s.hcLine} d={line} />
-          {shown !== null ? (
-            <>
-              <line className={s.hcCursor} x1={x(shown)} x2={x(shown)} y1={m.t} y2={m.t + innerH} />
-              <circle className={s.hcDot} r={5} cx={x(shown)} cy={y(daily[shown].value)} />
-            </>
-          ) : null}
-          <rect
-            x={m.l}
-            y={m.t - 6}
-            width={innerW}
-            height={innerH + 6}
-            style={{ fill: "transparent" }}
-            onPointerMove={(event) => {
-              const el = ref.current;
-              if (!el) return;
-              // clientX va en px de pantalla y el SVG en px de layout: con `zoom` en <html> difieren.
-              const box = el.getBoundingClientRect();
-              const scale = el.offsetWidth ? box.width / el.offsetWidth : 1;
-              const i = Math.round((((event.clientX - box.left) / scale - m.l) / innerW) * (n - 1));
-              setHover(Math.max(0, Math.min(n - 1, i)));
-            }}
-            onPointerLeave={() => setHover(null)}
-          />
-          {pins.map((pin, k) => {
-            const px = x(pin.index);
-            const py = y(daily[pin.index].value);
-            return (
-              <g key={`${pin.index}-${k}`}>
-                <circle cx={px} cy={py} r={4} style={{ fill: "var(--accent)", stroke: "var(--hero)", strokeWidth: 2.5 }} />
-                <g
-                  className={cx(s.pin, active === k && s.pinOn)}
-                  transform={`translate(${px} 14)`}
-                  onClick={() => onPin(k)}
-                >
-                  <line className={s.pinLine} x1={0} x2={0} y1={13} y2={Math.max(py - 20, 13)} />
-                  <circle className={s.pinCircle} r={11} />
-                  <text className={s.pinText} y={4}>
-                    {k + 1}
-                  </text>
-                </g>
-              </g>
-            );
-          })}
-        </svg>
-      ) : null}
-      {shown !== null && width > 0 ? (
-        <div
-          className={s.tip}
-          style={{
-            left: Math.max(95, Math.min(width - 95, x(shown))),
-            top: y(daily[shown].value) - 14,
-          }}
-        >
-          <b>{dayLabel(daily[shown].date, true)}</b>
-          <span className={s.num}>
-            {formatChartMoney(daily[shown].value)}{daily[shown].detail ? ` · ${daily[shown].detail}` : ""}
-          </span>
-          {previousAverage !== null ? (
-            <span className={s.muted}>
-              {averageLabel}: <span className={s.num}>{formatChartMoney(previousAverage)}</span>
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+    <div className={s.chart}>
+      {daily.length ? (
+        <ChartContainer config={config} className="w-full" style={{ height: 270, aspectRatio: "auto" }} role="group" aria-label={label}>
+          <RechartsAreaChart accessibilityLayer data={daily} margin={{ left: 12, right: 12, top: pins.length ? 22 : 0 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => dayLabel(String(value))} />
+            <YAxis hide domain={[(min: number) => Math.min(0, min, previousAverage ?? 0), (max: number) => Math.max(0, max, previousAverage ?? 0)]} />
+            <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" valueFormatter={formatValue} labelFormatter={(value) => {
+              const point = daily.find((row) => row.date === value);
+              return `${dayLabel(String(value), true)}${point?.detail ? ` · ${point.detail}` : ""}`;
+            }} />} />
+            <Area dataKey="value" type="monotone" fill="var(--color-value)" fillOpacity={0.4} stroke="var(--color-value)" dot={daily.length === 1} isAnimationActive={false} />
+            {previousAverage !== null ? <ReferenceLine y={previousAverage} stroke="var(--muted)" strokeDasharray="4 4" /> : null}
+            {selectedPin && daily[selectedPin.index] ? <ReferenceLine x={daily[selectedPin.index].date} stroke="var(--color-value)" strokeDasharray="4 4" /> : null}
+            {pins.map((pin, index) => daily[pin.index] ? (
+              <ReferenceDot key={pin.date + "-" + index} x={daily[pin.index].date} y={daily[pin.index].value} r={active === index ? 6 : 4} fill="var(--color-value)" stroke="var(--background)" label={{ value: index + 1, position: "top", fill: "var(--color-value)", fontSize: 12 }} role="button" tabIndex={0} aria-label={pin.title} onClick={() => onPin(index)} onKeyDown={(_dot, event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onPin(index); } }} />
+            ) : null)}
+          </RechartsAreaChart>
+        </ChartContainer>
+      ) : <p className={s.chartEmpty}>Todavía no hay datos diarios de este periodo.</p>}
+      {previousAverage !== null ? <p className="mt-2 text-xs text-muted">{averageLabel}: {formatValue(previousAverage)}</p> : null}
     </div>
   );
+}
+
+export type PulseSeries = {
+  key: string;
+  label: string;
+  color: string;
+  values: Array<number | null>;
+  format: (value: number) => string;
+  /** Cifra del periodo y su variación: lo que antes enseñaba la tarjeta. */
+  total: ReactNode;
+  delta?: ReactNode;
+  /** Valor comparable del periodo anterior, cuando la fuente lo proporciona. */
+  previous?: ReactNode;
+  aiNotice?: ReactNode;
+};
+
+/**
+ * Las cuatro series en un mismo gráfico. Cada línea tiene su propio eje Y oculto
+ * para que euros y porcentajes no se aplasten entre sí; pulsar una cifra oculta
+ * o muestra su línea.
+ */
+export function PulseChart({ dates, series, anchorId }: {
+  dates: string[];
+  series: PulseSeries[];
+  anchorId?: string;
+}) {
+  // Todas encendidas al empezar; pulsar una cifra oculta o muestra su línea.
+  const [off, setOff] = useState<Set<string>>(() => new Set());
+  const toggle = (key: string) => setOff((prev) => {
+    const next = new Set(prev);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  });
+  const config: ChartConfig = Object.fromEntries(series.map((serie) => [serie.key, { label: serie.label, color: serie.color }]));
+  const rows = dates.map((date, index) => Object.fromEntries([
+    ["date", date],
+    ...series.map((serie) => {
+      const value = serie.values[index];
+      return [serie.key, value != null && Number.isFinite(value) ? value : null];
+    }),
+  ]));
+  const formatOf = (value: number, key: string) => series.find((serie) => serie.key === key)?.format(value) ?? String(value);
+  return (
+    <div className={s.pChart} id={anchorId}>
+      <div className={s.pChartKpis} role="group" aria-label="Indicadores principales">
+        {series.map((serie) => (
+          <div key={serie.key} className={s.pChartKpiWrap} style={{ "--serie": serie.color } as CSSProperties}>
+            <button className={s.pChartKpi} type="button" aria-pressed={!off.has(serie.key)} onClick={() => toggle(serie.key)}>
+              <span className={s.pChartKpiLabel}><i aria-hidden="true" />{serie.label}</span>
+              <span className={s.pChartKpiValue}>{serie.total}</span>
+              <span className={s.pChartKpiMeta}>{serie.delta}<span className={s.pChartPrevious}>Ant. {serie.previous ?? "—"}</span></span>
+            </button>
+            {serie.aiNotice ? <span className={s.pChartKpiNotice}>{serie.aiNotice}</span> : null}
+          </div>
+        ))}
+      </div>
+      {dates.length ? (
+        <ChartContainer config={config} className="w-full" style={{ height: 300, aspectRatio: "auto" }} role="group" aria-label="Evolución diaria de los indicadores">
+          <RechartsLineChart accessibilityLayer data={rows} margin={{ left: 12, right: 12, top: 8 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => dayLabel(String(value))} />
+            {series.map((serie) => (
+              <YAxis key={serie.key} yAxisId={serie.key} hide domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} />
+            ))}
+            <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" valueFormatter={formatOf} labelFormatter={(value) => dayLabel(String(value), true)} />} />
+            {series.map((serie) => (
+              <Line key={serie.key} yAxisId={serie.key} dataKey={serie.key} hide={off.has(serie.key)} type="monotone" stroke={`var(--color-${serie.key})`} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+            ))}
+          </RechartsLineChart>
+        </ChartContainer>
+      ) : <p className={s.chartEmpty}>Todavía no hay datos diarios de este periodo.</p>}
+    </div>
+  );
+}
+
+/**
+ * Lectura de A29 con la estructura común de la IA, tal cual la devuelve: conclusión,
+ * hallazgos con sus cifras y "Qué hacer" solo con los pasos de quien mira.
+ * Si A29 falla, queda `fallback`.
+ */
+export function A29Reading({ analysis, tag, audience, fallback = null }: {
+  analysis: MetricAnalysis & { explain_path: string };
+  tag: string;
+  audience: "cliente" | "consultor";
+  fallback?: ReactNode;
+}) {
+  const { data, error } = useAiExplanation(analysis.explain_path);
+  if (error) return <>{fallback ?? <p className={cx(s.aiLine, s.muted)}>La IA no ha podido leer esta cifra ahora. Vuelve a abrirla en un rato.</p>}</>;
+  if (!data) {
+    return (
+      <p className={s.aiLine}>
+        <AiTag>{tag}</AiTag>
+        <span className={s.muted}>Analizando esta cifra…</span>
+      </p>
+    );
+  }
+  return <A29Insight data={data} tag={tag} audience={audience} />;
+}
+
+/** La salida completa de un agente con la estructura común de la IA. */
+export function DiagnosticReading({ tag, diagnostic, audience, maxFindings, footer }: {
+  tag?: string;
+  diagnostic: Diagnostic;
+  audience?: "cliente" | "consultor";
+  maxFindings?: number;
+  footer?: ReactNode;
+}) {
+  const { output } = diagnostic;
+  const findings = [...(output.sections ?? []).flatMap((section) => section.findings), ...(output.findings ?? [])]
+    .filter((finding, index, all) => all.findIndex((other) => other.title === finding.title) === index)
+    .sort((a, b) => (FINDING_RANK[a.severity] ?? 3) - (FINDING_RANK[b.severity] ?? 3))
+    .slice(0, maxFindings);
+  return (
+    <AiInsight
+      tag={tag}
+      summary={plainText(output.headline ?? output.answer)}
+      findings={findings.map((finding) => ({
+        title: plainText(finding.title) ?? finding.title,
+        severity: finding.severity,
+        evidence: finding.evidence ? plainText(evidenceText(finding.evidence)) : null,
+        figures: finding.figures,
+      }))}
+      steps={output.recommendations ?? []}
+      audience={audience}
+      warnings={output.warnings}
+      footer={footer}
+    />
+  );
+}
+
+/** Un hallazgo suelto (A02 sobre una cifra) con la estructura común de la IA. */
+export function FindingReading({ tag, finding, steps = [], audience }: {
+  tag: string;
+  finding: Finding | null;
+  steps?: AiStepData[];
+  audience?: "cliente" | "consultor";
+}) {
+  const evidence = finding?.evidence ? clientReadable(evidenceText(finding.evidence)) : null;
+  return (
+    <AiInsight
+      tag={tag}
+      summary={finding ? clientReadable(finding.title) ?? finding.title : "La IA no ha señalado nada sobre esta cifra en su último análisis."}
+      detail={evidence}
+      figures={finding?.figures ?? []}
+      steps={steps}
+      audience={audience}
+    />
+  );
+}
+
+/** Lo que el agente propone hacer en la misma sección que el hallazgo (A02 agrupa por área). */
+export function findingSteps(diagnostic: Diagnostic | undefined, finding: Finding | null): AiStepData[] {
+  if (!diagnostic || !finding) return [];
+  const section = diagnostic.output.sections?.find((item) => item.findings.includes(finding));
+  return (section?.recommendations ?? []).slice(0, 2);
+}
+
+/**
+ * A02 es el diagnóstico general del negocio, no el analista de una cifra.
+ * Conservamos temporalmente este wrapper para las tarjetas antiguas, pero no
+ * mostramos recomendaciones de A02 como si fueran una valoración individual.
+ * Las valoraciones por métrica corresponden a A29 (MetricVerdict).
+ */
+export function A02MetricNotice(_props: {
+  diagnostic?: Diagnostic;
+  metricLabel: string;
+  metricKey?: string;
+  pattern?: RegExp;
+  audience?: "cliente" | "consultor";
+}) {
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -489,11 +577,21 @@ export function SectionHead({ id, title, ai, fallback, onAsk, tag = "A02" }: {
         <p className={s.aiLine}>{fallback ?? ""}</p>
       )}
       {onAsk ? (
-        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={onAsk}>
+        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={onAsk}>
           Preguntar
         </button>
       ) : null}
     </div>
+  );
+}
+
+export function DiagnosticScopeNote({ diagnostic }: { diagnostic?: Diagnostic }) {
+  if (diagnostic?.result_scope !== "overview" || !diagnostic.requested_scope) return null;
+  return (
+    <p className={s.aiLine}>
+      <span className={s.ia}>A02</span>
+      Lectura general del negocio mientras se prepara la lectura específica de este canal.
+    </p>
   );
 }
 
@@ -506,77 +604,95 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
   );
 }
 
-function ConsultantAgentInsights({ monitor, stock, email, loading }: {
-  monitor?: Diagnostic;
-  stock?: Diagnostic;
-  email?: Diagnostic;
-  loading: { monitor: boolean; stock: boolean; email: boolean };
+// Gravedad de un hallazgo: los agentes no usan todos la misma escala.
+const FINDING_RANK: Record<string, number> = { business_threat: 0, critical: 0, urgent: 0, error: 0, high: 1, warning: 2, moderate: 2, medium: 2, low: 3, info: 4, positive: 4 };
+const FINDINGS_SHOWN = 4;
+
+/** Texto de un agente para leer de un vistazo: sin marcas de markdown. */
+const plainText = (text: string | null | undefined) => clientReadable(text)?.replace(/\*\*|__|`/g, "") ?? null;
+
+// Lo que han leído los agentes de la tienda, en una fila por agente: su frase
+// (dos líneas como mucho), los tres hallazgos más graves por título y la prueba
+// al abrir cada uno. Un agente sin lectura no ocupa sitio.
+function AgentInsights({ agents }: {
+  agents: Array<{ key: string; label: string; diagnostic?: Diagnostic }>;
 }) {
-  const groups = [
-    { key: "store", label: "Tienda", agents: [{ key: "monitor", label: "Salud del negocio", diagnostic: monitor, loading: loading.monitor }, { key: "stock", label: "Stock", diagnostic: stock, loading: loading.stock }] },
-    { key: "email", label: "Correos", agents: [{ key: "email-analyst", label: "Análisis de email", diagnostic: email, loading: loading.email }] },
-  ];
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const withData = agents.filter((agent): agent is { key: string; label: string; diagnostic: Diagnostic } => Boolean(agent.diagnostic));
+  if (!withData.length) return null;
 
   return (
-    <section className={s.agentInsights} aria-labelledby="pulse-agent-insights">
+    <section className={cx(s.pBlock, s.aiBlock)} aria-labelledby="pulse-agent-insights">
       <h2 className={s.pBlockT} id="pulse-agent-insights">Qué ha detectado la IA</h2>
-      <div className={s.agentGroups}>
-        {groups.map((group) => (
-          <section className={s.agentGroup} key={group.key} aria-label={group.label}>
-            <h3>{group.label}</h3>
-            {group.agents.map((agent) => {
-              const diagnostic = agent.diagnostic;
-              if (!diagnostic) return (
-                <article className={s.agentReadout} key={agent.key}>
-                  <header className={s.agentReadoutHead}>
-                    <h4>{agent.label}</h4>
-                    <span>{agent.loading ? "Cargando" : "Sin análisis"}</span>
-                  </header>
-                  <p className={s.agentEmpty}>{agent.loading ? "Cargando la última lectura automática…" : "Todavía no hay una lectura automática disponible."}</p>
-                </article>
-              );
-              const summary = clientReadable(diagnostic.output.headline ?? diagnostic.output.answer);
-              const sections = diagnostic.output.sections?.filter((section) => section.findings.length) ?? [];
-              const findings = diagnostic.output.findings ?? [];
-              return (
-                <article className={s.agentReadout} key={agent.key}>
-                  <header className={s.agentReadoutHead}>
-                    <h4>{agent.label}</h4>
-                    <span>{ago(diagnostic.generated_at)}{diagnostic.stale ? " · Datos antiguos" : ""}</span>
-                  </header>
-                  {summary ? <p className={s.agentSummary}>{summary}</p> : null}
-                  {sections.length ? (
-                    <div className={s.agentFindingSections}>
-                      {sections.map((section) => (
-                        <section key={section.key}>
-                          <h5>{clientReadable(section.label) ?? section.label}</h5>
-                          <ul>
-                            {section.findings.slice(0, 3).map((finding, index) => (
-                              <li key={`${finding.title}-${index}`}>
-                                <strong>{clientReadable(finding.title) ?? finding.title}</strong>
-                                {finding.evidence ? <span>{clientReadable(evidenceText(finding.evidence)) ?? evidenceText(finding.evidence)}</span> : null}
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                      ))}
+      <ul className={s.aiAgents}>
+        {withData.map(({ key, label, diagnostic }) => {
+          const summary = plainText(diagnostic.output.headline ?? diagnostic.output.answer);
+          const isLabCliResult = diagnostic.output.warnings?.some((warning) => warning.includes("Codex CLI")) ?? false;
+          const findings = [
+            ...(diagnostic.output.sections ?? []).flatMap((section) => section.findings),
+            ...(diagnostic.output.findings ?? []),
+          ]
+            .filter((finding, index, all) => all.findIndex((other) => other.title === finding.title) === index)
+            .sort((a, b) => (FINDING_RANK[a.severity] ?? 3) - (FINDING_RANK[b.severity] ?? 3));
+          const open = expanded === key;
+          const renderFinding = (finding: (typeof findings)[number], index: number) => {
+            const evidence = finding.evidence ? plainText(evidenceText(finding.evidence)) : null;
+            const rank = FINDING_RANK[finding.severity] ?? 3;
+            const key = `${finding.title}-${index}`;
+            const dataRank = rank <= 1 ? "high" : rank === 2 ? "mid" : "low";
+            const title = plainText(finding.title) ?? finding.title;
+            return evidence || finding.figures?.length ? (
+              <AccordionItem key={key} value={key} data-rank={dataRank}>
+                <AccordionTrigger>{title}</AccordionTrigger>
+                <AccordionContent>
+                  {finding.figures?.length ? (
+                    <div className={s.aiFigures}>
+                      {finding.figures.map((figure, figureIndex) => <AiFigure key={`${figure.label}-${figureIndex}`} {...figure} tone={rank <= 1 && figure.change_pct != null ? "bad" : null} />)}
                     </div>
-                  ) : findings.length ? (
-                    <ul className={s.agentFindingList}>
-                      {findings.slice(0, 4).map((finding, index) => (
-                        <li key={`${finding.title}-${index}`}>
-                          <strong>{clientReadable(finding.title) ?? finding.title}</strong>
-                          {finding.evidence ? <span>{clientReadable(evidenceText(finding.evidence)) ?? evidenceText(finding.evidence)}</span> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : !summary ? <p className={s.agentEmpty}>El análisis no ha generado un resumen legible.</p> : null}
-                </article>
-              );
-            })}
-          </section>
-        ))}
-      </div>
+                  ) : null}
+                  {evidence ? <p>{evidence}</p> : null}
+                </AccordionContent>
+              </AccordionItem>
+            ) : (
+              <p key={key} data-rank={dataRank}>{title}</p>
+            );
+          };
+          return (
+            <li key={key} className={s.aiAgent}>
+              <p className={s.aiAgentH}>
+                <b>{label}</b>
+                <span className={cx(diagnostic.stale && s.aiStale)}>
+                  {diagnostic.stale ? `Datos de ${ago(diagnostic.generated_at)}` : ago(diagnostic.generated_at)}
+                </span>
+              </p>
+              {summary ? <p className={s.aiAgentSum}>{summary}</p> : null}
+              {isLabCliResult ? <p className={s.aiAgentSum}>Resultado de laboratorio sobre datos de TEST; no es una ejecución del agente mediante API.</p> : null}
+              {diagnostic.result_scope === "overview" && diagnostic.requested_scope && diagnostic.requested_scope !== "overview" ? (
+                <p className={s.aiAgentSum}>Lectura general de A02; todavía no hay una lectura específica para este canal.</p>
+              ) : null}
+              {findings.length ? (
+                <Collapsible open={open} onOpenChange={(next) => setExpanded(next ? key : null)}>
+                  <Accordion multiple className={s.aiFindings}>
+                    {findings.slice(0, FINDINGS_SHOWN).map(renderFinding)}
+                  </Accordion>
+                  {findings.length > FINDINGS_SHOWN ? (
+                    <>
+                      <CollapsibleContent>
+                        <Accordion multiple className={s.aiFindings}>
+                          {findings.slice(FINDINGS_SHOWN).map((finding, index) => renderFinding(finding, index + FINDINGS_SHOWN))}
+                        </Accordion>
+                      </CollapsibleContent>
+                      <CollapsibleTrigger className={s.qiToggle}>
+                        {open ? "Ver menos" : `${findings.length - FINDINGS_SHOWN} hallazgos más`}
+                      </CollapsibleTrigger>
+                    </>
+                  ) : null}
+                </Collapsible>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
@@ -594,8 +710,9 @@ function splitSteps(text: string): string[] {
 function TaskDetail({ text, label = "Ver detalle" }: { text: string; label?: string }) {
   const steps = splitSteps(text);
   return (
-    <details className={s.qiD}>
-      <summary>{label}{steps.length > 1 ? ` (${steps.length} pasos)` : ""}</summary>
+    <Collapsible className={s.qiD}>
+      <CollapsibleTrigger>{label}{steps.length > 1 ? ` (${steps.length} pasos)` : ""}<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+      <CollapsibleContent>
       {steps.length > 1 ? (
         <ol>
           {steps.map((step, index) => (
@@ -605,12 +722,13 @@ function TaskDetail({ text, label = "Ver detalle" }: { text: string; label?: str
       ) : (
         <p>{steps[0]}</p>
       )}
-    </details>
+    </CollapsibleContent>
+    </Collapsible>
   );
 }
 
 type QueueItem =
-  | { kind: "proposal"; key: string; outputId: string; index: number; total: number; title: string; why: string; priority: string; mine: boolean; due: string | null; source: string }
+  | { kind: "proposal"; key: string; outputId: string; index: number; total: number; title: string; why: string; priority: string; mine: boolean; due: string | null; source: string; sourceLabel: string }
   | { kind: "alert"; key: string; title: string; why: string; priority: string }
   | { kind: "task"; key: string; task: Task; mine: boolean; priority: string };
 
@@ -652,9 +770,16 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
 
   const items = useMemo<QueueItem[]>(() => {
     const list: QueueItem[] = [];
-    for (const diagnostic of proposals) {
+    const seenOutputs = new Set<string>();
+    for (const diagnostic of proposals.flatMap((item) => item.pending_outputs?.length ? item.pending_outputs : [item])) {
+      if (seenOutputs.has(diagnostic.output_id)) continue;
+      seenOutputs.add(diagnostic.output_id);
       if (diagnostic.output_status !== "pending_approval" || sentOutputs.includes(diagnostic.output_id)) continue;
-      const writes = diagnostic.output.proposed_writes;
+      // Los diagnósticos de solo lectura (como A02) usan su contrato nativo
+      // de secciones/recomendaciones y no incluyen propuestas de escritura.
+      const writes = Array.isArray(diagnostic.output.proposed_writes)
+        ? diagnostic.output.proposed_writes
+        : [];
       // Las descartadas una a una ya están guardadas en el servidor (proposal_edits).
       const dismissed = new Set<number>(
         ((diagnostic.output as { proposal_edits?: Array<{ index?: number; skip?: boolean }> }).proposal_edits ?? [])
@@ -676,6 +801,9 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
           mine: asConsultant ? write.owner_role === "consultor" : write.owner_role !== "consultor",
           due: write.due_hint ?? null,
           source: diagnostic.output_id,
+          sourceLabel: diagnostic.agent_code === "a04_generador_tareas"
+            ? `A04 · Plan diario${diagnostic.scope_label ? ` · ${diagnostic.scope_label.toLowerCase()}` : ""}`
+            : "Propuesta IA",
         });
       });
     }
@@ -721,7 +849,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
   const usefulFilters = filters.filter((f) => f.key === "all" || items.some(f.test));
   const activeFilter = usefulFilters.find((f) => f.key === filter) ?? usefulFilters[0];
   const filtered = items.filter(activeFilter.test);
-  const visible = showAll ? filtered : filtered.slice(0, QUEUE_PREVIEW);
+  const visible = filtered.slice(0, QUEUE_PREVIEW);
   const urgent = items.filter((i) => (PRIORITY_RANK[i.priority] ?? 2) === 0).length;
 
   async function decide(item: Extract<QueueItem, { kind: "proposal" }>, decision: Decision) {
@@ -868,51 +996,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
     );
   }
 
-  return (
-    <div className={cx(s.panel, "zone-card")}>
-      <div className={s.panelH}>
-        <div>
-          <h3 id={titleId}>
-            {title} <ZoneNoteMark anchor={zoneAnchor("bloque", title)} label={title} />
-          </h3>
-          <p className={s.qSum}>
-            {items.length ? `${items.length} por resolver` : operations ? "Al día" : "Pendientes de comprobar"}
-            {laterCount ? (
-              <>
-                {" · "}
-                <Link href="/tareas">{laterCount} más a largo plazo</Link>
-              </>
-            ) : null}
-            {urgent ? (
-              <>
-                {" · "}
-                <b>{urgent} urgentes</b>
-              </>
-            ) : null}
-          </p>
-        </div>
-        {/* Filtrar una lista vacía son cuatro botones a cero: solo con algo que filtrar. */}
-        {usefulFilters.length > 1 ? (
-        <div className={s.seg} role="group" aria-label="Filtrar trabajo pendiente">
-          {usefulFilters.map((f) => (
-            <button key={f.key} type="button" aria-pressed={f.key === activeFilter.key} onClick={() => setFilter(f.key)}>
-              {f.label}
-              <b>{items.filter(f.test).length}</b>
-            </button>
-          ))}
-        </div>
-        ) : null}
-      </div>
-
-      {visible.length === 0 ? (
-        <Empty action={items.length
-          ? <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => setFilter("all")}>Ver todo el trabajo</button>
-          : !operations ? <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={reloadAll}>Volver a cargar las tareas</button> : undefined}>
-          {items.length ? "No hay trabajo pendiente con este filtro." : !operations ? "Aún no se han podido comprobar las tareas de esta tienda." : "No hay tareas ni propuestas pendientes. Puedes revisar tus resultados o continuar con el plan de la semana."}
-        </Empty>
-      ) : (
-        <ul>
-          {visible.map((item) => {
+  const renderQueueItem = (item: (typeof filtered)[number]) => {
             if (item.kind === "proposal") {
               const decided = decisions[item.outputId]?.[item.index];
               const pendingOthers = item.total - Object.keys(decisions[item.outputId] ?? {}).length;
@@ -921,7 +1005,14 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
                   <div>
                     <p className={s.qiK}>
-                      <span className={s.ia}>IA</span>Propuesta · crear la tarea necesita tu visto bueno
+                      <span className={s.ia}>{item.sourceLabel.startsWith("A04") ? "A04" : "IA"}</span>
+                      {item.sourceLabel.startsWith("A04") ? item.sourceLabel.replace(/^A04 · /, "") : "Propuesta"}
+                      {" · "}
+                      {asConsultant
+                        ? "Propuesta · puedes decidirla; el cliente también"
+                        : consultant
+                          ? "Propuesta · puedes decidirla o esperar a tu consultor"
+                          : "Propuesta · puedes crear la tarea o descartarla"}
                     </p>
                     <p className={s.qiT}>{item.title}</p>
                     {item.why ? <TaskDetail text={item.why} label="Por qué" /> : null}
@@ -942,10 +1033,10 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                     <span />
                   ) : (
                     <div className={s.qiA}>
-                      <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Crear tarea" title="Crear tarea" disabled={busy !== null} onClick={() => void decide(item, "approved")}>
+                      <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.iconOk })} aria-label="Crear tarea" title="Crear tarea" disabled={busy !== null} onClick={() => void decide(item, "approved")}>
                         <CheckIcon aria-hidden="true" />
                       </button>
-                      <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconNo)} aria-label="Descartar" title="Descartar" disabled={busy !== null} onClick={() => void decide(item, "rejected")}>
+                      <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.iconNo })} aria-label="Descartar" title="Descartar" disabled={busy !== null} onClick={() => void decide(item, "rejected")}>
                         <CloseIcon aria-hidden="true" />
                       </button>
                     </div>
@@ -1085,10 +1176,10 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                           <kbd>Ctrl + Enter</kbd>
                         </span>
                         <div className={s.cmtActions}>
-                          <button type="button" className={s.cmtCancel} onClick={() => setCommenting(null)}>
+                          <button type="button" className={buttonVariants({ variant: "ghost", size: "sm" })} onClick={() => setCommenting(null)}>
                             Cancelar
                           </button>
-                          <button type="submit" className={s.cmtSend} disabled={!commentText.trim() || busy === task.id}>
+                          <button type="submit" className={buttonVariants({ size: "sm" })} disabled={!commentText.trim() || busy === task.id}>
                             {busy === task.id ? "Enviando…" : "Comentar"}
                           </button>
                         </div>
@@ -1107,10 +1198,10 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                         autoFocus
                       />
                       <div className={s.qfB}>
-                        <button type="submit" className={cx(s.btn, s.sm)} disabled={!outcome.trim() || busy === task.id}>
+                        <button type="submit" className={buttonVariants({ size: "sm" })} disabled={!outcome.trim() || busy === task.id}>
                           Registrar
                         </button>
-                        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => setClosing(null)}>
+                        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => setClosing(null)}>
                           Cancelar
                         </button>
                       </div>
@@ -1120,22 +1211,22 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                 <div className={s.qiA}>
                   {proposed && !asConsultant ? (
                   <>
-                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconOk)} aria-label="Aceptar tarea" title="Aceptar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "pending")}>
+                    <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.iconOk })} aria-label="Aceptar tarea" title="Aceptar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "pending")}>
                       <CheckIcon aria-hidden="true" /><span className={s.btnLabel}>Aceptar</span>
                     </button>
-                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.iconNo)} aria-label="Rechazar tarea" title="Rechazar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
+                    <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.iconNo })} aria-label="Rechazar tarea" title="Rechazar tarea" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
                       <CloseIcon aria-hidden="true" /><span className={s.btnLabel}>Descartar</span>
                     </button>
                   </>
                   ) : canClose ? (
-                    <button type="button" className={cx(s.btn, s.ghost, s.sm, s.iconBtn)} aria-label="Archivar: ya no me interesa" title="Archivar: ya no me interesa" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
+                    <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Archivar: ya no me interesa" title="Archivar: ya no me interesa" disabled={busy === task.id} onClick={() => void setStatus(task, "ignored")}>
                       <ArchiveIcon aria-hidden="true" /><span className={s.btnLabel}>No me interesa</span>
                     </button>
                   ) : null}
                   {consultant || asConsultant ? (
                     <button
                       type="button"
-                      className={cx(s.btn, s.ghost, s.sm, s.iconBtn, s.cmtBtn)}
+                      className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.cmtBtn })}
                       aria-label="Añadir comentario a la tarea"
                       title="Añadir comentario"
                       onClick={() => { setCommenting(commenting === task.id ? null : task.id); setCommentText(""); }}
@@ -1147,19 +1238,73 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                 </div>
               </li>
             );
-          })}
-        </ul>
+          };
+
+  return (
+    <div className={cx(s.panel, "zone-card")}>
+      <div className={s.panelH}>
+        <div>
+          <h3 id={titleId}>
+            {title} <ZoneNoteMark anchor={zoneAnchor("bloque", title)} label={title} />
+          </h3>
+          <p className={s.qSum}>
+            {items.length ? `${items.length} por resolver` : operations ? "Al día" : "Pendientes de comprobar"}
+            {laterCount ? (
+              <>
+                {" · "}
+                <Link href="/tareas">{laterCount} más a largo plazo</Link>
+              </>
+            ) : null}
+            {urgent ? (
+              <>
+                {" · "}
+                <b>{urgent} urgentes</b>
+              </>
+            ) : null}
+          </p>
+        </div>
+        {/* Filtrar una lista vacía son cuatro botones a cero: solo con algo que filtrar. */}
+        {usefulFilters.length > 1 ? (
+        <ToggleGroup aria-label="Filtrar trabajo pendiente" spacing={1.5} value={activeFilter.key} onValueChange={setFilter}>
+          {usefulFilters.map((f) => (
+            <ToggleGroupItem key={f.key} value={f.key}>
+              {f.label}
+              <span className="text-xs text-muted tabular-nums">{items.filter(f.test).length}</span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        ) : null}
+      </div>
+
+      {visible.length === 0 ? (
+        <Empty action={items.length
+          ? <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => setFilter("all")}>Ver todo el trabajo</button>
+          : !operations ? <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={reloadAll}>Volver a cargar las tareas</button> : undefined}>
+          {items.length ? "No hay trabajo pendiente con este filtro." : !operations ? "Aún no se han podido comprobar las tareas de esta tienda." : "No hay tareas ni propuestas pendientes. Puedes revisar tus resultados o continuar con el plan de la semana."}
+        </Empty>
+      ) : (
+        <Collapsible open={showAll} onOpenChange={setShowAll}>
+          <ul>
+            {filtered.slice(0, QUEUE_PREVIEW).map(renderQueueItem)}
+          </ul>
+          {filtered.length > QUEUE_PREVIEW ? (
+            <>
+              <CollapsibleContent>
+                <ul className={s.qiMore}>{filtered.slice(QUEUE_PREVIEW).map(renderQueueItem)}</ul>
+              </CollapsibleContent>
+              <CollapsibleMore
+                count={filtered.length - QUEUE_PREVIEW}
+                more={`Ver las ${filtered.length} (${filtered.length - QUEUE_PREVIEW} más)`}
+              />
+            </>
+          ) : null}
+        </Collapsible>
       )}
 
-      {filtered.length > QUEUE_PREVIEW ? (
-        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => setShowAll((value) => !value)}>
-          {showAll ? "Ver menos" : `Ver las ${filtered.length} (${filtered.length - QUEUE_PREVIEW} más)`}
-        </button>
-      ) : null}
-
       {done.length ? (
-        <details className={s.done}>
-          <summary>Hechas esta semana ({done.length})</summary>
+        <Collapsible className={s.done}>
+          <CollapsibleTrigger>Hechas esta semana ({done.length})<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+          <CollapsibleContent>
           <ul>
             {done.map((task) => {
               const result = task.task_comments?.find((c) => !c.is_internal && c.body.startsWith("Resultado:"));
@@ -1173,7 +1318,8 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
               );
             })}
           </ul>
-        </details>
+        </CollapsibleContent>
+        </Collapsible>
       ) : null}
     </div>
   );
@@ -1194,7 +1340,7 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
   setDraft: (value: string) => void;
   inputRef: RefObject<HTMLInputElement | null>;
 }) {
-  const messages = useCachedQuery<{ messages: Message[] }>(`${base}/consultant-messages`);
+  const messages = useCachedQuery<{ messages: ThreadMessage[] }>(`${base}/consultant-messages`);
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const list = messages.data?.messages ?? [];
@@ -1248,24 +1394,33 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
         {list.slice(-12).map((message) => {
           const mine = viewer === "client" ? message.author_kind === "client" : message.author_kind === "consultant" || message.author_kind === "platform";
           return (
-            <div key={message.id} className={cx(s.msg, mine && s.mine)}>
-              {message.body}
-              {message.attachments.map((file) =>
-                file.signed_url ? (
-                  <a key={file.filename} className={s.file} href={file.signed_url} target="_blank" rel="noreferrer">
-                    {file.filename}
-                  </a>
-                ) : (
-                  <span key={file.filename} className={s.file}>
-                    {file.filename}
-                  </span>
-                ),
-              )}
-              <span className={s.msgW}>
-                {mine ? "Tú" : message.author_name ?? name} · {dayLabel(message.created_at, true)}{" "}
-                {new Date(message.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            </div>
+            <Message key={message.id} align={mine ? "end" : "start"}>
+              <MessageContent>
+                <Bubble>
+                  <BubbleContent className={cx(s.msg, mine && s.mine)}>
+                    {message.body}
+                    {message.attachments.map((file) => {
+                      return (
+                        <Attachment key={file.filename} size="sm" className="mt-1.5 w-60 max-w-full">
+                          <AttachmentMedia><FileTypeIcon filename={file.filename} contentType={file.content_type} /></AttachmentMedia>
+                          <AttachmentContent>
+                            <AttachmentTitle>{file.filename}</AttachmentTitle>
+                            <AttachmentDescription>{fileMeta(file.filename, file.byte_size, file.content_type)}</AttachmentDescription>
+                          </AttachmentContent>
+                          {file.signed_url ? (
+                            <AttachmentTrigger render={<a href={file.signed_url} target="_blank" rel="noreferrer" aria-label={`Abrir ${file.filename}`} />} />
+                          ) : null}
+                        </Attachment>
+                      );
+                    })}
+                  </BubbleContent>
+                </Bubble>
+                <MessageFooter>
+                  {mine ? "Tú" : message.author_name ?? name} · {dayLabel(message.created_at, true)}{" "}
+                  {new Date(message.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+                </MessageFooter>
+              </MessageContent>
+            </Message>
           );
         })}
       </div>
@@ -1281,12 +1436,12 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
           onChange={(event) => setDraft(event.target.value)}
           placeholder={`Escribe a ${name.split(" ")[0]}…`}
         />
-        <button type="submit" className={s.btn} disabled={sending || !draft.trim()}>
+        <button type="submit" className={buttonVariants()} disabled={sending || !draft.trim()}>
           Enviar
         </button>
       </form>
       <div className={s.linkRow}>
-        <Link className={cx(s.btn, s.ghost, s.sm)} href="/mensajes">
+        <Link className={buttonVariants({ variant: "secondary", size: "sm" })} href="/mensajes">
           Abrir el chat con adjuntos
         </Link>
       </div>
@@ -1317,13 +1472,15 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   sideTop?: ReactNode;
 }) {
   const base = `/v1/organizations/${organizationId}`;
+  const { stores: scopeStores } = useActiveConnection();
+  const scopeLabel = connectionId ? scopeStores?.find((store) => store.connectionId === connectionId)?.label ?? "Tienda seleccionada" : "Todas las tiendas del cliente";
   const scope = connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : "";
   const verdictOf = useMetricAnalysis(organizationId, 30, connectionId);
 
   const metrics = useCachedQuery<Metrics>(`${base}/shopify/metrics?days=30${scope}`);
-  const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30`);
-  const klaviyo = useCachedQuery<KlaviyoReport>(`${base}/klaviyo/email-report?days=30`);
-  const operations = useCachedQuery<Operations>(`${base}/operations`);
+  const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30${scope}`);
+  const klaviyo = useCachedQuery<KlaviyoReport>(`${base}/klaviyo/email-report?days=30${scope}`);
+  const operations = useCachedQuery<Operations>(`${base}/operations?${scope.replace(/^&/, "")}`);
   const monitor = useCachedQuery<Diagnostic>(`${base}/ai/monitor?days=30&view=overview${scope}`);
   const stockAi = useCachedQuery<Diagnostic>(`${base}/ai/stock-planner?days=30${scope}`);
   // A04: el plan diario propone tareas; sin esto sus propuestas nunca llegaban al widget.
@@ -1340,7 +1497,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const router = useRouter();
   const [today] = useState(() => new Date());
   // Cifra abierta: su gráfico, la lectura de la IA y a dónde ir a ver más.
-  const [openKpi, setOpenKpi] = useState<string | null>(null);
+  const { openKpi, toggleKpi, closeKpi, closingKpi } = useKpiDisclosure();
 
   function askCopilot(question: string, focusLabel: string) {
     ask({ question, focusLabel, reference: { period_label: "Últimos 30 días", filters: { days: "30" } } });
@@ -1363,7 +1520,10 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const data = metrics.data;
   const formatStoreMoney = (value: number | null | undefined, decimals = 0) =>
     fmtCurrency(value, data?.currency_code, decimals);
-  const storeSelectionRequired = metrics.error?.includes("shopify_store_selection_required") ?? false;
+  const storeSelectionRequired = metrics.errorCode === "shopify_store_selection_required";
+  // Solo estos fallos significan "Shopify no está bien conectado". Un timeout o un 500
+  // es la API o la base tardando: culpar a la conexión mandaba a Integraciones sin motivo.
+  const storeNotConnected = ["shopify_connection_not_found", "shopify_currency_unavailable", "store_access_denied"].includes(metrics.errorCode ?? "");
   const financialCurrencyComparable = data?.financial_currency_coverage?.status === "compatible";
   const klaviyoCurrencyComparable = data?.financial_currency_coverage?.klaviyo_status === "compatible";
   const diagnostic = !storeSelectionRequired ? monitor.data : undefined;
@@ -1391,6 +1551,9 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       })
     : false;
   const previous = data?.previous_period ?? null;
+  const funnelConversionByDate = new Map(
+    (data?.funnel_daily ?? []).map((day) => [day.date.slice(0, 10), day.conversion_rate_own] as const),
+  );
   const pulse = storePulse({
     netSales: data?.sales.net_sales ?? 0,
     netProfit: showProfit ? financial?.net_profit ?? null : null,
@@ -1400,6 +1563,10 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   // La frase de la IA es el titular; si trae jerga de sistema, la de `storePulse`.
   const headline = clientReadable(diagnostic?.output.headline ?? diagnostic?.output.answer) ?? pulse.headline;
   const daily = data?.daily ?? [];
+  const currentDayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // Hoy es un día todavía abierto: conserva su fecha en el eje, pero no lo dibuja
+  // como cero ni como una caída frente a días completos. Los totales siguen intactos.
+  const isCurrentDay = (date: string) => date.slice(0, 10) === currentDayKey;
   const target = (key: string) => data?.metric_targets.find((t) => t.metric_key === key)?.target_value ?? null;
 
   const proposals = [diagnostic, plannerAi.data, plannerOrgAi.data, stockAi.data, emailAi.data, ...extraProposals]
@@ -1501,26 +1668,21 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   ];
 
   // ---- detalle de la cifra abierta ----
-  const toggleKpi = (key: string) => () => setOpenKpi((current) => (current === key ? null : key));
   const route = (href: string) => withPortalRouteContext(href, organizationId, connectionId);
   const iaTag = asConsultant ? "A02" : "IA";
   // A02 (salud del negocio) no tiene una ficha por cifra: se busca su hallazgo sobre el tema.
+  const audience = asConsultant ? "consultor" as const : "cliente" as const;
   const a02Reading = (pattern: RegExp) => {
     const finding = findingFor(diagnostic, pattern);
     if (!finding) return null;
-    const evidence = finding.evidence ? clientReadable(evidenceText(finding.evidence)) : null;
-    return (
-      <p className={s.aiLine}>
-        <span className={s.ia}>{iaTag}</span>
-        {clientReadable(finding.title) ?? finding.title}
-        {evidence ? <span className={s.muted}> · {evidence}</span> : null}
-      </p>
-    );
+    return <FindingReading tag={iaTag} finding={finding} steps={findingSteps(diagnostic, finding)} audience={audience} />;
   };
   // A29 (analista de métricas) cuando la cifra tiene ficha; si no, A02.
   const a29Reading = (id: "conversion" | "cac_new", fallback: RegExp) => {
     const analysis = verdictOf(id);
-    return analysis && analysis.verdict !== "insufficient" ? <AiExplanation path={analysis.explain_path} /> : a02Reading(fallback);
+    return analysis && analysis.verdict !== "insufficient"
+      ? <A29Reading analysis={analysis} tag={asConsultant ? "A29" : "IA"} audience={audience} fallback={a02Reading(fallback)} />
+      : a02Reading(fallback);
   };
   const perDay = (total: number | null | undefined) => (total != null && daily.length ? total / daily.length : null);
   const flow = showProfit && financial ? moneyFlow(financial) : [];
@@ -1565,7 +1727,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       chart: flow.length ? (
         <ul className={s.kdFlow} aria-label="De las ventas al beneficio">
           {flow.map((row) => (
-            <li key={row.label} data-kind={row.kind}>
+            <li key={row.label} data-kind={row.kind} data-tone={row.value < 0 ? "bad" : undefined}>
               <span>{row.label}</span>
               <i style={{ width: `${(Math.abs(row.value) / flowBase) * 100}%` }} aria-hidden="true" />
               <b className={s.num}>{formatStoreMoney(row.value)}</b>
@@ -1618,7 +1780,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       {/* ------------------------------ Titular ------------------------------ */}
       <header className={s.pHead}>
         <p className={s.pMeta}>
-          <span>{organizationName}</span>
+          <span>{organizationName} · {scopeLabel}</span>
           <span>{today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</span>
           <span>Últimos 30 días</span>
         </p>
@@ -1628,13 +1790,13 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         <div className={s.pHeadFoot}>
           {analysisDate ? (
             <span className={s.pStamp}>
-              <span className={s.ia}>IA</span>
+              <span className={s.ia}>A02</span>
               Análisis del {analysisDate}
             </span>
           ) : null}
           <button
             type="button"
-            className={cx(s.pAction, "hover-sweep")}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
             onClick={() =>
               askCopilot(
                 asConsultant
@@ -1644,95 +1806,106 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               )
             }
           >
-            <span className={s.ia}>IA</span>
+            <SparklesIcon data-icon="inline-start" aria-hidden="true" />
             Preguntar por qué
           </button>
         </div>
       </header>
 
       {metrics.error && !data ? (
-        <p className={s.error} role="alert">
+        <Banner
+          tone={storeSelectionRequired ? "info" : "warn"}
+          action={!storeSelectionRequired && !storeNotConnected ? (
+            <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => metrics.reload()}>
+              Reintentar
+            </button>
+          ) : null}
+        >
           {storeSelectionRequired
-            ? "Hay varias tiendas conectadas. Selecciona una en la cabecera para ver sus datos sin mezclarlas."
-            : `No hemos podido cargar los datos de ${yourStore}. Revisa que Shopify esté conectado en Integraciones.`}
-        </p>
+            ? "Tienes varias tiendas conectadas. Elige una en la cabecera para ver sus datos sin mezclarlas."
+            : storeNotConnected
+              ? `No hemos podido cargar los datos de ${yourStore}. Comprueba en Integraciones que Shopify sigue conectado.`
+              : `Los datos de ${yourStore} están tardando más de lo normal. La conexión con Shopify está bien; reintenta en unos segundos.`}
+        </Banner>
       ) : null}
 
       {staleSources.length ? (
-        <p className={s.pNotice} role="status">
-          <span className={cx(s.dot, s.dotWarn)} aria-hidden="true" />
+        <Banner tone="warn" action={<Link href="/integraciones" className={buttonVariants({ variant: "secondary", size: "sm" })}>Revisar</Link>}>
           {staleSources.map((p) => p.name).join(" y ")}{" "}
           {staleSources.every((p) => ["connected", "syncing"].includes(p.connection?.status ?? ""))
-            ? `sin sincronizar ${ago(staleSources[0].connection?.last_sync_at ?? null)}: las cifras pueden no estar al día.`
-            : "necesita reconectarse."}
-          <Link href="/integraciones" className="hover-sweep">Revisar</Link>
-        </p>
+            ? `no se sincroniza ${ago(staleSources[0].connection?.last_sync_at ?? null)}: las cifras pueden no estar al día.`
+            : staleSources.length > 1 ? "necesitan reconectarse." : "necesita reconectarse."}
+        </Banner>
       ) : null}
 
       {/* ------------------------------ Cifras ------------------------------ */}
       {data ? (
-        <div className={s.pKpis} aria-label="Cifras clave" id={showCac ? undefined : "insight-metric-cac_new"}>
-          <Kpi
-            open={openKpi === "sales"}
-            onOpen={toggleKpi("sales")}
-            label="Ventas netas"
-            value={formatStoreMoney(data.sales.net_sales)}
-            delta={<Delta change={salesChangePct(data.sales.net_sales, previous?.sales.net_sales ?? null)} />}
-            vs={previous ? formatStoreMoney(previous.sales.net_sales) : null}
-            slot={<Spark values={daily.map((d) => d.net_sales)} color="var(--kpi-accent)" />}
-          />
-          <Kpi
-            open={openKpi === "orders"}
-            onOpen={toggleKpi("orders")}
-            label="Pedidos"
-            value={fmtNum(data.sales.orders_count)}
-            delta={<Delta change={salesChangePct(data.sales.orders_count, previous?.sales.orders_count ?? null)} />}
-            vs={previous ? fmtNum(previous.sales.orders_count) : null}
-            slot={<Spark values={daily.map((d) => d.orders_count)} color="var(--kpi-accent)" />}
-          />
-          <Kpi
-            open={openKpi === "profit"}
-            onOpen={toggleKpi("profit")}
-            label="Beneficio neto"
-            value={showProfit && financial ? formatStoreMoney(financial.net_profit) : "—"}
-            delta={showProfit && financial && previous?.financial.lines_without_metrics === 0 ? <Delta change={salesChangePct(financial.net_profit, previous.financial.net_profit)} /> : null}
-            vs={showProfit && previous?.financial.lines_without_metrics === 0 ? formatStoreMoney(previous.financial.net_profit) : null}
-            slot={
-              showProfit && financial ? (
-                <TargetBar
-                  value={financial.net_margin_pct}
-                  target={target("net_margin_pct") ?? financial.net_margin_pct}
-                  max={Math.max(40, (target("net_margin_pct") ?? 0) * 1.4)}
-                  text={`Margen ${fmtNum(financial.net_margin_pct, 1)} %${target("net_margin_pct") !== null ? ` · objetivo ${fmtNum(target("net_margin_pct") ?? 0, 1)} %` : ""}`}
-                />
-              ) : (
-                <p className={s.trackTxt}>Pendiente de completar costes</p>
-              )
-            }
-          />
-          <Kpi
-            open={openKpi === "conversion"}
-            onOpen={toggleKpi("conversion")}
-            verdict={<MetricVerdict analysis={verdictOf("conversion")} />}
-            anchorId="insight-metric-conversion"
-            label="Conversión"
-            value={data.funnel?.has_sessions && data.funnel.conversion_rate_own !== null ? `${fmtNum(data.funnel.conversion_rate_own * 100, 2)} %` : "—"}
-            delta={
-              data.funnel?.conversion_rate_own != null && previous?.conversion_rate_own != null ? (
-                <Delta change={(data.funnel.conversion_rate_own - previous.conversion_rate_own) * 100} suffix="pp" />
-              ) : null
-            }
-            vs={previous?.conversion_rate_own != null ? `${fmtNum(previous.conversion_rate_own * 100, 2)} %` : null}
-            slot={
-              data.funnel?.has_sessions ? (
-                <Spark values={data.funnel_daily.map((d) => d.conversion_rate_own ?? 0)} color="var(--kpi-accent)" />
-              ) : (
-                <p className={s.trackTxt}>Sin datos de sesiones todavía</p>
-              )
-            }
-          />
+        <PulseChart
+          anchorId="insight-metric-conversion"
+          dates={daily.map((d) => d.date)}
+          series={[
+            {
+              key: "sales",
+              label: "Ventas netas",
+              color: "#3d3b3a",
+              values: daily.map((d) => isCurrentDay(d.date) ? null : d.net_sales),
+              format: (v) => formatStoreMoney(v),
+              total: formatStoreMoney(data.sales.net_sales),
+              delta: <Delta change={salesChangePct(data.sales.net_sales, previous?.sales.net_sales ?? null)} />,
+              previous: previous ? formatStoreMoney(previous.sales.net_sales) : null,
+              aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Ventas netas" metricKey="sales_net_sales" pattern={/ventas|ingresos|factur/i} audience={asConsultant ? "consultor" : "cliente"} />,
+            },
+            {
+              key: "orders",
+              label: "Pedidos",
+              color: "#3478f6",
+              values: daily.map((d) => isCurrentDay(d.date) ? null : d.orders_count),
+              format: (v) => fmtNum(v),
+              total: fmtNum(data.sales.orders_count),
+              delta: <Delta change={salesChangePct(data.sales.orders_count, previous?.sales.orders_count ?? null)} />,
+              previous: previous ? fmtNum(previous.sales.orders_count) : null,
+              aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Pedidos" metricKey="orders_count" pattern={/pedidos|órdenes|orders/i} audience={asConsultant ? "consultor" : "cliente"} />,
+            },
+            ...(showProfit && financial && daily.some((d) => d.net_profit != null)
+              ? [{
+                  key: "profit",
+                  label: "Beneficio neto",
+                  color: "#198754",
+                  values: daily.map((d) => isCurrentDay(d.date) ? null : d.net_profit),
+                  format: (v: number) => formatStoreMoney(v),
+                  total: formatStoreMoney(financial.net_profit),
+                  delta: previous?.financial.lines_without_metrics === 0 ? <Delta change={salesChangePct(financial.net_profit, previous.financial.net_profit)} /> : null,
+                  previous: previous?.financial.lines_without_metrics === 0 && previous.financial.net_profit != null ? formatStoreMoney(previous.financial.net_profit) : null,
+                  aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Beneficio neto" metricKey="net_profit" pattern={/beneficio|margen|rentab|coste/i} audience={asConsultant ? "consultor" : "cliente"} />,
+                }]
+              : []),
+            ...(data.funnel?.has_sessions && data.funnel.conversion_rate_own != null
+              ? [{
+                  key: "conversion",
+                  label: "Conversión",
+                  color: "#6256c9",
+                  values: daily.map((day) => {
+                    if (isCurrentDay(day.date)) return null;
+                    const rate = funnelConversionByDate.get(day.date.slice(0, 10));
+                    return rate == null ? null : rate * 100;
+                  }),
+                  format: (v: number) => `${fmtNum(v, 2)} %`,
+                  total: `${fmtNum(data.funnel.conversion_rate_own * 100, 2)} %`,
+                  delta: previous?.conversion_rate_own != null ? <Delta change={(data.funnel.conversion_rate_own - previous.conversion_rate_own) * 100} suffix="pp" /> : null,
+                  previous: previous?.conversion_rate_own != null ? `${fmtNum(previous.conversion_rate_own * 100, 2)} %` : null,
+                  aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Conversión" metricKey="conversion_rate" pattern={/conversi|embudo|carrito|checkout/i} audience={asConsultant ? "consultor" : "cliente"} />,
+                }]
+              : []),
+          ]}
+        />
+      ) : null}
+
+      {/* CAC y las cifras de más del consultor siguen como tarjetas. */}
+      {data && (showCac || extraKpis) ? (
+        <div className={s.pKpis} aria-label="Más cifras" id={showCac ? undefined : "insight-metric-cac_new"}>
           {showCac && financial?.cac_blended != null ? (
             <Kpi
+              metric="cac"
               open={openKpi === "cac"}
               onOpen={toggleKpi("cac")}
               verdict={<MetricVerdict analysis={verdictOf("cac_new")} />}
@@ -1740,6 +1913,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               label="CAC combinado"
               value={formatStoreMoney(financial.cac_blended, 2)}
               slot={<p className={s.trackTxt}>Publicidad entre clientes nuevos</p>}
+              aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="CAC combinado" metricKey="cac_blended" pattern={/cac|adquisi|captaci|nuevos/i} audience={asConsultant ? "consultor" : "cliente"} />}
             />
           ) : null}
           {extraKpis?.(openKpi, toggleKpi)}
@@ -1748,9 +1922,12 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 
       {detail ? (
         <KpiDetail
+          key={openKpi}
+          metric={openKpi ?? undefined}
+          closing={closingKpi}
           {...detail}
           ai={detail.ai ?? <p className={s.aiLine}>La IA no ha señalado nada sobre esta cifra en su último análisis.</p>}
-          onClose={() => setOpenKpi(null)}
+          onClose={closeKpi}
           onAsk={() =>
             askCopilot(
               `¿Cómo va ${detail.title.toLowerCase()} en ${yourStore} estos 30 días y qué haría para mejorar esta cifra?`,
@@ -1764,7 +1941,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
       <div className={s.pGrid}>
         <section aria-labelledby="pulse-hoy" className={s.pMain}>
           {operations.error && !operations.data ? (
-            <p className={s.error}>No se pudieron cargar las tareas: {operations.error}</p>
+            <ErrorBlock title="No se han podido cargar las tareas" onRetry={() => operations.reload()}>{operations.error}</ErrorBlock>
           ) : (
             <WorkQueue
               base={base}
@@ -1781,14 +1958,17 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
           )}
           {asConsultant && connectionId ? (
             <div className={s.pMainExtras}>
-              <ConsultantAgentInsights
-                monitor={monitor.data}
-                stock={stockAi.data}
-                email={emailAi.data}
-                loading={{ monitor: monitor.isLoading, stock: stockAi.isLoading, email: emailAi.isLoading }}
-              />
+              <AgentInsights agents={[
+                { key: "monitor", label: "A02 · Salud del negocio", diagnostic: monitor.data },
+                { key: "stock", label: "Stock", diagnostic: stockAi.data },
+                { key: "email", label: "Email", diagnostic: emailAi.data },
+              ]} />
             </div>
-          ) : null}
+          ) : (
+            <div className={s.pMainExtras}>
+              <AgentInsights agents={[{ key: "monitor", label: "A02 · Salud del negocio", diagnostic: monitor.data }]} />
+            </div>
+          )}
         </section>
 
         <aside className={s.pSide} aria-label="Vigilar y canales">
@@ -1897,34 +2077,97 @@ export function usePins(daily: Array<{ date: string }> | undefined, alerts: Aler
 
 export type KpiDetailData = { title: string; chart: ReactNode; ai: ReactNode; href: string; action: string };
 
+/** Una sola cifra abierta; cambiar de cifra cancela el cierre pendiente. */
+export function useKpiDisclosure() {
+  const [openKpi, setOpenKpi] = useState<string | null>(null);
+  const [closingKpi, setClosingKpi] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+  }, []);
+
+  const closeKpi = () => {
+    if (closeTimer.current !== null) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setOpenKpi(null);
+      return;
+    }
+    setClosingKpi(true);
+    // Misma duración que kpiDetailOut; el contenido sale antes de retirar su espacio.
+    closeTimer.current = setTimeout(() => {
+      setOpenKpi(null);
+      setClosingKpi(false);
+      closeTimer.current = null;
+    }, 160);
+  };
+
+  const toggleKpi = (key: string) => () => {
+    if (openKpi === key && !closingKpi) {
+      closeKpi();
+      return;
+    }
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+    setClosingKpi(false);
+    setOpenKpi(key);
+  };
+
+  return { openKpi, toggleKpi, closeKpi, closingKpi };
+}
+
 /** Detalle de una cifra abierta: gráfico, lectura (IA o datos) y a dónde ir a ver más. */
-export function KpiDetail({ title, chart, ai, href, action, onClose, onAsk }: {
+export function KpiDetail({ title, chart, ai, href, action, metric, closing = false, onClose, onAsk }: {
   title: string;
   chart: ReactNode;
   ai: ReactNode;
   href: string;
   action: string;
+  metric?: string;
+  closing?: boolean;
   onClose: () => void;
   onAsk: () => void;
 }) {
+  const headingId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
+  const close = () => {
+    const trigger = sectionRef.current?.parentElement?.querySelector<HTMLButtonElement>('button[aria-expanded="true"][aria-controls="pulse-kpi-detail"]');
+    onClose();
+    trigger?.focus({ preventScroll: true });
+  };
   return (
-    <section id="pulse-kpi-detail" className={s.kpiDetail} aria-label={`Detalle de ${title}`}>
+    <section
+      ref={sectionRef}
+      id="pulse-kpi-detail"
+      className={s.kpiDetail}
+      data-metric={metric}
+      data-closing={closing || undefined}
+      inert={closing}
+      aria-labelledby={headingId}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      }}
+    >
       <header className={s.kpiDetailH}>
-        <h2>
+        <h2 id={headingId}>
           {title}
           <small>Últimos 30 días</small>
         </h2>
-        <button type="button" className={cx(s.btn, s.ghost, s.sm, s.kpiDetailX)} aria-label="Cerrar detalle" onClick={onClose}>
+        <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.kpiDetailX })} aria-label={`Cerrar detalle de ${title}`} onClick={close}>
           <CloseIcon aria-hidden="true" />
         </button>
       </header>
       {chart}
       {ai}
       <div className={s.kpiDetailF}>
-        <Link className={cx(s.btn, s.sm)} href={href}>
+        <Link className={buttonVariants({ size: "sm" })} href={href}>
           {action}
         </Link>
-        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={onAsk}>
+        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={onAsk}>
           Preguntar a la IA
         </button>
       </div>
@@ -1933,17 +2176,18 @@ export function KpiDetail({ title, chart, ai, href, action, onClose, onAsk }: {
 }
 
 /** Barras por cliente o tienda: pasar el ratón resalta, pulsar abre ese cliente. */
-export function KpiBars({ rows, onSelect }: {
+export function KpiBars({ rows, onSelect, label = "Por cliente" }: {
   rows: Array<{ key: string; id: string; name: string; value: number | null; text: string; tone?: "bad" }>;
   onSelect: (id: string) => void;
+  label?: string;
 }) {
   const max = Math.max(...rows.map((row) => Math.abs(row.value ?? 0)), 1);
   if (!rows.length) return <p className={s.trackTxt}>Sin datos de los clientes todavía.</p>;
   return (
-    <ul className={s.kdFlow} aria-label="Por cliente">
+    <ul className={s.kdFlow} aria-label={label}>
       {rows.map((row) => (
         <li key={row.key}>
-          <button type="button" className={s.kdRow} data-tone={row.tone} onClick={() => onSelect(row.id)}>
+          <button type="button" className={s.kdRow} data-tone={row.value != null && row.value < 0 ? "bad" : row.tone} onClick={() => onSelect(row.id)}>
             <span>{row.name}</span>
             <i style={{ width: `${row.value != null ? (Math.abs(row.value) / max) * 100 : 0}%` }} aria-hidden="true" />
             <b className={s.num}>{row.text}</b>
@@ -1954,23 +2198,28 @@ export function KpiBars({ rows, onSelect }: {
   );
 }
 
-export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId, open = false, onOpen }: {
+export function Kpi({ label, value, numericValue, previousNumericValue, delta, vs, slot, tag, verdict, aiNotice, anchorId, metric, open = false, onOpen }: {
   /** Con `onOpen`, toda la tarjeta abre su detalle (gráfico, IA y acción) debajo de la fila. */
   open?: boolean;
   onOpen?: () => void;
   label: string;
-  value: string;
+  value: ReactNode;
+  /** El estado se obtiene del dato, nunca del importe ya formateado. */
+  numericValue?: number | null;
+  previousNumericValue?: number | null;
+  metric?: string;
   delta?: ReactNode;
   vs?: string | null;
   slot: ReactNode;
   tag?: string;
   /** Punto del analista de métricas (`<MetricVerdict>`), junto a la etiqueta. */
   verdict?: ReactNode;
+  aiNotice?: ReactNode;
   /** Ancla del ✨ (`insight-metric-<id>`): el menú de la IA lleva hasta aquí y parpadea. */
   anchorId?: string;
 }) {
   return (
-    <ZoneCard anchor={zoneAnchor("kpi", label)} label={label} id={anchorId} className={cx(s.kpi, onOpen && s.kpiBtn, open && s.kpiOn)} previewClassName={cx(s.root, s.kpiStage)} role="group" aria-label={label}>
+    <ZoneCard anchor={zoneAnchor("kpi", label)} label={label} id={anchorId} className={cx(s.kpi, onOpen && s.kpiBtn, open && s.kpiOn)} previewClassName={cx(s.root, s.kpiStage)} role="group" aria-label={label} data-metric={metric}>
       {/* Capa clicable bajo los botones propios de la tarjeta (punto del analista, notas). */}
       {onOpen ? (
         <button
@@ -1980,21 +2229,28 @@ export function Kpi({ label, value, delta, vs, slot, tag, verdict, anchorId, ope
           aria-controls={open ? "pulse-kpi-detail" : undefined}
           aria-label={`${open ? "Cerrar" : "Ver"} el detalle de ${label}`}
           onClick={onOpen}
+          onKeyDown={(event) => {
+            if (open && event.key === "Escape") {
+              event.preventDefault();
+              onOpen();
+            }
+          }}
         />
       ) : null}
       {/* div y no p: `verdict` es un Popover con botón y capa, que dentro de un <p> rompe la hidratación. */}
       <div className={s.kpiL}>
         {verdict}
         {label}
+        {aiNotice}
         <ZoneNoteMark anchor={zoneAnchor("kpi", label)} label={label} />
         {tag ? <span className={cx(s.chip, s.chipWarn)}>{tag}</span> : null}
       </div>
-      <p className={s.kpiV}>{value}</p>
+      <p className={s.kpiV} data-tone={numericValue != null && numericValue < 0 ? "bad" : undefined}>{value}</p>
       <p className={s.kpiD}>
         {delta}
         {vs ? (
           <span>
-            vs <span className={s.num}>{vs}</span>
+            vs <span className={s.num} data-tone={previousNumericValue != null && previousNumericValue < 0 ? "bad" : undefined}>{vs}</span>
           </span>
         ) : (
           <span>&nbsp;</span>

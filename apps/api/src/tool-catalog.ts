@@ -38,7 +38,7 @@ function requirePlatformAdmin(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "platform_admin_required",
-      message: "Solo un platform admin puede ver el catalogo de tools.",
+      message: "Solo un administrador de la plataforma puede ver el catálogo de herramientas.",
     };
   }
   return { ok: true as const };

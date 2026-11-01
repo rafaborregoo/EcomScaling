@@ -67,7 +67,6 @@
 }
 .builder button,
 .builder input,
-.builder select,
 .builder textarea {
   font: inherit;
   color: inherit;
@@ -213,22 +212,20 @@
 }
 
 /* ---------- paneles ---------- */
+/* Paneles redimensionables (components/ui/resizable.tsx): izquierda, centro y
+   ajustes son ResizablePanel; la línea entre ellos es el asa (se recuerda). */
 .work {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr) 360px;
+  display: flex;
+}
+.work > [data-slot="resizable-handle"]:not(:hover):not(:focus-visible) {
+  background: var(--fb-line);
 }
 .pane {
   min-height: 0;
   overflow: auto;
   background: var(--fb-surface);
-}
-.left {
-  border-right: 1px solid var(--fb-line);
-}
-.right {
-  border-left: 1px solid var(--fb-line);
 }
 .tabs {
   display: flex;
@@ -252,9 +249,9 @@
   align-items: center;
 }
 .tabs button[aria-selected="true"] {
-  color: var(--fb-ink);
+  color: var(--nav-active);
   font-weight: 600;
-  border-bottom-color: var(--fb-accent);
+  border-bottom-color: var(--nav-active);
 }
 .count {
   font: 11px var(--fb-mono);
@@ -412,29 +409,7 @@
   flex-wrap: wrap;
   padding: 10px 12px;
 }
-.seg {
-  display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  border-radius: 8px;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-line);
-}
-.seg button {
-  border: 0;
-  background: none;
-  padding: 5px 11px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  color: var(--fb-ink-2);
-}
-.seg button[aria-pressed="true"] {
-  background: var(--fb-ink);
-  color: #ffffff;
-}
+
 .canvas {
   flex: 1;
   min-height: 0;
@@ -730,37 +705,8 @@
 .slot[data-over] .add {
   opacity: 0;
 }
-.menu {
-  position: absolute;
-  z-index: 5;
-  top: 32px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 232px;
-  background: var(--fb-surface);
-  border: 1px solid var(--fb-line);
-  border-radius: 10px;
-  box-shadow: var(--fb-shadow);
-  padding: 6px;
-  display: grid;
-  gap: 2px;
-}
-.menu button {
-  border: 0;
-  background: none;
-  text-align: left;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 13px;
-}
-.menu button:hover,
-.menu button:focus-visible {
-  background: var(--fb-surface-2);
-}
-.menu .ti {
+/* Icono de cada paso en el DropdownMenu de "+ Añadir paso". */
+.menuIcon {
   width: 24px;
   height: 24px;
   border-radius: 6px;
@@ -975,26 +921,7 @@
   flex: 1;
   min-width: 0;
 }
-.opts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.opt {
-  border: 1px solid var(--fb-line);
-  background: var(--fb-surface);
-  border-radius: 99px;
-  padding: 5px 11px;
-  font-size: 12.5px;
-}
-.opt:hover {
-  border-color: var(--fb-line-strong);
-}
-.opt[aria-pressed="true"] {
-  background: var(--fb-ink);
-  border-color: var(--fb-ink);
-  color: #ffffff;
-}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -1059,30 +986,19 @@
   background: var(--fb-split-soft);
   color: var(--fb-split);
 }
+/* Selector de piezas: Command de @/components/ui; aquí solo el marco y la fila. */
 .pieces {
-  display: grid;
-  gap: 6px;
+  border: 1px solid var(--fb-line);
+}
+.pieces [data-slot="command-list"] {
   max-height: 300px;
-  overflow: auto;
-  padding: 2px;
 }
 .pc {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  text-align: left;
-  border: 1px solid var(--fb-line);
-  background: var(--fb-surface);
-  border-radius: 6px;
-  padding: 8px 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
-.pc:hover {
-  border-color: var(--fb-line-strong);
-}
-.pc[aria-pressed="true"] {
-  border-color: var(--fb-accent);
-  box-shadow: 0 0 0 3px var(--fb-accent-soft);
+.pc[data-checked] {
+  box-shadow: inset 0 0 0 1px var(--fb-accent);
 }
 .pc b {
   font-size: 12.5px;
@@ -1150,39 +1066,6 @@
   background: var(--fb-ink);
   border-color: var(--fb-ink);
   color: #ffffff;
-}
-
-/* disparador: tres maneras de entrar, explicadas */
-.choices {
-  display: grid;
-  gap: 6px;
-}
-.choice {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-  border: 1px solid var(--fb-line);
-  background: var(--fb-surface);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.choice:hover {
-  border-color: var(--fb-line-strong);
-}
-.choice[aria-checked="true"] {
-  border-color: var(--fb-accent);
-  box-shadow: 0 0 0 3px var(--fb-accent-soft);
-}
-.choice b {
-  font-size: 13.5px;
-}
-.choice span {
-  font-size: 12.5px;
-  color: var(--fb-ink-2);
-}
-.choice small {
-  font-size: 11.5px;
-  color: var(--fb-ink-3);
 }
 
 /* revisión */
@@ -1318,8 +1201,16 @@
   display: none;
 }
 @media (max-width: 1020px) {
+  /* Un panel cada vez: sin asas y a todo el ancho. */
+  .work > [data-slot="resizable-handle"] {
+    display: none;
+  }
+  .work > [data-slot="resizable-panel"] {
+    min-width: 0 !important;
+    max-width: none !important;
+  }
   .work {
-    grid-template-columns: minmax(0, 1fr);
+    display: block;
   }
   .left,
   .right,

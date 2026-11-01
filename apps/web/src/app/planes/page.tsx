@@ -5,16 +5,23 @@ import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/bootstrap";
 import { getSupabaseClient } from "@/lib/supabase";
 import { readApiError } from "@/lib/api-error";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Badge,
   Banner,
   BrandLogo,
   Button,
-  Card,
+  EmptyState,
   ErrorBlock,
   Heading,
   Input,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 type Plan = {
@@ -175,12 +182,12 @@ function PlanesContent() {
           {/* El plan lo escribe el webhook de Stripe, no esta redireccion: puede
               tardar unos segundos en aparecer. Decirlo evita que recarguen
               pensando que el pago no ha entrado. */}
-          <Banner tone="success">
-            Pago recibido. Tu plan se activa en unos segundos —{" "}
-            <a className="underline" href="/dashboard">
-              ir al panel
-            </a>
-            .
+          <Banner
+            tone="success"
+            title="Pago recibido"
+            action={<a className={buttonVariants({ size: "sm" })} href="/dashboard">Ir al panel</a>}
+          >
+            Tu plan se activa en unos segundos.
           </Banner>
         </div>
       ) : null}
@@ -194,66 +201,70 @@ function PlanesContent() {
       {!planes && !error ? <LoadingBlock label="Cargando planes..." /> : null}
 
       {planes?.length === 0 ? (
-        <Card title="Todavía no hay planes">
-          <p className="text-sm leading-6 text-muted">
-            Escríbenos y te damos acceso a mano mientras tanto.
-          </p>
-        </Card>
+        <EmptyState className="border border-dashed" title="Todavía no hay planes" hint="Escríbenos y te damos acceso a mano mientras tanto." />
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {(planes ?? []).map((plan) => (
-          <Card key={plan.id} title={plan.title}>
-            <div className="grid gap-4">
-              <div>
-                <span className="text-2xl font-semibold">
-                  {plan.formatted_price ?? "—"}
-                </span>{" "}
-                <span className="text-sm text-muted">
-                  {periodo(plan.billing_period_days)}
-                </span>
-              </div>
+          <Card key={plan.id}>
+            <CardHeader>
+              <CardTitle>{plan.title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4">
+                <div>
+                  <span className="text-2xl font-semibold">
+                    {plan.formatted_price ?? "—"}
+                  </span>{" "}
+                  <span className="text-sm text-muted">
+                    {periodo(plan.billing_period_days)}
+                  </span>
+                </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Badge tone="brand">{tiendas(plan.store_limit)}</Badge>
-                <Badge>{usuarios(plan.member_limit)}</Badge>
-                {plan.trial_period_days ? (
-                  <Badge tone="success">
-                    {plan.trial_period_days} días de prueba
-                  </Badge>
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone="brand">{tiendas(plan.store_limit)}</Badge>
+                  <Badge>{usuarios(plan.member_limit)}</Badge>
+                  {plan.trial_period_days ? (
+                    <Badge tone="success">
+                      {plan.trial_period_days} días de prueba
+                    </Badge>
+                  ) : null}
+                </div>
+
+                {plan.description ? (
+                  <p className="text-sm leading-6 text-muted">
+                    {plan.description}
+                  </p>
                 ) : null}
-              </div>
 
-              {plan.description ? (
-                <p className="text-sm leading-6 text-muted">
-                  {plan.description}
-                </p>
-              ) : null}
-
-              <div>
-                <Button
-                  disabled={busyPlanId !== null || !organizationId}
-                  onClick={() => void contratar(plan)}
-                >
-                  {busyPlanId === plan.id ? "Abriendo pago..." : "Empezar"}
-                </Button>
+                <div>
+                  <Button
+                    disabled={busyPlanId !== null || !organizationId}
+                    onClick={() => void contratar(plan)}
+                  >
+                    {busyPlanId === plan.id ? "Abriendo pago..." : "Empezar"}
+                  </Button>
+                </div>
               </div>
-            </div>
+            </CardContent>
           </Card>
         ))}
       </div>
-      <Card
-        kicker="Datos de facturación"
-        title="¿Necesitas factura con NIF?"
-        description="El nombre y email se toman de tu cuenta. Puedes añadir aquí el NIF de tu empresa o actividad antes de pagar."
-      >
-        <div className="max-w-sm">
-          <Input
-            value={customerTaxId}
-            onChange={(event) => setCustomerTaxId(event.target.value)}
-            placeholder="NIF/CIF (opcional)"
-          />
-        </div>
+      <Card>
+        <CardHeader>
+          <CardKicker>Datos de facturación</CardKicker>
+          <CardTitle>¿Necesitas factura con NIF?</CardTitle>
+          <CardDescription>El nombre y email se toman de tu cuenta. Puedes añadir aquí el NIF de tu empresa o actividad antes de pagar.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-sm">
+            <Input
+              value={customerTaxId}
+              onChange={(event) => setCustomerTaxId(event.target.value)}
+              placeholder="NIF/CIF (opcional)"
+            />
+          </div>
+        </CardContent>
       </Card>
     </main>
   );

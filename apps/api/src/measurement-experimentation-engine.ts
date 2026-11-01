@@ -12,7 +12,7 @@ import {
   runPlaybookFrameworkEngineForAllOrganizations,
 } from "./playbook-engine.js";
 
-const MEASUREMENT_EXPERIMENTATION_SOURCE_VERSION = "f5-p09.v1";
+export const MEASUREMENT_EXPERIMENTATION_SOURCE_VERSION = "f5-p09.v1";
 const UNKNOWN: PlaybookTriState = "UNKNOWN";
 
 export type MeasurementExperimentationEvidence = {
@@ -88,12 +88,22 @@ export function applyMeasurementExperimentationEvidence(
   evidence: MeasurementExperimentationEvidence,
   sourceRefs: string[] = [],
 ): PlaybookFrameworkInputLike["context"] {
+  return {
+    ...context,
+    evidence_refs: [...new Set([...(context.evidence_refs ?? []), ...sourceRefs])],
+    facts: { ...context.facts, ...measurementObservationFacts(evidence) },
+  };
+}
+
+/** Shared coverage contract for the playbook engine and store-scoped A24. */
+export function measurementObservationFacts(
+  evidence: MeasurementExperimentationEvidence,
+): Record<string, PlaybookTriState> {
   const sales = evidence.sales;
   const funnel = evidence.funnel;
   const daily = evidence.daily;
   const hasData = sales?.available === true || funnel?.available === true || daily?.available === true;
   const facts: Record<string, PlaybookTriState> = {
-    ...context.facts,
     "measurement.data.available": hasData ? "TRUE" : sales || funnel || daily ? "FALSE" : UNKNOWN,
     "measurement.orders.observed": numericAvailability(sales?.available, sales?.orders_count),
     "measurement.sessions.observed": numericAvailability(funnel?.available, funnel?.sessions),
@@ -101,11 +111,7 @@ export function applyMeasurementExperimentationEvidence(
     "measurement.purchase_events.observed": numericAvailability(funnel ? funnel.available && funnel.has_funnel_steps === true : undefined, funnel?.purchases),
     "measurement.baseline.observed": numericAvailability(daily?.available, daily?.days),
   };
-  return {
-    ...context,
-    evidence_refs: [...new Set([...(context.evidence_refs ?? []), ...sourceRefs])],
-    facts,
-  };
+  return facts;
 }
 
 async function enrichMeasurementExperimentationContext(

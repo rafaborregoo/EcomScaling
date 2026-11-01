@@ -2,7 +2,7 @@
 
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { useCachedQuery } from "@/lib/use-cached-query";
-import { AsyncState, Badge, ButtonLink, Card, ErrorBlock, Table } from "@/components/ui";
+import { AsyncState, Badge, ButtonLink, ErrorBlock, DataTable, Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
 
 type ConsultantRow = {
   consultant_user_id: string;
@@ -29,60 +29,65 @@ function ProgramaPanel() {
 
   return (
     <div className="grid gap-6">
-      <Card title="Consultores">
-        <Table
-          ariaLabel="Códigos de referido por consultor"
-          emptyLabel="No hay consultores."
-          rows={query.data.consultants.map((row) => ({
-            ...row,
-            id: row.consultant_user_id,
-          }))}
-          columns={[
-            {
-              key: "consultant_name",
-              label: "Consultor",
-              render: (row) => row.consultant_name ?? "Sin nombre",
-            },
-            {
-              key: "code",
-              label: "Código",
-              render: (row) =>
-                row.code ? (
-                  <span className="flex items-center gap-2">
-                    <code>{row.code}</code>
-                    {row.is_active ? null : <Badge tone="warn">inactivo</Badge>}
-                  </span>
-                ) : (
-                  "—"
+      <Card>
+        <CardHeader>
+          <CardTitle>Consultores</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Códigos de referido por consultor"
+            emptyLabel="No hay consultores."
+            rows={query.data.consultants.map((row) => ({
+              ...row,
+              id: row.consultant_user_id,
+            }))}
+            columns={[
+              {
+                key: "consultant_name",
+                label: "Consultor",
+                render: (row) => row.consultant_name ?? "Sin nombre",
+              },
+              {
+                key: "code",
+                label: "Código",
+                render: (row) =>
+                  row.code ? (
+                    <span className="flex items-center gap-2">
+                      <code>{row.code}</code>
+                      {row.is_active ? null : <Badge tone="warn">inactivo</Badge>}
+                    </span>
+                  ) : (
+                    "—"
+                  ),
+              },
+              {
+                key: "discount_percent",
+                label: "Descuento",
+                render: (row) =>
+                  row.code
+                    ? `${row.discount_percent}% · ${row.discount_months} m`
+                    : "—",
+              },
+              { key: "registrados", label: "Registrados" },
+              { key: "activos", label: "Con plan" },
+              { key: "cancelados", label: "Cancelados" },
+              { key: "leads", label: "Leads" },
+              {
+                key: "actions",
+                label: "",
+                render: (row) => (
+                  <ButtonLink
+                    size="sm"
+                    variant="secondary"
+                    href={`/admin/programa-consultores/${row.consultant_user_id}`}
+                  >
+                    {row.code ? "Gestionar" : "Crear código"}
+                  </ButtonLink>
                 ),
-            },
-            {
-              key: "discount_percent",
-              label: "Descuento",
-              render: (row) =>
-                row.code
-                  ? `${row.discount_percent}% · ${row.discount_months} m`
-                  : "—",
-            },
-            { key: "registrados", label: "Registrados" },
-            { key: "activos", label: "Con plan" },
-            { key: "cancelados", label: "Cancelados" },
-            { key: "leads", label: "Leads" },
-            {
-              key: "actions",
-              label: "",
-              render: (row) => (
-                <ButtonLink
-                  size="sm"
-                  variant="secondary"
-                  href={`/admin/programa-consultores/${row.consultant_user_id}`}
-                >
-                  {row.code ? "Gestionar" : "Crear código"}
-                </ButtonLink>
-              ),
-            },
-          ]}
-        />
+              },
+            ]}
+          />
+        </CardContent>
       </Card>
     </div>
   );

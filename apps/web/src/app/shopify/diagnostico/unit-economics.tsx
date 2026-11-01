@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type UnitEconomicsRun = {
   organization_id: string;
@@ -48,29 +48,35 @@ export function UnitEconomicsPlaybookPanel() {
   const facts = current?.input_envelope?.context?.facts ?? {};
   const profile = current?.result?.selected_instance?.domain_extension?.unit_economics;
   return (
-    <Card id="insight-unit-economics" title="Unit economics y rentabilidad" description="Muestra el waterfall económico observado y mantiene separados contribution, CAC, payback, cash, cohortes y escenarios cuando no hay datos comparables.">
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">
-            {current.candidate_count ? `${current.candidate_count} playbook(s) económicos evaluado(s).` : "No hay templates UNIT_ECONOMICS activos; no se inventa rentabilidad ni umbrales."}
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            Revenue neto: {fact(facts, "unit_economics.revenue.net_observed")}; pedidos: {fact(facts, "unit_economics.unit_order.observed")}; COGS: {fact(facts, "unit_economics.costs.cogs_observed")}; margen bruto: {fact(facts, "unit_economics.gross_profit.observed")}.
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            Resumen financiero: {fact(facts, "unit_economics.financial_summary.available")}; contribution: {fact(facts, "unit_economics.contribution.observed")}; CAC: {fact(facts, "unit_economics.acquisition.cac_observed")}; payback: {fact(facts, "unit_economics.payback.observed")}; cash: {fact(facts, "unit_economics.cash.observed")}.
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            Segmentación: {fact(facts, "unit_economics.segmented.observed")}; escenarios: {fact(facts, "unit_economics.scenarios.observed")}; comparabilidad: {fact(facts, "unit_economics.data_quality.comparable")}.
-          </p>
-          {profile ? <p className="text-muted mt-2 text-xs">Familia: {profile.intervention_family}; unidad: {profile.analysis_unit}; métrica económica: {profile.economic_metric_ref ?? "UNKNOWN"}; reversible: {profile.reversible ? "sí" : "no"}.</p> : null}
-          <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar definiciones, cobertura de costes y comparabilidad."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
-        </article>
-      ) : <p className="text-muted text-sm">Todavía no hay evaluaciones de unit economics.</p>}
+    <Card id="insight-unit-economics">
+      <CardHeader>
+        <CardTitle>Unit economics y rentabilidad</CardTitle>
+        <CardDescription>Muestra el waterfall económico observado y mantiene separados contribution, CAC, payback, cash, cohortes y escenarios cuando no hay datos comparables.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">
+              {current.candidate_count ? `${current.candidate_count} playbook(s) económicos evaluado(s).` : "No hay templates UNIT_ECONOMICS activos; no se inventa rentabilidad ni umbrales."}
+            </p>
+            <p className="text-muted mt-2 text-xs">
+              Revenue neto: {fact(facts, "unit_economics.revenue.net_observed")}; pedidos: {fact(facts, "unit_economics.unit_order.observed")}; COGS: {fact(facts, "unit_economics.costs.cogs_observed")}; margen bruto: {fact(facts, "unit_economics.gross_profit.observed")}.
+            </p>
+            <p className="text-muted mt-2 text-xs">
+              Resumen financiero: {fact(facts, "unit_economics.financial_summary.available")}; contribution: {fact(facts, "unit_economics.contribution.observed")}; CAC: {fact(facts, "unit_economics.acquisition.cac_observed")}; payback: {fact(facts, "unit_economics.payback.observed")}; cash: {fact(facts, "unit_economics.cash.observed")}.
+            </p>
+            <p className="text-muted mt-2 text-xs">
+              Segmentación: {fact(facts, "unit_economics.segmented.observed")}; escenarios: {fact(facts, "unit_economics.scenarios.observed")}; comparabilidad: {fact(facts, "unit_economics.data_quality.comparable")}.
+            </p>
+            {profile ? <p className="text-muted mt-2 text-xs">Familia: {profile.intervention_family}; unidad: {profile.analysis_unit}; métrica económica: {profile.economic_metric_ref ?? "UNKNOWN"}; reversible: {profile.reversible ? "sí" : "no"}.</p> : null}
+            <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar definiciones, cobertura de costes y comparabilidad."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
+          </CardContent></Card>
+        ) : <EmptyState title="Todavía no hay evaluaciones de unit economics" />}
+      </CardContent>
     </Card>
   );
 }

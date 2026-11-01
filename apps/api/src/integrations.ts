@@ -529,7 +529,7 @@ export async function listIntegrations(
               .filter((item) => item.connection_id === connection.id)
               .slice(0, 30);
             const latestSync = runs[0] ?? null;
-            const health = deriveIntegrationHealth({
+            let health = deriveIntegrationHealth({
               available: provider.available,
               connectionStatus: connection.status,
               lastSyncAt: connection.last_sync_at,
@@ -537,6 +537,10 @@ export async function listIntegrations(
               latestSyncStatus: latestSync?.status ?? null,
               latestSyncStartedAt: latestSync?.started_at ?? null,
             });
+            const webhooks = connection.metadata?.webhooks as { status?: string } | undefined;
+            if (provider.id === "shopify" && webhooks?.status === "failed" && health.status === "healthy") {
+              health = { ...health, status: "degraded", reason: "webhook_registration_failed" };
+            }
 
             return {
               ...toConnectionView(connection),

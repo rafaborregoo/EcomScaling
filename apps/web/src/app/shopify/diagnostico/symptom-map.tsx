@@ -22,10 +22,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -175,41 +179,44 @@ export function SymptomMapPanel() {
   const arbol = buildSymptomTree(symptoms);
 
   return (
-    <Card
-      title="Qué patrón forman las señales"
-      description="Los síntomas activos: qué señales los sostienen, qué los contradice y hasta dónde llega lo que se puede afirmar. Ninguno dice por qué pasa."
-    >
-      {arbol.length === 0 ? (
-        <EmptyState
-          title="Sin síntomas activos"
-          hint="Aparecen cuando varias señales coherentes entre sí forman un patrón. Coincidir en el tiempo no basta."
-        />
-      ) : (
-        <ul>
-          {arbol.map(({ symptom, children }) => (
-            <li
-              key={symptom.id}
-              className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
-            >
-              <SymptomBody symptom={symptom} />
+    <Card>
+      <CardHeader>
+        <CardTitle>Qué patrón forman las señales</CardTitle>
+        <CardDescription>Los síntomas activos: qué señales los sostienen, qué los contradice y hasta dónde llega lo que se puede afirmar. Ninguno dice por qué pasa.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {arbol.length === 0 ? (
+          <EmptyState
+            title="Sin síntomas activos"
+            hint="Aparecen cuando varias señales coherentes entre sí forman un patrón. Coincidir en el tiempo no basta."
+          />
+        ) : (
+          <ul>
+            {arbol.map(({ symptom, children }) => (
+              <li
+                key={symptom.id}
+                className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
+              >
+                <SymptomBody symptom={symptom} />
 
-              {children.length > 0 ? (
-                <div className="mt-4 space-y-4 border-l border-default-200 pl-4">
-                  {/* Guardrail 43: el resultado no es donde se para el diagnostico. */}
-                  <p className="text-muted text-xs uppercase tracking-wide">
-                    En qué se descompone
-                  </p>
-                  {children.map((hijo) => (
-                    <div key={hijo.id}>
-                      <SymptomBody symptom={hijo} />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+                {children.length > 0 ? (
+                  <div className="mt-4 space-y-4 border-l border-default-200 pl-4">
+                    {/* Guardrail 43: el resultado no es donde se para el diagnostico. */}
+                    <p className="text-muted text-xs uppercase tracking-wide">
+                      En qué se descompone
+                    </p>
+                    {children.map((hijo) => (
+                      <div key={hijo.id}>
+                        <SymptomBody symptom={hijo} />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   );
 }

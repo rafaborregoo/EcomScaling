@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "@/lib/bootstrap";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
+import { readApiFailure } from "@/lib/api-error";
 
 // Caché de datos de página estilo stale-while-revalidate, en el mismo espíritu
 // que `bootstrapCache` de PortalShell. Objetivo: al volver a una vista que ya
@@ -13,6 +14,18 @@ type Entry = { data: unknown; at: number };
 
 const cache = new Map<string, Entry>();
 const inflight = new Map<string, Promise<unknown>>();
+const keyVersions = new Map<string, number>();
+let invalidationVersion = 0;
+const invalidationListeners = new Set<() => void>();
+const subscribeInvalidation = (listener: () => void) => {
+  invalidationListeners.add(listener);
+  return () => { invalidationListeners.delete(listener); };
+};
+const readServerInvalidation = () => 0;
+function useInvalidationVersion(signature: string) {
+  const readInvalidation = useCallback(() => Math.max(0, ...signature.split("\u0000").map((key) => keyVersions.get(key) ?? 0)), [signature]);
+  return useSyncExternalStore(subscribeInvalidation, readInvalidation, readServerInvalidation);
+}
 
 // Dentro de esta ventana desde el último fetch, montar la vista NO dispara
 // refetch: se considera fresco. Fuera de ella, se revalida en segundo plano.
@@ -20,25 +33,25 @@ const FRESH_MS = 30_000;
 
 async function fetchJson(key: string): Promise<unknown> {
   const response = await apiFetch(key);
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: string;
-      message?: string;
-    } | null;
-    throw new Error(body?.message || body?.error || `HTTP ${response.status}`);
-  }
+  if (!response.ok) throw await readApiFailure(response);
   return response.json();
 }
 
 function run(key: string): Promise<unknown> {
   let promise = inflight.get(key);
   if (!promise) {
+    const version = keyVersions.get(key) ?? 0;
     promise = fetchJson(key)
       .then((data) => {
+        // Publish a completed snapshot even under a continuous event stream.
+        // Then fetch once more if this particular resource changed meanwhile.
+        if (version !== (keyVersions.get(key) ?? 0)) {
+          setTimeout(() => invalidateCachedQueries(key), 0);
+        }
         cache.set(key, { data, at: Date.now() });
         return data;
       })
-      .finally(() => inflight.delete(key));
+      .finally(() => { if (inflight.get(key) === promise) inflight.delete(key); });
     inflight.set(key, promise);
   }
   return promise;
@@ -53,19 +66,34 @@ export function prefetchCachedQuery(key: string): void {
 
 /** Borra entradas de caché. Sin prefijo, todo (p.ej. al cambiar de organización
  *  activa: los datos son de otro tenant). Con prefijo, solo las que empiezan por él. */
-export function invalidateCachedQueries(prefix?: string): void {
-  if (!prefix) {
-    cache.clear();
-    return;
+export function invalidateCachedQueries(prefix?: string | string[]): void {
+  invalidateApiGetCache();
+  const prefixes = typeof prefix === "string" ? [prefix] : prefix;
+  for (const key of new Set([...cache.keys(), ...inflight.keys()])) {
+    if (prefixes && !prefixes.some((value) => key.startsWith(value))) continue;
+    keyVersions.set(key, invalidationVersion + 1);
+    if (!prefixes) cache.delete(key);
+    else if (cache.has(key)) cache.set(key, { ...cache.get(key)!, at: 0 });
   }
-  for (const key of [...cache.keys()]) {
-    if (key.startsWith(prefix)) cache.delete(key);
+  invalidationVersion += 1;
+  invalidationListeners.forEach((listener) => listener());
+}
+
+type Failure = { message: string; code: string | null };
+
+function toFailure(reason: unknown): Failure {
+  if (reason instanceof Error) {
+    return { message: reason.message, code: "code" in reason && typeof reason.code === "string" ? reason.code : null };
   }
+  return { message: "No se ha podido cargar. Inténtalo de nuevo en unos segundos.", code: null };
 }
 
 export type CachedQuery<T> = {
   data: T | undefined;
+  /** Texto para enseñar. */
   error: string | null;
+  /** Código de la API (`shopify_store_selection_required`...) para decidir, nunca para enseñar. */
+  errorCode: string | null;
   /** true solo en la PRIMERA carga (sin datos cacheados y sin error). */
   isLoading: boolean;
   /** true mientras revalida por detrás, aunque ya se muestren datos. */
@@ -74,8 +102,9 @@ export type CachedQuery<T> = {
 };
 
 export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
+  const invalidation = useInvalidationVersion(key ?? "");
   const [, forceRender] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setError] = useState<Failure | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
   useEffect(() => {
@@ -97,9 +126,7 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
       .catch((e: unknown) => {
         if (cancelled) return;
         // Si ya había datos cacheados, un fallo de red no debe tapar la vista.
-        if (!cache.has(key)) {
-          setError(e instanceof Error ? e.message : "No se pudo cargar.");
-        }
+        if (!cache.has(key)) setError(toFailure(e));
       })
       .finally(() => {
         if (!cancelled) setIsValidating(false);
@@ -108,7 +135,7 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
     return () => {
       cancelled = true;
     };
-  }, [key]);
+  }, [key, invalidation]);
 
   const reload = useCallback(() => {
     if (!key) return;
@@ -119,17 +146,17 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
         setError(null);
         forceRender((n) => n + 1);
       })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "No se pudo cargar.");
-      })
+      .catch((e: unknown) => setError(toFailure(e)))
       .finally(() => setIsValidating(false));
   }, [key]);
 
   const data = key ? (cache.get(key)?.data as T | undefined) : undefined;
+  const error = failure?.message ?? null;
 
   return {
     data,
     error,
+    errorCode: failure?.code ?? null,
     // `key` null = la pagina todavia no sabe QUE pedir (no hay cliente activo,
     // por ejemplo), asi que no hay fetch en marcha. Sin esta condicion se
     // devolvia `isLoading: true` para siempre: sin datos, sin error y sin nada
@@ -148,13 +175,14 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
  * de un `map`.
  */
 export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
+  const invalidation = useInvalidationVersion(keys.join("\u0000"));
   const keySignature = keys.join("\u0000");
   const stableKeys = useMemo(
     () => [...new Set(keys.filter(Boolean))],
     [keySignature],
   );
   const [, forceRender] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setError] = useState<Failure | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
   useEffect(() => {
@@ -174,11 +202,7 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
         forceRender((n) => n + 1);
       })
       .catch((reason: unknown) => {
-        if (!cancelled) {
-          setError(
-            reason instanceof Error ? reason.message : "No se pudo cargar.",
-          );
-        }
+        if (!cancelled) setError(toFailure(reason));
       })
       .finally(() => {
         if (!cancelled) setIsValidating(false);
@@ -187,7 +211,7 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
     return () => {
       cancelled = true;
     };
-  }, [forceRender, keySignature, stableKeys]);
+  }, [forceRender, keySignature, stableKeys, invalidation]);
 
   const hasAllData = stableKeys.every((key) => cache.has(key));
   const data = hasAllData
@@ -203,17 +227,16 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
         setError(null);
         forceRender((n) => n + 1);
       })
-      .catch((reason: unknown) => {
-        setError(
-          reason instanceof Error ? reason.message : "No se pudo cargar.",
-        );
-      })
+      .catch((reason: unknown) => setError(toFailure(reason)))
       .finally(() => setIsValidating(false));
   }, [forceRender, stableKeys]);
+
+  const error = failure?.message ?? null;
 
   return {
     data,
     error,
+    errorCode: failure?.code ?? null,
     isLoading: stableKeys.length > 0 && data === undefined && error === null,
     isValidating,
     reload,
@@ -229,6 +252,7 @@ export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
 export function useCachedQueriesSettled<T>(
   keys: string[],
 ): CachedQuery<Array<T | undefined>> & { errors: Array<string | null> } {
+  const invalidation = useInvalidationVersion(keys.join("\u0000"));
   const keySignature = keys.join("\u0000");
   const stableKeys = useMemo(
     () => [...new Set(keys.filter(Boolean))],
@@ -261,7 +285,7 @@ export function useCachedQueriesSettled<T>(
           } catch (reason: unknown) {
             return reason instanceof Error
               ? reason.message
-              : "No se pudo cargar.";
+              : "No se ha podido cargar. Inténtalo de nuevo en unos segundos.";
           }
         }),
       )
@@ -284,7 +308,7 @@ export function useCachedQueriesSettled<T>(
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, invalidation]);
 
   const data = hasSettled
     ? stableKeys.map((key) => cache.get(key)?.data as T | undefined)
@@ -295,6 +319,7 @@ export function useCachedQueriesSettled<T>(
   return {
     data,
     error: firstError,
+    errorCode: null,
     errors,
     isLoading: stableKeys.length > 0 && data === undefined && !firstError,
     isValidating,

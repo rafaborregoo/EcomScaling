@@ -25,12 +25,16 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   Banner,
   LoadingBlock,
   ProviderIcon,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -133,26 +137,27 @@ export function DataQualityPanel() {
   const { summary } = data;
 
   return (
-    <Card
-      title="Calidad del dato"
-      description={
-        summary.evaluated === 0
+    <Card>
+      <CardHeader>
+        <CardTitle>Calidad del dato</CardTitle>
+        <CardDescription>{summary.evaluated === 0
           ? "Todavía no se ha evaluado ninguna fuente."
-          : `${summary.evaluated} fuentes evaluadas · ${summary.blocked} bloquean el diagnóstico · ${summary.degraded} lo degradan.`
-      }
-    >
-      {data.sources.length === 0 ? (
-        <EmptyState
-          title="Sin evaluaciones"
-          hint="El motor de calidad de datos aún no ha pasado sobre estas organizaciones."
-        />
-      ) : (
-        <ul>
-          {data.sources.map((source) => (
-            <SourceRow key={source.id} source={source} />
-          ))}
-        </ul>
-      )}
+          : `${summary.evaluated} fuentes evaluadas · ${summary.blocked} bloquean el diagnóstico · ${summary.degraded} lo degradan.`}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {data.sources.length === 0 ? (
+          <EmptyState
+            title="Sin evaluaciones"
+            hint="El motor de calidad de datos aún no ha pasado sobre estas organizaciones."
+          />
+        ) : (
+          <ul>
+            {data.sources.map((source) => (
+              <SourceRow key={source.id} source={source} />
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   );
 }

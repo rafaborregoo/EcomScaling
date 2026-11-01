@@ -81,7 +81,7 @@ export async function createStripeCheckout(
       ok: false as const,
       statusCode: 503,
       error: "stripe_not_configured",
-      message: "Los pagos todavia no estan configurados en este entorno.",
+      message: "Los pagos todavía no están configurados en este entorno.",
     };
   }
 

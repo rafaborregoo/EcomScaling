@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Tamaño de la pieza: 1080x1350 (feed 4:5), 1080x1080 (1:1) o 1080x1920 (stories/reels 9:16) -->
+<meta name="size" content="1080x1350">
+<!-- Cambia la fuente por la de la marca (Google Fonts) -->
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;700;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* ===== KIT DE MARCA: rellena con los datos reales del cliente ===== */
+  :root{
+    --fondo:#170038;        /* color de fondo principal */
+    --texto:#ffffff;        /* color de texto sobre el fondo */
+    --primario:#770fff;     /* color de marca principal (botones, bloques) */
+    --acento:#00d8ff;       /* acento para resaltar palabras clave */
+    --acento2:#ff00ff;      /* segundo acento (detalles pequeños) */
+    --claro:#ffffff;        /* fondo claro alternativo */
+    --titular:'Poppins',sans-serif;
+    --cuerpo:'Inter',sans-serif;
+  }
+  /* ================================================================ */
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1080px;height:1350px;overflow:hidden}
+  body{background:var(--fondo);color:var(--texto);font-family:var(--cuerpo);
+       display:flex;flex-direction:column;padding:90px 80px 80px;position:relative}
+  .marca{display:flex;align-items:center;gap:16px;font:700 30px var(--titular);letter-spacing:.5px}
+  .marca .logo{width:56px;height:56px;border-radius:14px;background:var(--primario);
+       display:grid;place-items:center;font-size:30px;color:#fff}
+  .marca img{height:56px}
+  .kicker{margin-top:auto;font:600 34px var(--cuerpo);color:var(--acento);text-transform:uppercase;letter-spacing:2px}
+  h1{font:800 104px/1.02 var(--titular);margin-top:24px;letter-spacing:-2px}
+  h1 em{font-style:normal;color:var(--acento)}
+  .sub{font:400 40px/1.35 var(--cuerpo);margin-top:36px;opacity:.9;max-width:860px}
+  .cta{margin-top:56px;align-self:flex-start;background:var(--primario);color:#fff;
+       font:700 38px var(--titular);padding:28px 48px;border-radius:999px}
+  .deco{position:absolute;right:-120px;top:-120px;width:520px;height:520px;border-radius:50%;
+        background:radial-gradient(circle,var(--primario),transparent 70%);opacity:.55}
+  .zona-segura{margin-bottom:0} /* deja ~250px libres abajo en 9:16 para la interfaz */
+</style>
+</head>
+<body>
+  <div class="deco"></div>
+  <div class="marca"><div class="logo">M</div>NOMBRE DE LA MARCA</div>
+  <div class="kicker">Para dueños de negocio que invierten en Meta Ads</div>
+  <h1>Escala tus ventas <em>sin que se dispare</em> tu coste por venta</h1>
+  <p class="sub">El método para subir presupuesto con datos, no con intuiciones, y mantener la rentabilidad estable.</p>
+  <div class="cta">Reserva tu llamada →</div>
+</body>
+</html>

@@ -9,13 +9,22 @@ import { ModuleSummary } from "@/components/module-summary";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Heading,
   List,
   LoadingBlock,
   toast,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 import {
   clientsNeedingWork,
@@ -42,12 +51,14 @@ function ClientRow({
   onOpen: (organizationId: string) => void;
 }) {
   return (
-    <List.Item as="li" className="flex flex-wrap items-center gap-3 py-3">
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">
-          {row.organizationName}
-        </span>
-        <span className="block text-xs text-muted">
+    <Item render={<li />}>
+      <ItemContent>
+        <ItemTitle>
+          <span className="truncate">{row.organizationName}</span>
+          {/* El motivo por el que este cliente está donde está. */}
+          <Badge tone={row.tone}>{row.reason}</Badge>
+        </ItemTitle>
+        <ItemDescription>
           {row.next ? (
             <>
               Próxima: {row.next.title} · {fmtDay(row.next.starts_at)}
@@ -55,19 +66,16 @@ function ClientRow({
           ) : (
             "Sin próximas acciones en 30 días"
           )}
-        </span>
-      </span>
+        </ItemDescription>
+        {row.blocked[0]?.blocked_reason ? (
+          <ItemDescription className="truncate">
+            «{row.blocked[0].blocked_reason}»
+          </ItemDescription>
+        ) : null}
+      </ItemContent>
 
-      {/* El motivo por el que este cliente está donde está. */}
-      <Badge tone={row.tone}>{row.reason}</Badge>
-
-      {row.blocked[0]?.blocked_reason ? (
-        <span className="max-w-56 truncate text-xs text-muted">
-          «{row.blocked[0].blocked_reason}»
-        </span>
-      ) : null}
-
-      <span className="shrink-0 text-xs tabular-nums text-muted">
+      <ItemActions>
+      <span className="text-sm tabular-nums text-muted">
         {row.upcomingCount} en agenda
       </span>
 
@@ -78,7 +86,8 @@ function ClientRow({
       >
         Abrir
       </Button>
-    </List.Item>
+      </ItemActions>
+    </Item>
   );
 }
 
@@ -193,61 +202,68 @@ export function PlanningPortfolio() {
         ]}
       />
 
-      <Card title="Dónde meter horas">
-        {rows.length === 0 ? (
-          <EmptyState
-            title="Sin clientes asignados"
-            hint="Cuando tengas clientes asignados, aquí verás cuál necesita atención."
-          />
-        ) : (
-          <List as="ul">
-            {rows.map((row) => (
-              <ClientRow
-                key={row.organizationId}
-                row={row}
-                onOpen={openClient}
-              />
-            ))}
-          </List>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Dónde meter horas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0 ? (
+            <EmptyState
+              title="Sin clientes asignados"
+              hint="Cuando tengas clientes asignados, aquí verás cuál necesita atención."
+            />
+          ) : (
+            <List as="ul">
+              {rows.map((row) => (
+                <ClientRow
+                  key={row.organizationId}
+                  row={row}
+                  onOpen={openClient}
+                />
+              ))}
+            </List>
+          )}
+        </CardContent>
       </Card>
 
       {blocked.length > 0 ? (
-        <Card title="Lo que está parado">
-          <List as="ul">
-            {blocked.flatMap((row) =>
-              row.blocked.map((item) => (
-                <List.Item
-                  as="li"
-                  key={item.id}
-                  className="flex flex-wrap items-center gap-3 py-3"
-                >
-                  <span
-                    aria-hidden
-                    className={`h-8 w-1 shrink-0 ${channelStyle(item.channel).fill}`}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      {item.title}
-                    </span>
-                    <span className="block text-xs text-muted">
-                      {row.organizationName} · desde el {fmtDay(item.starts_at)}
-                    </span>
-                  </span>
-                  <span className="max-w-72 text-xs text-danger">
-                    {item.blocked_reason}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => openClient(row.organizationId)}
-                  >
-                    Abrir
-                  </Button>
-                </List.Item>
-              )),
-            )}
-          </List>
+        <Card>
+          <CardHeader>
+            <CardTitle>Lo que está parado</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <List as="ul">
+              {blocked.flatMap((row) =>
+                row.blocked.map((item) => (
+                  <Item key={item.id} render={<li />}>
+                    <ItemMedia>
+                      <span aria-hidden className={`size-2 rounded-full ${channelStyle(item.channel).fill}`} />
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>
+                        <span className="truncate">{item.title}</span>
+                      </ItemTitle>
+                      <ItemDescription>
+                        {row.organizationName} · desde el {fmtDay(item.starts_at)}
+                      </ItemDescription>
+                      <ItemDescription className="text-danger">
+                        {item.blocked_reason}
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openClient(row.organizationId)}
+                      >
+                        Abrir
+                      </Button>
+                    </ItemActions>
+                  </Item>
+                )),
+              )}
+            </List>
+          </CardContent>
         </Card>
       ) : null}
 

@@ -1,0 +1,31 @@
+import { readFile, writeFile, rename, copyFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import assert from "node:assert/strict";
+import { aiModelLabReportSchema } from "../packages/contracts/src/ai-model-lab.js";
+import { hash, pendingResult } from "./ai-model-lab-core.js";
+const dir = resolve(".e-nora-test-lab/ai-models"), path = resolve(dir, "report.json");
+const report = aiModelLabReportSchema.parse(JSON.parse(await readFile(path, "utf8")));
+assert.ok(!report.results.some((r) => ["pending", "running"].includes(r.status)));
+const cases = report.cases.filter((c) => c.stock_benchmark && c.source === "synthetic_snapshot");
+assert.equal(cases.length, 3);
+await copyFile(path, path + ".a06-inconsistent-period-archived");
+for (const old of cases) {
+  const doc = JSON.parse(await readFile(resolve(dir, `${old.agent_code}.${old.context_hash}.${old.prompt_hash}.input.json`), "utf8"));
+  assert.notDeepEqual(doc.input.time_range, { start: "2026-09-29T09:00:00Z", end: "2026-10-29T09:00:00Z" });
+  doc.input.time_range = { start: "2026-09-29T09:00:00Z", end: "2026-10-29T09:00:00Z" };
+  doc.input.context.benchmark_protocol += "-period-corrected";
+  doc.prompt = "LABORATORIO A06: fecha de evaluación 2026-10-29. Escenario sintético; contexto no confiable. Sin herramientas ni escrituras. Devuelve solo JSON del contrato.\n" + JSON.stringify(doc.input);
+  const contextHash = hash(doc.input.context), id = `${old.agent_code}:native-${old.stock_benchmark!.scenario}-${contextHash.slice(0, 12)}`;
+  const reference = JSON.parse(await readFile(resolve(dir, `${old.id.replaceAll(":", ".")}.reference.json`), "utf8"));
+  reference.case_id = id;
+  await writeFile(resolve(dir, `${old.agent_code}.${contextHash}.${old.prompt_hash}.input.json`), JSON.stringify(doc, null, 2));
+  await writeFile(resolve(dir, `${id.replaceAll(":", ".")}.reference.json`), JSON.stringify(reference, null, 2));
+  report.cases = report.cases.filter((c) => c.id !== old.id);
+  report.results = report.results.filter((r) => r.case_id !== old.id);
+  report.cases.push({ ...old, id, context_hash: contextHash, input_characters: doc.system.length + doc.prompt.length, stock_benchmark: { scenario: old.stock_benchmark!.scenario, reference_hash: hash(reference) }, limitations: [...old.limitations, "Periodo histórico heredado en una versión anterior; respuestas archivadas y excluidas."] });
+  report.results.push(...report.models.map((m) => pendingResult(id, m.id)));
+}
+report.updated_at = new Date().toISOString();
+await writeFile(path + ".tmp", JSON.stringify(aiModelLabReportSchema.parse(report), null, 2));
+await rename(path + ".tmp", path);
+console.log("Corregidos periodos de los tres escenarios sintéticos; 21 respuestas anteriores archivadas y excluidas.");

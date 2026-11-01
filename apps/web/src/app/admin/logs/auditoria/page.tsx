@@ -8,13 +8,23 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Link,
   List,
   LoadingBlock,
   Select,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 import { AUDIT_AREAS, auditSummary } from "../audit-entry";
 
@@ -85,15 +95,13 @@ function AuditPanel() {
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
 
   return (
-    <Card
-      title="Quién hizo qué"
-      description={
-        organizationId
+    <Card>
+      <CardHeader>
+        <CardTitle>Quién hizo qué</CardTitle>
+        <CardDescription>{organizationId
           ? `Solo las acciones sobre ${entries?.[0]?.organization_name ?? "este cliente"}.`
-          : "Cada acción con consecuencias queda registrada aquí: altas, cambios de rol, ediciones de cliente, conocimiento y configuración."
-      }
-      actions={
-        <div className="flex items-center gap-3">
+          : "Cada acción con consecuencias queda registrada aquí: altas, cambios de rol, ediciones de cliente, conocimiento y configuración."}</CardDescription>
+        <CardAction><div className="flex items-center gap-3">
           {organizationId ? (
             <Link href="/admin/logs/auditoria">Ver todos los clientes</Link>
           ) : null}
@@ -104,64 +112,65 @@ function AuditPanel() {
             onChange={setArea}
             options={AUDIT_AREAS}
           />
-        </div>
-      }
-    >
-      {entries === null ? (
-        <LoadingBlock label="Cargando auditoría…" />
-      ) : entries.length === 0 ? (
-        <EmptyState
-          title="Sin registros"
-          hint={
-            area
-              ? "No hay acciones de esa área todavía."
-              : "Cuando alguien haga algo con consecuencias, aparecerá aquí."
-          }
-        />
-      ) : (
-        <>
-          <List as="ul">
-            {entries.map((entry) => {
-              const summary = auditSummary(entry.action);
-              return (
-                <List.Item
-                  as="li"
-                  key={entry.id}
-                  className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3"
-                >
-                  <Badge>{summary.area}</Badge>
-                  <span className="min-w-0 flex-1 text-sm">
-                    <strong>{entry.actor_name ?? "Alguien"}</strong>{" "}
-                    {summary.verb}
-                    {entry.organization_name ? (
-                      <>
-                        {" en "}
-                        <strong>{entry.organization_name}</strong>
-                      </>
-                    ) : null}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted">
-                    {when(entry.created_at)}
-                  </span>
-                </List.Item>
-              );
-            })}
-          </List>
-          {nextBefore ? (
-            <Button
-              className="mt-4"
-              variant="secondary"
-              disabled={loadingMore}
-              onClick={() => {
-                setLoadingMore(true);
-                void load(nextBefore).finally(() => setLoadingMore(false));
-              }}
-            >
-              {loadingMore ? "Cargando…" : "Cargar más"}
-            </Button>
-          ) : null}
-        </>
-      )}
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        {entries === null ? (
+          <LoadingBlock label="Cargando auditoría…" />
+        ) : entries.length === 0 ? (
+          <EmptyState
+            title="Sin registros"
+            hint={
+              area
+                ? "No hay acciones de esa área todavía."
+                : "Cuando alguien haga algo con consecuencias, aparecerá aquí."
+            }
+          />
+        ) : (
+          <>
+            <List as="ul">
+              {entries.map((entry) => {
+                const summary = auditSummary(entry.action);
+                return (
+                  <Item key={entry.id} size="sm" render={<li />}>
+                    <ItemMedia>
+                      <Badge>{summary.area}</Badge>
+                    </ItemMedia>
+                    <ItemContent>
+                    <ItemTitle className="block font-normal">
+                      <strong>{entry.actor_name ?? "Alguien"}</strong>{" "}
+                      {summary.verb}
+                      {entry.organization_name ? (
+                        <>
+                          {" en "}
+                          <strong>{entry.organization_name}</strong>
+                        </>
+                      ) : null}
+                    </ItemTitle>
+                    </ItemContent>
+                    <ItemDescription>
+                      {when(entry.created_at)}
+                    </ItemDescription>
+                  </Item>
+                );
+              })}
+            </List>
+            {nextBefore ? (
+              <Button
+                className="mt-4"
+                variant="secondary"
+                disabled={loadingMore}
+                onClick={() => {
+                  setLoadingMore(true);
+                  void load(nextBefore).finally(() => setLoadingMore(false));
+                }}
+              >
+                {loadingMore ? "Cargando…" : "Cargar más"}
+              </Button>
+            ) : null}
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }

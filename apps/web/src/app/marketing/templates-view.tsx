@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
-import { Badge, Button, ButtonLink, toast } from "@/components/ui";
+import { Badge, Button, ButtonLink, ToggleGroup, ToggleGroupItem, toast } from "@/components/ui";
 import type { KWorkspace } from "./klaviyo-workspace";
 import { fmtDate } from "./format";
 import s from "./marketing-views.module.css";
@@ -114,7 +114,7 @@ export function TemplatesView({
   return (
     <div className={s.root}>
       <div className={s.head}>
-        <div>
+        <div className="client-sr-title">
           <h1>Plantillas</h1>
           <p>Todo tu material de email, lo hayas hecho en NORA o en Klaviyo.</p>
         </div>
@@ -125,14 +125,14 @@ export function TemplatesView({
           <Button onClick={onCreate}>Nueva plantilla</Button>
         </div>
       </div>
-      <div className={s.chips} role="group" aria-label="Filtrar plantillas">
+      <ToggleGroup aria-label="Filtrar plantillas" spacing={1.5} value={filter} onValueChange={setFilter}>
         {FILTERS.map((entry) => (
-          <button key={entry.key} type="button" className={s.chip} aria-pressed={filter === entry.key} onClick={() => setFilter(entry.key)}>
+          <ToggleGroupItem key={entry.key} value={entry.key}>
             {entry.label}
-            <span className={s.chipCount}>{tiles.filter(entry.match).length}</span>
-          </button>
+            <span className="text-xs text-muted tabular-nums">{tiles.filter(entry.match).length}</span>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
       <div className={s.tgrid}>
         {tiles.filter(active.match).map((tile) => (
           <article key={tile.key} className={s.tcard}>

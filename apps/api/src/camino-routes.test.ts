@@ -6,6 +6,15 @@ const HOY = "2026-09-29";
 const phase = (id: string, position: number, status: string) => ({ id, plan_id: "p", name: `Fase ${id}`, status, position });
 const ms = (id: string, phase_id: string, position: number, status: string, target_date: string | null = null) => ({ id, phase_id, name: id, status, position, target_date });
 
+test("omitir no se representa ni cuenta como un hito logrado", () => {
+  const route = buildCaminoRoute([phase("a", 1, "completed")], [ms("a1", "a", 1, "skipped")], HOY);
+  assert.equal(route.milestones_done, 0);
+  assert.equal(route.milestones_skipped, 1);
+  const firstPhase = route.phases[0];
+  assert.ok(firstPhase);
+  assert.deepEqual(firstPhase.stops, ["skipped"]);
+});
+
 test("la ruta marca hechos, el hito en curso, los pendientes y las fases bloqueadas", () => {
   const route = buildCaminoRoute(
     [phase("b", 2, "active"), phase("a", 1, "completed"), phase("c", 3, "locked")],

@@ -1,5 +1,7 @@
 "use client";
 
+import { readApiError } from "@/lib/api-error";
+import { buttonVariants } from "@/components/ui/button";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -10,7 +12,7 @@ import { useCopilotAsk } from "@/components/copilot-ask";
 import { invalidateCachedQueries, useCachedQuery, useKeepPrevious } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
 import { apiFetch, invalidateApiGetCache, type BootstrapResponse } from "@/lib/bootstrap";
-import { AsyncState, Card, ErrorBlock } from "@/components/ui";
+import { AsyncState, Pagination, ErrorBlock, ToggleGroup, ToggleGroupItem, Card, CardContent, CardDescription, CardHeader, CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { cx, Empty, SectionHead } from "../../../dashboard/client-pulse";
 import { fmtNum } from "../../../dashboard/client-pulse-model";
 import pulse from "../../../dashboard/client-pulse.module.css";
@@ -36,7 +38,7 @@ function mediaCoverageLabel(status: string, imageCount: number, lastFullSyncAt: 
     ? ` Última cobertura completa: ${new Date(lastFullSyncAt).toLocaleString("es-ES").toLowerCase()}.`
     : "";
   switch (status) {
-    case "migration_pending": return "La galería estará disponible cuando se aplique el esquema de cobertura de medios.";
+    case "migration_pending": return "La galería de imágenes todavía no está disponible para esta tienda.";
     case "running": return `La galería se está sincronizando. ${imageCount} imágenes visibles.${lastFullSync}`;
     case "complete": return `${imageCount} imágenes · galería completa.${lastFullSync}`;
     case "partial": return `${imageCount} imágenes observadas; la galería está incompleta y pueden faltar elementos.${lastFullSync}`;
@@ -84,8 +86,7 @@ function CostCell({ variant, currency, organizationId, onSaved }: { variant: Cat
         body: JSON.stringify({ inventoryItemId, unitCost: Number(value), currencyCode: currency ?? "EUR" }),
       });
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-        setError(body?.message ?? body?.error ?? `HTTP ${response.status}`);
+        setError(await readApiError(response));
         return;
       }
       setEditing(false);
@@ -103,8 +104,8 @@ function CostCell({ variant, currency, organizationId, onSaved }: { variant: Cat
       <div>
         <div className={s.costCell}>
           <input type="number" min="0" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} aria-label={`Coste de ${variant.title ?? "la variante"}`} placeholder="0,00" />
-          <button type="button" className={cx(pulse.btn, pulse.sm)} disabled={saving || value === ""} onClick={() => void save()}>{saving ? "…" : "Guardar"}</button>
-          <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} onClick={() => setEditing(false)}>Cancelar</button>
+          <button type="button" className={buttonVariants({ size: "sm" })} disabled={saving || value === ""} onClick={() => void save()}>{saving ? "…" : "Guardar"}</button>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => setEditing(false)}>Cancelar</button>
         </div>
         {error ? <p className={pulse.sub} style={{ color: "var(--bad)", textAlign: "right" }}>{error}</p> : null}
       </div>
@@ -127,7 +128,7 @@ function CostCell({ variant, currency, organizationId, onSaved }: { variant: Cat
         </span>
       ) : null}
       {inventoryItemId ? (
-        <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} onClick={() => setEditing(true)}>{cost != null ? "Editar" : "Añadir coste"}</button>
+        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => setEditing(true)}>{cost != null ? "Editar" : "Añadir coste"}</button>
       ) : cost == null ? (
         <span className={pulse.muted}>Sin artículo de inventario</span>
       ) : null}
@@ -180,14 +181,24 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (!organizationId) {
     return (
       <div className={pulse.root}>
-        <Card title="Selecciona un cliente" description="Elige una organización en la barra superior." />
+        <Card>
+          <CardHeader>
+            <CardTitle>Selecciona un cliente</CardTitle>
+            <CardDescription>Elige una organización en la barra superior.</CardDescription>
+          </CardHeader>
+        </Card>
       </div>
     );
   }
   if (query.error && !data) {
     return (
       <div className={pulse.root}>
-        <Card title="No se pudo abrir el producto"><ErrorBlock>{query.error}</ErrorBlock></Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>No se pudo abrir el producto</CardTitle>
+          </CardHeader>
+          <CardContent><ErrorBlock>{query.error}</ErrorBlock></CardContent>
+        </Card>
       </div>
     );
   }
@@ -345,7 +356,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div> : null}
           </dl>
           <div className={s.actions}>
-            <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo va este producto y qué haría primero", "Ficha de producto")}>
+            <button type="button" className={buttonVariants()} onClick={() => askCopilot("Explícame cómo va este producto y qué haría primero", "Ficha de producto")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
@@ -356,8 +367,9 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <StockForecastCard history={weekly} available={totalStock} tracked={trackedCount > 0 && inventoryFresh} />
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
-      <details>
-      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
+      <Collapsible>
+      <CollapsibleTrigger className={pulse.sub}>Sobre estos datos<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+      <CollapsibleContent>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Coste</span><span className={cx(pulse.chip, variantsWithoutCost > 0 ? pulse.chipWarn : pulse.chipGood)}>{variantsWithoutCost > 0 ? "falta" : "OK"}</span></div>
@@ -377,18 +389,19 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>{data.promotion_target_coverage.status === "complete" ? "Todas las reglas de descuento se han revisado." : "Pueden faltar reglas, sobre todo las administradas por una app."}</p>
         </div>
       </div>
-      </details>
+      </CollapsibleContent>
+      </Collapsible>
 
       {/* ------------------------------ Ventas ------------------------------ */}
       <section id="actividad" className={pulse.sec}>
         <div className={pulse.secHead} style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}>
           <h2>Ventas</h2>
           <p className={pulse.aiLine}>{observed ? `${fmtNum(activity.units_ordered)} unidades en los últimos ${periodDays} días.` : ""}</p>
-          <div className={pulse.seg} role="group" aria-label="Periodo de actividad del producto">
+          <ToggleGroup aria-label="Periodo de actividad del producto" value={periodDays} onValueChange={setPeriodDays}>
             {PERIODS.map((p) => (
-              <button key={p} type="button" aria-pressed={periodDays === p} onClick={() => setPeriodDays(p)}>{p === 365 ? "1 año" : `${p} días`}</button>
+              <ToggleGroupItem key={p} value={p}>{p === 365 ? "1 año" : `${p} días`}</ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         </div>
         {observed ? (
           <div className={pulse.two}>
@@ -579,11 +592,7 @@ function ProductDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           )}
           {data.variant_total > data.variant_page_size ? (
             <div className={s.pager} style={{ marginTop: 14 }}>
-              <span className={pulse.muted} style={{ fontSize: 12.5 }}>Página {page} de {totalPages}</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
-              </div>
+              <Pagination page={page} pageCount={totalPages} onChange={setPage} />
             </div>
           ) : null}
         </div>

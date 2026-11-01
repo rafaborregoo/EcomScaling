@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 import {
   executionSupervisionViewModel,
   supervisionTone,
@@ -79,16 +79,18 @@ export function ExecutionSupervisionPanel({ organizationId }: { organizationId?:
   if (!runs) return <LoadingBlock label="Cargando supervisión de ejecución..." />;
 
   return (
-    <Card
-      id="insight-execution-supervision"
-      title="Supervisión de ejecución"
-      description="Lo que decide cada bloque de la fase 8 sobre la intervención vigente. No ejecuta ni concede autoridad."
-    >
-      <div>
-        {executionSupervisionViewModel(runs).map((view) => (
-          <BlockSection key={view.stage} view={view} />
-        ))}
-      </div>
+    <Card id="insight-execution-supervision">
+      <CardHeader>
+        <CardTitle>Supervisión de ejecución</CardTitle>
+        <CardDescription>Lo que decide cada bloque de la fase 8 sobre la intervención vigente. No ejecuta ni concede autoridad.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div>
+          {executionSupervisionViewModel(runs).map((view) => (
+            <BlockSection key={view.stage} view={view} />
+          ))}
+        </div>
+      </CardContent>
     </Card>
   );
 }

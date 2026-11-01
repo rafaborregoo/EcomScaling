@@ -332,17 +332,13 @@ test("rechazo humano: vuelve a A11 con el motivo; agotado, queda rechazado", asy
   assert.equal(h.closed()?.[0]?.status, "rejected");
 });
 
-test("cliente con consultor: su aprobacion espera la revision del consultor", async () => {
+test("cliente con consultor: su aprobación conserva la decisión sin veto del consultor", async () => {
   const h = harness();
   const graph = h.build();
   await graph.invoke(h.input(1, true), h.config);
   await h.decide(graph, 1, approve("client"));
-  assert.equal(h.projection.get(1)?.status, "awaiting_consultant_review");
-  assert.equal(h.scheduled.length, 0);
-  h.reviews.set(1, { decision: "approved", reviewedBy: "55555555-5555-4555-8555-555555555555", reason: null });
-  await h.decide(graph, 1, approve(), "consultant_review");
   assert.deepEqual(h.scheduled, [1]);
-  assert.equal(h.projection.get(1)?.decided_role, "consultant");
+  assert.equal(h.projection.get(1)?.decided_role, "client");
 });
 
 test("cliente sin consultor: su aprobacion basta", async () => {
@@ -372,8 +368,8 @@ test("aislamiento: el almacen de Supabase filtra por organizacion, tienda y camp
   const store = createSupabaseCheckpointStore({ from: () => builder } as any, { organizationId: ORG, storeId: STORE, sequenceId: SEQ });
   await store.getCheckpoint("");
   await store.getWrites("", "x");
-  await store.deleteAll();
+  await assert.rejects(store.deleteAll(), /deletion_not_supported/);
   for (const expected of [["organization_id", ORG], ["store_id", STORE], ["thread_id", SEQ]]) {
-    assert.equal(filters.filter(([column, value]) => column === expected[0] && value === expected[1]).length, 4, String(expected[0]));
+    assert.equal(filters.filter(([column, value]) => column === expected[0] && value === expected[1]).length, 2, String(expected[0]));
   }
 });

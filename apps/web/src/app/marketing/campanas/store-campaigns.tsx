@@ -1,5 +1,7 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui";
 import { useMemo, useState } from "react";
 import { buildStoreCampaignsHeadline } from "@e-nora/contracts";
 import { formatMoney } from "@/lib/money";
@@ -164,19 +166,19 @@ export function StoreCampaigns({
         actions={
           <>
             {lead ? (
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => open(lead)}>
+              <button type="button" className={buttonVariants()} onClick={() => open(lead)}>
                 {awaitsReview(lead) ? "Revisar" : "Resolver"} «{lead.name}»
               </button>
             ) : (
-              <a className={cx(s.btn, s.acc)} href="#cola">
+              <a className={buttonVariants()} href="#cola">
                 Ver la cola
               </a>
             )}
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={onPropose}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={onPropose}>
               <IaTag />
               Planificar con IA
             </button>
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={onCreate}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={onCreate}>
               Nueva campaña
             </button>
           </>
@@ -267,19 +269,22 @@ export function StoreCampaigns({
                     >
                       <span className={s.dn}>{day.getDate()}</span>
                       {dayRows.slice(0, 3).map((row) => (
-                        <button
-                          key={row.key}
-                          type="button"
-                          className={cx(s.ev, s[CONSULTANT_STATE[row.state].dot])}
-                          title={`${row.name} · ${CONSULTANT_STATE[row.state].label}`}
-                          onClick={() => setSelectedKey(row.key)}
-                        >
-                          <span>{row.name}</span>
-                          <small>
-                            {isMetaChannel(row.channel) ? "Meta" : "Email"} · {CONSULTANT_STATE[row.state].label}
-                          </small>
-                          {awaitsReview(row) ? <span className={s.who}>Creada por el cliente</span> : null}
-                        </button>
+                        <HoverCard key={row.key}>
+                          <HoverCardTrigger
+                            render={
+                              <button type="button" className={cx(s.ev, s[CONSULTANT_STATE[row.state].dot])} onClick={() => setSelectedKey(row.key)}>
+                                <span>{row.name}</span>
+                                <small>
+                                  {isMetaChannel(row.channel) ? "Meta" : "Email"} · {CONSULTANT_STATE[row.state].label}
+                                </small>
+                                {awaitsReview(row) ? <span className={s.who}>Creada por el cliente</span> : null}
+                              </button>
+                            }
+                          />
+                          <HoverCardContent side="right" align="start">
+                            <CampaignPreview row={row} />
+                          </HoverCardContent>
+                        </HoverCard>
                       ))}
                       {dayRows.length > 3 ? <span className={s.more}>+{dayRows.length - 3} más</span> : null}
                     </div>
@@ -324,7 +329,7 @@ export function StoreCampaigns({
                     <span className={cx(s.qn, s[entry.tone])}>{index + 1}</span>
                     <b>{entry.title}</b>
                     <p>{entry.text}</p>
-                    <button type="button" className={cx(s.btn, s.sm, s.ghost)} onClick={() => (entry.row ? open(entry.row) : undefined)}>
+                    <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => (entry.row ? open(entry.row) : undefined)}>
                       {entry.cta}
                     </button>
                   </div>
@@ -419,7 +424,7 @@ export function StoreCampaigns({
                       <div>{row.stats?.delivered ? pct(ratio(row.stats.clicks_unique, row.stats.delivered)) : "—"}</div>
                       <div>{row.stats?.revenue ? formatMoney(row.stats.revenue, currency) : "—"}</div>
                       <div>
-                        <button type="button" className={cx(s.btn, s.sm, s.ghost)} onClick={() => open(row)}>
+                        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => open(row)}>
                           {row.item ? "Abrir" : state.cta}
                         </button>
                       </div>
@@ -435,5 +440,25 @@ export function StoreCampaigns({
         </Panel>
       </Section>
     </Stage>
+  );
+}
+
+/** Adelanto de una campaña del calendario al pasar por encima: lo que la celda corta. */
+function CampaignPreview({ row }: { row: CampaignRow }) {
+  const audience = audienceSize(row.audiences.included);
+  return (
+    <>
+      <p className="font-medium">{row.name}</p>
+      {row.subject && row.subject !== row.name ? <p className="text-muted">Asunto: {row.subject}</p> : null}
+      <p className="flex flex-wrap items-center gap-2">
+        <Chip tone={isMetaChannel(row.channel) ? "meta" : undefined}>{isMetaChannel(row.channel) ? "Meta Ads" : "Email"}</Chip>
+        <Chip tone={CONSULTANT_STATE[row.state].tone}>{CONSULTANT_STATE[row.state].label}</Chip>
+      </p>
+      <p className="text-muted">
+        <span className="first-letter:uppercase">{dayLabel(row.date)}</span>
+        {audience != null ? ` · ${int(audience)} destinatarios` : ""}
+      </p>
+      {awaitsReview(row) ? <Who /> : null}
+    </>
   );
 }

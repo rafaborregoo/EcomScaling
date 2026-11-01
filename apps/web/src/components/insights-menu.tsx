@@ -8,13 +8,27 @@ import {
 } from "@/lib/insights-registry";
 import { useInsights } from "@/components/insights-context";
 import {
+  ScrollArea,
+  EmptyState,
   cn,
   insightBadgeCount,
   IconChevronRight,
   Link,
   List,
-  Sheet,
+  NotificationBadge,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
   Popover,
+  PopoverContent,
+  PopoverTrigger,
   SparklesIcon,
 } from "@/components/ui";
 
@@ -47,15 +61,9 @@ export function InsightsMenu() {
         count > 0 ? "text-accent" : "text-muted hover:text-foreground",
       )}
     >
-      <SparklesIcon aria-hidden="true" className="size-[1.15rem]" />
-      {count > 0 ? (
-        <span
-          aria-hidden="true"
-          className="absolute -right-0.5 -top-0.5 flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-semibold leading-none text-white"
-        >
-          {count > 99 ? "99+" : count}
-        </span>
-      ) : null}
+      <NotificationBadge count={count}>
+        <SparklesIcon aria-hidden="true" className="size-[1.15rem]" />
+      </NotificationBadge>
     </button>
   );
 
@@ -73,59 +81,44 @@ export function InsightsMenu() {
   const row = (spot: InsightSpot) => {
     const spotCount = insightBadgeCount(spot.insights);
     return (
-      <List.Item
-        as="li"
-        key={spot.id}
-        className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-black/[0.02]"
-      >
-        <Link
-          href={spot.href}
-          className="flex min-w-0 flex-1 items-center gap-3 text-sm text-foreground no-underline"
-          onClick={() => setIsOpen(false)}
-        >
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium leading-5">{spot.label}</p>
-            <p className="truncate text-xs text-muted">{spot.location}</p>
-          </div>
-          {spotCount > 0 ? (
-            <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[0.7rem] font-semibold tabular-nums text-accent">
-              {spotCount}
-            </span>
-          ) : null}
-          <IconChevronRight aria-hidden="true" className="size-3 text-muted" />
-        </Link>
+      <List.Item as="li" key={spot.id}>
+        <Item size="sm" className="flex-nowrap rounded-none px-4 py-3" render={<Link href={spot.href} onClick={() => setIsOpen(false)} />}>
+          <ItemContent>
+            <ItemTitle className="block truncate">{spot.label}</ItemTitle>
+            <ItemDescription className="truncate">{spot.location}</ItemDescription>
+          </ItemContent>
+          <ItemActions className="flex-nowrap">
+            {spotCount > 0 ? (
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold tabular-nums text-accent">
+                {spotCount}
+              </span>
+            ) : null}
+            <IconChevronRight aria-hidden="true" className="size-3 text-muted" />
+          </ItemActions>
+        </Item>
       </List.Item>
     );
   };
 
   const body =
     count === 0 ? (
-      <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
-        <SparklesIcon aria-hidden="true" className="size-5 text-muted" />
-        <p className="text-sm text-muted">Nada que revisar ahora mismo.</p>
-      </div>
+      <EmptyState size="sm" className="py-10" icon={<SparklesIcon aria-hidden="true" />} title="Nada que revisar ahora mismo" />
     ) : (
       <List as="ul">{spots.map(row)}</List>
     );
 
   if (isDesktop) {
     return (
-      <Popover isOpen={isOpen} onOpenChange={setIsOpen}>
-        <Popover.Trigger>{trigger()}</Popover.Trigger>
-        <Popover.Content
-          placement="bottom end"
-          className="w-[20rem] overflow-hidden rounded-xl p-0 shadow-lg"
-        >
-          <Popover.Dialog
-            aria-label="Lo que ve la IA"
-            className="flex max-h-[min(30rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col p-0"
-          >
+      <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <PopoverTrigger render={trigger()} />
+        <PopoverContent side="bottom" align="end" className="w-[20rem] gap-0 overflow-hidden p-0" aria-label="Lo que ve la IA">
+          <div className="flex max-h-[min(30rem,calc(100vh_/_var(--ui-zoom)_-_6rem))] flex-col">
             {header}
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <ScrollArea className="min-h-0 flex-1 overscroll-contain">
               {body}
-            </div>
-          </Popover.Dialog>
-        </Popover.Content>
+            </ScrollArea>
+          </div>
+        </PopoverContent>
       </Popover>
     );
   }
@@ -133,16 +126,15 @@ export function InsightsMenu() {
   return (
     <>
       {trigger(() => setIsOpen(true))}
-      <Sheet
-        isOpen={isOpen}
-        onOpenChange={setIsOpen}
-        placement="bottom"
-        flush
-        title="Lo que ve la IA"
-        meta={count > 0 ? <span>{count} por revisar</span> : undefined}
-      >
-        {body}
-      </Sheet>
+      <Drawer open={isOpen} onOpenChange={setIsOpen} swipeDirection="down" showSwipeHandle>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Lo que ve la IA</DrawerTitle>
+            {count > 0 ? <DrawerDescription>{count} por revisar</DrawerDescription> : null}
+          </DrawerHeader>
+          <ScrollArea className="flex-1 overscroll-contain pb-[env(safe-area-inset-bottom)]">{body}</ScrollArea>
+        </DrawerContent>
+      </Drawer>
     </>
   );
 }

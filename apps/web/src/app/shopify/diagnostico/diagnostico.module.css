@@ -1,0 +1,31 @@
+/* Diagnóstico técnico: ~70 paneles apilados, casi todos vacíos en una tienda joven.
+   Los vacíos se compactan a una línea para que lo que sí tiene datos se vea. */
+.dx :global(.ui-empty) {
+  align-items: stretch;
+  padding: 14px 0 6px;
+  text-align: left;
+}
+.dx :global(.ui-empty__header) {
+  align-items: flex-start;
+  gap: 2px;
+  max-width: none;
+}
+.dx :global(.ui-empty__title) {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.dx :global(.ui-empty__description) {
+  font-size: 13px;
+  line-height: 18px;
+}
+.dx :global(.card) {
+  transition: border-color 0.15s ease;
+}
+.dx :global(.card):hover {
+  border-color: var(--tw-border-strong, rgba(61, 59, 58, 0.28));
+}
+@media (prefers-reduced-motion: reduce) {
+  .dx :global(.card) { transition: none; }
+}

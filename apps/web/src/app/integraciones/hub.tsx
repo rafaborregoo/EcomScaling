@@ -1,5 +1,6 @@
 "use client";
 
+
 // Hub de /integraciones: qué hay que arreglar primero, cada tienda con sus
 // canales en una fila, y la ficha de cada conexión a la derecha (estado, qué
 // trae cada bloque, permisos e historial). Conectar es un asistente de pasos.
@@ -9,16 +10,24 @@ import { useEffect, useState } from "react";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { timeAgo } from "@/lib/elapsed";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { useModuleSummary } from "@/components/module-summary";
 import {
+  ScrollArea,
+  Separator,
   AsyncState,
   Badge,
   Banner,
   Button,
   ButtonLink,
-  Card,
   cn,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorBlock,
   EYEBROW,
@@ -28,9 +37,28 @@ import {
   List,
   Metric,
   ProviderIcon,
-  Sheet,
-  Table,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DataTable,
   toast,
+  Card,
+  CardContent,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+  RadioCard,
+  RadioGroup,
 } from "@/components/ui";
 import { classifyAuthorizationAttempt } from "@e-nora/contracts";
 import { ClientDataQualityNotice } from "./data-quality-panel";
@@ -75,10 +103,9 @@ const KLAVIYO_INTEGRATIONS_URL = "https://www.klaviyo.com/integrations";
 type Integrations = ReturnType<typeof useIntegrations>;
 type Selection = { provider: string; storeId: string | null };
 
-// Opción seleccionable (aplicación del asistente, método de conexión, casilla
-// del mapa): borde del catálogo y el acento solo en la elegida.
+// Casilla del mapa: borde del catálogo. Elegir en el asistente es RadioCard.
 const OPTION =
-  "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 rounded-lg border border-edge bg-surface p-3 text-left transition hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-55 aria-pressed:border-accent aria-pressed:ring-2 aria-pressed:ring-accent-soft";
+  "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 rounded-lg border border-edge bg-surface p-3 text-left transition hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-55";
 const NOTE = "text-sm text-muted";
 const CALLOUT = "rounded-md bg-accent-soft px-3 py-2 text-sm text-accent-soft-foreground";
 const MARK: Record<RunMark, string> = { ok: "bg-success", partial: "bg-warning", fail: "bg-danger", run: "bg-accent" };
@@ -170,69 +197,73 @@ function FixQueue({
         <Banner tone="success">Todo al día: no hay nada que arreglar.</Banner>
       ) : (
         <Card>
-          <List as="ul">
-            {queue.map((item) => {
-              const slug = PROVIDER_SLUG[item.provider];
-              const retryable = item.connection && (item.provider === "shopify" || item.provider === "klaviyo" || item.provider === "meta_ads");
-              return (
-                <List.Item
-                  as="li"
-                  key={item.key}
-                  data-focus-id={item.connection?.id}
-                  className={cn(
-                    "flex flex-wrap items-center gap-3 border-l-4 py-3 pl-3",
-                    item.severity === "bad" ? "border-l-danger" : "border-l-warning",
-                  )}
-                >
-                  <Logo provider={item.provider} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold">{item.title}</p>
-                    {item.detail ? <p className="text-sm">{item.detail}</p> : null}
-                    <p className="text-xs text-muted">{item.store ?? "Cuenta"}</p>
-                  </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    {item.href ? (
-                      <ButtonLink size="sm" href={item.href} target="_blank" rel="noreferrer">
-                        {item.hrefLabel ?? "Abrir"}
-                      </ButtonLink>
-                    ) : item.fix === "reconnect" && slug ? (
-                      <ButtonLink size="sm" href={`/integraciones/${slug}`}>
-                        Reconectar
-                      </ButtonLink>
-                    ) : item.fix === "retry" && retryable ? (
-                      <Button
-                        size="sm"
-                        disabled={pending === `retry-${item.provider === "meta_ads" ? "meta" : item.provider}`}
-                        onClick={() =>
-                          void actions.retrySync(item.provider === "meta_ads" ? "meta" : (item.provider as "shopify" | "klaviyo"), item.connection!.id)
-                        }
-                      >
-                        Reintentar
-                      </Button>
-                    ) : item.fix === "discard" && canDiscard && item.connection ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={pending === `discard-${item.connection.id}`}
-                        onClick={() => void actions.discardAuthorizationAttempt(item.connection!.id)}
-                      >
-                        Descartar
-                      </Button>
-                    ) : slug ? (
-                      <ButtonLink size="sm" href={`/integraciones/${slug}`}>
-                        {item.fix === "connect" || item.fix === "discard" ? "Retomar" : "Revisar"}
-                      </ButtonLink>
-                    ) : null}
-                    {item.connection ? (
-                      <Button size="sm" variant="secondary" onClick={() => onOpen(item)}>
-                        Ver
-                      </Button>
-                    ) : null}
-                  </div>
-                </List.Item>
-              );
-            })}
-          </List>
+          <CardContent>
+            <List as="ul">
+              {queue.map((item) => {
+                const slug = PROVIDER_SLUG[item.provider];
+                const retryable = item.connection && (item.provider === "shopify" || item.provider === "klaviyo" || item.provider === "meta_ads");
+                return (
+                  <Item
+                    key={item.key}
+                    data-focus-id={item.connection?.id}
+                    className="pl-3"
+                    render={<li />}
+                  >
+                    <ItemMedia>
+                      <span aria-hidden className={cn("size-2 rounded-full", item.severity === "bad" ? "bg-danger" : "bg-warning")} />
+                      <Logo provider={item.provider} />
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle className="font-semibold">{item.title}</ItemTitle>
+                      {item.detail ? <p className="text-sm">{item.detail}</p> : null}
+                      <ItemDescription>{item.store ?? "Cuenta"}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions role="group" aria-label="Acciones de integracion" className="ml-auto">
+                      {item.href ? (
+                        <ButtonLink size="sm" href={item.href} target="_blank" rel="noreferrer">
+                          {item.hrefLabel ?? "Abrir"}
+                        </ButtonLink>
+                      ) : item.fix === "configure" && slug ? (
+                        <ButtonLink href={`/integraciones/${slug}`} size="sm" variant="secondary">Elegir métrica</ButtonLink>
+                      ) : item.fix === "reconnect" && slug ? (
+                        <ButtonLink size="sm" href={`/integraciones/${slug}`}>
+                          Reconectar
+                        </ButtonLink>
+                      ) : item.fix === "retry" && retryable ? (
+                        <Button
+                          size="sm"
+                          disabled={pending === `retry-${item.provider === "meta_ads" ? "meta" : item.provider}`}
+                          onClick={() =>
+                            void actions.retrySync(item.provider === "meta_ads" ? "meta" : (item.provider as "shopify" | "klaviyo"), item.connection!.id)
+                          }
+                        >
+                          Reintentar
+                        </Button>
+                      ) : item.fix === "discard" && canDiscard && item.connection ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending === `discard-${item.connection.id}`}
+                          onClick={() => void actions.discardAuthorizationAttempt(item.connection!.id)}
+                        >
+                          Descartar
+                        </Button>
+                      ) : slug ? (
+                        <ButtonLink size="sm" href={`/integraciones/${slug}`}>
+                          {item.fix === "connect" || item.fix === "discard" ? "Retomar" : "Revisar"}
+                        </ButtonLink>
+                      ) : null}
+                      {item.connection ? (
+                        <Button size="sm" variant="secondary" onClick={() => onOpen(item)}>
+                          Ver
+                        </Button>
+                      ) : null}
+                    </ItemActions>
+                  </Item>
+                );
+              })}
+            </List>
+          </CardContent>
         </Card>
       )}
     </section>
@@ -249,59 +280,61 @@ function StoreMap({ stores, selected, onSelect }: { stores: StoreView[]; selecte
     <section aria-labelledby="stores-title">
       <SectionTitle id="stores-title" title="Tus tiendas" hint="Pulsa una casilla para ver su ficha" />
       <Card>
-        <Table<StoreRow>
-          ariaLabel="Tiendas y canales"
-          rows={rows}
-          columns={[
-            {
-              key: "name",
-              label: "Tienda",
-              render: (store) => (
-                <Link href={`/integraciones/tienda/${store.connectionId}`} className="grid min-w-0 gap-0.5 text-foreground">
-                  <span className="font-semibold">{store.name}</span>
-                  <span className="truncate text-xs text-muted">{store.domain}</span>
-                </Link>
-              ),
-            },
-            ...STORE_PROVIDERS.map((provider) => ({
-              key: provider,
-              label: stores[0]?.providers.find((view) => view.provider === provider)?.name ?? provider,
-              render: (store: StoreRow) => {
-                const view = store.providers.find((item) => item.provider === provider)!;
-                const connected = view.connections.length > 0;
-                const account = view.target?.provider_account_name ?? view.target?.provider_account_id;
-                const when = timeAgo(view.lastSyncAt);
-                const pressed = selected?.storeId === store.connectionId && selected.provider === view.provider;
-                return (
-                  <button
-                    type="button"
-                    aria-pressed={pressed}
-                    aria-label={`${view.name} de ${store.name}: ${connected ? stateOf(view.target!, view.provider).label : "sin conectar"}`}
-                    className="grid w-full min-w-0 gap-1 rounded-md p-2 text-left transition hover:bg-surface-secondary aria-pressed:bg-accent-soft aria-pressed:ring-2 aria-pressed:ring-accent"
-                    onClick={() => onSelect({ provider: view.provider, storeId: store.connectionId })}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Logo provider={view.provider} small />
-                      <StateBadge connection={view.target} providerId={view.provider} available={view.available} />
-                    </span>
-                    {connected ? (
-                      <>
-                        <span className="truncate text-xs">
-                          {account ?? "Cuenta sin nombre"}
-                          {view.connections.length > 1 ? ` · +${view.connections.length - 1}` : ""}
-                        </span>
-                        <span className="text-xs text-muted">{when ? `Último dato ${when}` : "Aún sin datos"}</span>
-                        <Runs connection={view.target} />
-                      </>
-                    ) : view.available ? (
-                      <span className="text-xs font-medium text-accent">Conectar</span>
-                    ) : null}
-                  </button>
-                );
+        <CardContent>
+          <DataTable<StoreRow>
+            ariaLabel="Tiendas y canales"
+            rows={rows}
+            columns={[
+              {
+                key: "name",
+                label: "Tienda",
+                render: (store) => (
+                  <Link href={`/integraciones/tienda/${store.connectionId}`} className="grid min-w-0 gap-0.5 text-foreground">
+                    <span className="font-semibold">{store.name}</span>
+                    <span className="truncate text-xs text-muted">{store.domain}</span>
+                  </Link>
+                ),
               },
-            })),
-          ]}
-        />
+              ...STORE_PROVIDERS.map((provider) => ({
+                key: provider,
+                label: stores[0]?.providers.find((view) => view.provider === provider)?.name ?? provider,
+                render: (store: StoreRow) => {
+                  const view = store.providers.find((item) => item.provider === provider)!;
+                  const connected = view.connections.length > 0;
+                  const account = view.target?.provider_account_name ?? view.target?.provider_account_id;
+                  const when = timeAgo(view.lastSyncAt);
+                  const pressed = selected?.storeId === store.connectionId && selected.provider === view.provider;
+                  return (
+                    <button
+                      type="button"
+                      aria-pressed={pressed}
+                      aria-label={`${view.name} de ${store.name}: ${connected ? stateOf(view.target!, view.provider).label : "sin conectar"}`}
+                      className="grid w-full min-w-0 gap-1 rounded-md p-2 text-left transition hover:bg-surface-secondary aria-pressed:bg-accent-soft aria-pressed:ring-2 aria-pressed:ring-accent"
+                      onClick={() => onSelect({ provider: view.provider, storeId: store.connectionId })}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Logo provider={view.provider} small />
+                        <StateBadge connection={view.target} providerId={view.provider} available={view.available} />
+                      </span>
+                      {connected ? (
+                        <>
+                          <span className="truncate text-xs">
+                            {account ?? "Cuenta sin nombre"}
+                            {view.connections.length > 1 ? ` · +${view.connections.length - 1}` : ""}
+                          </span>
+                          <span className="text-xs text-muted">{when ? `Último dato ${when}` : "Aún sin datos"}</span>
+                          <Runs connection={view.target} />
+                        </>
+                      ) : view.available ? (
+                        <span className="text-xs font-medium text-accent">Conectar</span>
+                      ) : null}
+                    </button>
+                  );
+                },
+              })),
+            ]}
+          />
+        </CardContent>
       </Card>
     </section>
   );
@@ -353,54 +386,64 @@ function LooseAccounts({
     <section aria-labelledby="loose-title">
       <SectionTitle id="loose-title" title="Sueltas" hint="Cuentas sin tienda y tiendas que se van a borrar" />
       <Card>
-        <List as="ul">
-          {loose.map(({ provider, name, connection }) => {
-            const attempt = classifyAuthorizationAttempt(connection);
-            return (
-              <List.Item as="li" key={connection.id} data-focus-id={connection.id} className="flex flex-wrap items-center gap-3 py-3">
-                <Logo provider={provider} small />
-                <div className="min-w-[200px] flex-1">
-                  <p className="text-sm font-semibold">{connection.provider_account_name ?? connection.provider_account_id ?? name}</p>
-                  <p className="text-xs text-muted">
-                    {attempt === "abandoned"
-                      ? `${name}: se empezó a conectar y nunca se autorizó.`
-                      : attempt === "in_progress"
-                        ? `${name}: autorización en curso.`
-                        : `${name} conectado, pero sus cifras no entran en ninguna tienda.`}
-                  </p>
-                </div>
-                {attempt === "abandoned" ? (
-                  canDiscard ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={pending === `discard-${connection.id}`}
-                      onClick={() => void actions.discardAuthorizationAttempt(connection.id)}
-                    >
-                      {pending === `discard-${connection.id}` ? "Descartando…" : "Descartar"}
-                    </Button>
-                  ) : null
-                ) : attempt ? null : (
-                  <ButtonLink size="sm" variant="secondary" href="/integraciones/cuentas">
-                    Asignar a una tienda
+        <CardContent>
+          <List as="ul">
+            {loose.map(({ provider, name, connection }) => {
+              const attempt = classifyAuthorizationAttempt(connection);
+              return (
+                <Item key={connection.id} data-focus-id={connection.id} render={<li />}>
+                  <ItemMedia>
+                    <Logo provider={provider} small />
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle className="font-semibold">{connection.provider_account_name ?? connection.provider_account_id ?? name}</ItemTitle>
+                    <ItemDescription>
+                      {attempt === "abandoned"
+                        ? `${name}: se empezó a conectar y nunca se autorizó.`
+                        : attempt === "in_progress"
+                          ? `${name}: autorización en curso.`
+                          : `${name} conectado, pero sus cifras no entran en ninguna tienda.`}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                  {attempt === "abandoned" ? (
+                    canDiscard ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={pending === `discard-${connection.id}`}
+                        onClick={() => void actions.discardAuthorizationAttempt(connection.id)}
+                      >
+                        {pending === `discard-${connection.id}` ? "Descartando…" : "Descartar"}
+                      </Button>
+                    ) : null
+                  ) : attempt ? null : (
+                    <ButtonLink size="sm" variant="secondary" href="/integraciones/cuentas">
+                      Asignar a una tienda
+                    </ButtonLink>
+                  )}
+                  </ItemActions>
+                </Item>
+              );
+            })}
+            {pendingStores.map((store) => (
+              <Item key={store.connectionId} render={<li />}>
+                <ItemMedia>
+                  <Logo provider="shopify" small />
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle className="font-semibold">{store.name}</ItemTitle>
+                  <ItemDescription>Borrado programado: se puede restaurar durante 30 días.</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <ButtonLink size="sm" variant="secondary" href={`/integraciones/tienda/${store.connectionId}`}>
+                    Restaurar
                   </ButtonLink>
-                )}
-              </List.Item>
-            );
-          })}
-          {pendingStores.map((store) => (
-            <List.Item as="li" key={store.connectionId} className="flex flex-wrap items-center gap-3 py-3">
-              <Logo provider="shopify" small />
-              <div className="min-w-[200px] flex-1">
-                <p className="text-sm font-semibold">{store.name}</p>
-                <p className="text-xs text-muted">Borrado programado: se puede restaurar durante 30 días.</p>
-              </div>
-              <ButtonLink size="sm" variant="secondary" href={`/integraciones/tienda/${store.connectionId}`}>
-                Restaurar
-              </ButtonLink>
-            </List.Item>
-          ))}
-        </List>
+                </ItemActions>
+              </Item>
+            ))}
+          </List>
+        </CardContent>
       </Card>
     </section>
   );
@@ -424,21 +467,21 @@ function PermissionList({ rows, withNote = true }: { rows: ReturnType<typeof per
   return (
     <List as="ul">
       {rows.map((row) => (
-        <List.Item as="li" key={row.scope} className="grid grid-cols-[20px_minmax(0,1fr)] gap-2 py-2 text-sm">
-          <span aria-hidden className={cn("font-bold", row.granted ? "text-success" : "text-danger")}>
+        <Item key={row.scope} size="xs" className="flex-nowrap" render={<li />}>
+          <ItemMedia aria-hidden className={cn("w-4 font-bold", row.granted ? "text-success" : "text-danger")}>
             {row.granted ? "✓" : "✕"}
-          </span>
-          <div>
-            {row.label}
-            <span className="block text-xs text-muted">
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle className="font-normal">{row.label}</ItemTitle>
+            <ItemDescription>
               {row.granted
                 ? row.scope
                 : row.required
                   ? "Imprescindible: falta"
                   : ((withNote ? row.note : null) ?? "Opcional: sin él, esta parte no está disponible")}
-            </span>
-          </div>
-        </List.Item>
+            </ItemDescription>
+          </ItemContent>
+        </Item>
       ))}
     </List>
   );
@@ -464,6 +507,7 @@ function ConnectionDrawer({
   onConnect: (provider: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const isDesktop = useIsDesktop();
   const store = selection?.storeId ? (stores.find((item) => item.connectionId === selection.storeId) ?? null) : null;
   const provider = payload.providers.find((item) => item.id === selection?.provider) ?? null;
   const view = store?.providers.find((item) => item.provider === selection?.provider) ?? null;
@@ -506,68 +550,26 @@ function ConnectionDrawer({
   }
 
   return (
-    <Sheet
-      isOpen={Boolean(selection)}
+    <Drawer
+      open={Boolean(selection)}
       onOpenChange={(open) => {
         if (!open) {
           setConfirming(false);
           onClose();
         }
       }}
-      size="md"
-      title={
-        <span className="flex items-center gap-3">
+      swipeDirection={isDesktop ? "right" : "down"}
+      showSwipeHandle={!isDesktop}
+    >
+      <DrawerContent className="sm:max-w-[40rem]">
+      <DrawerHeader>
+        <DrawerTitle className="flex items-center gap-3">
           {selection ? <Logo provider={selection.provider} /> : null}
           {provider?.name ?? ""}
-        </span>
-      }
-      meta={store?.name ?? "De la cuenta"}
-      start={
-        store ? (
-          <ButtonLink variant="ghost" href={`/integraciones/tienda/${store.connectionId}`}>
-            Ficha de la tienda
-          </ButtonLink>
-        ) : undefined
-      }
-      footer={
-        confirming ? (
-          <>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Cancelar
-            </Button>
-            <Button variant="danger" disabled={pending === `disconnect-${connection?.id}`} onClick={() => void disconnect()}>
-              {pending === `disconnect-${connection?.id}` ? "Desconectando…" : "Sí, desconectar"}
-            </Button>
-          </>
-        ) : (
-          <>
-            {disconnectable ? (
-              <Button variant="ghost" onClick={() => setConfirming(true)}>
-                Desconectar
-              </Button>
-            ) : null}
-            {canSync ? (
-              <Button
-                variant={state === "atrasado" || state === "error" ? "primary" : "secondary"}
-                disabled={pending === `retry-${syncKey}`}
-                onClick={() => void actions.retrySync(syncKey as "shopify" | "klaviyo" | "meta", connection!.id)}
-              >
-                {pending === `retry-${syncKey}` ? "Sincronizando…" : "Sincronizar ahora"}
-              </Button>
-            ) : null}
-            {connection && slug ? (
-              <ButtonLink variant={state === "reconectar" ? "primary" : "secondary"} href={`/integraciones/${slug}`}>
-                {state === "reconectar" ? "Reconectar" : "Configurar"}
-              </ButtonLink>
-            ) : null}
-            {!connection && provider?.available ? (
-              <Button onClick={() => selection && onConnect(selection.provider)}>Conectar {provider.name}</Button>
-            ) : null}
-          </>
-        )
-      }
-    >
-      <div className="grid content-start gap-5">
+        </DrawerTitle>
+        <DrawerDescription>{store?.name ?? "De la cuenta"}</DrawerDescription>
+      </DrawerHeader>
+      <ScrollArea className="grid flex-1 content-start gap-5 p-4 sm:px-6">
         {confirming && connection ? (
           <Banner tone="danger">
             <b>
@@ -688,8 +690,9 @@ function ConnectionDrawer({
         ) : null}
 
         {error?.technical || connection ? (
-          <details>
-            <summary className="cursor-pointer text-sm text-muted">Detalle técnico</summary>
+          <Collapsible>
+            <CollapsibleTrigger className="text-sm text-muted">Detalle técnico<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+            <CollapsibleContent>
             <dl className={cn(KV, "mt-2")}>
               <dt>Conexión</dt>
               <dd className={MONO}>{connection?.id}</dd>
@@ -711,10 +714,54 @@ function ConnectionDrawer({
                 </>
               ) : null}
             </dl>
-          </details>
+          </CollapsibleContent>
+          </Collapsible>
         ) : null}
-      </div>
-    </Sheet>
+      </ScrollArea>
+      <DrawerFooter>
+        {confirming ? (
+          <>
+            <Button variant="destructive" disabled={pending === `disconnect-${connection?.id}`} onClick={() => void disconnect()}>
+              {pending === `disconnect-${connection?.id}` ? "Desconectando…" : "Sí, desconectar"}
+            </Button>
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              Cancelar
+            </Button>
+          </>
+        ) : (
+          <>
+            {!connection && provider?.available ? (
+              <Button onClick={() => selection && onConnect(selection.provider)}>Conectar {provider.name}</Button>
+            ) : null}
+            {connection && slug ? (
+              <ButtonLink variant={state === "reconectar" ? "default" : "secondary"} href={`/integraciones/${slug}`}>
+                {state === "reconectar" ? "Reconectar" : "Configurar"}
+              </ButtonLink>
+            ) : null}
+            {canSync ? (
+              <Button
+                variant={state === "atrasado" || state === "error" ? "default" : "secondary"}
+                disabled={pending === `retry-${syncKey}`}
+                onClick={() => void actions.retrySync(syncKey as "shopify" | "klaviyo" | "meta", connection!.id)}
+              >
+                {pending === `retry-${syncKey}` ? "Sincronizando…" : "Sincronizar ahora"}
+              </Button>
+            ) : null}
+            {store ? (
+              <ButtonLink variant="outline" href={`/integraciones/tienda/${store.connectionId}`}>
+                Ficha de la tienda
+              </ButtonLink>
+            ) : null}
+            {disconnectable ? (
+              <Button variant="ghost" onClick={() => setConfirming(true)}>
+                Desconectar
+              </Button>
+            ) : null}
+          </>
+        )}
+      </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -748,10 +795,14 @@ function AccessSummary({ provider }: { provider: string }) {
       <p className="text-sm">Esto es lo que vas a autorizar. Puedes retirarlo cuando quieras desde la ficha de la conexión.</p>
       <List as="ul" className="rounded-md border border-edge">
         {rows.map((row) => (
-          <List.Item as="li" key={row.text} className="flex items-center gap-3 px-3 py-2 text-sm">
-            <Badge tone={row.kind === "Nunca" ? "neutral" : row.kind === "Escribe" ? "warn" : "success"}>{row.kind}</Badge>
-            <span>{row.text}</span>
-          </List.Item>
+          <Item key={row.text} size="xs" variant="outline" className="rounded-none border-0" render={<li />}>
+            <ItemMedia>
+              <Badge tone={row.kind === "Nunca" ? "neutral" : row.kind === "Escribe" ? "warn" : "success"}>{row.kind}</Badge>
+            </ItemMedia>
+            <ItemContent>
+              <ItemTitle className="font-normal">{row.text}</ItemTitle>
+            </ItemContent>
+          </Item>
         ))}
       </List>
     </div>
@@ -806,42 +857,16 @@ function ConnectWizard({
 
   return (
     <Dialog
-      isOpen={open}
+      open={open}
       onOpenChange={(value) => {
         if (!value) onClose();
       }}
-      size="md"
-      title={provider ? `Conectar ${provider.name}` : "Conectar una aplicación"}
-      isBusy={busy}
-      cancelLabel={step === 3 ? "Cerrar" : "Cancelar"}
-      start={
-        step === 2 && !keyDone ? (
-          <Button variant="ghost" onClick={() => setApp(null)}>
-            Atrás
-          </Button>
-        ) : undefined
-      }
-      primary={
-        step === 2 && app !== "instagram"
-          ? {
-              label: app === "klaviyo" && method === "key" ? "Comprobar y conectar" : "Continuar",
-              busyLabel: "Conectando…",
-              disabled: !ready,
-              onClick: () => void submit(),
-            }
-          : undefined
-      }
-      footer={
-        step === 2 && app === "instagram" ? (
-          <>
-            <Button variant="ghost" onClick={onClose}>
-              Cancelar
-            </Button>
-            <ButtonLink href="/integraciones/instagram">Ir a Instagram</ButtonLink>
-          </>
-        ) : undefined
-      }
+      busy={busy}
     >
+      <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{provider ? `Conectar ${provider.name}` : "Conectar una aplicación"}</DialogTitle>
+      </DialogHeader>
       <ol className="flex items-center gap-2 text-xs text-muted" aria-label={`Paso ${step} de 3`}>
         {stepLabels.map((label, index) => (
           <li key={label} className="flex items-center gap-2">
@@ -854,40 +879,33 @@ function ConnectWizard({
               {index + 1}
             </span>
             <span className={index + 1 === step ? "font-medium text-ink" : undefined}>{label}</span>
-            {index < stepLabels.length - 1 ? <span aria-hidden className="h-px w-6 bg-edge" /> : null}
+            {index < stepLabels.length - 1 ? <Separator aria-hidden className="w-6" /> : null}
           </li>
         ))}
       </ol>
 
       {step === 1 ? (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <RadioGroup aria-label="Aplicación" className="gap-2 sm:grid-cols-2" value={app ?? ""} onValueChange={setApp}>
           {ordered.map((item) => (
-            <button key={item.id} type="button" className={OPTION} disabled={!item.available} aria-pressed={app === item.id} onClick={() => setApp(item.id)}>
-              <span className="row-span-2">
-                <Logo provider={item.id} />
-              </span>
-              <b className="text-sm font-semibold">{item.name}</b>
-              <small className="text-xs text-muted">{item.available ? item.description : "Disponible más adelante"}</small>
-            </button>
+            <RadioCard
+              key={item.id}
+              value={item.id}
+              disabled={!item.available}
+              media={<Logo provider={item.id} />}
+              title={item.name}
+              description={item.available ? item.description : "Disponible más adelante"}
+            />
           ))}
-        </div>
+        </RadioGroup>
       ) : null}
 
       {step === 2 && app === "shopify" ? (
         <>
           {payload.shopify_custom_app_available ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button type="button" className={OPTION} aria-pressed={appMode === "public"} onClick={() => setAppMode("public")}>
-                <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", appMode === "public" ? "border-[5px] border-accent" : "border-edge-strong")} />
-                <b className="text-sm font-semibold">App pública</b>
-                <small className="text-xs text-muted">La recomendada para tiendas nuevas.</small>
-              </button>
-              <button type="button" className={OPTION} aria-pressed={appMode === "custom"} onClick={() => setAppMode("custom")}>
-                <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", appMode === "custom" ? "border-[5px] border-accent" : "border-edge-strong")} />
-                <b className="text-sm font-semibold">App personalizada</b>
-                <small className="text-xs text-muted">Solo si la tienda ya la tenía instalada.</small>
-              </button>
-            </div>
+            <RadioGroup aria-label="Tipo de app de Shopify" className="gap-2 sm:grid-cols-2" value={appMode} onValueChange={setAppMode}>
+              <RadioCard value="public" title="App pública" description="La recomendada para tiendas nuevas." />
+              <RadioCard value="custom" title="App personalizada" description="Solo si la tienda ya la tenía instalada." />
+            </RadioGroup>
           ) : null}
           <Field label="Dominio .myshopify.com">
             <Input placeholder="tu-tienda.myshopify.com" value={domain} onChange={(event) => setDomain(event.target.value)} autoComplete="off" />
@@ -908,18 +926,10 @@ function ConnectWizard({
 
       {step === 2 && app === "klaviyo" ? (
         <>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <button type="button" className={OPTION} aria-pressed={method === "oauth"} onClick={() => setMethod("oauth")}>
-              <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", method === "oauth" ? "border-[5px] border-accent" : "border-edge-strong")} />
-              <b className="text-sm font-semibold">Iniciar sesión en Klaviyo</b>
-              <small className="text-xs text-muted">Recomendado. Aceptas los permisos en Klaviyo.</small>
-            </button>
-            <button type="button" className={OPTION} aria-pressed={method === "key"} onClick={() => setMethod("key")}>
-              <span aria-hidden className={cn("row-span-2 size-4 self-start rounded-full border-2", method === "key" ? "border-[5px] border-accent" : "border-edge-strong")} />
-              <b className="text-sm font-semibold">Clave privada</b>
-              <small className="text-xs text-muted">Pega una clave pk_ creada en Klaviyo.</small>
-            </button>
-          </div>
+          <RadioGroup aria-label="Cómo conectar Klaviyo" className="gap-2 sm:grid-cols-2" value={method} onValueChange={setMethod}>
+            <RadioCard value="oauth" title="Iniciar sesión en Klaviyo" description="Recomendado. Aceptas los permisos en Klaviyo." />
+            <RadioCard value="key" title="Clave privada" description="Pega una clave pk_ creada en Klaviyo." />
+          </RadioGroup>
           {method === "oauth" ? <AccessSummary provider="klaviyo" /> : null}
           {method === "key" ? (
             <>
@@ -951,6 +961,22 @@ function ConnectWizard({
           <p className={NOTE}>Comprobando…</p>
         )
       ) : null}
+      <DialogFooter>
+        {step === 2 && !keyDone ? (
+          <Button variant="ghost" className="sm:mr-auto" disabled={busy} onClick={() => setApp(null)}>
+            Atrás
+          </Button>
+        ) : null}
+        <DialogClose>{step === 3 ? "Cerrar" : "Cancelar"}</DialogClose>
+        {step === 2 && app === "instagram" ? (
+          <ButtonLink href="/integraciones/instagram">Ir a Instagram</ButtonLink>
+        ) : step === 2 ? (
+          <Button disabled={busy || !ready} onClick={() => void submit()}>
+            {busy ? "Conectando…" : app === "klaviyo" && method === "key" ? "Comprobar y conectar" : "Continuar"}
+          </Button>
+        ) : null}
+      </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -971,11 +997,18 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
   const [selection, setSelection] = useState<Selection | null>(null);
   const [wizard, setWizard] = useState<{ open: boolean; app: string | null; key: number }>({ open: false, app: null, key: 0 });
   // La cuenta Klaviyo de la tienda (no una suelta) es la que se cruza con Shopify.
+  // Primero la ASIGNADA a una tienda: con una sola tienda, una cuenta sin asignar
+  // también cuelga de ella, y si caía como «la peor» se comprobaba esa (sin
+  // Shopify dentro) y se avisaba de que Klaviyo no recibía la tienda aunque la
+  // cuenta asignada sí la recibiera.
+  const klaviyoConnections = payload?.providers.find((provider) => provider.id === "klaviyo")?.connections ?? [];
+  const assignedKlaviyoId = scope?.klaviyo_accounts?.find((account) => account.store_id)?.connection_id ?? null;
   const klaviyoConnection = payload
-    ? (buildStoreViews(payload, scope)
+    ? (klaviyoConnections.find((connection) => connection.id === assignedKlaviyoId) ??
+      buildStoreViews(payload, scope)
         .flatMap((store) => store.providers)
         .find((view) => view.provider === "klaviyo" && view.target)?.target ??
-      payload.providers.find((provider) => provider.id === "klaviyo")?.connections[0] ??
+      klaviyoConnections[0] ??
       null)
     : null;
   const hasKlaviyo = Boolean(klaviyoConnection);
@@ -1163,11 +1196,13 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
         <StoreMap stores={stores} selected={selection} onSelect={setSelection} />
       ) : (
         <Card>
-          <EmptyState
-            title="Todavía no hay ninguna tienda"
-            hint="Una tienda nace al conectar Shopify; después se le añaden Meta Ads y Klaviyo."
-            action={<Button onClick={() => connect("shopify")}>Conectar Shopify</Button>}
-          />
+          <CardContent>
+            <EmptyState
+              title="Todavía no hay ninguna tienda"
+              hint="Una tienda nace al conectar Shopify; después se le añaden Meta Ads y Klaviyo."
+              action={<Button onClick={() => connect("shopify")}>Conectar Shopify</Button>}
+            />
+          </CardContent>
         </Card>
       )}
       <AccountRow providers={accountProviders} onSelect={setSelection} />

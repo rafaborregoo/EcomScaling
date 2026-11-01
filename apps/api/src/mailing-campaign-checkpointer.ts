@@ -194,17 +194,16 @@ export class MailingCampaignCheckpointSaver extends BaseCheckpointSaver {
 export function createSupabaseCheckpointStore(
   supabase: SupabaseClient,
   scope: MailingCheckpointScope,
+  mutate?: (operation: string, payload: unknown) => Promise<void>,
 ): CheckpointRowStore {
   // any: los builders de supabase-js tienen tipos demasiado profundos para un helper generico.
   const scoped = (query: any): any => {
     const byOrg = query.eq("organization_id", scope.organizationId).eq("thread_id", scope.sequenceId);
     return scope.storeId ? byOrg.eq("store_id", scope.storeId) : byOrg.is("store_id", null);
   };
-  const owner = {
-    thread_id: scope.sequenceId,
-    organization_id: scope.organizationId,
-    store_id: scope.storeId,
-    sequence_id: scope.sequenceId,
+  const write = (operation: string, payload: unknown = {}) => {
+    if (!mutate) throw new Error("mailing_checkpoint_lease_required");
+    return mutate(operation, payload);
   };
   const checkpointColumns =
     "checkpoint_ns, checkpoint_id, parent_checkpoint_id, checkpoint_type, checkpoint, metadata_type, metadata";
@@ -244,34 +243,16 @@ export function createSupabaseCheckpointStore(
       return (data ?? []) as CheckpointWriteRow[];
     },
     async putCheckpoint(row) {
-      const { error } = await supabase
-        .from("mailing_campaign_checkpoints")
-        .upsert({ ...owner, ...row }, { onConflict: "thread_id,checkpoint_ns,checkpoint_id" });
-      fail(error, "mailing_checkpoint_write_failed");
+      await write("checkpoint", row);
     },
     async putWrites(rows, overwrite) {
-      const { error } = await supabase
-        .from("mailing_campaign_checkpoint_writes")
-        .upsert(rows.map((row) => ({ ...owner, ...row })), {
-          onConflict: "thread_id,checkpoint_ns,checkpoint_id,task_id,idx",
-          ignoreDuplicates: !overwrite,
-        });
-      fail(error, "mailing_checkpoint_writes_write_failed");
+      await write("writes", { rows, overwrite });
     },
     async pruneExceptLatest() {
-      const latest = await this.getCheckpoint("");
-      if (!latest) return;
-      // Writes primero: los checkpoints son su referencia logica.
-      for (const table of ["mailing_campaign_checkpoint_writes", "mailing_campaign_checkpoints"]) {
-        const { error } = await scoped(supabase.from(table).delete()).neq("checkpoint_id", latest.checkpoint_id);
-        fail(error, "mailing_checkpoint_prune_failed");
-      }
+      await write("prune");
     },
     async deleteAll() {
-      for (const table of ["mailing_campaign_checkpoint_writes", "mailing_campaign_checkpoints"]) {
-        const { error } = await scoped(supabase.from(table).delete());
-        fail(error, "mailing_checkpoint_delete_failed");
-      }
+      throw new Error("mailing_checkpoint_deletion_not_supported");
     },
   };
 }

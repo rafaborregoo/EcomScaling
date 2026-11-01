@@ -18,7 +18,7 @@
   flex-direction: column;
   margin: -16px -16px -112px;
   border-top: 1px solid var(--ib-line);
-  background: var(--ib-surface);
+  background: transparent;
   color: var(--ib-ink);
   font-size: 14px;
   line-height: 1.45;
@@ -96,61 +96,6 @@
   padding-left: 36px;
 }
 
-/* Control segmentado: un solo grupo por dimensión en vez de una fila de
-   botones sueltos (tres o más botones secundarios seguidos no distinguen
-   cuál está activo). */
-.seg {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--ib-line);
-  border-radius: 12px;
-  overflow-x: auto;
-  max-width: 100%;
-}
-.segBtn {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ib-ink-3);
-  font: inherit;
-  font-size: 13px;
-  padding: 4px 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.segBtn:hover {
-  color: var(--ib-ink);
-}
-.segBtn[aria-pressed="true"] {
-  background: var(--ib-accent);
-  color: #ffffff;
-  font-weight: 500;
-}
-.segBtn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.segCount {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ib-ink) 8%, transparent);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.segBtn[aria-pressed="true"] .segCount {
-  background: rgb(255 255 255 / 0.22);
-}
-
 .banners {
   display: flex;
   flex-direction: column;
@@ -212,45 +157,9 @@
   padding: 0;
 }
 
-.card {
-  display: block;
-  width: 100%;
-  padding: 0;
-  text-align: left;
-  border: 1px solid var(--ib-line-soft);
-  border-radius: 6px;
-  background: var(--ib-surface);
-  color: inherit;
-  overflow: hidden;
-  cursor: pointer;
-  transition: border-color 120ms;
-}
-.card:hover {
-  border-color: var(--ib-line);
-}
-.card[aria-expanded="true"] {
-  border-color: var(--ib-ink);
-  box-shadow: 0 0 0 1px var(--ib-ink);
-}
-
-/* Nada se recorta: la miniatura entera sobre fondo neutro, que es como se
-   distingue un 9:16 de un 4:5 sin abrirlos. */
-.media {
-  position: relative;
-  display: grid;
-  place-items: center;
-  aspect-ratio: 4 / 3;
-  background: var(--ib-ground);
-  border-bottom: 1px solid var(--ib-line-soft);
-  overflow: hidden;
-}
-.media img {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-}
+/* La miniatura es un Attachment vertical (components/ui/attachment.tsx) con
+   la imagen entera (object-contain): así se distingue un 9:16 de un 4:5 sin
+   abrirlos. Estas marcas van encima de la miniatura. */
 .mediaBusy {
   position: absolute;
   inset: 0;
@@ -295,23 +204,6 @@
   font-size: 12px;
 }
 
-.cardBody {
-  display: block;
-  padding: 8px 12px 12px;
-}
-.cardName {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cardName span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 500;
-}
 /* Analizada pero todavía fuera del contexto: el único estado que hay que ver
    sin abrir la ficha, porque A11 aún no la usa. */
 .pendingIndex {
@@ -320,19 +212,6 @@
   height: 8px;
   border-radius: 50%;
   background: #c08a1e;
-}
-.cardSub {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--ib-ink-3);
-}
-.cardSub[data-s="failed"] {
-  color: #8e2a17;
 }
 
 .detail {

@@ -1,5 +1,6 @@
 "use client";
 
+
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -34,6 +35,7 @@ import {
   type CampaignItem,
 } from "@/hooks/use-campaign-items";
 import { useAttributionReport } from "@/hooks/use-attribution-report";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { useActiveConnection } from "@/components/active-connection";
 import { useKlaviyoWorkspace } from "./klaviyo-workspace";
 import { buildCampaignRows, type CampaignPlanSummary, type CampaignRow } from "./campaign-rows";
@@ -41,6 +43,7 @@ import type { MetaCampaignsResponse } from "../meta/campaign-types";
 import { CampaignDrawer } from "./campaign-drawer";
 import { TodayView } from "./today-view";
 import { CampaignsView } from "./campaigns-view";
+import { CampaignPlanAccountCard } from "./campaign-plan-account-card";
 import { useCampaignsNav } from "./campanas/campanas-nav";
 import { PortfolioCampaigns } from "./campanas/portfolio-campaigns";
 import { FlowsView } from "./flows-view";
@@ -65,12 +68,12 @@ import { ContentDrawer, ContentOverview, contentStyles } from "./content-view";
 import { dueText, PIECE_STATE, pieceStatusNote } from "./content-state";
 
 import {
+  ScrollArea,
   LoadingBlock,
   Badge,
   ButtonLink,
   Banner,
   Button,
-  Card,
   CollapsibleSection,
   EmptyState,
   ErrorBlock,
@@ -78,13 +81,36 @@ import {
   Field,
   Heading,
   Input,
-  Dialog,
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  SearchableSelect,
   Select,
   MessageIcon,
   Tabs,
   Textarea,
   toast,
   type Tone,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
+  DateTimePicker,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+  List,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 
 const MARKETING_SECTIONS = [
@@ -382,9 +408,7 @@ function MarketingDraftNotes({
       {loading ? (
         <p className="mt-1 text-sm text-muted">Cargando…</p>
       ) : notes.length === 0 ? (
-        <p className="mt-1 text-sm text-muted">
-          Sin mensajes todavía. Escribe el primero.
-        </p>
+        <EmptyState size="sm" title="Sin mensajes todavía" hint="Escribe el primero." />
       ) : (
         <div className="mt-2 space-y-2">
           {notes.map((note) => {
@@ -537,11 +561,11 @@ function SchedulePublicationBlock({
         </div>
       ) : (
         <div className="mt-2 flex flex-wrap items-end gap-2">
-          <Input
-            type="datetime-local"
+          <DateTimePicker
+            className="max-w-sm"
             aria-label="Fecha y hora de publicación"
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={setValue}
           />
           <Button
             size="sm"
@@ -599,55 +623,54 @@ function UpcomingPublications({
     groups.set(key, list);
   }
   return (
-    <Card
-      title={title}
-      description="Publicaciones con fecha acordada. Ábrelas para ver la conversación y objetar."
-    >
-      <div className="space-y-4">
-        {[...groups.entries()].map(([day, dayEntries]) => (
-          <div key={day}>
-            <p className={EYEBROW}>{day}</p>
-            <ul className="mt-1 divide-y divide-separator">
-              {dayEntries.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    onClick={entry.onOpen}
-                    className="flex w-full flex-wrap items-center justify-between gap-2 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    <span
-                      aria-hidden
-                      className={`h-6 w-1 shrink-0 ${channelStyle(entry.channel).fill}`}
-                    />
-                    <span className="mr-auto flex flex-col">
-                      <span className="font-medium">{entry.title}</span>
-                      <span className="text-xs text-muted">{entry.meta}</span>
-                    </span>
-                    <span className="flex items-center gap-2 text-xs text-muted">
-                      {new Date(entry.scheduledFor).toLocaleTimeString(
-                        "es-ES",
-                        {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        },
-                      )}
-                      {entry.noteCount && entry.noteCount > 0 ? (
-                        <Badge tone="warn">{entry.noteCount}</Badge>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>Publicaciones con fecha acordada. Ábrelas para ver la conversación y objetar.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {[...groups.entries()].map(([day, dayEntries]) => (
+            <div key={day}>
+              <p className={EYEBROW}>{day}</p>
+              <List as="ul" className="mt-1">
+                {dayEntries.map((entry) => (
+                  <li key={entry.id}>
+                    <Item size="sm" className="-mx-2 px-2" render={<button type="button" onClick={entry.onOpen} />}>
+                      <ItemMedia>
+                        <span aria-hidden className={`size-2 rounded-full ${channelStyle(entry.channel).fill}`} />
+                      </ItemMedia>
+                      <ItemContent>
+                        <ItemTitle>{entry.title}</ItemTitle>
+                        <ItemDescription>{entry.meta}</ItemDescription>
+                      </ItemContent>
+                      <ItemActions className="text-sm text-muted">
+                        {new Date(entry.scheduledFor).toLocaleTimeString(
+                          "es-ES",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          },
+                        )}
+                        {entry.noteCount && entry.noteCount > 0 ? (
+                          <Badge tone="warn">{entry.noteCount}</Badge>
+                        ) : null}
+                      </ItemActions>
+                    </Item>
+                  </li>
+                ))}
+              </List>
+            </div>
+          ))}
+        </div>
+      </CardContent>
     </Card>
   );
 }
 
 function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const router = useRouter();
+  const isDesktop = useIsDesktop();
   const searchParams = useSearchParams();
   const { organizationId } = useActiveOrganization();
   const activeMembership = bootstrap.memberships.find(
@@ -682,8 +705,16 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
   const [focusReply, setFocusReply] = useState(false);
-  // `Date.now()` no es puro: se fija una vez para la agenda y los "sale en N días".
-  const [contentNow] = useState(() => Date.now());
+  const [contentNow, setContentNow] = useState(() => Date.now());
+  useEffect(() => {
+    const refresh = () => setContentNow(Date.now());
+    const interval = window.setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
   const [isMailingPlannerOpen, setIsMailingPlannerOpen] = useState(false);
   const [isCampaignProposalOpen, setIsCampaignProposalOpen] = useState(
     () => searchParams.get("openCampaignPlan") === "1",
@@ -734,6 +765,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     error,
     setError,
     reload: loadDrafts,
+    loadError: draftsLoadError,
   } = useMarketingDrafts(organizationId, canView, activeConnectionId);
 
   // Pieza que el estudio tiene que abrir. `asCopy` = punto de partida para
@@ -872,6 +904,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     items: campaignItems,
     agenda: campaignAgenda,
     isLoading: campaignItemsLoading,
+    error: campaignItemsError,
     reload: reloadCampaignItems,
   } = useCampaignItems(organizationId, activeConnectionId);
   const campaignsNav = useCampaignsNav();
@@ -909,6 +942,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     campaignItems,
     drafts,
     klaviyoWorkspace.data?.campaigns ?? [],
+    contentNow,
   );
   const campaignListRows = buildCampaignRows(
     campaignItems,
@@ -1318,148 +1352,150 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </Banner>
             ) : null}
                             {editingDraftId === openDraft.id && editForm ? (
-                              <Card
-                                title="Editar contenido"
-                                description="Al guardar volverá a requerir aprobación."
-                                className="border-warning/40 bg-warning/10"
-                              >
-                                <div className="space-y-4">
-                                  <Field
-                                    label={
-                                      isInstagramDraft(openDraft)
-                                        ? "Título del post"
-                                        : isMetaDraft(openDraft)
-                                          ? "Titular del anuncio"
-                                          : "Asunto del email"
-                                    }
-                                  >
-                                    <Input
-                                      className="mt-2"
-                                      value={editForm.subject}
-                                      onChange={(event) =>
-                                        setEditForm({
-                                          ...editForm,
-                                          subject: event.target.value,
-                                        })
-                                      }
-                                      maxLength={255}
-                                    />
-                                  </Field>
-                                  <div className="grid gap-4 sm:grid-cols-2">
+                              <Card className="border-warning/40 bg-warning/10">
+                                <CardHeader>
+                                  <CardTitle>Editar contenido</CardTitle>
+                                  <CardDescription>Al guardar volverá a requerir aprobación.</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="space-y-4">
                                     <Field
                                       label={
                                         isInstagramDraft(openDraft)
-                                          ? "Brief creativo"
+                                          ? "Título del post"
                                           : isMetaDraft(openDraft)
-                                            ? "Descripción del anuncio"
-                                            : "Preheader"
+                                            ? "Titular del anuncio"
+                                            : "Asunto del email"
                                       }
                                     >
                                       <Input
                                         className="mt-2"
-                                        value={editForm.preheader}
+                                        value={editForm.subject}
                                         onChange={(event) =>
                                           setEditForm({
                                             ...editForm,
-                                            preheader: event.target.value,
+                                            subject: event.target.value,
                                           })
                                         }
                                         maxLength={255}
                                       />
                                     </Field>
-                                    {!isSocialDraft(openDraft) ? (
-                                      <Field label="Remitente">
+                                    <div className="grid gap-4 sm:grid-cols-2">
+                                      <Field
+                                        label={
+                                          isInstagramDraft(openDraft)
+                                            ? "Brief creativo"
+                                            : isMetaDraft(openDraft)
+                                              ? "Descripción del anuncio"
+                                              : "Preheader"
+                                        }
+                                      >
                                         <Input
                                           className="mt-2"
-                                          value={editForm.from_name}
+                                          value={editForm.preheader}
                                           onChange={(event) =>
                                             setEditForm({
                                               ...editForm,
-                                              from_name: event.target.value,
+                                              preheader: event.target.value,
                                             })
                                           }
-                                          maxLength={160}
+                                          maxLength={255}
+                                        />
+                                      </Field>
+                                      {!isSocialDraft(openDraft) ? (
+                                        <Field label="Remitente">
+                                          <Input
+                                            className="mt-2"
+                                            value={editForm.from_name}
+                                            onChange={(event) =>
+                                              setEditForm({
+                                                ...editForm,
+                                                from_name: event.target.value,
+                                              })
+                                            }
+                                            maxLength={160}
+                                          />
+                                        </Field>
+                                      ) : null}
+                                    </div>
+                                    {!isSocialDraft(openDraft) ? (
+                                      <Field label="Reply-to (opcional)">
+                                        <Input
+                                          className="mt-2"
+                                          type="email"
+                                          value={editForm.reply_to}
+                                          onChange={(event) =>
+                                            setEditForm({
+                                              ...editForm,
+                                              reply_to: event.target.value,
+                                            })
+                                          }
                                         />
                                       </Field>
                                     ) : null}
-                                  </div>
-                                  {!isSocialDraft(openDraft) ? (
-                                    <Field label="Reply-to (opcional)">
-                                      <Input
-                                        className="mt-2"
-                                        type="email"
-                                        value={editForm.reply_to}
-                                        onChange={(event) =>
-                                          setEditForm({
-                                            ...editForm,
-                                            reply_to: event.target.value,
-                                          })
-                                        }
-                                      />
-                                    </Field>
-                                  ) : null}
-                                  <Field
-                                    label={
-                                      isInstagramDraft(openDraft)
-                                        ? "Caption + hashtags"
-                                        : isMetaDraft(openDraft)
-                                          ? "Texto principal del anuncio"
-                                          : "Texto plano"
-                                    }
-                                  >
-                                    <Textarea
-                                      className="mt-2 min-h-32"
-                                      value={editForm.plain_text}
-                                      onChange={(event) =>
-                                        setEditForm({
-                                          ...editForm,
-                                          plain_text: event.target.value,
-                                        })
+                                    <Field
+                                      label={
+                                        isInstagramDraft(openDraft)
+                                          ? "Caption + hashtags"
+                                          : isMetaDraft(openDraft)
+                                            ? "Texto principal del anuncio"
+                                            : "Texto plano"
                                       }
-                                      maxLength={100000}
-                                    />
-                                  </Field>
-                                  {isMetaDraft(openDraft) ? (
-                                    <Field label="Destino del CTA">
-                                      <Input
-                                        className="mt-2"
-                                        type="url"
-                                        value={editForm.destination_url}
-                                        onChange={(event) =>
-                                          setEditForm({
-                                            ...editForm,
-                                            destination_url: event.target.value,
-                                          })
-                                        }
-                                        placeholder="https://tu-tienda.com/coleccion"
-                                      />
-                                    </Field>
-                                  ) : null}
-                                  {!isSocialDraft(openDraft) ? (
-                                    <Field label="HTML sanitizado">
+                                    >
                                       <Textarea
-                                        className="mt-2 min-h-40 font-mono text-xs"
-                                        value={editForm.html}
+                                        className="mt-2 min-h-32"
+                                        value={editForm.plain_text}
                                         onChange={(event) =>
                                           setEditForm({
                                             ...editForm,
-                                            html: event.target.value,
+                                            plain_text: event.target.value,
                                           })
                                         }
-                                        maxLength={200000}
+                                        maxLength={100000}
                                       />
                                     </Field>
-                                  ) : null}
-                                  <Button
-                                    type="button"
-                                    onClick={() => void saveEditing(openDraft.id)}
-                                    disabled={busyDraftId === openDraft.id}
-                                  >
-                                    {busyDraftId === openDraft.id
-                                      ? "Guardando…"
-                                      : "Guardar nueva versión"}
-                                  </Button>
-                                </div>
+                                    {isMetaDraft(openDraft) ? (
+                                      <Field label="Destino del CTA">
+                                        <Input
+                                          className="mt-2"
+                                          type="url"
+                                          value={editForm.destination_url}
+                                          onChange={(event) =>
+                                            setEditForm({
+                                              ...editForm,
+                                              destination_url: event.target.value,
+                                            })
+                                          }
+                                          placeholder="https://tu-tienda.com/coleccion"
+                                        />
+                                      </Field>
+                                    ) : null}
+                                    {!isSocialDraft(openDraft) ? (
+                                      <Field label="HTML sanitizado">
+                                        <Textarea
+                                          className="mt-2 min-h-40 font-mono text-xs"
+                                          value={editForm.html}
+                                          onChange={(event) =>
+                                            setEditForm({
+                                              ...editForm,
+                                              html: event.target.value,
+                                            })
+                                          }
+                                          maxLength={200000}
+                                        />
+                                      </Field>
+                                    ) : null}
+                                    <Button
+                                      type="button"
+                                      onClick={() => void saveEditing(openDraft.id)}
+                                      disabled={busyDraftId === openDraft.id}
+                                    >
+                                      {busyDraftId === openDraft.id
+                                        ? "Guardando…"
+                                        : "Guardar nueva versión"}
+                                    </Button>
+                                  </div>
+                                </CardContent>
                               </Card>
                             ) : null}
             <div className={contentStyles.block}>
@@ -1519,8 +1555,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ) : null}
               </>
             ) : null}
-            <details className="text-sm">
-              <summary className="cursor-pointer text-muted">Detalles</summary>
+            <Collapsible className="text-sm">
+              <CollapsibleTrigger className="text-muted">Detalles<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+              <CollapsibleContent>
               <dl className={`${contentStyles.kv} mt-2`}>
                 <dt>Versión</dt>
                 <dd>{openDraft.version}</dd>
@@ -1541,7 +1578,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </Button>
               </div>
                             {historyDraftId === openDraft.id ? (
-                              <div className="rounded-md border border-separator bg-surface p-4 text-sm">
+                              <Card><CardContent className="text-sm">
                                 <p className="font-medium">
                                   Versiones auditables
                                 </p>
@@ -1572,9 +1609,10 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                     </li>
                                   ))}
                                 </ol>
-                              </div>
+                              </CardContent></Card>
                             ) : null}
-            </details>
+            </CollapsibleContent>
+            </Collapsible>
           </>
         ) : null
       }
@@ -1591,7 +1629,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   placeholder="Ej.: el precio es 49 €, y prefiero otra foto de portada."
                 />
               </Field>
-              <div className="flex flex-wrap justify-end gap-2">
+              <div role="group" aria-label="Acciones de revision del contenido" className="flex flex-wrap items-center gap-2 ml-auto">
                 <Button variant="ghost" onClick={() => setDecisionDraft(null)} disabled={busyDraftId === openDraft.id}>
                   Cancelar
                 </Button>
@@ -1652,7 +1690,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     // Crear y el constructor de flows son herramientas a pantalla completa:
     // sin el ancho máximo ni el ritmo vertical de las demás pestañas.
-    <div className={tab === "crear" || flowBuilderOpen ? "marketing-workspace" : "portal-page marketing-workspace space-y-7"}>
+    <div data-marketing-today={tab === "plan" ? "" : undefined} className={tab === "crear" || flowBuilderOpen ? "marketing-workspace" : "portal-page marketing-workspace space-y-7"}>
       {/* Los atajos que habia aqui ("Nueva plantilla", "Generar con IA",
           "Importar de Klaviyo") hacian `scrollIntoView` a una tarjeta de mas
           abajo. Existian porque TODO vivia en la misma pagina: crear, revisar,
@@ -1720,7 +1758,15 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
              escribir la pieza. */
           plan: (
             <TodayView
+              key={`${organizationId}:${activeConnectionId}`}
               organizationId={organizationId}
+              now={contentNow}
+              isLoading={campaignItemsLoading || isLoading || klaviyoWorkspace.isLoading}
+              hasLoadError={Boolean(campaignItemsError || draftsLoadError || klaviyoWorkspace.error)}
+              onRetry={reloadMarketing}
+              isPlanLoading={campaignPlanQuery.isLoading}
+              hasPlanError={Boolean(campaignPlanQuery.error)}
+              onRetryPlan={campaignPlanQuery.reload}
               campaignPlan={campaignPlanQuery.data?.proposal ?? null}
               rows={todayRows}
               items={campaignItems}
@@ -1736,6 +1782,14 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ),
           campanas: (
             <>
+              <CampaignPlanAccountCard
+                proposal={campaignPlanQuery.data?.proposal ?? null}
+                isConsultant={isConsultantRole}
+                onReview={() => setIsCampaignProposalOpen(true)}
+                isLoading={campaignPlanQuery.isLoading}
+                hasError={Boolean(campaignPlanQuery.error)}
+                onRetry={campaignPlanQuery.reload}
+              />
               {!searchParams.get("campaign") && searchParams.get("acciones") !== "1" && (
                 <div className={s.acts}>
                   <Button
@@ -1832,7 +1886,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           crear: organizationId ? (
             <div className="space-y-3">
               {studioOpen?.draft.request?.camino_task ? (
-                <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-separator bg-surface px-4 py-3 text-sm">
+                <Card><CardContent className="flex flex-wrap items-start justify-between gap-3 text-sm">
                   <div className="min-w-0 space-y-1">
                     <p>
                       Borrador creado desde Mi Camino: <strong>{studioOpen.draft.request.camino_task.title}</strong>
@@ -1847,7 +1901,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <ButtonLink href="/camino" size="sm" variant="secondary">
                     Volver a Mi Camino
                   </ButtonLink>
-                </div>
+                </CardContent></Card>
               ) : null}
               <ContentStudio
                 key={organizationId}
@@ -1870,23 +1924,17 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           rendimiento: (
             <div className={s.root}>
               <div className={s.head}>
-                <div>
+                <div className="client-sr-title">
                   <h1>Rendimiento</h1>
                   <p>Qué ha traído el email, separado entre flows y campañas.</p>
                 </div>
-                <div className={s.chips} role="group" aria-label="Periodo">
+                <ToggleGroup aria-label="Periodo" value={performanceDays} onValueChange={setPerformanceDays}>
                   {["7", "30", "90"].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={s.chip}
-                      aria-pressed={performanceDays === value}
-                      onClick={() => setPerformanceDays(value)}
-                    >
+                    <ToggleGroupItem key={value} value={value}>
                       {value} días
-                    </button>
+                    </ToggleGroupItem>
                   ))}
-                </div>
+                </ToggleGroup>
               </div>
               <KlaviyoPerformance workspace={klaviyoWorkspace.data} isLoading={klaviyoWorkspace.isLoading} storeCurrency={attribution.shopify?.currency_code} />
               <CollapsibleSection title="Comparar con Meta y Shopify">
@@ -1907,57 +1955,71 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         }}
       />
 
-              <Dialog
-                isOpen={isMailingPlannerOpen}
+              <Drawer
+                open={isMailingPlannerOpen}
                 onOpenChange={setIsMailingPlannerOpen}
-                size="xl"
-                title="Crear secuencia semanal de emails"
+                swipeDirection={isDesktop ? "right" : "down"}
+                showSwipeHandle={!isDesktop}
               >
-                <WeeklyMailingPlanner
-                  organizationId={organizationId}
-                  storeConnectionId={activeConnectionId}
-                  isOpen={isMailingPlannerOpen}
-                  onGenerated={async () => {
-                    await Promise.all([
-                      loadDrafts(),
-                      reloadCampaignItems(),
-                    ]);
-                    setIsMailingPlannerOpen(false);
-                    setTab("contenido");
-                  }}
-                />
-              </Dialog>
-              <Dialog
-                isOpen={isCampaignProposalOpen}
+                <DrawerContent className="sm:max-w-[60rem]">
+                  <DrawerHeader>
+                    <DrawerTitle>Crear secuencia semanal de emails</DrawerTitle>
+                  </DrawerHeader>
+                  <ScrollArea className="flex-1 p-4 sm:px-6">
+                  <WeeklyMailingPlanner
+                    organizationId={organizationId}
+                    storeConnectionId={activeConnectionId}
+                    isOpen={isMailingPlannerOpen}
+                    onGenerated={async () => {
+                      await Promise.all([
+                        loadDrafts(),
+                        reloadCampaignItems(),
+                      ]);
+                      setIsMailingPlannerOpen(false);
+                      setTab("contenido");
+                    }}
+                  />
+                  </ScrollArea>
+                </DrawerContent>
+              </Drawer>
+              <Drawer
+                open={isCampaignProposalOpen}
                 onOpenChange={setIsCampaignProposalOpen}
-                size="xl"
-                title="Planificar campañas con A05"
+                swipeDirection={isDesktop ? "right" : "down"}
+                showSwipeHandle={!isDesktop}
               >
-                <CampaignPlanProposal
-                  organizationId={organizationId}
-                  connectionId={activeConnectionId || undefined}
-                  initialBrief={campaignProposalBrief}
-                  redirectOnComplete={false}
-                  onProposed={() => {
-                    campaignPlanQuery.reload();
-                    void reloadCampaignItems();
-                  }}
-                  onApplied={(complete) => {
-                    void loadDrafts();
-                    void reloadCampaignItems();
-                    campaignPlanQuery.reload();
-                    if (complete) {
+                <DrawerContent className="sm:max-w-[60rem]">
+                  <DrawerHeader>
+                    <DrawerTitle>Planificar campañas con A05</DrawerTitle>
+                  </DrawerHeader>
+                  <ScrollArea className="flex-1 p-4 sm:px-6">
+                  <CampaignPlanProposal
+                    organizationId={organizationId}
+                    connectionId={activeConnectionId || undefined}
+                    initialBrief={campaignProposalBrief}
+                    redirectOnComplete={false}
+                    onProposed={() => {
+                      campaignPlanQuery.reload();
+                      void reloadCampaignItems();
+                    }}
+                    onApplied={(complete) => {
+                      void loadDrafts();
+                      void reloadCampaignItems();
+                      campaignPlanQuery.reload();
+                      if (complete) {
+                        setIsCampaignProposalOpen(false);
+                        setTab("campanas");
+                      }
+                    }}
+                    onRejected={() => {
+                      campaignPlanQuery.reload();
+                      void reloadCampaignItems();
                       setIsCampaignProposalOpen(false);
-                      setTab("campanas");
-                    }
-                  }}
-                  onRejected={() => {
-                    campaignPlanQuery.reload();
-                    void reloadCampaignItems();
-                    setIsCampaignProposalOpen(false);
-                  }}
-                />
-              </Dialog>
+                    }}
+                  />
+                  </ScrollArea>
+                </DrawerContent>
+              </Drawer>
 
       <CampaignDrawer
         row={openRow}
@@ -2149,9 +2211,9 @@ function ConsultantMarketingDraftPanel({
         <p className="text-xs text-muted">
           Propósito: {draft.purpose} · Audiencia: {draft.audience}
         </p>
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 text-xs leading-5">
+        <ScrollArea className="mt-2 max-h-64 border border-separator bg-surface p-3 text-xs leading-5"><pre className="whitespace-pre-wrap">
           {draft.plain_text}
-        </pre>
+        </pre></ScrollArea>
       </div>
 
       <div className="space-y-3">
@@ -2165,7 +2227,7 @@ function ConsultantMarketingDraftPanel({
         {notesLoading ? (
           <p className="text-sm text-muted">Cargando...</p>
         ) : notes.length === 0 ? (
-          <p className="text-sm text-muted">Sin mensajes todavía.</p>
+          <EmptyState size="sm" title="Sin mensajes todavía" />
         ) : (
           <div className="space-y-2">
             {notes.map((note) => {
@@ -2206,7 +2268,7 @@ function ConsultantMarketingDraftPanel({
           value={noteDraft}
           onChange={(event) => setNoteDraft(event.target.value)}
         />
-        <div className="flex flex-wrap gap-2">
+        <div role="group" aria-label="Acciones de revisión del borrador" className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="ghost"
@@ -2315,106 +2377,109 @@ function ConsultantMarketingView({
         }))}
       />
 
-      <Card
-        title="Marketing · toda la cartera"
-        description={`${data.drafts.length} borradores · ${pending} pendientes de aprobar. Espejo de lo que crean tus clientes.`}
-      >
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Select
-            className="w-52"
-            aria-label="Filtrar por cliente"
-            value={clientFilter}
-            onChange={setClientFilter}
-            options={[
-              { value: "all", label: "Todos los clientes" },
-              ...data.organizations.map((organization) => ({
+      <Card>
+        <CardHeader>
+          <CardTitle>Marketing · toda la cartera</CardTitle>
+          <CardDescription>{`${data.drafts.length} borradores · ${pending} pendientes de aprobar. Espejo de lo que crean tus clientes.`}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <SearchableSelect
+              className="w-52"
+              aria-label="Filtrar por cliente"
+              placeholder="Todos los clientes"
+              emptyText="No hay ningún cliente con ese nombre."
+              showClear
+              value={clientFilter === "all" ? "" : clientFilter}
+              onChange={(value) => setClientFilter(value || "all")}
+              options={data.organizations.map((organization) => ({
                 value: organization.id,
                 label: organization.display_name,
-              })),
-            ]}
-          />
-          <Select
-            className="w-52"
-            aria-label="Filtrar por estado"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={[
-              { value: "all", label: "Todos los estados" },
-              { value: "pending_approval", label: "Pendiente de aprobación" },
-              { value: "draft", label: "Borrador" },
-              { value: "approved", label: "Aprobado" },
-              { value: "rejected", label: "Rechazado" },
-            ]}
-          />
-        </div>
+              }))}
+            />
+            <Select
+              className="w-52"
+              aria-label="Filtrar por estado"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: "all", label: "Todos los estados" },
+                { value: "pending_approval", label: "Pendiente de aprobación" },
+                { value: "draft", label: "Borrador" },
+                { value: "approved", label: "Aprobado" },
+                { value: "rejected", label: "Rechazado" },
+              ]}
+            />
+          </div>
 
-        {rows.length === 0 ? (
-          <EmptyState
-            title="Sin borradores para este filtro"
-            hint="Los clientes generan contenido desde su propio panel de Marketing."
-          />
-        ) : (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {rows.map((draft) => (
-                <DraftMiniCard
-                  key={draft.id}
-                  html={draft.html}
-                  channel={draft.request?.channel}
-                  subject={draft.subject}
-                  body={draft.plain_text}
-                  title={draft.template_name || draft.subject}
-                  status={draft.status}
-                  thread={draft.thread}
-                  viewerKind={viewerKind}
-                  metaLine={
-                    <>
-                      {draft.organization_name} ·{" "}
-                      {contentTypeLabels[draft.content_type] ??
-                        draft.content_type}{" "}
-                      · v{draft.version} · {fmtDate(draft.updated_at)}
-                      {draft.note_count > 0
-                        ? ` · ${draft.note_count} objeci${draft.note_count === 1 ? "ón" : "ones"}`
-                        : ""}
-                    </>
-                  }
-                  selected={expandedId === draft.id}
-                  onToggle={() =>
-                    setExpandedId(expandedId === draft.id ? null : draft.id)
-                  }
-                />
-              ))}
-            </div>
-            {rows
-              .filter((draft) => draft.id === expandedId)
-              .map((draft) => (
-                <div
-                  key={draft.id}
-                  className="mt-4 border-t border-separator pt-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-medium">
-                      {draft.template_name} · {draft.organization_name}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setOrganizationId(draft.organization_id);
-                        toast.success(`Ahora ves ${draft.organization_name}`);
-                      }}
-                    >
-                      Ir al cliente
-                    </Button>
-                  </div>
-                  <ConsultantMarketingDraftPanel
-                    draft={draft}
-                    onChanged={load}
+          {rows.length === 0 ? (
+            <EmptyState
+              title="Sin borradores para este filtro"
+              hint="Los clientes generan contenido desde su propio panel de Marketing."
+            />
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {rows.map((draft) => (
+                  <DraftMiniCard
+                    key={draft.id}
+                    html={draft.html}
+                    channel={draft.request?.channel}
+                    subject={draft.subject}
+                    body={draft.plain_text}
+                    title={draft.template_name || draft.subject}
+                    status={draft.status}
+                    thread={draft.thread}
+                    viewerKind={viewerKind}
+                    metaLine={
+                      <>
+                        {draft.organization_name} ·{" "}
+                        {contentTypeLabels[draft.content_type] ??
+                          draft.content_type}{" "}
+                        · v{draft.version} · {fmtDate(draft.updated_at)}
+                        {draft.note_count > 0
+                          ? ` · ${draft.note_count} objeci${draft.note_count === 1 ? "ón" : "ones"}`
+                          : ""}
+                      </>
+                    }
+                    selected={expandedId === draft.id}
+                    onToggle={() =>
+                      setExpandedId(expandedId === draft.id ? null : draft.id)
+                    }
                   />
-                </div>
-              ))}
-          </>
-        )}
+                ))}
+              </div>
+              {rows
+                .filter((draft) => draft.id === expandedId)
+                .map((draft) => (
+                  <div
+                    key={draft.id}
+                    className="mt-4 border-t border-separator pt-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium">
+                        {draft.template_name} · {draft.organization_name}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setOrganizationId(draft.organization_id);
+                          toast.success(`Ahora ves ${draft.organization_name}`);
+                        }}
+                      >
+                        Ir al cliente
+                      </Button>
+                    </div>
+                    <ConsultantMarketingDraftPanel
+                      draft={draft}
+                      onChanged={load}
+                    />
+                  </div>
+                ))}
+            </>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

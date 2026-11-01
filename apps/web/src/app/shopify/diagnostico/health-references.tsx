@@ -26,13 +26,18 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   LoadingBlock,
+  SearchableSelect,
   Select,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -166,144 +171,148 @@ export function HealthReferencesPanel() {
   const tipoElegido = REFERENCE_TYPES.find((t) => t.value === draft.reference_type);
 
   return (
-    <Card
-      title="Contra qué se juzga cada métrica"
-      description="Sin esto, el diagnóstico no puede decir si una cifra está bien o mal: no hay umbral universal para un CAC ni para un CVR, y un número de fuera no vale para esta tienda. Lo que se declare aquí es lo que permite que una capacidad salga sana o enferma en vez de «no evaluable»."
-    >
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+    <Card>
+      <CardHeader>
+        <CardTitle>Contra qué se juzga cada métrica</CardTitle>
+        <CardDescription>Sin esto, el diagnóstico no puede decir si una cifra está bien o mal: no hay umbral universal para un CAC ni para un CVR, y un número de fuera no vale para esta tienda. Lo que se declare aquí es lo que permite que una capacidad salga sana o enferma en vez de «no evaluable».</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Field label="Tienda">
-          <Select
-            value={draft.organization_id}
-            onChange={(organization_id) => setDraft({ ...draft, organization_id })}
-            options={organizations.map((o) => ({ value: o.id, label: o.display_name }))}
-            placeholder="Elige la tienda"
-            aria-label="Tienda"
-          />
-        </Field>
-
-        <Field label="Capacidad">
-          <Select
-            value={draft.capability}
-            onChange={(capability) => setDraft({ ...draft, capability })}
-            options={CAPACIDADES}
-            placeholder="Elige la capacidad"
-            aria-label="Capacidad"
-          />
-        </Field>
-
-        <Field label="Métrica">
-          <Input
-            value={draft.metric}
-            onChange={(e) => setDraft({ ...draft, metric: e.target.value })}
-            placeholder="cac"
-          />
-        </Field>
-
-        <Field label="Tipo de referencia">
-          <Select
-            value={draft.reference_type}
-            onChange={(reference_type) => setDraft({ ...draft, reference_type })}
-            options={REFERENCE_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-            aria-label="Tipo de referencia"
-          />
-        </Field>
-
-        <Field label="Dirección">
-          <Select
-            value={draft.direction}
-            onChange={(direction) => setDraft({ ...draft, direction })}
-            options={DIRECCIONES}
-            aria-label="Dirección"
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Valor">
-            <Input
-              value={draft.value}
-              onChange={(e) => setDraft({ ...draft, value: e.target.value })}
-              placeholder="32"
-              inputMode="decimal"
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Field label="Tienda">
+            <SearchableSelect
+              value={draft.organization_id}
+              onChange={(organization_id) => setDraft({ ...draft, organization_id })}
+              options={organizations.map((o) => ({ value: o.id, label: o.display_name }))}
+              placeholder="Busca la tienda"
+              emptyText="No hay ninguna tienda con ese nombre."
+              aria-label="Tienda"
             />
           </Field>
-          <Field label="Unidad">
-            <Input
-              value={draft.unit}
-              onChange={(e) => setDraft({ ...draft, unit: e.target.value })}
-              placeholder="EUR"
+
+          <Field label="Capacidad">
+            <Select
+              value={draft.capability}
+              onChange={(capability) => setDraft({ ...draft, capability })}
+              options={CAPACIDADES}
+              placeholder="Elige la capacidad"
+              aria-label="Capacidad"
             />
           </Field>
+
+          <Field label="Métrica">
+            <Input
+              value={draft.metric}
+              onChange={(e) => setDraft({ ...draft, metric: e.target.value })}
+              placeholder="cac"
+            />
+          </Field>
+
+          <Field label="Tipo de referencia">
+            <Select
+              value={draft.reference_type}
+              onChange={(reference_type) => setDraft({ ...draft, reference_type })}
+              options={REFERENCE_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+              aria-label="Tipo de referencia"
+            />
+          </Field>
+
+          <Field label="Dirección">
+            <Select
+              value={draft.direction}
+              onChange={(direction) => setDraft({ ...draft, direction })}
+              options={DIRECCIONES}
+              aria-label="Dirección"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Valor">
+              <Input
+                value={draft.value}
+                onChange={(e) => setDraft({ ...draft, value: e.target.value })}
+                placeholder="32"
+                inputMode="decimal"
+              />
+            </Field>
+            <Field label="Unidad">
+              <Input
+                value={draft.unit}
+                onChange={(e) => setDraft({ ...draft, unit: e.target.value })}
+                placeholder="EUR"
+              />
+            </Field>
+          </div>
+
+          {draft.reference_type === "external_benchmark" ? (
+            <Field label="De dónde sale">
+              <Input
+                value={draft.source}
+                onChange={(e) => setDraft({ ...draft, source: e.target.value })}
+                placeholder="Informe sectorial 2026"
+              />
+            </Field>
+          ) : null}
         </div>
 
-        {draft.reference_type === "external_benchmark" ? (
-          <Field label="De dónde sale">
-            <Input
-              value={draft.source}
-              onChange={(e) => setDraft({ ...draft, source: e.target.value })}
-              placeholder="Informe sectorial 2026"
-            />
-          </Field>
+        {tipoElegido ? (
+          // El helper text que la regla de UI sí permite: explica una restricción
+          // y una consecuencia, no repite la etiqueta.
+          <p className="text-muted mt-3 max-w-prose text-sm leading-6">{tipoElegido.hint}</p>
         ) : null}
-      </div>
 
-      {tipoElegido ? (
-        // El helper text que la regla de UI sí permite: explica una restricción
-        // y una consecuencia, no repite la etiqueta.
-        <p className="text-muted mt-3 max-w-prose text-sm leading-6">{tipoElegido.hint}</p>
-      ) : null}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button onClick={() => void declarar()} disabled={Boolean(problema) || isSaving}>
+            Declarar
+          </Button>
+          {/* El motivo por el que el botón está apagado, en vez de una pared. */}
+          {problema ? <span className="text-muted text-sm">{problema}</span> : null}
+        </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button onClick={() => void declarar()} disabled={Boolean(problema) || isSaving}>
-          Declarar
-        </Button>
-        {/* El motivo por el que el botón está apagado, en vez de una pared. */}
-        {problema ? <span className="text-muted text-sm">{problema}</span> : null}
-      </div>
+        <div className="mt-6 border-t border-default-200 pt-4">
+          <p className="text-muted text-xs uppercase tracking-wide">Declaradas ahora mismo</p>
 
-      <div className="mt-6 border-t border-default-200 pt-4">
-        <p className="text-muted text-xs uppercase tracking-wide">Declaradas ahora mismo</p>
-
-        {references && references.length > 0 ? (
-          <ul className="mt-2">
-            {references.map((referencia) => (
-              <li
-                key={referencia.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-default-200 py-3 first:border-t-0"
-              >
-                <span className="font-mono tabular-nums">{referenceSentence(referencia)}</span>
-                <Badge tone={judges(referencia.reference_type) ? "brand" : "neutral"}>
-                  {referenceTypeLabel(referencia.reference_type)}
-                </Badge>
-                <span className="text-muted text-sm">{referencia.capability}</span>
-                {referencia.organization_name ? (
-                  <span className="text-muted text-sm">{referencia.organization_name}</span>
-                ) : null}
-                {!judges(referencia.reference_type) ? (
-                  <span className="text-muted text-xs">
-                    sirve para comparar, no desbloquea el diagnóstico
-                  </span>
-                ) : null}
-                <Button
-                  variant="ghost"
-                  onClick={() => void retirar(referencia.id)}
-                  disabled={isSaving}
+          {references && references.length > 0 ? (
+            <ul className="mt-2">
+              {references.map((referencia) => (
+                <li
+                  key={referencia.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-default-200 py-3 first:border-t-0"
                 >
-                  Retirar
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="mt-2">
-            <EmptyState
-              title="Nada declarado todavía"
-              hint="Mientras esto esté vacío, cada capacidad sale como «no evaluable» y el impacto se mide sin poder decir si es grave."
-            />
-          </div>
-        )}
-      </div>
+                  <span className="font-mono tabular-nums">{referenceSentence(referencia)}</span>
+                  <Badge tone={judges(referencia.reference_type) ? "brand" : "neutral"}>
+                    {referenceTypeLabel(referencia.reference_type)}
+                  </Badge>
+                  <span className="text-muted text-sm">{referencia.capability}</span>
+                  {referencia.organization_name ? (
+                    <span className="text-muted text-sm">{referencia.organization_name}</span>
+                  ) : null}
+                  {!judges(referencia.reference_type) ? (
+                    <span className="text-muted text-xs">
+                      sirve para comparar, no desbloquea el diagnóstico
+                    </span>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    onClick={() => void retirar(referencia.id)}
+                    disabled={isSaving}
+                  >
+                    Retirar
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2">
+              <EmptyState
+                title="Nada declarado todavía"
+                hint="Mientras esto esté vacío, cada capacidad sale como «no evaluable» y el impacto se mide sin poder decir si es grave."
+              />
+            </div>
+          )}
+        </div>
+      </CardContent>
     </Card>
   );
 }

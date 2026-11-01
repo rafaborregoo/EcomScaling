@@ -17,6 +17,10 @@ const structuredArchitectureMigrationUrl = new URL(
   "../../../supabase/migrations/20261115820000_a28_structured_flow_architecture.sql",
   import.meta.url,
 );
+const verifiedCoordinationMigrationUrl = new URL(
+  "../../../supabase/migrations/20270110120900_a28_architect_verified_coordination.sql",
+  import.meta.url,
+);
 const serverUrl = new URL("./server.ts", import.meta.url);
 const runtimeUrl = new URL("./ai-runtime.ts", import.meta.url);
 const syncUrl = new URL("./klaviyo-sync.ts", import.meta.url);
@@ -131,6 +135,42 @@ test("A28 structured architecture requires evidence and review fields while allo
   assert.equal(invalid.success, false);
 });
 
+test("A28 approval binds tasks to the exact saved candidate and current source flows", async () => {
+  const base = {
+    answer: "Diseño sujeto a revisión.", findings: [], recommendations: [], sources: [],
+    approval_required: true, confidence: "medium" as const, warnings: [],
+  };
+  const candidate = {
+    action: "adjust", name: "Welcome", objective: "Mejorar bienvenida", entry_trigger: "Alta confirmada",
+    trigger_verification: "verified", source_flow_refs: ["flow-001"], entry_conditions: [], exit_conditions: [],
+    exclusions: [], sequence: [{ step: 1, channel: "email", delay: "0 días", purpose: "Dar bienvenida" }],
+    cadence: "Una vez", priority: "medium", primary_kpi: "CTR", stop_rule: "Detener si suben bajas",
+    evidence: [{ source: "Inventario Klaviyo", period: "actual", sample_size: 1, coverage: "complete" }],
+    data_gaps: [], conflicts: [],
+  };
+  const valid = klaviyoFlowArchitectOutputSchema.safeParse({
+    ...base,
+    proposed_writes: [{ kind: "task", title: "Revisar bienvenida", description: "Comparar la secuencia y validar la propuesta.", priority: "medium",
+      architecture_candidate_index: 0, source_flow_refs: ["flow-001"] }],
+    flow_architecture: { decision: "design_proposal", summary: "Propuesta revisable.", candidates: [candidate] },
+  });
+  assert.equal(valid.success, true);
+  const mismatched = klaviyoFlowArchitectOutputSchema.safeParse({
+    ...base,
+    proposed_writes: [{ kind: "task", title: "Revisar bienvenida", description: "Comparar la secuencia y validar la propuesta.", priority: "medium",
+      architecture_candidate_index: 0, source_flow_refs: ["flow-002"] }],
+    flow_architecture: { decision: "design_proposal", summary: "Propuesta revisable.", candidates: [candidate] },
+  });
+  assert.equal(mismatched.success, false);
+
+  const sql = await readFile(verifiedCoordinationMigrationUrl, "utf8");
+  assert.match(sql, /architecture_candidate_changed/);
+  assert.match(sql, /flow_changed_since_analysis/);
+  assert.match(sql, /plan_revision/);
+  assert.match(sql, /architecture_candidate_index/);
+  assert.match(sql, /source_flow_refs exactamente iguales/);
+});
+
 test("only approved A28 architecture is passed to A27, A11 and A26 without implying activation", async () => {
   const sql = await readFile(orchestrationMigrationUrl, "utf8");
   assert.equal((sql.match(/convert_to\(/g) ?? []).length, 3);
@@ -159,8 +199,9 @@ test("A28 manual UI section maps to authenticated GET/run API routes", async () 
   assert.match(page, /title="Arquitectura de flujos"/);
   assert.match(page, /getPath="\/ai\/klaviyo-flow-architect"/);
   assert.match(page, /runPath="\/ai\/klaviyo-flow-architect-run"/);
-  assert.match(page, /days=\{90\}/);
+  assert.match(page, /days=\{60\}/);
   assert.match(diagnosticSection, /flow_architecture\?:/);
+  assert.match(diagnosticSection, /manualmente desde esta pantalla/);
   assert.match(diagnosticSection, /Diseño revisable del flujo/);
   assert.equal(
     (runtime.match(/klaviyo_flow_architect_store_required/g) ?? []).length,

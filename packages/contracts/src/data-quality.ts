@@ -160,8 +160,16 @@ export const CLIENT_ACTIONABLE_ISSUE_TYPES = [
  * una, cambia la otra: esto decide que se pinta, aquella que se puede leer.
  */
 export function isVisibleToClient(issue: DataQualityIssue): boolean {
-  return issue.client_actionable && issue.status !== "open";
+  return issue.client_actionable && CLIENT_VISIBLE_STATUSES.includes(issue.status as (typeof CLIENT_VISIBLE_STATUSES)[number]);
 }
+
+/**
+ * Verificado y todavía vigente. `open` es una sospecha sin verificar;
+ * `resolved` y `false_positive` ya no son un problema: enseñarlos como «necesita
+ * tu mano» hacía que un aviso de septiembre siguiera saliendo semanas después de
+ * reconectar.
+ */
+export const CLIENT_VISIBLE_STATUSES = ["investigating", "explained"] as const;
 
 export type FreshnessState = (typeof FRESHNESS_STATES)[number];
 export type ReliabilityLevel = (typeof RELIABILITY_LEVELS)[number];

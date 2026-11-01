@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type OfferPricingRun = {
   organization_id: string;
@@ -60,41 +60,43 @@ export function OfferPricingPlaybookPanel() {
   const profile = current?.result?.selected_instance?.domain_extension?.offer_pricing;
   const facts = current?.input_envelope?.context?.facts ?? {};
   return (
-    <Card
-      id="insight-offer-pricing"
-      title="Oferta, pricing, merchandising y AOV"
-      description="Prioriza contribution y evidencia de catálogo, stock y cesta; no convierte AOV aislado en recomendación de precio."
-    >
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">
-            {current.candidate_count
-              ? `${current.candidate_count} playbook(s) de oferta evaluado(s).`
-              : "No hay templates OFFER_PRICING activos; no se inventa un precio, bundle ni promoción."}
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            AOV: {facts["offer_pricing.economics.aov.available"] ?? "UNKNOWN"}; margen: {facts["offer_pricing.economics.margin.available"] ?? "UNKNOWN"}; stock: {facts["offer_pricing.inventory.available"] ?? "UNKNOWN"}.
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            Elasticidad: {facts["offer_pricing.pricing.elasticity.observed"] ?? "UNKNOWN"}; incrementalidad promocional: {facts["offer_pricing.promotions.incrementality.supported"] ?? "UNKNOWN"}.
-          </p>
-          {profile ? (
-            <p className="text-muted mt-2 text-xs">
-              Familia: {profile.intervention_family}; métrica económica: {profile.economic_metric_ref}; reversible: {profile.reversible ? "sí" : "no"}.
+    <Card id="insight-offer-pricing">
+      <CardHeader>
+        <CardTitle>Oferta, pricing, merchandising y AOV</CardTitle>
+        <CardDescription>Prioriza contribution y evidencia de catálogo, stock y cesta; no convierte AOV aislado en recomendación de precio.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">
+              {current.candidate_count
+                ? `${current.candidate_count} playbook(s) de oferta evaluado(s).`
+                : "No hay templates OFFER_PRICING activos; no se inventa un precio, bundle ni promoción."}
             </p>
-          ) : null}
-          <p className="text-muted mt-2 text-xs">
-            {current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar datos y economics."}
-            {current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}
-          </p>
-        </article>
-      ) : (
-        <p className="text-muted text-sm">Todavía no hay evaluaciones de oferta y pricing.</p>
-      )}
+            <p className="text-muted mt-2 text-xs">
+              AOV: {facts["offer_pricing.economics.aov.available"] ?? "UNKNOWN"}; margen: {facts["offer_pricing.economics.margin.available"] ?? "UNKNOWN"}; stock: {facts["offer_pricing.inventory.available"] ?? "UNKNOWN"}.
+            </p>
+            <p className="text-muted mt-2 text-xs">
+              Elasticidad: {facts["offer_pricing.pricing.elasticity.observed"] ?? "UNKNOWN"}; incrementalidad promocional: {facts["offer_pricing.promotions.incrementality.supported"] ?? "UNKNOWN"}.
+            </p>
+            {profile ? (
+              <p className="text-muted mt-2 text-xs">
+                Familia: {profile.intervention_family}; métrica económica: {profile.economic_metric_ref}; reversible: {profile.reversible ? "sí" : "no"}.
+              </p>
+            ) : null}
+            <p className="text-muted mt-2 text-xs">
+              {current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar datos y economics."}
+              {current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}
+            </p>
+          </CardContent></Card>
+        ) : (
+          <EmptyState title="Todavía no hay evaluaciones de oferta y pricing" />
+        )}
+      </CardContent>
     </Card>
   );
 }

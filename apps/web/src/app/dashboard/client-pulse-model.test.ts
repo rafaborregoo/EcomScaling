@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { fmtCurrency, fmtEur, moneyFlow, monthlyWithProjection, unitEconomics } from "./client-pulse-model";
+import { chartScale, fmtCurrency, fmtEur, moneyFlow, monthlyWithProjection, unitEconomics } from "./client-pulse-model";
 
 const financial = {
   net_sales: 48230,
@@ -80,6 +80,30 @@ test("sin diferencia entre ventas e ingreso sin IVA hay una sola fila de ingreso
 test("las monedas agrupan también con cuatro cifras y usan el menos tipográfico", () => {
   assert.equal(fmtCurrency(7463, "EUR").replace(/ /g, " "), "7.463 €");
   assert.equal(fmtCurrency(-7463, "EUR").replace(/ /g, " "), "−7.463 €");
+});
+
+test("el gráfico incluye ventas negativas y la comparación sin recortarlas", () => {
+  for (const [values, comparison] of [
+    [[120, -75, 40], -180],
+    [[-25, -90], -10],
+    [[0.2, -0.05], 0.8],
+  ] as const) {
+    const scale = chartScale(values, comparison);
+    assert.ok(scale.bottom <= Math.min(0, ...values, comparison));
+    assert.ok(scale.top >= Math.max(0, ...values, comparison));
+    assert.ok(scale.top > scale.bottom);
+    assert.ok(scale.ticks.includes(0));
+    assert.equal(scale.ticks[0], scale.bottom);
+    assert.equal(scale.ticks.at(-1), scale.top);
+  }
+});
+
+test("la escala no divide por cero con una serie vacía o sin ventas", () => {
+  for (const values of [[], [0], [0, 0, 0]]) {
+    const scale = chartScale(values, null);
+    assert.ok(scale.top > scale.bottom);
+    assert.ok(scale.ticks.every(Number.isFinite));
+  }
 });
 
 import { changeText, clientReadable, pickFinding, shortMoney } from "./client-pulse-model";

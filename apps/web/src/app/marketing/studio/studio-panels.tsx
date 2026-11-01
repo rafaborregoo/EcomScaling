@@ -3,11 +3,18 @@
 /* eslint-disable @next/next/no-img-element -- miniaturas de imágenes del
    email (CDN de Shopify o subidas), igual que el lienzo. */
 
+import { Select } from "@/components/ui";
+import { buttonVariants } from "@/components/ui/button";
+import { DatePicker, DateTimePicker } from "@/components/ui/date-picker";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Attachment, AttachmentContent, AttachmentMedia, AttachmentTitle, AttachmentTrigger } from "@/components/ui/attachment";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, startDrag } from "./studio-canvas";
 import {
   BLOCK_LABEL,
+  COLOR_ROLES,
+  MERGE,
   SOCIAL_NETWORKS,
   colorOf,
   contrast,
@@ -48,20 +55,6 @@ export function setPath<T>(source: T, key: string, value: unknown): T {
   return base as T;
 }
 
-export const MERGE = [
-  ["Nombre", '{{ first_name|default:"" }}'],
-  ["Ciudad", "{{ location.city }}"],
-  ["Tienda", "{{ organization.name }}"],
-] as const;
-
-const COLOR_ROLES: Array<[string, string]> = [
-  ["primary", "Principal"],
-  ["accent", "Acento"],
-  ["text", "Texto"],
-  ["bg", "Fondo"],
-  ["card", "Tarjeta"],
-  ["white", "Blanco"],
-];
 
 export type ImageOption = { src: string; label: string };
 
@@ -83,20 +76,25 @@ function ImagePicker({ value, images, onChange, onUpload, label }: { value: stri
       {images.length ? (
         <div className={s.bank}>
           {images.slice(0, 8).map((image) => (
-            <button key={image.src} type="button" aria-pressed={value === image.src} onClick={() => onChange(image.src)} title={image.label}>
-              <img className={s.thumb} src={image.src} alt="" style={{ height: 44 }} />
-              <span>{image.label}</span>
-            </button>
+            <Attachment key={image.src} orientation="vertical" size="xs">
+              <AttachmentMedia variant="image">
+                <img src={image.src} alt="" />
+              </AttachmentMedia>
+              <AttachmentContent>
+                <AttachmentTitle>{image.label}</AttachmentTitle>
+              </AttachmentContent>
+              <AttachmentTrigger aria-pressed={value === image.src} aria-label={`Usar ${image.label}`} title={image.label} onClick={() => onChange(image.src)} />
+            </Attachment>
           ))}
         </div>
       ) : null}
       <div className={s.row}>
         <input className={s.inp} style={{ flex: 1 }} placeholder="https://… (pegar enlace)" value={url} onChange={(event) => setUrl(event.target.value)} aria-label={`${label}: enlace`} />
-        <button type="button" className={`${s.btn} ${s.sm}`} disabled={!isHttpUrl(url)} onClick={() => { onChange(url); setUrl(""); }}>
+        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={!isHttpUrl(url)} onClick={() => { onChange(url); setUrl(""); }}>
           Usar
         </button>
       </div>
-      <label className={`${s.btn} ${s.sm}`} style={{ cursor: "pointer" }}>
+      <label className={buttonVariants({ variant: "secondary", size: "sm" })}>
         <Icon name="upload" />
         Subir imagen
         <input
@@ -149,13 +147,19 @@ export function Fields({
                   {field.label}
                   <Counter value={String(value ?? "")} limit={field.limit} />
                 </label>
-                <input
-                  id={domId}
-                  className={`${s.inp} ${field.kind === "url" ? s.mono : ""}`}
-                  type={field.kind === "datetime" ? "datetime-local" : field.kind === "date" ? "date" : field.kind === "url" ? "url" : "text"}
-                  value={String(value ?? "")}
-                  onChange={(event) => onChange(field.k, event.target.value)}
-                />
+                {field.kind === "datetime" ? (
+                  <DateTimePicker id={domId} aria-label={field.label} value={String(value ?? "")} onChange={(next) => onChange(field.k, next)} />
+                ) : field.kind === "date" ? (
+                  <DatePicker id={domId} aria-label={field.label} value={String(value ?? "")} onChange={(next) => onChange(field.k, next)} />
+                ) : (
+                  <input
+                    id={domId}
+                    className={`${s.inp} ${field.kind === "url" ? s.mono : ""}`}
+                    type={field.kind === "url" ? "url" : "text"}
+                    value={String(value ?? "")}
+                    onChange={(event) => onChange(field.k, event.target.value)}
+                  />
+                )}
               </div>
             );
           case "textarea":
@@ -198,19 +202,19 @@ export function Fields({
             return (
               <div key={field.k} className={s.f}>
                 <span className={s.lbl}>{field.label}</span>
-                <div className={s.opts} role="group" aria-label={field.label}>
+                <ToggleGroup aria-label={field.label} spacing={options.length > 4 ? 1.5 : 0} value={String(value)} onValueChange={(option) => onChange(field.k, option)}>
                   {options.map(([option, label]) =>
                     field.kind === "align" ? (
-                      <button key={option} type="button" className={s.opt} aria-pressed={String(value) === option} aria-label={label} title={label} onClick={() => onChange(field.k, option)}>
+                      <ToggleGroupItem key={option} value={option} size="icon-sm" aria-label={label} title={label}>
                         <Icon name={`align-${option}`} />
-                      </button>
+                      </ToggleGroupItem>
                     ) : (
-                      <button key={option} type="button" className={s.opt} aria-pressed={String(value) === option} onClick={() => onChange(field.k, option)}>
+                      <ToggleGroupItem key={option} value={option}>
                         {label}
-                      </button>
+                      </ToggleGroupItem>
                     ),
                   )}
-                </div>
+                </ToggleGroup>
               </div>
             );
           }
@@ -220,13 +224,7 @@ export function Fields({
                 <label className={s.lbl} htmlFor={domId}>
                   {field.label}
                 </label>
-                <select id={domId} className={s.inp} value={String(value ?? "")} onChange={(event) => onChange(field.k, event.target.value)}>
-                  {field.options.map(([option, label]) => (
-                    <option key={option} value={option}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                <Select id={domId} value={String(value ?? "")} onChange={(next) => onChange(field.k, next)} options={field.options.map(([option, label]) => ({ value: option, label }))} />
               </div>
             );
           case "toggle":
@@ -442,10 +440,10 @@ function ProductsEditor({
               <small>{item.price || "Sin precio"}</small>
             </span>
             <span className={s.ops}>
-              <button type="button" className={s.ibtn} aria-label="Subir" disabled={index === 0} onClick={() => { const items = [...p.items]; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!]; onChange("items", items); }}>
+              <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Subir" disabled={index === 0} onClick={() => { const items = [...p.items]; [items[index - 1], items[index]] = [items[index]!, items[index - 1]!]; onChange("items", items); }}>
                 <Icon name="up" />
               </button>
-              <button type="button" className={s.ibtn} aria-label="Quitar" onClick={() => onChange("items", p.items.filter((_, i) => i !== index))}>
+              <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Quitar" onClick={() => onChange("items", p.items.filter((_, i) => i !== index))}>
                 <Icon name="x" />
               </button>
             </span>
@@ -468,7 +466,7 @@ function ProductsEditor({
         </label>
         <div className={s.row}>
           <input id={`st-prod-${block.id}`} className={s.inp} style={{ flex: 1 }} placeholder="Busca por nombre" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={async (event) => { if (event.key === "Enter") { event.preventDefault(); setResults(await loadProducts("search", query)); } }} />
-          <button type="button" className={`${s.btn} ${s.sm}`} onClick={async () => setResults(await loadProducts("search", query))}>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={async () => setResults(await loadProducts("search", query))}>
             Buscar
           </button>
         </div>
@@ -480,7 +478,7 @@ function ProductsEditor({
               {item.title}
               <small>{item.price || "Sin precio"}</small>
             </span>
-            <button type="button" className={`${s.btn} ${s.sm}`} disabled={p.items.length >= MAX_PRODUCTS || p.items.some((entry) => entry.id === item.id)} onClick={() => { onChange("source", "manual"); onChange("items", [...p.items, item]); }}>
+            <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={p.items.length >= MAX_PRODUCTS || p.items.some((entry) => entry.id === item.id)} onClick={() => { onChange("source", "manual"); onChange("items", [...p.items, item]); }}>
               Añadir
             </button>
           </div>
@@ -590,17 +588,17 @@ export function BlockInspector({
       {block.type === "footer" ? <p className={s.note}>Los enlaces de baja y preferencias los pone Klaviyo al enviar.</p> : null}
       {extras}
       {aiKind ? (
-        <button type="button" className={s.btn} onClick={() => onAi(aiKind)}>
+        <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => onAi(aiKind)}>
           <Icon name="spark" />
           {aiKind === "cta" ? "Proponer otros textos de botón" : aiKind === "shorter" ? "Reescribir más corto con IA" : "Proponer otros títulos"}
         </button>
       ) : null}
       <div className={s.row}>
-        <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => onAct("dup", block.id)}>
+        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => onAct("dup", block.id)}>
           <Icon name="copy" />
           Duplicar
         </button>
-        <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => onAct("del", block.id)}>
+        <button type="button" className={buttonVariants({ variant: "destructive", size: "sm" })} onClick={() => onAct("del", block.id)}>
           <Icon name="trash" />
           Borrar
         </button>
@@ -731,10 +729,10 @@ export function LeftPanel({
               <small>{snippet(block)}</small>
             </span>
             <span className={s.ops}>
-              <button type="button" className={s.ibtn} aria-label="Subir" disabled={index === 0} onClick={(event) => { event.stopPropagation(); onMove("up", block.id); }}>
+              <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Subir" disabled={index === 0} onClick={(event) => { event.stopPropagation(); onMove("up", block.id); }}>
                 <Icon name="up" />
               </button>
-              <button type="button" className={s.ibtn} aria-label="Bajar" disabled={index === design.blocks.length - 1} onClick={(event) => { event.stopPropagation(); onMove("down", block.id); }}>
+              <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Bajar" disabled={index === design.blocks.length - 1} onClick={(event) => { event.stopPropagation(); onMove("down", block.id); }}>
                 <Icon name="down" />
               </button>
             </span>
@@ -752,25 +750,30 @@ export function LeftPanel({
           {images.length ? (
             <div className={s.bank}>
               {images.map((image) => (
-                <button
-                  key={image.src}
-                  type="button"
-                  draggable={email}
-                  aria-pressed={currentImage === image.src}
-                  onDragStart={(event) => startDrag(event, { kind: "img", src: image.src, alt: image.label })}
-                  onClick={() => onPickImage(image)}
-                  title={image.label}
-                >
-                  <img className={s.thumb} src={image.src} alt="" />
-                  <span>{image.label}</span>
-                </button>
+                <Attachment key={image.src} orientation="vertical" size="xs">
+                  <AttachmentMedia variant="image">
+                    <img src={image.src} alt="" />
+                  </AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle>{image.label}</AttachmentTitle>
+                  </AttachmentContent>
+                  <AttachmentTrigger
+                    draggable={email}
+                    aria-pressed={currentImage === image.src}
+                    aria-label={`Usar ${image.label}`}
+                    title={image.label}
+                    className={email ? "cursor-grab" : undefined}
+                    onDragStart={(event) => startDrag(event, { kind: "img", src: image.src, alt: image.label })}
+                    onClick={() => onPickImage(image)}
+                  />
+                </Attachment>
               ))}
             </div>
           ) : (
             <p className={s.hint}>Cuando Shopify sincronice las fotos de tus productos aparecerán aquí. Mientras, sube las tuyas.</p>
           )}
         </div>
-        <label className={s.btn} style={{ cursor: "pointer" }}>
+        <label className={buttonVariants({ variant: "secondary" })}>
           <Icon name="upload" />
           Subir imagen
           <input
@@ -795,7 +798,7 @@ export function LeftPanel({
             Sale de tu <a href="/marketing/guia">Guía de marca</a>. Lo que cambies aquí se aplica solo a esta pieza.
           </p>
           {onResetBrand ? (
-            <button type="button" className={`${s.btn} ${s.sm}`} onClick={onResetBrand}>
+            <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={onResetBrand}>
               Volver a la Guía de marca
             </button>
           ) : null}
@@ -869,7 +872,7 @@ export function ReviewPanel({ checks, onFix }: { checks: Check[]; onFix: (action
                 <b>{check.title}</b>
                 <small>{check.detail}</small>
                 {check.fix ? (
-                  <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => onFix(check.fix!.action)}>
+                  <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => onFix(check.fix!.action)}>
                     {check.fix.label}
                   </button>
                 ) : null}
@@ -949,7 +952,7 @@ export function AiPanel({
           onChange={(event) => onPrompt(event.target.value)}
           placeholder="Ej.: menciona que el envío es gratis desde 50 € y cierra con el taller. Si una frase debe salir tal cual, ponla entre comillas."
         />
-        <button type="button" className={`${s.btn} ${s.primary}`} disabled={!aiReady || !prompt.trim()} onClick={() => onAsk("free")}>
+        <button type="button" className={buttonVariants()} disabled={!aiReady || !prompt.trim()} onClick={() => onAsk("free")}>
           <Icon name="spark" />
           Preguntar al Consultor IA
         </button>
@@ -959,7 +962,7 @@ export function AiPanel({
         <div className={s.fields} aria-live="polite">
           <div className={s.row} style={{ justifyContent: "space-between" }}>
             <span className={s.lbl}>{applicable ? "Propuestas" : "Respuesta"}</span>
-            <button type="button" className={s.ibtn} aria-label="Descartar" onClick={onClear}>
+            <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Descartar" onClick={onClear}>
               <Icon name="x" />
             </button>
           </div>
@@ -968,7 +971,7 @@ export function AiPanel({
               <p>{item}</p>
               {applicable ? (
                 <div className={s.row}>
-                  <button type="button" className={`${s.btn} ${s.sm} ${s.primary}`} onClick={() => onApply(item)}>
+                  <button type="button" className={buttonVariants({ size: "sm" })} onClick={() => onApply(item)}>
                     <Icon name="check" />
                     Aplicar
                   </button>
@@ -1047,14 +1050,14 @@ export function StudioChat({
               </ul>
             ) : null}
             {message.upgrade === "yes" ? (
-              <Link href="/planes" className={`${s.btn} ${s.sm} ${s.primary}`}>
+              <Link href="/planes" className={buttonVariants({ size: "sm" })}>
                 Mejorar plan
               </Link>
             ) : message.upgrade === "ask" ? (
               <p className={s.note}>Avisa al propietario del plan o a tu consultor para ampliar el saldo.</p>
             ) : null}
             {index === lastChange && canUndo ? (
-              <button type="button" className={`${s.btn} ${s.sm}`} onClick={onUndo}>
+              <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={onUndo}>
                 <Icon name="undo" />
                 Deshacer
               </button>
@@ -1080,7 +1083,7 @@ export function StudioChat({
             }
           }}
         />
-        <button type="button" className={`${s.btn} ${s.primary}`} disabled={!aiReady || busy || !draft.trim()} onClick={() => send(draft)}>
+        <button type="button" className={buttonVariants()} disabled={!aiReady || busy || !draft.trim()} onClick={() => send(draft)}>
           <Icon name="send" />
           Enviar
         </button>

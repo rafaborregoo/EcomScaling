@@ -29,6 +29,26 @@ export function appendA13OperationalDetails(
   return details.length ? [base, ...details].filter(Boolean).join("\n").slice(0, 5000) : base;
 }
 
+export function appendA25InvestigationDetails(
+  description: unknown,
+  fields: Record<string, unknown>,
+): string | null {
+  const base = trimBounded(description, 4000);
+  const action = ["investigate", "document", "review", "handoff"].includes(String(fields.investigation_action))
+    ? String(fields.investigation_action)
+    : null;
+  const eventRef = typeof fields.event_ref === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fields.event_ref)
+    ? fields.event_ref.toLowerCase()
+    : null;
+  const details = [
+    action ? `Tipo de seguimiento A25: ${action}.` : null,
+    eventRef ? `Evento Meta observado: ${eventRef}.` : null,
+  ].filter(Boolean).join(" ");
+  if (!details) return base;
+  return `${base ? `${base}\n\n` : ""}${details}`.slice(0, 4000);
+}
+
 export type WeeklyDeliveryContract = {
   owner_role: "cliente" | "consultor" | null;
   completion_criteria: string | null;
@@ -84,7 +104,7 @@ export function readProposedMilestoneId(value: unknown): string | null {
 }
 
 export function shouldFallbackToCurrentMilestone(agentCode: string | null): boolean {
-  return agentCode !== "a04_generador_tareas" && agentCode !== "a06_planificador_stock" && agentCode !== "a13_operativa_shopify" && agentCode !== "a14_operativa_meta" && agentCode !== "a18_plan_mensual";
+  return agentCode !== "a04_generador_tareas" && agentCode !== "a06_planificador_stock" && agentCode !== "a13_operativa_shopify" && agentCode !== "a14_operativa_meta" && agentCode !== "a18_plan_mensual" && agentCode !== "a23_creatividad_meta" && agentCode !== "a24_medicion_meta" && agentCode !== "a25_cambios_meta" && agentCode !== "a26_contenido_email" && agentCode !== "a28_arquitecto_flujos";
 }
 
 const trimBounded = (value: unknown, max: number): string | null =>

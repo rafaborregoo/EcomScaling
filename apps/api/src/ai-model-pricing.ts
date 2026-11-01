@@ -26,7 +26,7 @@ export const LITELLM_PRICES_URL =
 
 type PricingEnv = {
   SUPABASE_URL: string;
-  SUPABASE_SERVICE_ROLE_KEY?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string | undefined;
   OPENAI_MODEL?: string;
   ANTHROPIC_MODEL?: string;
 };
@@ -210,7 +210,7 @@ export async function refreshLiveModelPricing(env: PricingEnv): Promise<void> {
   try {
     const { data, error } = await createServiceClient(env)
       .from("ai_model_prices")
-      .select("model, input_per_mtok, output_per_mtok, updated_at");
+      .select("model, input_per_mtok, output_per_mtok, cache_read_per_mtok, updated_at");
     if (error) throw new Error(error.message);
     if (!data?.length) return;
     const prices: Record<string, ModelPricing> = {};
@@ -219,6 +219,7 @@ export async function refreshLiveModelPricing(env: PricingEnv): Promise<void> {
       prices[r.model as string] = {
         inputPerMTok: Number(r.input_per_mtok),
         outputPerMTok: Number(r.output_per_mtok),
+        ...(r.cache_read_per_mtok == null ? {} : { cacheReadPerMTok: Number(r.cache_read_per_mtok) }),
       };
       const day = String(r.updated_at).slice(0, 10);
       if (day > version) version = day;
@@ -237,7 +238,7 @@ function requirePlatformAdmin(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "platform_admin_required",
-      message: "Solo un platform admin puede ver y actualizar la tarifa de modelos.",
+      message: "Solo un administrador de la plataforma puede ver y actualizar la tarifa de modelos.",
     };
   }
   return { ok: true as const };

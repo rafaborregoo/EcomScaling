@@ -33,6 +33,7 @@ import {
   type KlaviyoSignalRow,
 } from "./klaviyo-triage.js";
 import { loadDraftThreadSummaries } from "./ai-runtime.js";
+import { requireMailingAccess } from "./marketing-mailing-access.js";
 import { readA18InitiativeChange, readInitiativeMeasurement } from "./agent-task-delivery.js";
 import { connectionSeverity } from "./integrations.js";
 import {
@@ -166,7 +167,7 @@ export async function listConsultantOrganizations(
       ok: false as const,
       statusCode: 403,
       error: "consultant_access_required",
-      message: "El panel consultor requiere rol platform_admin o consultant.",
+      message: "Esta sección es solo para consultores.",
     };
   }
 
@@ -1732,7 +1733,7 @@ export async function listConsultantOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, store_id, created_at, updated_at, organization_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, store_id, created_at, updated_at, organization_id, outcome_metric_name, outcome_before_value, outcome_after_value, outcome_unit, outcome_summary, outcome_measured_at, outcome_recorded_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, status, strategic_plan_phases(name, status)))",
       )
       .in("organization_id", safeIds)
       .order("created_at", { ascending: false })
@@ -1804,7 +1805,9 @@ export async function listConsultantOperations(
         ? {
             id: ms.id as string,
             name: ms.name as string,
+            status: (ms.status as string | undefined) ?? null,
             phase_name: (phase?.name as string | undefined) ?? null,
+            phase_status: (phase?.status as string | undefined) ?? null,
           }
         : null,
     };
@@ -2323,10 +2326,12 @@ export async function setMarketingDraftSchedule(
   context: AuthContext,
   organizationId: string,
   draftId: string,
-  body: { scheduled_for?: string | null },
+  body: { scheduled_for?: string | null; mailing_lease_token?: string },
 ) {
-  const authorKind = resolveDraftAuthorKind(context, organizationId);
-  if (!authorKind) {
+  let authorKind = resolveDraftAuthorKind(context, organizationId);
+  const storeMember = context.storeMemberships?.some((member) => member.organization_id === organizationId &&
+    ["owner", "manager"].includes(member.role));
+  if (!authorKind && !storeMember) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -2351,8 +2356,9 @@ export async function setMarketingDraftSchedule(
 
   const { data: draft, error: draftError } = await supabase
     .from("marketing_content_drafts")
-    .select("id, organization_id, scheduled_for")
+    .select("id, organization_id, scheduled_for, request")
     .eq("id", draftId)
+    .eq("organization_id", organizationId)
     .maybeSingle();
   if (draftError) {
     return {
@@ -2365,31 +2371,46 @@ export async function setMarketingDraftSchedule(
   if (!draft || draft.organization_id !== organizationId) {
     return { ok: false as const, statusCode: 404, error: "draft_not_found" };
   }
+  const mailingReference = (draft.request as Record<string, any> | null)?.mailing_sequence;
+  if (mailingReference) {
+    const { data: sequence, error } = await supabase.from("marketing_mailing_sequences").select("store_id")
+      .eq("organization_id", organizationId).eq("id", mailingReference.sequence_id).maybeSingle();
+    if (error || !sequence) return { ok: false as const, statusCode: 409, error: "mailing_sequence_reference_unavailable" };
+    const mailingAccess = requireMailingAccess(context, organizationId, sequence.store_id);
+    if (!mailingAccess.ok) return mailingAccess;
+    authorKind = context.profile.platform_role === "platform_admin" ? "platform"
+      : context.profile.platform_role === "consultant" ? "consultant" : "client";
+  } else if (!authorKind) {
+    return { ok: false as const, statusCode: 403, error: "marketing_thread_access_required" };
+  }
 
   const previousIso = (draft.scheduled_for as string | null) ?? null;
   if (previousIso === scheduledIso) {
     return { ok: true as const, data: { scheduled_for: scheduledIso } };
   }
 
-  const { error: updateError } = await supabase
+  const update = mailingReference ? await supabase.rpc("set_mailing_draft_schedule", {
+    p_organization_id: organizationId, p_draft_id: draftId, p_scheduled_for: scheduledIso,
+    p_token: body.mailing_lease_token ?? null,
+  }) : await supabase
     .from("marketing_content_drafts")
     .update({ scheduled_for: scheduledIso })
     .eq("id", draftId)
     .eq("organization_id", organizationId);
-  if (updateError) {
+  if (update.error || mailingReference && update.data !== true) {
     return {
       ok: false as const,
       statusCode: 500,
       error: "marketing_draft_schedule_failed",
-      detail: updateError.message,
+      detail: update.error?.message ?? "La fecha no coincide con la revisión aprobada de A27.",
     };
   }
 
   const systemBody = scheduledIso
     ? previousIso
-      ? `📅 Publicación reprogramada para el ${formatScheduleForThread(scheduledIso)}.`
-      : `📅 Publicación programada para el ${formatScheduleForThread(scheduledIso)}.`
-    : "📅 Programación de la publicación retirada.";
+      ? `📅 Fecha prevista actualizada: ${formatScheduleForThread(scheduledIso)}. No confirma el envío en el proveedor.`
+      : `📅 Fecha prevista guardada: ${formatScheduleForThread(scheduledIso)}. No confirma el envío en el proveedor.`
+    : "📅 Fecha prevista retirada.";
 
   await supabase.from("marketing_content_draft_notes").insert({
     draft_id: draftId,
@@ -3843,7 +3864,7 @@ function requirePlatformAdmin(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "platform_admin_required",
-      message: "Solo un platform admin puede realizar esta accion.",
+      message: "Solo un administrador de la plataforma puede hacer esto.",
     };
   }
   return { ok: true as const };
@@ -3873,7 +3894,7 @@ function requirePlatformAdminOrStoreOwner(
     statusCode: 403,
     error: "platform_admin_or_owner_required",
     message:
-      "Solo un platform admin o el propietario de la tienda puede realizar esta accion.",
+      "Solo el propietario de la tienda puede hacer esto.",
   };
 }
 
@@ -3936,7 +3957,7 @@ export async function listOrganizationStores(
       ok: false as const,
       statusCode: 403,
       error: "consultant_access_required",
-      message: "El panel consultor requiere rol platform_admin o consultant.",
+      message: "Esta sección es solo para consultores.",
     };
   }
 
@@ -4089,7 +4110,7 @@ export async function deleteOrganizationStore(
             statusCode: 403,
             error: "organization_manage_denied",
             message:
-              "Solo owner, manager o platform admin pueden descartar una conexión a medias.",
+              "Solo el propietario o un gestor pueden descartar una conexión a medias.",
           };
     }
 
@@ -4146,7 +4167,7 @@ export async function deleteOrganizationStore(
             statusCode: 403,
             error: "organization_manage_denied",
             message:
-              "Solo owner, manager o platform admin pueden eliminar una conexión sin datos.",
+              "Solo el propietario o un gestor pueden eliminar una conexión sin datos.",
           };
     }
 
@@ -4379,7 +4400,7 @@ function requireOrganizationEditor(
     statusCode: 403,
     error: "organization_edit_denied",
     message:
-      "Solo el propietario, un manager, el consultor asignado o un platform admin pueden editar los datos de la organizacion.",
+      "Solo el propietario, un gestor o el consultor pueden editar los datos de la tienda.",
   };
 }
 
@@ -6167,7 +6188,7 @@ export async function generateClientInviteCode(
       ok: false as const,
       statusCode: 403,
       error: "consultant_access_required",
-      message: "Solo un consultor o platform admin puede dar de alta clientes.",
+      message: "Solo el consultor puede dar de alta clientes.",
     };
   }
 
@@ -6494,7 +6515,7 @@ export async function createOwnStore(
       ok: false as const,
       statusCode: 403,
       error: "consultant_access_required",
-      message: "El panel consultor requiere rol platform_admin o consultant.",
+      message: "Esta sección es solo para consultores.",
     };
   }
 
@@ -6659,11 +6680,11 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
   const consultantIds = [
     ...new Set((assignments ?? []).map((a) => a.consultant_user_id as string)),
   ];
-  let consultantProfiles: Array<{ id: string; full_name: string | null }> = [];
+  let consultantProfiles: Array<{ id: string; full_name: string | null; avatar_url: string | null }> = [];
   if (consultantIds.length > 0) {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name")
+      .select("id, full_name, avatar_url")
       .in("id", consultantIds);
     if (error) {
       return {
@@ -6676,13 +6697,15 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
     consultantProfiles = (data ?? []) as Array<{
       id: string;
       full_name: string | null;
+      avatar_url: string | null;
     }>;
   }
   const nameById = new Map(consultantProfiles.map((p) => [p.id, p.full_name]));
+  const avatarById = new Map(consultantProfiles.map((p) => [p.id, p.avatar_url]));
 
   const consultantsByOrg = new Map<
     string,
-    Array<{ user_id: string; full_name: string | null; is_primary: boolean }>
+    Array<{ user_id: string; full_name: string | null; avatar_url: string | null; is_primary: boolean }>
   >();
   for (const a of assignments ?? []) {
     const orgId = a.organization_id as string;
@@ -6690,6 +6713,7 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
     list.push({
       user_id: a.consultant_user_id as string,
       full_name: nameById.get(a.consultant_user_id as string) ?? null,
+      avatar_url: avatarById.get(a.consultant_user_id as string) ?? null,
       is_primary: Boolean(a.is_primary),
     });
     consultantsByOrg.set(orgId, list);
@@ -6843,7 +6867,7 @@ export async function getClientOverview(
     ]),
   ];
   const { data: profiles, error: profilesError } = userIds.length
-    ? await supabase.from("profiles").select("id, full_name").in("id", userIds)
+    ? await supabase.from("profiles").select("id, full_name, avatar_url").in("id", userIds)
     : { data: [], error: null };
   if (profilesError) {
     return {
@@ -6855,6 +6879,9 @@ export async function getClientOverview(
   }
   const nameById = new Map(
     (profiles ?? []).map((p) => [p.id as string, p.full_name as string | null]),
+  );
+  const avatarById = new Map(
+    (profiles ?? []).map((p) => [p.id as string, p.avatar_url as string | null]),
   );
 
   return {
@@ -6877,6 +6904,7 @@ export async function getClientOverview(
       consultants: (assignments ?? []).map((a) => ({
         user_id: a.consultant_user_id as string,
         full_name: nameById.get(a.consultant_user_id as string) ?? null,
+        avatar_url: avatarById.get(a.consultant_user_id as string) ?? null,
         is_primary: Boolean(a.is_primary),
       })),
       integrations: connections ?? [],
@@ -8063,7 +8091,7 @@ export async function setClientMemberRole(
       statusCode: 409,
       error: "last_owner",
       message:
-        "Es el unico propietario activo del cliente. Nombra a otro antes de cambiarle el rol.",
+        "Es el único propietario activo del cliente. Nombra a otro antes de cambiarle el rol.",
     };
   }
 
@@ -8579,7 +8607,7 @@ export async function createConsultantHealthReference(
       ok: false as const,
       statusCode: 403,
       error: "organization_not_assigned",
-      message: "Esa tienda no esta en tu cartera.",
+      message: "Esa tienda no está en tu cartera.",
     };
   }
 
@@ -9234,7 +9262,7 @@ export async function declareConsultantCapabilityMaturity(
       ok: false as const,
       statusCode: 403,
       error: "organization_not_assigned",
-      message: "Esa tienda no esta en tu cartera.",
+      message: "Esa tienda no está en tu cartera.",
     };
   }
 
@@ -9424,7 +9452,7 @@ export async function createConsultantCausalEdge(
       ok: false as const,
       statusCode: 403,
       error: "organization_not_assigned",
-      message: "Esa tienda no esta en tu cartera.",
+      message: "Esa tienda no está en tu cartera.",
     };
   }
 
@@ -9433,7 +9461,7 @@ export async function createConsultantCausalEdge(
       ok: false as const,
       statusCode: 400,
       error: "edge_needs_two_nodes",
-      message: "Una relacion necesita dos cosas distintas.",
+      message: "Una relación necesita dos cosas distintas.",
     };
   }
 
@@ -9455,7 +9483,7 @@ export async function createConsultantCausalEdge(
       statusCode: 400,
       error: "edge_needs_a_diagnostic_use",
       message:
-        "Di para que sirve diagnosticando: una relacion cierta que no ayuda a distinguir nada solo ensucia el grafo.",
+        "Di para que sirve diagnosticando: una relación cierta que no ayuda a distinguir nada solo ensucia el grafo.",
     };
   }
 
@@ -9848,7 +9876,7 @@ async function assertInPortfolio(
       ok: false as const,
       statusCode: 403,
       error: "organization_not_assigned",
-      message: "Esa tienda no esta en tu cartera.",
+      message: "Esa tienda no está en tu cartera.",
     };
   }
   return null;

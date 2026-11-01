@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
-import { Badge, ProgressBar, type Tone } from "@/components/ui";
+import { Badge, Progress, type Tone } from "@/components/ui";
 
 /**
  * Dónde está hoy cada objetivo. Compara con los últimos 30 días, el mismo dato
@@ -62,7 +62,8 @@ function readingFor(
     case "orders_count":
       return { value: shopify.sales.orders_count, cumulative: true };
     case "conversion_rate":
-      return { value: shopify.funnel?.conversion_rate_own ?? null, cumulative: false };
+      // Tanto por uno en el embudo; el objetivo va en % (3 = 3 %).
+      return { value: shopify.funnel?.conversion_rate_own != null ? shopify.funnel.conversion_rate_own * 100 : null, cumulative: false };
     case "cac_blended":
       return { value: f.cac_blended, cumulative: false, lowerIsBetter: true, money: true };
     case "roas":
@@ -162,14 +163,7 @@ export function ObjectivesProgress({
                   </div>
                 </div>
                 {comparable ? (
-                  <ProgressBar
-                    value={progress}
-                    aria-label={`Progreso de ${labelFor(target.metric_key)}`}
-                  >
-                    <ProgressBar.Track>
-                      <ProgressBar.Fill />
-                    </ProgressBar.Track>
-                  </ProgressBar>
+                  <Progress value={progress} aria-label={`Progreso de ${labelFor(target.metric_key)}`} />
                 ) : null}
               </li>
             );

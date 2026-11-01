@@ -85,7 +85,9 @@ test("el orquestador conserva el agregado y crea una pasada por tienda para los 
     { storeId: null, connectionId: null },
     ...stores,
   ]);
-  assert.deepEqual(orchestratorScopesForAgent("a14_operativa_meta", stores), stores);
+  assert.deepEqual(orchestratorScopesForAgent("a14_operativa_meta", stores), [
+    ...stores,
+  ]);
   assert.deepEqual(orchestratorScopesForAgent("a21_adquisicion_shopify", stores), [
     { storeId: null, connectionId: null },
     ...stores,
@@ -105,7 +107,7 @@ test("A23-A25 solo se programan por tienda: nunca incluyen agregado que mezcle c
     { storeId: "store-1", connectionId: "connection-1" },
     { storeId: "store-2", connectionId: "connection-2" },
   ];
-  for (const agent of ["a23_creatividad_meta", "a24_medicion_meta", "a25_cambios_meta"]) {
+  for (const agent of ["a23_creatividad_meta", "a24_medicion_meta", "a25_cambios_meta", "a26_contenido_email"]) {
     assert.deepEqual(orchestratorScopesForAgent(agent, stores), stores, agent);
     assert.deepEqual(orchestratorScopesForAgent(agent, []), [], `${agent} without active stores`);
   }

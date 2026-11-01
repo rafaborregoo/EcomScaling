@@ -1,4 +1,4 @@
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { type AuthContext, createUserScopedClient, requireOperationalOrganization } from "./auth-context.js";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { getOrgMetaBackfillStatus } from "./meta-sync.js";
 
@@ -26,21 +26,12 @@ export async function getMetaMetrics(
       ok: false as const,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Meta Ads esta desactivada por feature flag.",
+      message: "La integración con Meta Ads está desactivada por ahora.",
     };
   }
 
-  if (
-    !context.memberships.some(
-      (membership) => membership.organization_id === organizationId,
-    )
-  ) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
+  const access = requireOperationalOrganization(context, organizationId);
+  if (!access.ok) return access;
 
   let periodDays: number | "all" = DEFAULT_PERIOD_DAYS;
   if (daysInput === "all") {
@@ -68,17 +59,17 @@ export async function getMetaMetrics(
   // filtran por tienda. La traduccion se hace aqui para que el frontend siga
   // usando un unico identificador de tienda en todas las pantallas.
   //
-  // Si la conexion no resuelve a ninguna tienda (sync aun sin completar) se
-  // cae al agregado en vez de devolver cero: un cero se lee como "no hay
-  // gasto" y aqui significaria "no se ha podido filtrar".
+  // Una conexión sin tienda nunca debe ampliar el alcance al agregado.
   let storeId: string | null = null;
   if (connectionId) {
-    const { data: store } = await supabase
+    const { data: store, error: storeError } = await supabase
       .from("shopify_stores")
       .select("id")
       .eq("organization_id", organizationId)
       .eq("connection_id", connectionId)
+      .eq("is_active", true)
       .maybeSingle();
+    if (storeError || !store) return { ok: false as const, statusCode: storeError ? 503 : 404, error: "store_scope_unavailable", message: "No se pudo resolver la tienda seleccionada. Revisa su conexión." };
     storeId = (store?.id as string | undefined) ?? null;
   }
 

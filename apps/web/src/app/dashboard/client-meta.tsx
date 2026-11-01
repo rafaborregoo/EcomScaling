@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -7,20 +8,24 @@ import { invalidateCachedQueries, useCachedQuery, useKeepPrevious } from "@/lib/
 import { MetricVerdict, useMetricAnalysis } from "@/components/metric-verdict";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
-import { Skeleton, toast } from "@/components/ui";
+import { Button, Skeleton, ToggleGroup, ToggleGroupItem, toast, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { ENTITY_LABEL } from "../meta/insights-sections";
-import { evidenceText, fmtEur, fmtNum } from "./client-pulse-model";
+import { fmtEur, fmtNum } from "./client-pulse-model";
 import {
   cx,
+  a02FindingText,
   Empty,
   findingFor,
   Kpi,
+  A02MetricNotice,
   SalesChart,
   SectionHead,
+  DiagnosticScopeNote,
   TargetBar,
   WorkQueue,
   dayLabel,
   type Diagnostic,
+  DiagnosticReading,
   type Operations,
   type Pin,
 } from "./client-pulse";
@@ -145,9 +150,10 @@ type MetaInsights = {
     event_type: string;
     translated_event_type: string | null;
     object_name: string | null;
-    entity_level: string;
-    spend_before: number;
-    spend_after: number;
+    entity_level: string | null;
+    comparison_status?: string;
+    spend_before: number | null;
+    spend_after: number | null;
     roas_before: number | null;
     roas_after: number | null;
     cpa_before: number | null;
@@ -257,10 +263,8 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
       .map(({ change, i }) => ({
         index: i,
         date: points[i].date,
-        source: ENTITY_LABEL[change.entity_level] ?? change.entity_level,
-        title: `${change.translated_event_type ?? change.event_type}${change.object_name ? ` · ${change.object_name}` : ""}${
-          change.roas_before != null && change.roas_after != null ? `. ROAS ${roasText(change.roas_before)} → ${roasText(change.roas_after)}` : ""
-        }`,
+        source: ENTITY_LABEL[change.entity_level ?? ""] ?? change.entity_level ?? "Cambio",
+        title: `${change.translated_event_type ?? change.event_type}${change.object_name ? ` · ${change.object_name}` : ""}`,
       }));
   }, [data, points]);
 
@@ -285,17 +289,17 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           <h1 className={s.headline}>{insights.error && !data ? "No hemos podido cargar Meta Ads" : "Meta Ads todavía no tiene datos"}</h1>
           <p className={s.headlineDetail}>
             {asConsultant
-              ? "Las integraciones de este cliente solo se consultan desde su propia organización."
+              ? (insights.error && !data ? "No se han podido leer los datos de Meta ahora mismo. Reintenta en unos segundos." : "Este cliente todavía no tiene datos de Meta Ads en el periodo elegido.")
               : "Conecta tu cuenta publicitaria para ver inversión, ROAS y compras atribuidas. Si ya la conectaste, la primera sincronización puede tardar unos minutos."}
           </p>
           {!asConsultant ? (
             <div className={s.heroActions}>
-              <a className={cx(s.btn, s.acc)} href="/integraciones/meta">
+              <a className={buttonVariants()} href="/integraciones/meta">
                 {insights.error ? "Revisar conexión de Meta Ads" : "Conectar Meta Ads"}
               </a>
             </div>
           ) : null}
-          {insights.error ? <div className={s.heroActions}><button type="button" className={cx(s.btn, s.ghost)} onClick={insights.reload}>Reintentar la carga</button></div> : null}
+          {insights.error ? <div className={s.heroActions}><button type="button" className={buttonVariants({ variant: "secondary" })} onClick={insights.reload}>Reintentar la carga</button></div> : null}
         </div>
       </div>
     );
@@ -329,13 +333,13 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         <div className={s.heroTop} style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <div>
             <div className={s.heroMeta} style={{ alignItems: "center" }}>
-              <div className={cx(s.seg, s.heroSeg)} role="group" aria-label="Periodo">
+              <ToggleGroup aria-label="Periodo" value={days} onValueChange={(p) => { setDays(p); setActivePin(null); }}>
                 {periods.map((p) => (
-                  <button key={p} type="button" aria-pressed={p === days} onClick={() => { setDays(p); setActivePin(null); }}>
+                  <ToggleGroupItem key={p} value={p}>
                     {periodButton(p)}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
             </div>
             <h1 id="meta-headline" className={s.headline}>
               Por cada 1 € en anuncios, Meta dice que vuelven {summary.roas != null ? `${fmtNum(summary.roas, 2)} €` : "—"}
@@ -343,16 +347,17 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
             <p className={s.headlineDetail}>
               Has invertido {fmtEur(summary.spend)} en {periodPhrase(days)}. Meta se atribuye {fmtEur(summary.purchase_value)} en ventas{attributionWindow ? ` (${attributionWindow})` : ""}: es su cuenta, no la de tu tienda.
             </p>
-            {metaAi ? <p className={s.headlineDetail}>{asConsultant ? <span className={s.ia}>A02</span> : null}{metaAi.title}</p> : null}
+            {metaAi ? <p className={s.headlineDetail}><span className={s.ia}>A02</span>{metaAi.title}</p> : null}
+            <DiagnosticScopeNote diagnostic={diagnostic} />
             <div className={s.heroActions}>
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => askCopilot("En el periodo analizado, ¿qué resultado de Meta Ads merece atención primero y qué cambio probarías? Cita campaña, métrica y gasto; señala las limitaciones de atribución.", "Meta Ads")}>
+              <button type="button" className={buttonVariants()} onClick={() => askCopilot("En el periodo analizado, ¿qué resultado de Meta Ads merece atención primero y qué cambio probarías? Cita campaña, métrica y gasto; señala las limitaciones de atribución.", "Meta Ads")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
                   IA
                 </span>
                 Preguntar qué haría
               </button>
               {hideFullLink ? null : (
-                <a className={cx(s.btn, s.ghost)} href="/meta">
+                <a className={buttonVariants({ variant: "secondary" })} href="/meta">
                   Analítica completa
                 </a>
               )}
@@ -407,9 +412,10 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
 
       {/* ------------------------------ Cifras ------------------------------ */}
       <div className={cx(s.kpis, s.kpis4)} aria-label="Cifras de Meta Ads">
-        <Kpi label="Inversión" value={fmtEur(summary.spend)} slot={<p className={s.trackTxt}>{avgSpend !== null ? `${fmtEur(avgSpend)} al día de media` : " "}</p>} />
-        <Kpi label="Ventas según Meta" value={fmtEur(summary.purchase_value)} slot={<p className={s.trackTxt}>Según Meta</p>} />
+        <Kpi label="Inversión" aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="Inversión en Meta" metricKey="meta_spend" pattern={/inversi|gasto|spend|presupuesto/i} audience={asConsultant ? "consultor" : "cliente"} />} value={fmtEur(summary.spend)} slot={<p className={s.trackTxt}>{avgSpend !== null ? `${fmtEur(avgSpend)} al día de media` : " "}</p>} />
+        <Kpi label="Ventas según Meta" aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="Ventas según Meta" metricKey="meta_attributed_sales" pattern={/ventas atribuid|ingresos atribuid|purchase value/i} audience={asConsultant ? "consultor" : "cliente"} />} value={fmtEur(summary.purchase_value)} slot={<p className={s.trackTxt}>Según Meta</p>} />
         <Kpi
+          aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="ROAS de Meta" metricKey="meta_roas" pattern={/roas|retorno.*anunc|rentabilidad.*anunc/i} audience={asConsultant ? "consultor" : "cliente"} />}
           verdict={<MetricVerdict analysis={verdictOf("meta_roas")} />}
           anchorId="insight-metric-meta_roas"
           label="ROAS"
@@ -423,6 +429,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           }
         />
         <Kpi
+          aiNotice={<A02MetricNotice diagnostic={diagnostic} metricLabel="Coste por compra" metricKey="meta_cost_per_purchase" pattern={/coste por compra|cac|adquisición|cost per purchase/i} audience={asConsultant ? "consultor" : "cliente"} />}
           label="Coste por compra"
           value={summary.cac != null ? fmtEur(summary.cac, 2) : "—"}
           slot={
@@ -441,8 +448,8 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
       {asConsultant ? (
       <section className={s.sec} id="meta-pendiente" aria-label="Qué hacer en Meta Ads">
         {operativaMeta.data?.output || operativaMeta.data?.source_coverage ? (
-          <details className={s.panel} aria-label="Diagnóstico de operativa Meta">
-            <summary className={s.panelH}>
+          <Collapsible className={s.panel} aria-label="Diagnóstico de operativa Meta">
+            <div className={s.panelH}>
               <div>
                 <h3>Análisis de la cuenta</h3>
                 <p className={s.sub}>
@@ -451,15 +458,12 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
                   {operativaMeta.data.envelope?.quality?.dataCompleteness ? ` · cobertura ${operativaMeta.data.envelope.quality.dataCompleteness}` : ""}
                 </p>
               </div>
-            </summary>
-            {operativaMeta.data.output?.answer ? <p className={s.headlineDetail}>{operativaMeta.data.output.answer}</p> : null}
-            {operativaMeta.data.output?.findings?.length ? (
-              <ul>{operativaMeta.data.output.findings.map((finding, index) => <li key={`${finding.title}-${index}`}><strong>{finding.title}</strong> · {evidenceText(finding.evidence)}</li>)}</ul>
-            ) : null}
-            {operativaMeta.data.output?.recommendations?.length ? (
-              <ul>{operativaMeta.data.output.recommendations.map((recommendation, index) => <li key={`${recommendation.action}-${index}`}>{recommendation.action}</li>)}</ul>
-            ) : null}
-            {operativaMeta.data.output?.warnings?.length ? <p className={s.sub}>{operativaMeta.data.output.warnings.join(" · ")}</p> : null}
+              <CollapsibleTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Ver el análisis de la cuenta" />}>
+                <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent>
+            {operativaMeta.data.output ? <DiagnosticReading tag="A14" diagnostic={operativaMeta.data} audience="consultor" /> : null}
             {operativaMeta.data.source_coverage ? (
               <p className={s.sub}>
                 Meta: {String(operativaMeta.data.source_coverage.status ?? "sin confirmar")}
@@ -468,7 +472,8 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
                 {operativaMeta.data.source_coverage.financial_comparable === false ? " · Rentabilidad incompleta" : ""}
               </p>
             ) : null}
-          </details>
+          </CollapsibleContent>
+          </Collapsible>
         ) : null}
         {asConsultant ? (
           <WorkQueue
@@ -483,7 +488,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           />
         ) : null}
         {asConsultant ? (
-          <button type="button" className={cx(s.btn, s.ghost, s.sm)} disabled={running} onClick={() => void runOperativaMeta()}>
+          <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} disabled={running} onClick={() => void runOperativaMeta()}>
             {running ? "Revisando la operativa…" : "Actualizar análisis de la cuenta"}
           </button>
         ) : null}
@@ -495,7 +500,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         <SectionHead
           id="meta-ads"
           title="Anuncios"
-          ai={findingFor(diagnostic, /creativ|anuncio|fatiga|frecuen|hook|v[ií]deo/i)?.title ?? null}
+          ai={a02FindingText(diagnostic, /creativ|anuncio|fatiga|frecuen|hook|v[ií]deo/i)}
           fallback="Cuánto vuelve por cada euro en cada anuncio."
         />
         {failed("creatives") ? (
@@ -559,7 +564,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         <SectionHead
           id="meta-measure"
           title="Píxel"
-          ai={findingFor(diagnostic, /p[ií]xel|medici|evento|tracking|seguimiento/i)?.title ?? null}
+          ai={a02FindingText(diagnostic, /p[ií]xel|medici|evento|tracking|seguimiento/i)}
           fallback="Si el píxel no envía eventos, Meta optimiza a ciegas."
         />
         <div className={s.panel}>

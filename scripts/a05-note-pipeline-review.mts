@@ -1,0 +1,13 @@
+import { readFile, writeFile, rename } from "node:fs/promises";
+import { aiModelLabReportSchema } from "../packages/contracts/src/ai-model-lab.js";
+const path = ".e-nora-test-lab/ai-models/report.json";
+const report = aiModelLabReportSchema.parse(JSON.parse(await readFile(path, "utf8")));
+if (report.active_batch) throw new Error("active_batch");
+const item = report.cases.find((row) => row.id === "a05_estrategia_campanas:real-store-two-months-v2-2026-11");
+if (!item) throw new Error("a05_case_not_found");
+const note = "REVISIÓN ABIERTA 31/10/2026: esta simulación no incluía el nuevo inventario operativo de campañas/borradores/audiencias ni ejecutó herramientas. Su abstención no valida una estrategia de continuidad de email. A05 ya dispone de contexto ampliado y herramientas de investigación en el código; requiere una nueva ejecución antes de cerrar la evaluación. El resultado original se conserva sin alteraciones.";
+if (!item.limitations.includes(note)) item.limitations.push(note);
+report.updated_at = new Date().toISOString();
+await writeFile(`${path}.tmp`, JSON.stringify(aiModelLabReportSchema.parse(report), null, 2));
+await rename(`${path}.tmp`, path);
+console.log("A05 prior simulation annotated; original response unchanged.");

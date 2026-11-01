@@ -1,17 +1,18 @@
 "use client";
+import { Select, Checkbox, DatePicker, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
-import Link from "next/link";
-import { buildClientViewCampaignsHeadline, needsClientApproval } from "@e-nora/contracts";
+import { useNewFromUrl } from "@/hooks/use-new-from-url";
+import { needsClientApproval } from "@e-nora/contracts";
 import { formatMoney } from "@/lib/money";
 import { toast } from "@/components/ui";
-import { useCopilotAsk } from "@/components/copilot-ask";
 import { UPCOMING, type CampaignRow } from "../campaign-rows";
 import { int, pct, ratio, type KWorkspace } from "../klaviyo-workspace";
 import { createClientCampaign, decideDraft, submitDraft } from "./campaign-api";
 import { clientState, cx, dateTimeLabel, dayParts, isMetaChannel, plainText, rowToBrief } from "./campaign-format";
 import type { CampaignsNav } from "./campanas-nav";
-import { Banner, Btn, Chip, Hero, Kpis, Panel, Section, Seg, Stage, css as s } from "./campanas-parts";
+import { Banner, Btn, Chip, Kpis, Panel, Section, Seg, Stage, css as s } from "./campanas-parts";
 import { QuickActionsBar } from "./quick-actions";
 
 /**
@@ -29,7 +30,6 @@ type Filter = "next" | "sent" | "all";
 export function ClientView({
   rows,
   organizationId,
-  organizationName,
   hasConsultant,
   workspace,
   nav,
@@ -47,10 +47,10 @@ export function ClientView({
   onWriteWithAi: (itemId: string) => void;
   onPropose: () => void;
 }) {
-  const askCopilot = useCopilotAsk();
   const [nowMs] = useState(() => Date.now());
   const [filter, setFilter] = useState<Filter>("next");
   const [creating, setCreating] = useState(false);
+  useNewFromUrl(() => setCreating(true));
   const [note, setNote] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const currency = workspace?.account?.currency ?? "EUR";
@@ -60,26 +60,13 @@ export function ClientView({
   const needsApproval = (row: CampaignRow) => needsClientApproval(rowToBrief(row), hasConsultant);
   const pending = own.filter((row) => needsApproval(row) && Boolean(row.draft));
   const week = own.filter((row) => UPCOMING.includes(row.state) && row.state !== "late" && row.date && Date.parse(row.date) >= nowMs - DAY_MS && Date.parse(row.date) - nowMs <= 7 * DAY_MS);
-  const underReview = own.filter((row) => isOwn(row) && row.item?.review_status === "pending");
-  const late = own.find((row) => row.state === "late") ?? null;
   const mine = own.filter(isOwn);
   const sent = own.filter((row) => row.state === "sent").sort((a, b) => Date.parse(b.date ?? "") - Date.parse(a.date ?? ""));
   const sent30 = sent.filter((row) => row.date && nowMs - Date.parse(row.date) <= 30 * DAY_MS && row.stats?.delivered);
-  const best = [...sent30].sort((a, b) => (b.stats?.revenue ?? 0) - (a.stats?.revenue ?? 0))[0];
   const delivered = sent30.reduce((sum, row) => sum + (row.stats?.delivered ?? 0), 0);
   const opens = sent30.reduce((sum, row) => sum + (row.stats?.opens_unique ?? 0), 0);
   const clicks = sent30.reduce((sum, row) => sum + (row.stats?.clicks_unique ?? 0), 0);
   const revenue = sent30.reduce((sum, row) => sum + (row.stats?.revenue ?? 0), 0);
-
-  const headline = buildClientViewCampaignsHeadline({
-    clientHasConsultant: hasConsultant,
-    weekCount: week.length,
-    pendingApproval: pending.map(rowToBrief),
-    ownUnderReview: underReview.map(rowToBrief),
-    late: late ? rowToBrief(late) : null,
-  });
-
-  const preparing = own.find((row) => row.state === "nopiece" && !isOwn(row) && row.date && Date.parse(row.date) >= nowMs - DAY_MS);
 
   async function approve(row: CampaignRow) {
     if (!row.draft) return;
@@ -127,59 +114,6 @@ export function ClientView({
 
   return (
     <Stage client>
-      
-      <Hero
-        id="h-campanas-cliente"
-        meta={["Marketing · Campañas", organizationName, new Date(nowMs).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })]}
-        title={headline.title}
-        lines={[
-          headline.detail || null,
-          best?.stats?.revenue ? `«${best.name}» es la que más ha traído este mes: ${formatMoney(best.stats.revenue, currency)} atribuidos por Klaviyo.` : null,
-        ].filter(Boolean)}
-        actions={
-          <>
-            <a className={cx(s.btn, s.acc)} href={pending.length ? "#aprobar" : "#prox"}>
-              {pending.length ? "Revisar lo pendiente" : "Ver qué viene"}
-            </a>
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={() => setCreating(true)}>
-              Crear una campaña
-            </button>
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={onPropose}>
-              Planificar campañas con IA
-            </button>
-            {hasConsultant ? (
-              <Link className={cx(s.btn, s.ghost)} href="/mensajes">
-                Hablar con tu consultor
-              </Link>
-            ) : (
-              <button
-                type="button"
-                className={cx(s.btn, s.ghost)}
-                onClick={() => askCopilot({ question: "Ayúdame a planificar los próximos emails de mi tienda: qué enviar esta semana y por qué.", focusLabel: "Campañas" })}
-              >
-                Pedirle ayuda a tu asistente
-              </button>
-            )}
-          </>
-        }
-        side={
-          <div className={s.nextBox}>
-            <h3>{hasConsultant ? "Tu consultor está en ello" : "Tu asistente de IA"}</h3>
-            <p>
-              {hasConsultant
-                ? [
-                    preparing ? `Está preparando «${preparing.name}», que sale el ${dayParts(preparing.date).day} de ${dayParts(preparing.date).mon}.` : null,
-                    underReview[0] ? `Está revisando tu «${underReview[0].name}».` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" ") || "Ahora mismo no tiene nada pendiente contigo."
-                : "Escribe el email, ajusta el asunto y lo programa en Klaviyo por ti. Tú decides si sale."}
-            </p>
-            <p>{hasConsultant ? "Te avisará aquí en cuanto haya algo para revisar." : "Si más adelante te asignan un consultor, verá lo que has creado y podrá revisarlo."}</p>
-          </div>
-        }
-      />
-
       <Kpis
         label="Cifras de campañas"
         items={[
@@ -275,6 +209,16 @@ export function ClientView({
         id="mias"
         title="Las que has creado tú"
         lead={hasConsultant ? "Tu consultor las ve y puede anotar o corregir; tú las sigues editando." : "Las escribe tu asistente y las apruebas tú."}
+        action={
+          <div className={s.secActs}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={onPropose}>
+              Planificar campañas con IA
+            </button>
+            <button type="button" className={buttonVariants()} onClick={() => setCreating(true)}>
+              Crear una campaña
+            </button>
+          </div>
+        }
       >
         <Panel>
           {mine.length === 0 ? (
@@ -463,31 +407,28 @@ function CreateCampaign({
           </div>
           <div className={s.fld}>
             <span className={s.lbl}>Canal</span>
-            <div className={s.opts}>
+            <ToggleGroup aria-label="Canal" value={channel} onValueChange={setChannel}>
               {(["Email", "Meta"] as const).map((value) => (
-                <button key={value} type="button" className={s.opt} aria-pressed={channel === value} onClick={() => setChannel(value)}>
+                <ToggleGroupItem key={value} value={value}>
                   {value === "Meta" ? "Meta Ads" : "Email"}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           </div>
         </div>
         <div className={s.row2}>
           <div className={s.fld}>
             <label htmlFor="c-date">Fecha prevista</label>
-            <input id="c-date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            <DatePicker id="c-date" value={date} onChange={(value) => setDate(value)} />
           </div>
           <div className={s.fld}>
             <label htmlFor="c-aud">Para quién</label>
-            <select id="c-aud" value={audience} onChange={(event) => setAudience(event.target.value)}>
-              <option value="">Que lo decida quien la prepara</option>
-              {audiences.map((entry) => (
-                <option key={entry.id} value={entry.name}>
-                  {entry.name}
-                  {entry.size != null ? ` · ${int(entry.size)} personas` : ""}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="c-aud"
+              value={audience}
+              onChange={setAudience}
+              options={[{ value: "", label: "Que lo decida quien la prepara" }, ...audiences.map((entry) => ({ value: entry.name, label: `${entry.name}${entry.size != null ? ` · ${int(entry.size)} personas` : ""}` }))]}
+            />
           </div>
         </div>
         <div className={s.fld}>
@@ -495,9 +436,7 @@ function CreateCampaign({
           <textarea id="c-brief" value={brief} placeholder="El producto, la oferta y el plazo. Con eso basta." onChange={(event) => setBrief(event.target.value)} />
         </div>
         {channel === "Email" ? (
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={ai} onChange={(event) => setAi(event.target.checked)} /> Que la IA prepare el primer borrador del email
-          </label>
+          <Checkbox checked={ai} onCheckedChange={setAi}>Que la IA prepare el primer borrador del email</Checkbox>
         ) : null}
         <p className={s.hint}>
           {hasConsultant

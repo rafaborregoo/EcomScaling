@@ -27,6 +27,23 @@ export function fmtEur(value: number, decimals = 0) {
   return `${fmtNum(value, decimals)} €`;
 }
 
+export function niceStep(raw: number) {
+  const power = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  const m = raw / power;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * power;
+}
+
+/** El cero y la comparación permanecen dentro del gráfico, también con devoluciones. */
+export function chartScale(values: readonly number[], comparison: number | null) {
+  const low = Math.min(0, ...values, comparison ?? 0);
+  const high = Math.max(0, ...values, comparison ?? 0);
+  const step = niceStep((high - low || 1) / 3);
+  const bottom = Math.floor(low / step) * step;
+  const top = Math.max(Math.ceil(high / step) * step, bottom + step);
+  const ticks = Array.from({ length: Math.round((top - bottom) / step) + 1 }, (_, i) => Number((bottom + i * step).toPrecision(12)));
+  return { bottom, top, ticks };
+}
+
 export function fmtCurrency(value: number | null | undefined, currencyCode: string | null | undefined, decimals = 0) {
   if (value == null || !currencyCode) return "—";
   try {
@@ -189,9 +206,9 @@ export function pickFinding<F extends PulseFinding>(
   if (!diagnostic) return null;
   const free = (finding: F) => !taken?.has(finding);
   const inSections = (diagnostic.output.sections ?? []).flatMap((section) =>
-    section.findings.map((finding) => ({ finding, where: `${section.key} ${section.label}` })),
+    (section.findings ?? []).map((finding) => ({ finding, where: `${section.key} ${section.label}` })),
   );
-  const all = [...inSections, ...diagnostic.output.findings.map((finding) => ({ finding, where: "" }))];
+  const all = [...inSections, ...(diagnostic.output.findings ?? []).map((finding) => ({ finding, where: "" }))];
   const hit =
     all.find(({ finding }) => free(finding) && pattern.test(`${finding.area ?? ""} ${finding.title}`)) ??
     all.find(({ finding, where }) => free(finding) && where !== "" && pattern.test(where));

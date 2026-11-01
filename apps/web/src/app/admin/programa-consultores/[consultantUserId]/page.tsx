@@ -6,7 +6,7 @@ import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
-import { AsyncState, Badge, Button, ButtonLink, Card, Checkbox, ErrorBlock, Field, Input, Metric, Table, toast } from "@/components/ui";
+import { AsyncState, Badge, Button, ButtonLink, Checkbox, ErrorBlock, Field, Input, Metric, DataTable, toast, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type ConsultantRow = {
   consultant_user_id: string;
@@ -56,18 +56,24 @@ function ReferralControl({ row, onSaved }: { row: ConsultantRow; onSaved: () => 
     onSaved();
   }
 
-  return <Card title="Configuración del código" description="El cupón referido-{descuento}-{meses}m debe existir en Stripe. Los cambios afectan a las altas nuevas.">
-    <form className="grid gap-4" onSubmit={submit}>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Código"><Input value={code} onChange={(event) => setCode(event.target.value.toLowerCase().trim())} required /></Field>
-        <Field label="Descuento (%)"><Input type="number" min={0} max={100} value={percent} onChange={(event) => setPercent(event.target.value)} required /></Field>
-        <Field label="Duración (meses)"><Input type="number" min={1} max={36} value={months} onChange={(event) => setMonths(event.target.value)} required /></Field>
-      </div>
-      <Checkbox checked={active} onChange={setActive}>Código activo</Checkbox>
-      {row.code && code !== row.code ? <p className="text-sm text-muted">Cambiar el código invalida los enlaces anteriores.</p> : null}
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-      <div><Button type="submit" disabled={busy}>{busy ? "Guardando…" : row.code ? "Guardar cambios" : "Crear código"}</Button></div>
-    </form>
+  return <Card>
+    <CardHeader>
+      <CardTitle>Configuración del código</CardTitle>
+      <CardDescription>{"El cupón referido-{descuento}-{meses}m debe existir en Stripe. Los cambios afectan a las altas nuevas."}</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <form className="grid gap-4" onSubmit={submit}>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Código"><Input value={code} onChange={(event) => setCode(event.target.value.toLowerCase().trim())} required /></Field>
+          <Field label="Descuento (%)"><Input type="number" min={0} max={100} value={percent} onChange={(event) => setPercent(event.target.value)} required /></Field>
+          <Field label="Duración (meses)"><Input type="number" min={1} max={36} value={months} onChange={(event) => setMonths(event.target.value)} required /></Field>
+        </div>
+        <Checkbox checked={active} onCheckedChange={setActive}>Código activo</Checkbox>
+        {row.code && code !== row.code ? <p className="text-sm text-muted">Cambiar el código invalida los enlaces anteriores.</p> : null}
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        <div><Button type="submit" disabled={busy}>{busy ? "Guardando…" : row.code ? "Guardar cambios" : "Crear código"}</Button></div>
+      </form>
+    </CardContent>
   </Card>;
 }
 
@@ -75,15 +81,21 @@ function ReferralList({ consultantUserId }: { consultantUserId: string }) {
   const query = useCachedQuery<{ referrals: Referral[] }>(`${KEY}/${consultantUserId}`);
   if (query.error) return <ErrorBlock>{query.error}</ErrorBlock>;
   if (!query.data) return <AsyncState status="loading" loadingLabel="Cargando referidos…" />;
-  return <Card title="Referidos" description="Altas atribuidas al código y estado de su suscripción.">
-    <Table ariaLabel="Referidos del consultor" emptyLabel="Todavía no hay registros con este código."
-      rows={query.data.referrals.map((row) => ({ ...row, id: row.referral_id }))}
-      columns={[
-        { key: "organization_name", label: "Negocio" },
-        { key: "created_at", label: "Fecha de alta", render: (row) => new Date(row.created_at).toLocaleDateString("es-ES") },
-        { key: "estado", label: "Estado", render: (row) => <Badge tone={ESTADO_TONE[row.estado]}>{row.estado}</Badge> },
-        { key: "contact_email", label: "Contacto consentido", render: (row) => row.contact_email ? `${row.contact_name ?? ""} ${row.contact_email}`.trim() : "—" },
-      ]} />
+  return <Card>
+    <CardHeader>
+      <CardTitle>Referidos</CardTitle>
+      <CardDescription>Altas atribuidas al código y estado de su suscripción.</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <DataTable ariaLabel="Referidos del consultor" emptyLabel="Todavía no hay registros con este código."
+        rows={query.data.referrals.map((row) => ({ ...row, id: row.referral_id }))}
+        columns={[
+          { key: "organization_name", label: "Negocio" },
+          { key: "created_at", label: "Fecha de alta", render: (row) => new Date(row.created_at).toLocaleDateString("es-ES") },
+          { key: "estado", label: "Estado", render: (row) => <Badge tone={ESTADO_TONE[row.estado]}>{row.estado}</Badge> },
+          { key: "contact_email", label: "Contacto consentido", render: (row) => row.contact_email ? `${row.contact_name ?? ""} ${row.contact_email}`.trim() : "—" },
+        ]} />
+    </CardContent>
   </Card>;
 }
 
@@ -92,7 +104,12 @@ function ReferralDetail({ consultantUserId }: { consultantUserId: string }) {
   if (query.error && !query.data) return <ErrorBlock>{query.error}</ErrorBlock>;
   if (!query.data) return <AsyncState status="loading" loadingLabel="Cargando programa…" />;
   const row = query.data.consultants.find((item) => item.consultant_user_id === consultantUserId);
-  if (!row) return <Card title="No encontramos este consultor"><ButtonLink href="/admin/programa-consultores" variant="secondary">Volver al programa</ButtonLink></Card>;
+  if (!row) return <Card>
+    <CardHeader>
+      <CardTitle>No encontramos este consultor</CardTitle>
+    </CardHeader>
+    <CardContent><ButtonLink href="/admin/programa-consultores" variant="secondary">Volver al programa</ButtonLink></CardContent>
+  </Card>;
   const reload = () => { invalidateCachedQueries(KEY); query.reload(); };
   return <div className="admin-client-detail">
     <header className="admin-client-detail-header">

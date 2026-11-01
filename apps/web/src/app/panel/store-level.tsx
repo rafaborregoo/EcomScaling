@@ -1,8 +1,10 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
 import Link from "next/link";
 import {
+  CAC_MIN_NEW_CUSTOMERS,
   buildStoreHeadline,
   overCacTarget,
   panelMoney,
@@ -14,7 +16,6 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { AsyncState, EmptyState } from "@/components/ui";
 import {
-  AiLine,
   Chip,
   CostStack,
   Delta,
@@ -23,11 +24,14 @@ import {
   Kpis,
   MonthlyChart,
   Panel,
+  PanelAiReading,
   ScopeBar,
   Section,
   TIER_LABEL,
   cx,
+  platformLabel,
 } from "./panel-parts";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import { createLeverTask, useCallNotes, usePanelReading, useProfitability, type PanelNav } from "./panel-data";
 import {
   deltaPct,
@@ -40,6 +44,7 @@ import {
 } from "./panel-view-model";
 import { StoreSimulator } from "./store-simulator";
 import s from "./panel.module.css";
+import { usePanelSection } from "./panel-navigation";
 
 /**
  * Alcance 3 -- una tienda.
@@ -131,14 +136,15 @@ export function StoreLevel({
 
   const row = profitability.data?.stores.find((store) => store.connection_id === connectionId) ?? null;
   const shopName = row?.shop_name ?? "Tienda";
+  const section = usePanelSection();
   const bar = <ScopeBar days={days} onDays={onDays} />;
   const shell = (content: React.ReactNode) => (
-    <div className={s.stage}>
-      <div className={s.wrap}>
+    <>
+
         {bar}
         {content}
-      </div>
-    </div>
+
+    </>
   );
 
   if (profitability.isLoading || metrics.isLoading) {
@@ -191,7 +197,7 @@ export function StoreLevel({
     {
       label: "Publicidad",
       ok: true,
-      text: f.ads_spend > 0 ? platforms.join(", ") || "Conectada" : "Sin inversión",
+      text: f.ads_spend > 0 ? platforms.map(platformLabel).join(", ") || "Conectada" : "Sin inversión",
     },
     {
       label: "Sesiones",
@@ -253,15 +259,8 @@ export function StoreLevel({
     setCreating(null);
   }
 
-  const aiLine = reading.text ? (
-    <AiLine text={reading.text} generatedAt={reading.generatedAt} stale={reading.stale} />
-  ) : !reading.supported ? (
-    <span className={s.mut}>La lectura IA cubre 30 y 90 días.</span>
-  ) : reading.isLoading ? (
-    <span className={s.mut}>Leyendo la rentabilidad…</span>
-  ) : (
-    <span className={s.mut}>Sin lectura IA de esta tienda todavía.</span>
-  );
+  const route = (href: string) => withPortalRouteContext(href, organizationId, connectionId);
+  const newCustomersText = `${panelNumber(row.new_customers)} ${row.new_customers === 1 ? "cliente nuevo" : "clientes nuevos"}`;
 
   const ordersChange = data.previous_period
     ? deltaPct(row.orders, data.previous_period.sales.orders_count)
@@ -272,24 +271,24 @@ export function StoreLevel({
 
   return shell(
     <>
-      <Hero
+      {section === "resumen" ? (<>
+<Hero
         id="h-tienda"
         tier={row.tier}
         meta={
           <>
-            <span>Rentabilidad</span>
             <span>Tienda · {organizationName}</span>
             <span className={s.tier}>● {TIER_LABEL[row.tier]}</span>
             <span>Últimos {days === 365 ? "12 meses" : `${days} días`} · sin IVA</span>
           </>
         }
         title={headline.title}
-        lines={[headline.detail, aiLine].filter(Boolean)}
+        lines={[headline.detail].filter(Boolean)}
         actions={
           <>
             <button
               type="button"
-              className={cx(s.btn, s.acc)}
+              className={buttonVariants()}
               onClick={() =>
                 ask({
                   question: `¿Qué haría primero con la tienda ${shopName} de ${organizationName}? Parte de su rentabilidad por pedido, su CAC y sus palancas.`,
@@ -300,22 +299,18 @@ export function StoreLevel({
               <IaTag />
               ¿Qué haría primero con esta tienda?
             </button>
-            <button
-              type="button"
-              className={cx(s.btn, s.ghost)}
-              disabled={!callNotes.nextCall || callNotes.adding === "store"}
-              title={callNotes.nextCall ? undefined : "Agenda una llamada con este cliente para llevar puntos"}
-              onClick={() =>
-                callNotes.add(
-                  `${shopName} · ${headline.title}`,
-                  "store",
-                )
-              }
-            >
-              Añadir a la llamada
-            </button>
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={nav.clientOfStore}>
-              ← {organizationName}
+            {callNotes.nextCall ? (
+              <button
+                type="button"
+                className={buttonVariants({ variant: "secondary" })}
+                disabled={callNotes.adding === "store"}
+                onClick={() => callNotes.add(`${shopName} · ${headline.title}`, "store")}
+              >
+                {callNotes.adding === "store" ? "Añadiendo…" : "Añadir a la llamada"}
+              </button>
+            ) : null}
+            <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={nav.clientOfStore}>
+              Todas las tiendas de {organizationName}
             </button>
           </>
         }
@@ -341,10 +336,12 @@ export function StoreLevel({
       />
 
       <Kpis
+        diagnostic={reading.diagnostic}
         label={`Cifras de la tienda, últimos ${days} días`}
         items={[
           {
             label: "Beneficio neto",
+            metricKey: "net_profit",
             value: `${estimated ? "≈ " : ""}${money(row.net_profit)}`,
             foot: (
               <>
@@ -355,6 +352,7 @@ export function StoreLevel({
           },
           {
             label: "Ingresos (sin IVA)",
+            metricKey: "net_revenue_ex_tax",
             value: money(row.revenue),
             foot: (
               <>
@@ -365,6 +363,7 @@ export function StoreLevel({
           },
           {
             label: "Margen neto",
+            metricKey: "net_margin",
             value: panelPct(row.margin_pct),
             foot:
               marginTarget !== null ? (
@@ -377,6 +376,7 @@ export function StoreLevel({
           },
           {
             label: "Pedidos",
+            metricKey: "orders_count",
             value: panelNumber(row.orders),
             foot: (
               <>
@@ -387,6 +387,7 @@ export function StoreLevel({
           },
           {
             label: "Ticket medio",
+            metricKey: "average_order_value_ex_tax",
             value: money(aov, 1),
             foot:
               aovTarget !== undefined ? (
@@ -397,13 +398,24 @@ export function StoreLevel({
           },
           {
             label: "Clientes nuevos",
+            metricKey: "new_customers",
             value: panelNumber(row.new_customers),
-            foot: <span>{row.orders > 0 ? `${panelNumber((row.new_customers / row.orders) * 100)} % de los pedidos` : "sin pedidos"}</span>,
+            foot: <span>{row.orders > 0 ? `${panelNumber((row.new_customers / row.orders) * 100, row.new_customers / row.orders < 0.01 ? 1 : 0)} % de los pedidos` : "sin pedidos"}</span>,
           },
         ]}
       />
+</>) : null}
 
-      <Section
+      {section === "acciones" ? (
+<Section id="lectura" title="Qué dice A02" lead={`La lectura de A02 sobre la rentabilidad de ${shopName}, con lo que propone hacer.`}>
+        <div className={s.panel}>
+          <PanelAiReading reading={reading} subject={`la rentabilidad de ${shopName}`} />
+        </div>
+      </Section>
+) : null}
+
+      {section === "costes" ? (
+<Section
         id="pedido"
         title="Un pedido medio"
         lead={
@@ -464,16 +476,18 @@ export function StoreLevel({
           </div>
         </div>
       </Section>
+) : null}
 
-      {!estimated && aov > 0 ? (
-        <StoreSimulator
+      {section === "costes" && !estimated && aov > 0 ? (
+<StoreSimulator
           row={row}
           creating={creating === "simulador"}
           onCreateTask={(title, description) => makeTask("simulador", title, description)}
         />
-      ) : null}
+) : null}
 
-      <Section
+      {section === "captacion" ? (
+<Section
         id="ads"
         title="Publicidad"
         lead="Cuánto pagas por un cliente nuevo y dónde está el límite. El CAC real y el ROAS de Meta son cifras distintas: no se mezclan."
@@ -500,7 +514,11 @@ export function StoreLevel({
               }
             >
               {cac === null ? (
-                <p className={s.empty}>Hay inversión pero ningún cliente nuevo en el periodo: no hay CAC que calcular.</p>
+                <p className={s.empty}>
+                  {row.new_customers === 0
+                    ? "Hay inversión pero ningún cliente nuevo en el periodo: no hay CAC que calcular."
+                    : `Solo ${newCustomersText} en el periodo. Con tan pocos, el CAC lo decide el azar: hacen falta al menos ${CAC_MIN_NEW_CUSTOMERS} para leerlo.`}
+                </p>
               ) : (
                 <>
                   <div
@@ -516,7 +534,6 @@ export function StoreLevel({
                     </span>
                   </div>
                   <div className={s.gScale} aria-hidden="true">
-                    <span style={{ left: "0%" }}>0 €</span>
                     {target !== null ? <span style={{ left: `${(target / gaugeMax) * 100}%` }}>objetivo {money(target, 1)}</span> : null}
                     <span style={{ left: `${(ceiling / gaugeMax) * 100}%`, top: target !== null && Math.abs(target - ceiling) / gaugeMax < 0.2 ? 18 : 0 }}>
                       techo {money(ceiling, 1)}
@@ -536,7 +553,7 @@ export function StoreLevel({
                     <b>Inversión</b>
                     <p>
                       {platforms.length
-                        ? `${platforms.map((name) => `${name} ${money(f.ads_by_platform[name] ?? 0)}`).join(" · ")}. Entra entera en el beneficio.`
+                        ? `${platforms.map((name) => `${platformLabel(name)} ${money(f.ads_by_platform[name] ?? 0)}`).join(" · ")}. Entra entera en el beneficio.`
                         : "Entra entera en el beneficio."}
                     </p>
                   </div>
@@ -545,7 +562,11 @@ export function StoreLevel({
                 <li className={s.li}>
                   <div>
                     <b>CAC real</b>
-                    <p>{money(f.ads_spend)} entre {row.new_customers} {row.new_customers === 1 ? "cliente nuevo" : "clientes nuevos"}, vengan de donde vengan.</p>
+                    <p>
+                      {cac === null
+                        ? `Solo ${newCustomersText}: no hay muestra para repartir ${money(f.ads_spend)}.`
+                        : `${money(f.ads_spend)} entre ${panelNumber(row.new_customers)} clientes nuevos, vengan de donde vengan.`}
+                    </p>
                   </div>
                   <div className={s.liR}>
                     <span className={cx(s.big, cac !== null && overCacTarget(row) ? s.neg : undefined)}>
@@ -579,82 +600,7 @@ export function StoreLevel({
             </Panel>
           </div>
         )}
-      </Section>
-
-      <Section
-        id="palancas"
-        title="Dónde está el dinero"
-        lead="Cada palanca sale de un objetivo que tú fijaste. Sin objetivo no hay escenario, y no nos inventamos medias del sector."
-      >
-        <div className={s.two}>
-          <Panel title="Dinero sobre la mesa" sub="Beneficio extra al mes si cada métrica llegara a su objetivo">
-            {estimated ? (
-              <p className={s.empty}>
-                Sin cálculo: con el beneficio estimado la cifra sería inventada. Completa los costes que faltan y aparecerá aquí.
-              </p>
-            ) : (
-              <>
-                <ul>
-                  {row.levers.map((lever) => {
-                    const key = lever.clave;
-                    const note = `${shopName} · ${lever.palanca}: +${money(lever.eur_mes)}/mes (${lever.regla}).`;
-                    return (
-                      <li key={key} className={s.li}>
-                        <div>
-                          <b>{lever.palanca}</b>
-                          <p>{lever.regla}</p>
-                        </div>
-                        <div className={s.liR}>
-                          <span className={cx(s.big, s.pos)}>+{money(lever.eur_mes)}/mes</span>
-                          <button
-                            type="button"
-                            className={cx(s.btn, s.ghost, s.sm)}
-                            disabled={!callNotes.nextCall || callNotes.adding === key}
-                            title={callNotes.nextCall ? undefined : "Agenda una llamada con este cliente para llevar puntos"}
-                            onClick={() => callNotes.add(note, key)}
-                          >
-                            Añadir a la llamada
-                          </button>
-                          <button
-                            type="button"
-                            className={cx(s.btn, s.ghost, s.sm)}
-                            disabled={creating === key}
-                            onClick={() => makeTask(key, `${shopName} · ${lever.palanca}`, note)}
-                          >
-                            {creating === key ? "Creando…" : "Crear tarea"}
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                  {noConversionTarget ? (
-                    <li className={s.li}>
-                      <div>
-                        <b className={s.mut}>Conversión al objetivo</b>
-                        <p>Esta tienda no tiene objetivo de conversión: pon uno y aparece aquí.</p>
-                      </div>
-                      <div className={s.liR}>
-                        <Link href="/configuracion?section=objetivos" className={cx(s.btn, s.ghost, s.sm, s.linkBtn)}>
-                          Fijar objetivo
-                        </Link>
-                      </div>
-                    </li>
-                  ) : null}
-                </ul>
-                {row.levers.length === 0 && !noConversionTarget ? (
-                  <p className={s.empty}>Todas las métricas con objetivo ya lo cumplen: no hay dinero sobre la mesa.</p>
-                ) : null}
-                {row.levers.length > 0 ? (
-                  <div className={s.tot}>
-                    <span>Todo junto</span>
-                    <b className={s.pos}>+{money(leversTotal)}/mes</b>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </Panel>
-
-          <Panel
+      <Panel
             title="Embudo"
             sub={
               data.funnel?.conversion_rate_own != null
@@ -687,22 +633,105 @@ export function StoreLevel({
                 {leak ? <p className={s.aiNote}>{leak}</p> : null}
                 <p className={s.foot} style={{ marginTop: 12 }}>
                   {data.funnel?.has_funnel_steps
-                    ? `«Compró» son visitas que acabaron comprando: ${panelNumber(data.funnel.purchases)} de los ${panelNumber(row.orders)} pedidos. El resto llega por otros canales.`
+                    ? data.funnel.purchases < row.orders
+                      ? `«Compró» son visitas que acabaron comprando: ${panelNumber(data.funnel.purchases)} de los ${panelNumber(row.orders)} pedidos. El resto llega por otros canales.`
+                      : `«Compró» sale del informe de sesiones de Shopify (${panelNumber(data.funnel.purchases)}) y no cuadra al pedido con los ${panelNumber(row.orders)} pedidos del periodo: son dos informes que cuentan distinto.`
                     : "Faltan los pasos intermedios: en este periodo todavía no pedíamos esas métricas a Shopify. No significa que nadie llenara el carrito. Se rellenan con una sincronización completa de la tienda."}
                 </p>
               </>
             )}
           </Panel>
+</Section>
+) : null}
+
+      {section === "acciones" ? (
+<Section
+        id="palancas"
+        title="Dónde está el dinero"
+        lead="Cada palanca sale de un objetivo que tú fijaste. Sin objetivo no hay escenario, y no nos inventamos medias del sector."
+      >
+        <div>
+          <Panel title="Dinero sobre la mesa" sub="Beneficio extra al mes si cada métrica llegara a su objetivo">
+            {estimated ? (
+              <p className={s.empty}>
+                Sin cálculo: con el beneficio estimado la cifra sería inventada. Completa los costes que faltan y aparecerá aquí.
+              </p>
+            ) : (
+              <>
+                <ul>
+                  {row.levers.map((lever) => {
+                    const key = lever.clave;
+                    const note = `${shopName} · ${lever.palanca}: +${money(lever.eur_mes)}/mes (${lever.regla}).`;
+                    return (
+                      <li key={key} className={s.li}>
+                        <div>
+                          <b>{lever.palanca}</b>
+                          <p>{lever.regla}</p>
+                        </div>
+                        <div className={s.liR}>
+                          <span className={cx(s.big, s.pos)}>+{money(lever.eur_mes)}/mes</span>
+                          {callNotes.nextCall ? (
+                            <button
+                              type="button"
+                              className={buttonVariants({ variant: "secondary", size: "sm" })}
+                              disabled={callNotes.adding === key}
+                              onClick={() => callNotes.add(note, key)}
+                            >
+                              {callNotes.adding === key ? "Añadiendo…" : "Añadir a la llamada"}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className={buttonVariants({ variant: "secondary", size: "sm" })}
+                            disabled={creating === key}
+                            onClick={() => makeTask(key, `${shopName} · ${lever.palanca}`, note)}
+                          >
+                            {creating === key ? "Creando…" : "Crear tarea"}
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {noConversionTarget ? (
+                    <li className={s.li}>
+                      <div>
+                        <b className={s.mut}>Conversión al objetivo</b>
+                        <p>Esta tienda no tiene objetivo de conversión: pon uno y aparece aquí.</p>
+                      </div>
+                      <div className={s.liR}>
+                        <Link href={route("/camino?vista=objetivos&objetivo=conversion_rate")} className={buttonVariants({ variant: "secondary", size: "sm", className: s.linkBtn })}>
+                          Fijar objetivo
+                        </Link>
+                      </div>
+                    </li>
+                  ) : null}
+                </ul>
+                {row.levers.length === 0 && !noConversionTarget ? (
+                  <p className={s.empty}>Todas las métricas con objetivo ya lo cumplen: no hay dinero sobre la mesa.</p>
+                ) : null}
+                {row.levers.length > 0 ? (
+                  <div className={s.tot}>
+                    <span>Todo junto</span>
+                    <b className={s.pos}>+{money(leversTotal)}/mes</b>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </Panel>
+
+
         </div>
       </Section>
+) : null}
 
-      <Section
+      {section === "resumen" ? (
+<Section
         id="evolucion"
         title="Cómo evoluciona"
         lead="Doce meses de la tienda y, a su lado, a dónde va cada euro facturado."
       >
         <div className={s.two}>
-          <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio">
+          <Panel title="Ingresos y beneficio por mes" sub="Doce meses · ingresos y beneficio neto en barras separadas">
             {data.financial_monthly.length === 0 ? (
               <p className={s.empty}>Sin serie mensual.</p>
             ) : (
@@ -744,6 +773,7 @@ export function StoreLevel({
           </p>
         ) : null}
       </Section>
+) : null}
     </>,
   );
 }

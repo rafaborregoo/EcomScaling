@@ -1,7 +1,7 @@
 {
   "audit_date": "2026-10-19",
   "method": "Inventario estático de archivos actuales; enlaces literales href JSX y objetos. No incluye enlaces dinámicos, parámetros, permisos ni ejecución en navegador.",
-  "page_count": 90,
+  "page_count": 94,
   "route_handler_count": 1,
   "groups": {
     "(raíz)": 1,
@@ -24,13 +24,13 @@
     "eliminacion-de-datos": 1,
     "informes": 1,
     "integraciones": 7,
-    "klaviyo": 3,
+    "klaviyo": 4,
     "legal": 1,
     "llamadas": 2,
     "login": 1,
     "marketing": 5,
     "mensajes": 1,
-    "meta": 3,
+    "meta": 4,
     "mi-trabajo": 1,
     "notificaciones": 1,
     "nueva-contrasena": 1,
@@ -43,17 +43,18 @@
     "propuestas": 1,
     "recuperar": 1,
     "registro": 1,
-    "shopify": 6,
+    "shopify": 7,
     "subencargados": 1,
     "tareas": 1,
-    "tiendas": 1
+    "tiendas": 1,
+    "web": 1
   },
   "test_file_counts": {
-    "apps/web/src": 116,
-    "apps/api/src": 323,
+    "apps/web/src": 118,
+    "apps/api/src": 327,
     "apps/worker/src": 5,
     "apps/mobile": 0,
-    "packages": 122,
+    "packages": 123,
     "scripts": 2
   },
   "pages": [
@@ -262,6 +263,10 @@
       "file": "apps/web/src/app/klaviyo/page.tsx"
     },
     {
+      "route": "/klaviyo/[area]",
+      "file": "apps/web/src/app/klaviyo/[area]/page.tsx"
+    },
+    {
       "route": "/klaviyo/emails",
       "file": "apps/web/src/app/klaviyo/emails/page.tsx"
     },
@@ -320,6 +325,10 @@
     {
       "route": "/meta/campanas/[campaignId]",
       "file": "apps/web/src/app/meta/campanas/[campaignId]/page.tsx"
+    },
+    {
+      "route": "/meta/creativos",
+      "file": "apps/web/src/app/meta/creativos/page.tsx"
     },
     {
       "route": "/mi-trabajo",
@@ -390,6 +399,10 @@
       "file": "apps/web/src/app/shopify/diagnostico/page.tsx"
     },
     {
+      "route": "/shopify/inventario",
+      "file": "apps/web/src/app/shopify/inventario/page.tsx"
+    },
+    {
       "route": "/shopify/productos",
       "file": "apps/web/src/app/shopify/productos/page.tsx"
     },
@@ -416,6 +429,10 @@
     {
       "route": "/tiendas",
       "file": "apps/web/src/app/tiendas/page.tsx"
+    },
+    {
+      "route": "/web",
+      "file": "apps/web/src/app/web/page.tsx"
     }
   ],
   "route_handlers": [

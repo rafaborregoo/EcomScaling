@@ -1,34 +1,70 @@
 "use client";
 
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
+import { RefreshCw, X } from "lucide-react";
 import {
+  EmptyState,
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+  AttachmentTrigger,
   Avatar,
+  avatarInitials,
+  AvatarImage,
+  AvatarFallback,
   Badge,
+  Bubble,
+  BubbleContent,
   Button,
-  Card,
-  DownloadIcon,
-  Dialog,
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  EYEBROW,
   ErrorBlock,
   LoadingBlock,
+  Message,
+  MessageContent,
+  MessageFooter,
+  Marker,
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerViewport,
+  useMessageScroller,
+  MarkerContent,
+  Spinner,
   Textarea,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
+import { FileTypeIcon, fileMeta, isImageFile } from "@/lib/file-meta";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import s from "./message-thread.module.css";
 
-type Attachment = {
+type MessageAttachment = {
   storage_path: string;
   filename: string;
   content_type: string;
   byte_size: number;
   signed_url: string | null;
 };
-type Message = {
+type ThreadMessage = {
   id: string;
   author_user_id: string | null;
   author_kind: "consultant" | "client" | "platform" | "system";
   author_name: string | null;
   body: string;
-  attachments: Attachment[];
+  attachments: MessageAttachment[];
   created_at: string;
 };
 type Thread = {
@@ -44,7 +80,9 @@ type Thread = {
   } | null;
   unread_count: number;
 };
-type PendingAttachment = Omit<Attachment, "signed_url">;
+type PendingAttachment = Omit<MessageAttachment, "signed_url">;
+/** Archivo que se está subiendo al redactor, o cuya subida falló. */
+type Upload = { key: string; file: File; state: "uploading" | "error"; reason: string };
 /** Mensaje propio que aún no ha vuelto del servidor (o que falló). */
 type Outgoing = {
   key: string;
@@ -65,12 +103,6 @@ function readAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function formatWhen(iso: string): string {
@@ -103,41 +135,41 @@ function dayLabel(iso: string, now: number): string {
   });
 }
 
-function AttachmentView({ attachment }: { attachment: Attachment }) {
-  const isImage = attachment.content_type.startsWith("image/");
-  if (isImage && attachment.signed_url) {
-    return (
-      <a
-        href={attachment.signed_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-1 block"
-      >
-        <img
-          src={attachment.signed_url}
-          alt={attachment.filename}
-          className="max-h-64 rounded-md border border-separator object-cover"
-        />
-      </a>
-    );
-  }
+/** Adjunto de un mensaje ya enviado: la imagen se ve; el resto, con su icono. Toda la tarjeta lo abre. */
+function AttachmentView({ attachment }: { attachment: MessageAttachment }) {
+  const image = isImageFile(attachment.filename, attachment.content_type) && attachment.signed_url;
   return (
-    <a
-      href={attachment.signed_url ?? undefined}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-1 flex items-center gap-2 rounded-md border border-separator bg-white px-2 py-1 text-xs text-ink hover:border-foreground"
+    <Attachment
+      size="sm"
+      orientation={image ? "vertical" : "horizontal"}
+      className={image ? "mt-1 w-56 max-w-full" : "mt-1 w-64 max-w-full"}
     >
-      <DownloadIcon aria-hidden className="size-4 shrink-0 text-muted" />
-      <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
-      <span className="shrink-0 text-muted">
-        {formatBytes(attachment.byte_size)}
-      </span>
-    </a>
+      <AttachmentMedia variant={image ? "image" : "icon"}>
+        {image ? <img src={attachment.signed_url!} alt={attachment.filename} /> : <FileTypeIcon filename={attachment.filename} contentType={attachment.content_type} />}
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{attachment.filename}</AttachmentTitle>
+        <AttachmentDescription>{fileMeta(attachment.filename, attachment.byte_size, attachment.content_type)}</AttachmentDescription>
+      </AttachmentContent>
+      {attachment.signed_url ? (
+        <AttachmentTrigger
+          render={<a href={attachment.signed_url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir ${attachment.filename}`} />}
+        />
+      ) : null}
+    </Attachment>
   );
 }
 
 /** Hilo completo de una organización: lista + redactor con adjuntos. */
+/** El scroll lo lleva MessageScroller (sigue lo nuevo solo si ya estabas al final); al enviar tú, se baja siempre. */
+function ScrollOnSend({ sent }: { sent: number }) {
+  const { scrollToEnd } = useMessageScroller();
+  useEffect(() => {
+    if (sent) scrollToEnd();
+  }, [sent, scrollToEnd]);
+  return null;
+}
+
 export function MessageThread({
   organizationId,
   className,
@@ -163,17 +195,17 @@ export function MessageThread({
   /** Cada vez que llegan los mensajes del servidor. */
   onLoaded?: (info: { counterpartReadAt: string | null; messages: number }) => void;
 }) {
-  const [messages, setMessages] = useState<Message[] | null>(null);
+  const [messages, setMessages] = useState<ThreadMessage[] | null>(null);
   const [counterpartReadAt, setCounterpartReadAt] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<Outgoing[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [body, setBody] = useState(initialDraft ?? "");
   const [pending, setPending] = useState<PendingAttachment[]>([]);
-  const [uploading, setUploading] = useState(0);
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const uploading = uploads.filter((upload) => upload.state === "uploading").length;
   const [dragging, setDragging] = useState(false);
   const [now] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const dragDepth = useRef(0);
   // Dónde empieza lo nuevo se fija con lo que había sin leer al abrir, y no
   // se mueve cuando el hilo se marca como leído.
@@ -183,7 +215,7 @@ export function MessageThread({
 
   // Marcar como leído es un acto aparte de cargar: solo cuando el hilo se ve.
   const markRead = useCallback(
-    async (list: Message[]) => {
+    async (list: ThreadMessage[]) => {
       if (document.visibilityState !== "visible") return;
       const incoming = list.filter(
         (message) =>
@@ -213,7 +245,7 @@ export function MessageThread({
         return;
       }
       const payload = (await res.json()) as {
-        messages: Message[];
+        messages: ThreadMessage[];
         counterpart_read_at?: string | null;
       };
       const list = payload.messages ?? [];
@@ -261,41 +293,39 @@ export function MessageThread({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar de hilo
   }, [organizationId]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, outbox]);
+  // Cada archivo se ve en el redactor mientras sube; si falla se queda con
+  // el motivo y se puede reintentar o quitar.
+  async function uploadOne(upload: Upload) {
+    const fail = (reason: string) =>
+      setUploads((list) => list.map((entry) => (entry.key === upload.key ? { ...entry, state: "error", reason } : entry)));
+    setUploads((list) => list.map((entry) => (entry.key === upload.key ? { ...entry, state: "uploading" } : entry)));
+    const { file } = upload;
+    if (file.size > MAX_FILE_BYTES) return fail("Supera los 15 MB");
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const res = await apiFetch(`${base}/attachments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name || "captura.png",
+          content_type: file.type,
+          content_base64: dataUrl,
+        }),
+      });
+      if (!res.ok) return fail("No se ha podido subir. Reinténtalo.");
+      const payload = (await res.json()) as { attachment: PendingAttachment };
+      setPending((list) => [...list, payload.attachment]);
+      setUploads((list) => list.filter((entry) => entry.key !== upload.key));
+    } catch {
+      fail("No se ha podido subir. Reinténtalo.");
+    }
+  }
 
   async function uploadFiles(files: File[]) {
     if (files.length === 0) return;
-    setUploading((count) => count + files.length);
-    for (const file of files) {
-      try {
-        if (file.size > MAX_FILE_BYTES) {
-          setError(`"${file.name}" supera los 15 MB.`);
-          continue;
-        }
-        const dataUrl = await readAsDataUrl(file);
-        const res = await apiFetch(`${base}/attachments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: file.name || "captura.png",
-            content_type: file.type,
-            content_base64: dataUrl,
-          }),
-        });
-        if (!res.ok) {
-          setError(`No se pudo subir "${file.name}".`);
-          continue;
-        }
-        const payload = (await res.json()) as { attachment: PendingAttachment };
-        setPending((list) => [...list, payload.attachment]);
-      } catch {
-        setError(`No se pudo subir "${file.name}".`);
-      } finally {
-        setUploading((count) => Math.max(0, count - 1));
-      }
-    }
+    const added = files.map((file): Upload => ({ key: crypto.randomUUID(), file, state: "uploading", reason: "" }));
+    setUploads((list) => [...list, ...added]);
+    for (const upload of added) await uploadOne(upload);
   }
 
   async function onPickFiles(fileList: FileList | null) {
@@ -349,22 +379,22 @@ export function MessageThread({
   }
 
   // Lo propio: el cliente escribe como "client", el resto como consultor.
-  const isMine = (kind: Message["author_kind"]) =>
+  const isMine = (kind: ThreadMessage["author_kind"]) =>
     viewerIsClient ? kind === "client" : kind === "consultant" || kind === "platform";
   const lastMineId = [...(messages ?? [])].reverse().find((m) => isMine(m.author_kind))?.id;
 
   let lastDay = "";
-  let previous: Message | null = null;
+  let previous: ThreadMessage | null = null;
   const rows = (messages ?? []).map((message) => {
     const day = dayLabel(message.created_at, now);
-    const header = day !== lastDay ? <div key={`d-${message.id}`} className={s.day}>{day}</div> : null;
+    const header = day !== lastDay ? <Marker key={`d-${message.id}`} variant="separator" className={s.day}><MarkerContent>{day}</MarkerContent></Marker> : null;
     lastDay = day;
     if (message.author_kind === "system") {
       previous = null;
       return (
         <div key={message.id}>
           {header}
-          <p className={s.system}>{message.body}</p>
+          <Marker className={s.system}><MarkerContent>{message.body}</MarkerContent></Marker>
         </div>
       );
     }
@@ -382,30 +412,34 @@ export function MessageThread({
     return (
       <div key={message.id} style={{ display: "contents" }}>
         {header}
-        {newFromId === message.id ? <div className={s.fresh}>Nuevo</div> : null}
-        <div className={s.msg} data-mine={mine || undefined} data-grouped={grouped || undefined}>
-          <div className={s.bubble}>
-            {message.body ? <span>{message.body}</span> : null}
-            {message.attachments.map((attachment) => (
-              <AttachmentView key={attachment.storage_path} attachment={attachment} />
-            ))}
-          </div>
-          {!grouped || message.id === lastMineId ? (
-            <div className={s.meta}>
-              {mine ? null : (
-                <>
-                  <span>{message.author_name ?? (viewerIsClient ? "Consultor" : "Cliente")}</span>·
-                </>
-              )}
-              <span>{clock(message.created_at)}</span>
-              {message.id === lastMineId ? (
-                <>
-                  ·<span className={seen ? s.seen : undefined}>{seen ? "Visto" : "Enviado"}</span>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+        {newFromId === message.id ? <Marker variant="separator" className={s.fresh} data-scroll-anchor><MarkerContent>Nuevo</MarkerContent></Marker> : null}
+        <Message align={mine ? "end" : "start"} className={s.msg} data-mine={mine || undefined} data-grouped={grouped || undefined}>
+          <MessageContent>
+            <Bubble variant={mine ? "default" : "muted"}>
+              <BubbleContent className={s.bubble}>
+                {message.body ? <span>{message.body}</span> : null}
+                {message.attachments.map((attachment) => (
+                  <AttachmentView key={attachment.storage_path} attachment={attachment} />
+                ))}
+              </BubbleContent>
+            </Bubble>
+            {!grouped || message.id === lastMineId ? (
+              <MessageFooter>
+                {mine ? null : (
+                  <>
+                    <span>{message.author_name ?? (viewerIsClient ? "Consultor" : "Cliente")}</span>·
+                  </>
+                )}
+                <span>{clock(message.created_at)}</span>
+                {message.id === lastMineId ? (
+                  <>
+                    ·<span className={seen ? s.seen : undefined}>{seen ? "Visto" : "Enviado"}</span>
+                  </>
+                ) : null}
+              </MessageFooter>
+            ) : null}
+          </MessageContent>
+        </Message>
       </div>
     );
   });
@@ -433,43 +467,61 @@ export function MessageThread({
       }}
     >
       {dragging ? <div className={s.drop}>Suelta para adjuntar</div> : null}
-      <div ref={scrollRef} className={s.scroll} aria-live="polite">
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        {!messages ? (
-          <LoadingBlock label="Cargando chat..." />
-        ) : messages.length === 0 && outbox.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted">
-            Todavía no hay mensajes en este chat.
-          </p>
-        ) : (
-          rows
-        )}
-        {outbox.map((item) => (
-          <div key={item.key} className={s.msg} data-mine data-failed={item.state === "failed" || undefined}>
-            <div className={s.bubble}>
-              {item.body ? <span>{item.body}</span> : null}
-              {item.attachments.map((attachment) => (
-                <span key={attachment.storage_path} className="mt-1 block text-xs opacity-80">
-                  {attachment.filename}
-                </span>
-              ))}
-            </div>
-            <div className={s.meta}>
-              <span>{clock(item.at)}</span>·
-              {item.state === "failed" ? (
-                <span className={s.failed}>
-                  No se envió ·{" "}
-                  <button type="button" onClick={() => void deliver(item)}>
-                    Reintentar
-                  </button>
-                </span>
-              ) : (
-                <span>Enviando…</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      <MessageScroller className={s.scroll}>
+        <ScrollOnSend sent={outbox.length} />
+        <MessageScrollerViewport>
+          <MessageScrollerContent className={s.log}>
+            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+            {!messages ? (
+              <LoadingBlock label="Cargando chat..." />
+            ) : messages.length === 0 && outbox.length === 0 ? (
+              <EmptyState size="sm" title="Todavía no hay mensajes en este chat" />
+            ) : (
+              rows
+            )}
+            {outbox.map((item) => (
+              <Message key={item.key} align="end" className={s.msg} data-mine data-failed={item.state === "failed" || undefined}>
+                <MessageContent>
+                  <Bubble>
+                    <BubbleContent className={s.bubble}>
+                      {item.body ? <span>{item.body}</span> : null}
+                      {item.attachments.map((attachment) => {
+                        return (
+                          <Attachment
+                            key={attachment.storage_path}
+                            size="xs"
+                            state={item.state === "failed" ? "error" : "uploading"}
+                            className="mt-1 w-56 max-w-full"
+                          >
+                            <AttachmentMedia><FileTypeIcon filename={attachment.filename} contentType={attachment.content_type} /></AttachmentMedia>
+                            <AttachmentContent>
+                              <AttachmentTitle>{attachment.filename}</AttachmentTitle>
+                            </AttachmentContent>
+                          </Attachment>
+                        );
+                      })}
+                    </BubbleContent>
+                  </Bubble>
+                  <MessageFooter>
+                    <span>{clock(item.at)}</span>·
+                    {item.state === "failed" ? (
+                      <span className={s.failed}>
+                        No se envió ·{" "}
+                        <button type="button" onClick={() => void deliver(item)}>
+                          Reintentar
+                        </button>
+                      </span>
+                    ) : (
+                      <span>Enviando…</span>
+                    )}
+                  </MessageFooter>
+                </MessageContent>
+              </Message>
+            ))}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        <MessageScrollerButton />
+      </MessageScroller>
 
       <div className={s.compose}>
         {quickReplies?.length ? (
@@ -485,24 +537,57 @@ export function MessageThread({
             ))}
           </div>
         ) : null}
-        {pending.length > 0 || uploading > 0 ? (
-          <div className={s.chips}>
-            {pending.map((attachment, index) => (
-              <span key={attachment.storage_path} className={s.chip}>
-                <span>{attachment.filename}</span>
-                <button
-                  type="button"
-                  aria-label={`Quitar ${attachment.filename}`}
-                  onClick={() => setPending((list) => list.filter((_, i) => i !== index))}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {uploading > 0 ? (
-              <span className="text-xs text-muted">Subiendo {uploading}…</span>
-            ) : null}
-          </div>
+        {pending.length > 0 || uploads.length > 0 ? (
+          <AttachmentGroup role="group" aria-label="Archivos adjuntos">
+            {pending.map((attachment, index) => {
+              return (
+                <Attachment key={attachment.storage_path} size="sm" className="w-56">
+                  <AttachmentMedia><FileTypeIcon filename={attachment.filename} contentType={attachment.content_type} /></AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle>{attachment.filename}</AttachmentTitle>
+                    <AttachmentDescription>{fileMeta(attachment.filename, attachment.byte_size, attachment.content_type)}</AttachmentDescription>
+                  </AttachmentContent>
+                  <AttachmentActions>
+                    <AttachmentAction
+                      aria-label={`Quitar ${attachment.filename}`}
+                      onClick={() => setPending((list) => list.filter((_, i) => i !== index))}
+                    >
+                      <X aria-hidden />
+                    </AttachmentAction>
+                  </AttachmentActions>
+                </Attachment>
+              );
+            })}
+            {uploads.map((upload) => {
+              const name = upload.file.name || "captura.png";
+              return (
+                <Attachment key={upload.key} size="sm" state={upload.state} className="w-56">
+                  <AttachmentMedia>
+                    {upload.state === "uploading" ? <Spinner size="sm" aria-hidden /> : <FileTypeIcon filename={name} contentType={upload.file.type} />}
+                  </AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle>{name}</AttachmentTitle>
+                    <AttachmentDescription>{upload.state === "uploading" ? "Subiendo…" : upload.reason}</AttachmentDescription>
+                  </AttachmentContent>
+                  {upload.state === "error" ? (
+                    <AttachmentActions>
+                      {upload.file.size <= MAX_FILE_BYTES ? (
+                        <AttachmentAction aria-label={`Reintentar ${name}`} onClick={() => void uploadOne(upload)}>
+                          <RefreshCw aria-hidden />
+                        </AttachmentAction>
+                      ) : null}
+                      <AttachmentAction
+                        aria-label={`Quitar ${name}`}
+                        onClick={() => setUploads((list) => list.filter((entry) => entry.key !== upload.key))}
+                      >
+                        <X aria-hidden />
+                      </AttachmentAction>
+                    </AttachmentActions>
+                  ) : null}
+                </Attachment>
+              );
+            })}
+          </AttachmentGroup>
         ) : null}
         <Textarea
           rows={2}
@@ -536,7 +621,7 @@ export function MessageThread({
             <span>Enter envía · Mayús + Enter, nueva línea</span>
             <span>Arrastra o pega archivos</span>
           </span>
-          <span className="flex items-center gap-2">
+          <div role="group" aria-label="Acciones del mensaje" className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" size="sm" type="button" onClick={() => fileInputRef.current?.click()}>
               Adjuntar
             </Button>
@@ -548,14 +633,18 @@ export function MessageThread({
             >
               Enviar
             </Button>
-          </span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function MessageThreadModal({
+/** El hilo dentro de un Drawer: llena el lateral; abajo (móvil), alto fijo. */
+export const DRAWER_THREAD =
+  "mx-4 mb-4 min-h-0 flex-1 sm:mx-6 group-data-[swipe-axis=y]/drawer-popup:h-[70dvh] group-data-[swipe-axis=y]/drawer-popup:flex-none";
+
+function MessageThreadDrawer({
   organizationId,
   title,
   subtitle,
@@ -568,20 +657,26 @@ function MessageThreadModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const isDesktop = useIsDesktop();
   return (
-    <Dialog
-      isOpen={open}
+    <Drawer
+      open={open}
       onOpenChange={onOpenChange}
-      size="lg"
-      eyebrow={subtitle ?? undefined}
-      title={title}
+      swipeDirection={isDesktop ? "right" : "down"}
+      showSwipeHandle={!isDesktop}
     >
-      {open ? <MessageThread organizationId={organizationId} className="h-[min(70dvh,40rem)]" /> : null}
-    </Dialog>
+      <DrawerContent className="sm:max-w-[40rem]">
+        <DrawerHeader>
+          {subtitle ? <span className={EYEBROW}>{subtitle}</span> : null}
+          <DrawerTitle>{title}</DrawerTitle>
+        </DrawerHeader>
+        {open ? <MessageThread organizationId={organizationId} className={DRAWER_THREAD} /> : null}
+      </DrawerContent>
+    </Drawer>
   );
 }
 
-/** Card compacta de vista general: un hilo por cliente, abre el modal. */
+/** Card compacta de vista general: un hilo por cliente, abre el cajón. */
 export function MessageThreadsCard() {
   const [threads, setThreads] = useState<Thread[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -607,74 +702,77 @@ export function MessageThreadsCard() {
   }, [load]);
 
   return (
-    <Card title="Chats">
-      {error ? (
-        <ErrorBlock>{error}</ErrorBlock>
-      ) : !threads ? (
-        <LoadingBlock label="Cargando conversaciones..." />
-      ) : threads.length === 0 ? (
-        <p className="py-4 text-sm text-muted">
-          No tienes clientes asignados todavía.
-        </p>
-      ) : (
-        <ul className="divide-y divide-separator">
-          {threads.map((thread) => (
-            <li key={thread.organization_id}>
-              <button
-                type="button"
-                onClick={() => setActive(thread)}
-                className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-surface"
-              >
-                <Avatar
-                  name={thread.counterpart_name ?? thread.organization_name}
-                  src={thread.counterpart_avatar_url ?? undefined}
-                  size="sm"
-                  color="accent"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {thread.counterpart_name ?? thread.organization_name}
+    <Card>
+      <CardHeader>
+        <CardTitle>Chats</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : !threads ? (
+          <LoadingBlock label="Cargando conversaciones..." />
+        ) : threads.length === 0 ? (
+          <p className="py-4 text-sm text-muted">
+            No tienes clientes asignados todavía.
+          </p>
+        ) : (
+          <ul className="divide-y divide-separator">
+            {threads.map((thread) => (
+              <li key={thread.organization_id}>
+                <button
+                  type="button"
+                  onClick={() => setActive(thread)}
+                  className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-surface"
+                >
+                  <Avatar>
+                    <AvatarImage src={thread.counterpart_avatar_url ?? undefined} alt="" />
+                    <AvatarFallback className="bg-accent text-white">{avatarInitials(thread.counterpart_name ?? thread.organization_name)}</AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {thread.counterpart_name ?? thread.organization_name}
+                      </span>
+                      {thread.unread_count > 0 ? (
+                        <Badge tone="brand">{thread.unread_count}</Badge>
+                      ) : null}
                     </span>
-                    {thread.unread_count > 0 ? (
-                      <Badge tone="brand">{thread.unread_count}</Badge>
-                    ) : null}
+                    <span className="mt-0.5 block truncate text-xs text-muted">
+                      {thread.counterpart_name
+                        ? `${thread.organization_name} · `
+                        : ""}
+                      {thread.last_message
+                        ? thread.last_message.body ||
+                          (thread.last_message.has_attachments ? "Adjunto" : "")
+                        : "Sin mensajes"}
+                    </span>
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-muted">
-                    {thread.counterpart_name
-                      ? `${thread.organization_name} · `
-                      : ""}
-                    {thread.last_message
-                      ? thread.last_message.body ||
-                        (thread.last_message.has_attachments ? "Adjunto" : "")
-                      : "Sin mensajes"}
-                  </span>
-                </span>
-                {thread.last_message ? (
-                  <span className="shrink-0 text-[0.65rem] text-muted">
-                    {formatWhen(thread.last_message.created_at)}
-                  </span>
-                ) : null}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                  {thread.last_message ? (
+                    <span className="shrink-0 text-[0.65rem] text-muted">
+                      {formatWhen(thread.last_message.created_at)}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
-      {active ? (
-        <MessageThreadModal
-          organizationId={active.organization_id}
-          title={active.counterpart_name ?? active.organization_name}
-          subtitle={active.counterpart_name ? active.organization_name : null}
-          open={active !== null}
-          onOpenChange={(open) => {
-            if (!open) {
-              setActive(null);
-              void load();
-            }
-          }}
-        />
-      ) : null}
+        {active ? (
+          <MessageThreadDrawer
+            organizationId={active.organization_id}
+            title={active.counterpart_name ?? active.organization_name}
+            subtitle={active.counterpart_name ? active.organization_name : null}
+            open={active !== null}
+            onOpenChange={(open) => {
+              if (!open) {
+                setActive(null);
+                void load();
+              }
+            }}
+          />
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

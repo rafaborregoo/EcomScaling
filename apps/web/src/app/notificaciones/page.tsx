@@ -14,15 +14,25 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import {
   ArchiveIcon,
   Button,
-  Card,
   CheckAllIcon,
   cn,
   EmptyState,
   ErrorBlock,
   Link,
   LoadingBlock,
+  SearchableSelect,
   Select,
   toast,
+  Card,
+  CardContent,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 
 /**
@@ -165,13 +175,10 @@ function NotificationsHistory({ bootstrap }: { bootstrap: BootstrapResponse }) {
     return [...byDay.values()];
   }, [items]);
 
-  const storeOptions = [
-    { value: "", label: "Todas las tiendas" },
-    ...bootstrap.memberships.map((membership) => ({
-      value: membership.organization_id,
-      label: membership.organization?.display_name ?? "Tienda",
-    })),
-  ];
+  const storeOptions = bootstrap.memberships.map((membership) => ({
+    value: membership.organization_id,
+    label: membership.organization?.display_name ?? "Tienda",
+  }));
   const categoryOptions = [
     { value: "", label: "Todos los avisos" },
     ...NOTIFICATION_CATEGORIES.filter((value) => value !== "other" && (isConsultant || value !== "client")).map((value) => ({
@@ -187,21 +194,15 @@ function NotificationsHistory({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </WorkPageHeader>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Estado">
+        <ToggleGroup aria-label="Estado" value={status} onValueChange={setStatus}>
           {STATUS_OPTIONS.map((option) => (
-            <Button
-              key={option.value}
-              size="sm"
-              variant={status === option.value ? "primary" : "ghost"}
-              aria-pressed={status === option.value}
-              onClick={() => setStatus(option.value)}
-            >
+            <ToggleGroupItem key={option.value} value={option.value}>
               {option.label}
-            </Button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         {isConsultant && bootstrap.memberships.length > 1 ? (
-          <Select aria-label="Tienda" value={store} onChange={setStore} options={storeOptions} className="w-56" />
+          <SearchableSelect aria-label="Tienda" placeholder="Todas las tiendas" emptyText="No hay ninguna tienda con ese nombre." showClear value={store} onChange={setStore} options={storeOptions} className="w-56" />
         ) : null}
         <Select
           aria-label="Clase de aviso"
@@ -222,7 +223,9 @@ function NotificationsHistory({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <LoadingBlock label="Cargando el historial…" />
       ) : items.length === 0 ? (
         <Card>
-          <EmptyState title="No hay avisos con este filtro" hint="Prueba con «Todas» o quita el filtro de tienda." />
+          <CardContent>
+            <EmptyState title="No hay avisos con este filtro" hint="Prueba con «Todas» o quita el filtro de tienda." />
+          </CardContent>
         </Card>
       ) : (
         <div className="space-y-5">
@@ -231,23 +234,23 @@ function NotificationsHistory({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <h2 className="text-xs font-semibold uppercase tracking-[0.1em] text-muted first-letter:uppercase">
                 {dayLabel(group[0]!.created_at)}
               </h2>
-              <ul className="flex flex-col gap-2">
+              <ItemGroup className="gap-2">
                 {group.map((item) => {
                   const info = notificationTypeInfo(item.type);
                   const unread = item.status === "unread";
                   return (
-                    <li
+                    <Item
                       key={item.id}
-                      className={cn(
-                        "flex gap-3 rounded-xl border bg-white px-4 py-3",
-                        unread ? "border-black/15" : "border-black/[0.08]",
-                      )}
+                      variant="outline"
+                      className={cn("flex-nowrap items-start rounded-xl", unread ? "border-black/15" : "border-black/[0.08]")}
                     >
-                      <span
-                        className={cn("mt-2 size-2 shrink-0 rounded-full", unread ? "bg-foreground" : "bg-transparent")}
-                        aria-label={unread ? "Sin leer" : undefined}
-                      />
-                      <div className="min-w-0 flex-1">
+                      <ItemMedia>
+                        <span
+                          className={cn("mt-2 size-2 rounded-full", unread ? "bg-foreground" : "bg-transparent")}
+                          aria-label={unread ? "Sin leer" : undefined}
+                        />
+                      </ItemMedia>
+                      <ItemContent>
                         <p className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted">
                           {info.label}
                           {isConsultant && item.organization_id && storeNames[item.organization_id]
@@ -266,11 +269,11 @@ function NotificationsHistory({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           {item.title}
                         </Link>
                         {item.message ? (
-                          <p className="mt-1 whitespace-pre-line text-sm text-muted">{item.message}</p>
+                          <ItemDescription className="mt-1 whitespace-pre-line">{item.message}</ItemDescription>
                         ) : null}
-                        <p className="mt-1.5 text-xs text-muted">{info.explanation}</p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <ItemDescription className="mt-1">{info.explanation}</ItemDescription>
+                      </ItemContent>
+                      <ItemActions className="flex-col items-end gap-1">
                         {item.status === "archived" ? (
                           <Button size="sm" variant="ghost" onClick={() => void setItemStatus(item.id, "read")}>
                             Recuperar
@@ -287,11 +290,11 @@ function NotificationsHistory({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             <ArchiveIcon aria-hidden="true" className="size-4" />
                           </Button>
                         )}
-                      </div>
-                    </li>
+                      </ItemActions>
+                    </Item>
                   );
                 })}
-              </ul>
+              </ItemGroup>
             </section>
           ))}
           {nextBefore ? (

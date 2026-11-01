@@ -64,8 +64,8 @@ export function summarizeKlaviyoFlowDefinition(
         : {}),
       ...(type === "conditional-split" || type === "trigger-split"
         ? {
-            has_yes_branch: Boolean(links.yes),
-            has_no_branch: Boolean(links.no),
+            has_yes_branch: Boolean(links.next_if_true ?? links.yes),
+            has_no_branch: Boolean(links.next_if_false ?? links.no),
           }
         : {}),
       ...(type === "send-email" || type === "send-sms" || type === "send-push"

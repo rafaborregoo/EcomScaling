@@ -1,5 +1,7 @@
 "use client";
 
+import { ImageOffIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -7,14 +9,24 @@ import { useMarketingPortal } from "../marketing-portal-context";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  ScrollArea,
+  Select,
+  SearchableSelect,
   AlertTriangleIcon,
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentMedia,
+  AttachmentTitle,
+  AttachmentTrigger,
   Badge,
   Banner,
   Button,
   CircleCheckIcon,
   ClockIcon,
   CloseIcon,
-  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   EYEBROW,
@@ -30,6 +42,25 @@ import {
   toast,
   TrashIcon,
   type Tone,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardContent,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 import styles from "./imagenes.module.css";
 
@@ -737,7 +768,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className={styles.page}>
       <header className={styles.top}>
-        <div className="min-w-0">
+        <div className="min-w-0 client-sr-title">
           <h1 className={styles.title}>Creativos de Instagram y Meta Ads</h1>
         </div>
         {images.length > 0 ? (
@@ -760,7 +791,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {images.length > 0 || isFiltered ? (
         <div className={styles.toolbar}>
-          {stores.length > 1 ? <Field label="Tienda"><select className="rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}><option value="">Todas las tiendas autorizadas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.shop_name}</option>)}</select></Field> : null}
+          {stores.length > 1 ? <Field label="Tienda"><SearchableSelect value={selectedStoreId} onChange={setSelectedStoreId} options={[{ value: "", label: "Todas las tiendas autorizadas" }, ...stores.map((store) => ({ value: store.id, label: store.shop_name }))]} /></Field> : null}
           <div className={styles.search}>
             <SearchIcon aria-hidden className={styles.searchIcon} />
             <Input
@@ -772,26 +803,16 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           </div>
 
-          <div className={styles.seg} role="group" aria-label="Filtrar por estado">
+          <ToggleGroup aria-label="Filtrar por estado" value={statusFilter} onValueChange={setStatusFilter}>
             {statusFilters.map(([key, label, count]) => (
-              <button
-                key={key}
-                type="button"
-                className={styles.segBtn}
-                aria-pressed={statusFilter === key}
-                onClick={() => setStatusFilter(key)}
-              >
+              <ToggleGroupItem key={key} value={key}>
                 {label}
-                <span className={styles.segCount}>{count}</span>
-              </button>
+                <span className="text-xs text-muted tabular-nums">{count}</span>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
 
-          <div
-            className={`${styles.seg} ml-auto`}
-            role="group"
-            aria-label="Filtrar por origen"
-          >
+          <ToggleGroup aria-label="Filtrar por origen" className="ml-auto" value={sourceFilter} onValueChange={setSourceFilter}>
             {(
               [
                 ["all", "Todas"],
@@ -799,25 +820,19 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ["meta", "Meta"],
               ] as const
             ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className={styles.segBtn}
-                aria-pressed={sourceFilter === key}
-                onClick={() => setSourceFilter(key)}
-              >
+              <ToggleGroupItem key={key} value={key}>
                 {label}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         </div>
       ) : null}
 
       {importOpen ? (
         <div className={styles.importPanel}>
           <div className="mb-4 grid gap-3 sm:grid-cols-2">
-            {stores.length > 0 ? <Field label="Tienda del creativo"><select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}><option value="">Organización / compartido</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.shop_name}</option>)}</select></Field> : null}
-            <Field label="Destino de las imágenes que subas"><select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={uploadChannel} onChange={(event) => setUploadChannel(event.target.value === "instagram" || event.target.value === "meta" ? event.target.value : "both")}><option value="both">Instagram y Meta Ads</option><option value="instagram">Instagram</option><option value="meta">Meta Ads</option></select></Field>
+            {stores.length > 0 ? <Field label="Tienda del creativo"><SearchableSelect value={selectedStoreId} onChange={setSelectedStoreId} options={[{ value: "", label: "Organización / compartido" }, ...stores.map((store) => ({ value: store.id, label: store.shop_name }))]} /></Field> : null}
+            <Field label="Destino de las imágenes que subas"><Select value={uploadChannel} onChange={(value) => setUploadChannel(value === "instagram" || value === "meta" ? value : "both")} options={[{ value: "both", label: "Instagram y Meta Ads" }, { value: "instagram", label: "Instagram" }, { value: "meta", label: "Meta Ads" }]} /></Field>
           </div>
           <button
             type="button"
@@ -904,22 +919,19 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </p>
                   <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2 xl:grid-cols-3">
                     {metaCandidates.map((candidate) => (
-                      <li
-                        key={candidate.id}
-                        className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-edge bg-white p-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">
+                      <Item key={candidate.id} variant="outline" size="sm" className="min-w-0" render={<li />}>
+                        <ItemContent className="basis-40">
+                          <ItemTitle className="block truncate">
                             {candidate.label || candidate.creative_name || "Creatividad de Meta"}
-                          </p>
-                          <p className="truncate text-xs text-muted">
+                          </ItemTitle>
+                          <ItemDescription className="truncate">
                             {candidate.visual_kind === "video_thumbnail"
                               ? "Miniatura de vídeo"
                               : "Imagen"}{" "}
                             · pieza {candidate.position + 1}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                          </ItemDescription>
+                        </ItemContent>
+                        <ItemActions role="group" aria-label="Acciones del contenido" className="ml-auto">
                           {candidate.can_extract_video ? (
                             <Button
                               type="button"
@@ -940,8 +952,8 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           >
                             {importingMetaAssetId === candidate.id ? "Importando…" : "Importar"}
                           </Button>
-                        </div>
-                      </li>
+                        </ItemActions>
+                      </Item>
                     ))}
                   </ul>
                   {metaNextCursor ? (
@@ -994,30 +1006,27 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
 
               {images.some((image) => image.status === "analyzed") ? (
-                <div className="mb-4 grid gap-3 rounded-md border border-edge bg-surface p-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end">
+                <Card size="sm" className="mb-4"><CardContent className="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end">
                   <div>
                     <p className="text-sm font-medium">Montar carrusel</p>
                     <p className="text-xs text-muted">Selecciona de 2 a 10 imágenes analizadas. Se conservará el orden de selección.</p>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Destino">
-                      <select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={creativeChannel} onChange={(event) => setCreativeChannel(event.target.value === "meta_ads" ? "meta_ads" : "instagram_organic")}>
-                        <option value="instagram_organic">Instagram</option>
-                        <option value="meta_ads">Meta Ads</option>
-                      </select>
+                      <Select value={creativeChannel} onChange={(value) => setCreativeChannel(value === "meta_ads" ? "meta_ads" : "instagram_organic")} options={[{ value: "instagram_organic", label: "Instagram" }, { value: "meta_ads", label: "Meta Ads" }]} />
                     </Field>
                     <Field label="Objetivo / contexto de campaña">
                       <Input value={carouselBrief} maxLength={2000} onChange={(event) => setCarouselBrief(event.target.value)} placeholder="Producto, audiencia, objetivo y límites del mensaje" />
                     </Field>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted">{selectedCarouselImageIds.length}/10</span>
+                  <div role="group" aria-label="Acciones del carrusel" className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm tabular-nums text-muted">{selectedCarouselImageIds.length}/10</span>
                     <Button type="button" variant="secondary" size="sm" disabled={creatingPiece || selectedCarouselImageIds.length < 2} onClick={() => void createCarousel()}>
                       {creatingPiece ? "Preparando…" : "Crear carrusel"}
                     </Button>
                     {selectedCarouselImageIds.length > 0 ? <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedCarouselImageIds([])}>Limpiar</Button> : null}
                   </div>
-                </div>
+                </CardContent></Card>
               ) : null}
 
               {visibleImages.length === 0 && uploading.length === 0 ? (
@@ -1030,21 +1039,15 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <ul className={styles.grid}>
                 {uploading.map((name) => (
                   <li key={`uploading-${name}`}>
-                    <div className={styles.card}>
-                      <div className={styles.media}>
-                        <ProgressCircle
-                          isIndeterminate
-                          aria-label={`Subiendo ${name}`}
-                          size="sm"
-                        />
-                      </div>
-                      <div className={styles.cardBody}>
-                        <div className={styles.cardName}>
-                          <span>{name}</span>
-                        </div>
-                        <p className={styles.cardSub}>Subiendo…</p>
-                      </div>
-                    </div>
+                    <Attachment orientation="vertical" state="uploading">
+                      <AttachmentMedia>
+                        <ProgressCircle isIndeterminate aria-label={`Subiendo ${name}`} size="sm" />
+                      </AttachmentMedia>
+                      <AttachmentContent>
+                        <AttachmentTitle>{name}</AttachmentTitle>
+                        <AttachmentDescription>Subiendo…</AttachmentDescription>
+                      </AttachmentContent>
+                    </Attachment>
                   </li>
                 ))}
 
@@ -1053,27 +1056,12 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   const needsIndex =
                     image.status === "analyzed" && image.index_status !== "indexed";
                   return (
-                    <li key={image.id} className="relative">
-                      {image.status === "analyzed" ? (
-                        <button
-                          type="button"
-                          aria-pressed={selectedCarouselImageIds.includes(image.id)}
-                          aria-label={`${selectedCarouselImageIds.includes(image.id) ? "Quitar" : "Añadir"} ${image.original_filename} ${selectedCarouselImageIds.includes(image.id) ? "del" : "al"} carrusel`}
-                          onClick={() => toggleCarouselImage(image.id)}
-                          className="absolute left-2 top-2 z-10 rounded-md border border-edge bg-white/95 px-2 py-1 text-xs font-medium shadow-sm hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                        >
-                          {selectedCarouselImageIds.includes(image.id) ? `✓ ${selectedCarouselImageIds.indexOf(image.id) + 1}` : "＋ Carrusel"}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        aria-expanded={selected}
-                        aria-controls="image-bank-detail"
-                        aria-label={`${image.original_filename}. Estado: ${statusLabel[image.status]}. Abrir ficha.`}
-                        onClick={() => (selected ? closeDetail() : openDetail(image))}
-                        className={styles.card}
+                    <li key={image.id}>
+                      <Attachment
+                        orientation="vertical"
+                        state={image.status === "failed" ? "error" : image.status === "analyzed" ? "done" : "processing"}
                       >
-                        <span className={styles.media}>
+                        <AttachmentMedia variant="image" className="[&>img]:object-contain">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={image.public_url}
@@ -1105,22 +1093,41 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               ))}
                             </span>
                           ) : null}
-                        </span>
-                        <span className={styles.cardBody}>
-                          <span className={styles.cardName}>
+                        </AttachmentMedia>
+                        <AttachmentContent>
+                          <AttachmentTitle className="flex items-center gap-2">
                             {needsIndex ? (
                               <span
                                 className={styles.pendingIndex}
-                                title="Analizada, aún sin indexar en el contexto"
+                                title="Analizada, todavía sin entrar en el contexto del estudio"
                               />
                             ) : null}
-                            <span>{image.original_filename}</span>
-                          </span>
-                          <span className={styles.cardSub} data-s={image.status}>
+                            <span className="truncate">{image.original_filename}</span>
+                          </AttachmentTitle>
+                          <AttachmentDescription className="line-clamp-2 whitespace-normal">
                             {cardSummary(image)}
-                          </span>
-                        </span>
-                      </button>
+                          </AttachmentDescription>
+                        </AttachmentContent>
+                        {image.status === "analyzed" ? (
+                          <AttachmentActions>
+                            <AttachmentAction
+                              size="xs"
+                              variant="outline"
+                              aria-pressed={selectedCarouselImageIds.includes(image.id)}
+                              aria-label={`${selectedCarouselImageIds.includes(image.id) ? "Quitar" : "Añadir"} ${image.original_filename} ${selectedCarouselImageIds.includes(image.id) ? "del" : "al"} carrusel`}
+                              onClick={() => toggleCarouselImage(image.id)}
+                            >
+                              {selectedCarouselImageIds.includes(image.id) ? `✓ ${selectedCarouselImageIds.indexOf(image.id) + 1}` : "＋ Carrusel"}
+                            </AttachmentAction>
+                          </AttachmentActions>
+                        ) : null}
+                        <AttachmentTrigger
+                          aria-expanded={selected}
+                          aria-controls="image-bank-detail"
+                          aria-label={`${image.original_filename}. Estado: ${statusLabel[image.status]}. Abrir ficha.`}
+                          onClick={() => (selected ? closeDetail() : openDetail(image))}
+                        />
+                      </Attachment>
                     </li>
                   );
                 })}
@@ -1189,26 +1196,40 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {expanded.status === "failed" ? "Reintentar" : "Volver a analizar"}
                 </span>
               </Button>
-              <ConfirmDialog
-                status="danger"
-                title="Eliminar imagen"
-                description="Se borra la imagen y su ficha del contexto. El generador de contenido dejará de usarla. No se puede deshacer."
-                confirmLabel="Eliminar"
-                onConfirm={() => void deleteImage(expanded.id)}
-                trigger={
-                  <Button
-                    type="button"
-                    variant="danger"
-                    size="sm"
-                    disabled={busyId === expanded.id}
-                  >
-                    <span className="flex items-center gap-2">
-                      <TrashIcon aria-hidden />
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={busyId === expanded.id}
+                    >
+                      <span className="flex items-center gap-2">
+                        <TrashIcon aria-hidden />
+                        Eliminar
+                      </span>
+                    </Button>
+                  }
+                />
+                <AlertDialogContent size="sm">
+                  <AlertDialogHeader>
+                    <AlertDialogMedia className="bg-danger/10 text-danger">
+                      <ImageOffIcon />
+                    </AlertDialogMedia>
+                    <AlertDialogTitle>¿Eliminar la imagen?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Se borra la imagen y su ficha del contexto. El generador de contenido dejará de usarla. No se puede deshacer.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction variant="destructive" onClick={() => deleteImage(expanded.id)}>
                       Eliminar
-                    </span>
-                  </Button>
-                }
-              />
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             <div className={styles.detailBody}>
@@ -1220,17 +1241,14 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
               {expanded.analysis ? (
                 <>
-                    <div className="rounded-md border border-edge p-3">
+                    <Card size="sm"><CardContent>
                       <p className={EYEBROW}>Lectura A15</p>
                       <p className="mt-1 text-[13px] text-muted">Confianza global: {expanded.analysis.confidence}{expanded.pixel_width && expanded.pixel_height ? ` · ${expanded.pixel_width} × ${expanded.pixel_height}px` : ""}{expanded.representation_kind === "static_thumbnail" ? " · miniatura de vídeo; no es análisis del vídeo completo" : ""}</p>
                       {expanded.analysis.visible_message ? <p className="mt-2 text-[13px]"><span className="font-medium">Mensaje visible:</span> {expanded.analysis.visible_message}</p> : null}
                       {expanded.analysis.visible_call_to_action ? <p className="mt-1 text-[13px]"><span className="font-medium">CTA visible:</span> {expanded.analysis.visible_call_to_action}</p> : null}
-                    </div>
+                    </CardContent></Card>
                     <Field label="Preparar variante para">
-                      <select className="mt-1 w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm" value={creativeChannel} onChange={(event) => setCreativeChannel(event.target.value === "meta_ads" ? "meta_ads" : "instagram_organic")}>
-                        <option value="instagram_organic">Instagram orgánico</option>
-                        <option value="meta_ads">Meta Ads</option>
-                      </select>
+                      <Select value={creativeChannel} onChange={(value) => setCreativeChannel(value === "meta_ads" ? "meta_ads" : "instagram_organic")} options={[{ value: "instagram_organic", label: "Instagram orgánico" }, { value: "meta_ads", label: "Meta Ads" }]} />
                     </Field>
                     <Field label="Brief de campaña (opcional)">
                       <Textarea value={imageCreativeBrief} maxLength={2000} onChange={(event) => setImageCreativeBrief(event.target.value)} placeholder="Objetivo, producto, audiencia, placement y límites del mensaje. Se enviará al editor junto al creativo base." />
@@ -1239,12 +1257,12 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <div className="space-y-2">
                         <p className={EYEBROW}>Mejoras de diseño observadas</p>
                         {(expanded.analysis.design_findings ?? []).map((finding, index) => (
-                          <div key={`${finding.category}-${index}`} className="rounded-md border border-edge p-3">
+                          <Card size="sm" key={`${finding.category}-${index}`}><CardContent>
                             <p className="text-xs font-semibold">{finding.category} · {finding.severity} · confianza {finding.confidence}</p>
                             <p className="mt-1 text-[13px] text-muted">{finding.evidence}{finding.location ? ` (${finding.location})` : ""}</p>
                             <p className="mt-1 text-[13px]">Sugerencia: {finding.recommendation}</p>
                             <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={() => void createPiece(expanded.id, "single", [`Variante ${creativeChannel === "meta_ads" ? "para Meta Ads" : "para Instagram"} basada en hallazgo A15: ${finding.recommendation}. Evidencia: ${finding.evidence}. Mantén los datos visibles sin inventar claims.`, imageCreativeBrief.trim() ? `Contexto de campaña aportado por el usuario: ${imageCreativeBrief.trim()}` : ""].filter(Boolean).join("\n\n"), creativeChannel)}>Crear variante para {creativeChannel === "meta_ads" ? "Meta Ads" : "Instagram"}</Button>
-                          </div>
+                          </CardContent></Card>
                         ))}
                       </div>
                     ) : null}
@@ -1265,7 +1283,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                 filtra el banco. */}
                             <button
                               type="button"
-                              className="rounded-md border border-edge px-2 py-1 text-xs transition-colors hover:border-accent"
+                              className={buttonVariants({ variant: "outline", size: "xs" })}
                               onClick={() => {
                                 setQuery(object);
                                 setStatusFilter("all");
@@ -1400,7 +1418,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           maxLength={20000}
                         />
                       </Field>
-                      <div className="flex flex-wrap gap-2">
+                      <div role="group" aria-label="Acciones de la ficha" className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
                           size="sm"
@@ -1427,9 +1445,9 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </div>
                     </div>
                   ) : (
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 font-mono text-xs leading-relaxed">
+                    <ScrollArea className="max-h-64 rounded-md border border-edge bg-surface p-3 font-mono text-xs leading-relaxed"><pre className="whitespace-pre-wrap">
                       {expanded.markdown}
-                    </pre>
+                    </pre></ScrollArea>
                   )}
                 </div>
               ) : null}

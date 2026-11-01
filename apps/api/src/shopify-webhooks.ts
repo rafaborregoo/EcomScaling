@@ -49,8 +49,8 @@ export const SHOPIFY_COMPLIANCE_WEBHOOK_TOPICS = [
   "shop/redact",
 ] as const;
 
-export function shopifyWebhookCallbackUrl(redirectUri: string) {
-  return `${new URL(redirectUri).origin}/v1/shopify/webhooks`;
+export function shopifyWebhookCallbackUrl(redirectUri: string, publicBaseUrl?: string) {
+  return `${new URL(publicBaseUrl ?? redirectUri).origin}/v1/shopify/webhooks`;
 }
 
 export function verifyShopifyWebhookHmac(rawBody: Buffer, hmacHeader: string | undefined, secret: string) {
@@ -80,8 +80,48 @@ export async function registerShopifyWebhooks(
   callbackUrl: string,
   organizationId?: string,
 ) {
+  const failed: Array<{ topic: string; error: string }> = [];
+  let confirmed = 0;
+  const subscriptions: Array<{ id: string; topic: string; uri: string }> = [];
+  try {
+    if (new URL(callbackUrl).protocol !== "https:") throw new Error("webhook_public_https_required");
+    let after: string | null = null;
+    do {
+      const page: { webhookSubscriptions: { nodes: Array<{ id: string; topic: string; uri: string }>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } = await shopifyGraphql(
+        shopDomain, accessToken,
+        `query IntegrationWebhooks($after: String) {
+          webhookSubscriptions(first: 100, after: $after) {
+            nodes { id topic uri }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`, { after },
+      );
+      subscriptions.push(...page.webhookSubscriptions.nodes);
+      const next = page.webhookSubscriptions.pageInfo;
+      if (!next.hasNextPage) break;
+      if (!next.endCursor || next.endCursor === after) throw new Error("webhook_subscription_pagination_invalid");
+      after = next.endCursor;
+    } while (after);
+  } catch (error) {
+    failed.push({ topic: "subscriptions", error: error instanceof Error ? error.message : String(error) });
+  }
   for (const topic of SHOPIFY_WEBHOOK_TOPICS) {
+    if (failed.some((item) => item.topic === "subscriptions")) break;
     try {
+      const existing = subscriptions.find((item) => item.topic === topic.graphqlTopic && item.uri === callbackUrl)
+        ?? subscriptions.find((item) => item.topic === topic.graphqlTopic);
+      if (existing?.uri === callbackUrl) { confirmed += 1; continue; }
+      if (existing) {
+        const updated = await shopifyGraphql<{ webhookSubscriptionUpdate: { userErrors: Array<{ message: string }> } }>(
+          shopDomain, accessToken,
+          `mutation IntegrationWebhookUpdate($id: ID!, $input: WebhookSubscriptionInput!) {
+            webhookSubscriptionUpdate(id: $id, webhookSubscription: $input) { userErrors { message } }
+          }`, { id: existing.id, input: { uri: callbackUrl } },
+        );
+        if (updated.webhookSubscriptionUpdate.userErrors.length) throw new Error(updated.webhookSubscriptionUpdate.userErrors.map((item) => item.message).join("; "));
+        confirmed += 1;
+        continue;
+      }
       const result = await shopifyGraphql<{
         webhookSubscriptionCreate: {
           webhookSubscription: { id: string } | null;
@@ -113,8 +153,11 @@ export async function registerShopifyWebhooks(
           topic: topic.graphqlTopic,
           errors: userErrors.map((item) => item.message).join("; "),
         });
+        failed.push({ topic: topic.graphqlTopic, error: userErrors.map((item) => item.message).join("; ") });
         continue;
       }
+
+      confirmed += 1;
 
       logger.info("Shopify webhook subscription registered", {
         shop_domain: shopDomain,
@@ -123,6 +166,7 @@ export async function registerShopifyWebhooks(
         subscription_id: result.webhookSubscriptionCreate.webhookSubscription?.id,
       });
     } catch (error) {
+      failed.push({ topic: topic.graphqlTopic, error: error instanceof Error ? error.message : String(error) });
       logger.error("Shopify webhook subscription failed", {
         shop_domain: shopDomain,
         organization_id: organizationId,
@@ -131,6 +175,28 @@ export async function registerShopifyWebhooks(
       });
     }
   }
+  const result = { status: failed.length ? "failed" : "healthy", confirmed, expected: SHOPIFY_WEBHOOK_TOPICS.length, checked_at: new Date().toISOString(), callback_url: callbackUrl, failures: failed.map((item) => ({ topic: item.topic, error: item.error.slice(0,300) })) };
+  return result;
+}
+
+export async function persistShopifyWebhookHealth(env: ApiEnv, connectionId: string, health: Awaited<ReturnType<typeof registerShopifyWebhooks>>) {
+  const { error } = await createServiceClient(env).rpc("set_integration_webhook_health", { target_connection: connectionId, health });
+  if (error) throw new Error(`shopify_webhook_health_store_failed: ${error.message}`);
+}
+
+export async function ensureShopifyWebhooks(env: ApiEnv, connectionId: string, force = false) {
+  const client = createServiceClient(env);
+  const { data: connection, error } = await client.from("integration_connections")
+    .select("provider_account_id, organization_id, metadata").eq("id", connectionId).eq("provider", "shopify").single();
+  if (error || !connection) throw new Error(`shopify_webhook_connection_lookup_failed: ${error?.message}`);
+  const callbackUrl = shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI, env.INTEGRATION_WEBHOOK_BASE_URL);
+  const previous = connection.metadata?.webhooks as { status?: string; checked_at?: string; callback_url?: string } | undefined;
+  if (!force && previous?.status === "healthy" && previous.callback_url === callbackUrl &&
+    Date.now() - Date.parse(previous.checked_at ?? "") < 60 * 60 * 1000) return previous;
+  const accessToken = await getValidShopifyAccessToken(env, connectionId);
+  const result = await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
+  await persistShopifyWebhookHealth(env, connectionId, result);
+  return result;
 }
 
 /**
@@ -155,7 +221,7 @@ export async function resendShopifyWebhookRegistrations(env: ApiEnv) {
     throw new Error(`shopify_connections_lookup_failed: ${error.message}`);
   }
 
-  const callbackUrl = shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI);
+  const callbackUrl = shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI, env.INTEGRATION_WEBHOOK_BASE_URL);
   let attempted = 0;
   let failed = 0;
 
@@ -168,7 +234,9 @@ export async function resendShopifyWebhookRegistrations(env: ApiEnv) {
 
     try {
       const accessToken = await getValidShopifyAccessToken(env, connection.id);
-      await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
+      const result = await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
+      await persistShopifyWebhookHealth(env, connection.id, result);
+      if (result.status !== "healthy") failed += 1;
       logger.info("Shopify webhook registration resent", {
         connection_id: connection.id,
         organization_id: connection.organization_id,

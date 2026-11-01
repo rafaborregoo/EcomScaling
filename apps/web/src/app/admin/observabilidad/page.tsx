@@ -6,20 +6,33 @@ import { RunTraceDetail } from "./run-trace";
 import { ModelPricesPanel } from "./model-prices";
 import { AiUsagePanel } from "./ai-usage";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { displayValue } from "@/lib/display-labels";
 import {
+  ScrollArea,
   AsyncState,
   Badge,
   Button,
-  Card,
   ErrorBlock,
   EYEBROW,
   Metric,
+  SearchableSelect,
   Select,
-  Sheet,
-  Table,
-  type TableColumnDef,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DataTable,
+  type DataTableColumn,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 type AgentUsage = { name: string; runs: number };
@@ -200,18 +213,30 @@ function OrchestratorPanel() {
 
   if (isLoading) {
     return (
-      <Card kicker="Control de coste" title="Orquestador de diagnósticos IA">
-        <AsyncState
-          status="loading"
-          loadingLabel="Cargando estado del orquestador..."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Control de coste</CardKicker>
+          <CardTitle>Orquestador de diagnósticos IA</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AsyncState
+            status="loading"
+            loadingLabel="Cargando estado del orquestador..."
+          />
+        </CardContent>
       </Card>
     );
   }
   if (error || !data) {
     return (
-      <Card kicker="Control de coste" title="Orquestador de diagnósticos IA">
-        <ErrorBlock>{error ?? "Sin datos."}</ErrorBlock>
+      <Card>
+        <CardHeader>
+          <CardKicker>Control de coste</CardKicker>
+          <CardTitle>Orquestador de diagnósticos IA</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorBlock>{error ?? "Sin datos."}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
@@ -223,7 +248,7 @@ function OrchestratorPanel() {
       : 0;
 
   const decisionRows = data.recent_decisions.map((row) => ({ ...row }));
-  const decisionColumns: TableColumnDef<OrchestratorDecision>[] = [
+  const decisionColumns: DataTableColumn<OrchestratorDecision>[] = [
     {
       key: "created_at",
       label: "Fecha",
@@ -266,7 +291,7 @@ function OrchestratorPanel() {
   const orgRows = data.by_org_today
     .slice(0, 10)
     .map((row) => ({ ...row, id: row.organization_id }));
-  const orgColumns: TableColumnDef<(typeof orgRows)[number]>[] = [
+  const orgColumns: DataTableColumn<(typeof orgRows)[number]>[] = [
     {
       key: "organization_name",
       label: "Cliente",
@@ -285,79 +310,82 @@ function OrchestratorPanel() {
   ];
 
   return (
-    <Card
-      kicker="Control de coste"
-      title="Orquestador de diagnósticos IA"
-      description="Decide 2 veces al día si merece la pena regenerar cada diagnóstico y ejecuta dentro de los topes de gasto."
-    >
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Metric
-          card
-          label="Gasto IA hoy · plataforma"
-          tone={spentPct >= 80 ? "danger" : "default"}
-          value={
-            budget
-              ? `${formatCost(budget.spent_today_usd)} / ${formatCost(budget.cap_usd)}`
-              : "—"
-          }
-          hint={
-            budget ? `${spentPct}% del tope diario` : "sin datos de presupuesto"
-          }
-        />
-        <Metric
-          card
-          label="Ejecuciones hoy"
-          value={String(data.today.total)}
-          hint={`manual ${data.today.manual} · automático ${data.today.cron}`}
-        />
-        <Metric
-          card
-          label="Última pasada"
-          value={
-            data.last_tick
-              ? reasonSummary(data.last_tick.by_reason)
-              : "sin pasadas"
-          }
-          hint={
-            data.last_tick?.at ? formatDateTime(data.last_tick.at) : undefined
-          }
-        />
-      </div>
-
-      {!data.gate_log_available ? (
-        <p className="mt-3 text-xs text-muted">
-          El registro de decisiones (ai_diagnostic_gate_log) aún no está
-          desplegado; se muestran gasto y ejecuciones.
-        </p>
-      ) : (
-        <div className="mt-5">
-          <h3 className="text-sm font-semibold text-foreground">
-            Últimas decisiones del orquestador
-          </h3>
-          <Table
-            className="mt-2"
-            ariaLabel="Decisiones del orquestador"
-            columns={decisionColumns}
-            rows={decisionRows}
-            emptyLabel="El orquestador todavía no ha registrado decisiones."
+    <Card>
+      <CardHeader>
+        <CardKicker>Control de coste</CardKicker>
+        <CardTitle>Orquestador de diagnósticos IA</CardTitle>
+        <CardDescription>Decide 2 veces al día si merece la pena regenerar cada diagnóstico y ejecuta dentro de los topes de gasto.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Metric
+            card
+            label="Gasto IA hoy · plataforma"
+            tone={spentPct >= 80 ? "danger" : "default"}
+            value={
+              budget
+                ? `${formatCost(budget.spent_today_usd)} / ${formatCost(budget.cap_usd)}`
+                : "—"
+            }
+            hint={
+              budget ? `${spentPct}% del tope diario` : "sin datos de presupuesto"
+            }
+          />
+          <Metric
+            card
+            label="Ejecuciones hoy"
+            value={String(data.today.total)}
+            hint={`manual ${data.today.manual} · automático ${data.today.cron}`}
+          />
+          <Metric
+            card
+            label="Última pasada"
+            value={
+              data.last_tick
+                ? reasonSummary(data.last_tick.by_reason)
+                : "sin pasadas"
+            }
+            hint={
+              data.last_tick?.at ? formatDateTime(data.last_tick.at) : undefined
+            }
           />
         </div>
-      )}
 
-      {orgRows.length > 0 ? (
-        <div className="mt-5">
-          <h3 className="text-sm font-semibold text-foreground">
-            Ejecuciones de hoy por cliente
-          </h3>
-          <Table
-            className="mt-2"
-            ariaLabel="Ejecuciones de hoy por cliente"
-            columns={orgColumns}
-            rows={orgRows}
-            emptyLabel="Sin ejecuciones hoy."
-          />
-        </div>
-      ) : null}
+        {!data.gate_log_available ? (
+          <p className="mt-3 text-xs text-muted">
+            El registro de decisiones (ai_diagnostic_gate_log) aún no está
+            desplegado; se muestran gasto y ejecuciones.
+          </p>
+        ) : (
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold text-foreground">
+              Últimas decisiones del orquestador
+            </h3>
+            <DataTable
+              className="mt-2"
+              ariaLabel="Decisiones del orquestador"
+              columns={decisionColumns}
+              rows={decisionRows}
+              emptyLabel="El orquestador todavía no ha registrado decisiones."
+            />
+          </div>
+        )}
+
+        {orgRows.length > 0 ? (
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold text-foreground">
+              Ejecuciones de hoy por cliente
+            </h3>
+            <DataTable
+              className="mt-2"
+              ariaLabel="Ejecuciones de hoy por cliente"
+              columns={orgColumns}
+              rows={orgRows}
+              emptyLabel="Sin ejecuciones hoy."
+            />
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
@@ -417,6 +445,7 @@ function ObservabilidadPanel() {
   const [storeFilter, setStoreFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const isDesktop = useIsDesktop();
 
   const filteredRuns = useMemo(() => {
     if (!data) return [];
@@ -501,7 +530,7 @@ function ObservabilidadPanel() {
     ...row,
     id: `${row.source}:${row.issue_type}`,
   }));
-  const portfolioColumns: TableColumnDef<(typeof portfolioRows)[number]>[] = [
+  const portfolioColumns: DataTableColumn<(typeof portfolioRows)[number]>[] = [
     { key: "source", label: "Fuente", render: (row) => row.source },
     {
       key: "issue_type",
@@ -538,7 +567,7 @@ function ObservabilidadPanel() {
     },
   ];
 
-  const qualityColumns: TableColumnDef<(typeof qualityRows)[number]>[] = [
+  const qualityColumns: DataTableColumn<(typeof qualityRows)[number]>[] = [
     { key: "id", label: "Agente@versión", render: (row) => row.id },
     {
       key: "succeeded",
@@ -569,7 +598,7 @@ function ObservabilidadPanel() {
     },
   ];
 
-  const clusterColumns: TableColumnDef<(typeof clusterRows)[number]>[] = [
+  const clusterColumns: DataTableColumn<(typeof clusterRows)[number]>[] = [
     {
       key: "agent",
       label: "Agente@versión",
@@ -602,7 +631,7 @@ function ObservabilidadPanel() {
     },
   ];
 
-  const agentColumns: TableColumnDef<(typeof agentRows)[number]>[] = [
+  const agentColumns: DataTableColumn<(typeof agentRows)[number]>[] = [
     { key: "agent_name", label: "Agente", render: (row) => row.agent_name },
     {
       key: "run_count",
@@ -641,7 +670,7 @@ function ObservabilidadPanel() {
     },
   ];
 
-  const clientColumns: TableColumnDef<(typeof clientRows)[number]>[] = [
+  const clientColumns: DataTableColumn<(typeof clientRows)[number]>[] = [
     { key: "name", label: "Cliente", render: (row) => row.name },
     {
       key: "run_count",
@@ -664,7 +693,7 @@ function ObservabilidadPanel() {
     },
   ];
 
-  const consultantColumns: TableColumnDef<(typeof consultantRows)[number]>[] = [
+  const consultantColumns: DataTableColumn<(typeof consultantRows)[number]>[] = [
     { key: "name", label: "Consultor", render: (row) => row.name },
     {
       key: "client_count",
@@ -694,21 +723,21 @@ function ObservabilidadPanel() {
 
   const groupTable =
     groupBy === "agent" ? (
-      <Table
+      <DataTable
         ariaLabel="Uso por agente"
         columns={agentColumns}
         rows={agentRows}
         emptyLabel="Sin ejecuciones registradas en la ventana."
       />
     ) : groupBy === "client" ? (
-      <Table
+      <DataTable
         ariaLabel="Uso por cliente"
         columns={clientColumns}
         rows={clientRows}
         emptyLabel="Sin ejecuciones registradas en la ventana."
       />
     ) : (
-      <Table
+      <DataTable
         ariaLabel="Uso por consultor"
         columns={consultantColumns}
         rows={consultantRows}
@@ -716,7 +745,7 @@ function ObservabilidadPanel() {
       />
     );
 
-  const runColumns: TableColumnDef<ObservabilityRun>[] = [
+  const runColumns: DataTableColumn<ObservabilityRun>[] = [
     { key: "agent_name", label: "Agente", render: (row) => row.agent_name },
     {
       key: "started_at",
@@ -821,12 +850,12 @@ function ObservabilidadPanel() {
       <AiUsagePanel />
       <ModelPricesPanel />
 
-      <Card
-        kicker="Panel platform admin"
-        title="Resumen de uso"
-        description={`Agrupa el uso de IA de los últimos ${data.window_days} días.`}
-        actions={
-          <Select
+      <Card>
+        <CardHeader>
+          <CardKicker>Panel platform admin</CardKicker>
+          <CardTitle>Resumen de uso</CardTitle>
+          <CardDescription>{`Agrupa el uso de IA de los últimos ${data.window_days} días.`}</CardDescription>
+          <CardAction><Select
             className="w-48"
             aria-label="Agrupar resumen por"
             value={groupBy}
@@ -836,244 +865,264 @@ function ObservabilidadPanel() {
               { value: "client", label: "Por cliente" },
               { value: "consultant", label: "Por consultor" },
             ]}
-          />
-        }
-      >
-        {groupTable}
+          /></CardAction>
+        </CardHeader>
+        <CardContent>
+          {groupTable}
+        </CardContent>
       </Card>
 
-      <Card kicker="Datos" title="Fuentes que fallan en la cartera">
-        <Table
-          ariaLabel="Problemas de calidad de datos abiertos por fuente y tipo"
-          columns={portfolioColumns}
-          rows={portfolioRows}
-          emptyLabel="Ninguna fuente con problemas abiertos."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Datos</CardKicker>
+          <CardTitle>Fuentes que fallan en la cartera</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Problemas de calidad de datos abiertos por fuente y tipo"
+            columns={portfolioColumns}
+            rows={portfolioRows}
+            emptyLabel="Ninguna fuente con problemas abiertos."
+          />
+        </CardContent>
       </Card>
 
-      <Card kicker="Calidad" title="Fallos agrupados y revisión humana">
-        <div className="space-y-6">
-          <Table
-            ariaLabel="Fallos agrupados por agente, versión y clase"
-            columns={clusterColumns}
-            rows={clusterRows}
-            emptyLabel="Sin fallos ni rechazos en la ventana."
-          />
-          <Table
-            ariaLabel="Calidad por versión de agente"
-            columns={qualityColumns}
-            rows={qualityRows}
-            emptyLabel="Sin ejecuciones en la ventana."
-          />
-        </div>
+      <Card>
+        <CardHeader>
+          <CardKicker>Calidad</CardKicker>
+          <CardTitle>Fallos agrupados y revisión humana</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            <DataTable
+              ariaLabel="Fallos agrupados por agente, versión y clase"
+              columns={clusterColumns}
+              rows={clusterRows}
+              emptyLabel="Sin fallos ni rechazos en la ventana."
+            />
+            <DataTable
+              ariaLabel="Calidad por versión de agente"
+              columns={qualityColumns}
+              rows={qualityRows}
+              emptyLabel="Sin ejecuciones en la ventana."
+            />
+          </div>
+        </CardContent>
       </Card>
 
-      <Card
-        kicker="Trazas"
-        title="Ejecuciones recientes"
-        description="Últimas 120 ejecuciones con cliente, tienda y consultor. Filtra para acotar."
-      >
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <div>
-            <p className={EYEBROW}>Cliente</p>
-            <Select
-              className="mt-1 w-full"
-              aria-label="Filtrar por cliente"
-              placeholder="Todos"
-              value={orgFilter}
-              onChange={setOrgFilter}
-              options={[
-                { value: "", label: "Todos los clientes" },
-                ...data.organizations.map((org) => ({
+      <Card>
+        <CardHeader>
+          <CardKicker>Trazas</CardKicker>
+          <CardTitle>Ejecuciones recientes</CardTitle>
+          <CardDescription>Últimas 120 ejecuciones con cliente, tienda y consultor. Filtra para acotar.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <p className={EYEBROW}>Cliente</p>
+              <SearchableSelect
+                className="mt-1 w-full"
+                aria-label="Filtrar por cliente"
+                placeholder="Todos los clientes"
+                emptyText="No hay ningún cliente con ese nombre."
+                showClear
+                value={orgFilter}
+                onChange={setOrgFilter}
+                options={data.organizations.map((org) => ({
                   value: org.id,
                   label: org.display_name,
-                })),
-              ]}
-            />
-          </div>
-          <div>
-            <p className={EYEBROW}>Consultor</p>
-            <Select
-              className="mt-1 w-full"
-              aria-label="Filtrar por consultor"
-              placeholder="Todos"
-              value={consultantFilter}
-              onChange={setConsultantFilter}
-              options={[
-                { value: "", label: "Todos los consultores" },
-                ...consultantOptions.map(([id, name]) => ({
+                }))}
+              />
+            </div>
+            <div>
+              <p className={EYEBROW}>Consultor</p>
+              <SearchableSelect
+                className="mt-1 w-full"
+                aria-label="Filtrar por consultor"
+                placeholder="Todos los consultores"
+                emptyText="No hay ningún consultor con ese nombre."
+                showClear
+                value={consultantFilter}
+                onChange={setConsultantFilter}
+                options={consultantOptions.map(([id, name]) => ({
                   value: id,
                   label: name,
-                })),
-              ]}
-            />
-          </div>
-          <div>
-            <p className={EYEBROW}>Tienda</p>
-            <Select
-              className="mt-1 w-full"
-              aria-label="Filtrar por tienda"
-              placeholder="Todas"
-              value={storeFilter}
-              onChange={setStoreFilter}
-              options={[
-                { value: "", label: "Todas las tiendas" },
-                ...storeOptions.map(([id, name]) => ({
+                }))}
+              />
+            </div>
+            <div>
+              <p className={EYEBROW}>Tienda</p>
+              <SearchableSelect
+                className="mt-1 w-full"
+                aria-label="Filtrar por tienda"
+                placeholder="Todas las tiendas"
+                emptyText="No hay ninguna tienda con ese nombre."
+                showClear
+                value={storeFilter}
+                onChange={setStoreFilter}
+                options={storeOptions.map(([id, name]) => ({
                   value: id,
                   label: name,
-                })),
-              ]}
-            />
-          </div>
-          <div>
-            <p className={EYEBROW}>Agente</p>
-            <Select
-              className="mt-1 w-full"
-              aria-label="Filtrar por agente"
-              placeholder="Todos"
-              value={agentFilter}
-              onChange={setAgentFilter}
-              options={[
-                { value: "", label: "Todos los agentes" },
-                ...data.by_agent.map((agent) => ({
+                }))}
+              />
+            </div>
+            <div>
+              <p className={EYEBROW}>Agente</p>
+              <SearchableSelect
+                className="mt-1 w-full"
+                aria-label="Filtrar por agente"
+                placeholder="Todos los agentes"
+                emptyText="No hay ningún agente con ese nombre."
+                showClear
+                value={agentFilter}
+                onChange={setAgentFilter}
+                options={data.by_agent.map((agent) => ({
                   value: agent.agent_code,
                   label: agent.agent_name,
-                })),
-              ]}
-            />
-          </div>
-          <div>
-            <p className={EYEBROW}>Estado</p>
-            <Select
-              className="mt-1 w-full"
-              aria-label="Filtrar por estado"
-              placeholder="Todos"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: "", label: "Todos los estados" },
-                { value: "succeeded", label: "OK" },
-                { value: "failed", label: "Fallo" },
-                { value: "rejected_output", label: "Salida rechazada" },
-                { value: "running", label: "En curso" },
-              ]}
-            />
-          </div>
-        </div>
-
-        <Table
-          ariaLabel="Ejecuciones recientes"
-          columns={runColumns}
-          rows={filteredRuns}
-          emptyLabel="Ninguna ejecución coincide con el filtro."
-        />
-
-        <Sheet
-          isOpen={Boolean(expandedRun)}
-          onOpenChange={(open) => {
-            if (!open) setExpandedRunId(null);
-          }}
-          size="lg"
-          title={expandedRun?.agent_name ?? "Detalle de ejecución"}
-          meta={expandedRun ? <span>Ejecución · {formatDateTime(expandedRun.started_at)}</span> : undefined}
-          cancelLabel="Cerrar"
-        >
-          {expandedRun ? (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={statusMeta(expandedRun.status).tone}>
-                {statusMeta(expandedRun.status).label}
-              </Badge>
-              <Badge tone="neutral">{displayValue(expandedRun.trigger_type)}</Badge>
-              {expandedRun.execution_mode &&
-              expandedRun.execution_mode !== "live" ? (
-                <Badge tone="warn">{displayValue(expandedRun.execution_mode)}</Badge>
-              ) : null}
-              <span className="text-xs text-muted">
-                {formatDateTime(expandedRun.started_at)}
-              </span>
+                }))}
+              />
             </div>
-
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Agente</dt>
-                <dd>{expandedRun.agent_name}</dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Cliente</dt>
-                <dd>{expandedRun.organization_name}</dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Tienda</dt>
-                <dd>{expandedRun.store_name ?? "—"}</dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Consultor</dt>
-                <dd>{expandedRun.consultant_name ?? "—"}</dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Lanzado por</dt>
-                <dd>{expandedRun.actor_name ?? "—"}</dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Tokens (in / out)</dt>
-                <dd>
-                  {expandedRun.input_tokens.toLocaleString("es-ES")} /{" "}
-                  {expandedRun.output_tokens.toLocaleString("es-ES")}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Latencia</dt>
-                <dd>{formatLatency(expandedRun.latency_ms)}</dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Coste</dt>
-                <dd>
-                  {formatCost(expandedRun.cost_usd)}
-                  {expandedRun.cost_basis === "unknown_model" ? (
-                    <span className="text-muted"> · modelo sin tarifa</span>
-                  ) : null}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4 sm:block">
-                <dt className="text-muted">Proveedor / modelo</dt>
-                <dd>
-                  {expandedRun.provider && expandedRun.model
-                    ? `${expandedRun.provider} · ${expandedRun.model}`
-                    : "Sin registrar"}
-                </dd>
-              </div>
-            </dl>
-
             <div>
-              <p className={EYEBROW}>Objetivo</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
-                {expandedRun.objective || "—"}
-              </p>
-            </div>
-
-            {expandedRun.error_message ? (
-              <div>
-                <p className={EYEBROW}>Error</p>
-                <p className="mt-1 whitespace-pre-wrap rounded-md border border-danger p-2 text-sm leading-6 text-danger">
-                  {expandedRun.error_message}
-                </p>
-              </div>
-            ) : null}
-
-            {/* La traza se pide solo al abrir el detalle: son cuatro consultas
-                mas por ejecucion y no tiene sentido pagarlas por las 120 filas
-                de la tabla. La clave fuerza el remontaje al cambiar de run. */}
-            <div className="border-t border-separator pt-4">
-              <RunTraceDetail
-                key={expandedRun.id}
-                organizationId={expandedRun.organization_id}
-                runId={expandedRun.id}
+              <p className={EYEBROW}>Estado</p>
+              <Select
+                className="mt-1 w-full"
+                aria-label="Filtrar por estado"
+                placeholder="Todos"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: "", label: "Todos los estados" },
+                  { value: "succeeded", label: "OK" },
+                  { value: "failed", label: "Fallo" },
+                  { value: "rejected_output", label: "Salida rechazada" },
+                  { value: "running", label: "En curso" },
+                ]}
               />
             </div>
           </div>
-          ) : null}
-        </Sheet>
+
+          <DataTable
+            ariaLabel="Ejecuciones recientes"
+            columns={runColumns}
+            rows={filteredRuns}
+            emptyLabel="Ninguna ejecución coincide con el filtro."
+          />
+
+          <Drawer
+            open={Boolean(expandedRun)}
+            onOpenChange={(open) => {
+              if (!open) setExpandedRunId(null);
+            }}
+            swipeDirection={isDesktop ? "right" : "down"}
+            showSwipeHandle={!isDesktop}
+          >
+            <DrawerContent className="sm:max-w-[60rem]">
+            <DrawerHeader>
+              <DrawerTitle>{expandedRun?.agent_name ?? "Detalle de ejecución"}</DrawerTitle>
+              {expandedRun ? (
+                <DrawerDescription>Ejecución · {formatDateTime(expandedRun.started_at)}</DrawerDescription>
+              ) : null}
+            </DrawerHeader>
+            <ScrollArea className="flex-1 p-4 sm:px-6">
+            {expandedRun ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={statusMeta(expandedRun.status).tone}>
+                  {statusMeta(expandedRun.status).label}
+                </Badge>
+                <Badge tone="neutral">{displayValue(expandedRun.trigger_type)}</Badge>
+                {expandedRun.execution_mode &&
+                expandedRun.execution_mode !== "live" ? (
+                  <Badge tone="warn">{displayValue(expandedRun.execution_mode)}</Badge>
+                ) : null}
+                <span className="text-xs text-muted">
+                  {formatDateTime(expandedRun.started_at)}
+                </span>
+              </div>
+
+              <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Agente</dt>
+                  <dd>{expandedRun.agent_name}</dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Cliente</dt>
+                  <dd>{expandedRun.organization_name}</dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Tienda</dt>
+                  <dd>{expandedRun.store_name ?? "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Consultor</dt>
+                  <dd>{expandedRun.consultant_name ?? "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Lanzado por</dt>
+                  <dd>{expandedRun.actor_name ?? "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Tokens (in / out)</dt>
+                  <dd>
+                    {expandedRun.input_tokens.toLocaleString("es-ES")} /{" "}
+                    {expandedRun.output_tokens.toLocaleString("es-ES")}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Latencia</dt>
+                  <dd>{formatLatency(expandedRun.latency_ms)}</dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Coste</dt>
+                  <dd>
+                    {formatCost(expandedRun.cost_usd)}
+                    {expandedRun.cost_basis === "unknown_model" ? (
+                      <span className="text-muted"> · modelo sin tarifa</span>
+                    ) : null}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4 sm:block">
+                  <dt className="text-muted">Proveedor / modelo</dt>
+                  <dd>
+                    {expandedRun.provider && expandedRun.model
+                      ? `${expandedRun.provider} · ${expandedRun.model}`
+                      : "Sin registrar"}
+                  </dd>
+                </div>
+              </dl>
+
+              <div>
+                <p className={EYEBROW}>Objetivo</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+                  {expandedRun.objective || "—"}
+                </p>
+              </div>
+
+              {expandedRun.error_message ? (
+                <div>
+                  <p className={EYEBROW}>Error</p>
+                  <p className="mt-1 whitespace-pre-wrap rounded-md border border-danger p-2 text-sm leading-6 text-danger">
+                    {expandedRun.error_message}
+                  </p>
+                </div>
+              ) : null}
+
+              {/* La traza se pide solo al abrir el detalle: son cuatro consultas
+                  mas por ejecucion y no tiene sentido pagarlas por las 120 filas
+                  de la tabla. La clave fuerza el remontaje al cambiar de run. */}
+              <div className="border-t border-separator pt-4">
+                <RunTraceDetail
+                  key={expandedRun.id}
+                  organizationId={expandedRun.organization_id}
+                  runId={expandedRun.id}
+                />
+              </div>
+            </div>
+            ) : null}
+            </ScrollArea>
+            </DrawerContent>
+          </Drawer>
+        </CardContent>
       </Card>
     </div>
   );

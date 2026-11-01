@@ -7,12 +7,16 @@ import { apiUrl } from "@/lib/bootstrap";
 import {
   BrandLogo,
   Button,
-  Card,
   ErrorBlock,
   Field,
   Heading,
   Input,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 // El servidor da UNA sola respuesta para todo lo que no vale: no existe, ya
@@ -132,7 +136,7 @@ function AccesoContent() {
   }
 
   return (
-    <main className="grid min-h-dvh bg-white text-foreground lg:grid-cols-2">
+    <main className="grid min-h-dvh text-foreground lg:grid-cols-2">
       <aside className="hidden flex-col justify-between border-r border-separator p-10 lg:flex">
         <BrandLogo />
         <Heading level={2} size="lg" className="max-w-xl">
@@ -147,99 +151,102 @@ function AccesoContent() {
         </p>
       </aside>
 
-      <div className="flex items-center justify-center bg-surface px-6 py-12 lg:px-12">
+      <div className="flex items-center justify-center px-6 py-12 lg:px-12">
         <div className="w-full max-w-md">
           <div className="mb-6 lg:hidden">
             <BrandLogo />
           </div>
-          <Card
-            title="Acceso con código"
-            description="Verifica la invitación antes de continuar."
-          >
-            {preview?.requiresSignup ? (
-              <div className="mt-6 space-y-5">
-                <div className="border-t border-separator pt-4">
-                  <Heading level={2} size="md">
-                    Vas a unirte a la cartera de {preview.consultantName}
-                  </Heading>
-                  <p className="mt-2 text-sm text-muted">
-                    Crea tu cuenta con tu propia contraseña. Tu organización
-                    queda vinculada en cuanto la creas.
+          <Card>
+            <CardHeader>
+              <CardTitle>Acceso con código</CardTitle>
+              <CardDescription>Verifica la invitación antes de continuar.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {preview?.requiresSignup ? (
+                <div className="mt-6 space-y-5">
+                  <div className="border-t border-separator pt-4">
+                    <Heading level={2} size="md">
+                      Vas a unirte a la cartera de {preview.consultantName}
+                    </Heading>
+                    <p className="mt-2 text-sm text-muted">
+                      Crea tu cuenta con tu propia contraseña. Tu organización
+                      queda vinculada en cuanto la creas.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      onClick={() =>
+                        router.push(
+                          `/registro?code=${encodeURIComponent(code.trim().toUpperCase())}`,
+                        )
+                      }
+                    >
+                      Crear mi cuenta
+                    </Button>
+                    <Button variant="ghost" onClick={() => setPreview(null)}>
+                      Volver
+                    </Button>
+                  </div>
+                </div>
+              ) : preview && !preview.requiresSignup ? (
+                <div className="mt-6 space-y-5">
+                  <div className="border-t border-separator pt-4">
+                    <Heading level={2} size="md">
+                      ¿Quieres unirte a {preview.organization.display_name}?
+                    </Heading>
+                    <p className="mt-2 text-sm text-muted">
+                      Tendrás acceso a esta organización.
+                    </p>
+                  </div>
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <div className="flex flex-wrap gap-3">
+                    <Button disabled={busy} onClick={() => void acceptInvite()}>
+                      {busy ? "Uniéndote..." : "Sí, unirme"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setPreview(null)}
+                    >
+                      Volver
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <form className="mt-6 space-y-4" onSubmit={previewInvite}>
+                  <Field label="Código">
+                    <Input
+                      value={code}
+                      onChange={(event) =>
+                        setCode(event.target.value.toUpperCase())
+                      }
+                      placeholder="XXXXXXXX"
+                      autoCapitalize="characters"
+                      required
+                    />
+                  </Field>
+                  <Field label="Email (si tu consultor te lo pidió)">
+                    <Input
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="tu@empresa.com"
+                    />
+                  </Field>
+                  {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+                  <Button className="w-full" type="submit" disabled={busy}>
+                    {busy ? "Validando..." : "Continuar"}
+                  </Button>
+                  <p className="text-center text-xs text-muted">
+                    ¿Ya tienes cuenta?{" "}
+                    <Link className="underline" href="/login">
+                      Inicia sesión
+                    </Link>
                   </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={() =>
-                      router.push(
-                        `/registro?code=${encodeURIComponent(code.trim().toUpperCase())}`,
-                      )
-                    }
-                  >
-                    Crear mi cuenta
-                  </Button>
-                  <Button variant="ghost" onClick={() => setPreview(null)}>
-                    Volver
-                  </Button>
-                </div>
-              </div>
-            ) : preview && !preview.requiresSignup ? (
-              <div className="mt-6 space-y-5">
-                <div className="border-t border-separator pt-4">
-                  <Heading level={2} size="md">
-                    ¿Quieres unirte a {preview.organization.display_name}?
-                  </Heading>
-                  <p className="mt-2 text-sm text-muted">
-                    Tendrás acceso a esta organización.
-                  </p>
-                </div>
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <div className="flex flex-wrap gap-3">
-                  <Button disabled={busy} onClick={() => void acceptInvite()}>
-                    {busy ? "Uniéndote..." : "Sí, unirme"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => setPreview(null)}
-                  >
-                    Volver
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <form className="mt-6 space-y-4" onSubmit={previewInvite}>
-                <Field label="Código">
-                  <Input
-                    value={code}
-                    onChange={(event) =>
-                      setCode(event.target.value.toUpperCase())
-                    }
-                    placeholder="XXXXXXXX"
-                    autoCapitalize="characters"
-                    required
-                  />
-                </Field>
-                <Field label="Email (si tu consultor te lo pidió)">
-                  <Input
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="tu@empresa.com"
-                  />
-                </Field>
-                {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-                <Button className="w-full" type="submit" disabled={busy}>
-                  {busy ? "Validando..." : "Continuar"}
-                </Button>
-                <p className="text-center text-xs text-muted">
-                  ¿Ya tienes cuenta?{" "}
-                  <Link className="underline" href="/login">
-                    Inicia sesión
-                  </Link>
-                </p>
-              </form>
-            )}
+                </form>
+              )}
+            </CardContent>
           </Card>
         </div>
       </div>

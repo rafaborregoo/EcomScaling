@@ -85,8 +85,8 @@ export function clientNextStep(
     return allDone
       ? {
           tone: "success",
-          headline: "Has recorrido tu camino entero",
-          detail: "Todas las fases están cerradas. Toca dibujar el siguiente.",
+          headline: "Recorrido cerrado",
+          detail: "Todas las fases están cerradas. Comprueba por separado el resultado del objetivo antes de preparar el siguiente camino.",
           milestoneName: null,
           tasks: [],
         }

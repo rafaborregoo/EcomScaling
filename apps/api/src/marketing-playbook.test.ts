@@ -8,8 +8,18 @@ import {
   internalMailingPlaybookRetrievalEntry,
   previewInternalMailingPlaybook,
   rankInternalMailingPlaybook,
+  internalMailingPlaybookCandidateFilter,
   type InternalMailingPlaybookEntry,
 } from "./marketing-playbook.js";
+
+test("candidate selection filters relevant principles before the cap and never interpolates filter syntax", () => {
+  const filter = internalMailingPlaybookCandidateFilter({ objective: "recompra", audience: "para clientes),status.eq.draft" });
+  assert.ok(filter.includes("objective.ilike.*recompra*"));
+  assert.ok(filter.includes("content->>when_to_use.ilike.*clientes*"));
+  assert.ok(!filter.includes("status.eq.draft"));
+  assert.ok(!filter.includes("*para*"));
+  assert.match(internalMailingPlaybookCandidateFilter({ objective: "" }), /^id.eq./);
+});
 
 test("solo platform admin puede curar el playbook privado", () => {
   assert.equal(canManageInternalMailingPlaybook("platform_admin"), true);

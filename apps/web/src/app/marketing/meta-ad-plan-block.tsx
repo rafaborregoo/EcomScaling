@@ -183,7 +183,7 @@ export function MetaAdPlanBlock({
                 onChange={setAdAccountId}
                 options={adAccounts.map((account) => ({
                   value: account.external_id,
-                  label: `${account.name} · ${account.external_id}`,
+                  label: account.name,
                 }))}
                 disabled={isLoadingAccounts}
               />
@@ -234,14 +234,10 @@ export function MetaAdPlanBlock({
       </Form>
 
       {plan ? (
-        <Banner tone="success" className="mt-4 text-sm">
-          <p className="font-medium">Plan validado · listo para revisión</p>
-          <p className="mt-1">
-            Cuenta {plan.plan.adAccountId} · estado {plan.plan.status} · objetivo{" "}
-            {displayValue(plan.plan.input.campaignObjective)} · pasos{" "}
-            {plan.plan.steps.join(" → ")}
-          </p>
-          <p className="mt-1 text-xs">No se ha creado ningún objeto externo.</p>
+        <Banner tone="success" className="mt-4" title="Plan validado y listo para revisar">
+          Se creará en pausa, con objetivo {displayValue(plan.plan.input.campaignObjective)}:
+          campaña, conjunto de anuncios, creativo y anuncio. Todavía no se ha
+          creado nada en Meta.
         </Banner>
       ) : null}
     </div>

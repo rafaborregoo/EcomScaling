@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -32,7 +33,15 @@ import type { PanelNav } from "./panel-data";
 function PanelRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId, setOrganizationId } = useActiveOrganization();
   const { connectionId, setConnectionId } = useActiveConnection();
-  const [days, setDays] = useState(30);
+  const router = useRouter();
+  const params = useSearchParams();
+  const requestedDays = Number(params.get("days"));
+  const days = [30, 90, 365].includes(requestedDays) ? requestedDays : 30;
+  const setDays = (value: number) => {
+    const next = new URLSearchParams(params.toString());
+    next.set("days", String(value));
+    router.replace(`/panel?${next}`, { scroll: false });
+  };
 
   // Bajar de la cartera a una tienda concreta son dos selecciones seguidas
   // (cliente y tienda), y el shell borra la tienda al cambiar de cliente. Se
@@ -73,6 +82,7 @@ function PanelRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (!connectionId) {
     return (
       <ClientLevel
+        key={organizationId}
         organizationId={organizationId}
         organizationName={organizationName}
         days={days}
@@ -84,6 +94,7 @@ function PanelRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <StoreLevel
+      key={connectionId}
       organizationId={organizationId}
       organizationName={organizationName}
       connectionId={connectionId}

@@ -23,7 +23,7 @@ test("Shopify initial sync keeps one idempotency key across retries", () => {
   );
 });
 
-test("Shopify incremental sync groups retries in the same UTC hour", () => {
+test("Shopify incremental sync groups retries in fifteen-minute UTC windows", () => {
   assert.equal(
     buildShopifySyncIdempotencyKey(
       "incremental",
@@ -31,7 +31,7 @@ test("Shopify incremental sync groups retries in the same UTC hour", () => {
       "connection-1",
       "2026-08-24T10:59:59.000Z",
     ),
-    "incremental:orders:connection-1:2026-08-24T10",
+    "incremental:orders:connection-1:2026-08-24T10:45:00.000Z",
   );
   assert.notEqual(
     buildShopifySyncIdempotencyKey(
@@ -40,6 +40,6 @@ test("Shopify incremental sync groups retries in the same UTC hour", () => {
       "connection-1",
       "2026-08-24T11:00:00.000Z",
     ),
-    "incremental:orders:connection-1:2026-08-24T10",
+    "incremental:orders:connection-1:2026-08-24T10:45:00.000Z",
   );
 });

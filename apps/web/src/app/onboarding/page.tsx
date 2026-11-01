@@ -15,12 +15,16 @@ import {
 import {
   BrandLogo,
   Button,
-  Card,
   cn,
   ErrorBlock,
   Field,
   Input,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 // El onboarding solo cubre contraseña y perfil. Las integraciones se conectan
@@ -80,20 +84,23 @@ export default function OnboardingPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-white text-foreground">
+    <main className="min-h-dvh text-foreground">
       <header className="border-b border-separator px-6 py-4">
         <BrandLogo />
       </header>
 
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-12 sm:px-8 lg:py-16">
         {!userId ? (
-          <Card
-            title="Enlace no válido"
-            description="Tu enlace ha caducado o ya se usó. Pide uno nuevo o inicia sesión."
-          >
-            <Button className="mt-4" onClick={() => router.push("/login")}>
-              Ir a iniciar sesión
-            </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle>Enlace no válido</CardTitle>
+              <CardDescription>Tu enlace ha caducado o ya se usó. Pide uno nuevo o inicia sesión.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button className="mt-4" onClick={() => router.push("/login")}>
+                Ir a iniciar sesión
+              </Button>
+            </CardContent>
           </Card>
         ) : (
           <>
@@ -172,49 +179,52 @@ function PasswordStep({
   }
 
   return (
-    <Card
-      title="Crea tu contraseña"
-      description="Es lo primero. La usarás para entrar a partir de ahora."
-    >
-      <div className="mt-6 grid gap-6">
-        <Field label="Contraseña">
-          <PasswordInput
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={PASSWORD_MIN_LENGTH}
-          />
-        </Field>
-        <PasswordRequirements password={password} />
-        {tooShort ? (
-          <p className="text-xs text-danger">Mínimo 8 caracteres.</p>
-        ) : null}
-        <Field label="Repite la contraseña">
-          <PasswordInput
-            autoComplete="new-password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            minLength={PASSWORD_MIN_LENGTH}
-            aria-invalid={mismatch}
-            aria-describedby={
-              confirm.length > 0 ? "password-confirmation-status" : undefined
-            }
-            required
-          />
-        </Field>
-        {mismatch ? (
-          <p id="password-confirmation-status" className="text-xs text-danger" role="alert">Las contraseñas no coinciden.</p>
-        ) : null}
-        {confirm.length > 0 && !mismatch ? (
-          <p id="password-confirmation-status" className="text-xs text-success" role="status">
-            Las contraseñas coinciden.
-          </p>
-        ) : null}
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <Button disabled={!canSubmit} onClick={() => void submit()}>
-          {busy ? "Guardando..." : "Continuar"}
-        </Button>
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Crea tu contraseña</CardTitle>
+        <CardDescription>Es lo primero. La usarás para entrar a partir de ahora.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mt-6 grid gap-6">
+          <Field label="Contraseña">
+            <PasswordInput
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={PASSWORD_MIN_LENGTH}
+            />
+          </Field>
+          <PasswordRequirements password={password} />
+          {tooShort ? (
+            <p className="text-xs text-danger">Mínimo 8 caracteres.</p>
+          ) : null}
+          <Field label="Repite la contraseña">
+            <PasswordInput
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              minLength={PASSWORD_MIN_LENGTH}
+              aria-invalid={mismatch}
+              aria-describedby={
+                confirm.length > 0 ? "password-confirmation-status" : undefined
+              }
+              required
+            />
+          </Field>
+          {mismatch ? (
+            <p id="password-confirmation-status" className="text-xs text-danger" role="alert">Las contraseñas no coinciden.</p>
+          ) : null}
+          {confirm.length > 0 && !mismatch ? (
+            <p id="password-confirmation-status" className="text-xs text-success" role="status">
+              Las contraseñas coinciden.
+            </p>
+          ) : null}
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <Button disabled={!canSubmit} onClick={() => void submit()}>
+            {busy ? "Guardando..." : "Continuar"}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -311,52 +321,55 @@ function ProfileStep({
   }
 
   return (
-    <Card
-      title="Tu perfil"
-      description="Puedes cambiar el nombre que te asignaron y elegir un avatar."
-    >
-      <div className="mt-6 grid gap-6">
-        <Field label="Nombre personal">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </Field>
-
-        {isConsultant ? (
-          <Field label="Nombre de tu negocio o agencia">
+    <Card>
+      <CardHeader>
+        <CardTitle>Tu perfil</CardTitle>
+        <CardDescription>Puedes cambiar el nombre que te asignaron y elegir un avatar.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mt-6 grid gap-6">
+          <Field label="Nombre personal">
             <Input
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              placeholder="Mi agencia"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
             />
           </Field>
-        ) : null}
 
-        <AvatarPicker
-          name={name}
-          value={avatarUrl}
-          onChange={setAvatarUrl}
-          userId={userId}
-          onUploadingChange={setAvatarUploading}
-        />
+          {isConsultant ? (
+            <Field label="Nombre de tu negocio o agencia">
+              <Input
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Mi agencia"
+                required
+              />
+            </Field>
+          ) : null}
 
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <Button
-          disabled={
-            busy ||
-            profileLoading ||
-            avatarUploading ||
-            !name.trim() ||
-            (isConsultant && !businessName.trim())
-          }
-          onClick={() => void submit()}
-        >
-          {busy ? "Guardando..." : "Finalizar"}
-        </Button>
-      </div>
+          <AvatarPicker
+            name={name}
+            value={avatarUrl}
+            onChange={setAvatarUrl}
+            userId={userId}
+            onUploadingChange={setAvatarUploading}
+          />
+
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <Button
+            disabled={
+              busy ||
+              profileLoading ||
+              avatarUploading ||
+              !name.trim() ||
+              (isConsultant && !businessName.trim())
+            }
+            onClick={() => void submit()}
+          >
+            {busy ? "Guardando..." : "Finalizar"}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }

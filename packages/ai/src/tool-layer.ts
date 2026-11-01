@@ -152,6 +152,7 @@ const readTools = [
   "get_campaign_item_detail",
   "get_marketing_draft_detail",
   "get_campaign_calendar",
+  "get_email_campaign_pipeline",
   "get_consultant_workbench",
   "get_financial_settings",
   "generate_report",
@@ -296,7 +297,7 @@ export const TOOL_DESCRIPTIONS = {
   meta_delivery_health: "Si las cifras de Meta se pueden creer: salud del pixel por evento, objetivo/evento promocionado realmente configurado por conjunto, estado de aprendizaje reportado por Meta y contexto de actividad Shopify/frescura si hay tienda seleccionada. El último evento del registro no confirma un reset de aprendizaje; la ausencia con log stale/failed/unknown tampoco prueba que no hubiera cambios. Distingue mapeo ausente, evento no observado, cero actividad con fuentes frescas y cobertura desconocida; permisos/sync antiguos invalidan los ceros. La conciliación Meta-Shopify no prueba causalidad ni exige equivalencia 1:1. No deduzcas Purchase desde un objetivo genérico ni conviertas una consulta fallida en cero.",
   meta_spend_detail: "En que campanas de Meta se va el dinero y como evoluciona el gasto dia a dia. Las compras y el valor de compra que acompanan al gasto son los que **Meta se atribuye** con su modelo (7 dias click / 1 dia view por defecto): NO son facturacion, no se suman a la de Klaviyo ni sustituyen a la de Shopify. Al hablar de ellos di 'atribuido por Meta'. Para saber cuanto cuesta de verdad traer un cliente usa cac_blended del resumen financiero, que divide el gasto entre los clientes nuevos reales de la tienda.",
   meta_change_log: "Investiga cambios de Meta en un intervalo elegido por ti (period_start y period_end, maximo 31 dias y ultimos 90 dias). Usa este drill-down solo cuando el resumen revele una anomalia material, cambios concurrentes o cobertura dudosa. El backend fija organizacion/tienda; cada fila informa comparabilidad, cobertura y maduracion. Siete dias por lado excluyen el dia del cambio. Aun completo es coincidencia, NO causalidad.",
-  klaviyo_email_content: "Los emails que envia esta tienda, de campana y de flujo, con su asunto, su preheader, el cuerpo en texto y sus enlaces. Los de flujo van numerados en el orden en que los recibe el suscriptor. adds_utm false significa que ese email NO etiqueta sus enlaces: su trafico llega sin atribuir, asi que su efecto no se puede medir aunque funcione. cuerpo_cortado true significa que el texto se trunco, no que el email termine ahi.",
+  klaviyo_email_content: "Contenido observado de emails de la tienda seleccionada. Permite investigar un mensaje y cuenta exactos, paginando el texto con offset. La posicion numerica no demuestra el recorrido real del flow. UTM false no implica ausencia de toda medicion; null significa desconocido. Las plantillas observadas no prueban personalizacion ni entrega real.",
   klaviyo_measurement_health: "Si se puede creer lo que mide el email de esta tienda: cuantos emails no llevan UTM, no tienen cuerpo o no siguen clics, mas el inventario de flujos, campanas, listas y segmentos y el estado del ultimo sync. recursos_no_traidos con valor significa que el catalogo esta INCOMPLETO: que un flujo no aparezca no prueba que no exista.",
   klaviyo_performance_summary: "Resumen de rendimiento Klaviyo para un periodo y su periodo inmediatamente anterior, con KPIs, entidades destacadas y granularidad mensual. Es atribucion reportada por Klaviyo, no ventas incrementales; una fila mensual no equivale a un envio individual.",
   klaviyo_entity_performance: "Rendimiento mensual de una campaña o flow Klaviyo concreto, con IDs y tienda fijados por el backend. Si no hay filas devuelve sin_datos, no ceros. El informe disponible es mensual y no permite inferir métricas por envío.",
@@ -319,6 +320,7 @@ export const TOOL_DESCRIPTIONS = {
   get_campaign_item_detail: "Lee un elemento concreto del calendario por ID, con tenant, tienda y visibilidad fijados por el servidor.",
   get_marketing_draft_detail: "Lee un borrador de marketing concreto por ID solo para actores con acceso al espacio de marketing de la organización activa.",
   get_campaign_calendar: "Lee los calendarios y elementos de campaña del año indicado con la tienda y visibilidad autorizadas. La planificación no equivale a publicación externa.",
+  get_email_campaign_pipeline: "Estado operativo de email en la tienda seleccionada: campañas Klaviyo enviadas, enviándose, programadas y borradores; objetivos NORA pendientes o con fecha pasada; borradores y listas/segmentos disponibles. Incluye cobertura y frescura. Una fecha pasada requiere verificar el envío; los tamaños de audiencia no acreditan consentimiento ni solapamiento. No envía ni reprograma nada.",
   get_consultant_workbench: "Lee la cartera diaria autorizada del consultor: prioridades, próximas llamadas y alertas. Puede incluir varias organizaciones; cada elemento conserva su organización. Solo disponible para consultor o administrador.",
   get_financial_settings: "Lee los parametros financieros configurados para la organizacion activa, sin ejecutar calculos ni escrituras.",
   generate_report: "Genera un informe PDF nativo desde una plantilla reutilizable: shopify_comercial, shopify_rentabilidad, shopify_clientes, meta_publicidad, klaviyo_email, adquisicion_multicanal o resumen_multicanal. Si se omiten ambas fechas usa el último mes natural completo UTC. Máximo 92 días. Selecciona tienda cuando haya varias. Dos pasos: 1) preview=true devuelve las cifras clave (key_metrics) sin crear el PDF; 2) con esas cifras llama de nuevo con analysis (highlights 1–5, recommendations 0–3) y el backend crea el PDF con tu lectura al principio. Usa solo cifras de key_metrics. No afirmes que el PDF existe hasta recibir report_id.",
@@ -387,6 +389,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "get_campaign_item_detail",
         "get_marketing_draft_detail",
         "get_campaign_calendar",
+        "get_email_campaign_pipeline",
         "get_consultant_workbench",
         "get_financial_settings",
         "generate_report",
@@ -797,6 +800,11 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     inputSchema: z.object({ year: z.number().int().min(2020).max(2100).optional() }).strict(),
     outputSchema: domainReadOutputSchema,
   },
+  get_email_campaign_pipeline: {
+    definition: getDefinition("get_email_campaign_pipeline"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
   get_consultant_workbench: {
     definition: getDefinition("get_consultant_workbench"),
     inputSchema: z.object({ days: z.union([z.literal(7), z.literal(30), z.literal(90)]).optional() }).strict(),
@@ -871,7 +879,11 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   },
   meta_delivery_health: {
     definition: getDefinition("meta_delivery_health"),
-    inputSchema: emptyInputSchema,
+    inputSchema: z.object({
+      after_ad_set_id: z.string().uuid().optional(),
+      after_issue_id: z.string().uuid().optional(),
+      page_size: z.number().int().min(1).max(100).optional(),
+    }).strict(),
     outputSchema: domainReadOutputSchema,
   },
   meta_spend_detail: {
@@ -895,7 +907,7 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   },
   klaviyo_email_content: {
     definition: getDefinition("klaviyo_email_content"),
-    inputSchema: emptyInputSchema,
+    inputSchema: z.object({ message_id: z.string().uuid().optional(), account_id: z.string().uuid().optional(), after_message_id: z.string().uuid().optional(), offset: z.number().int().min(0).max(100000).optional() }).strict(),
     outputSchema: domainReadOutputSchema,
   },
   klaviyo_measurement_health: {

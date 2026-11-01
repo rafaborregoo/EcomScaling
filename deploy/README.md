@@ -53,10 +53,19 @@ que no deben coincidir dos. El `flock` cubre lo otro (que un job se solape consi
 ### 2. Dentro del worker (BullMQ repeatable)
 
 Los registra `apps/worker/src/repeatable-jobs.ts` al arrancar el contenedor; no dependen del cron
-del sistema y se ejecutan igual en local. Son 8: `meta-reconcile` (00:17 UTC),
-`klaviyo-reconcile` (cada 6 horas UTC), `shopify-reconcile` (2:00 Madrid),
+del sistema y se ejecutan igual en local. Incluyen `meta-reconcile` (cada 10 minutos UTC),
+`klaviyo-reconcile` (cada 15 minutos UTC), `shopify-reconcile` (cada 15 minutos),
 `fathom-webhook-processing` (cada minuto), `webhook-retention` (3:30), `ai-context-retention`
 (3:45), `ai-diagnostics-tick` (6:00 y 15:00) e `instagram-image-queue` (cada minuto).
+
+El consumidor de webhooks de Shopify/Klaviyo tiene cola propia y recuperación cada 5 segundos.
+Meta y Klaviyo usan consumidores separados; una importación de Klaviyo no ocupa los de Meta.
+`integration-health` revisa exclusivamente conexiones y eventos pendientes cada 5 minutos y
+registra incidencias en el worker. No reactiva la auditoría general `ops-health-check` apagada.
+Configurar `INTEGRATION_WEBHOOK_BASE_URL` con el HTTPS público de la API. Para el despliegue,
+aplicar primero `20261026080914_integration_event_delivery.sql` y después reiniciar API/worker.
+Klaviyo funciona por consulta periódica; habilitar `KLAVIYO_SYSTEM_WEBHOOKS_ENABLED=true` solo
+si la cuenta/aplicación tiene acceso al Webhooks API y los scopes correspondientes.
 
 Meta y Klaviyo vuelven a intentar automáticamente los fallos temporales. Si el error indica que
 caducó el token o faltan permisos, se pausa ese intento hasta que alguien reconecte la cuenta; el

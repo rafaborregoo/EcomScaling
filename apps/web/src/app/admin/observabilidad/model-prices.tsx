@@ -8,11 +8,17 @@ import {
   AsyncState,
   Badge,
   Button,
-  Card,
   ErrorBlock,
-  Table,
+  DataTable,
   toast,
-  type TableColumnDef,
+  type DataTableColumn,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 type ModelPrice = {
@@ -93,22 +99,34 @@ export function ModelPricesPanel() {
   const kicker = "Control de coste";
   if (isLoading) {
     return (
-      <Card kicker={kicker} title={title}>
-        <AsyncState status="loading" loadingLabel="Cargando tarifa..." />
+      <Card>
+        <CardHeader>
+          <CardKicker>{kicker}</CardKicker>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AsyncState status="loading" loadingLabel="Cargando tarifa..." />
+        </CardContent>
       </Card>
     );
   }
   if (error || !data) {
     return (
-      <Card kicker={kicker} title={title}>
-        <ErrorBlock>{error ?? "Sin datos."}</ErrorBlock>
+      <Card>
+        <CardHeader>
+          <CardKicker>{kicker}</CardKicker>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorBlock>{error ?? "Sin datos."}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
 
   const inUse = new Set([alias(data.in_use.openai), alias(data.in_use.anthropic)]);
   const rows = data.prices.map((p) => ({ ...p, id: p.model }));
-  const columns: TableColumnDef<(typeof rows)[number]>[] = [
+  const columns: DataTableColumn<(typeof rows)[number]>[] = [
     {
       key: "model",
       label: "Modelo",
@@ -138,26 +156,27 @@ export function ModelPricesPanel() {
   );
 
   return (
-    <Card
-      kicker={kicker}
-      title={title}
-      description={`USD por millón de tokens. Se actualiza cada noche desde LiteLLM${lastCheck ? `; última comprobación ${day(lastCheck)}` : ""}.`}
-      actions={
-        <Button variant="secondary" size="sm" disabled={syncing} onClick={sync}>
+    <Card>
+      <CardHeader>
+        <CardKicker>{kicker}</CardKicker>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{`USD por millón de tokens. Se actualiza cada noche desde LiteLLM${lastCheck ? `; última comprobación ${day(lastCheck)}` : ""}.`}</CardDescription>
+        <CardAction><Button variant="secondary" size="sm" disabled={syncing} onClick={sync}>
           {syncing ? "Actualizando…" : "Actualizar ahora"}
-        </Button>
-      }
-    >
-      {data.unpriced_runs > 0 ? (
-        <ErrorBlock>
-          {data.unpriced_runs} ejecuciones sin coste: su modelo no tiene tarifa todavía.
-        </ErrorBlock>
-      ) : null}
-      {rows.length ? (
-        <Table ariaLabel="Tarifa de modelos" columns={columns} rows={rows} />
-      ) : (
-        <AsyncState status="empty" emptyTitle="Todavía no hay tarifa importada" emptyHint="Pulsa «Actualizar ahora»." />
-      )}
+        </Button></CardAction>
+      </CardHeader>
+      <CardContent>
+        {data.unpriced_runs > 0 ? (
+          <ErrorBlock>
+            {data.unpriced_runs} ejecuciones sin coste: su modelo no tiene tarifa todavía.
+          </ErrorBlock>
+        ) : null}
+        {rows.length ? (
+          <DataTable ariaLabel="Tarifa de modelos" columns={columns} rows={rows} />
+        ) : (
+          <AsyncState status="empty" emptyTitle="Todavía no hay tarifa importada" emptyHint="Pulsa «Actualizar ahora»." />
+        )}
+      </CardContent>
     </Card>
   );
 }

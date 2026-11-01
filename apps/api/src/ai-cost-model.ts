@@ -10,28 +10,39 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { A01_MODEL_DECISION, A02_MODEL_DECISION, A04_MODEL_DECISION, A05_MODEL_DECISION, A06_MODEL_DECISION, A08_MODEL_DECISION, getAgentModelDecision } from "@e-nora/contracts";
 import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { COPILOT_CREDITS_PER_USD, COPILOT_DEFAULT_MONTHLY_CREDITS } from "@e-nora/contracts";
+import { COPILOT_MODELS } from "./copilot-tokens.js";
+import { copilotModelConsumption } from "./copilot-saldo.js";
+import { refreshLiveModelPricing } from "./ai-model-pricing.js";
 import {
   AGENT_MODEL_IDS,
   COPILOT_AGENT_CODE,
   DESIGN_RUNS_PER_DAY,
   defaultAgentModel,
+  resolveAgentModel,
   loadPlatformAgentSettings,
 } from "./agent-schedule.js";
-import { MONITOR_CADENCES, orchestratorMinRunAgeFor } from "./ai-runtime.js";
+import { MONITOR_CADENCES, PANEL_MIN_RUN_AGE_MS, orchestratorMinRunAgeFor } from "./ai-runtime.js";
 
 const MIN_MEASURED_RUNS = 3;
 /** El orquestador pasa dos veces al dia: por debajo de ~12 h de intervalo no corre mas. */
 const TICK_SPACING_MS = 12 * 60 * 60 * 1000;
 
-/** Precios verificados contra platform.claude.com y developers.openai.com el 2026-10-16. USD por millon de tokens. */
-const OFFICIAL_PRICES_CHECKED = "2026-10-16";
+/** Precios verificados por modelo; USD por millon de tokens. */
+const OFFICIAL_PRICES_CHECKED = "2026-10-28";
 const MODELS = [
+  { id: A06_MODEL_DECISION.model, label: A06_MODEL_DECISION.label, provider: "anthropic", input: 0.1, output: 0.5, cache_read: 0.01, long_context_threshold: 100000, long_input_multiplier: 5, long_output_multiplier: 5, verified_on: "2026-10-28" },
   { id: "claude-sonnet-5", label: "Sonnet 5", provider: "anthropic", input: 2, output: 10, cache_read: 0.2 },
   { id: "claude-opus-5", label: "Opus 5", provider: "anthropic", input: 5, output: 25, cache_read: 0.5 },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", provider: "anthropic", input: 2, output: 10, cache_read: 0.1, verified_on: "2026-10-28" },
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5", provider: "anthropic", input: 4, output: 20, cache_read: 0.2, verified_on: "2026-10-28" },
   { id: "gpt-6-sol", label: "GPT-6 Sol", provider: "openai", input: 2, output: 10, cache_read: 0.2 },
+  { id: A01_MODEL_DECISION.model, label: A01_MODEL_DECISION.label, provider: "openai", input: 2, output: 10, cache_read: 0.1, long_context_threshold: 272000, long_input_multiplier: 2, long_output_multiplier: 1.5, verified_on: "2026-10-28" },
+  { id: A04_MODEL_DECISION.model, label: A04_MODEL_DECISION.label, provider: "openai", input: 1, output: 5, cache_read: 0.05, long_context_threshold: 272000, long_input_multiplier: 2, long_output_multiplier: 1.5, verified_on: "2026-10-28" },
   { id: "gpt-6-luna", label: "GPT-6 Luna", provider: "openai", input: 0.1, output: 0.5, cache_read: 0.01 },
 ] as const;
 
@@ -39,12 +50,12 @@ type Profile = { input_total: number; cache_read: number; output: number };
 
 /** Media por ejecucion correcta en pruebas (la entrada total incluye la cache leida). */
 const BASELINE: Record<string, Profile> = {
-  a01_analista_llamadas: { input_total: 825, cache_read: 0, output: 1766 },
-  a02_monitor_negocio: { input_total: 28530, cache_read: 4686, output: 5722 },
-  a04_generador_tareas: { input_total: 27195, cache_read: 11579, output: 541 },
-  a05_estrategia_campanas: { input_total: 48413, cache_read: 16354, output: 1552 },
-  a06_planificador_stock: { input_total: 15712, cache_read: 7987, output: 2436 },
-  a08_gestor_conocimiento: { input_total: 15892, cache_read: 6671, output: 3707 },
+  a01_analista_llamadas: { input_total: A01_MODEL_DECISION.benchmarks[1].inputTokens, cache_read: A01_MODEL_DECISION.benchmarks[1].cacheReadTokens ?? 0, output: A01_MODEL_DECISION.benchmarks[1].outputTokens },
+  a02_monitor_negocio: A02_MODEL_DECISION.benchmarkProfile,
+  a04_generador_tareas: A04_MODEL_DECISION.benchmarkProfile,
+  a05_estrategia_campanas: A05_MODEL_DECISION.benchmarkProfile,
+  a06_planificador_stock: A06_MODEL_DECISION.benchmarkProfile,
+  a08_gestor_conocimiento: A08_MODEL_DECISION.benchmarkProfile,
   a09_copiloto_consultor: { input_total: 152693, cache_read: 117377, output: 2911 },
   a11_generador_marketing: { input_total: 74001, cache_read: 55031, output: 2872 },
   a12_analista_email: { input_total: 27918, cache_read: 11020, output: 3014 },
@@ -68,13 +79,6 @@ const BASELINE: Record<string, Profile> = {
   a29_analista_metrica: { input_total: 18589, cache_read: 3742, output: 3244 },
 };
 
-const MODEL_IDS = new Set<string>(AGENT_MODEL_IDS);
-const toKnownModel = (model: string | null | undefined) => {
-  const alias = (model ?? "").replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "");
-  if (MODEL_IDS.has(alias)) return alias;
-  return alias.startsWith("claude-opus") ? "claude-opus-5" : alias.startsWith("gpt-") ? "gpt-6-sol" : "claude-sonnet-5";
-};
-
 /** Intervalo de diseno mas corto del agente (A02 tiene varias ventanas). */
 function shortestDesignIntervalMs(agentCode: string): number {
   return agentCode === "a02_monitor_negocio"
@@ -90,12 +94,13 @@ function serviceClient(env: LoadedApiEnv) {
 
 const forbidden = (context: AuthContext) =>
   context.profile.platform_role !== "platform_admin"
-    ? { ok: false as const, statusCode: 403, error: "platform_admin_required", message: "Solo un platform admin puede gestionar los costes de IA." }
+    ? { ok: false as const, statusCode: 403, error: "platform_admin_required", message: "Solo un administrador de la plataforma puede gestionar los costes de IA." }
     : null;
 
 export async function getAdminAiCostModel(env: LoadedApiEnv, context: AuthContext) {
   const denied = forbidden(context);
   if (denied) return denied;
+  await refreshLiveModelPricing(env);
   const supabase = serviceClient(env);
   const [versions, profiles, prices, settings] = await Promise.all([
     supabase.from("agent_versions").select("model, agent_definitions!inner(code, name)").eq("is_active", true),
@@ -121,7 +126,9 @@ export async function getAdminAiCostModel(env: LoadedApiEnv, context: AuthContex
   const agents = ((versions.data ?? []) as unknown as Array<{ model: string; agent_definitions: { code: string; name: string } }>)
     .map((row) => {
       const code = row.agent_definitions.code;
-      const live = measured.get(code);
+      const decision = getAgentModelDecision(code);
+      // La RPC histórica agrupa por agente, no por modelo: no atribuir uso anterior a Sol.
+      const live = decision ? undefined : measured.get(code);
       const base = BASELINE[code];
       const profile =
         live !== undefined && Number(live.run_count) >= MIN_MEASURED_RUNS
@@ -138,11 +145,18 @@ export async function getAdminAiCostModel(env: LoadedApiEnv, context: AuthContex
       return {
         code,
         name: row.agent_definitions.name,
-        default_model: toKnownModel(defaultAgentModel(code, row.model)),
-        model_configurable: code !== COPILOT_AGENT_CODE,
+        // Nunca sustituir un ID desconocido por un modelo distinto al calcular costes.
+        version_model: row.model,
+        runtime_default_model: defaultAgentModel(code, row.model),
+        default_model: defaultAgentModel(code, row.model),
+        effective_model: resolveAgentModel({ agentCode: code, versionModel: row.model, clientModel: null, platformModel: saved?.model }),
+        model_decision: decision,
+        model_configurable: code !== COPILOT_AGENT_CODE && !decision,
         scheduled: design.scheduled,
         default_runs_per_day: design.runs,
-        max_runs_per_day: design.scheduled
+        // El ajuste escala dashboards; el panel del consultor tiene ciclo propio.
+        additional_runs_per_day: code === "a02_monitor_negocio" ? Math.min(2, 24 * 60 * 60 * 1000 / PANEL_MIN_RUN_AGE_MS) : 0,
+        max_runs_per_day: code === "a02_monitor_negocio" ? null : design.scheduled
           ? Math.round(((design.runs * shortestDesignIntervalMs(code)) / TICK_SPACING_MS) * 100) / 100
           : null,
         cadence: design.cadence,
@@ -156,8 +170,24 @@ export async function getAdminAiCostModel(env: LoadedApiEnv, context: AuthContex
     ok: true as const,
     data: {
       models,
+      copilot_credit_policy: {
+        monthly_credits: COPILOT_DEFAULT_MONTHLY_CREDITS,
+        credits_per_usd: COPILOT_CREDITS_PER_USD,
+        monthly_budget_usd: COPILOT_DEFAULT_MONTHLY_CREDITS / COPILOT_CREDITS_PER_USD,
+        models: COPILOT_MODELS.filter(model => model.selectable).map(model => ({
+          id: model.anthropicModel, label: model.label, ...copilotModelConsumption(model),
+        })),
+      },
       agents,
-      caps: { org_daily_run_cap: 12, platform_runs_per_tick: 15, ticks_per_day: 2 },
+      caps: { org_daily_run_cap: env.AI_ORG_DAILY_RUN_CAP ?? 12, platform_runs_per_tick: env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK ?? 15, ticks_per_day: 2, panel_runs_per_tick: 20 },
+      monitor_operation: {
+        design_client_runs_per_day: DESIGN_RUNS_PER_DAY.a02_monitor_negocio!.runs,
+        saved_client_runs_per_day: settings.get("a02_monitor_negocio")?.runs_per_day ?? null,
+        cadences: MONITOR_CADENCES.map(cadence => ({lookback_days: cadence.lookbackDays, min_run_age_hours: cadence.minRunAgeMs / 3600000})),
+        panel_min_run_age_hours: PANEL_MIN_RUN_AGE_MS / 3600000,
+        ticks_per_day: 2,
+        org_daily_run_cap: env.AI_ORG_DAILY_RUN_CAP ?? 12,
+      },
       prices_verified_on: OFFICIAL_PRICES_CHECKED,
       generated_at: new Date().toISOString(),
     },
@@ -195,6 +225,9 @@ export async function setAdminAiAgentSettings(env: LoadedApiEnv, context: AuthCo
     if (item.model !== null && item.agent_code === COPILOT_AGENT_CODE) {
       return { ok: false as const, statusCode: 400, error: "copilot_model_by_plan", message: "El modelo del copiloto lo decide el plan y el saldo." };
     }
+    const decision = getAgentModelDecision(item.agent_code);
+    if (decision && item.model !== null && item.model !== decision.model)
+      return { ok: false as const, statusCode: 400, error: "agent_model_fixed", message: `${decision.agentCode} tiene ${decision.label} fijado tras cerrar su revisión en el laboratorio.` };
   }
 
   const supabase = serviceClient(env);

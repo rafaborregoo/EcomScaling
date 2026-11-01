@@ -11,6 +11,7 @@ import {
   checkOutputSanity,
   buildAgentSystemPrompt,
   buildA23CreativeOutputContract,
+  buildMetricAnalystOutputContract,
   renderAgentPromptSections,
   estimateCostUsd,
   getPricingVersion,
@@ -66,6 +67,23 @@ import {
   toAnthropicCompatibleOutputSchema,
   runAgentTurn,
 } from "./index.js";
+
+test("A29 fixes factual output from validated evidence and accepts only recommendations from the model", () => {
+  const canonical = {
+    answer: "ConversiÃ³n: conviene vigilarla.",
+    findings: [{ title: "ConversiÃ³n: conviene vigilarla", severity: "medium", area: "conversion", evidence: "La tasa cae frente al periodo anterior.", figures: [{ label: "ConversiÃ³n", value: "2,00 %", previous: "3,00 %", change_pct: -33.3 }] }],
+    recommendations: [], confidence: "medium", warnings: [], proposed_writes: [], approval_required: false,
+    sources: [{ kind: "metric", reference: "conversion", period: "periodo probado" }],
+  } as const;
+  const contract = buildMetricAnalystOutputContract(canonical as any);
+  const output = contract.schema.parse({ recommendations: [{ action: "Revisar el embudo de compra", priority: "medium", expected_impact: "Localizar el paso con mayor fricciÃ³n", owner: "cliente" }] });
+  assert.equal(output.answer, canonical.answer);
+  assert.equal(output.findings[0]?.figures?.[0]?.value, "2,00 %");
+  assert.equal(output.recommendations[0]?.action, "Revisar el embudo de compra");
+  assert.deepEqual(output.proposed_writes, []);
+  assert.throws(() => contract.schema.parse({ answer: "La cifra va bien.", findings: [], recommendations: [] }));
+  assert.throws(() => contract.schema.parse({ recommendations: [{ action: "Subir el presupuesto un 20%", priority: "medium", expected_impact: "Mejorar", owner: "cliente" }] }));
+});
 
 test("runAgentTurn sends Anthropic a compatible schema and parses with the original Zod contract", async () => {
   const requestCapture: { body?: Record<string, unknown> } = {};
@@ -230,7 +248,12 @@ test("A23 output requires a structured evidence-backed decision and blocks pause
     confidence: "low",
     warnings: [],
     creative_decisions: [{
+      decision_ref: "a23-1",
       action: "observe",
+      store_id: null,
+      account_id: null,
+      ad_id: null,
+      creative_id: null,
       signal: "La fuente de compras no tiene estado de disponibilidad.",
       window: "2026-09-01 a 2026-09-28",
       spend_implicated: null,
@@ -238,6 +261,11 @@ test("A23 output requires a structured evidence-backed decision and blocks pause
       uncertainty: "No se puede confirmar si la lectura de compras tuvo éxito.",
       hypothesis: "Verificar primero la disponibilidad y frescura del informe.",
       success_criterion: "Contar con lectura disponible y una ventana comparable.",
+      primary_metric: "compras observadas",
+      metric_denominator: "impresiones de la misma ventana",
+      comparator: "periodo anterior comparable",
+      evaluation_window_days: 7,
+      maturity_days: null,
       measurement_verdict: "unknown",
     }],
   } as const;
@@ -384,7 +412,7 @@ test("A27 entrega dirección visual común y módulos por correo para el handoff
     cadence: {
       recommendation: "Dos envíos separados por cuatro días.",
       requested_schedule_assessment: "El calendario solicitado es razonable para este volumen.",
-      requires_user_approval: false,
+      requires_user_approval: true,
     },
     experiment: {
       hypothesis: "Un beneficio concreto aumentará los clics cualificados.",
@@ -421,6 +449,7 @@ test("A27 entrega dirección visual común y módulos por correo para el handoff
   });
   assert.equal(valid.success, true);
   assert.deepEqual(weeklyMailingPlanJsonSchema.required, [
+    "decision", "decision_reasons", "questions",
     "plan_name",
     "diagnosis",
     "strategy_decision",
@@ -645,6 +674,7 @@ test("todos los contratos JSON estrictos requieren cada propiedad de sus objetos
         const required = new Set(
           Array.isArray(schema.required) ? schema.required : [],
         );
+        assert.equal(required.size, Array.isArray(schema.required) ? schema.required.length : 0, `${schemaName}.${path} must not duplicate required properties`);
         const missing = Object.keys(schema.properties).filter(
           (key) => !required.has(key),
         );

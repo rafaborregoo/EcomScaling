@@ -142,8 +142,10 @@ export const caminoWeeklyReviewJsonSchema = {
           "description",
           "reason",
           "evidence",
+          "structured_change",
         ],
         properties: {
+          structured_change: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, required: ["field", "value"], properties: { field: { type: "string", enum: ["target", "target_date", "name", "description"] }, value: { type: ["string", "number"] } } }] },
           change: { type: "string", enum: ["add", "edit", "retire"] },
           target_type: { type: "string", enum: ["phase", "milestone", "goal"] },
           target_id: { type: ["string", "null"] },

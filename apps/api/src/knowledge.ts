@@ -167,7 +167,7 @@ export function requireKnowledgeManager(
         ok: false as const,
         statusCode: 403,
         error: "global_knowledge_denied",
-        message: "Solo un platform admin puede gestionar conocimiento global.",
+        message: "Solo un administrador de la plataforma puede gestionar conocimiento global.",
       };
     }
     return { ok: true as const };
@@ -188,7 +188,7 @@ export function requireKnowledgeManager(
       statusCode: 403,
       error: "knowledge_access_denied",
       message:
-        "Solo owner, manager, consultor o platform admin pueden gestionar conocimiento.",
+        "Solo el propietario, un gestor o el consultor pueden gestionar conocimiento.",
     };
   }
 
@@ -248,7 +248,7 @@ export async function createKnowledgeDocument(
       statusCode: 403,
       error: "consultant_only_denied",
       message:
-        "Solo un consultor o platform admin puede marcar un documento como interno.",
+        "Solo el consultor puede marcar un documento como interno.",
     };
   }
 

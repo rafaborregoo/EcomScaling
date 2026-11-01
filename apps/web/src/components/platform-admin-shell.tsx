@@ -19,11 +19,11 @@ import {
   Settings2,
   Users,
   Wrench,
-  X,
 } from "lucide-react";
-import { Link, OverlayRole } from "@/components/ui";
+import { Drawer, DrawerContent, Link, OverlayRole } from "@/components/ui";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { PortalShell } from "@/components/portal-shell";
+import { CommandPaletteButton } from "@/components/command-palette";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { ErrorBlock } from "@/components/ui";
 
@@ -49,6 +49,8 @@ const navigation = [
       { href: "/admin/infraestructura", label: "Salud y seguridad", icon: Activity },
       { href: "/admin/agentes", label: "Agentes de IA", icon: Bot },
       { href: "/admin/costes-ia", label: "Costes de IA", icon: CircleDollarSign },
+      { href: "/admin/auditoria-ia", label: "Auditoría de IA", icon: ClipboardCheck },
+      { href: "/admin/laboratorio-ia", label: "Laboratorio de IA", icon: FlaskConical },
       { href: "/admin/tools", label: "Herramientas", icon: Wrench },
       { href: "/admin/informes", label: "Plantillas PDF", icon: ScrollText },
       { href: "/admin/laboratorio-mailing", label: "Laboratorio de mailing", icon: FlaskConical },
@@ -72,6 +74,8 @@ const navigation = [
 ];
 
 const pageContext: Record<string, { area: string; description: string }> = {
+  "Laboratorio de IA": { area: "Operaciones", description: "Una página por agente para comparar seis modelos y seguir los fallos y sus correcciones." },
+  "Auditoría de IA": { area: "Operaciones", description: "Estado de modelos y costes, problemas detectados y propuesta de evaluación por agente." },
   "Onboarding de prueba": { area: "Plataforma", description: "Recorre el alta de un cliente o consultor en un entorno aislado." },
   Clientes: { area: "Plataforma", description: "Organizaciones, accesos y asignación de consultores." },
   Consultores: { area: "Plataforma", description: "Equipo, cartera de clientes y actividad de IA." },
@@ -82,7 +86,7 @@ const pageContext: Record<string, { area: string; description: string }> = {
   "Configuración de IA": { area: "Operaciones", description: "Modelos, agentes activos y límites de ejecución." },
   "Tools del copiloto": { area: "Operaciones", description: "Herramientas disponibles, permisos y agentes que las utilizan." },
   "Plantillas PDF": { area: "Operaciones", description: "Plantillas nativas que reutiliza el copiloto para generar informes PDF." },
-  "Laboratorio de mailing": { area: "Operaciones", description: "Previsualiza y revisa los correos del producto." },
+    "Laboratorio de mailing": { area: "Operaciones", description: "Biblioteca interna de plantillas y patrones editoriales de E-NORA." },
   Finanzas: { area: "Finanzas", description: "Ingresos, gastos, resultado y movimientos de la plataforma." },
   Facturación: { area: "Finanzas", description: "Planes, concesiones y configuración de facturación." },
   Auditoría: { area: "Sistema", description: "Historial de acciones administrativas y cambios en la plataforma." },
@@ -103,19 +107,10 @@ function AdminWorkspace({
   const [menuOpen, setMenuOpen] = useState(false);
   const context = pageContext[title];
 
-  return (
-    <div className="admin-workspace">
-      <OverlayRole role="admin" />
-      {menuOpen ? (
-        <button
-          type="button"
-          aria-label="Cerrar navegación"
-          className="admin-backdrop"
-          onClick={() => setMenuOpen(false)}
-        />
-      ) : null}
-
-      <aside className={`admin-sidebar${menuOpen ? " is-open" : ""}`}>
+  // La misma navegación en la columna fija (escritorio) y en el Drawer
+  // izquierdo (móvil, < 1024 px).
+  const sidebar = (
+      <>
         <Link href="/admin" className="admin-brand" onClick={() => setMenuOpen(false)}>
           <span className="admin-brand-mark">
             <BrandLogo variant="simple" className="h-8 w-8" alt="" />
@@ -123,9 +118,6 @@ function AdminWorkspace({
           <span className="admin-brand-copy">
             <strong>E-NORA</strong>
             <small>ADMINISTRACIÓN</small>
-          </span>
-          <span className="admin-brand-close">
-            <X size={18} aria-hidden />
           </span>
         </Link>
 
@@ -168,7 +160,18 @@ function AdminWorkspace({
           <span>Acceso de plataforma</span>
           <Settings2 size={15} aria-hidden />
         </div>
-      </aside>
+      </>
+  );
+
+  return (
+    <div className="admin-workspace">
+      <OverlayRole role="admin" />
+      <aside className="admin-sidebar">{sidebar}</aside>
+      <Drawer open={menuOpen} onOpenChange={setMenuOpen} swipeDirection="left">
+        <DrawerContent id="admin-mobile-nav" aria-label="Navegación de administración" className="admin-sidebar admin-sidebar--drawer">
+          {sidebar}
+        </DrawerContent>
+      </Drawer>
 
       <div className="admin-main-column">
         <header className="admin-topbar">
@@ -177,6 +180,7 @@ function AdminWorkspace({
             className="admin-menu-button"
             aria-label={menuOpen ? "Cerrar navegación" : "Abrir navegación"}
             aria-expanded={menuOpen}
+            aria-controls="admin-mobile-nav"
             onClick={() => setMenuOpen((open) => !open)}
           >
             <Menu size={20} aria-hidden />
@@ -190,6 +194,7 @@ function AdminWorkspace({
             <strong>{title}</strong>
           </div>
           <div className="admin-topbar-meta">
+            <CommandPaletteButton />
             <span className="admin-live"><i aria-hidden /> Sesión activa</span>
             <Link href="/perfil" className="admin-user" aria-label={`Abrir perfil de ${email}`}>
               <span className="admin-user-avatar" aria-hidden>{email.slice(0, 1).toUpperCase() || "A"}</span>
@@ -233,7 +238,7 @@ export function PlatformAdminShell({
           {children(bootstrap, token)}
         </AdminWorkspace>
       ) : (
-        <ErrorBlock>Esta sección es solo para platform admin.</ErrorBlock>
+        <ErrorBlock>Esta sección es solo para administradores de la plataforma.</ErrorBlock>
       )}
     </PortalShell>
   );

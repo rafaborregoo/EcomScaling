@@ -234,7 +234,7 @@ export async function createShopifyConnectionAuthUrl(
       ok: false,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Shopify esta desactivada por feature flag.",
+      message: "La integración con Shopify está desactivada por ahora.",
     };
   }
 
@@ -249,7 +249,7 @@ export async function createShopifyConnectionAuthUrl(
       statusCode: 400,
       error: "shopify_custom_app_not_configured",
       message:
-        "La app Shopify de distribucion personalizada no esta configurada todavia.",
+        "Conectar Shopify aún no está disponible: falta configurarlo en el servidor.",
     };
   }
 
@@ -258,7 +258,7 @@ export async function createShopifyConnectionAuthUrl(
       ok: false,
       statusCode: 403,
       error: "inactive_user",
-      message: "El usuario autenticado no esta activo.",
+      message: "El usuario autenticado no está activo.",
     };
   }
 
@@ -286,7 +286,7 @@ export async function createShopifyConnectionAuthUrl(
       ok: false,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden conectar Shopify.",
+      message: "Solo el propietario o un gestor pueden conectar Shopify.",
     };
   }
 
@@ -374,7 +374,7 @@ export async function triggerShopifySync(
       ok: false,
       statusCode: 404,
       error: "integration_disabled",
-      message: "La integracion Shopify esta desactivada por feature flag.",
+      message: "La integración con Shopify está desactivada por ahora.",
     };
   }
 
@@ -383,7 +383,7 @@ export async function triggerShopifySync(
       ok: false,
       statusCode: 403,
       error: "inactive_user",
-      message: "El usuario autenticado no esta activo.",
+      message: "El usuario autenticado no está activo.",
     };
   }
 
@@ -403,7 +403,7 @@ export async function triggerShopifySync(
       statusCode: 403,
       error: "organization_manage_denied",
       message:
-        "Solo owner, manager o platform admin pueden sincronizar Shopify.",
+        "Solo el propietario o un gestor pueden sincronizar Shopify.",
     };
   }
 
@@ -454,7 +454,7 @@ export async function triggerShopifySync(
         statusCode: 409,
         error: "shopify_sync_already_running",
         message:
-          "Ya hay una sincronizacion de Shopify en curso para esta organizacion.",
+          "Ya hay una sincronización de Shopify en marcha. Espera a que termine.",
       };
     }
 
@@ -464,7 +464,7 @@ export async function triggerShopifySync(
         status: "error",
         last_error_at: new Date().toISOString(),
         last_error_message:
-          "La sincronizacion anterior quedo abierta y fue marcada como error automaticamente.",
+          "La sincronización anterior quedó abierta y fue marcada como error automáticamente.",
       })
       .eq("id", connection.id);
 
@@ -485,7 +485,7 @@ export async function triggerShopifySync(
       statusCode: 409,
       error: "shopify_connection_not_ready",
       message:
-        "La conexion Shopify debe estar conectada antes de poder sincronizar.",
+        "Conecta Shopify antes de sincronizar.",
     };
   }
 
@@ -654,7 +654,7 @@ export async function handleShopifyOAuthCallback(
       statusCode: 500,
       error: "shopify_custom_app_not_configured",
       message:
-        "La app Shopify de distribucion personalizada no esta configurada en el servidor.",
+        "Conectar Shopify aún no está disponible: falta configurarlo en el servidor.",
     };
   }
 
@@ -885,18 +885,7 @@ export async function handleShopifyOAuthCallback(
     },
   });
 
-  void registerShopifyWebhooks(
-    shop,
-    tokenResult.accessToken,
-    shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI),
-    pendingConnection.organization_id,
-  ).catch((error: unknown) => {
-    console.error("Shopify webhook registration failed", {
-      connection_id: pendingConnection.id,
-      organization_id: pendingConnection.organization_id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
+  // The durable import job also verifies/repairs webhook subscriptions before syncing.
 
   let initialSyncQueued = true;
   try {

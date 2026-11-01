@@ -6,8 +6,8 @@ import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import NextLink from "next/link";
-import { HeroBlock, heroPrimary } from "@/components/trabajo-ui";
-import { ButtonLink, Card, EmptyState, LoadingBlock, Switch, toast } from "@/components/ui";
+import { HeroBlock, heroPrimary, heroSecondary } from "@/components/trabajo-ui";
+import { ButtonLink, EmptyState, LoadingBlock, Switch, toast, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 import { activityLabel, type ActivityItem } from "./activity-labels";
 
 /**
@@ -103,11 +103,16 @@ export function ConsultantSection({ organizationId, canSeeActivity }: { organiza
 
   if (!consultant) {
     return (
-      <Card title="Tu consultor">
-        <EmptyState
-          title="Todavía no tienes consultor"
-          hint="Chats se activa solo cuando te asignen uno. Mientras tanto, el copiloto responde sobre tu tienda."
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Tu consultor</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="Todavía no tienes consultor"
+            hint="Chats se activa solo cuando te asignen uno. Mientras tanto, el copiloto responde sobre tu tienda."
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -125,65 +130,67 @@ export function ConsultantSection({ organizationId, canSeeActivity }: { organiza
             <NextLink href="/mensajes" className={heroPrimary}>
               Escribir
             </NextLink>
-            <NextLink href="/llamadas">Ver llamadas</NextLink>
+            <NextLink href="/llamadas" className={heroSecondary}>Ver llamadas</NextLink>
           </>
         }
       >
         Lleva tu cuenta. Aquí decides qué puede cambiar sin pedirte permiso.
       </HeroBlock>
 
-      <Card
-        title="Qué puede hacer tu consultor"
-        description={
-          canEdit
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué puede hacer tu consultor</CardTitle>
+          <CardDescription>{canEdit
             ? "Los cambios se aplican al momento y quedan en la actividad."
-            : "Solo el propietario de la cuenta puede cambiarlo. Tú lo ves, pero no lo editas."
-        }
-      >
-        {!permissions ? (
-          <LoadingBlock label="Cargando permisos…" />
-        ) : (
-          <ul className="divide-y divide-separator">
-            <PermissionRow label="Ver cifras, tareas, informes y conversaciones" hint="Sin esto no puede asesorarte: va con la vinculación." on locked />
-            {PERMISSIONS.map((permission) => (
-              <PermissionRow
-                key={permission.key}
-                label={permission.label}
-                hint={permission.hint}
-                on={permissions[permission.key]}
-                disabled={!canEdit || saving !== null}
-                onChange={(value) => void toggle(permission.key, value)}
-              />
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      {canSeeActivity ? (
-        <Card
-          title="Lo último que ha cambiado tu consultor"
-          actions={
-            <ButtonLink href="/configuracion?section=seguridad#actividad" size="sm" variant="ghost">
-              Ver toda la actividad
-            </ButtonLink>
-          }
-        >
-          {activity.isLoading ? (
-            <LoadingBlock label="Leyendo la actividad…" />
-          ) : changes.length === 0 ? (
-            <p className="text-sm text-muted">Sin cambios recientes de tu consultor.</p>
+            : "Solo el propietario de la cuenta puede cambiarlo. Tú lo ves, pero no lo editas."}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!permissions ? (
+            <LoadingBlock label="Cargando permisos…" />
           ) : (
-            <ul className="grid gap-3">
-              {changes.map((item) => (
-                <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-l-2 border-separator pl-3 text-sm">
-                  <span>{activityLabel(item.action)}</span>
-                  <span className="text-xs text-muted">
-                    {new Date(item.created_at).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}
-                  </span>
-                </li>
+            <ul className="divide-y divide-separator">
+              <PermissionRow label="Ver cifras, tareas, informes y conversaciones" hint="Sin esto no puede asesorarte: va con la vinculación." on locked />
+              {PERMISSIONS.map((permission) => (
+                <PermissionRow
+                  key={permission.key}
+                  label={permission.label}
+                  hint={permission.hint}
+                  on={permissions[permission.key]}
+                  disabled={!canEdit || saving !== null}
+                  onChange={(value) => void toggle(permission.key, value)}
+                />
               ))}
             </ul>
           )}
+        </CardContent>
+      </Card>
+
+      {canSeeActivity ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Lo último que ha cambiado tu consultor</CardTitle>
+            <CardAction><ButtonLink href="/configuracion?section=seguridad#actividad" size="sm" variant="ghost">
+              Ver toda la actividad
+            </ButtonLink></CardAction>
+          </CardHeader>
+          <CardContent>
+            {activity.isLoading ? (
+              <LoadingBlock label="Leyendo la actividad…" />
+            ) : changes.length === 0 ? (
+              <EmptyState size="sm" title="Sin cambios recientes de tu consultor" />
+            ) : (
+              <ul className="grid gap-3">
+                {changes.map((item) => (
+                  <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-l-2 border-separator pl-3 text-sm">
+                    <span>{activityLabel(item.action)}</span>
+                    <span className="text-xs text-muted">
+                      {new Date(item.created_at).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
         </Card>
       ) : null}
     </div>

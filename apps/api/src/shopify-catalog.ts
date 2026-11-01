@@ -1,4 +1,4 @@
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { type AuthContext, createUserScopedClient, requireOperationalOrganization } from "./auth-context.js";
 import {
   isMissingShopifyProductMetadataSchema,
   normalizeShopifyProductTags,
@@ -84,7 +84,7 @@ const IN_FILTER_BATCH_SIZE = 100;
 const PRODUCT_STATUSES = new Set(["ACTIVE", "DRAFT", "ARCHIVED", "DELETED"]);
 const PRODUCT_SORTS = new Set(["sales", "stock", "margin", "updated", "name"]);
 const PRODUCT_FILTERS = new Set(["out", "low", "no_cost", "no_sales"]);
-const INVENTORY_FILTERS = new Set(["", "out", "low", "untracked"]);
+const INVENTORY_FILTERS = new Set(["", "out", "low", "ok", "unread", "untracked"]);
 const INVENTORY_PAGE_SIZE = 50;
 const SPARK_WEEKS = 12;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -366,9 +366,8 @@ async function catalogScope(
   organizationId: string,
   connectionId?: string,
 ) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
-  }
+  const access = requireOperationalOrganization(context, organizationId);
+  if (!access.ok) return access;
 
   const token = authorization.slice("Bearer ".length);
   const client = createUserScopedClient(env, token);
@@ -629,14 +628,24 @@ export async function listShopifyInventory(
     if (!stores.length) {
       return { ok: true as const, data: { organization_id: organizationId, page, page_size: INVENTORY_PAGE_SIZE, total: 0, rows: [], coverage: "available" as const } };
     }
-    const result = await (client as any).rpc("shopify_catalog_inventory_page", {
-      target_organization_id: organizationId,
-      target_store_ids: stores.map((store) => store.id),
-      search_term: input.q?.trim().slice(0, 120) ?? "",
-      target_filter: filter,
-      page_size: INVENTORY_PAGE_SIZE,
-      page_offset: (page - 1) * INVENTORY_PAGE_SIZE,
-    });
+    const searchTerm = input.q?.trim().slice(0, 120) ?? "";
+    const storeIds = stores.map((store) => store.id);
+    // El recuento por grupo (mini dashboard) va aparte: si su migracion falta, la lista sigue.
+    const [result, summaryResult] = await Promise.all([
+      (client as any).rpc("shopify_catalog_inventory_page", {
+        target_organization_id: organizationId,
+        target_store_ids: storeIds,
+        search_term: searchTerm,
+        target_filter: filter,
+        page_size: INVENTORY_PAGE_SIZE,
+        page_offset: (page - 1) * INVENTORY_PAGE_SIZE,
+      }),
+      (client as any).rpc("shopify_catalog_inventory_summary", {
+        target_organization_id: organizationId,
+        target_store_ids: storeIds,
+        search_term: searchTerm,
+      }),
+    ]);
     if (result.error) {
       if (isInventoryStateSchemaMissing(result.error) || result.error.code === "PGRST202" || result.error.message?.includes("shopify_catalog_inventory_page")) {
         return { ok: true as const, data: { organization_id: organizationId, page, page_size: INVENTORY_PAGE_SIZE, total: 0, rows: [], coverage: "migration_pending" as const } };
@@ -645,6 +654,25 @@ export async function listShopifyInventory(
     }
     const rows = (result.data ?? []) as Array<Record<string, any>>;
     const storeById = new Map(stores.map((store) => [store.id, store]));
+    const summaryRow = summaryResult.error ? null : (summaryResult.data?.[0] as Record<string, unknown> | undefined) ?? null;
+    const summary = summaryRow
+      ? Object.fromEntries(Object.entries(summaryRow).map(([key, value]) => [key, Number(value ?? 0)]))
+      : null;
+    // Categoria para agrupar la lista: la estandar de Shopify y, si falta, el tipo de producto.
+    const productIds = [...new Set(rows.map((row) => row.product_id as string))];
+    const categories = productIds.length
+      ? await (client as any)
+          .from("shopify_products")
+          .select("id, product_type, shopify_category_name")
+          .eq("organization_id", organizationId)
+          .in("id", productIds)
+      : { data: [], error: null };
+    const categoryById = new Map<string, string | null>(
+      ((categories.error ? [] : categories.data) ?? []).map((product: { id: string; product_type: string | null; shopify_category_name: string | null }) => [
+        product.id,
+        product.shopify_category_name?.trim() || product.product_type?.trim() || null,
+      ]),
+    );
     return {
       ok: true as const,
       data: {
@@ -653,8 +681,10 @@ export async function listShopifyInventory(
         page_size: INVENTORY_PAGE_SIZE,
         total: Number(rows[0]?.total_count ?? 0),
         coverage: "available" as const,
+        summary,
         rows: rows.map((row) => ({
           ...row,
+          category: categoryById.get(row.product_id) ?? null,
           store_name: storeById.get(row.store_id)?.shop_name ?? "Tienda Shopify",
           currency_code: storeById.get(row.store_id)?.currency_code ?? null,
           is_stale: row.updated_at ? Date.now() - new Date(row.updated_at).getTime() > 24 * 60 * 60 * 1000 : null,

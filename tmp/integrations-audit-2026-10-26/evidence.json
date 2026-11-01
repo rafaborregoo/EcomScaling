@@ -1,0 +1,621 @@
+{
+  "date": "2026-10-26",
+  "testProject": "kopcblejsxpkxoykldyh",
+  "productionProject": "cthjwpeygpzwdmjkxeqa",
+  "tests": {
+    "firstBatch": 35,
+    "secondBatch": 41,
+    "failed": 0
+  },
+  "observations": {
+    "connectionsTest": [
+      {
+        "audit": {
+          "database_time": "2026-10-26T07:44:28.570028+00:00",
+          "connections": [
+            {
+              "id": "62a4b6a9-d4ff-4a39-b98c-1992d8880d0f",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "error",
+              "last_sync_at": null,
+              "last_error_at": "2026-10-03T07:44:00.634+00:00",
+              "last_error": "klaviyo_oauth_denied:access_denied",
+              "app_mode": null
+            },
+            {
+              "id": "3a61f000-f2f3-47bb-acb5-37d4e97128f7",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "pending",
+              "last_sync_at": null,
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "f9403700-2756-4340-a4ef-b6ce73ea32d7",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "pending",
+              "last_sync_at": null,
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "connected",
+              "last_sync_at": "2026-10-25T12:43:11.678+00:00",
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "16848220-e744-4e5b-8870-9b377f9b4741",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "error",
+              "last_sync_at": null,
+              "last_error_at": "2026-09-28T09:25:20.541+00:00",
+              "last_error": "klaviyo_oauth_denied:access_denied",
+              "app_mode": null
+            },
+            {
+              "id": "d8fe8e66-64c6-428d-a51f-f2a779c4a07d",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "pending",
+              "last_sync_at": null,
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "connected",
+              "last_sync_at": "2026-10-25T12:43:11.572+00:00",
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "d779ed8c-703d-491f-a3bc-c731d187f400",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "error",
+              "last_sync_at": null,
+              "last_error_at": "2026-10-03T07:49:36.526+00:00",
+              "last_error": "klaviyo_oauth_denied:access_denied",
+              "app_mode": null
+            },
+            {
+              "id": "0d9aaa62-951e-4ea6-ae79-b34dabfc360e",
+              "organization_id": "d2f1d228-d727-43ab-8e11-ae88bd4e6de2",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "pending",
+              "last_sync_at": null,
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "904b4a4d-9c69-461c-8cb1-9f47bcd50b31",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "klaviyo",
+              "provider_account_name": "Klaviyo",
+              "status": "pending",
+              "last_sync_at": null,
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "bf821942-5756-4609-8180-23e83c36c9cb",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "meta_ads",
+              "provider_account_name": "Rafa Borrego",
+              "status": "connected",
+              "last_sync_at": "2026-10-25T11:13:16.768+00:00",
+              "last_error_at": "2026-10-02T11:00:57.68+00:00",
+              "last_error": null,
+              "app_mode": null
+            },
+            {
+              "id": "08b80111-fd54-4d3d-b67f-90a15e787eb5",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "shopify",
+              "provider_account_name": "ecomscaling-dev",
+              "status": "pending_deletion",
+              "last_sync_at": "2026-09-25T06:02:58.147+00:00",
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": "public"
+            },
+            {
+              "id": "836364d9-1e29-4273-be44-29f73a53722a",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "shopify",
+              "provider_account_name": "e-nora-demo",
+              "status": "connected",
+              "last_sync_at": "2026-10-25T11:15:02.75+00:00",
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": "public"
+            },
+            {
+              "id": "9ed03052-009b-4779-8b9b-be4381428d7c",
+              "organization_id": "5ebc7b02-ca86-402e-bd61-9abd22f1ee04",
+              "provider": "shopify",
+              "provider_account_name": "e-nora-jox8kc2h",
+              "status": "pending_deletion",
+              "last_sync_at": "2026-10-01T21:31:07.282+00:00",
+              "last_error_at": null,
+              "last_error": null,
+              "app_mode": "public"
+            }
+          ],
+          "webhook_summary": null,
+          "sync_summary": [
+            {
+              "provider": "meta_ads",
+              "status": "succeeded",
+              "runs": 36,
+              "latest_start": "2026-10-25T11:13:15.071+00:00",
+              "latest_finish": "2026-10-25T11:13:16.495+00:00"
+            },
+            {
+              "provider": "shopify",
+              "status": "succeeded",
+              "runs": 78,
+              "latest_start": "2026-10-25T11:13:20.07+00:00",
+              "latest_finish": "2026-10-25T11:15:03.928+00:00"
+            },
+            {
+              "provider": "klaviyo",
+              "status": "failed",
+              "runs": 30,
+              "latest_start": "2026-10-25T12:43:42.535+00:00",
+              "latest_finish": "2026-10-25T12:43:42.535+00:00"
+            },
+            {
+              "provider": "klaviyo",
+              "status": "succeeded",
+              "runs": 271,
+              "latest_start": "2026-10-25T12:43:42.713+00:00",
+              "latest_finish": "2026-10-25T12:43:44.668+00:00"
+            }
+          ],
+          "credential_expiry": [
+            {
+              "provider": "klaviyo",
+              "status": "connected",
+              "credential_kind": "klaviyo_oauth_tokens",
+              "expires_at": "2026-10-25T13:43:10.143+00:00",
+              "refresh_token_expires_at": null,
+              "rotated_at": "2026-10-25T12:43:11.143+00:00",
+              "refresh_locked_at": null
+            },
+            {
+              "provider": "shopify",
+              "status": "pending_deletion",
+              "credential_kind": "shopify_offline_access_token",
+              "expires_at": "2026-10-01T22:29:25.36+00:00",
+              "refresh_token_expires_at": "2026-12-30T21:29:25.36+00:00",
+              "rotated_at": "2026-10-01T21:29:26.364+00:00",
+              "refresh_locked_at": null
+            },
+            {
+              "provider": "klaviyo",
+              "status": "connected",
+              "credential_kind": "klaviyo_oauth_tokens",
+              "expires_at": "2026-10-25T13:43:10.126+00:00",
+              "refresh_token_expires_at": null,
+              "rotated_at": "2026-10-25T12:43:11.127+00:00",
+              "refresh_locked_at": null
+            },
+            {
+              "provider": "shopify",
+              "status": "pending_deletion",
+              "credential_kind": "shopify_offline_access_token",
+              "expires_at": "2026-09-25T07:02:57.147+00:00",
+              "refresh_token_expires_at": "2026-12-24T06:02:57.147+00:00",
+              "rotated_at": "2026-09-25T06:02:58.295+00:00",
+              "refresh_locked_at": null
+            },
+            {
+              "provider": "shopify",
+              "status": "connected",
+              "credential_kind": "shopify_offline_access_token",
+              "expires_at": "2026-10-25T12:13:18.969+00:00",
+              "refresh_token_expires_at": "2027-01-23T11:13:18.969+00:00",
+              "rotated_at": "2026-10-25T11:13:19.97+00:00",
+              "refresh_locked_at": null
+            },
+            {
+              "provider": "meta_ads",
+              "status": "connected",
+              "credential_kind": "meta_user_access_token",
+              "expires_at": "2026-12-12T16:16:29+00:00",
+              "refresh_token_expires_at": null,
+              "rotated_at": "2026-10-13T16:37:15.059+00:00",
+              "refresh_locked_at": null
+            }
+          ]
+        }
+      }
+    ],
+    "connectionsProduction": [
+      {
+        "audit": {
+          "database_time": "2026-10-26T07:44:32.121422+00:00",
+          "connections": [
+            {
+              "id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "organization_id": "0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c",
+              "provider": "meta_ads",
+              "provider_account_name": "Rafa Borrego",
+              "status": "error",
+              "last_sync_at": "2026-10-26T00:17:03.99+00:00",
+              "last_error_at": "2026-10-26T00:17:03.99+00:00",
+              "last_error": "meta_sync_partial_failure",
+              "app_mode": null
+            },
+            {
+              "id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "organization_id": "9d6abbbb-6d80-4dd9-81fa-364075f71b3d",
+              "provider": "meta_ads",
+              "provider_account_name": "Rafa Borrego",
+              "status": "error",
+              "last_sync_at": "2026-10-26T00:17:04.206+00:00",
+              "last_error_at": "2026-10-26T00:17:04.206+00:00",
+              "last_error": "meta_sync_partial_failure",
+              "app_mode": null
+            },
+            {
+              "id": "60e3029f-d04b-4696-b056-59a80ed0db61",
+              "organization_id": "0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c",
+              "provider": "shopify",
+              "provider_account_name": "ecomscaling-dev",
+              "status": "error",
+              "last_sync_at": "2026-09-22T00:00:48.514+00:00",
+              "last_error_at": "2026-10-26T01:00:05.816+00:00",
+              "last_error": "Shopify rechazó el permiso guardado. Reconecta la tienda.",
+              "app_mode": "public"
+            }
+          ],
+          "webhook_summary": null,
+          "sync_summary": [
+            {
+              "provider": "meta_ads",
+              "status": "failed",
+              "runs": 170,
+              "latest_start": "2026-10-26T00:17:04.5+00:00",
+              "latest_finish": "2026-10-26T00:17:04.687+00:00"
+            }
+          ],
+          "credential_expiry": [
+            {
+              "provider": "shopify",
+              "status": "error",
+              "credential_kind": "shopify_offline_access_token",
+              "expires_at": "2026-09-22T01:00:00.328+00:00",
+              "refresh_token_expires_at": "2026-12-21T01:00:00.328+00:00",
+              "rotated_at": "2026-09-22T00:00:01.329+00:00",
+              "refresh_locked_at": "2026-10-26T01:00:05.445+00:00"
+            },
+            {
+              "provider": "meta_ads",
+              "status": "error",
+              "credential_kind": "meta_user_access_token",
+              "expires_at": "2026-11-07T22:33:40+00:00",
+              "refresh_token_expires_at": null,
+              "rotated_at": "2026-09-09T11:48:26.172+00:00",
+              "refresh_locked_at": null
+            },
+            {
+              "provider": "meta_ads",
+              "status": "error",
+              "credential_kind": "meta_user_access_token",
+              "expires_at": "2026-11-21T11:29:01+00:00",
+              "refresh_token_expires_at": null,
+              "rotated_at": "2026-09-22T11:29:03.906+00:00",
+              "refresh_locked_at": null
+            }
+          ]
+        }
+      }
+    ],
+    "errorsTest": [
+      {
+        "audit": {
+          "recent_errors": [
+            {
+              "provider": "klaviyo",
+              "connection_id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "sync_scope": "flow_daily_series",
+              "status": "failed",
+              "started_at": "2026-10-25T12:43:42.535+00:00",
+              "error": "conversion_metric_missing"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "sync_scope": "flow_daily_series",
+              "status": "failed",
+              "started_at": "2026-10-25T12:43:34.452+00:00",
+              "error": "conversion_metric_missing"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "sync_scope": "campaign_audiences",
+              "status": "failed",
+              "started_at": "2026-10-25T12:43:27.952+00:00",
+              "error": "klaviyo_sync_klaviyo_campaign_audiences_failed:there is no unique or exclusion constraint matching the ON CONFLICT specification"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "sync_scope": "campaign_audiences",
+              "status": "failed",
+              "started_at": "2026-10-25T12:43:15.041+00:00",
+              "error": "klaviyo_sync_klaviyo_campaign_audiences_failed:there is no unique or exclusion constraint matching the ON CONFLICT specification"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "sync_scope": "flow_daily_series",
+              "status": "failed",
+              "started_at": "2026-10-25T11:13:40.74+00:00",
+              "error": "conversion_metric_missing"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "sync_scope": "flow_daily_series",
+              "status": "failed",
+              "started_at": "2026-10-25T11:13:26.97+00:00",
+              "error": "conversion_metric_missing"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "sync_scope": "campaign_audiences",
+              "status": "failed",
+              "started_at": "2026-10-25T11:13:11.015+00:00",
+              "error": "klaviyo_sync_klaviyo_campaign_audiences_failed:there is no unique or exclusion constraint matching the ON CONFLICT specification"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "sync_scope": "campaign_audiences",
+              "status": "failed",
+              "started_at": "2026-10-25T11:13:08.473+00:00",
+              "error": "klaviyo_sync_klaviyo_campaign_audiences_failed:there is no unique or exclusion constraint matching the ON CONFLICT specification"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "sync_scope": "flow_daily_series",
+              "status": "failed",
+              "started_at": "2026-10-21T10:28:22.512+00:00",
+              "error": "conversion_metric_missing"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "d9003820-2e9e-4671-9f23-db461f739368",
+              "sync_scope": "campaign_audiences",
+              "status": "failed",
+              "started_at": "2026-10-21T10:28:08.925+00:00",
+              "error": "klaviyo_sync_klaviyo_campaign_audiences_failed:there is no unique or exclusion constraint matching the ON CONFLICT specification"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "sync_scope": "flow_daily_series",
+              "status": "failed",
+              "started_at": "2026-10-21T10:14:42.109+00:00",
+              "error": "conversion_metric_missing"
+            },
+            {
+              "provider": "klaviyo",
+              "connection_id": "0a2da79e-1792-48e5-ac16-9693ff3c54e5",
+              "sync_scope": "campaign_audiences",
+              "status": "failed",
+              "started_at": "2026-10-21T10:14:24.91+00:00",
+              "error": "klaviyo_sync_klaviyo_campaign_audiences_failed:there is no unique or exclusion constraint matching the ON CONFLICT specification"
+            }
+          ],
+          "realtime_tables": null
+        }
+      }
+    ],
+    "errorsProduction": [
+      {
+        "audit": {
+          "recent_errors": [
+            {
+              "provider": "meta_ads",
+              "connection_id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "sync_scope": "backfill:2026-04:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:04.5+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "sync_scope": "backfill:2026-08:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:04.273+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "sync_scope": "recommendations:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:04.012+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "sync_scope": "issues:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:03.828+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "sync_scope": "recommendations:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:03.809+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "sync_scope": "issues:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:03.602+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "sync_scope": "activities:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:02.825+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "sync_scope": "activities:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:02.81+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "sync_scope": "audiences:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:02.623+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "sync_scope": "audiences:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:02.608+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "14d84910-d364-4505-a9e4-2b3c08f81056",
+              "sync_scope": "pixels:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:02.405+00:00",
+              "error": "Error validating application. Application has been deleted."
+            },
+            {
+              "provider": "meta_ads",
+              "connection_id": "629a53a9-4fd1-46de-b6f9-7824316fe002",
+              "sync_scope": "pixels:act_2002390917062175",
+              "status": "failed",
+              "started_at": "2026-10-26T00:17:02.404+00:00",
+              "error": "Error validating application. Application has been deleted."
+            }
+          ],
+          "realtime_tables": null
+        }
+      }
+    ],
+    "databaseGuards": [
+      {
+        "audit": {
+          "audience_indexes": [
+            {
+              "indexname": "klaviyo_campaign_audiences_pkey",
+              "indexdef": "CREATE UNIQUE INDEX klaviyo_campaign_audiences_pkey ON public.klaviyo_campaign_audiences USING btree (id)"
+            },
+            {
+              "indexname": "klaviyo_campaign_audiences_organization_id_idx",
+              "indexdef": "CREATE INDEX klaviyo_campaign_audiences_organization_id_idx ON public.klaviyo_campaign_audiences USING btree (organization_id)"
+            },
+            {
+              "indexname": "klaviyo_campaign_audiences_campaign_id_idx",
+              "indexdef": "CREATE INDEX klaviyo_campaign_audiences_campaign_id_idx ON public.klaviyo_campaign_audiences USING btree (campaign_id)"
+            }
+          ],
+          "monotonic_guards": [
+            {
+              "table_name": "shopify_order_facts",
+              "tgname": "set_shopify_order_facts_updated_at",
+              "handler": "CREATE OR REPLACE FUNCTION private.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO ''\nAS $function$\nbegin\n  new.updated_at = now();\n  return new;\nend;\n$function$\n"
+            },
+            {
+              "table_name": "shopify_order_facts",
+              "tgname": "shopify_order_facts_net_sales",
+              "handler": "CREATE OR REPLACE FUNCTION private.shopify_order_facts_net_sales()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO ''\nAS $function$\nbegin\n  -- Misma formula que el sync bulk, ahora en un solo sitio y de verdad.\n  new.net_sales := coalesce(new.current_total_price, 0) - coalesce(new.refunds, 0);\n  return new;\nend;\n$function$\n"
+            },
+            {
+              "table_name": "shopify_inventory_current_state",
+              "tgname": "set_shopify_inventory_current_state_updated_at",
+              "handler": "CREATE OR REPLACE FUNCTION private.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO ''\nAS $function$\nbegin\n  new.updated_at = now();\n  return new;\nend;\n$function$\n"
+            }
+          ],
+          "realtime_tables": null,
+          "event_indexes": [
+            {
+              "indexname": "webhook_events_pkey",
+              "indexdef": "CREATE UNIQUE INDEX webhook_events_pkey ON private.webhook_events USING btree (id)"
+            },
+            {
+              "indexname": "webhook_events_unique_external_id",
+              "indexdef": "CREATE UNIQUE INDEX webhook_events_unique_external_id ON private.webhook_events USING btree (provider, external_event_id) WHERE (external_event_id IS NOT NULL)"
+            },
+            {
+              "indexname": "webhook_events_connection_id_idx",
+              "indexdef": "CREATE INDEX webhook_events_connection_id_idx ON private.webhook_events USING btree (connection_id)"
+            },
+            {
+              "indexname": "webhook_events_status_idx",
+              "indexdef": "CREATE INDEX webhook_events_status_idx ON private.webhook_events USING btree (status, received_at)"
+            },
+            {
+              "indexname": "webhook_events_unique_fingerprint",
+              "indexdef": "CREATE UNIQUE INDEX webhook_events_unique_fingerprint ON private.webhook_events USING btree (provider, connection_id, fingerprint)"
+            },
+            {
+              "indexname": "webhook_events_fathom_queue_idx",
+              "indexdef": "CREATE INDEX webhook_events_fathom_queue_idx ON private.webhook_events USING btree (provider, status, next_retry_at, received_at) WHERE ((provider)::text = 'fathom'::text)"
+            },
+            {
+              "indexname": "webhook_events_pendientes_de_reintento_idx",
+              "indexdef": "CREATE INDEX webhook_events_pendientes_de_reintento_idx ON private.webhook_events USING btree (provider, received_at) WHERE ((status)::text = ANY ((ARRAY['failed'::character varying, 'received'::character varying])::text[]))"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

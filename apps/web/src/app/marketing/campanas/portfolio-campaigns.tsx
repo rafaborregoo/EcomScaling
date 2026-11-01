@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
 import { formatMoney } from "@/lib/money";
 import { AsyncState, EmptyState } from "@/components/ui";
@@ -118,11 +119,11 @@ function Loaded({
         actions={
           <>
             {first ? (
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => nav.campaign(first.organization_id, first.item_id)}>
+              <button type="button" className={buttonVariants()} onClick={() => nav.campaign(first.organization_id, first.item_id)}>
                 Revisar «{first.title}»
               </button>
             ) : null}
-            <a className={cx(s.btn, s.ghost)} href="#revisar">
+            <a className={buttonVariants({ variant: "secondary" })} href="#revisar">
               Ver lo que han creado los clientes
             </a>
           </>
@@ -218,7 +219,7 @@ function Loaded({
                       <b>{last.revenue === null ? "—" : formatMoney(last.revenue, currencyOf(client.organization_id))}</b>
                     </div>
                     <div>
-                      <button type="button" className={cx(s.btn, s.sm, s.ghost)} onClick={() => nav.client(client.organization_id)}>
+                      <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => nav.client(client.organization_id)}>
                         Abrir cliente
                       </button>
                     </div>
@@ -253,7 +254,7 @@ function Loaded({
                   </p>
                   <button
                     type="button"
-                    className={cx(s.btn, s.sm, review.review_status === "changes_requested" && s.ghost)}
+                    className={buttonVariants({ variant: review.review_status === "changes_requested" ? "secondary" : "default", size: "sm" })}
                     onClick={() => nav.campaign(review.organization_id, review.item_id)}
                   >
                     {review.review_status === "pending" ? "Revisar" : "Ver el hilo"}

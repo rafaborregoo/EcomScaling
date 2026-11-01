@@ -1,5 +1,6 @@
 import { readKlaviyoFlowDefinitionSummary } from "./klaviyo-flow-definition-summary.js";
-import { summarizeStoredKlaviyoMetricVolumes } from "./klaviyo-flow-event-volume.js";
+import { A28_METRIC_VOLUME_STALE_MS, readKlaviyoFlowMetricRefs, readStoredKlaviyoMetricVolumes, summarizeStoredKlaviyoMetricVolumes } from "./klaviyo-flow-event-volume.js";
+import { readKlaviyoFlowGraph } from "./klaviyo-flow-graph.js";
 
 type Row = Record<string, unknown>;
 
@@ -17,6 +18,7 @@ export type KlaviyoFlowInventoryInput = {
   now?: number;
   maxFlows?: number;
   maxActionsPerFlow?: number;
+  queryTruncation?: { accounts?: boolean; flows?: boolean; actions?: boolean; messages?: boolean };
 };
 
 /**
@@ -67,7 +69,13 @@ export function summarizeKlaviyoFlowInventory(
         trigger_type: text(row.trigger_type, 120),
         last_synced_at: text(row.last_synced_at, 64),
         updated_at_external: text(row.updated_at_external, 64),
+        definition_graph_synced_at: text(row.definition_graph_synced_at, 64),
         structure: readKlaviyoFlowDefinitionSummary(row.raw_data),
+        graph: safeGraphTopology(readKlaviyoFlowGraph(row.definition_graph)),
+        metricRefs: readKlaviyoFlowMetricRefs(row.raw_data),
+        freshMetricRefs: readStoredKlaviyoMetricVolumes(row.raw_data)
+          .filter((volume) => now - Date.parse(volume.fetched_at) <= A28_METRIC_VOLUME_STALE_MS)
+          .map((volume) => volume.metric_id),
         eventVolumeSummary: summarizeStoredKlaviyoMetricVolumes(
           row.raw_data,
           now,
@@ -97,7 +105,7 @@ export function summarizeKlaviyoFlowInventory(
       !flow.status || !/^(archived|deleted|removed)$/i.test(flow.status),
   );
   const limited = activeFlows.slice(0, maxFlows);
-  const items = limited.map((flow) => {
+  const items = limited.map((flow, flowIndex) => {
     const actions = (actionsByFlow.get(flow.id) ?? [])
       .sort((left, right) => numeric(left.position) - numeric(right.position))
       .slice(0, maxActionsPerFlow);
@@ -105,10 +113,12 @@ export function summarizeKlaviyoFlowInventory(
       ? Date.parse(flow.last_synced_at)
       : Number.NaN;
     return {
+      source_ref: `flow-${String(flowIndex + 1).padStart(3, "0")}`,
       account: flow.account_name,
       name: flow.name,
       status: flow.status,
       trigger_type: flow.trigger_type,
+      updated_at_external: flow.updated_at_external,
       action_count_observed: actionsByFlow.get(flow.id)?.length ?? 0,
       actions: actions.map((action) => ({
         type: text(action.action_type, 80),
@@ -117,13 +127,17 @@ export function summarizeKlaviyoFlowInventory(
       })),
       message_count_observed: messagesByFlow.get(flow.id) ?? 0,
       definition_status: flow.structure ? "available" : "not_synced",
+      definition_freshness: flow.structure
+        ? timestampFreshness(flow.updated_at_external, flow.structure.source_updated_at)
+        : "missing",
       definition_stale: flow.structure
-        ? isDifferentTimestamp(
-            flow.updated_at_external,
-            flow.structure.source_updated_at,
-          )
+        ? timestampFreshness(flow.updated_at_external, flow.structure.source_updated_at) !== "current"
         : true,
       structure: flow.structure,
+      graph: flow.graph,
+      graph_freshness: flow.graph
+        ? timestampFreshness(flow.updated_at_external, flow.definition_graph_synced_at)
+        : "missing",
       trigger_event_volume_status: flow.eventVolumeSummary.status,
       trigger_event_volumes: flow.eventVolumeSummary.volumes
         .slice(0, 4)
@@ -141,24 +155,29 @@ export function summarizeKlaviyoFlowInventory(
         !Number.isFinite(syncedMs) ||
         syncedMs > now ||
         now - syncedMs > 48 * 60 * 60 * 1000,
+      sync_freshness: !Number.isFinite(syncedMs) || syncedMs > now
+        ? "unknown"
+        : now - syncedMs > 48 * 60 * 60 * 1000 ? "stale" : "current",
     };
   });
-  const referencedVolumeCount = limited.reduce(
-    (sum, flow) => sum + flow.eventVolumeSummary.metrics_referenced,
-    0,
-  );
-  const observedVolumeCount = limited.reduce(
-    (sum, flow) => sum + flow.eventVolumeSummary.metrics_observed,
-    0,
-  );
+  const referencedMetricIds = new Set(limited.flatMap((flow) => flow.metricRefs));
+  const observedMetricIds = new Set(limited.flatMap((flow) => flow.freshMetricRefs));
+  const referencedVolumeCount = referencedMetricIds.size;
+  const observedVolumeCount = [...observedMetricIds].filter((id) => referencedMetricIds.has(id)).length;
   const freshVolumes = limited.flatMap((flow) =>
     flow.eventVolumeSummary.volumes.filter((volume) => !volume.stale),
   );
+  const uniquePeriods = [...new Map(freshVolumes.map((volume) => [
+    `${volume.period_start}:${volume.period_end}`,
+    { period_start: volume.period_start, period_end: volume.period_end },
+  ])).values()];
   const status =
     errors.length > 0
       ? items.length > 0
         ? "partial"
         : "unavailable"
+    : Object.values(input.queryTruncation ?? {}).some(Boolean)
+      ? "partial"
       : accounts.length === 0
         ? "unavailable"
         : "available";
@@ -168,9 +187,11 @@ export function summarizeKlaviyoFlowInventory(
       ? "selected_store"
       : "organization_all_accounts",
     account_count: accounts.length,
+    account_inventory_status: errors.includes("account_inventory_load_failed") ? "unavailable" : accounts.length ? "available" : "empty",
     active_flow_count_observed: activeFlows.length,
     active_flow_count_included: items.length,
     inventory_truncated: activeFlows.length > items.length,
+    query_truncation: input.queryTruncation ?? {},
     event_volume_available: false,
     eligible_event_volume_available: false,
     trigger_event_volume_status:
@@ -181,10 +202,12 @@ export function summarizeKlaviyoFlowInventory(
           : observedVolumeCount > 0
             ? "partial"
             : "unavailable",
-    trigger_event_volume_period: freshVolumes[0]
-      ? { start: freshVolumes[0].period_start, end: freshVolumes[0].period_end }
+    trigger_event_volume_period: uniquePeriods.length === 1
+      ? { start: uniquePeriods[0]!.period_start, end: uniquePeriods[0]!.period_end }
       : null,
-    trigger_event_metrics_truncated: referencedVolumeCount > 6,
+    trigger_event_volume_period_status: uniquePeriods.length > 1 ? "mixed" : uniquePeriods.length === 1 ? "single" : "unavailable",
+    trigger_event_metrics_truncated: input.triggerEventMetricsTruncated ?? null,
+    trigger_event_metric_refresh_limit_per_sync: 6,
     trigger_event_volume_is_not_filter_eligibility: true,
     labels_are_untrusted_data: true,
     errors,
@@ -209,16 +232,27 @@ function numeric(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isDifferentTimestamp(
-  left: string | null,
-  right: string | null,
-): boolean {
-  if (!left || !right) return false;
+function timestampFreshness(left: string | null, right: string | null): "current" | "stale" | "unknown" {
+  if (!left || !right) return "unknown";
   const leftTime = Date.parse(left);
   const rightTime = Date.parse(right);
-  return (
-    Number.isFinite(leftTime) &&
-    Number.isFinite(rightTime) &&
-    leftTime !== rightTime
-  );
+  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return "unknown";
+  return leftTime === rightTime ? "current" : "stale";
+}
+
+function safeGraphTopology(graph: ReturnType<typeof readKlaviyoFlowGraph>) {
+  if (!graph) return null;
+  const indexById = new Map(graph.nodes.map((node, index) => [node.id, index + 1]));
+  return {
+    truncated: graph.truncated,
+    entry_step: graph.entry ? indexById.get(graph.entry) ?? null : null,
+    triggers: graph.triggers.slice(0, 4).map((trigger) => trigger.type),
+    steps: graph.nodes.map((node, index) => ({
+      step: index + 1,
+      kind: node.kind,
+      next_step: node.next ? indexById.get(node.next) ?? null : null,
+      yes_step: node.yes ? indexById.get(node.yes) ?? null : null,
+      no_step: node.no ? indexById.get(node.no) ?? null : null,
+    })),
+  };
 }

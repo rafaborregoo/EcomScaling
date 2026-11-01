@@ -16,9 +16,9 @@ export function ChannelBand({
   children?: ReactNode;
 }) {
   return (
-    <div className={`${s.root} ${s.bandRoot}`}>
+    <div className={`${s.root} ${s.bandRoot}${actions || children ? "" : " client-sr-title"}`}>
       <header>
-        <div>
+        <div className="client-sr-title">
           <h1>{title}</h1>
           <p className={s.bandEyebrow}>{eyebrow}</p>
         </div>

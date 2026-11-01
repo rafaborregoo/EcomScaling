@@ -9,6 +9,13 @@ import { runShopifyQueueJob } from "@e-nora/api/shopify-queue-worker";
 import type { ShopifyQueueWorkerJob } from "@e-nora/api/shopify-queue-worker";
 import { reconcileAllMetaConnections } from "@e-nora/api/meta-sync";
 import { reconcileAllKlaviyoConnections } from "@e-nora/api/klaviyo-sync";
+import { SHOPIFY_WEBHOOK_QUEUE_NAME } from "@e-nora/api/shopify-webhook-queue";
+import { drainFailedShopifyWebhooks } from "@e-nora/api/shopify-webhook-handler";
+import { INTEGRATION_SYNC_QUEUE_NAME, INTEGRATION_SYNC_QUEUE_NAMES, enqueueIntegrationSync, type IntegrationSyncJob } from "@e-nora/api/integration-sync-queue";
+import { runMetaSync } from "@e-nora/api/meta-sync";
+import { runKlaviyoSync } from "@e-nora/api/klaviyo-sync";
+import { processQueuedKlaviyoWebhooks } from "@e-nora/api/klaviyo-webhooks";
+import { runIntegrationHealthMonitor } from "@e-nora/api/ops-health-check";
 import {
   SHOPIFY_SYNC_QUEUE_NAME,
 } from "@e-nora/api/shopify-sync-queue";
@@ -38,11 +45,12 @@ import {
   NOTIFICATION_DAILY_TZ,
   NOTIFICATION_OUTBOX_CRON,
   NOTIFICATION_OUTBOX_TZ,
-  isStaleShopifyReconcileRepeatable,
+  isStaleIntegrationRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 import { recordWorkerJobMetric, workerMetrics } from "./metrics.js";
 import { fetchWorkerWithResilience } from "./worker-http.js";
+import { startA06StockEventsWorker } from "./a06-stock-events-worker.js";
 
 const env = loadWorkerEnv(process.env);
 // Mismo guardarrail que la API: el worker escribe mas que nadie, asi que
@@ -266,18 +274,65 @@ async function runNotificationDailyTick(
 }
 
 const queue = new Queue("ecomscaling-default", { connection });
+// Stock reviews may call a model for minutes. Keep them off the webhook and
+// shared queues so they never delay inventory ingestion or notifications.
+const { queue: a06EventQueue, worker: a06EventWorker } = await startA06StockEventsWorker(env, connection);
+await queue.add("integration-health", {}, {
+  repeat: { every: 300_000 }, jobId: "integration-health-repeat",
+  removeOnComplete: { count: 20 }, removeOnFail: { count: 100 },
+});
 const shopifyQueueControl = new Queue(SHOPIFY_SYNC_QUEUE_NAME, { connection });
 await shopifyQueueControl.setGlobalConcurrency(1);
 await shopifyQueueControl.setGlobalRateLimit(1, 5_000);
-await shopifyQueueControl.add(
-  "shopify-webhook-drain",
-  { kind: "webhook_drain" },
-  {
-    repeat: { pattern: "* * * * *", tz: "Europe/Madrid" },
-    jobId: "shopify-webhook-drain-repeat",
-  },
-);
-logger.info("Scheduled Shopify webhook drain every minute (shared Shopify queue)");
+// Remove the old shared-queue sweep; imports must never block live events.
+for (const repeatable of await shopifyQueueControl.getRepeatableJobs()) {
+  if (repeatable.name === "shopify-webhook-drain") await shopifyQueueControl.removeRepeatableByKey(repeatable.key);
+}
+const webhookQueue = new Queue(SHOPIFY_WEBHOOK_QUEUE_NAME, { connection });
+const runIntegrationJob = async (job: { data: IntegrationSyncJob }) => {
+  const apiEnv = loadApiEnv(process.env);
+  if (job.data.provider === "meta_ads") {
+    if (job.data.mode === "initial") return runMetaSync(apiEnv, job.data.connectionId, "initial");
+    const result = await reconcileAllMetaConnections(apiEnv, job.data.connectionId);
+    if (result.failed) throw new Error("meta_sync_failed_retry_scheduled");
+    return result;
+  }
+  if (job.data.mode === "initial") {
+    const result = await runKlaviyoSync(apiEnv, job.data.connectionId, "initial", true);
+    if (result.status === "partial") throw new Error("klaviyo_sync_partial_retry_scheduled");
+    return result;
+  }
+  const result = await reconcileAllKlaviyoConnections(apiEnv, job.data.connectionId, job.data.force);
+  if (result.failed) throw new Error("klaviyo_sync_failed_retry_scheduled");
+  return result;
+};
+// Drain jobs from the earlier shared queue without letting a large Klaviyo
+// import occupy every Meta consumer. Each provider has independent capacity.
+const integrationWorker = new Worker<IntegrationSyncJob>(INTEGRATION_SYNC_QUEUE_NAME, (job) => enqueueIntegrationSync(loadApiEnv(process.env), job.data), { connection, concurrency: 2 });
+const providerWorkers = Object.entries(INTEGRATION_SYNC_QUEUE_NAMES).map(([provider, name]) => {
+  const consumer = new Worker<IntegrationSyncJob>(name, runIntegrationJob, { connection, concurrency: provider === "klaviyo" ? 2 : 1 });
+  consumer.on("failed", (job, error) => logger.error("Provider sync failed", { provider, connection_id: job?.data.connectionId, error: error.message }));
+  return consumer;
+});
+integrationWorker.on("failed", (_job, error) => logger.error("Integration sync job failed", { error: error.message }));
+await webhookQueue.setGlobalConcurrency(1);
+await webhookQueue.add("sweep", {}, {
+  repeat: { every: 5_000 }, jobId: "webhook-recovery-sweep",
+  removeOnComplete: true, removeOnFail: { count: 500 },
+});
+const webhookWorker = new Worker(SHOPIFY_WEBHOOK_QUEUE_NAME, async () => {
+  const apiEnv = loadApiEnv(process.env);
+  const deadline = Date.now() + 25_000;
+  await processQueuedKlaviyoWebhooks(apiEnv);
+  let total = 0;
+  do {
+    const result = await drainFailedShopifyWebhooks(apiEnv, 100);
+    total += result.processed;
+    if (result.candidates < 100) break;
+  } while (Date.now() < deadline);
+  return { processed: total };
+}, { connection, concurrency: 1 });
+webhookWorker.on("failed", (_job, error) => logger.error("Shopify webhook consumer failed", { error: error.message }));
 
 await queue.add(
   "meta-reconcile",
@@ -295,14 +350,14 @@ await queue.add(
     jobId: "klaviyo-reconcile-repeat",
   },
 );
-logger.info("Scheduled Meta reconciliation daily and Klaviyo every 6 hours (UTC)");
+logger.info("Scheduled Meta reconciliation every 10 minutes and Klaviyo every 15 minutes (UTC)");
 
 const staleRepeatables = await queue.getRepeatableJobs();
 for (const repeatable of staleRepeatables) {
-  if (isStaleShopifyReconcileRepeatable(repeatable, SHOPIFY_RECONCILE_CRON)) {
+  if (isStaleIntegrationRepeatable(repeatable)) {
     await queue.removeRepeatableByKey(repeatable.key);
     logger.info(
-      `Removed stale shopify-reconcile repeatable job (${repeatable.key})`,
+      `Removed stale integration repeatable job (${repeatable.key})`,
     );
   }
 }
@@ -317,7 +372,7 @@ if (env.INTERNAL_API_SECRET) {
     },
   );
   logger.info(
-    `Scheduled shopify-reconcile daily at 2am (${SHOPIFY_RECONCILE_TZ})`,
+    `Scheduled shopify-reconcile every 15 minutes (${SHOPIFY_RECONCILE_TZ})`,
   );
   await queue.add(
     "fathom-webhook-processing",
@@ -423,6 +478,12 @@ const worker = new Worker(
 
     if (job.name === "shopify-reconcile") {
       return runShopifyReconcile(context);
+    }
+    if (job.name === "integration-health") {
+      const result = await runIntegrationHealthMonitor(loadApiEnv(process.env));
+      const findings = result.findings;
+      for (const finding of findings) logger.error("Integration health alert", finding);
+      return { checkedAt: result.checkedAt, findings };
     }
     if (job.name === "meta-reconcile") {
       const result = await reconcileAllMetaConnections(loadApiEnv(process.env));
@@ -559,3 +620,15 @@ const workerHeartbeatTimer = setInterval(() => {
 workerHeartbeatTimer.unref();
 
 logger.info("Worker started");
+
+let shuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  clearInterval(workerHeartbeatTimer);
+  const deadline = setTimeout(() => process.exit(1), 30_000);
+  void Promise.all([worker.close(), a06EventWorker.close(), shopifySyncWorker.close(), webhookWorker.close(), integrationWorker.close(), ...providerWorkers.map((consumer) => consumer.close())])
+    .then(() => Promise.all([queue.close(), a06EventQueue.close(), shopifyQueueControl.close(), webhookQueue.close()]))
+    .then(() => { clearTimeout(deadline); process.exit(0); })
+    .catch((error: unknown) => { logger.error("Worker shutdown failed", { error: error instanceof Error ? error.message : "unknown_error" }); process.exit(1); });
+});

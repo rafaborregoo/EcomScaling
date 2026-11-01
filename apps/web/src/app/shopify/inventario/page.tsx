@@ -1,6 +1,9 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { useEffect } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { forecastStockDemand } from "@e-nora/contracts";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -9,36 +12,47 @@ import { AsyncState, EmptyState, ErrorBlock } from "@/components/ui";
 import { cx } from "../../dashboard/client-pulse";
 import { fmtNum } from "../../dashboard/client-pulse-model";
 import pulse from "../../dashboard/client-pulse.module.css";
+import type { CatalogProduct, CatalogProductsResponse } from "../catalog-types";
+import c from "../productos/catalogo.module.css";
 import s from "./inventario.module.css";
+import { GroupArt } from "./group-art";
+import { TaskButton } from "../task-button";
+import { groupByFilter, groupCards, inventoryHref, type InventoryResponse } from "./inventory-groups";
 
-type InventoryFilter = "" | "out" | "low" | "untracked";
-type InventoryRow = {
-  product_id: string;
-  store_id: string;
-  store_name: string;
-  product_title: string;
-  variant_id: string;
-  variant_title: string | null;
-  inventory_item_id: string | null;
-  sku: string | null;
-  tracked: boolean;
-  location_id: string | null;
-  location_name: string | null;
-  available_quantity: number | null;
-  on_hand_quantity: number | null;
-  committed_quantity: number | null;
-  incoming_quantity: number | null;
-  updated_at: string | null;
-  is_stale: boolean | null;
-};
-type InventoryResponse = {
-  organization_id: string;
-  page: number;
-  page_size: number;
-  total: number;
-  coverage: "available" | "migration_pending";
-  rows: InventoryRow[];
-};
+const RESTOCK_LIMIT = 6;
+const IDLE_LIMIT = 5;
+
+type Restock = { product: CatalogProduct; stock: number; perMonth: number | null; days: number | null; out: boolean };
+
+/** Qué reponer primero: agotados que se venden, y luego lo que se acaba en 14 días o menos. */
+function restockList(products: CatalogProduct[]): Restock[] {
+  return products
+    .flatMap((product) => {
+      const m = product.metrics;
+      if (!m || m.tracked_variants === 0 || m.stock_available == null) return [];
+      const forecast = forecastStockDemand(product.weekly_units ?? [], m.stock_available, true);
+      const out = m.stock_available <= 0 || m.variants_out > 0;
+      const soon = forecast.coverageDays != null && forecast.coverageDays <= 14;
+      if (!out && !soon) return [];
+      return [{ product, stock: m.stock_available, perMonth: forecast.forecast30d, days: forecast.coverageDays, out }];
+    })
+    .sort((a, b) => restockRank(a) - restockRank(b) || (a.days ?? 0) - (b.days ?? 0) || (b.perMonth ?? 0) - (a.perMonth ?? 0))
+    .slice(0, RESTOCK_LIMIT);
+}
+
+/** Primero lo agotado que se vende, luego lo que se acaba pronto y al final lo agotado sin demanda. */
+function restockRank(item: Restock) {
+  if (item.out && (item.perMonth ?? 0) > 0) return 0;
+  return item.out ? 2 : 1;
+}
+
+function restockReason(item: Restock) {
+  const m = item.product.metrics!;
+  if (item.stock <= 0) return "Agotado";
+  if (m.variants_out > 0) return m.variants_out === 1 ? "1 variante agotada" : `${m.variants_out} variantes agotadas`;
+  const days = Math.round(item.days ?? 0);
+  return days <= 1 ? "Se agota en 1 día" : `Se agota en ${days} días`;
+}
 
 function productHref(productId: string, organizationId: string, connectionId: string) {
   const params = new URLSearchParams({ organizationId });
@@ -46,126 +60,155 @@ function productHref(productId: string, organizationId: string, connectionId: st
   return `/shopify/productos/${productId}?${params.toString()}`;
 }
 
-function inventoryState(row: InventoryRow) {
-  if (!row.tracked) return { label: "Sin seguimiento", tone: pulse.chipWarn };
-  if (row.available_quantity == null) return { label: "Sin lectura", tone: pulse.chipWarn };
-  if (row.available_quantity <= 0) return { label: "Agotado", tone: pulse.chipBad };
-  if (row.available_quantity <= 5) return { label: "Stock bajo", tone: pulse.chipWarn };
-  return { label: "Disponible", tone: pulse.chipGood };
-}
-
-function CatalogInventory() {
+/** Portada del inventario: cards de grupo arriba y, debajo, qué hacer ahora. */
+function InventoryOverview({ canCreateTasks }: { canCreateTasks: boolean }) {
   const { organizationId } = useActiveOrganization();
   const { connectionId } = useActiveConnection();
-  const [draftSearch, setDraftSearch] = useState("");
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<InventoryFilter>("");
-  const [page, setPage] = useState(1);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
 
+  // Los enlaces antiguos (/shopify/inventario?filter=out) van directos a su grupo.
+  const legacyGroup = groupByFilter(searchParams.get("filter") ?? "");
   useEffect(() => {
-    const requestedFilter = new URLSearchParams(window.location.search).get("filter");
-    if (requestedFilter === "out" || requestedFilter === "low" || requestedFilter === "untracked") setFilter(requestedFilter);
-  }, []);
-  useEffect(() => setPage(1), [organizationId, connectionId, filter]);
+    if (legacyGroup) router.replace(inventoryHref(legacyGroup.slug, search));
+  }, [legacyGroup, router, search]);
 
-  const params = new URLSearchParams({ page: String(page) });
-  if (connectionId) params.set("connectionId", connectionId);
-  if (search) params.set("q", search);
-  if (filter) params.set("filter", filter);
-  const key = organizationId ? `/v1/organizations/${organizationId}/shopify/inventory?${params.toString()}` : null;
-  const query = useCachedQuery<InventoryResponse>(key);
+  const ready = organizationId && !legacyGroup;
+  const scope = connectionId ? `&connectionId=${connectionId}` : "";
+  const base = `/v1/organizations/${organizationId}/shopify`;
+  const query = useCachedQuery<InventoryResponse>(ready ? `${base}/inventory?page=1${scope}` : null);
+  // Menos stock primero: ahí están los que hay que reponer.
+  const lowest = useCachedQuery<CatalogProductsResponse>(ready ? `${base}/catalog/products?page=1&status=ACTIVE&sort=stock&periodDays=90${scope}` : null);
+  const idle = useCachedQuery<CatalogProductsResponse>(ready ? `${base}/catalog/products?page=1&status=ACTIVE&filter=no_sales&sort=name&periodDays=90${scope}` : null);
+
   const data = query.data;
-  const rows = data?.rows ?? [];
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
-  const showLocation = new Set(rows.map((row) => row.location_name ?? "")).size > 1;
-  const showIncoming = rows.some((row) => (row.incoming_quantity ?? 0) > 0);
-
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPage(1);
-    setSearch(draftSearch.trim());
-  }
-
-  function setStockFilter(next: InventoryFilter) {
-    const resolved = filter === next ? "" : next;
-    setFilter(resolved);
-    const nextParams = new URLSearchParams(window.location.search);
-    if (resolved) nextParams.set("filter", resolved);
-    else nextParams.delete("filter");
-    window.history.replaceState(null, "", `/shopify/inventario${nextParams.size ? `?${nextParams.toString()}` : ""}`);
-  }
+  const cards = data?.summary ? groupCards(data.summary) : [];
+  const restock = restockList(lowest.data?.products ?? []);
+  const inRestock = new Set(restock.map((item) => item.product.id));
+  const idleStock = (idle.data?.products ?? [])
+    .filter((product) => (product.metrics?.stock_available ?? 0) > 0 && !inRestock.has(product.id))
+    .sort((a, b) => (b.metrics?.stock_available ?? 0) - (a.metrics?.stock_available ?? 0))
+    .slice(0, IDLE_LIMIT);
+  const href = (id: string) => productHref(id, organizationId ?? "", connectionId);
 
   return (
-    <div className={`${pulse.root} ${s.root}`}>
-      <header className={s.header}>
-        <div>
-          <h1>Inventario</h1>
-          <p>Cuántas unidades te quedan de cada producto.</p>
-        </div>
+    <div className={cx(pulse.root, c.cat)}>
+      <header className={`${c.top} client-sr-title`}>
+        <h1>Inventario</h1>
       </header>
 
       {!organizationId ? (
         <EmptyState title="Selecciona una tienda" hint="El inventario se consulta dentro de una organización activa." />
       ) : (
         <>
-          <div className={s.toolbar}>
-            <form role="search" onSubmit={submitSearch}>
-              <label className="sr-only" htmlFor="inventory-search">Buscar producto, variante o SKU</label>
-              <input id="inventory-search" type="search" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} maxLength={120} placeholder="Buscar producto, variante o SKU" />
-              <button className={cx(pulse.btn, pulse.ghost, pulse.sm)} type="submit">Buscar</button>
-            </form>
-            <div className={pulse.seg} role="group" aria-label="Filtrar inventario">
-              <button type="button" aria-pressed={!filter} onClick={() => setStockFilter("")}>Todos</button>
-              <button type="button" aria-pressed={filter === "out"} onClick={() => setStockFilter("out")}>Agotados</button>
-              <button type="button" aria-pressed={filter === "low"} onClick={() => setStockFilter("low")}>Stock bajo</button>
-              <button type="button" aria-pressed={filter === "untracked"} onClick={() => setStockFilter("untracked")}>Sin seguimiento</button>
-            </div>
-          </div>
-
-          {query.error && !data ? <ErrorBlock>{query.error}</ErrorBlock> : null}
+          {query.error && !data ? <ErrorBlock onRetry={() => query.reload()}>No se han podido cargar los datos. Inténtalo de nuevo en unos segundos.</ErrorBlock> : null}
           {!data && !query.error ? <AsyncState status="loading" loadingLabel="Cargando inventario…" /> : null}
-          {data?.coverage === "migration_pending" ? (
-            <div className={pulse.panel}><p className={pulse.empty}>La lista de inventario por variante estará disponible al aplicar la migración pendiente.</p></div>
-          ) : null}
-          {data?.coverage === "available" && rows.length === 0 ? (
-            <div className={pulse.panel}><p className={pulse.empty}>{filter ? "No hay variantes que coincidan con este filtro." : "No hay variantes activas para esta tienda."}</p></div>
+          {data?.coverage === "migration_pending" || (data && !data.summary) ? (
+            <p className={cx(c.dim, c.none)}>El resumen del inventario todavía no está disponible para esta tienda.</p>
           ) : null}
 
-          {data?.coverage === "available" && rows.length > 0 ? (
-            <section className={pulse.panel} aria-label="Existencias por variante y ubicación">
-              <div className={pulse.tblWrap} style={{ marginTop: 0 }}>
-                <table className={pulse.tbl}>
-                  <thead><tr>
-                    <th>Producto</th>{showLocation ? <th>Almacén</th> : null}<th>Estado</th><th style={{ textAlign: "right" }}>Quedan</th>{showIncoming ? <th style={{ textAlign: "right" }}>En camino</th> : null}
-                  </tr></thead>
+          {cards.length ? (
+            <nav className={s.overview} aria-label="Grupos de inventario">
+              {cards.map((card) => (
+                <Link key={card.slug} href={inventoryHref(card.slug, search)} className={cx(s.groupCard, "task-lift", card.tone && s[card.tone])}>
+                  <span className={s.cardArt}><GroupArt filter={card.filter} /></span>
+                  <span className={s.cardLabel}>{card.label}</span>
+                  <strong>{fmtNum(card.value)}</strong>
+                  <small>{card.hint}</small>
+                </Link>
+              ))}
+            </nav>
+          ) : null}
+
+          {data?.summary ? (
+            <section className={s.block} aria-labelledby="restock-title">
+              <div className={s.blockHead}>
+                <h2 id="restock-title">Reponer primero</h2>
+                <Link href={inventoryHref("agotados", search)}>Ver agotados</Link>
+              </div>
+              {!lowest.data ? (
+                <p className={c.dim}>Calculando qué se acaba antes…</p>
+              ) : restock.length ? (
+                <table className={c.list}>
+                  <thead>
+                    <tr>
+                      <th scope="col">Producto</th>
+                      <th scope="col" className={c.num}>Quedan</th>
+                      <th scope="col" className={cx(c.num, c.opt)}>Vende</th>
+                      <th scope="col"><span className="sr-only">Acción</span></th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {rows.map((row) => {
-                      const state = inventoryState(row);
-                      const href = productHref(row.product_id, organizationId, connectionId);
+                    {restock.map((item) => {
+                      const reason = restockReason(item);
                       return (
-                        <tr key={`${row.variant_id}:${row.location_id ?? "unknown"}`}>
-                          <td><a className={s.product} href={href}>
-                            <span><b>{row.product_title}</b>{[row.variant_title && row.variant_title !== "Default Title" ? row.variant_title : null, row.sku].filter(Boolean).length ? <small>{[row.variant_title && row.variant_title !== "Default Title" ? row.variant_title : null, row.sku].filter(Boolean).join(" · ")}</small> : null}{row.is_stale || !row.updated_at ? <small className={s.stale}>{row.updated_at ? "Dato de hace más de 24 h" : "Sin fecha de lectura"}</small> : null}</span>
-                          </a></td>
-                          {showLocation ? <td>{row.location_name || "Sin almacén"}</td> : null}
-                          <td><span className={cx(pulse.chip, state.tone)}>{state.label}</span></td>
-                          <td className={`${pulse.tdN} ${row.available_quantity == null ? "" : row.available_quantity <= 0 ? s.bad : row.available_quantity <= 5 ? s.warn : s.good}`}>{row.available_quantity == null ? "—" : `${fmtNum(row.available_quantity)} uds.`}</td>
-                          {showIncoming ? <td className={pulse.tdN}>{row.incoming_quantity == null ? "—" : `${fmtNum(row.incoming_quantity)} uds.`}</td> : null}
+                        <tr key={item.product.id} className="task-lift">
+                          <td>
+                            <a className={c.prodLink} href={href(item.product.id)}>
+                              <span className={c.prodText}>
+                                <span className={c.prodName}>{item.product.title}</span>
+                                <span className={item.out || (item.days ?? 99) <= 7 ? c.bad : c.warn}>{reason}</span>
+                              </span>
+                            </a>
+                          </td>
+                          <td className={cx(c.num, item.stock <= 0 ? c.bad : undefined)}>{fmtNum(item.stock)} uds.</td>
+                          <td className={cx(c.num, c.opt)}>{item.perMonth == null ? <span className={c.dim}>—</span> : `≈ ${fmtNum(item.perMonth)}/mes`}</td>
+                          <td className={s.actionCell}>
+                            {canCreateTasks ? <TaskButton
+                              organizationId={organizationId}
+                              title={`Reponer ${item.product.title}`}
+                              description={`${reason}. Quedan ${fmtNum(item.stock)} uds.${item.perMonth != null ? ` Vende ≈ ${fmtNum(item.perMonth)} al mes.` : ""} Pedir reposición al proveedor.`}
+                            /> : null}
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-              </div>
-              <footer className={s.footer}>
-                <span>“Sin lectura” significa que Shopify no ha enviado el dato, no que queden cero.</span>
-                <div>
-                  <span>{fmtNum(data.total)} productos · página {page} de {totalPages}</span>
-                  <button className={cx(pulse.btn, pulse.ghost, pulse.sm)} type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button>
-                  <button className={cx(pulse.btn, pulse.ghost, pulse.sm)} type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
-                </div>
-              </footer>
+              ) : (
+                <p className={c.dim}>Nada urgente: ningún producto con ventas se agota en las próximas dos semanas.</p>
+              )}
             </section>
+          ) : null}
+
+          {data?.summary && idle.data && idleStock.length ? (
+            <section className={s.block} aria-labelledby="idle-title">
+              <div className={s.blockHead}>
+                <h2 id="idle-title">Stock parado</h2>
+                <span className={c.dim}>con unidades y sin ventas en 90 días</span>
+              </div>
+              <table className={c.list}>
+                <tbody>
+                  {idleStock.map((product) => (
+                    <tr key={product.id} className="task-lift">
+                      <td>
+                        <a className={c.prodLink} href={href(product.id)}>
+                          <span className={c.prodText}>
+                            <span className={c.prodName}>{product.title}</span>
+                            <span className={c.dim}>{product.shopify_category_name || product.product_type || "Sin categoría"}</span>
+                          </span>
+                        </a>
+                      </td>
+                      <td className={c.num}>{fmtNum(product.metrics?.stock_available ?? 0)} uds.</td>
+                      <td className={s.actionCell}>
+                        {canCreateTasks ? <TaskButton
+                          organizationId={organizationId}
+                          title={`Mover stock parado: ${product.title}`}
+                          description={`${fmtNum(product.metrics?.stock_available ?? 0)} uds. sin ventas en 90 días. Valorar promoción, pack o destacarlo en tienda y email.`}
+                        /> : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          ) : null}
+
+          {data?.summary ? (
+            <p className={s.allLink}>
+              <Link href={inventoryHref("todo", search)}>Ver todo el inventario ({fmtNum(data.summary.total_count)})</Link>
+            </p>
           ) : null}
         </>
       )}
@@ -174,5 +217,9 @@ function CatalogInventory() {
 }
 
 export default function ShopifyInventoryPage() {
-  return <PortalShell title="Inventario Shopify">{() => <CatalogInventory />}</PortalShell>;
+  return (
+    <PortalShell title="Inventario Shopify">
+      {(bootstrap) => <InventoryOverview canCreateTasks={["consultant", "platform_admin"].includes(bootstrap.profile.platform_role)} />}
+    </PortalShell>
+  );
 }

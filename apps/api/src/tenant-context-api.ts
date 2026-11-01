@@ -46,7 +46,7 @@ export function canDeclareContext(context: AuthContext, organizationId: string) 
     ok: false as const,
     statusCode: 403,
     error: "context_declaration_denied",
-    message: "Solo el propietario, un manager o su consultor pueden declarar el contexto.",
+    message: "Solo el propietario, un gestor o su consultor pueden declarar el contexto.",
   };
 }
 

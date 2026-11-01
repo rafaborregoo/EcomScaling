@@ -80,11 +80,12 @@ export async function loadConsultantPermissions(
   env: ApiEnv,
   organizationId: string,
 ): Promise<ConsultantPermissions> {
-  const { data } = await createServiceClient(env)
+  const { data, error } = await createServiceClient(env)
     .from("organization_consultant_permissions")
     .select(CONSULTANT_PERMISSION_KEYS.join(", "))
     .eq("organization_id", organizationId)
     .maybeSingle();
+  if (error) throw new Error("consultant_permissions_unavailable");
   return { ...DEFAULT_CONSULTANT_PERMISSIONS, ...((data as Partial<ConsultantPermissions> | null) ?? {}) };
 }
 
@@ -123,7 +124,7 @@ export async function listMyConsultantPermissions(env: ApiEnv, context: AuthCont
   const supabase = createServiceClient(env);
   const { data: assignments, error } = await supabase
     .from("consultant_assignments")
-    .select("organization_id, organizations(display_name)")
+    .select("organization_id, organizations:organizations!consultant_assignments_organization_id_fkey(display_name)")
     .eq("consultant_user_id", context.user.id)
     .eq("is_active", true);
   if (error) {
@@ -131,12 +132,15 @@ export async function listMyConsultantPermissions(env: ApiEnv, context: AuthCont
   }
   const rows = (assignments ?? []) as Array<{ organization_id: string; organizations: { display_name?: string | null } | Array<{ display_name?: string | null }> | null }>;
   const ids = rows.map((row) => row.organization_id);
-  const { data: stored } = ids.length
+  const { data: stored, error: storedError } = ids.length
     ? await supabase
         .from("organization_consultant_permissions")
         .select(`organization_id, ${CONSULTANT_PERMISSION_KEYS.join(", ")}, updated_at, updated_by`)
         .in("organization_id", ids)
-    : { data: [] };
+    : { data: [], error: null };
+  if (storedError) {
+    return { ok: false as const, statusCode: 503, error: "consultant_permissions_load_failed", message: "No se pudieron comprobar los permisos. Reintenta la carga." };
+  }
   const byOrg = new Map(((stored ?? []) as unknown as Array<Record<string, unknown>>).map((row) => [row.organization_id as string, row]));
   const editorIds = [...new Set([...byOrg.values()].map((row) => row.updated_by).filter((id): id is string => typeof id === "string"))];
   const { data: editors } = editorIds.length
@@ -182,7 +186,12 @@ export async function setConsultantPermissions(
     return { ok: false as const, statusCode: 400, error: "empty_update" };
   }
   const supabase = createServiceClient(env);
-  const previous = await loadConsultantPermissions(env, organizationId);
+  let previous: ConsultantPermissions;
+  try {
+    previous = await loadConsultantPermissions(env, organizationId);
+  } catch {
+    return { ok: false as const, statusCode: 503, error: "consultant_permissions_unavailable" };
+  }
   const next = { ...previous, ...patch };
   const { error } = await supabase.from("organization_consultant_permissions").upsert(
     {
@@ -474,11 +483,19 @@ export function registerOrgAccessGuard(app: FastifyInstance, env: ApiEnv) {
     const needsPermissions =
       membership.accessSource === "consultant_assignment" &&
       consultantPermissionFor(request.method, routeUrl) !== null;
+    let consultantPermissions: ConsultantPermissions | null = null;
+    if (needsPermissions) {
+      try {
+        consultantPermissions = await loadConsultantPermissions(env, organizationId);
+      } catch {
+        return reply.code(503).send({ error: "consultant_permissions_unavailable", message: "No se pudieron comprobar tus permisos. Vuelve a intentarlo." });
+      }
+    }
     const denial = decideOrgAccess({
       method: request.method,
       routeUrl,
       membership,
-      consultantPermissions: needsPermissions ? await loadConsultantPermissions(env, organizationId) : null,
+      consultantPermissions,
       requireMfa: Boolean(membership.organization?.require_mfa),
       aal: readJwtAal(request.headers.authorization),
     });

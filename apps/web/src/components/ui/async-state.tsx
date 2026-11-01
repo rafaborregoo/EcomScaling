@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { EmptyState } from "./empty-state";
+import { EmptyState } from "./empty";
 import { ErrorBlock } from "./error-block";
 import { LoadingBlock } from "./loading-block";
 

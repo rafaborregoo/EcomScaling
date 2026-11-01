@@ -1,5 +1,6 @@
 "use client";
 
+
 /**
  * FASE 3 / D10 — a partir de que cuota el dano es grave, en esta tienda.
  *
@@ -12,7 +13,7 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Button, Card, ErrorBlock, Field, Input, LoadingBlock, toast } from "@/components/ui";
+import { Badge, Button, ErrorBlock, Field, Input, LoadingBlock, toast, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type Thresholds = { low: number; moderate: number; high: number; critical: number };
 type Payload = { defaults: Thresholds; organization: (Thresholds & { declared_at: string }) | null; source: string };
@@ -90,34 +91,36 @@ export function SeverityThresholdsPanel({ organizationId }: { organizationId?: s
   if (!data || !draft) return <LoadingBlock label="Cargando umbrales de gravedad..." />;
 
   return (
-    <Card
-      id="insight-severity-thresholds"
-      title="Cuándo es grave"
-      description="Qué parte de la base (ventas o pedidos del periodo) tiene que moverse para que el daño cuente como bajo, moderado, alto o crítico."
-      actions={<Badge tone={data.organization ? "brand" : "neutral"}>{data.organization ? "Propios de esta tienda" : "Por defecto"}</Badge>}
-    >
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {FIELDS.map(({ key, label }) => (
-          <Field key={key} label={`${label} (%)`}>
-            <Input
-              inputMode="decimal"
-              value={draft[key]}
-              onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
-              disabled={saving}
-            />
-          </Field>
-        ))}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => void save(false)} disabled={saving}>
-          {saving ? "Guardando..." : "Guardar para esta tienda"}
-        </Button>
-        {data.organization ? (
-          <Button size="sm" variant="ghost" onClick={() => void save(true)} disabled={saving}>
-            Volver a los de por defecto
+    <Card id="insight-severity-thresholds">
+      <CardHeader>
+        <CardTitle>Cuándo es grave</CardTitle>
+        <CardDescription>Qué parte de la base (ventas o pedidos del periodo) tiene que moverse para que el daño cuente como bajo, moderado, alto o crítico.</CardDescription>
+        <CardAction><Badge tone={data.organization ? "brand" : "neutral"}>{data.organization ? "Propios de esta tienda" : "Por defecto"}</Badge></CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {FIELDS.map(({ key, label }) => (
+            <Field key={key} label={`${label} (%)`}>
+              <Input
+                inputMode="decimal"
+                value={draft[key]}
+                onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+                disabled={saving}
+              />
+            </Field>
+          ))}
+        </div>
+        <div role="group" aria-label="Acciones de umbrales" className="flex flex-wrap items-center gap-2 mt-4">
+          <Button size="sm" onClick={() => void save(false)} disabled={saving}>
+            {saving ? "Guardando..." : "Guardar para esta tienda"}
           </Button>
-        ) : null}
-      </div>
+          {data.organization ? (
+            <Button size="sm" variant="ghost" onClick={() => void save(true)} disabled={saving}>
+              Volver a los de por defecto
+            </Button>
+          ) : null}
+        </div>
+      </CardContent>
     </Card>
   );
 }

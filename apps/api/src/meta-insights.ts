@@ -1,5 +1,5 @@
 import { createLogger } from "@e-nora/observability";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { type AuthContext, createUserScopedClient, requireOperationalStore } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { providerCurrencyCode } from "./provider-currency.js";
 
@@ -167,18 +167,25 @@ export type MetaInsightsData = {
     external_updated_at: string | null;
   }>;
   changes: Array<{
+    event_id: string;
+    ad_account_id: string;
+    store_id: string;
+    object_external_id: string | null;
+    entity_id: string | null;
     event_time: string;
     event_type: string;
     translated_event_type: string | null;
     actor_name: string | null;
     object_name: string | null;
-    entity_level: string;
-    spend_before: number;
-    spend_after: number;
-    purchases_before: number;
-    purchases_after: number;
-    purchase_value_before: number;
-    purchase_value_after: number;
+    entity_level: string | null;
+    comparison_status: string;
+    currency_code: string | null;
+    spend_before: number | null;
+    spend_after: number | null;
+    purchases_before: number | null;
+    purchases_after: number | null;
+    purchase_value_before: number | null;
+    purchase_value_after: number | null;
     roas_before: number | null;
     roas_after: number | null;
     cpa_before: number | null;
@@ -187,6 +194,8 @@ export type MetaInsightsData = {
     days_before: number;
     days_after: number;
     purchase_attribution_window: string | null;
+    total_count: number;
+    has_more: boolean;
   }>;
   // Que bloques no se han podido calcular. Sin esta lista, un bloque roto y un
   // bloque vacio se dibujan igual.
@@ -263,6 +272,7 @@ type RpcResult = { data: unknown; error: { message: string } | null };
 function rows<T>(result: RpcResult, name: string, unavailable: string[]): T[] {
   if (result.error) {
     unavailable.push(name);
+    console.error(`meta_insights_rpc_failed[${name}]`, result.error.message);
     return [];
   }
 
@@ -277,19 +287,6 @@ export async function getMetaInsights(
   daysInput: string | undefined,
   connectionId?: string,
 ) {
-  if (
-    !context.memberships.some(
-      (membership) => membership.organization_id === organizationId,
-    )
-  ) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
-    };
-  }
-
   const periodDays = parsePeriodDays(daysInput);
   const periodEnd = new Date();
   const periodStart =
@@ -303,6 +300,14 @@ export async function getMetaInsights(
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
+
+  const organizationMembership = context.memberships.find((membership) => membership.organization_id === organizationId);
+  if (!organizationMembership || organizationMembership.access_scope === "store") {
+    const storeId = await loadStoreIdForConnection(supabase, organizationId, connectionId);
+    if (!storeId) return { ok: false as const, statusCode: 403, error: "organization_access_denied", message: "El acceso de esta cuenta debe indicar una tienda autorizada." };
+    const scoped = requireOperationalStore(context, organizationId, storeId);
+    if (scoped.ok === false) return scoped;
+  }
 
   try {
     const storeId = await loadStoreIdForConnection(

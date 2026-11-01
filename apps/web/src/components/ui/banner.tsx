@@ -1,39 +1,44 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Alert } from "@heroui/react";
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { Alert, AlertAction, AlertDescription, AlertTitle, type AlertVariant } from "./alert";
 
-type BannerTone = "success" | "warn" | "danger";
+export type BannerTone = "info" | "success" | "warn" | "danger";
 
-const statusMap: Record<BannerTone, "success" | "warning" | "danger"> = {
+const VARIANT: Record<BannerTone, AlertVariant> = {
+  info: "default",
   success: "success",
   warn: "warning",
-  danger: "danger",
+  danger: "destructive",
 };
 
-// Un Banner casi siempre aparece por algo que acaba de pasar (guardar, fallar
-// una accion, volver de un OAuth). Sin region viva, con lector de pantalla no
-// pasaba nada: el foco seguia en el boton y el mensaje quedaba en pantalla sin
-// anunciarse. `alert` para los de error (interrumpe), `status` para el resto.
+const ICON = { info: Info, success: CircleCheck, warn: TriangleAlert, danger: CircleAlert };
+
+/**
+ * Atajo de Alert con el icono de su tono. `title` = qué pasa, en una frase;
+ * `children` = el detalle o qué hacer; `action` = el botón que lo resuelve.
+ */
 export function Banner({
   tone = "danger",
+  title,
+  action,
   className,
   children,
 }: {
   tone?: BannerTone;
+  title?: ReactNode;
+  action?: ReactNode;
   className?: string;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
+  const Icon = ICON[tone];
   return (
-    <Alert
-      status={statusMap[tone]}
-      className={className}
-      role={tone === "danger" ? "alert" : "status"}
-    >
-      <Alert.Indicator />
-      <Alert.Content>
-        <Alert.Description>{children}</Alert.Description>
-      </Alert.Content>
+    <Alert variant={VARIANT[tone]} className={className}>
+      <Icon aria-hidden />
+      {title ? <AlertTitle>{title}</AlertTitle> : null}
+      {children ? <AlertDescription>{children}</AlertDescription> : null}
+      {action ? <AlertAction>{action}</AlertAction> : null}
     </Alert>
   );
 }

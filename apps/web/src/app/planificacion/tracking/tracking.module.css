@@ -1,0 +1,10 @@
+/* /planificacion/tracking — mismo esqueleto que Agenda: cabecera con acciones a la derecha. */
+.header { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.header > header { flex: 1 1 440px; }
+.capture { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.range { font-size: 13px; color: var(--tw-ink-3); font-variant-numeric: tabular-nums; }
+.chartHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.chartValue { font-size: 28px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.chartHint { font-size: 14px; color: var(--tw-ink-3); }
+.up { color: var(--tw-good); }
+.down { color: #b42318; }

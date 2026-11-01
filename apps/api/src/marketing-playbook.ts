@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { internalEmailTemplateSchema } from "@e-nora/contracts";
 import { internalMailingVisualAnalysisSchema } from "./marketing-playbook-visual.js";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
@@ -23,6 +24,7 @@ export const internalMailingPlaybookDraftSchema = z.object({
     excerpt: text(4000).optional(),
     reference_text: z.string().max(12000).optional(),
     raw_html: z.string().max(60000).optional(),
+    template: internalEmailTemplateSchema.optional(),
     reference_profile: z.object({
       version: z.literal(1),
       fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
@@ -78,6 +80,15 @@ export type InternalMailingPlaybookEntry = InternalMailingPlaybookDraft & {
   created_at: string;
   updated_at: string;
 };
+
+/** Reduce the published candidate set before the row cap; no original corpus is read. */
+export function internalMailingPlaybookCandidateFilter(input: { objective: string; audience?: string | null }) {
+  const stopwords = new Set(["para", "con", "los", "las", "una", "unos", "unas", "del", "por", "que", "the", "and", "for"]);
+  const tokens = [...new Set(`${input.objective} ${input.audience ?? ""}`.toLowerCase()
+    .split(/[^a-z0-9áéíóúüñ]+/).filter((token) => token.length >= 3 && !stopwords.has(token)))].slice(0, 8);
+  return tokens.length ? tokens.flatMap((token) => [`objective.ilike.*${token}*`, `content->>when_to_use.ilike.*${token}*`]).join(",")
+    : "id.eq.00000000-0000-0000-0000-000000000000";
+}
 
 /** Rehydrates the compact PostgREST projection shared by planner and admin preview. */
 export function internalMailingPlaybookRetrievalEntry(row: Record<string, unknown>): InternalMailingPlaybookEntry {

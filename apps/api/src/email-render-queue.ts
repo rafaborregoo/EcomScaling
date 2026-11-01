@@ -11,10 +11,12 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { AgentImageAttachment } from "@e-nora/ai";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const KLAVIYO_RENDER_MAX_HTML_CHARS = 150_000;
 export const KLAVIYO_RENDER_MAX_SCREENSHOT_BYTES = 20 * 1024 * 1024;
 export const KLAVIYO_RENDER_MAX_PENDING_JOBS = 500;
+export const A26_RENDER_POLICY_VERSION = "a26-render-v2-offline-1280x800-390x844";
 export const A26_RENDER_CONTEXT_LABEL =
   "Revision visual asincrona A26; solo simulacion de primera pantalla desktop/movil, no evidencia de entrega real";
 
@@ -32,7 +34,7 @@ export type KlaviyoEmailRenderScope = {
 export type KlaviyoRenderQueueState =
   | { status: "queued" | "processing" }
   | { status: "completed"; result: Record<string, unknown> }
-  | { status: "failed"; code: "render_failed" }
+  | { status: "failed"; code: "render_failed"; failed_at?: string }
   | { status: "missing" };
 
 export function a26RenderIdFromSnapshot(snapshot: unknown): string | null {
@@ -80,6 +82,7 @@ export function stableKlaviyoRenderJobId(
         scope.accountId,
         scope.externalTemplateId,
         htmlHash,
+        A26_RENDER_POLICY_VERSION,
       ].join("\0"),
     )
     .digest("hex")
@@ -102,9 +105,19 @@ export async function prepareKlaviyoEmailRenderReview(
   const id = stableKlaviyoRenderJobId(scope, html);
   try {
     let state = await readKlaviyoEmailRenderState(spoolRoot, id);
-    if (state.status === "failed") {
-      await rm(path.join(spoolRoot, "failed", `${id}.json`), { force: true });
-      state = { status: "missing" };
+    if (state.status === "failed" || state.status === "missing") {
+      const retryFile = path.join(spoolRoot, "failed", `${id}.retry`);
+      let retry = { attempts: 0, last_at: 0 };
+      try { retry = JSON.parse(await readFile(retryFile, "utf8")); } catch { /* first failure */ }
+      if (state.status === "failed" && state.failed_at && retry.last_at === 0) retry.last_at = Date.parse(state.failed_at);
+      if (retry.attempts >= 3 || Date.now() - retry.last_at < 60_000 * 2 ** retry.attempts) {
+        return { review: { status: "failed", render_id: id, attempts: retry.attempts, simulation: true, retry_after: new Date(retry.last_at + 60_000 * 2 ** retry.attempts).toISOString() }, images: [] };
+      }
+      if (state.status === "failed") {
+        await writeFile(retryFile, JSON.stringify({ attempts: retry.attempts + 1, last_at: Date.now() }), { mode: 0o660 });
+        await rm(path.join(spoolRoot, "failed", `${id}.json`), { force: true });
+        state = { status: "missing" };
+      }
     }
     if (state.status === "missing") {
       await enqueueKlaviyoEmailRender(spoolRoot, { id, html });
@@ -134,6 +147,14 @@ export async function prepareKlaviyoEmailRenderReview(
         status: state.status,
         simulation: true,
         render_id: id,
+        html_hash: createHash("sha256").update(html).digest("hex"),
+        renderer_policy_version: A26_RENDER_POLICY_VERSION,
+        artifact_retention_hours: 24,
+        external_resources_policy: "all_external_requests_blocked",
+        external_requests_blocked: state.status === "completed" ? state.result.externalRequestsBlocked ?? null : null,
+        rendered_at: state.status === "completed" ? state.result.renderedAt ?? null : null,
+        capture_metadata: state.status === "completed" ? state.result.captures ?? [] : [],
+        visual_claim_limit: "La ausencia de imagenes/fuentes externas no demuestra un defecto del email original.",
         screenshots_supplied_to_vision: images.length,
         scope:
           "primer pantallazo desktop y movil; no representa inbox ni personalizacion individual",
@@ -142,6 +163,24 @@ export async function prepareKlaviyoEmailRenderReview(
     };
   } catch {
     return { review: { status: "unavailable", simulation: true }, images: [] };
+  }
+}
+
+/** Reconcile worker completion without another model call or any network in Chromium. */
+export async function reconcileA26RenderReceipts(client: SupabaseClient, spoolRoot: string) {
+  const rows = await client.from("a26_render_receipts").select("render_id,receipt,created_at")
+    .in("receipt->>status", ["queued", "processing"]).order("created_at").limit(500);
+  if (rows.error) throw new Error("a26_render_receipts_unavailable");
+  for (const row of rows.data ?? []) {
+    const state = await readKlaviyoEmailRenderState(spoolRoot, row.render_id);
+    const expired = state.status === "missing" && Date.now() - Date.parse(row.created_at) > 24 * 3_600_000;
+    if (state.status === "queued" || state.status === "processing" || (state.status === "missing" && !expired)) continue;
+    const saved = await client.from("a26_render_receipts").update({ receipt: {
+      ...row.receipt, status: expired ? "expired_or_not_available" : state.status,
+      ...(state.status === "completed" ? { worker_receipt: state.result } : {}),
+      model_review_status: "human_review_available_without_model_rerun",
+    }, updated_at: new Date().toISOString() }).eq("render_id", row.render_id);
+    if (saved.error) throw new Error("a26_render_receipt_persist_failed");
   }
 }
 
@@ -212,7 +251,8 @@ export async function readKlaviyoEmailRenderState(
       typeof failed === "object" &&
       (failed as Record<string, unknown>).id === id
     ) {
-      return { status: "failed", code: "render_failed" };
+      const failedAt = (failed as Record<string, unknown>).failedAt;
+      return { status: "failed", code: "render_failed", ...(typeof failedAt === "string" && Number.isFinite(Date.parse(failedAt)) ? { failed_at: failedAt } : {}) };
     }
   } catch {
     /* Not failed. */

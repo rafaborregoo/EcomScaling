@@ -12,6 +12,11 @@ const PROOF_INVALIDO = "Invalid appsecret_proof provided in the API argument";
 const CAMPOS_MAL =
   "(#100) publisher_platform, platform_position, device_platform are not valid for fields param";
 
+test("an application deleted at Meta requires a valid app and reauthorization", () => {
+  assert.equal(isMetaTokenExpiredError("Application has been deleted"), true);
+  assert.match(metaConnectionErrorMessage(["Application has been deleted"]), /^meta_reauth_required:.*aplicación.*eliminada/);
+});
+
 test("un token que no es de esta app se reconoce como reautorizacion", () => {
   assert.equal(isMetaAppSecretProofError(PROOF_INVALIDO), true);
   assert.equal(isMetaAppSecretProofError(CAMPOS_MAL), false);

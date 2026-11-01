@@ -1,0 +1,88 @@
+/* Lectura cómoda de las pestañas de Shopify (productos, inventario, promociones).
+   Se pintan sobre el .root de client-pulse, cuyas tablas, chips y botones segmentados
+   van en 10–12 px: aquí se suben sin tocar el dashboard, que comparte esos estilos. */
+.pg { gap: 24px; font-size: 15px; }
+.pg h1 { font-size: 34px; font-weight: 600; letter-spacing: -0.015em; }
+.pg h2 { font-size: 20px; font-weight: 600; }
+
+.pg table { font-size: 15px; }
+.pg th { padding: 0 12px 12px 0; font-size: 13px; letter-spacing: 0.02em; text-transform: none; }
+.pg td { padding: 15px 12px 15px 0; }
+.pg td small, .pg td [class*="muted"] { font-size: 13px; }
+
+.pg [class*="__chip"] { height: 28px; padding: 0 12px; font-size: 13px; }
+.pg [class*="__seg"] button { padding: 8px 14px; font-size: 14px; }
+.pg [class*="__seg"] button b { font-size: 12.5px; }
+.pg [class*="__btn"] { font-size: 14px; }
+.pg [class*="__empty"], .pg [class*="__error"] { font-size: 15px; }
+.pg [class*="__lbl"] { font-size: 14px; }
+
+/* ---------- Minimalismo ----------
+   Mismo lenguaje que Trabajo y Tareas: sin cajas dentro de cajas, líneas finas,
+   estado como texto con punto y UN botón principal. `.min.min` sube la especificidad
+   para ganar a los estilos del canal sin tocar el dashboard del cliente. */
+:global(#portal-content[data-channel]) .min.min > header:first-child {
+  padding: 0 0 4px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+:global(#portal-content[data-channel]) .min.min [class*="__panel"] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Filtros: texto, y la opción activa subrayada. */
+:global(#portal-content[data-channel]) .min.min [class*="__seg"] {
+  gap: 22px;
+  padding: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+:global(#portal-content[data-channel]) .min.min [class*="__seg"] button {
+  padding: 6px 0;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+}
+:global(#portal-content[data-channel]) .min.min [class*="__seg"] button:hover { color: var(--ink); }
+:global(#portal-content[data-channel]) .min.min [class*="__seg"] button[aria-pressed="true"] {
+  border-bottom-color: var(--nav-active);
+  background: transparent;
+  box-shadow: none;
+  color: var(--nav-active);
+}
+
+/* Estados: punto de color + texto, sin píldora. */
+:global(#portal-content[data-channel]) .min.min [class*="__chip"]:not([class*="imgSt"]):not([class*="imgWarn"]) {
+  height: auto;
+  gap: 7px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 500;
+}
+:global(#portal-content[data-channel]) .min.min [class*="__chip"]:not([class*="imgSt"]):not([class*="imgWarn"])::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Botones secundarios: texto. El principal (con color) se queda. */
+:global(#portal-content[data-channel]) .min.min [class*="__ghost"] {
+  border-color: transparent;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+:global(#portal-content[data-channel]) .min.min [class*="__ghost"]:hover { background: transparent; border-color: transparent; }
+.min { }

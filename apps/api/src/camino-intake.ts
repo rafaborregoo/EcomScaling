@@ -370,6 +370,7 @@ export async function approveCaminoReviewLearning(
   connectionId: string | null | undefined,
   reviewId: string,
   learningIndex: number,
+  edits?: { decision?: string; title?: string; learning?: string; applies_to?: string },
 ) {
   const access = requireKnowledgeManager(context, organizationId);
   if (access.ok === false) return access;
@@ -399,7 +400,9 @@ export async function approveCaminoReviewLearning(
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
     return { ok: false as const, statusCode: 404, error: "camino_learning_not_found" };
   }
-  const raw = candidate as Record<string, unknown>;
+  if (edits?.decision && !["approved", "discarded"].includes(edits.decision)) return { ok: false as const, statusCode: 400, error: "invalid_learning_decision" };
+  for (const field of ["title", "learning", "applies_to"] as const) if (edits?.[field] !== undefined && (typeof edits[field] !== "string" || !edits[field]!.trim() || edits[field]!.length > 1200)) return { ok: false as const, statusCode: 400, error: "invalid_learning_edit" };
+  const raw: Record<string, unknown> = { ...candidate as Record<string, unknown>, ...(edits?.title ? { title: edits.title.trim() } : {}), ...(edits?.learning ? { learning: edits.learning.trim() } : {}), ...(edits?.applies_to ? { applies_to: edits.applies_to.trim() } : {}) };
   const sourceKey = `${review.id}:${learningIndex}`;
   const found = await existingLearningsDocument(env, organizationId, scope.storeId);
   if (found.ok === false) return found;
@@ -411,6 +414,7 @@ export async function approveCaminoReviewLearning(
     applies_to: typeof raw.applies_to === "string" ? raw.applies_to.slice(0, 300) : "",
     confidence: ["low", "medium", "high"].includes(String(raw.confidence)) ? raw.confidence : "low",
     approved_at: new Date().toISOString(),
+    approved_by: context.user.id,
     review_week_start: review.review_week_start,
     plan_id: planId,
   };
@@ -421,15 +425,13 @@ export async function approveCaminoReviewLearning(
       if (Array.isArray(parsed)) learnings = parsed.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)));
     } catch { /* Replace malformed legacy content with a clean versioned list. */ }
   }
-  if (learnings.some((item) => item.source_key === sourceKey)) {
-    return { ok: true as const, data: { already_approved: true, source_key: sourceKey } };
-  }
-  learnings = [...learnings, learning].slice(-100);
+  learnings = learnings.filter((item) => item.source_key !== sourceKey);
+  if (edits?.decision !== "discarded") learnings = [...learnings, learning].slice(-100);
   const content = JSON.stringify(learnings, null, 2);
   if (found.document?.id) {
     const updated = await updateKnowledgeDocument(env, context, organizationId, found.document.id, { content });
     if (updated.ok === false) return updated;
-  } else {
+  } else if (edits?.decision !== "discarded") {
     const created = await createKnowledgeDocument(env, context, organizationId, {
       title: CAMINO_LEARNINGS_KNOWLEDGE_TITLE,
       description: "Aprendizajes de Mi Camino aprobados por el equipo, con evidencia, alcance, confianza y fecha.",
@@ -440,6 +442,9 @@ export async function approveCaminoReviewLearning(
     });
     if (created.ok === false) return created;
   }
+  const savedDecision = await supabase.from("camino_learning_decisions").upsert({ organization_id: organizationId, review_id: reviewId, learning_index: learningIndex,
+    decision: edits?.decision === "discarded" ? "discarded" : "approved", content: learning, actor_user_id: context.user.id, updated_at: new Date().toISOString() }, { onConflict: "review_id,learning_index" });
+  if (savedDecision.error) return { ok: false as const, statusCode: 503, error: "camino_learning_decision_failed", detail: savedDecision.error.message };
   return { ok: true as const, data: { already_approved: false, source_key: sourceKey } };
 }
 

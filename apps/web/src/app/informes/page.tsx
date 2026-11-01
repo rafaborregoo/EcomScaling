@@ -1,27 +1,48 @@
 "use client";
+import { ScrollArea, Field, DateRangePicker, MultiSearchableSelect, Item, ItemActions, ItemContent, ItemDescription, ItemTitle, List } from "@/components/ui";
+
 
 import { useState } from "react";
 import s from "./informes.module.css";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import {
   Badge,
   Button,
-  Card,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorBlock,
   Input,
   LoadingBlock,
   Select,
   SettingRow,
-  Sheet,
-  Table,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DataTable,
   toast,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -33,6 +54,7 @@ import {
 type KeyMetric = { section: string; label: string; value: string; previous: string | null; change_pct: number | null };
 type ReportRow = {
   id: string;
+  store_id: string | null;
   template_id: string;
   title: string;
   period_start: string;
@@ -46,14 +68,14 @@ type ReportRow = {
   emailed_to: string[];
   created_at: string;
 };
-type Schedule = { id: string; template_id: string; recipients: string[]; is_active: boolean; last_period_end: string | null };
+type Schedule = { id: string; template_id: string; store_id: string | null; recipients: string[]; is_active: boolean; last_period_end: string | null; pending_period_end: string | null; pending_report_id: string | null; last_delivery_error: string | null; last_delivery_attempt_at: string | null; delivery_attempts: number };
 type Template = { id: string; name: string; description: string };
 type ReportsResponse = {
   reports: ReportRow[];
   schedules: Schedule[];
   can_manage: boolean;
   templates: Template[];
-  stores: Array<{ id: string; name: string }>;
+  stores: Array<{ id: string; connection_id: string; name: string }>;
 };
 
 const SOURCE: Record<ReportRow["source"], { label: string; tone: Tone }> = {
@@ -87,6 +109,7 @@ async function openReport(organizationId: string, report: ReportRow) {
 function ReportSheet({ organizationId, report, onClose }: { organizationId: string; report: ReportRow | null; onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
+  const isDesktop = useIsDesktop();
   if (!report) return null;
 
   const send = async () => {
@@ -109,14 +132,20 @@ function ReportSheet({ organizationId, report, onClose }: { organizationId: stri
   };
 
   return (
-    <Sheet
-      isOpen
+    <Drawer
+      open
       onOpenChange={(open) => !open && onClose()}
-      title={report.title}
-      meta={<span className="text-sm text-muted">{periodLabel(report)} · <Badge tone={SOURCE[report.source].tone}>{SOURCE[report.source].label}</Badge></span>}
-      headerActions={<Button size="sm" onClick={() => void openReport(organizationId, report)}>Abrir PDF</Button>}
+      swipeDirection={isDesktop ? "right" : "down"}
+      showSwipeHandle={!isDesktop}
     >
-      <div className="space-y-6">
+      <DrawerContent className="sm:max-w-[40rem]">
+      <DrawerHeader>
+        <DrawerTitle>{report.title}</DrawerTitle>
+        <DrawerDescription>
+          {periodLabel(report)} · <Badge tone={SOURCE[report.source].tone}>{SOURCE[report.source].label}</Badge>
+        </DrawerDescription>
+      </DrawerHeader>
+      <ScrollArea className="flex-1 space-y-6 p-4 sm:px-6">
         {report.highlights.length ? (
           <section>
             <h3 className="mb-2 text-sm font-semibold">Lectura del periodo</h3>
@@ -132,7 +161,7 @@ function ReportSheet({ organizationId, report, onClose }: { organizationId: stri
         {report.key_metrics?.length ? (
           <section>
             <h3 className="mb-2 text-sm font-semibold">Cifras clave</h3>
-            <Table
+            <DataTable
               ariaLabel="Cifras clave del informe"
               mobileLayout="list"
               rows={report.key_metrics.map((metric, index) => ({ ...metric, id: `${index}` }))}
@@ -156,12 +185,17 @@ function ReportSheet({ organizationId, report, onClose }: { organizationId: stri
           </div>
           {report.emailed_to.length ? <p className="mt-2 text-xs text-muted">Ya enviado a {report.emailed_to.join(", ")}</p> : null}
         </section>
-      </div>
-    </Sheet>
+      </ScrollArea>
+      <DrawerFooter>
+        <Button onClick={() => void openReport(organizationId, report)}>Abrir PDF</Button>
+        <DrawerClose render={<Button variant="outline" />}>Cerrar</DrawerClose>
+      </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
-function ReportsTable({ organizationId, reports }: { organizationId: string; reports: ReportRow[] }) {
+function ReportsTable({ organizationId, reports, stores = [] }: { organizationId: string; reports: ReportRow[]; stores?: ReportsResponse["stores"] }) {
   const [selected, setSelected] = useState<ReportRow | null>(null);
   const [search, setSearch] = useState("");
   const matching = reports.filter((report) => `${report.title} ${SOURCE[report.source].label} ${periodLabel(report)}`.toLocaleLowerCase("es-ES").includes(search.trim().toLocaleLowerCase("es-ES")));
@@ -171,7 +205,7 @@ function ReportsTable({ organizationId, reports }: { organizationId: string; rep
         <div className={s.search}><Input type="search" aria-label="Buscar informes por título, periodo u origen" placeholder="Buscar por título, periodo u origen" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
         <span className={s.count} role="status">{matching.length} de {reports.length} informes</span>
       </div>
-      <Table
+      <DataTable
         ariaLabel="Informes generados"
         rows={matching}
         emptyLabel="No hay informes que coincidan. Prueba otra búsqueda."
@@ -182,6 +216,7 @@ function ReportsTable({ organizationId, reports }: { organizationId: string; rep
             render: (report) => (
               <button type="button" className="text-left" onClick={() => setSelected(report)}>
                 <span className="font-medium">{report.title}</span>
+                <span className="mt-0.5 block text-xs text-muted">{stores.find((store) => store.id === report.store_id)?.name ?? (report.store_id ? "Tienda no disponible" : report.source === "portfolio" ? "Cartera de clientes" : "Ámbito de cliente")}</span>
                 {report.highlights[0] ? <span className="mt-0.5 block max-w-xl truncate text-xs text-muted">{report.highlights[0]}</span> : null}
               </button>
             ),
@@ -191,9 +226,9 @@ function ReportsTable({ organizationId, reports }: { organizationId: string; rep
           { key: "created_at", label: "Creado", render: (report) => dateLabel(report.created_at) },
           {
             key: "actions",
-            label: "Acciones",
+            label: "",
             render: (report) => (
-              <div className="flex justify-end gap-2">
+              <div role="group" aria-label="Acciones del informe" className="flex flex-wrap items-center gap-2 ml-auto">
                 <Button size="sm" variant="ghost" onClick={() => setSelected(report)}>Ver</Button>
                 <Button size="sm" variant="secondary" onClick={() => void openReport(organizationId, report)}>PDF</Button>
               </div>
@@ -207,11 +242,12 @@ function ReportsTable({ organizationId, reports }: { organizationId: string; rep
 }
 
 function NewReportDialog({ organizationId, data, isOpen, onOpenChange }: { organizationId: string; data: ReportsResponse; isOpen: boolean; onOpenChange: (open: boolean) => void }) {
+  const { connectionId } = useActiveConnection();
   const [templateId, setTemplateId] = useState("resumen_multicanal");
   const [period, setPeriod] = useState("last_month");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [storeId, setStoreId] = useState(data.stores[0]?.id ?? "");
+  const [storeId, setStoreId] = useState(data.stores.find((store) => store.connection_id === connectionId)?.id ?? data.stores[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
 
   const generate = async () => {
@@ -222,7 +258,7 @@ function NewReportDialog({ organizationId, data, isOpen, onOpenChange }: { organ
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           template_id: templateId,
-          ...(data.stores.length > 1 && storeId ? { store_id: storeId } : {}),
+          ...(storeId ? { store_id: storeId } : {}),
           ...(period === "custom" ? { period_start: start, period_end: end } : {}),
         }),
       });
@@ -238,45 +274,53 @@ function NewReportDialog({ organizationId, data, isOpen, onOpenChange }: { organ
   };
 
   return (
-    <Dialog
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      isBusy={busy}
-      title="Nuevo informe"
-      primary={{ label: "Generar PDF", busyLabel: "Generando…", onClick: () => void generate(), disabled: period === "custom" && (!start || !end) }}
-    >
-      <SettingRow label="Plantilla" hint={data.templates.find((template) => template.id === templateId)?.description}>
-        <Select aria-label="Plantilla" value={templateId} onChange={setTemplateId} options={data.templates.map((template) => ({ value: template.id, label: template.name }))} />
-      </SettingRow>
-      {data.stores.length > 1 ? (
-        <SettingRow label="Tienda" hint="Un informe es de una tienda: no se mezclan monedas.">
-          <Select aria-label="Tienda" value={storeId} onChange={setStoreId} options={data.stores.map((store) => ({ value: store.id, label: store.name }))} />
+    <Dialog open={isOpen} onOpenChange={onOpenChange} busy={busy}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Nuevo informe</DialogTitle>
+        </DialogHeader>
+        <SettingRow label="Plantilla" hint={data.templates.find((template) => template.id === templateId)?.description}>
+          <Select aria-label="Plantilla" value={templateId} onChange={setTemplateId} options={data.templates.map((template) => ({ value: template.id, label: template.name }))} />
         </SettingRow>
-      ) : null}
-      <SettingRow label="Periodo">
-        <Select aria-label="Periodo" value={period} onChange={setPeriod} options={[{ value: "last_month", label: "Último mes completo" }, { value: "custom", label: "Fechas concretas (máx. 92 días)" }]} />
-      </SettingRow>
-      {period === "custom" ? (
-        <SettingRow label="Fechas">
-          <div className="flex items-center gap-2">
-            <Input type="date" aria-label="Desde" value={start} onChange={(event) => setStart(event.target.value)} />
-            <span className="text-muted">–</span>
-            <Input type="date" aria-label="Hasta" value={end} onChange={(event) => setEnd(event.target.value)} />
-          </div>
+        {data.stores.length > 1 ? (
+          <SettingRow label="Tienda" hint="Un informe es de una tienda: no se mezclan monedas.">
+            <Select aria-label="Tienda" value={storeId} onChange={setStoreId} options={data.stores.map((store) => ({ value: store.id, label: store.name }))} />
+          </SettingRow>
+        ) : null}
+        <SettingRow label="Periodo">
+          <Select aria-label="Periodo" value={period} onChange={setPeriod} options={[{ value: "last_month", label: "Último mes completo" }, { value: "custom", label: "Fechas concretas (máx. 92 días)" }]} />
         </SettingRow>
-      ) : null}
+        {period === "custom" ? (
+          <SettingRow label="Fechas">
+            <DateRangePicker
+              value={{ from: start, to: end }}
+              onChange={(range) => {
+                setStart(range.from ?? "");
+                setEnd(range.to ?? "");
+              }}
+              aria-label="Elegir fechas del informe"
+            />
+          </SettingRow>
+        ) : null}
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button disabled={busy || period === "custom" && (!start || !end)} onClick={() => void generate()}>{busy ? "Generando…" : "Generar PDF"}</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
 
 function SchedulesCard({ organizationId, data }: { organizationId: string; data: ReportsResponse }) {
+  const { connectionId } = useActiveConnection();
   const [templateId, setTemplateId] = useState("resumen_multicanal");
-  const [recipients, setRecipients] = useState("");
+  const [storeId, setStoreId] = useState(data.stores.find((store) => store.connection_id === connectionId)?.id ?? data.stores[0]?.id ?? "");
+  const [recipients, setRecipients] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const templateName = (id: string) => data.templates.find((template) => template.id === id)?.name ?? id;
   const reload = () => invalidateCachedQueries(`/v1/organizations/${organizationId}/reports`);
 
-  const save = async (body: { template_id: string; recipients: string[]; is_active?: boolean }) => {
+  const save = async (body: { template_id: string; store_id: string | null; recipients: string[]; is_active?: boolean }) => {
     setBusy(true);
     try {
       const response = await apiFetch(`/v1/organizations/${organizationId}/report-schedules`, {
@@ -301,48 +345,58 @@ function SchedulesCard({ organizationId, data }: { organizationId: string; data:
   };
 
   return (
-    <Card headingLevel={2} title="Envío mensual" description="El día 1 de cada mes se genera el informe del mes anterior y se envía por correo.">
-      {data.schedules.length ? (
-        <ul className="mb-4 divide-y divide-separator">
-          {data.schedules.map((schedule) => (
-            <li key={schedule.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-              <div>
-                <p className="font-medium">{templateName(schedule.template_id)} {schedule.is_active ? null : <Badge>Pausado</Badge>}</p>
-                <p className="text-muted">{schedule.recipients.join(", ")}{schedule.last_period_end ? ` · último: ${dateLabel(schedule.last_period_end)}` : ""}</p>
-              </div>
-              {data.can_manage ? (
-                <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ template_id: schedule.template_id, recipients: schedule.recipients, is_active: !schedule.is_active })}>
-                    {schedule.is_active ? "Pausar" : "Reanudar"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void remove(schedule)}>Quitar</Button>
-                </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {data.can_manage ? (
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const list = recipients.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean);
-            void save({ template_id: templateId, recipients: list }).then((ok) => ok && setRecipients(""));
-          }}
-        >
-          <div className="w-56"><p className="mb-2 text-sm font-medium">Plantilla del envío</p><Select aria-label="Plantilla del envío" value={templateId} onChange={setTemplateId} options={data.templates.map((template) => ({ value: template.id, label: template.name }))} /></div>
-          <div className="min-w-0 flex-1 basis-64"><label className="mb-2 block text-sm font-medium" htmlFor="report-recipients">Destinatarios</label><Input id="report-recipients" aria-label="Destinatarios" placeholder="correos separados por comas" value={recipients} onChange={(event) => setRecipients(event.target.value)} /></div>
-          <Button type="submit" disabled={busy || !recipients.trim()}>Programar</Button>
-        </form>
-      ) : data.schedules.length ? null : (
-        <p className="text-sm text-muted">No hay envíos programados. Los configura tu consultor o el propietario de la cuenta.</p>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle as="h2">Envío mensual</CardTitle>
+        <CardDescription>Se genera el informe del mes anterior y se envía por correo. Si falla la entrega, se reintenta en la siguiente ejecución diaria con el mismo PDF.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {data.schedules.length ? (
+          <List as="ul" className="mb-4">
+            {data.schedules.map((schedule) => (
+              <Item key={schedule.id} render={<li />}>
+                <ItemContent>
+                  <ItemTitle>{templateName(schedule.template_id)} {schedule.is_active ? null : <Badge>Pausado</Badge>}</ItemTitle>
+                  <ItemDescription>{data.stores.find((store) => store.id === schedule.store_id)?.name ?? (schedule.store_id ? "Tienda no disponible" : "Ámbito de cliente")} · {schedule.recipients.join(", ")}</ItemDescription>
+                  <ItemDescription>{schedule.last_period_end ? `Último mes enviado: ${dateLabel(schedule.last_period_end)}` : "Todavía sin envío confirmado"}</ItemDescription>
+                  {schedule.pending_report_id ? <p className="mt-1 text-sm">PDF generado · entrega pendiente{schedule.pending_period_end ? ` del mes terminado el ${dateLabel(schedule.pending_period_end)}` : ""}.</p> : null}
+                  {schedule.last_delivery_error ? <p className="mt-1 text-sm text-danger" role="status">Entrega fallida{schedule.last_delivery_attempt_at ? ` · ${dateLabel(schedule.last_delivery_attempt_at)}` : ""}. {schedule.is_active ? "Reintento automático en la siguiente ejecución diaria." : "Reanuda el envío para reintentarlo."}</p> : null}
+                </ItemContent>
+                {data.can_manage ? (
+                  <ItemActions role="group" aria-label="Acciones del envio programado">
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ template_id: schedule.template_id, store_id: schedule.store_id, recipients: schedule.recipients, is_active: !schedule.is_active })}>
+                      {schedule.is_active ? "Pausar" : "Reanudar"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void remove(schedule)}>Quitar</Button>
+                  </ItemActions>
+                ) : null}
+              </Item>
+            ))}
+          </List>
+        ) : null}
+        {data.can_manage ? (
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save({ template_id: templateId, store_id: storeId || null, recipients }).then((ok) => ok && setRecipients([]));
+            }}
+          >
+            <Field label="Plantilla del envío" className="w-72"><Select value={templateId} onChange={setTemplateId} options={data.templates.map((template) => ({ value: template.id, label: template.name }))} /></Field>
+            {data.stores.length ? <Field label="Tienda del envío" className="w-64"><Select value={storeId} onChange={setStoreId} options={data.stores.map((store) => ({ value: store.id, label: store.name }))} /></Field> : null}
+            <Field label="Destinatarios" className="min-w-0 flex-1 basis-64"><MultiSearchableSelect placeholder="Escribe un email y pulsa Intro" emptyText="Escribe un email y pulsa Intro." allowsCustomValue options={[]} values={recipients} onChange={setRecipients} /></Field>
+            <Button type="submit" disabled={busy || recipients.length === 0}>Programar</Button>
+          </form>
+        ) : data.schedules.length ? null : (
+          <EmptyState size="sm" title="No hay envíos programados" hint="Los configura tu consultor o el propietario de la cuenta." />
+        )}
+      </CardContent>
     </Card>
   );
 }
 
 function OrganizationReports({ organizationId }: { organizationId: string }) {
+  const { connectionId } = useActiveConnection();
   const query = useCachedQuery<ReportsResponse>(`/v1/organizations/${organizationId}/reports`);
   const [creating, setCreating] = useState(false);
   if (query.isLoading) return <LoadingBlock label="Cargando informes..." />;
@@ -351,26 +405,28 @@ function OrganizationReports({ organizationId }: { organizationId: string }) {
   return (
     <div className="space-y-4">
       <header className={s.header}>
-        <div><h1>Informes de tu tienda</h1><p>Revisa las conclusiones del periodo, consulta el PDF y gestiona tus envíos mensuales.</p></div>
+        <div className="client-sr-title"><h1>Informes de tu tienda</h1><p>Revisa las conclusiones del periodo, consulta el PDF y gestiona tus envíos mensuales.</p></div>
         <dl className={s.stats}>
           <div><dt>Informes disponibles</dt><dd>{data.reports.length}</dd></div>
           <div><dt>Envíos mensuales activos</dt><dd>{data.schedules.filter((schedule) => schedule.is_active).length}</dd></div>
         </dl>
       </header>
-      <Card
-        headingLevel={2}
-        title="Biblioteca de informes"
-        description="Los PDF generados desde el copiloto, desde aquí o en el envío mensual."
-        actions={<Button onClick={() => setCreating(true)}>Nuevo informe</Button>}
-      >
-        {data.reports.length ? (
-          <ReportsTable organizationId={organizationId} reports={data.reports} />
-        ) : (
-          <EmptyState title="Aún no hay informes" hint="Genera uno aquí o pídeselo al copiloto («hazme el resumen ejecutivo del mes pasado»)." />
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle as="h2">Biblioteca de informes</CardTitle>
+          <CardDescription>Los PDF generados desde el copiloto, desde aquí o en el envío mensual.</CardDescription>
+          <CardAction><Button onClick={() => setCreating(true)}>Nuevo informe</Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          {data.reports.length ? (
+            <ReportsTable organizationId={organizationId} reports={data.reports} stores={data.stores} />
+          ) : (
+            <EmptyState title="Aún no hay informes" hint="Genera uno aquí o pídeselo al copiloto («hazme el resumen ejecutivo del mes pasado»)." />
+          )}
+        </CardContent>
       </Card>
-      <SchedulesCard organizationId={organizationId} data={data} />
-      {creating ? <NewReportDialog organizationId={organizationId} data={data} isOpen={creating} onOpenChange={setCreating} /> : null}
+      <SchedulesCard key={`${organizationId}:${connectionId}`} organizationId={organizationId} data={data} />
+      {creating ? <NewReportDialog key={`${organizationId}:${connectionId}`} organizationId={organizationId} data={data} isOpen={creating} onOpenChange={setCreating} /> : null}
     </div>
   );
 }
@@ -409,25 +465,25 @@ function PortfolioReports() {
   const reports = (query.data?.reports ?? []).filter((report) => report.source === "portfolio");
   return (
     <div className="space-y-4">
-      <header className={s.header}><div><h1>Informes de cartera</h1><p>Una lectura conjunta de tus clientes para preparar la revisión y compartir conclusiones con el equipo.</p></div></header>
-      <Card
-        headingLevel={2}
-        title="Biblioteca de la cartera"
-        description="Facturación, beneficio y estado de cada cliente, con las cifras del Panel de rentabilidad. Para los informes de un cliente, elígelo en la cabecera."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
+      <header className={`${s.header} client-sr-title`}><div><h1>Informes de cartera</h1><p>Una lectura conjunta de tus clientes para preparar la revisión y compartir conclusiones con el equipo.</p></div></header>
+      <Card>
+        <CardHeader>
+          <CardTitle as="h2">Biblioteca de la cartera</CardTitle>
+          <CardDescription>Facturación, beneficio y estado de cada cliente, con las cifras del Panel de rentabilidad. Para los informes de un cliente, elígelo en la cabecera.</CardDescription>
+          <CardAction><div className="flex flex-wrap items-center gap-2">
             <div className="w-40"><Select aria-label="Periodo" value={days} onChange={setDays} options={[{ value: "30", label: "Últimos 30 días" }, { value: "90", label: "Últimos 90 días" }]} /></div>
             <Button disabled={busy} onClick={() => void generate()}>{busy ? "Generando…" : "Generar"}</Button>
-          </div>
-        }
-      >
-        {query.error ? (
-          <div className="space-y-4"><ErrorBlock>No se pudieron cargar los informes de cartera.</ErrorBlock><Button variant="secondary" onClick={query.reload}>Reintentar la carga</Button></div>
-        ) : reports.length ? (
-          <ReportsTable organizationId={organizationId} reports={reports} />
-        ) : (
-          <EmptyState title="Aún no hay informes de cartera" hint="Genera el primero: una página con toda tu cartera para revisar o compartir con tu equipo." />
-        )}
+          </div></CardAction>
+        </CardHeader>
+        <CardContent>
+          {query.error ? (
+            <div className="space-y-4"><ErrorBlock>No se pudieron cargar los informes de cartera.</ErrorBlock><Button variant="secondary" onClick={query.reload}>Reintentar la carga</Button></div>
+          ) : reports.length ? (
+            <ReportsTable organizationId={organizationId} reports={reports} />
+          ) : (
+            <EmptyState title="Aún no hay informes de cartera" hint="Genera el primero: una página con toda tu cartera para revisar o compartir con tu equipo." />
+          )}
+        </CardContent>
       </Card>
     </div>
   );

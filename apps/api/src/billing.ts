@@ -731,7 +731,7 @@ function requirePlatformAdmin(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "platform_admin_required",
-      message: "Solo un platform admin puede gestionar planes.",
+      message: "Solo un administrador de la plataforma puede gestionar planes.",
     };
   }
   return { ok: true as const };
@@ -796,7 +796,7 @@ export function buildGrantPatch(
       ok: false,
       error: "plan_code_invalid",
       message:
-        "El codigo de plan es obligatorio y no puede pasar de 50 caracteres.",
+        "El código de plan es obligatorio y no puede pasar de 50 caracteres.",
     };
   }
 
@@ -808,7 +808,7 @@ export function buildGrantPatch(
       ok: false,
       error: "store_limit_required",
       message:
-        "Indica cuantas tiendas incluye el plan, o null explicito para dejarlo sin limite.",
+        "Indica cuántas tiendas incluye el plan, o null explícito para dejarlo sin límite.",
     };
   } else {
     const parsed =
@@ -820,7 +820,7 @@ export function buildGrantPatch(
         ok: false,
         error: "store_limit_invalid",
         message:
-          "El limite de tiendas tiene que ser un entero positivo o null.",
+          "El límite de tiendas tiene que ser un entero positivo o null.",
       };
     }
     storeLimit = parsed;
@@ -839,7 +839,7 @@ export function buildGrantPatch(
       return {
         ok: false,
         error: "member_limit_invalid",
-        message: "El limite de usuarios tiene que ser un entero positivo o null.",
+        message: "El límite de usuarios tiene que ser un entero positivo o null.",
       };
     }
     memberLimit = parsed;
@@ -851,7 +851,7 @@ export function buildGrantPatch(
       return {
         ok: false,
         error: "ends_at_invalid",
-        message: "La fecha de fin no es valida.",
+        message: "La fecha de fin no es válida.",
       };
     }
     if (parsed.getTime() <= now.getTime()) {
@@ -1178,7 +1178,7 @@ export async function grantSubscription(
       ok: false as const,
       statusCode: 409,
       error: "subscription_paid_exists",
-      message: `Ya tiene un plan de pago activo en Stripe (${dePago.external_subscription_id}). Cancelalo alli antes de conceder otro.`,
+      message: `Ya tiene un plan de pago activo en Stripe (${dePago.external_subscription_id}). Cancélalo allí antes de conceder otro.`,
     };
   }
 
@@ -1270,7 +1270,7 @@ export async function revokeSubscription(
       statusCode: 409,
       error: "subscription_is_paid",
       message:
-        "Este plan lo gestiona Stripe. Cancelalo alli y el cambio llega solo.",
+        "Este plan lo gestiona Stripe. Cancélalo allí y el cambio llega solo.",
     };
   }
 

@@ -45,5 +45,19 @@ jobs:
       - name: Run API unit suite, including judge and release admin
         run: npm run test:unit --workspace=@e-nora/api
 
+      - name: Run A24 measurement coverage and final SQL contracts
+        run: npm run test:a24-contracts --workspace=@e-nora/api
+
+      - name: Run A26 editorial and final SQL contracts
+        run: npm run test:a26-contracts --workspace=@e-nora/api && npm run test:a26-html --workspace=@e-nora/api && node --test ops/email-renderer/render-core.test.mjs
+
       - name: Test migration release preflight
         run: npm run test:agent-release-preflight
+
+      - name: Install isolated PostgreSQL test runtime
+        run: npm install --prefix "$RUNNER_TEMP/a27-postgres" --package-lock=false --no-audit --no-fund @electric-sql/pglite@0.5.11
+
+      - name: Verify A27 SQL approval, leases, delivery receipts and permissions
+        env:
+          A27_PGLITE_MODULE: ${{ runner.temp }}/a27-postgres/node_modules/@electric-sql/pglite/dist/index.js
+        run: node --test scripts/a27-mailing-db.test.mjs

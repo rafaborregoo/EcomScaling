@@ -11,11 +11,19 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import {
   Avatar,
+  avatarInitials,
+  AvatarImage,
+  AvatarFallback,
   Badge,
   Button,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 import { chatFilter, isWaiting, waitLabel, type ChatFilter } from "./chat-state";
 import s from "./mensajes.module.css";
@@ -213,7 +221,11 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
       ) : null}
 
       {threads && threads.length > 0 ? (
-        <section
+        // Lista, hilo y contexto con anchos arrastrables (se recuerdan); en
+        // pantallas estrechas el CSS oculta paneles y asas como antes.
+        <ResizablePanelGroup
+          autoSaveId="mensajes"
+          role="region"
           className={s.inbox}
           data-client={isClient || undefined}
           data-nolist={showList ? undefined : ""}
@@ -221,7 +233,8 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
           aria-label="Conversaciones"
         >
           {showList ? (
-            <div className={`${s.col} ${s.list}`}>
+            <>
+            <ResizablePanel defaultSize="320px" minSize="240px" maxSize="40%" className={`${s.col} ${s.list}`}>
               <div className={s.lhead}>
                 <input
                   className={s.search}
@@ -232,17 +245,11 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                   onChange={(event) => setQuery(event.target.value)}
                 />
                 {!isClient ? (
-                  <div className={s.chips} role="group" aria-label="Filtro">
+                  <ToggleGroup aria-label="Filtro" spacing={1.5} value={effective} onValueChange={setFilter}>
                     {FILTERS.map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={s.chip}
-                        aria-pressed={effective === value}
-                        onClick={() => setFilter(value)}
-                      >
+                      <ToggleGroupItem key={value} value={value}>
                         {label}
-                        <small>
+                        <span className="text-xs text-muted tabular-nums">
                           {value === "wait"
                             ? waiting.length
                             : value === "unread"
@@ -250,10 +257,10 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                               : value === "quiet"
                                 ? quiet.length
                                 : all.length}
-                        </small>
-                      </button>
+                        </span>
+                      </ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                 ) : null}
               </div>
               <div className={s.rows}>
@@ -289,12 +296,10 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                       }}
                     >
                       <span className={s.avatar}>
-                        <Avatar
-                          name={thread.counterpart_name ?? thread.organization_name}
-                          src={thread.counterpart_avatar_url ?? undefined}
-                          size="md"
-                          color="accent"
-                        />
+                        <Avatar size="lg">
+                          <AvatarImage src={thread.counterpart_avatar_url ?? undefined} alt="" />
+                          <AvatarFallback className="bg-accent text-white">{avatarInitials(thread.counterpart_name ?? thread.organization_name)}</AvatarFallback>
+                        </Avatar>
                       </span>
                       <span className={s.name}>{title(thread)}</span>
                       <span className={s.when}>{last ? listWhen(last.created_at, now) : ""}</span>
@@ -324,10 +329,12 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                   );
                 })}
               </div>
-            </div>
+            </ResizablePanel>
+            <ResizableHandle aria-label="Cambiar el ancho de la lista" />
+            </>
           ) : null}
 
-          <div className={`${s.col} ${s.chat}`}>
+          <ResizablePanel className={`${s.col} ${s.chat}`}>
             {active ? (
               <>
                 <div className={s.chead}>
@@ -338,12 +345,10 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                       </Button>
                     </span>
                   ) : null}
-                  <Avatar
-                    name={active.counterpart_name ?? active.organization_name}
-                    src={active.counterpart_avatar_url ?? undefined}
-                    size="md"
-                    color="accent"
-                  />
+                  <Avatar size="lg">
+                    <AvatarImage src={active.counterpart_avatar_url ?? undefined} alt="" />
+                    <AvatarFallback className="bg-accent text-white">{avatarInitials(active.counterpart_name ?? active.organization_name)}</AvatarFallback>
+                  </Avatar>
                   <div className="min-w-0">
                     <b>{orphanThread ? "Sin consultor asignado" : title(active)}</b>
                     <span>{isClient ? (orphanThread ? active.organization_name : `Tu consultor · ${active.organization_name}`) : subtitle(active)}</span>
@@ -372,17 +377,17 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
             ) : (
               <p className={s.pick}>Elige un chat de la lista.</p>
             )}
-          </div>
+          </ResizablePanel>
 
           {active ? (
-            <aside className={s.ctx} aria-label="Contexto">
+            <>
+            <ResizableHandle aria-label="Cambiar el ancho del contexto" className={s.ctxHandle} />
+            <ResizablePanel defaultSize="300px" minSize="240px" maxSize="35%" className={s.ctx} role="complementary" aria-label="Contexto">
               <div className={s.who}>
-                <Avatar
-                  name={active.counterpart_name ?? active.organization_name}
-                  src={active.counterpart_avatar_url ?? undefined}
-                  size="md"
-                  color="accent"
-                />
+                <Avatar size="lg">
+                  <AvatarImage src={active.counterpart_avatar_url ?? undefined} alt="" />
+                  <AvatarFallback className="bg-accent text-white">{avatarInitials(active.counterpart_name ?? active.organization_name)}</AvatarFallback>
+                </Avatar>
                 <div className="min-w-0">
                   <b>{isClient ? (active.counterpart_name ?? "Tu consultor") : active.organization_name}</b>
                   <br />
@@ -425,9 +430,10 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
                   {!isClient ? <Link className={s.chip} href="/agenda">Agenda</Link> : null}
                 </div>
               </div>
-            </aside>
+            </ResizablePanel>
+            </>
           ) : null}
-        </section>
+        </ResizablePanelGroup>
       ) : null}
     </div>
   );

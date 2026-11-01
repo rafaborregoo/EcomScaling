@@ -1,5 +1,6 @@
 "use client";
 
+
 /**
  * Mesa de trabajo diaria (docs/PLAN_MESA_TRABAJO_DIARIA_CONSULTOR.md).
  *
@@ -22,11 +23,13 @@ import { panelPct } from "@e-nora/contracts";
 import { useProfitability } from "@/app/panel/panel-data";
 import { isWithinNextDays } from "@/lib/elapsed";
 import { invalidateCachedQueries } from "@/lib/use-cached-query";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import {
+  ScrollArea,
   Badge,
   Button,
   ButtonLink,
-  Card,
   CollapsibleSection,
   EmptyState,
   EYEBROW,
@@ -34,10 +37,34 @@ import {
   Input,
   Link,
   Metric,
-  Dialog,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
   Banner,
   toast,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleMore,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+  List,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@/components/ui";
 
 // --- Contrato con el endpoint ---------------------------------------------
@@ -93,6 +120,7 @@ export type UpcomingItem = {
 
 export type ClientDeskData = {
   organization_id: string;
+  camino_notice?: string | null;
   organization_name: string;
   status: string | null;
   currency_code: string | null;
@@ -137,6 +165,8 @@ export type ClientDeskData = {
     meta_spend_delta: number | null;
   };
   camino: {
+    connection_id?: string | null;
+    store_name?: string | null;
     phase_name: string;
     phase_status: string;
     milestones_total: number;
@@ -161,6 +191,27 @@ export type ClientDeskData = {
   };
 };
 
+export type ClientOnboarding = {
+  organization_id: string;
+  completed: number;
+  next: string | null;
+  steps: Array<{ key: string; label: string; status: "done" | "pending" | "unknown"; href: string; action: string; detail: string }>;
+};
+
+export function ClientOnboardingSteps({ onboarding }: { onboarding: ClientOnboarding }) {
+  return <section aria-label="Puesta en marcha del cliente" className="space-y-3 py-4">
+    <h3 className="text-sm font-semibold">Puesta en marcha · {onboarding.completed} de {onboarding.steps.length} pasos</h3>
+    <ol className="divide-y divide-separator">
+      {onboarding.steps.map((step) => <li key={step.key} className="flex flex-wrap items-start justify-between gap-3 py-3 text-sm">
+        <div className="min-w-0 flex-1 basis-64"><p className="font-medium">{step.label} <Badge tone={step.status === "done" ? "success" : "neutral"}>{step.status === "done" ? "Completado" : step.status === "unknown" ? "Sin comprobar" : "Pendiente"}</Badge></p>
+          {step.status !== "done" ? <p className="mt-1 max-w-prose text-xs text-muted">{step.status === "unknown" ? "No se pudo leer la fuente. Recarga para comprobar este paso." : step.detail}</p> : null}
+        </div>
+        {step.status !== "done" ? <ButtonLink href={step.href} size="sm" variant="secondary">{step.action}</ButtonLink> : null}
+      </li>)}
+    </ol>
+  </section>;
+}
+
 export type DailyWorkbench = {
   window_days: number;
   generated_at: string;
@@ -175,6 +226,7 @@ export type DailyWorkbench = {
   };
   actions: WorkbenchAction[];
   portfolio: PortfolioHealthRow[];
+  onboarding?: ClientOnboarding[];
   upcoming: UpcomingItem[];
   sources: Record<string, "ok" | "error">;
   client?: ClientDeskData;
@@ -201,7 +253,7 @@ const KIND_LABELS: Record<WorkbenchActionKind, string> = {
   milestone_due: "Hito",
 };
 
-const STATUS_BADGE: Record<
+export const STATUS_BADGE: Record<
   PortfolioHealthRow["status"],
   { label: string; tone: Tone }
 > = {
@@ -359,102 +411,102 @@ export function DailyActionInbox({
     () => actions.filter((action) => matchesFilter(action, filter)),
     [actions, filter],
   );
-  const visible = showAll ? filtered : filtered.slice(0, INITIAL_ROWS);
+  // Se corta por clientes enteros: un cliente no queda partido entre lo
+  // visible y lo plegado.
+  const groups = groupByOrganization(filtered);
+  let headGroups = 0;
+  for (let rows = 0; headGroups < groups.length; headGroups++) {
+    rows += groups[headGroups]!.actions.length;
+    if (headGroups > 0 && rows > INITIAL_ROWS) break;
+  }
+
+  const renderGroup = (group: ReturnType<typeof groupByOrganization>[number]) => (
+                <li key={group.organization_id} className="py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <span className="text-sm font-semibold text-foreground">
+                      {group.organization_name}
+                    </span>
+                    {group.actions.length > 1 ? (
+                      <span className="text-xs text-muted">
+                        {group.actions.length} acciones
+                      </span>
+                    ) : null}
+                  </div>
+                  <ul className="divide-y divide-separator">
+                    {group.actions.map((action) => (
+                      <li key={action.id}>
+                        <ActionRow action={action} onDecided={onDecided} />
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              );
 
   return (
-    <Card
-      title="Para resolver hoy"
-      description={
-        actions.length === 0
+    <Card>
+      <CardHeader>
+        <CardTitle>Para resolver hoy</CardTitle>
+        <CardDescription>{actions.length === 0
           ? "No hay nada pendiente de decisión en tu cartera."
-          : `${actions.length} ${actions.length === 1 ? "acción" : "acciones"} en cola, ordenadas por urgencia y por el cliente que peor va.`
-      }
-    >
-      {actions.length > 0 ? (
-        <div
-          className="flex flex-wrap gap-2"
-          role="group"
-          aria-label="Filtrar la cola de trabajo"
-        >
-          {INBOX_FILTERS.map((option) => {
-            const count = actions.filter((action) =>
-              matchesFilter(action, option.value),
-            ).length;
-            const active = option.value === filter;
-            return (
-              <Button
-                key={option.value}
-                type="button"
-                size="sm"
-                variant={active ? "primary" : "ghost"}
-                aria-pressed={active}
-                onClick={() => {
-                  onFilterChange(option.value);
-                  setShowAll(false);
-                }}
-              >
-                {option.label} ({count})
-              </Button>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {actions.length === 0 ? (
-        <div className="mt-4">
-          <EmptyState
-            title="Todo al día"
-            hint={
-              emptyHint ??
-              "Ninguna alerta, tarea, llamada ni integración pide decisión ahora mismo."
-            }
-          />
-        </div>
-      ) : filtered.length === 0 ? (
-        <p className="mt-4 text-[13px] text-muted">
-          Nada en este filtro. Prueba con &quot;Todo&quot;.
-        </p>
-      ) : (
-        <>
-          <ul className="mt-4 divide-y divide-separator">
-            {groupByOrganization(visible).map((group) => (
-              <li key={group.organization_id} className="py-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <span className="text-sm font-semibold text-foreground">
-                    {group.organization_name}
-                  </span>
-                  {group.actions.length > 1 ? (
-                    <span className="text-xs text-muted">
-                      {group.actions.length} acciones
-                    </span>
-                  ) : null}
-                </div>
-                <ul className="divide-y divide-separator">
-                  {group.actions.map((action) => (
-                    <li key={action.id}>
-                      <ActionRow action={action} onDecided={onDecided} />
-                    </li>
-                  ))}
-                </ul>
-              </li>
+          : `${actions.length} ${actions.length === 1 ? "acción" : "acciones"} en cola, ordenadas por urgencia y por el cliente que peor va.`}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {actions.length > 0 ? (
+          <ToggleGroup
+            aria-label="Filtrar la cola de trabajo"
+            spacing={2}
+            value={filter}
+            onValueChange={(value) => {
+              onFilterChange(value);
+              setShowAll(false);
+            }}
+          >
+            {INBOX_FILTERS.map((option) => (
+              <ToggleGroupItem key={option.value} value={option.value}>
+                {option.label}{" "}
+                <span className="text-xs text-muted tabular-nums">
+                  {actions.filter((action) => matchesFilter(action, option.value)).length}
+                </span>
+              </ToggleGroupItem>
             ))}
-          </ul>
-          {filtered.length > INITIAL_ROWS ? (
-            <div className="mt-4">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setShowAll((value) => !value)}
-              >
-                {showAll
-                  ? `Ver solo las ${INITIAL_ROWS} primeras`
-                  : `Ver todo (${filtered.length})`}
-              </Button>
-            </div>
-          ) : null}
-        </>
-      )}
+          </ToggleGroup>
+        ) : null}
+
+        {actions.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState
+              title="Todo al día"
+              hint={
+                emptyHint ??
+                "Ninguna alerta, tarea, llamada ni integración pide decisión ahora mismo."
+              }
+            />
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState size="sm" title="Nada en este filtro" hint="Prueba con «Todo»." />
+        ) : (
+          <Collapsible open={showAll} onOpenChange={setShowAll}>
+            <ul className="mt-4 divide-y divide-separator">
+              {groups.slice(0, headGroups).map(renderGroup)}
+            </ul>
+            {headGroups < groups.length ? (
+              <>
+                <CollapsibleContent>
+                  <ul className="divide-y divide-separator border-t border-separator">
+                    {groups.slice(headGroups).map(renderGroup)}
+                  </ul>
+                </CollapsibleContent>
+                <CollapsibleMore
+                  className="mt-4"
+                  count={groups.length - headGroups}
+                  more={`Ver todo (${filtered.length})`}
+                  less="Ver menos"
+                />
+              </>
+            ) : null}
+          </Collapsible>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -504,7 +556,7 @@ function DecisionButtons({
 
   return (
     <>
-      <Button type="button" size="sm" variant="primary" disabled={busy !== null} onClick={() => void decide("approved")}>
+      <Button type="button" size="sm" variant="default" disabled={busy !== null} onClick={() => void decide("approved")}>
         {busy === "approved" ? "Guardando…" : labels.approve}
       </Button>
       <Button type="button" size="sm" variant="ghost" disabled={busy !== null} onClick={() => void decide("rejected")}>
@@ -527,6 +579,7 @@ function ActionRow({
     action.due_at ? `Vence ${formatDateTime(action.due_at)}` : null,
   ].filter(Boolean);
   const [showDetail, setShowDetail] = useState(false);
+  const isDesktop = useIsDesktop();
 
   return (
     <div className="task-lift flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
@@ -573,46 +626,46 @@ function ActionRow({
         </ButtonLink>
       </div>
 
-      {/* Detalle en modal: la fila ya trae lo esencial, pero con evidencia
+      {/* Detalle en cajón: la fila ya trae lo esencial, pero con evidencia
           larga o un motivo detallado, "abrir el modulo" es un salto de
           contexto de mas solo para leer. Aqui se lee sin salir de la mesa. */}
-      <Dialog
-        isOpen={showDetail}
+      <Drawer
+        open={showDetail}
         onOpenChange={setShowDetail}
-        eyebrow={KIND_LABELS[action.kind]}
-        title={action.title}
-        cancelLabel="Cerrar"
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={() => setShowDetail(false)}>
-              Cerrar
-            </Button>
-            <ButtonLink
-              href={action.href}
-              onClick={() => setShowDetail(false)}
-            >
+        swipeDirection={isDesktop ? "right" : "down"}
+        showSwipeHandle={!isDesktop}
+      >
+        <DrawerContent className="sm:max-w-[40rem]">
+          <DrawerHeader>
+            {KIND_LABELS[action.kind] ? <span className={EYEBROW}>{KIND_LABELS[action.kind]}</span> : null}
+            <DrawerTitle>{action.title}</DrawerTitle>
+            <DrawerDescription>
+              {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
+              <span className="font-medium text-ink">{action.organization_name}</span>
+            </DrawerDescription>
+          </DrawerHeader>
+          <ScrollArea className="flex-1 space-y-4 p-4 sm:px-6">
+          <p className="leading-relaxed text-ink">{action.reason}</p>
+          {action.evidence.length > 0 ? (
+            <dl className="divide-y divide-line text-sm">
+              {action.evidence.map((item) => (
+                <div key={`${item.label}:${item.value}`} className="flex items-center justify-between gap-4 py-3">
+                  <dt className="text-muted">{item.label}</dt>
+                  <dd className="font-medium text-ink">{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {meta.length > 0 ? <p className="text-xs text-muted">{meta.join(" · ")}</p> : null}
+          </ScrollArea>
+          <DrawerFooter>
+            <ButtonLink href={action.href} onClick={() => setShowDetail(false)}>
               {action.action_label}
             </ButtonLink>
-          </>
-        }
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
-          <span className="text-sm font-medium text-ink">{action.organization_name}</span>
-        </div>
-        <p className="leading-relaxed text-ink">{action.reason}</p>
-        {action.evidence.length > 0 ? (
-          <dl className="divide-y divide-line text-sm">
-            {action.evidence.map((item) => (
-              <div key={`${item.label}:${item.value}`} className="flex items-center justify-between gap-4 py-3">
-                <dt className="text-muted">{item.label}</dt>
-                <dd className="font-medium text-ink">{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-        ) : null}
-        {meta.length > 0 ? <p className="text-xs text-muted">{meta.join(" · ")}</p> : null}
-      </Dialog>
+            <DrawerClose render={<Button variant="outline" />}>Cerrar</DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
@@ -674,39 +727,20 @@ export function PortfolioHealthBoard({
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div
-          className="flex flex-wrap gap-2"
-          role="group"
-          aria-label="Filtrar cartera por estado"
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant={statusFilter === "todos" ? "primary" : "ghost"}
-            aria-pressed={statusFilter === "todos"}
-            onClick={() => setStatusFilter("todos")}
-          >
-            Todos ({rows.length})
-          </Button>
+        <ToggleGroup aria-label="Filtrar cartera por estado" spacing={2} value={statusFilter} onValueChange={setStatusFilter}>
+          <ToggleGroupItem value="todos">
+            Todos <span className="text-xs text-muted tabular-nums">{rows.length}</span>
+          </ToggleGroupItem>
           {HEALTH_STATUS_ORDER.map((status) => {
-            const count = rows.filter((row) => row.status === status).length;
-            if (count === 0) return null;
-            const badge = STATUS_BADGE[status];
-            const active = statusFilter === status;
+            const total = rows.filter((row) => row.status === status).length;
+            if (total === 0) return null;
             return (
-              <Button
-                key={status}
-                type="button"
-                size="sm"
-                variant={active ? "primary" : "ghost"}
-                aria-pressed={active}
-                onClick={() => setStatusFilter(status)}
-              >
-                {badge.label} ({count})
-              </Button>
+              <ToggleGroupItem key={status} value={status}>
+                {STATUS_BADGE[status].label} <span className="text-xs text-muted tabular-nums">{total}</span>
+              </ToggleGroupItem>
             );
           })}
-        </div>
+        </ToggleGroup>
         {rows.length > 6 ? (
           <div className="w-48">
             <Input
@@ -721,9 +755,7 @@ export function PortfolioHealthBoard({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="mt-4 text-[13px] text-muted">
-          Sin resultados para este filtro.
-        </p>
+        <EmptyState size="sm" title="Sin resultados para este filtro" />
       ) : (
         <ul className="mt-4 divide-y divide-separator">
           {filtered.map((row) => {
@@ -772,7 +804,7 @@ export function PortfolioHealthBoard({
                     </p>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
+                <div role="group" aria-label="Acciones de la cartera" className="flex flex-wrap items-center gap-2 shrink-0">
                   {row.next_action ? (
                     <ButtonLink
                       href={row.next_action.href}
@@ -828,45 +860,48 @@ export function UpcomingWork({
   }, [items]);
 
   return (
-    <Card title={title} description={description}>
-      {byDay.length === 0 ? (
-        <p className="mt-4 text-[13px] text-muted">{emptyLabel}</p>
-      ) : (
-        <div className="mt-4 space-y-4">
-          {byDay.map(([day, dayItems]) => (
-            <div key={day}>
-              <p className="text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted">
-                {formatDay(`${day}T12:00:00.000Z`)}
-              </p>
-              <ul className="mt-2 divide-y divide-separator">
-                {dayItems.map((item) => (
-                  <li
-                    key={item.id}
-                    className="task-lift flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3"
-                  >
-                    <div className="min-w-[12rem] flex-1">
-                      <p className="text-sm font-medium text-foreground">
-                        {item.title}
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        {UPCOMING_LABELS[item.kind]} ·{" "}
-                        {item.organization_name}
-                      </p>
-                    </div>
-                    <ButtonLink
-                      href={item.href}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      Abrir
-                    </ButtonLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {byDay.length === 0 ? (
+          <p className="mt-4 text-[13px] text-muted">{emptyLabel}</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {byDay.map(([day, dayItems]) => (
+              <div key={day}>
+                <p className="text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted">
+                  {formatDay(`${day}T12:00:00.000Z`)}
+                </p>
+                <List as="ul" className="mt-2">
+                  {dayItems.map((item) => (
+                    <Item key={item.id} className="task-lift" render={<li />}>
+                      <ItemContent>
+                        <ItemTitle>{item.title}</ItemTitle>
+                        <ItemDescription>
+                          {UPCOMING_LABELS[item.kind]} ·{" "}
+                          {item.organization_name}
+                        </ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <ButtonLink
+                          href={item.href}
+                          size="sm"
+                          variant="ghost"
+                        >
+                          Abrir
+                        </ButtonLink>
+                      </ItemActions>
+                    </Item>
+                  ))}
+                </List>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -892,18 +927,24 @@ export function NextCallWidget({
   if (!next) return null;
 
   return (
-    <Card title="Próxima llamada" description={next.organization_name}>
-      <p className="mt-1 text-sm font-medium text-foreground">{next.title}</p>
-      <p className="mt-1 text-xs text-muted">{formatDateTime(next.at)}</p>
-      <div className="mt-3">
-        <ButtonLink
-          href={`/consultor?organizationId=${next.organization_id}`}
-          size="sm"
-          onClick={() => onOpen(next.organization_id)}
-        >
-          Preparar llamada
-        </ButtonLink>
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Próxima llamada</CardTitle>
+        <CardDescription>{next.organization_name}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p className="mt-1 text-sm font-medium text-foreground">{next.title}</p>
+        <p className="mt-1 text-xs text-muted">{formatDateTime(next.at)}</p>
+        <div className="mt-3">
+          <ButtonLink
+            href={`/consultor?organizationId=${next.organization_id}`}
+            size="sm"
+            onClick={() => onOpen(next.organization_id)}
+          >
+            Preparar llamada
+          </ButtonLink>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -1073,12 +1114,14 @@ function MarkReviewedButton({
               className="w-64"
             />
           </Field>
-          <Button size="sm" disabled={isSaving} onClick={() => void submit()}>
-            {isSaving ? "Guardando..." : "Confirmar"}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setIsOpen(false)}>
-            Cancelar
-          </Button>
+          <div role="group" aria-label="Acciones de revisión" className="flex flex-wrap items-center gap-2">
+            <Button size="sm" disabled={isSaving} onClick={() => void submit()}>
+              {isSaving ? "Guardando..." : "Confirmar"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setIsOpen(false)}>
+              Cancelar
+            </Button>
+          </div>
         </div>
       ) : (
         <Button size="sm" variant="secondary" onClick={() => setIsOpen(true)}>
@@ -1164,6 +1207,7 @@ function ClientProfitStrip({
 
 export function ClientDesk({
   client,
+  onboarding,
   actions,
   upcoming,
   administration,
@@ -1171,6 +1215,7 @@ export function ClientDesk({
   onReviewed,
 }: {
   client: ClientDeskData;
+  onboarding?: ClientOnboarding;
   actions: WorkbenchAction[];
   upcoming: UpcomingItem[];
   administration: ReactNode;
@@ -1194,21 +1239,19 @@ export function ClientDesk({
 
   return (
     <div className="space-y-6">
-      <Card
-        kicker="Mesa de cliente"
-        title={client.organization_name}
-        description={
-          primary
+      <Card>
+        <CardHeader>
+          <CardKicker>Mesa de cliente</CardKicker>
+          <CardTitle>{client.organization_name}</CardTitle>
+          <CardDescription>{primary
             ? `Lo primero: ${primary.title}`
-            : "Sin nada pendiente de decisión en este cliente."
-        }
-        actions={
-          <div className="flex flex-wrap gap-2">
+            : "Sin nada pendiente de decisión en este cliente."}</CardDescription>
+          <CardAction><div role="group" aria-label="Acciones del cliente" className="flex flex-wrap items-center gap-2">
             {primary ? (
               <ButtonLink
                 href={primary.href}
                 size="sm"
-                variant="primary"
+                variant="default"
               >
                 {primary.action_label}
               </ButtonLink>
@@ -1216,323 +1259,330 @@ export function ClientDesk({
             <Button type="button" size="sm" variant="ghost" onClick={onBack}>
               Volver a la cartera
             </Button>
-          </div>
-        }
-      >
-        <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted">
-          {client.stores.length === 0 ? (
-            <li>Sin tiendas conectadas</li>
-          ) : (
-            client.stores.map((store) => (
-              <li key={store.id}>
-                <span className="text-foreground">
-                  {store.name ?? store.provider}
-                </span>{" "}
-                · {store.status} ·{" "}
-                {store.last_sync_at
-                  ? `sync ${formatDateTime(store.last_sync_at)}`
-                  : "sin sincronizar"}
-              </li>
-            ))
-          )}
-        </ul>
-      </Card>
-
-      <Card
-        title="Estado del negocio"
-        description={
-          business
-            ? `Últimos ${business.window_days} días, comparados con los ${business.window_days} anteriores.`
-            : undefined
-        }
-      >
-        {!business ? (
-          <p className="mt-4 text-[13px] text-muted">
-            No se pudo calcular el resumen de negocio de este cliente.
-          </p>
-        ) : (
-          <>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Metric
-                label="Ventas netas"
-                value={
-                  business.shopify_connected ? shopifyMoney(business.net_sales) : "—"
-                }
-                hint={
-                  business.shopify_connected && business.shopify_currency_code && business.net_sales != null && business.prev_net_sales != null
-                    ? deltaLabel(business.net_sales, business.prev_net_sales, (value) => formatMoney(value, business.shopify_currency_code))
-                    : business.shopify_connected ? "Moneda no comparable" : "Shopify sin conectar"
-                }
-              />
-              <Metric
-                label="Pedidos"
-                value={
-                  business.shopify_connected ? String(business.orders) : "—"
-                }
-                hint={
-                  business.shopify_connected
-                    ? deltaLabel(business.orders, business.prev_orders, (value) =>
-                        String(value),
-                      )
-                    : "Shopify sin conectar"
-                }
-              />
-              <Metric
-                label="Ticket medio"
-                value={
-                  business.shopify_connected && business.net_sales != null && business.orders > 0
-                    ? shopifyMoney(business.net_sales / business.orders)
-                    : "—"
-                }
-                hint={
-                  business.orders > 0
-                    ? "Ventas netas / pedidos del periodo"
-                    : "Sin pedidos en el periodo"
-                }
-              />
-              <Metric
-                label="Inversión Meta"
-                value={
-                  business.meta_connected ? metaMoney(business.meta_spend) : "—"
-                }
-                hint={
-                  business.meta_connected && business.meta_currency_code && business.meta_spend != null && business.prev_meta_spend != null
-                    ? deltaLabel(
-                        business.meta_spend,
-                        business.prev_meta_spend,
-                        (value) => formatMoney(value, business.meta_currency_code),
-                      )
-                    : business.meta_connected ? "Moneda no comparable" : "Meta Ads sin conectar"
-                }
-              />
-              <Metric
-                label="ROAS Meta"
-                value={business.roas == null ? "—" : business.roas.toFixed(2)}
-                tone={
-                  business.roas != null && business.roas < 1
-                    ? "danger"
-                    : "default"
-                }
-                hint={
-                  business.roas == null
-                    ? "Sin inversión o sin conexión en el periodo"
-                    : `Ingresos atribuidos en ${business.meta_currency_code} / inversión Meta en ${business.meta_currency_code}`
-                }
-              />
-              <Metric
-                label="Stock agotado"
-                value={
-                  business.out_of_stock_items == null
-                    ? "—"
-                    : String(business.out_of_stock_items)
-                }
-                tone={
-                  business.out_of_stock_items && business.out_of_stock_items > 0
-                    ? "warn"
-                    : "default"
-                }
-                hint={
-                  business.low_stock_items == null
-                    ? "Sin inventario sincronizado"
-                    : `${business.low_stock_items} referencias con stock bajo`
-                }
-              />
-            </div>
-            {business.has_financial_settings ? (
-              <ClientProfitStrip
-                organizationId={client.organization_id}
-                days={business.window_days}
-              />
+          </div></CardAction>
+        </CardHeader>
+        <CardContent>
+          <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted">
+            {client.stores.length === 0 ? (
+              <li>Sin tiendas conectadas</li>
             ) : (
-              <p className="mt-4 text-[13px] leading-relaxed text-warning">
-                Beneficio y margen no se muestran: faltan los costes de este
-                cliente.{" "}
-                <Link
-                  href={`/configuracion?organizationId=${client.organization_id}`}
-                >
-                  Completar configuración financiera
-                </Link>
-                .
-              </p>
+              client.stores.map((store) => (
+                <li key={store.id}>
+                  <span className="text-foreground">
+                    {store.name ?? store.provider}
+                  </span>{" "}
+                  · {store.status} ·{" "}
+                  {store.last_sync_at
+                    ? `sync ${formatDateTime(store.last_sync_at)}`
+                    : "sin sincronizar"}
+                </li>
+              ))
             )}
-            {business.coverage.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-xs text-muted">
-                {business.coverage.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            ) : null}
-          </>
-        )}
+          </ul>
+        </CardContent>
       </Card>
 
-      <Card
-        title={
-          client.changes.since_kind === "review"
+      {onboarding && onboarding.next ? <ClientOnboardingSteps onboarding={onboarding} /> : null}
+      <Card>
+        <CardHeader>
+          <CardTitle>Estado del negocio</CardTitle>
+          <CardDescription>{business
+            ? `Todas las tiendas de ${client.organization_name}. Últimos ${business.window_days} días, comparados con los ${business.window_days} anteriores. Los importes solo se agregan si sus monedas son compatibles.`
+            : undefined}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!business ? (
+            <p className="mt-4 text-[13px] text-muted">
+              No se pudo calcular el resumen de negocio de este cliente.
+            </p>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Metric
+                  label="Ventas netas"
+                  value={
+                    business.shopify_connected ? shopifyMoney(business.net_sales) : "—"
+                  }
+                  hint={
+                    business.shopify_connected && business.shopify_currency_code && business.net_sales != null && business.prev_net_sales != null
+                      ? deltaLabel(business.net_sales, business.prev_net_sales, (value) => formatMoney(value, business.shopify_currency_code))
+                      : business.shopify_connected ? "Moneda no comparable" : "Shopify sin conectar"
+                  }
+                />
+                <Metric
+                  label="Pedidos"
+                  value={
+                    business.shopify_connected ? String(business.orders) : "—"
+                  }
+                  hint={
+                    business.shopify_connected
+                      ? deltaLabel(business.orders, business.prev_orders, (value) =>
+                          String(value),
+                        )
+                      : "Shopify sin conectar"
+                  }
+                />
+                <Metric
+                  label="Ticket medio"
+                  value={
+                    business.shopify_connected && business.net_sales != null && business.orders > 0
+                      ? shopifyMoney(business.net_sales / business.orders)
+                      : "—"
+                  }
+                  hint={
+                    business.orders > 0
+                      ? "Ventas netas / pedidos del periodo"
+                      : "Sin pedidos en el periodo"
+                  }
+                />
+                <Metric
+                  label="Inversión Meta"
+                  value={
+                    business.meta_connected ? metaMoney(business.meta_spend) : "—"
+                  }
+                  hint={
+                    business.meta_connected && business.meta_currency_code && business.meta_spend != null && business.prev_meta_spend != null
+                      ? deltaLabel(
+                          business.meta_spend,
+                          business.prev_meta_spend,
+                          (value) => formatMoney(value, business.meta_currency_code),
+                        )
+                      : business.meta_connected ? "Moneda no comparable" : "Meta Ads sin conectar"
+                  }
+                />
+                <Metric
+                  label="ROAS Meta"
+                  value={business.roas == null ? "—" : business.roas.toFixed(2)}
+                  tone={
+                    business.roas != null && business.roas < 1
+                      ? "danger"
+                      : "default"
+                  }
+                  hint={
+                    business.roas == null
+                      ? "Sin inversión o sin conexión en el periodo"
+                      : `Ingresos atribuidos en ${business.meta_currency_code} / inversión Meta en ${business.meta_currency_code}`
+                  }
+                />
+                <Metric
+                  label="Stock agotado"
+                  value={
+                    business.out_of_stock_items == null
+                      ? "—"
+                      : String(business.out_of_stock_items)
+                  }
+                  tone={
+                    business.out_of_stock_items && business.out_of_stock_items > 0
+                      ? "warn"
+                      : "default"
+                  }
+                  hint={
+                    business.low_stock_items == null
+                      ? "Sin inventario sincronizado"
+                      : `${business.low_stock_items} referencias con stock bajo`
+                  }
+                />
+              </div>
+              {business.has_financial_settings ? (
+                <ClientProfitStrip
+                  organizationId={client.organization_id}
+                  days={business.window_days}
+                />
+              ) : (
+                <p className="mt-4 text-[13px] leading-relaxed text-warning">
+                  Beneficio y margen no se muestran: faltan los costes de este
+                  cliente.{" "}
+                  <Link
+                    href={`/configuracion?organizationId=${client.organization_id}`}
+                  >
+                    Completar configuración financiera
+                  </Link>
+                  .
+                </p>
+              )}
+              {business.coverage.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-xs text-muted">
+                  {business.coverage.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{client.changes.since_kind === "review"
             ? "Qué cambió desde tu última revisión"
-            : "Qué cambió"
-        }
-        description="Variaciones materiales, no una cronología completa. Las cifras de negocio siempre comparan periodo contra periodo anterior."
-        actions={
-          <MarkReviewedButton
+            : "Qué cambió"}</CardTitle>
+          <CardDescription>Variaciones materiales, no una cronología completa. Las cifras de negocio siempre comparan periodo contra periodo anterior.</CardDescription>
+          <CardAction><MarkReviewedButton
             organizationId={client.organization_id}
             lastReview={client.last_review}
             onReviewed={onReviewed}
-          />
-        }
-      >
-        <ul className="mt-4 space-y-2 text-[13px] leading-relaxed text-foreground">
-          <li>
-            Ventas:{" "}
-            {client.changes.net_sales_delta === null
-              ? "sin comparación disponible"
-              : deltaLabel(
-                  client.changes.net_sales_delta,
-                  0,
-                  shopifyMoney,
-                ).replace(" vs. periodo anterior", " respecto al periodo anterior")}
-          </li>
-          <li>
-            Pedidos:{" "}
-            {client.changes.orders_delta === null
-              ? "sin comparación disponible"
-              : `${client.changes.orders_delta > 0 ? "+" : ""}${client.changes.orders_delta} respecto al periodo anterior`}
-          </li>
-          <li>
-            Inversión Meta:{" "}
-            {client.changes.meta_spend_delta === null
-              ? "sin comparación disponible"
-              : deltaLabel(
-                  client.changes.meta_spend_delta,
-                  0,
-                  metaMoney,
-                ).replace(" vs. periodo anterior", " respecto al periodo anterior")}
-          </li>
-          <li>
-            {client.changes.new_alerts}{" "}
-            {client.changes.new_alerts === 1
-              ? "alerta nueva"
-              : "alertas nuevas"}{" "}
-            {sinceLabel}.
-          </li>
-          <li>
-            {client.changes.closed_tasks}{" "}
-            {client.changes.closed_tasks === 1
-              ? "tarea cerrada"
-              : "tareas cerradas"}{" "}
-            {sinceLabel}.
-          </li>
-        </ul>
-        {client.changes.since_kind === "window" ? (
-          <p className="mt-4 text-xs text-muted">
-            Aún no has marcado ninguna revisión de este cliente, así que la
-            actividad se cuenta desde el inicio del periodo.
-          </p>
-        ) : null}
-      </Card>
-
-      <Card
-        title="Decidir ahora"
-        description="Como mucho tres cosas. Cada una abre el módulo donde se ejecuta."
-      >
-        {actions.length === 0 ? (
-          <p className="mt-4 text-[13px] text-muted">
-            Nada pendiente de decisión en este cliente.
-          </p>
-        ) : (
-          <ul className="mt-4 divide-y divide-separator">
-            {actions.slice(0, 3).map((action) => (
-              <li key={action.id}>
-                <ActionRow action={action} onDecided={onReviewed} />
-              </li>
-            ))}
+          /></CardAction>
+        </CardHeader>
+        <CardContent>
+          <ul className="mt-4 space-y-2 text-[13px] leading-relaxed text-foreground">
+            <li>
+              Ventas:{" "}
+              {client.changes.net_sales_delta === null
+                ? "sin comparación disponible"
+                : deltaLabel(
+                    client.changes.net_sales_delta,
+                    0,
+                    shopifyMoney,
+                  ).replace(" vs. periodo anterior", " respecto al periodo anterior")}
+            </li>
+            <li>
+              Pedidos:{" "}
+              {client.changes.orders_delta === null
+                ? "sin comparación disponible"
+                : `${client.changes.orders_delta > 0 ? "+" : ""}${client.changes.orders_delta} respecto al periodo anterior`}
+            </li>
+            <li>
+              Inversión Meta:{" "}
+              {client.changes.meta_spend_delta === null
+                ? "sin comparación disponible"
+                : deltaLabel(
+                    client.changes.meta_spend_delta,
+                    0,
+                    metaMoney,
+                  ).replace(" vs. periodo anterior", " respecto al periodo anterior")}
+            </li>
+            <li>
+              {client.changes.new_alerts}{" "}
+              {client.changes.new_alerts === 1
+                ? "alerta nueva"
+                : "alertas nuevas"}{" "}
+              {sinceLabel}.
+            </li>
+            <li>
+              {client.changes.closed_tasks}{" "}
+              {client.changes.closed_tasks === 1
+                ? "tarea cerrada"
+                : "tareas cerradas"}{" "}
+              {sinceLabel}.
+            </li>
           </ul>
-        )}
+          {client.changes.since_kind === "window" ? (
+            <p className="mt-4 text-xs text-muted">
+              Aún no has marcado ninguna revisión de este cliente, así que la
+              actividad se cuenta desde el inicio del periodo.
+            </p>
+          ) : null}
+        </CardContent>
       </Card>
 
-      <Card
-        title="Camino y compromisos"
-        description="Fase activa, siguiente hito y progreso real del plan."
-        actions={
-          <ButtonLink
-            href={`/camino?organizationId=${client.organization_id}`}
+      <Card>
+        <CardHeader>
+          <CardTitle>Decidir ahora</CardTitle>
+          <CardDescription>Como mucho tres cosas. Cada una abre el módulo donde se ejecuta.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {actions.length === 0 ? (
+            <EmptyState size="sm" title="Nada pendiente de decisión en este cliente" />
+          ) : (
+            <ul className="mt-4 divide-y divide-separator">
+              {actions.slice(0, 3).map((action) => (
+                <li key={action.id}>
+                  <ActionRow action={action} onDecided={onReviewed} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Camino y compromisos</CardTitle>
+          <CardDescription>Fase activa, siguiente hito y progreso real del plan.</CardDescription>
+          <CardAction><ButtonLink
+            href={withPortalRouteContext("/camino", client.organization_id, client.camino?.connection_id)}
             size="sm"
             variant="ghost"
           >
             Abrir Mi Camino
-          </ButtonLink>
-        }
-      >
-        {!client.camino ? (
-          <p className="mt-4 text-[13px] text-muted">
-            Este cliente aún no tiene una fase activa en su plan estratégico.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-foreground">
-            <p>
-              Fase activa:{" "}
-              <span className="font-medium">{client.camino.phase_name}</span> (
-              {client.camino.milestones_done}/{client.camino.milestones_total}{" "}
-              hitos completados)
+          </ButtonLink></CardAction>
+        </CardHeader>
+        <CardContent>
+          {!client.camino ? (
+            <p className="mt-4 text-[13px] text-muted">
+              {client.camino_notice ?? "Este cliente aún no tiene una fase activa en su plan estratégico."}
             </p>
-            <p>
-              Siguiente hito:{" "}
-              {client.camino.next_milestone
-                ? `${client.camino.next_milestone.name}${
+          ) : (
+            <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-foreground">
+              <p>
+                Fase activa:{" "}
+                <span className="font-medium">{client.camino.phase_name}</span> (
+                {client.camino.milestones_done}/{client.camino.milestones_total}{" "}
+                hitos completados)
+              </p>
+              <p>
+                Siguiente hito:{" "}
+                {client.camino.next_milestone
+                  ? `${client.camino.next_milestone.name}${
                     client.camino.next_milestone.target_date
                       ? ` · ${client.camino.next_milestone.target_date}`
                       : " · sin fecha"
                   }`
-                : "sin hitos pendientes"}
-            </p>
-          </div>
-        )}
+                  : "sin hitos pendientes"}
+              </p>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
-      <Card
-        title="Relación y próxima conversación"
-        description="Con qué contexto llegas a la siguiente llamada."
-      >
-        <ul className="mt-4 space-y-2 text-[13px] leading-relaxed text-foreground">
-          <li>
-            Próxima llamada:{" "}
-            {client.relationship.next_call
-              ? `${client.relationship.next_call.title} · ${formatDateTime(client.relationship.next_call.scheduled_at)}`
-              : "nada agendado"}
-          </li>
-          <li>
-            Última llamada:{" "}
-            {client.relationship.last_call
-              ? `${client.relationship.last_call.title} · ${formatDateTime(client.relationship.last_call.held_at)}${
+      <Card>
+        <CardHeader>
+          <CardTitle>Relación y próxima conversación</CardTitle>
+          <CardDescription>Con qué contexto llegas a la siguiente llamada.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ul className="mt-4 space-y-2 text-[13px] leading-relaxed text-foreground">
+            <li>
+              Próxima llamada:{" "}
+              {client.relationship.next_call
+                ? `${client.relationship.next_call.title} · ${formatDateTime(client.relationship.next_call.scheduled_at)}`
+                : "nada agendado"}
+            </li>
+            <li>
+              Última llamada:{" "}
+              {client.relationship.last_call
+                ? `${client.relationship.last_call.title} · ${formatDateTime(client.relationship.last_call.held_at)}${
                   client.relationship.last_call.summary_pending
                     ? " · resumen pendiente de aprobar"
                     : ""
                 }`
-              : "sin llamadas realizadas"}
-          </li>
-          <li>
-            Mensajes sin leer: {client.relationship.unread_count}
-            {client.relationship.counterpart_name
-              ? ` · interlocutor: ${client.relationship.counterpart_name}`
-              : ""}
-          </li>
-        </ul>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <ButtonLink
-            href={`/llamadas?organizationId=${client.organization_id}`}
-            size="sm"
-            variant="ghost"
-          >
-            Abrir Llamadas
-          </ButtonLink>
-          <ButtonLink
-            href={`/mensajes?organizationId=${client.organization_id}`}
-            size="sm"
-            variant="ghost"
-          >
-            Abrir Mensajes
-          </ButtonLink>
-        </div>
+                : "sin llamadas realizadas"}
+            </li>
+            <li>
+              Mensajes sin leer: {client.relationship.unread_count}
+              {client.relationship.counterpart_name
+                ? ` · interlocutor: ${client.relationship.counterpart_name}`
+                : ""}
+            </li>
+          </ul>
+          <div role="group" aria-label="Acciones del cliente" className="flex flex-wrap items-center gap-2 mt-4">
+            <ButtonLink
+              href={`/llamadas?organizationId=${client.organization_id}`}
+              size="sm"
+              variant="ghost"
+            >
+              Abrir Llamadas
+            </ButtonLink>
+            <ButtonLink
+              href={`/mensajes?organizationId=${client.organization_id}`}
+              size="sm"
+              variant="ghost"
+            >
+              Abrir Mensajes
+            </ButtonLink>
+          </div>
+        </CardContent>
       </Card>
 
       {upcoming.length > 0 ? <UpcomingWork items={upcoming} /> : null}

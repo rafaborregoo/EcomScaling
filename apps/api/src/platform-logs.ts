@@ -34,7 +34,7 @@ function requirePlatformAdmin(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "platform_admin_required",
-      message: "Solo un platform admin puede consultar los logs de plataforma.",
+      message: "Solo un administrador de la plataforma puede consultar los logs de plataforma.",
     };
   }
   return { ok: true as const };

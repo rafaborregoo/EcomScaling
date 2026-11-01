@@ -1,6 +1,6 @@
 # ADR-0025 — LangGraph para orquestar la campaña de mailing (A27 → A11 → revisión automática → aprobación → programar)
 
-**Estado:** aceptado (2026-10-08). Implementado detrás de `MAILING_GRAPH_ENABLED`, apagado por defecto.
+**Estado:** aceptado (2026-10-08), actualizado por la implementación A27 del 23-oct-2026. Implementado detrás de `MAILING_GRAPH_ENABLED`, apagado por defecto. Las garantías nuevas requieren `20270109191233_a27_mailing_execution_integrity.sql`; su validación local no acredita despliegue.
 
 ## Contexto: cómo funcionaba antes (leído, no supuesto)
 
@@ -29,10 +29,10 @@
    como hacía el navegador, pero **después** de la aprobación. Ninguna escritura en Klaviyo. La opción (ii)
    (programar en Klaviyo) se implementará detrás de la misma dependencia tras validar con una cuenta real.
 3. **Aprueban los mismos que hoy** (consultor, owner, manager) por la ruta de borradores existente. Se registra
-   actor (`decided_by`) y rol (`decided_role`: consultant/platform/client). **"El cliente crea, el consultor
-   revisa" rige** (migración `20261204100000`, `campaign-review.ts`): si aprueba un cliente de una organización
-   con consultor asignado, el email pasa a *Revisión del consultor* y no se programa hasta que el consultor lo da
-   por revisado o pide cambios (que vuelven a A11 con el motivo).
+   actor (`decided_by`) y rol (`decided_role`: consultant/platform/client). La política vigente permite al cliente
+   aprobar el borrador y preparar su envío manual. La revisión del consultor se conserva como opinión y auditoría;
+   no bloquea la fecha prevista, no revoca la aprobación y no dispara otra generación. El envío en Klaviyo conserva
+   sus validaciones y su acción manual separada. A26 sigue siendo auditoría de contenido enviado.
 
 ## Diseño
 
@@ -42,8 +42,7 @@ preparar ──Send×N──▶ email (subgrafo, ≤3 en paralelo) ──▶ cer
 email:  redactar (A11) → revisar (código) ─┬─ falla y quedan reintentos → redactar (+motivo)
                                            └─ pasa, o tope → esperar_aprobacion  [pausa]
         esperar_aprobacion ─┬─ rechazo → redactar (si quedan) | rechazado
-                            ├─ aprueba cliente con consultor → esperar_revision  [pausa]
-                            └─ aprueba → programar → fin
+                            └─ aprueba → guardar fecha prevista local → fin
 ```
 
 | Paso | ¿Nodo? | Qué llama |
@@ -86,8 +85,9 @@ pantalla; RLS `select` vía `can_access_org`). `marketing_mailing_sequences.orch
 2. La decisión entra por `POST /marketing/drafts/:id/decision` (`decideMarketingContentDraft`, sin cambios);
    la ruta, tras guardar, llama a `advanceMailingCampaignForDraft`, que reanuda **solo** las pausas cuya
    decisión ya está en la tabla.
-3. La revisión del consultor tiene su ruta (`.../emails/:n/review`, solo staff); escribe en la proyección con
-   transición condicional y deja rastro en `agent_approvals` y `audit_logs`.
+3. La opinión del consultor tiene su ruta (`.../emails/:n/review`, solo staff); registra la opinión sobre la
+   versión actual y deja rastro de auditoría. Los checkpoints antiguos en espera de consultor continúan hacia
+   la fecha prevista respetando la decisión del cliente.
 4. Mientras el superpaso no termina, `getState` sigue listando la pausa de un email ya terminado;
    `listMailingInterrupts` las descarta mirando las escrituras del checkpoint (bug encontrado en TEST).
 
@@ -102,7 +102,8 @@ pantalla; RLS `select` vía `can_access_org`). `marketing_mailing_sequences.orch
   repite A11 (o solo `programar`, si el fallo fue al programar: el borrador ya estaba aprobado); descartar lo da por
   `rejected`. Mientras haya un fallido sin decidir la campaña no se cierra. Los demás emails siguen. El breaker por
   organización puede tumbar varias ramas a la vez: se rehacen una a una desde la pantalla.
-- **Cierre:** `completed` solo si algún email quedó `scheduled`; si no, `abandoned`.
+- **Cierre:** `completed` cuando todos los emails guardaron la fecha prevista; `partial` cuando algunos terminaron
+  y otros se rechazaron; `abandoned` cuando ninguno se produjo o se canceló. Ninguno acredita envío en Klaviyo.
 - **Reintentos:** presupuesto separado. El rechazo automático gasta 2 (`MAILING_GRAPH_MAX_AUTO_RETRIES`) y el de una
   persona otros 2 (`MAILING_GRAPH_MAX_HUMAN_RETRIES`): un email que llegó "con avisos" todavía puede rehacerse si el
   aprobador lo pide. Versiones 0..4 (claves `:r1`..`:r4`). Cada reintento queda en `agent_run_steps`
@@ -112,8 +113,8 @@ pantalla; RLS `select` vía `can_access_org`). `marketing_mailing_sequences.orch
 - **Quién paga:** el presupuesto diario de IA se carga a la organización, no a quien pulsa. Arrancar, reanudar,
   reintentar y rehacer dejan su fila de auditoría con el actor y su rol; la proyección guarda además el rol de
   membresía (`owner`, `manager`…) de quien aprobó.
-- **Aprobado por el cliente no es enviable:** en una campaña con consultor, `pushDraftToKlaviyoTemplate` rechaza
-  (409 `marketing_draft_awaiting_consultant_review`) el borrador de un email en `awaiting_consultant_review`.
+- **Aprobación y opinión:** la aprobación del cliente permite seguir el recorrido manual de exportación/envío;
+  la opinión del consultor no constituye un veto. La revisión automática del grafo sigue siendo determinista.
 - **Textos literales:** el planificador los guarda en `client_state.verbatim_texts` (uno por línea); se pasan a A11
   como `verbatim_texts` y la revisión automática comprueba que aparecen. También los envía el flujo del navegador.
 - **Revisión automática:** además de enlaces, campos, literales y asunto, exige al menos un enlace que no sea el de
@@ -135,3 +136,20 @@ pantalla; RLS `select` vía `can_access_org`). `marketing_mailing_sequences.orch
   el mismo).
 - Una secuencia empezada en un modo termina en ese modo (`orchestrator`).
 - Orden de despliegue: migraciones `20261209100000` y `20261210100000` → código → crontab y `run-worker-job.sh` en el VPS. Las migraciones solo añaden (y relajan el tope de `attempt` a 4); con el flag apagado nada las usa.
+
+### Integridad y recibos A27 (23-oct-2026)
+
+- Aplicar también `20270109191233` antes del código nuevo, siguiendo el mecanismo `db:push` del proyecto. Las rutas
+  del navegador también usan sus RPC; apagar el flag del grafo no elimina esa dependencia.
+- La estrategia guarda revisión, zona IANA, instantes, recursos y contexto de Mi Camino/calendario/guía de marca.
+  Aprobar la secuencia aprueba su output exacto en la misma transacción. A11 reconstruye el paquete desde el servidor.
+- Generación y grafo tienen propietario y renovación. Checkpoints, proyección, rechazo automático, finalización A11,
+  programación y cierre comprueban la reserva; un propietario antiguo no puede escribir ni liberar la nueva.
+- El arranque conserva un bootstrap antes del primer checkpoint. El barrido incluye campañas sin proyección y usa
+  orden estable. Las secuencias antiguas sin el paquete/contexto nuevo requieren revisión y una nueva planificación.
+- El vínculo manual con un mensaje importado de Klaviyo conserva cuenta/campaña/mensaje y revisión exacta del borrador.
+  Su contenido permanece `unverified`: no acredita HTML idéntico ni incrementalidad. A12/A27 y los peers de A05/A28
+  reciben las identidades y el estado observado, sin deducir ejecución de la mera aprobación.
+- Las imágenes se seleccionan por ID/revisión, se comprueban por tienda y archivo, y exigen autorización de uso.
+  Al producir se publica una copia con hash en `marketing-assets`, sin sobrescritura; el HTML no usa una URL privada
+  temporal. No se publican imágenes por leer la bandeja o el estado de una secuencia.

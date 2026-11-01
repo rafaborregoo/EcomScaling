@@ -1,0 +1,316 @@
+- alert
+- main:
+  - link "Saltar al contenido principal":
+    - /url: "#portal-content"
+  - link "E-NORA, ir al inicio":
+    - /url: /dashboard
+  - paragraph: Shopify
+  - generic: /
+  - button "Todas las tiendas Tienda":
+    - generic: Todas las tiendas
+  - combobox
+  - button "Enviar feedback":
+    - generic: Feedback
+  - button "Abrir Consultor IA":
+    - generic: Consultor IA
+  - button "Centro de actividad (1 elementos)":
+    - button "Centro de actividad (1 elementos)":
+      - generic: "1"
+  - button "Abrir menú de perfil":
+    - button "Abrir menú de perfil":
+      - generic: RE
+  - complementary:
+    - navigation "Módulos":
+      - link "Inicio":
+        - /url: /dashboard?tab=todo
+      - link "Trabajo":
+        - /url: /camino
+      - link "Marketing":
+        - /url: /marketing?section=plan
+      - link "Comunicación":
+        - /url: /mensajes
+      - link "Shopify":
+        - /url: /shopify
+      - link "Meta":
+        - /url: /meta
+      - link "Klaviyo":
+        - /url: /klaviyo
+      - link "Analítica":
+        - /url: /informes
+      - link "Conocimiento":
+        - /url: /conocimiento?section=cuestionario
+    - link "Añadir tienda Shopify":
+      - /url: /integraciones/shopify
+    - link "Configuración":
+      - /url: /configuracion?section=resumen
+      - generic "1 incidencias de integración"
+    - button "Control de navegación lateral":
+      - button "Control de navegación lateral":
+  - complementary:
+    - 'navigation "Shopify: secciones"':
+      - link "Resumen":
+        - /url: /shopify
+        - generic: Resumen
+      - link "Productos":
+        - /url: /shopify/productos
+        - generic: Productos
+      - link "Inventario":
+        - /url: /shopify/inventario
+        - generic: Inventario
+      - link "Promociones":
+        - /url: /shopify/promociones
+        - generic: Promociones
+  - heading "Inventario" [level=1]
+  - paragraph: Cuántas unidades te quedan de cada producto.
+  - search:
+    - generic: Buscar producto, variante o SKU
+    - searchbox "Buscar producto, variante o SKU"
+    - button "Buscar"
+  - group "Filtrar inventario":
+    - button "Todos" [pressed]
+    - button "Agotados"
+    - button "Stock bajo"
+    - button "Sin seguimiento"
+  - region "Existencias por variante y ubicación":
+    - table:
+      - rowgroup:
+        - row "Producto Estado Quedan":
+          - columnheader "Producto"
+          - columnheader "Estado"
+          - columnheader "Quedan"
+      - rowgroup:
+        - row "Gift Card $10 Sin fecha de lectura Sin lectura —":
+          - cell "Gift Card $10 Sin fecha de lectura":
+            - link "Gift Card $10 Sin fecha de lectura":
+              - /url: /shopify/productos/9452106e-cf45-4993-a477-6c3ce1844760?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Gift Card
+              - generic: $10
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "Gift Card $25 Sin fecha de lectura Sin lectura —":
+          - cell "Gift Card $25 Sin fecha de lectura":
+            - link "Gift Card $25 Sin fecha de lectura":
+              - /url: /shopify/productos/9452106e-cf45-4993-a477-6c3ce1844760?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Gift Card
+              - generic: $25
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "Gift Card $50 Sin fecha de lectura Sin lectura —":
+          - cell "Gift Card $50 Sin fecha de lectura":
+            - link "Gift Card $50 Sin fecha de lectura":
+              - /url: /shopify/productos/9452106e-cf45-4993-a477-6c3ce1844760?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Gift Card
+              - generic: $50
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "Gift Card $100 Sin fecha de lectura Sin lectura —":
+          - cell "Gift Card $100 Sin fecha de lectura":
+            - link "Gift Card $100 Sin fecha de lectura":
+              - /url: /shopify/productos/9452106e-cf45-4993-a477-6c3ce1844760?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Gift Card
+              - generic: $100
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "Selling Plans Ski Wax Selling Plans Ski Wax Sin fecha de lectura Sin lectura —":
+          - cell "Selling Plans Ski Wax Selling Plans Ski Wax Sin fecha de lectura":
+            - link "Selling Plans Ski Wax Selling Plans Ski Wax Sin fecha de lectura":
+              - /url: /shopify/productos/449d6cec-8097-47c1-9454-58c784ede9d6?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Selling Plans Ski Wax
+              - generic: Selling Plans Ski Wax
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "Selling Plans Ski Wax Special Selling Plans Ski Wax Sin fecha de lectura Sin lectura —":
+          - cell "Selling Plans Ski Wax Special Selling Plans Ski Wax Sin fecha de lectura":
+            - link "Selling Plans Ski Wax Special Selling Plans Ski Wax Sin fecha de lectura":
+              - /url: /shopify/productos/449d6cec-8097-47c1-9454-58c784ede9d6?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Selling Plans Ski Wax
+              - generic: Special Selling Plans Ski Wax
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "Selling Plans Ski Wax Sample Selling Plans Ski Wax Sin fecha de lectura Sin lectura —":
+          - cell "Selling Plans Ski Wax Sample Selling Plans Ski Wax Sin fecha de lectura":
+            - link "Selling Plans Ski Wax Sample Selling Plans Ski Wax Sin fecha de lectura":
+              - /url: /shopify/productos/449d6cec-8097-47c1-9454-58c784ede9d6?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: Selling Plans Ski Wax
+              - generic: Sample Selling Plans Ski Wax
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The 3p Fulfilled Snowboard sku-hosted-1 Sin fecha de lectura Sin lectura —":
+          - cell "The 3p Fulfilled Snowboard sku-hosted-1 Sin fecha de lectura":
+            - link "The 3p Fulfilled Snowboard sku-hosted-1 Sin fecha de lectura":
+              - /url: /shopify/productos/5a0a35b7-9996-40e3-9ce9-990c95afb926?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The 3p Fulfilled Snowboard
+              - generic: sku-hosted-1
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - 'row "The Collection Snowboard: Hydrogen Sin fecha de lectura Sin lectura —"':
+          - 'cell "The Collection Snowboard: Hydrogen Sin fecha de lectura"':
+            - 'link "The Collection Snowboard: Hydrogen Sin fecha de lectura"':
+              - /url: /shopify/productos/83ff04fc-c613-4f27-8dab-89f14a494c35?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: "The Collection Snowboard: Hydrogen"
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - 'row "The Collection Snowboard: Liquid Sin fecha de lectura Sin lectura —"':
+          - 'cell "The Collection Snowboard: Liquid Sin fecha de lectura"':
+            - 'link "The Collection Snowboard: Liquid Sin fecha de lectura"':
+              - /url: /shopify/productos/ad832535-2565-48cd-a898-1af5dcb53696?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: "The Collection Snowboard: Liquid"
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - 'row "The Collection Snowboard: Oxygen Sin fecha de lectura Sin lectura —"':
+          - 'cell "The Collection Snowboard: Oxygen Sin fecha de lectura"':
+            - 'link "The Collection Snowboard: Oxygen Sin fecha de lectura"':
+              - /url: /shopify/productos/6c646d44-8374-42f4-9e3e-18cdc279126b?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: "The Collection Snowboard: Oxygen"
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Compare at Price Snowboard Sin fecha de lectura Sin lectura —":
+          - cell "The Compare at Price Snowboard Sin fecha de lectura":
+            - link "The Compare at Price Snowboard Sin fecha de lectura":
+              - /url: /shopify/productos/97fe5437-7871-4626-88ec-0eee22cd7ee2?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Compare at Price Snowboard
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Complete Snowboard Ice Sin fecha de lectura Sin lectura —":
+          - cell "The Complete Snowboard Ice Sin fecha de lectura":
+            - link "The Complete Snowboard Ice Sin fecha de lectura":
+              - /url: /shopify/productos/e818c498-58a9-4ce6-b2ed-c3b9b691e61f?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Complete Snowboard
+              - generic: Ice
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Complete Snowboard Dawn Sin fecha de lectura Sin lectura —":
+          - cell "The Complete Snowboard Dawn Sin fecha de lectura":
+            - link "The Complete Snowboard Dawn Sin fecha de lectura":
+              - /url: /shopify/productos/e818c498-58a9-4ce6-b2ed-c3b9b691e61f?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Complete Snowboard
+              - generic: Dawn
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Complete Snowboard Powder Sin fecha de lectura Sin lectura —":
+          - cell "The Complete Snowboard Powder Sin fecha de lectura":
+            - link "The Complete Snowboard Powder Sin fecha de lectura":
+              - /url: /shopify/productos/e818c498-58a9-4ce6-b2ed-c3b9b691e61f?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Complete Snowboard
+              - generic: Powder
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Complete Snowboard Electric Sin fecha de lectura Sin lectura —":
+          - cell "The Complete Snowboard Electric Sin fecha de lectura":
+            - link "The Complete Snowboard Electric Sin fecha de lectura":
+              - /url: /shopify/productos/e818c498-58a9-4ce6-b2ed-c3b9b691e61f?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Complete Snowboard
+              - generic: Electric
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Complete Snowboard Sunset Sin fecha de lectura Sin lectura —":
+          - cell "The Complete Snowboard Sunset Sin fecha de lectura":
+            - link "The Complete Snowboard Sunset Sin fecha de lectura":
+              - /url: /shopify/productos/e818c498-58a9-4ce6-b2ed-c3b9b691e61f?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Complete Snowboard
+              - generic: Sunset
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Hidden Snowboard Sin fecha de lectura Sin lectura —":
+          - cell "The Hidden Snowboard Sin fecha de lectura":
+            - link "The Hidden Snowboard Sin fecha de lectura":
+              - /url: /shopify/productos/b535a672-1a87-45e5-8126-a1cb8521a5f0?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Hidden Snowboard
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Inventory Not Tracked Snowboard sku-untracked-1 Sin fecha de lectura Sin seguimiento —":
+          - cell "The Inventory Not Tracked Snowboard sku-untracked-1 Sin fecha de lectura":
+            - link "The Inventory Not Tracked Snowboard sku-untracked-1 Sin fecha de lectura":
+              - /url: /shopify/productos/b6f6d629-3074-4f41-b9b9-159c12716cf4?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Inventory Not Tracked Snowboard
+              - generic: sku-untracked-1
+              - generic: Sin fecha de lectura
+          - cell "Sin seguimiento":
+            - generic: Sin seguimiento
+          - cell "—"
+        - row "The Minimal Snowboard Sin fecha de lectura Sin lectura —":
+          - cell "The Minimal Snowboard Sin fecha de lectura":
+            - link "The Minimal Snowboard Sin fecha de lectura":
+              - /url: /shopify/productos/9d47406b-e1ba-48d2-8b39-089a88a4b89f?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Minimal Snowboard
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Multi-location Snowboard Sin fecha de lectura Sin lectura —":
+          - cell "The Multi-location Snowboard Sin fecha de lectura":
+            - link "The Multi-location Snowboard Sin fecha de lectura":
+              - /url: /shopify/productos/137c2186-f362-4aea-89e8-b3ff4a14fdee?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Multi-location Snowboard
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Multi-managed Snowboard sku-managed-1 Sin fecha de lectura Sin lectura —":
+          - cell "The Multi-managed Snowboard sku-managed-1 Sin fecha de lectura":
+            - link "The Multi-managed Snowboard sku-managed-1 Sin fecha de lectura":
+              - /url: /shopify/productos/5b0d4673-37a3-45b2-b3f2-b3e6cae9cbf8?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Multi-managed Snowboard
+              - generic: sku-managed-1
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Out of Stock Snowboard Sin fecha de lectura Sin lectura —":
+          - cell "The Out of Stock Snowboard Sin fecha de lectura":
+            - link "The Out of Stock Snowboard Sin fecha de lectura":
+              - /url: /shopify/productos/c1bc5dd9-707a-4c85-ad91-1590d1dcd669?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Out of Stock Snowboard
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+        - row "The Videographer Snowboard Sin fecha de lectura Sin lectura —":
+          - cell "The Videographer Snowboard Sin fecha de lectura":
+            - link "The Videographer Snowboard Sin fecha de lectura":
+              - /url: /shopify/productos/f6690759-f9a4-4cf1-b81f-2b182589fcb4?organizationId=0e9e1986-4d83-4ef6-98d4-72a4c9e4b91c
+              - generic: The Videographer Snowboard
+              - generic: Sin fecha de lectura
+          - cell "Sin lectura":
+            - generic: Sin lectura
+          - cell "—"
+    - generic: “Sin lectura” significa que Shopify no ha enviado el dato, no que queden cero.
+    - generic: 24 productos · página 1 de 1
+    - button "Anterior" [disabled]
+    - button "Siguiente" [disabled]

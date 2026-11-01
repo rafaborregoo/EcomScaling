@@ -6,15 +6,32 @@ import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import {
+  ScrollArea,
+  Field,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  RadioGroup,
+  RadioGroupItem,
   AsyncState,
   Badge,
   Banner,
   Button,
-  Card,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import {
   BackToHub,
@@ -183,7 +200,7 @@ function KlaviyoIntegrationPage({
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ metricId, source: "klaviyo" }),
+          body: JSON.stringify({ metricId, source: "klaviyo", connectionId }),
         },
       );
       if (!response.ok) {
@@ -240,122 +257,122 @@ function KlaviyoIntegrationPage({
       {connection &&
       connection.scopes.length > 0 &&
       !connection.scopes.includes("templates:write") ? (
-        <Banner tone="warn">
-          Esta conexión puede leer, pero no publicar plantillas. Para enviar a
-          Klaviyo las piezas aprobadas en Marketing, vuelve a autorizar por
-          OAuth aceptando todos los permisos.
+        <Banner tone="warn" title="Esta conexión lee, pero no puede publicar plantillas">
+          Para enviar a Klaviyo las piezas aprobadas en Marketing, vuelve a
+          conectarla aceptando todos los permisos.
         </Banner>
       ) : null}
 
       {connection &&
       connection.scopes.length > 0 &&
       !connection.scopes.includes("events:read") ? (
-        <Banner tone="danger">
-          Esta conexión no tiene permiso para leer eventos. Reautoriza Klaviyo y
-          acepta events:read; sin ese permiso, la sincronización seguirá
-          fallando.
+        <Banner tone="danger" title="Falta el permiso para leer eventos">
+          Sin él la sincronización seguirá fallando. Vuelve a conectar Klaviyo
+          y acepta el permiso de eventos.
         </Banner>
       ) : null}
 
       {connection &&
       connection.scopes.length > 0 &&
       !connection.scopes.includes("flows:write") ? (
-        <Banner tone="warn">
-          Esta conexión no puede crear flows desde NORA. Reautoriza Klaviyo y
-          acepta flows:write para habilitar esa acción.
+        <Banner tone="warn" title="Esta conexión no puede crear flows">
+          Para crearlos desde E-NORA, vuelve a conectar Klaviyo y acepta el
+          permiso de flows.
         </Banner>
       ) : null}
 
-      <Card
-        className="border border-channel-email"
-        title={
-          connection
+      <Card className="border border-channel-email">
+        <CardHeader>
+          <CardTitle>{connection
             ? "Renueva el acceso a Klaviyo"
-            : "Conecta tu cuenta de Klaviyo"
-        }
-        description="Usaremos acceso seguro para leer el rendimiento de email y SMS. La publicación de plantillas solo se activa cuando la apruebas desde Marketing."
-      >
-        {configured ? (
-          <div className="space-y-2">
-            <p className="text-sm text-muted">
-              Autoriza con tu cuenta de Klaviyo. Si conectaste antes de que
-              existiera el envío de plantillas, vuelve a autorizar: el permiso
-              de plantillas no estaba en aquel consentimiento.
-            </p>
-            <Button
-              type="button"
-              onClick={() => void actions.connectKlaviyo()}
-              disabled={pending === "klaviyo"}
-            >
-              {pending === "klaviyo"
-                ? "Conectando..."
-                : connection
-                  ? "Reautorizar Klaviyo (OAuth)"
-                  : "Conectar Klaviyo (OAuth)"}
-            </Button>
-          </div>
-        ) : (
-          <Banner tone="danger">
-            OAuth de Klaviyo no está configurado en el servidor
-            (KLAVIYO_CLIENT_ID/SECRET/REDIRECT_URI). Configúralo para poder
-            conectar.
-          </Banner>
-        )}
-        {actionError ? (
-          <Banner className="mt-3" tone="danger">
-            {actionError}
-          </Banner>
-        ) : null}
+            : "Conecta tu cuenta de Klaviyo"}</CardTitle>
+          <CardDescription>Usaremos acceso seguro para leer el rendimiento de email y SMS. La publicación de plantillas solo se activa cuando la apruebas desde Marketing.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {configured ? (
+            <div className="space-y-2">
+              <p className="text-sm text-muted">
+                Autoriza con tu cuenta de Klaviyo. Si conectaste antes de que
+                existiera el envío de plantillas, vuelve a autorizar: el permiso
+                de plantillas no estaba en aquel consentimiento.
+              </p>
+              <Button
+                type="button"
+                onClick={() => void actions.connectKlaviyo()}
+                disabled={pending === "klaviyo"}
+              >
+                {pending === "klaviyo"
+                  ? "Conectando..."
+                  : connection
+                    ? "Reautorizar Klaviyo (OAuth)"
+                    : "Conectar Klaviyo (OAuth)"}
+              </Button>
+            </div>
+          ) : (
+            <Banner tone="warn" title="Conectar Klaviyo aún no está disponible">
+              Falta configurarlo en el servidor. En cuanto esté, podrás
+              conectarlo desde aquí.
+            </Banner>
+          )}
+          {actionError ? (
+            <Banner className="mt-3" tone="danger">
+              {actionError}
+            </Banner>
+          ) : null}
+        </CardContent>
       </Card>
 
       {connection ? (
-        <Card
-          title="Métrica de conversión"
-          description="Esta métrica sirve para atribuir ingresos y conversiones en los informes de Klaviyo."
-        >
-            {loading ? (
-              <LoadingBlock label="Cargando métricas..." />
-            ) : metricsError ? (
-              <Banner tone="danger">{metricsError}</Banner>
-            ) : !metrics || metrics.metrics.length === 0 ? (
-              <EmptyState
-                title="Aún no hay métricas sincronizadas"
-                hint="Ejecuta una sincronización de Klaviyo para poder elegir la métrica de conversión."
-              />
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setIsMetricPickerOpen(true)}
-                  disabled={savingMetric}
-                >
-                  {savingMetric
-                    ? "Guardando…"
-                    : metrics.metrics.find((metric) => metric.selected)?.name ?? "Elegir métrica"}
-                </Button>
-                <MetricPickerDialog
-                  isOpen={isMetricPickerOpen}
-                  onOpenChange={setIsMetricPickerOpen}
-                  metrics={metrics.metrics}
-                  saving={savingMetric}
-                  onSave={saveMetric}
+        <Card>
+          <CardHeader>
+            <CardTitle>Métrica de conversión</CardTitle>
+            <CardDescription>Esta métrica sirve para atribuir ingresos y conversiones en los informes de Klaviyo.</CardDescription>
+          </CardHeader>
+          <CardContent>
+              {loading ? (
+                <LoadingBlock label="Cargando métricas..." />
+              ) : metricsError ? (
+                <Banner tone="danger">{metricsError}</Banner>
+              ) : !metrics || metrics.metrics.length === 0 ? (
+                <EmptyState
+                  title="Aún no hay métricas sincronizadas"
+                  hint="Ejecuta una sincronización de Klaviyo para poder elegir la métrica de conversión."
                 />
-                <p
-                  role="status"
-                  aria-live="polite"
-                  className="mt-2 text-xs text-muted"
-                >
-                  {metricStatus}
-                </p>
-                {metricSaveError ? (
-                  <Banner className="mt-3" tone="danger">
-                    {metricSaveError}
-                  </Banner>
-                ) : null}
-              </>
-            )}
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setIsMetricPickerOpen(true)}
+                    disabled={savingMetric}
+                  >
+                    {savingMetric
+                      ? "Guardando…"
+                      : metrics.metrics.find((metric) => metric.selected)?.name ?? "Elegir métrica"}
+                  </Button>
+                  <MetricPickerDialog
+                    isOpen={isMetricPickerOpen}
+                    onOpenChange={setIsMetricPickerOpen}
+                    metrics={metrics.metrics}
+                    saving={savingMetric}
+                    onSave={saveMetric}
+                  />
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="mt-2 text-xs text-muted"
+                  >
+                    {metricStatus}
+                  </p>
+                  {metricSaveError ? (
+                    <Banner className="mt-3" tone="danger">
+                      {metricSaveError}
+                    </Banner>
+                  ) : null}
+                </>
+              )}
+          </CardContent>
         </Card>
       ) : null}
 
@@ -378,10 +395,7 @@ function KlaviyoIntegrationPage({
                     (value) => value.report_run_id === run.id,
                   );
                   return (
-                    <div
-                      key={run.id}
-                      className="rounded-md border border-separator px-3 py-2"
-                    >
+                    <Card size="sm" key={run.id}><CardContent>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-medium text-foreground">
                           {run.entity_type} ·{" "}
@@ -418,7 +432,7 @@ function KlaviyoIntegrationPage({
                           ))}
                         </div>
                       ) : null}
-                    </div>
+                    </CardContent></Card>
                   );
                 })}
               </div>
@@ -481,42 +495,35 @@ function MetricPickerDialog({
     if (isOpen) setPicked(current);
   }
   return (
-    <Dialog
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      size="sm"
-      title="¿Qué cuenta como una venta?"
-      isBusy={saving}
-      primary={{
-        label: "Usar esta métrica",
-        busyLabel: "Guardando…",
-        disabled: !picked || picked === current,
-        onClick: () => {
+    <Dialog open={isOpen} onOpenChange={onOpenChange} busy={saving}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>¿Qué cuenta como una venta?</DialogTitle>
+        </DialogHeader>
+        <Banner tone="warn">Esta métrica define qué se cuenta como venta en los informes de Klaviyo.</Banner>
+        <ScrollArea className="max-h-72"><FieldSet className="gap-2">
+          <FieldLegend className="sr-only">Métrica de conversión</FieldLegend>
+          <RadioGroup value={picked} onValueChange={setPicked} className="gap-2">
+            {metrics.map((metric) => (
+              <FieldLabel key={metric.id}>
+                <Field orientation="horizontal">
+                  <RadioGroupItem value={metric.external_metric_id} />
+                  <span className="min-w-0 flex-1 truncate">{metric.name}</span>
+                  {metric.metric_type ? <span className="text-xs text-muted">{metric.metric_type}</span> : null}
+                </Field>
+              </FieldLabel>
+            ))}
+          </RadioGroup>
+        </FieldSet></ScrollArea>
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button disabled={saving || !picked || picked === current} onClick={() => {
           void onSave(picked).then((saved) => {
             if (saved) onOpenChange(false);
           });
-        },
-      }}
-    >
-      <Banner tone="warn">Esta métrica define qué se cuenta como venta en los informes de Klaviyo.</Banner>
-      <div role="radiogroup" aria-label="Métrica de conversión" className="max-h-72 space-y-2 overflow-y-auto">
-        {metrics.map((metric) => (
-          <label
-            key={metric.id}
-            className="flex cursor-pointer items-center gap-3 rounded-md border border-line p-3 has-[:checked]:border-accent has-[:checked]:bg-accent-soft"
-          >
-            <input
-              type="radio"
-              name="klaviyo-conversion-metric"
-              className="accent-[var(--accent)]"
-              checked={picked === metric.external_metric_id}
-              onChange={() => setPicked(metric.external_metric_id)}
-            />
-            <span className="min-w-0 flex-1 truncate">{metric.name}</span>
-            {metric.metric_type ? <span className="text-xs text-muted">{metric.metric_type}</span> : null}
-          </label>
-        ))}
-      </div>
+        }}>{saving ? "Guardando…" : "Usar esta métrica"}</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

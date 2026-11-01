@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { revealHidden } from "@/components/ui/accordion";
 
 /**
  * Llegar desde un aviso y ver qué ha cambiado: con `?focus=<id>[,<id>…]` en la
@@ -10,7 +11,8 @@ import { useSearchParams } from "next/navigation";
  *
  * Va montado una vez en el shell; cada pantalla destino solo tiene que poner
  * `data-focus-id` en la fila o tarjeta. Espera a que el elemento aparezca
- * (las listas cargan después de pintar), hasta 8 s.
+ * (las listas cargan después de pintar), hasta 8 s. Si cae dentro de un
+ * acordeón o un plegable cerrado, lo abre antes.
  */
 export function FocusTarget() {
   const focus = useSearchParams().get("focus");
@@ -28,6 +30,7 @@ export function FocusTarget() {
         if (nodes.length === 0) continue;
         pending.delete(id);
         nodes.forEach((node) => {
+          revealHidden(node);
           if (!scrolled) {
             node.scrollIntoView({ block: "center", behavior: "smooth" });
             scrolled = true;

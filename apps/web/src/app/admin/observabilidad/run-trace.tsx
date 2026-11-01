@@ -16,14 +16,17 @@
  */
 
 import { useEffect, useState } from "react";
-import {
+import { Select,
+  EmptyState,
   AsyncState,
   Badge,
   Button,
   ErrorBlock,
   EYEBROW,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
+  Card,
+  CardContent,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -219,34 +222,17 @@ function JudgeFeedbackEditor({
     <div className="mt-2 space-y-2 rounded-md bg-muted/30 p-3">
       <p className="text-xs font-medium">Tu revisión</p>
       <div className="flex flex-wrap gap-2">
-        <select aria-label="Valoración del criterio" className="rounded border bg-background px-2 py-1 text-sm" value={decision} onChange={(event) => { setDecision(event.target.value as typeof decision); setSaved(false); }}>
-          <option value="agree">De acuerdo</option>
-          <option value="incorrect">Incorrecto</option>
-          <option value="not_applicable">No aplica</option>
-          <option value="corrected">Corregido</option>
-        </select>
+        <Select aria-label="Valoración del criterio" size="sm" className="w-auto" value={decision} onChange={(value) => { setDecision(value as typeof decision); setSaved(false); }} options={[{ value: "agree", label: "De acuerdo" }, { value: "incorrect", label: "Incorrecto" }, { value: "not_applicable", label: "No aplica" }, { value: "corrected", label: "Corregido" }]} />
         {decision === "corrected" ? (
           <>
-            <select aria-label="Estado corregido" className="rounded border bg-background px-2 py-1 text-sm" value={correctedStatus} onChange={(event) => { setCorrectedStatus(event.target.value as typeof correctedStatus); setSaved(false); }}>
-              <option value="evaluable">Se puede evaluar</option>
-              <option value="no_evaluable">Sin evidencia suficiente</option>
-            </select>
+            <Select aria-label="Estado corregido" size="sm" className="w-auto" value={correctedStatus} onChange={(value) => { setCorrectedStatus(value as typeof correctedStatus); setSaved(false); }} options={[{ value: "evaluable", label: "Se puede evaluar" }, { value: "no_evaluable", label: "Sin evidencia suficiente" }]} />
             {correctedStatus === "evaluable" ? (
-              <select aria-label="Puntuación corregida" className="rounded border bg-background px-2 py-1 text-sm" value={correctedScore} onChange={(event) => { setCorrectedScore(event.target.value); setSaved(false); }}>
-                {[0, 1, 2, 3, 4].map((score) => <option key={score} value={score}>{score}/4</option>)}
-              </select>
+              <Select aria-label="Puntuación corregida" size="sm" className="w-auto" value={correctedScore} onChange={(value) => { setCorrectedScore(value); setSaved(false); }} options={[0, 1, 2, 3, 4].map((score) => ({ value: String(score), label: `${score}/4` }))} />
             ) : null}
           </>
         ) : null}
         {decision !== "agree" ? (
-          <select aria-label="Motivo de la revisión" className="rounded border bg-background px-2 py-1 text-sm" value={reason} onChange={(event) => { setReason(event.target.value); setSaved(false); }}>
-            <option value="accuracy">Dato o conclusión incorrecta</option>
-            <option value="missing_evidence">Falta evidencia</option>
-            <option value="wrong_scope">Scope incorrecto</option>
-            <option value="not_actionable">No es accionable</option>
-            <option value="duplicate">Hallazgo duplicado</option>
-            <option value="other">Otro motivo</option>
-          </select>
+          <Select aria-label="Motivo de la revisión" size="sm" className="w-auto" value={reason} onChange={(value) => { setReason(value); setSaved(false); }} options={[{ value: "accuracy", label: "Dato o conclusión incorrecta" }, { value: "missing_evidence", label: "Falta evidencia" }, { value: "wrong_scope", label: "Scope incorrecto" }, { value: "not_actionable", label: "No es accionable" }, { value: "duplicate", label: "Hallazgo duplicado" }, { value: "other", label: "Otro motivo" }]} />
         ) : null}
       </div>
       <textarea aria-label="Nota de revisión" className="w-full rounded border bg-background px-2 py-1 text-sm" maxLength={1200} rows={2} value={note} onChange={(event) => { setNote(event.target.value); setSaved(false); }} placeholder="Nota breve para explicar tu revisión" />
@@ -424,7 +410,7 @@ export function RunTraceDetail({
   const judgeJobs = data.judge_jobs ?? [];
   const judgeFeedback = data.judge_feedback ?? [];
 
-  const toolColumns: TableColumnDef<TraceToolCall>[] = [
+  const toolColumns: DataTableColumn<TraceToolCall>[] = [
     { key: "tool_name", label: "Herramienta" },
     {
       key: "is_error",
@@ -443,7 +429,7 @@ export function RunTraceDetail({
     },
   ];
 
-  const securityColumns: TableColumnDef<TraceSecurityEvent>[] = [
+  const securityColumns: DataTableColumn<TraceSecurityEvent>[] = [
     {
       key: "severity",
       label: "Severidad",
@@ -588,7 +574,7 @@ export function RunTraceDetail({
       {securityEvents.length > 0 ? (
         <div>
           <p className={EYEBROW}>Controles de seguridad</p>
-          <Table
+          <DataTable
             className="mt-2"
             ariaLabel="Eventos de seguridad de la ejecución"
             columns={securityColumns}
@@ -598,7 +584,7 @@ export function RunTraceDetail({
         </div>
       ) : null}
 
-      <section aria-label="Evaluación de calidad del agente" className="rounded-lg border p-4">
+      <Card role="region" aria-label="Evaluación de calidad del agente"><CardContent>
         <p className={EYEBROW}>Evaluación del juez</p>
         {judgeJobs.filter((job) => job.status !== "completed").map((job) => (
           <div key={job.id} className="mt-2 rounded-md bg-muted/40 p-3 text-sm">
@@ -648,20 +634,20 @@ export function RunTraceDetail({
             ))}
           </div>
         ) : null}
-      </section>
+      </CardContent></Card>
 
       <div>
         <p className={EYEBROW}>Cronología</p>
         <StepWaterfall steps={data.steps} />
         {data.steps.length === 0 ? (
-          <p className="text-muted mt-1 text-sm">Sin fases registradas.</p>
+          <EmptyState size="sm" title="Sin fases registradas" />
         ) : null}
       </div>
 
       {data.tool_calls.length > 0 ? (
         <div>
           <p className={EYEBROW}>Herramientas ejecutadas</p>
-          <Table
+          <DataTable
             className="mt-2"
             ariaLabel="Herramientas ejecutadas"
             columns={toolColumns}

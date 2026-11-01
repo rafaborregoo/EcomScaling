@@ -1,23 +1,27 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import Link from "next/link";
 import { useState } from "react";
-import { Button, IconChevronDown, Popover } from "@/components/ui";
+import { Button, IconChevronDown, Popover, PopoverContent, PopoverTrigger, Progress } from "@/components/ui";
 import styles from "./copilot-panel.module.css";
 
 export type CopilotModelOption = {
   id: string;
   label: string;
   description: string;
-  /** Media real de tokens por pregunta (entrada + salida). */
-  approx_tokens_per_message?: number;
+  input_credits_per_1k?: number | null;
+  output_credits_per_1k?: number | null;
+  example_credits?: number | null;
 };
 
 export type CopilotBalance = {
   granted: number;
   used: number;
   remaining: number;
-  approx_messages_left: number;
+  approx_messages_left: number | null;
+  unit?: "credits";
+  by_model?: Array<{ model: string; runs: number; credits: number; cost_usd: number }>;
   renews_at: string;
   days_to_renewal: number;
   exhausted: boolean;
@@ -64,12 +68,12 @@ export function CopilotSaldo({
   const poco = !agotado && fraction < 0.2;
 
   return (
-    <Popover isOpen={isOpen} onOpenChange={setIsOpen}>
-      <Popover.Trigger>
-        <button
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger
+        render={<button
           type="button"
           className="flex min-h-8 items-center gap-1.5 rounded px-2 text-xs text-muted tabular-nums hover:bg-surface hover:text-foreground"
-          aria-label={`Saldo: quedan ${formato.format(balance.remaining)} tokens`}
+          aria-label={`Saldo: quedan ${formato.format(balance.remaining)} créditos`}
         >
           <svg viewBox="0 0 20 20" className={`size-4 ${styles.ring}`} aria-hidden>
             <circle cx="10" cy="10" r="8" fill="none" stroke="var(--color-line, #e2e2e2)" strokeWidth="3" />
@@ -85,34 +89,35 @@ export function CopilotSaldo({
               strokeDashoffset={RING * (1 - fraction)}
             />
           </svg>
-          {degraded || agotado ? "Modo reducido · Mejorar" : poco ? `${compacto.format(balance.remaining)} · Mejorar` : compacto.format(balance.remaining)}
-        </button>
-      </Popover.Trigger>
-      <Popover.Content placement="top end" className="w-[20rem]">
-        <Popover.Dialog aria-label="Saldo del copiloto" className="space-y-3 p-4">
+          {degraded || agotado ? "Modo reducido · Mejorar" : poco ? `${compacto.format(balance.remaining)} créditos · Mejorar` : `${compacto.format(balance.remaining)} créditos`}
+        </button>}
+      />
+      <PopoverContent side="top" align="end" className="w-[20rem]" aria-label="Saldo del copiloto">
+        <div className="space-y-3">
           <p className="text-sm font-medium">
             {agotado
               ? "Te has quedado sin saldo este mes"
-              : `Te quedan ${formato.format(balance.remaining)} de ${formato.format(balance.granted)} tokens`}
+              : `Te quedan ${formato.format(balance.remaining)} de ${formato.format(balance.granted)} créditos`}
           </p>
-          <div className="h-1.5 overflow-hidden rounded-full bg-surface" aria-hidden>
-            <div
-              className="h-full rounded-full bg-accent transition-[width] duration-700"
-              style={{ width: `${fraction * 100}%` }}
-            />
-          </div>
+          <Progress value={fraction * 100} aria-label="Saldo restante del copiloto" />
           <p className="text-xs leading-5 text-muted">
             {agotado
               ? "El copiloto sigue respondiendo, pero en modo reducido hasta que se renueve."
-              : `Dan para unas ${formato.format(balance.approx_messages_left)} preguntas más.`}{" "}
+              : "Los modelos más caros consumen más créditos. Se suman entrada, salida y caché según su coste."}{" "}
             Se renueva el {fechaCorta(balance.renews_at)}
             {balance.days_to_renewal > 0 ? `, dentro de ${balance.days_to_renewal} días.` : "."}
           </p>
+          {balance.by_model?.length ? (
+            <div className="space-y-1 text-xs text-muted">
+              <p className="font-medium">Consumo del mes por modelo</p>
+              {balance.by_model.map((item) => <p key={item.model}>{item.model}: {formato.format(item.credits)} créditos</p>)}
+            </div>
+          ) : null}
           {agotado || poco ? (
             balance.can_upgrade ? (
               <Link
                 href="/planes"
-                className="inline-flex min-h-8 items-center rounded bg-accent px-3 text-xs font-medium text-white"
+                className={buttonVariants({ size: "sm" })}
               >
                 Mejorar plan
               </Link>
@@ -127,8 +132,8 @@ export function CopilotSaldo({
               Entendido
             </Button>
           ) : null}
-        </Popover.Dialog>
-      </Popover.Content>
+        </div>
+      </PopoverContent>
     </Popover>
   );
 }
@@ -143,7 +148,7 @@ export function CopilotModelMenu({
   models: CopilotModelOption[];
   model: string;
   onModelChange: (model: string) => void;
-  /** Tokens que quedan, para traducir el coste a preguntas. */
+  /** Créditos que quedan en el banco compartido. */
   remaining?: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -151,19 +156,19 @@ export function CopilotModelMenu({
   const current = models.find((option) => option.id === model) ?? models[0]!;
 
   return (
-    <Popover isOpen={isOpen} onOpenChange={setIsOpen}>
-      <Popover.Trigger>
-        <button
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger
+        render={<button
           type="button"
           className="flex min-h-8 items-center gap-1 rounded px-2 text-xs font-medium text-muted hover:bg-surface hover:text-foreground"
           aria-label={`Modelo: ${current.label}`}
         >
           {current.label}
           <IconChevronDown aria-hidden className="size-3" />
-        </button>
-      </Popover.Trigger>
-      <Popover.Content placement="top start" className="w-[18rem]">
-        <Popover.Dialog aria-label="Modelo del copiloto" className="p-1.5">
+        </button>}
+      />
+      <PopoverContent side="top" align="start" className="w-[18rem] p-1.5" aria-label="Modelo del copiloto">
+        <div>
           <div role="radiogroup" aria-label="Modelo del copiloto" className="grid gap-0.5">
             {models.map((option) => (
               <button
@@ -183,19 +188,17 @@ export function CopilotModelMenu({
                 {option.description ? (
                   <span className="text-xs text-muted">{option.description}</span>
                 ) : null}
-                {option.approx_tokens_per_message ? (
+                {option.example_credits != null ? (
                   <span className="font-mono text-[0.68rem] text-muted tabular-nums">
-                    ≈ {compacto.format(option.approx_tokens_per_message)} tokens por pregunta
-                    {remaining !== undefined
-                      ? ` · te quedan ≈ ${formato.format(Math.floor(remaining / option.approx_tokens_per_message))}`
-                      : ""}
+                    {formato.format(option.example_credits)} créditos: ejemplo de 10.000 tokens de entrada + 1.000 de salida, sin caché
                   </span>
                 ) : null}
               </button>
             ))}
           </div>
-        </Popover.Dialog>
-      </Popover.Content>
+          <p className="px-3 py-2 text-xs text-muted">El consumo real depende del contexto, la respuesta y las llamadas a herramientas. La caché se descuenta a su tarifa reducida.{remaining !== undefined ? ` Saldo: ${formato.format(remaining)} créditos.` : ""}</p>
+        </div>
+      </PopoverContent>
     </Popover>
   );
 }

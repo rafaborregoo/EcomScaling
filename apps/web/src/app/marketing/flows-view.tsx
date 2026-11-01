@@ -6,7 +6,7 @@ import { formatMoney } from "@/lib/money";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { StatusStrip } from "@/components/trabajo-ui";
-import { Badge, Button, ButtonLink, Card, EmptyState } from "@/components/ui";
+import { Badge, Button, ButtonLink, EmptyState, Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui";
 import type { MarketingDraft } from "@/hooks/use-marketing-drafts";
 import { FlowDiagram } from "./flow-diagram";
 import { FlowBuilder, type FlowDesignRow } from "./flows/flow-builder";
@@ -36,12 +36,14 @@ export function FlowsView({
   drafts,
   onOpenPiece,
   onNewPiece,
+  basePath = "/marketing",
 }: {
   organizationId: string;
   workspace: KWorkspace | undefined;
   drafts: MarketingDraft[];
   onOpenPiece: (draftId: string) => void;
   onNewPiece: () => void;
+  basePath?: string;
 }) {
   const askCopilot = useCopilotAsk();
   const router = useRouter();
@@ -97,7 +99,7 @@ export function FlowsView({
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set("flow", value);
     else params.delete("flow");
-    router.replace(`/marketing?${params.toString()}`, { scroll: false });
+    router.replace(`${basePath}?${params.toString()}`, { scroll: false });
   }
 
   function openFlow(value: string | null) {
@@ -197,7 +199,7 @@ export function FlowsView({
           title="Los flows viven en Klaviyo"
           hint="Puedes diseñar flows aquí ya. Para crearlos en Klaviyo y ver los que tienes, con sus pasos y el resultado de cada email, conecta la cuenta."
           action={
-            <ButtonLink href="/integraciones" variant="primary">
+            <ButtonLink href="/integraciones" variant="default">
               Conectar Klaviyo
             </ButtonLink>
           }
@@ -266,36 +268,39 @@ export function FlowsView({
             ))}
           </div>
           {selected ? (
-            <Card
-              title={selected.name}
-              actions={<Badge tone={flowStatus(selected.status).tone}>{flowStatus(selected.status).label}</Badge>}
-            >
-              <div className="grid gap-4">
-                {kinds.get(selected.id) && flowStatus(selected.status).key !== "live" ? (
-                  <div className={s.warnBox}>
-                    <b>Este flow no está enviando</b>
-                    <span>
-                      Está en «{flowStatus(selected.status).label.toLowerCase()}». Mientras siga así, nadie que
-                      cumpla el disparador recibe estos emails. Se activa desde Klaviyo.
-                    </span>
+            <Card>
+              <CardHeader>
+                <CardTitle>{selected.name}</CardTitle>
+                <CardAction><Badge tone={flowStatus(selected.status).tone}>{flowStatus(selected.status).label}</Badge></CardAction>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4">
+                  {kinds.get(selected.id) && flowStatus(selected.status).key !== "live" ? (
+                    <div className={s.warnBox}>
+                      <b>Este flow no está enviando</b>
+                      <span>
+                        Está en «{flowStatus(selected.status).label.toLowerCase()}». Mientras siga así, nadie que
+                        cumpla el disparador recibe estos emails. Se activa desde Klaviyo.
+                      </span>
+                    </div>
+                  ) : null}
+                  <FlowDiagram flow={selected} currency={currency} />
+                  <div className={s.acts}>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        askCopilot({
+                          question: `Analiza el flow «${selected.name}» de Klaviyo: qué email rinde peor, dónde se pierde la gente y qué cambiarías.`,
+                          focusLabel: `Flow · ${selected.name}`,
+                          reference: { kind: "entity", entity: { type: "klaviyo_flow", id: selected.id } },
+                        })
+                      }
+                    >
+                      Analizar con el Consultor IA
+                    </Button>
                   </div>
-                ) : null}
-                <FlowDiagram flow={selected} currency={currency} />
-                <div className={s.acts}>
-                  <Button
-                    variant="secondary"
-                    onClick={() =>
-                      askCopilot({
-                        question: `Analiza el flow «${selected.name}» de Klaviyo: qué email rinde peor, dónde se pierde la gente y qué cambiarías.`,
-                        focusLabel: `Flow · ${selected.name}`,
-                        reference: { kind: "entity", entity: { type: "klaviyo_flow", id: selected.id } },
-                      })
-                    }
-                  >
-                    Analizar con el Consultor IA
-                  </Button>
                 </div>
-              </div>
+              </CardContent>
             </Card>
           ) : null}
         </div>
@@ -307,11 +312,12 @@ export function FlowsView({
 function Header({ onNew }: { onNew: () => void }) {
   return (
     <div className={s.head}>
-      <div>
+      <div className="client-sr-title">
         <h1>Flows</h1>
         <p>Tus automatizaciones de Klaviyo: qué está activo, cuánto rinde cada email y qué falta.</p>
       </div>
       <div className={s.acts}>
+        <ButtonLink href="/klaviyo#revision-contenido-email" variant="secondary">Revisión de contenido A26</ButtonLink>
         <Button onClick={onNew}>Nuevo flow</Button>
       </div>
     </div>

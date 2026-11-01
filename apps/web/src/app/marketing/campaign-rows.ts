@@ -43,9 +43,23 @@ export type CampaignRow = {
 
 export type CampaignPlanSummary = {
   output_id: string;
+  status?: string;
+  model?: string | null;
+  execution_source?: "cli_simulation" | "runtime";
   generated_at?: string;
   applied_indexes?: number[];
   content: {
+    plan_name?: string;
+    diagnosis?: string;
+    confidence?: "low" | "medium" | "high";
+    planning_window?: { start_date: string; end_date: string; timezone?: string };
+    warnings?: string[];
+    initiatives?: Array<{
+      name: string;
+      objective: string;
+      start_date: string;
+      end_date: string;
+    }>;
     campaigns: Array<{
       initiative?: string;
       title: string;

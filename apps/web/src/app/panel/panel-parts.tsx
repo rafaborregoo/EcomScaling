@@ -1,15 +1,20 @@
 "use client";
 
 import { type ReactNode } from "react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { A02MetricNotice, DiagnosticReading, type Diagnostic } from "../dashboard/client-pulse";
 import {
   panelMoney,
-  panelNumber,
   panelPct,
   type ProfitFlag,
   type ProfitTier,
 } from "@e-nora/contracts";
-import { monthLabel, monthlyChartScale } from "./panel-view-model";
+import { monthLabel } from "./panel-view-model";
+import type { usePanelReading } from "./panel-data";
 import s from "./panel.module.css";
+import { PanelSections } from "./panel-navigation";
 
 /**
  * Piezas compartidas por los tres alcances del panel (cartera, cliente,
@@ -50,21 +55,17 @@ export const TIER_LABEL: Record<ProfitTier, string> = {
  */
 export function ScopeBar({ days, onDays }: { days: number; onDays: (days: number) => void }) {
   return (
-    <header className={s.top}>
-      <span className={s.scopeTitle}>Rentabilidad · comparar periodos</span>
+    <header id="rentabilidad-secciones" className={s.top}>
+      <PanelSections />
+      <span className={s.scopeTitle}>Periodo de las cifras</span>
       <div className={s.ctl}>
-        <div className={s.seg} role="group" aria-label="Periodo">
+        <ToggleGroup aria-label="Periodo" value={days} onValueChange={onDays}>
           {PERIODS.map((period) => (
-            <button
-              key={period.days}
-              type="button"
-              aria-pressed={days === period.days}
-              onClick={() => onDays(period.days)}
-            >
+            <ToggleGroupItem key={period.days} value={period.days}>
               {period.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
     </header>
   );
@@ -95,10 +96,10 @@ export function Hero({
     <section className={cx(s.hero, tier && TIER_CLASS[tier])} aria-labelledby={id}>
       <div className={s.heroTop}>
         <div>
+          <p className={s.meta}>{meta}</p>
           <h1 id={id} className={s.headline}>
             {title}
           </h1>
-          <p className={s.meta}>{meta}</p>
           {lines.map((line, index) => (
             <p key={index} className={s.detail}>
               {line}
@@ -112,47 +113,60 @@ export function Hero({
   );
 }
 
-/** Lectura IA (A02, alcance del consultor) bajo el titular. */
-export function AiLine({
-  text,
-  generatedAt,
-  stale,
-}: {
-  text: string;
-  generatedAt: string | null;
-  stale?: boolean | undefined;
-}) {
+/** Etiqueta de los botones que abren el Consultor IA (no son A02). */
+export function IaTag() {
+  return <span className={s.ia}>IA</span>;
+}
+
+const readingDate = (iso: string) => new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+
+/**
+ * Lo que dice A02 de la rentabilidad, con la estructura común de la IA:
+ * titular, hallazgos con sus cifras y qué hacer. Si la lectura de rentabilidad
+ * aún no existe se enseña la general recortada, y se dice.
+ */
+export function PanelAiReading({ reading, subject }: { reading: ReturnType<typeof usePanelReading>; subject: string }) {
+  if (!reading.supported) {
+    return <p className={s.empty}>A02 lee la rentabilidad a 30 y 90 días: cambia el periodo para ver su lectura.</p>;
+  }
+  if (reading.isLoading) return <p className={s.empty}>Cargando la lectura de A02…</p>;
+  const diagnostic = reading.diagnostic;
+  if (!diagnostic) {
+    return <p className={s.empty}>A02 todavía no ha leído {subject}. La lectura se genera dos veces al día.</p>;
+  }
+  const when = readingDate(diagnostic.generated_at);
   return (
-    <>
-      <span className={s.ia}>A02</span>
-      {text}
-      {generatedAt ? (
-        <span className={s.mut}>
-          {" "}
-          · {stale ? "lectura antigua, " : ""}
-          {new Date(generatedAt).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-        </span>
-      ) : null}
-    </>
+    <DiagnosticReading
+      tag="A02"
+      diagnostic={diagnostic}
+      audience="consultor"
+      maxFindings={4}
+      footer={
+        reading.source === "panel"
+          ? `Lectura de rentabilidad del ${when}${diagnostic.stale ? " · antigua, sin actividad nueva desde entonces" : ""}`
+          : `Lectura general del ${when}, recortada a ventas, finanzas y publicidad. La de rentabilidad aún no se ha generado.`
+      }
+    />
   );
 }
 
-export function IaTag() {
-  return <span className={s.ia}>A02</span>;
-}
+/** Nombre de la plataforma publicitaria tal como lo escribe la marca. */
+export const platformLabel = (key: string) =>
+  ({ meta: "Meta", google: "Google", tiktok: "TikTok", pinterest: "Pinterest", klaviyo: "Klaviyo" })[key.toLowerCase()] ?? key;
 
 // ---------------------------------------------------------------------------
 // KPIs
 // ---------------------------------------------------------------------------
 
-export type KpiItem = { label: string; value: ReactNode; foot: ReactNode };
+export type KpiItem = { label: string; value: ReactNode; foot: ReactNode; metricKey?: string };
 
-export function Kpis({ items, label }: { items: KpiItem[]; label: string }) {
+export function Kpis({ items, label, diagnostic }: { items: KpiItem[]; label: string; diagnostic?: Diagnostic | null }) {
   return (
     <div className={s.kpis} aria-label={label}>
       {items.map((item) => (
         <div key={item.label} className={s.kpi}>
           <p className={s.kpiL}>{item.label}</p>
+            {item.metricKey && diagnostic ? <A02MetricNotice diagnostic={diagnostic} metricLabel={item.label} metricKey={item.metricKey} audience="consultor" /> : null}
           <p className={s.kpiV}>{item.value}</p>
           <p className={s.kpiD}>{item.foot}</p>
         </div>
@@ -270,19 +284,15 @@ export function Seg<T extends string>({
   onChange: (key: T) => void;
 }) {
   return (
-    <div className={s.seg} role="group" aria-label={label}>
+    // Más de 4 opciones: sueltas para que salten de línea en móvil.
+    <ToggleGroup aria-label={label} spacing={options.length > 4 ? 1.5 : 0} value={value} onValueChange={onChange}>
       {options.map((option) => (
-        <button
-          key={option.key}
-          type="button"
-          aria-pressed={value === option.key}
-          onClick={() => onChange(option.key)}
-        >
+        <ToggleGroupItem key={option.key} value={option.key}>
           {option.label}
-          {option.count !== undefined ? <b>{option.count}</b> : null}
-        </button>
+          {option.count !== undefined ? <span className="text-xs text-muted tabular-nums">{option.count}</span> : null}
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 
@@ -290,8 +300,7 @@ export function Seg<T extends string>({
 // Gráficos
 // ---------------------------------------------------------------------------
 
-const CHART_HEIGHT = 190;
-
+// shadcn/ui chart-bar-multiple: https://ui.shadcn.com/charts/bar
 export function MonthlyChart({
   months,
   label,
@@ -301,42 +310,28 @@ export function MonthlyChart({
   label: string;
   currency: string | null;
 }) {
-  const max = Math.max(1, ...months.map((month) => month.revenue));
-  const ceiling = max * 1.1;
-  const scale = monthlyChartScale(max, currency);
-  const fmt = (value: number) => panelNumber(value / scale.divisor, scale.digits);
+  const config = {
+    revenue: { label: "Ingresos", color: "#2563eb" },
+    profit: { label: "Beneficio neto", color: "#60a5fa" },
+  } satisfies ChartConfig;
   return (
-    <>
-      <p className={s.chartUnit}>{scale.label}</p>
-      <div className={s.mb} role="group" aria-label={`${label}. ${scale.label}`}>
-        {months.map((month, index) => (
-          <div key={month.month} className={s.mbCol} role="img" aria-label={`${monthLabel(month.month)}: ingresos ${panelMoney(month.revenue, currency)}, beneficio ${panelMoney(month.profit, currency)}`}>
-            <span className={s.mbM}>{fmt(month.revenue)}</span>
-            <div
-              className={cx(s.mbBar, index === months.length - 1 && s.last)}
-              style={{ height: Math.max(2, Math.round((month.revenue / ceiling) * CHART_HEIGHT)) }}
-            >
-              <i style={{ height: Math.max(0, Math.round((month.profit / ceiling) * CHART_HEIGHT)) }} />
-            </div>
-            <span className={s.mbL}>{monthLabel(month.month)}</span>
-            <span className={s.mbM}>
-              {month.revenue > 0 ? panelPct((month.profit / month.revenue) * 100) : "—"}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className={s.key}>
-        <span>
-          <i className={s.swRev} />
-          Ingresos
-        </span>
-        <span>
-          <i className={s.cProfit} />
-          Beneficio
-        </span>
-        <span className={s.mut}>Bajo cada mes: margen neto</span>
-      </div>
-    </>
+    <ChartContainer config={config} className="w-full" style={{ height: 300, aspectRatio: "auto" }} role="group" aria-label={label}>
+      <BarChart accessibilityLayer data={months}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="month" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={monthLabel} minTickGap={16} />
+        <YAxis hide domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} />
+        <ChartTooltip
+          cursor={false}
+          content={<ChartTooltipContent indicator="dashed" valueFormatter={(value) => panelMoney(value, currency)} labelFormatter={(value) => {
+            const month = months.find((row) => row.month === value);
+            return month ? `${monthLabel(month.month)} · margen ${month.revenue > 0 ? panelPct(month.profit / month.revenue * 100) : "—"}` : String(value);
+          }} />}
+        />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar dataKey="revenue" fill="var(--color-revenue)" radius={4} isAnimationActive={false} />
+        <Bar dataKey="profit" fill="var(--color-profit)" radius={4} isAnimationActive={false} />
+      </BarChart>
+    </ChartContainer>
   );
 }
 

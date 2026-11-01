@@ -1,0 +1,149 @@
+- alert
+- main:
+  - link "Saltar al contenido principal":
+    - /url: "#portal-content"
+  - link "E-NORA, ir al inicio":
+    - /url: /dashboard
+  - paragraph: Integraciones
+  - generic: /
+  - button "ecomscaling-dev.myshopify.com Tienda":
+    - generic: ecomscaling-dev.myshopify.com
+  - combobox
+  - button "Enviar feedback":
+    - generic: Feedback
+  - button "Abrir Consultor IA":
+    - generic: Consultor IA
+  - button "Centro de actividad (1 elementos)":
+    - button "Centro de actividad (1 elementos)":
+      - generic: "1"
+  - button "Abrir menú de perfil":
+    - button "Abrir menú de perfil":
+      - generic: RE
+  - complementary:
+    - navigation "Módulos":
+      - link "Inicio":
+        - /url: /dashboard?tab=todo
+      - link "Trabajo":
+        - /url: /camino
+      - link "Marketing":
+        - /url: /marketing?section=plan
+      - link "Comunicación":
+        - /url: /mensajes
+      - link "Shopify":
+        - /url: /shopify
+      - link "Meta":
+        - /url: /meta
+      - link "Klaviyo":
+        - /url: /klaviyo
+      - link "Analítica":
+        - /url: /informes
+      - link "Conocimiento":
+        - /url: /conocimiento?section=cuestionario
+    - link "Añadir tienda Shopify":
+      - /url: /integraciones/shopify
+    - link "Configuración":
+      - /url: /configuracion?section=resumen
+      - generic "1 incidencias de integración"
+    - button "Control de navegación lateral":
+      - button "Control de navegación lateral":
+  - complementary:
+    - 'navigation "Configuración: secciones"':
+      - link "Resumen":
+        - /url: /configuracion?section=resumen
+        - generic: Resumen
+      - paragraph: Tu tienda
+      - link "Datos de la tienda":
+        - /url: /configuracion?section=tienda
+        - generic: Datos de la tienda
+      - link "Integraciones 1 incidencias de integración, error":
+        - /url: /integraciones
+        - generic: Integraciones
+        - generic "1 incidencias de integración, error": "1"
+      - link "Costes y márgenes Pendiente":
+        - /url: /configuracion?section=rentabilidad
+        - generic: Costes y márgenes
+        - img "Pendiente"
+      - link "Objetivos Completa":
+        - /url: /configuracion?section=objetivos
+        - generic: Objetivos
+        - img "Completa"
+      - link "Alertas Completa":
+        - /url: /configuracion?section=alertas
+        - generic: Alertas
+        - img "Completa"
+      - paragraph: Equipo
+      - link "Personas y roles":
+        - /url: /configuracion?section=equipo
+        - generic: Personas y roles
+      - link "Tu consultor y sus permisos":
+        - /url: /configuracion?section=consultor
+        - generic: Tu consultor y sus permisos
+      - paragraph: Avisos e IA
+      - link "Notificaciones":
+        - /url: /configuracion?section=notificaciones
+        - generic: Notificaciones
+      - link "Copiloto IA":
+        - /url: /configuracion?section=copiloto
+        - generic: Copiloto IA
+      - paragraph: Cuenta
+      - link "Plan y facturación":
+        - /url: /configuracion?section=plan
+        - generic: Plan y facturación
+      - link "Perfil":
+        - /url: /configuracion?section=perfil
+        - generic: Perfil
+      - link "Seguridad y actividad Pendiente":
+        - /url: /configuracion?section=seguridad
+        - generic: Seguridad y actividad
+        - img "Pendiente"
+      - link "Privacidad y datos":
+        - /url: /configuracion?section=privacidad
+        - generic: Privacidad y datos
+  - link "Todas las integraciones":
+    - /url: /integraciones
+    - text: Todas las integraciones
+  - paragraph: Datos de la tienda
+  - heading "Shopify" [level=3]:
+    - generic: Shopify
+  - paragraph: ecomscaling-dev
+  - generic: Reconectar
+  - paragraph: Tienda, productos, inventario, pedidos y reembolsos.
+  - region "Requisitos de activación":
+    - heading "Requisitos de activación" [level=3]
+    - generic "Preparación de los datos 5 pendientes":
+      - generic: Preparación de los datos
+      - generic: 5 pendientes
+  - paragraph: Al autorizar una tienda se importan catálogo, inventario, pedidos y clientes, y se mantienen al día con webhooks y una reconciliación periódica.
+  - button "Permisos de ecomscaling-dev":
+    - text: Permisos de ecomscaling-dev
+  - button "¿Dónde veo mi dominio?":
+    - text: ¿Dónde veo mi dominio?
+  - heading "Añade otra tienda" [level=3]:
+    - generic: Añade otra tienda
+  - paragraph: Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales.
+  - button "Cerrar formulario" [expanded] [active]
+  - button "Ver pasos y permisos":
+    - text: Ver pasos y permisos
+  - paragraph: Dominio interno de Shopify
+  - paragraph: Usa el dominio terminado en .myshopify.com.
+  - textbox "Dominio .myshopify.com de la tienda":
+    - /placeholder: tu-tienda.myshopify.com
+  - button "Conectar Shopify"
+  - alert:
+    - generic: La sincronización necesita revisión.
+    - text: La última sincronización no se pudo completar. Puedes reintentarlo o revisar el detalle técnico.
+    - button "Reintentar sincronización"
+    - button "Ver detalle técnico":
+      - text: Ver detalle técnico
+  - heading "Tiendas conectadas (1)" [level=3]:
+    - generic: Tiendas conectadas (1)
+  - paragraph: Revisa rápidamente el dominio y estado de cada conexión.
+  - generic: ecomscaling-dev.myshopify.com
+  - generic: Reconectar
+  - generic: Tienda activa
+  - generic: App pública
+  - paragraph: Falló la última sincronización. Abre «Detalles técnicos» para consultar el motivo.
+  - button "Eliminar tienda":
+    - text: Eliminar tienda
+  - button "Detalles técnicos":
+    - text: Detalles técnicos

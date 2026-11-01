@@ -1,5 +1,6 @@
 "use client";
 
+import { readApiError } from "@/lib/api-error";
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
@@ -12,14 +13,18 @@ import {
   AreaChart,
   Badge,
   Banner,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
   Metric,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
   type Tone,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 export type MetaCreative = {
@@ -110,18 +115,24 @@ export type MetaAudienceRow = {
 };
 
 export type MetaChangeRow = {
+  event_id?: string;
+  ad_account_id?: string;
+  object_external_id?: string | null;
+  entity_id?: string | null;
   event_time: string;
   event_type: string;
   translated_event_type: string | null;
   actor_name: string | null;
   object_name: string | null;
-  entity_level: string;
-  spend_before: number;
-  spend_after: number;
-  purchases_before: number;
-  purchases_after: number;
-  purchase_value_before: number;
-  purchase_value_after: number;
+  entity_level: string | null;
+  comparison_status?: string;
+  currency_code?: string | null;
+  spend_before: number | null;
+  spend_after: number | null;
+  purchases_before: number | null;
+  purchases_after: number | null;
+  purchase_value_before: number | null;
+  purchase_value_after: number | null;
   roas_before: number | null;
   roas_after: number | null;
   cpa_before: number | null;
@@ -130,6 +141,8 @@ export type MetaChangeRow = {
   days_before: number;
   days_after: number;
   purchase_attribution_window: string | null;
+  total_count?: number;
+  has_more?: boolean;
 };
 
 export type MetaInsights = {
@@ -171,6 +184,18 @@ export type MetaInsights = {
 // Un pixel que lleva mas de un dia sin disparar deja a Meta optimizando sobre
 // conversiones que no llegan.
 const PIXEL_SILENT_HOURS = 24;
+/** Eventos estándar del píxel, con el nombre que entiende quien vende. */
+const PIXEL_EVENT_LABEL: Record<string, string> = {
+  Purchase: "las compras",
+  AddToCart: "los añadidos al carrito",
+  InitiateCheckout: "los inicios de pago",
+  AddPaymentInfo: "los datos de pago",
+  ViewContent: "las vistas de producto",
+  PageView: "las visitas",
+  Lead: "los contactos",
+  CompleteRegistration: "los registros",
+  Search: "las búsquedas",
+};
 
 // Las creatividades que se pueden mirar de una sentada. El resto sigue en la
 // funcion SQL para quien la llame por otra via.
@@ -315,11 +340,14 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
 
   if (!summary) {
     return (
-      <Card
-        title="Vista general"
-        description="Lo que Meta se lleva y lo que devuelve."
-      >
-        <PendingSync what="ningun dato de gasto" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Vista general</CardTitle>
+          <CardDescription>Lo que Meta se lleva y lo que devuelve.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="ningun dato de gasto" />
+        </CardContent>
       </Card>
     );
   }
@@ -355,151 +383,154 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
   const mixedPurchaseActions = summary.purchase_action_types.length > 1;
 
   return (
-    <Card
-      title="Vista general"
-      description="Lo que Meta se lleva y lo que devuelve."
-    >
-      <div className="grid gap-4">
-        {silentPixels > 0 ? (
-          <Banner tone="warn" className="text-sm">
-            {silentPixels === 1
-              ? "El pixel lleva mas de un dia sin disparar"
-              : `${silentPixels} pixeles llevan mas de un dia sin disparar`}
-            : el gasto es real, pero las compras y el ROAS de aqui abajo
-            describen menos de lo que ocurrio.{" "}
-            <a href="#meta-medicion" className="underline">
-              Ver medicion
-            </a>
-          </Banner>
-        ) : null}
+    <Card>
+      <CardHeader>
+        <CardTitle>Vista general</CardTitle>
+        <CardDescription>Lo que Meta se lleva y lo que devuelve.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4">
+          {silentPixels > 0 ? (
+            <Banner tone="warn" className="text-sm">
+              {silentPixels === 1
+                ? "El píxel lleva más de un día sin disparar"
+                : `${silentPixels} píxeles llevan más de un día sin disparar`}
+              : el gasto es real, pero las compras y el ROAS de aquí abajo
+              se quedan cortos.{" "}
+              <a href="#meta-medicion" className="underline">
+                Ver medicion
+              </a>
+            </Banner>
+          ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            card
-            label="Inversion"
-            value={money(summary.spend, insights.currency)}
-            hint={
-              missingDays > 0
-                ? `${summary.days_with_data} de ${expectedDays} dias con datos`
-                : undefined
-            }
-          />
-          <Metric
-            card
-            label="Compras atribuidas"
-            value={count(summary.purchases)}
-            hint={
-              mixedPurchaseActions
-                ? "Las cuentas de este ambito no cuentan la compra igual"
-              : undefined
-            }
-          />
-          <Metric
-            card
-            label="Impresiones"
-            value={count(summary.impressions)}
-          />
-          <Metric card label="Clics" value={count(summary.clicks)} />
-          <Metric
-            card
-            // Sin compras no hay ROAS, y un 0 se leeria como "no vende".
-            tone={summary.roas != null && summary.roas < 1 ? "warn" : "default"}
-            label="ROAS"
-            value={multiple(summary.roas)}
-            hint={
-              summary.roas == null
-                ? "Sin compras atribuidas en el periodo"
-                : "Valor atribuido por Meta / inversion"
-            }
-          />
-          <Metric
-            card
-            label="Coste por compra atribuida"
-            value={money(summary.cac, insights.currency)}
-          />
-          <Metric
-            card
-            label="CPM"
-            value={money(summary.cpm ?? null, insights.currency)}
-          />
-          <Metric
-            card
-            label="CPC"
-            value={money(summary.cpc ?? null, insights.currency)}
-          />
-        </div>
-
-        {insights.daily_spend?.length > 1 ? (
-          <div className="border-t border-edge pt-4">
-            <div className="mb-2">
-              <p className="text-sm font-medium text-foreground">
-                Evolución diaria de la inversión
-              </p>
-              <p className="text-xs text-muted">
-                {insights.period.days === "all"
-                  ? "Últimos 365 días"
-                  : `Últimos ${insights.period.days} días`}
-              </p>
-            </div>
-            <AreaChart
-              data={insights.daily_spend.map((day) => ({
-                date: new Date(`${day.bucket_date}T12:00:00`).toLocaleDateString(
-                  "es-ES",
-                  { day: "2-digit", month: "short" },
-                ),
-                Inversión: day.spend,
-                isoDate: day.bucket_date,
-              }))}
-              xKey="date"
-              series={[
-                { key: "Inversión", label: "Inversión", color: "#3d3b3a" },
-              ]}
-              height={220}
-              valueFormatter={(value) => money(value, insights.currency)}
-              actions={askAboutDay("la inversión", "meta_spend")}
-            />
-          </div>
-        ) : null}
-
-        {insights.daily_roas?.filter((day) => day.roas !== null).length > 1 ? (
-          <div className="border-t border-edge pt-4">
-            <div className="mb-2">
-              <p className="text-sm font-medium text-foreground">ROAS diario</p>
-              <p className="text-xs text-muted">
-                Valor de compra atribuido por Meta / inversión del día
-              </p>
-            </div>
-            <AreaChart
-              data={insights.daily_roas.flatMap((day) =>
-                day.roas === null
-                  ? []
-                  : [
-                      {
-                        date: new Date(`${day.bucket_date}T12:00:00`).toLocaleDateString(
-                          "es-ES",
-                          { day: "2-digit", month: "short" },
-                        ),
-                        ROAS: day.roas,
-                        isoDate: day.bucket_date,
-                      },
-                    ],
-              )}
-              xKey="date"
-              series={[{ key: "ROAS", label: "ROAS", color: "#7157d9" }]}
-              height={220}
-              valueFormatter={(value) =>
-                `${value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}x`
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              card
+              label="Inversion"
+              value={money(summary.spend, insights.currency)}
+              hint={
+                missingDays > 0
+                  ? `${summary.days_with_data} de ${expectedDays} dias con datos`
+                  : undefined
               }
-              actions={askAboutDay("el ROAS", "meta_roas")}
+            />
+            <Metric
+              card
+              label="Compras atribuidas"
+              value={count(summary.purchases)}
+              hint={
+                mixedPurchaseActions
+                  ? "Las cuentas de este ambito no cuentan la compra igual"
+                : undefined
+              }
+            />
+            <Metric
+              card
+              label="Impresiones"
+              value={count(summary.impressions)}
+            />
+            <Metric card label="Clics" value={count(summary.clicks)} />
+            <Metric
+              card
+              // Sin compras no hay ROAS, y un 0 se leeria como "no vende".
+              tone={summary.roas != null && summary.roas < 1 ? "warn" : "default"}
+              label="ROAS"
+              value={multiple(summary.roas)}
+              hint={
+                summary.roas == null
+                  ? "Sin compras atribuidas en el periodo"
+                  : "Valor atribuido por Meta / inversion"
+              }
+            />
+            <Metric
+              card
+              label="Coste por compra atribuida"
+              value={money(summary.cac, insights.currency)}
+            />
+            <Metric
+              card
+              label="CPM"
+              value={money(summary.cpm ?? null, insights.currency)}
+            />
+            <Metric
+              card
+              label="CPC"
+              value={money(summary.cpc ?? null, insights.currency)}
             />
           </div>
-        ) : null}
 
-        <p className="text-xs text-muted">
-          Cifras atribuidas por Meta en su propia ventana de conversion. No son
-          ventas de Shopify y no se suman a las de ningun otro canal.
-        </p>
-      </div>
+          {insights.daily_spend?.length > 1 ? (
+            <div className="border-t border-edge pt-4">
+              <div className="mb-2">
+                <p className="text-sm font-medium text-foreground">
+                  Evolución diaria de la inversión
+                </p>
+                <p className="text-sm text-muted">
+                  {insights.period.days === "all"
+                    ? "Últimos 365 días"
+                    : `Últimos ${insights.period.days} días`}
+                </p>
+              </div>
+              <AreaChart
+                data={insights.daily_spend.map((day) => ({
+                  date: new Date(`${day.bucket_date}T12:00:00`).toLocaleDateString(
+                    "es-ES",
+                    { day: "2-digit", month: "short" },
+                  ),
+                  Inversión: day.spend,
+                  isoDate: day.bucket_date,
+                }))}
+                xKey="date"
+                series={[
+                  { key: "Inversión", label: "Inversión", color: "#3d3b3a" },
+                ]}
+                height={220}
+                valueFormatter={(value) => money(value, insights.currency)}
+                actions={askAboutDay("la inversión", "meta_spend")}
+              />
+            </div>
+          ) : null}
+
+          {insights.daily_roas?.filter((day) => day.roas !== null).length > 1 ? (
+            <div className="border-t border-edge pt-4">
+              <div className="mb-2">
+                <p className="text-sm font-medium text-foreground">ROAS diario</p>
+                <p className="text-sm text-muted">
+                  Valor de compra atribuido por Meta / inversión del día
+                </p>
+              </div>
+              <AreaChart
+                data={insights.daily_roas.flatMap((day) =>
+                  day.roas === null
+                    ? []
+                    : [
+                        {
+                          date: new Date(`${day.bucket_date}T12:00:00`).toLocaleDateString(
+                            "es-ES",
+                            { day: "2-digit", month: "short" },
+                          ),
+                          ROAS: day.roas,
+                          isoDate: day.bucket_date,
+                        },
+                      ],
+                )}
+                xKey="date"
+                series={[{ key: "ROAS", label: "ROAS", color: "#7157d9" }]}
+                height={220}
+                valueFormatter={(value) =>
+                  `${value.toLocaleString("es-ES", { maximumFractionDigits: 2 })}x`
+                }
+                actions={askAboutDay("el ROAS", "meta_roas")}
+              />
+            </div>
+          ) : null}
+
+          <p className="text-sm text-muted">
+            Cifras atribuidas por Meta en su propia ventana de conversion. No son
+            ventas de Shopify y no se suman a las de ningun otro canal.
+          </p>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -507,11 +538,14 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
 function MeasurementSection({ insights }: { insights: MetaInsights }) {
   if (!insights.pixels.length) {
     return (
-      <Card
-        title="Medición"
-        description="Si el píxel no dispara, todo lo demás de esta página vale menos."
-      >
-        <PendingSync what="ningún píxel" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Medición</CardTitle>
+          <CardDescription>Si el píxel no dispara, todo lo demás de esta página vale menos.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="ningún píxel" />
+        </CardContent>
       </Card>
     );
   }
@@ -543,7 +577,7 @@ function MeasurementSection({ insights }: { insights: MetaInsights }) {
     pixels.set(row.pixel_id, current);
   }
 
-  const columns: TableColumnDef<PixelEventRow>[] = [
+  const columns: DataTableColumn<PixelEventRow>[] = [
     { key: "event_name", label: "Evento" },
     {
       key: "events_total",
@@ -575,67 +609,70 @@ function MeasurementSection({ insights }: { insights: MetaInsights }) {
   ];
 
   return (
-    <Card
-      title="Medición"
-      description="Si el píxel no dispara, todo lo demás de esta página vale menos."
-    >
-      <div className="grid gap-6">
-        {[...pixels.entries()].map(([pixelId, pixel]) => {
-          const silent =
-            pixel.unavailable ||
-            pixel.hoursSince == null ||
-            pixel.hoursSince > PIXEL_SILENT_HOURS;
+    <Card>
+      <CardHeader>
+        <CardTitle>Medición</CardTitle>
+        <CardDescription>Si el píxel no dispara, todo lo demás de esta página vale menos.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-6">
+          {[...pixels.entries()].map(([pixelId, pixel]) => {
+            const silent =
+              pixel.unavailable ||
+              pixel.hoursSince == null ||
+              pixel.hoursSince > PIXEL_SILENT_HOURS;
 
-          // Un evento que se cae a mitad de periodo es el caso que hay que
-          // ver: el píxel sigue "vivo" y la optimización ya está ciega.
-          const dropped = pixel.events.filter((event) => event.days_missing > 0);
+            // Un evento que se cae a mitad de periodo es el caso que hay que
+            // ver: el píxel sigue "vivo" y la optimización ya está ciega.
+            const dropped = pixel.events.filter((event) => event.days_missing > 0);
 
-          return (
-            <div key={pixelId} className="grid gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={silent ? "danger" : "success"}>
-                  {silent ? "sin disparar" : "activo"}
-                </Badge>
-                <span className="font-medium">{pixel.name}</span>
-                <span className="text-xs text-muted">
-                  último disparo {dateTime(pixel.lastFired)}
-                </span>
+            return (
+              <div key={pixelId} className="grid gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={silent ? "danger" : "success"}>
+                    {silent ? "sin disparar" : "activo"}
+                  </Badge>
+                  <span className="font-medium">{pixel.name}</span>
+                  <span className="text-sm text-muted">
+                    último disparo {dateTime(pixel.lastFired)}
+                  </span>
+                </div>
+
+                {silent ? (
+                  <Banner tone="danger" className="text-sm">
+                    <p className="font-medium">
+                      Meta está optimizando sobre conversiones que no le llegan.
+                    </p>
+                    <p>
+                      Mientras el píxel no dispare, las compras y el ROAS de esta
+                      página no describen lo que pasa en la tienda.
+                    </p>
+                  </Banner>
+                ) : null}
+
+                {pixel.events.length ? (
+                  <DataTable
+                    ariaLabel={`Eventos del píxel ${pixel.name}`}
+                    columns={columns}
+                    rows={pixel.events}
+                  />
+                ) : (
+                  <PendingSync what="los eventos de este píxel" />
+                )}
+
+                {dropped.length && !silent ? (
+                  <Banner tone="warn" className="text-sm">
+                    El píxel dispara, pero algún día del periodo faltan{" "}
+                    {dropped.map((event) => (event.event_name && PIXEL_EVENT_LABEL[event.event_name]) || event.event_name || "algún evento").join(", ")}.
+                    Un píxel que manda visitas y no manda compras parece sano
+                    desde Meta.
+                  </Banner>
+                ) : null}
               </div>
-
-              {silent ? (
-                <Banner tone="danger" className="text-sm">
-                  <p className="font-medium">
-                    Meta está optimizando sobre conversiones que no le llegan.
-                  </p>
-                  <p>
-                    Mientras el píxel no dispare, las compras y el ROAS de esta
-                    página no describen lo que pasa en la tienda.
-                  </p>
-                </Banner>
-              ) : null}
-
-              {pixel.events.length ? (
-                <Table
-                  ariaLabel={`Eventos del píxel ${pixel.name}`}
-                  columns={columns}
-                  rows={pixel.events}
-                />
-              ) : (
-                <PendingSync what="los eventos de este píxel" />
-              )}
-
-              {dropped.length && !silent ? (
-                <Banner tone="warn" className="text-sm">
-                  El píxel dispara, pero{" "}
-                  {dropped.map((event) => event.event_name).join(", ")} falta
-                  algún día del periodo. Un píxel que manda visitas y no manda
-                  compras se ve sano desde Meta.
-                </Banner>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -649,11 +686,14 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
 
   if (!insights.creatives.length) {
     return (
-      <Card
-        title="Creatividades"
-        description="Qué pieza para el scroll y cuál se queda sin ver."
-      >
-        <PendingSync what="el rendimiento por anuncio" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Creatividades</CardTitle>
+          <CardDescription>Qué pieza para el scroll y cuál se queda sin ver.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="el rendimiento por anuncio" />
+        </CardContent>
       </Card>
     );
   }
@@ -675,14 +715,14 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
     (row) => row.purchase_attribution_window,
   )?.purchase_attribution_window;
 
-  const columns: TableColumnDef<CreativeTableRow>[] = [
+  const columns: DataTableColumn<CreativeTableRow>[] = [
     {
       key: "ad_name",
       label: "Anuncio",
       render: (row) => (
         <div className="min-w-0">
           <p className="truncate font-medium">{row.ad_name}</p>
-          <p className="truncate text-xs text-muted">
+          <p className="truncate text-sm text-muted">
             {row.campaign_name} · {row.ad_set_name}
           </p>
         </div>
@@ -753,49 +793,52 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
   ];
 
   return (
-    <Card
-      title="Creatividades"
-      description="Qué pieza para el scroll y cuál se queda sin ver."
-    >
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric card label="Anuncios con gasto" value={count(rows.length)} />
-        <Metric
-          card
-          label="De vídeo"
-          value={count(withVideo.length)}
-          hint={
-            withVideo.length === 0 ? "las tasas de vídeo no aplican" : undefined
-          }
-        />
-        <Metric
-          card
-          label="Sin volumen para juzgar"
-          value={count(withoutVolume.length)}
-          tone={withoutVolume.length > 0 ? "warn" : "default"}
-          hint={`menos de ${count(insights.min_impressions_for_rates)} impresiones`}
-        />
-        <Metric
-          card
-          label="Gasto del periodo"
-          value={creativeSpendTotal}
-        />
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Creatividades</CardTitle>
+        <CardDescription>Qué pieza para el scroll y cuál se queda sin ver.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric card label="Anuncios con gasto" value={count(rows.length)} />
+          <Metric
+            card
+            label="De vídeo"
+            value={count(withVideo.length)}
+            hint={
+              withVideo.length === 0 ? "las tasas de vídeo no aplican" : undefined
+            }
+          />
+          <Metric
+            card
+            label="Sin volumen para juzgar"
+            value={count(withoutVolume.length)}
+            tone={withoutVolume.length > 0 ? "warn" : "default"}
+            hint={`menos de ${count(insights.min_impressions_for_rates)} impresiones`}
+          />
+          <Metric
+            card
+            label="Gasto del periodo"
+            value={creativeSpendTotal}
+          />
+        </div>
 
-      <div className="mt-4">
-        <Table
-          ariaLabel="Rendimiento por creatividad"
-          columns={columns}
-          rows={rows}
-        />
-      </div>
+        <div className="mt-4">
+          <DataTable
+            ariaLabel="Rendimiento por creatividad"
+            columns={columns}
+            rows={rows}
+          />
+        </div>
 
-      <p className="mt-3 text-xs text-muted">
-        Enganche = reproducciones entre impresiones. Retención = de quien empezó
-        el vídeo, cuánto llegó al final.
-        {attributionWindow
-          ? ` Compras y ROAS con la ventana de atribución ${attributionWindow} de Meta.`
-          : null}
-      </p>
+        <p className="mt-3 text-sm text-muted">
+          Enganche = reproducciones entre impresiones. Retención = de quien empezó
+          el vídeo, cuánto llegó al final.
+          {attributionWindow
+            ? ` Compras y ROAS con la ventana de atribución ${attributionWindow} de Meta.`
+            : null}
+        </p>
+      </CardContent>
     </Card>
   );
 }
@@ -805,11 +848,14 @@ function CreativesSection({ insights }: { insights: MetaInsights }) {
 function RankingSection({ insights }: { insights: MetaInsights }) {
   if (!insights.ranking_distribution.length) {
     return (
-      <Card
-        title="Dónde va el dinero"
-        description="Cuánto presupuesto hay detrás de cada veredicto de Meta."
-      >
-        <PendingSync what="los veredictos de subasta" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Dónde va el dinero</CardTitle>
+          <CardDescription>Cuánto presupuesto hay detrás de cada veredicto de Meta.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="los veredictos de subasta" />
+        </CardContent>
       </Card>
     );
   }
@@ -819,42 +865,45 @@ function RankingSection({ insights }: { insights: MetaInsights }) {
   );
 
   return (
-    <Card
-      title="Dónde va el dinero"
-      description="Cuánto presupuesto hay detrás de cada veredicto de Meta."
-    >
-      <div className="grid gap-6 lg:grid-cols-3">
-        {byDimensionCurrency.map((group) => (
-          <div key={`${group.dimension}:${group.currencyCode ?? "unknown"}`} className="grid gap-2">
-            <p className="text-sm font-medium">
-              {DIMENSION_LABEL[group.dimension] ?? group.dimension}
-              <span className="ml-2 text-xs font-normal text-muted">
-                {group.currencyCode ?? "moneda desconocida"}
-              </span>
-            </p>
-            {group.rows.map((row) => (
-              <div
-                key={`${row.ranking_value}:${row.currency_code ?? "unknown"}`}
-                className="flex items-center justify-between gap-3"
-              >
-                <RankingBadge value={row.ranking_value} />
-                <span className="shrink-0 text-sm tabular-nums">
-                  {money(row.spend, row.currency_code)}
-                  <span className="ml-2 text-muted">
-                    {percent(row.spend_share, 0)}
-                  </span>
+    <Card>
+      <CardHeader>
+        <CardTitle>Dónde va el dinero</CardTitle>
+        <CardDescription>Cuánto presupuesto hay detrás de cada veredicto de Meta.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {byDimensionCurrency.map((group) => (
+            <div key={`${group.dimension}:${group.currencyCode ?? "unknown"}`} className="grid gap-2">
+              <p className="text-sm font-medium">
+                {DIMENSION_LABEL[group.dimension] ?? group.dimension}
+                <span className="ml-2 text-sm font-normal text-muted">
+                  {group.currencyCode ?? "moneda desconocida"}
                 </span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
+              </p>
+              {group.rows.map((row) => (
+                <div
+                  key={`${row.ranking_value}:${row.currency_code ?? "unknown"}`}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <RankingBadge value={row.ranking_value} />
+                  <span className="shrink-0 text-sm tabular-nums">
+                    {money(row.spend, row.currency_code)}
+                    <span className="ml-2 text-muted">
+                      {percent(row.spend_share, 0)}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
 
-      {/* Diez anuncios flojos con 20 EUR son ruido; uno con el 60% del
-          presupuesto es la conversacion del lunes. */}
-      <p className="mt-3 text-xs text-muted">
-        El reparto es por gasto, no por número de anuncios.
-      </p>
+        {/* Diez anuncios flojos con 20 EUR son ruido; uno con el 60% del
+            presupuesto es la conversacion del lunes. */}
+        <p className="mt-3 text-sm text-muted">
+          El reparto es por gasto, no por número de anuncios.
+        </p>
+      </CardContent>
     </Card>
   );
 }
@@ -868,11 +917,14 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
 
   if (!insights.learning.length) {
     return (
-      <Card
-        title="Aprendizaje"
-        description="Un conjunto que aún aprende entrega peor, y es normal."
-      >
-        <PendingSync what="el estado de los conjuntos" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Aprendizaje</CardTitle>
+          <CardDescription>Un conjunto que aún aprende entrega peor, y es normal.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="el estado de los conjuntos" />
+        </CardContent>
       </Card>
     );
   }
@@ -886,23 +938,26 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
 
   if (!rows.length) {
     return (
-      <Card
-        title="Aprendizaje"
-        description="Un conjunto que aún aprende entrega peor, y es normal."
-      >
-        <EmptyState title="Ningún conjunto está en fase de aprendizaje." />
+      <Card>
+        <CardHeader>
+          <CardTitle>Aprendizaje</CardTitle>
+          <CardDescription>Un conjunto que aún aprende entrega peor, y es normal.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <EmptyState title="Ningún conjunto está en fase de aprendizaje." />
+        </CardContent>
       </Card>
     );
   }
 
-  const columns: TableColumnDef<LearningTableRow>[] = [
+  const columns: DataTableColumn<LearningTableRow>[] = [
     {
       key: "ad_set_name",
       label: "Conjunto",
       render: (row) => (
         <div className="min-w-0">
           <p className="truncate font-medium">{row.ad_set_name}</p>
-          <p className="truncate text-xs text-muted">{row.campaign_name}</p>
+          <p className="truncate text-sm text-muted">{row.campaign_name}</p>
         </div>
       ),
     },
@@ -946,7 +1001,7 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
       render: (row) => (
         <div>
           <span className="tabular-nums">{money(row.spend_in_period, currency)}</span>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             {row.spend_source_days == null
               ? "cobertura desconocida"
               : `${count(row.spend_source_days)} días con datos`}
@@ -963,10 +1018,10 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
         ) : (
           <div>
             <span className="tabular-nums">hace {Math.round(row.days_since_account_activity)} d</span>
-            <p className="max-w-56 truncate text-xs text-muted" title={row.last_account_activity_description ?? undefined}>
+            <p className="max-w-56 truncate text-sm text-muted" title={row.last_account_activity_description ?? undefined}>
               {row.last_account_activity_description ?? row.last_account_activity_type ?? "tipo no disponible"}
             </p>
-            <p className="text-xs text-muted">
+            <p className="text-sm text-muted">
               {row.activity_sync_state === "fresh"
                 ? "log actualizado"
                 : row.activity_sync_state === "stale"
@@ -979,19 +1034,22 @@ function LearningSection({ insights }: { insights: MetaInsights }) {
   ];
 
   return (
-    <Card
-      title="Aprendizaje"
-      description="Estado reportado por Meta; las conversiones y el historial son señales, no una promesa de cuándo saldrá de aprendizaje."
-    >
-      <Table
-        ariaLabel="Conjuntos en fase de aprendizaje"
-        columns={columns}
-        rows={rows}
-      />
+    <Card>
+      <CardHeader>
+        <CardTitle>Aprendizaje</CardTitle>
+        <CardDescription>Estado reportado por Meta; las conversiones y el historial son señales, no una promesa de cuándo saldrá de aprendizaje.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DataTable
+          ariaLabel="Conjuntos en fase de aprendizaje"
+          columns={columns}
+          rows={rows}
+        />
 
-      <p className="mt-3 text-xs text-muted">
-        La referencia de 50 conversiones es interna, no un umbral confirmado en esta respuesta de Meta. La última actividad disponible no confirma que se reiniciara el aprendizaje; su ausencia tampoco demuestra que no hubiera cambios.
-      </p>
+        <p className="mt-3 text-sm text-muted">
+          La referencia de 50 conversiones es interna, no un umbral confirmado en esta respuesta de Meta. La última actividad disponible no confirma que se reiniciara el aprendizaje; su ausencia tampoco demuestra que no hubiera cambios.
+        </p>
+      </CardContent>
     </Card>
   );
 }
@@ -1011,21 +1069,24 @@ function ChangesSection({
 
   if (!insights.changes.length) {
     return (
-      <Card
-        title="Qué se tocó y qué pasó"
-        description={`Los ${insights.change_window_days} días anteriores y posteriores a cada cambio.`}
-      >
-        <PendingSync what="el registro de cambios de la cuenta" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué se tocó y qué pasó</CardTitle>
+          <CardDescription>{`Los ${insights.change_window_days} días anteriores y posteriores a cada cambio.`}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="el registro de cambios de la cuenta" />
+        </CardContent>
       </Card>
     );
   }
 
   const rows: ChangeTableRow[] = insights.changes.map((row, index) => ({
     ...row,
-    id: `${row.event_time}:${row.entity_level}:${index}`,
+    id: `${row.event_time}:${row.entity_level ?? "unresolved"}:${index}`,
   }));
 
-  const columns: TableColumnDef<ChangeTableRow>[] = [
+  const columns: DataTableColumn<ChangeTableRow>[] = [
     {
       key: "event_time",
       label: "Cambio",
@@ -1034,14 +1095,17 @@ function ChangesSection({
           <p className="truncate font-medium">
             {row.translated_event_type ?? row.event_type}
           </p>
-          <p className="truncate text-xs text-muted">
+          <p className="truncate text-sm text-muted">
             {dateTime(row.event_time)} ·{" "}
-            {ENTITY_LABEL[row.entity_level] ?? row.entity_level}{" "}
+            {ENTITY_LABEL[row.entity_level ?? ""] ?? row.entity_level ?? "Entidad sin resolver"}{" "}
             {row.object_name ?? ""}
             {/* Quien tocó qué es información del consultor: al cliente le
                 sirve saber que se cambió, no señalar a nadie. */}
             {showActor && row.actor_name ? ` · ${row.actor_name}` : ""}
           </p>
+          {row.comparison_status ? <Badge tone={row.comparison_status === "comparable_observation_only" ? "neutral" : "warn"}>
+            {{ comparable_observation_only: "Ventanas completas; no causa", unresolved_entity: "Entidad sin resolver", attribution_immature: "Atribución inmadura", partial_before_window: "Ventana previa parcial", partial_after_window: "Ventana posterior parcial", below_minimum_spend: "Muestra bajo umbral", no_attribution: "Sin atribución", currency_unknown: "Moneda desconocida" }[row.comparison_status] ?? "Comparación limitada"}
+          </Badge> : null}
         </div>
       ),
     },
@@ -1057,53 +1121,38 @@ function ChangesSection({
     },
     {
       key: "roas",
-      label: "ROAS antes → después",
+      label: "ROAS",
       render: (row) => (
-        <span className="tabular-nums">
-          {multiple(row.roas_before)} → {multiple(row.roas_after)}
-        </span>
+        <span className="text-muted">Consulta A25 con el veredicto A24 vigente</span>
       ),
     },
     {
       key: "roas_delta_pct",
       label: "Variación",
-      render: (row) =>
-        row.roas_delta_pct == null ? (
-          <span className="text-muted">—</span>
-        ) : (
-          <Badge
-            tone={
-              row.roas_delta_pct <= -ROAS_SHIFT_PCT
-                ? "danger"
-                : row.roas_delta_pct >= ROAS_SHIFT_PCT
-                  ? "success"
-                  : "neutral"
-            }
-          >
-            {row.roas_delta_pct > 0 ? "+" : ""}
-            {Number(row.roas_delta_pct).toFixed(0)}%
-          </Badge>
-        ),
+      render: () => <span className="text-muted">Coincidencia temporal, no causa</span>,
     },
   ];
 
   return (
-    <Card
-      title="Qué se tocó y qué pasó"
-      description={`Los ${insights.change_window_days} días anteriores y posteriores a cada cambio.`}
-    >
-      <Table
-        ariaLabel="Impacto de los cambios de la cuenta"
-        columns={columns}
-        rows={rows}
-      />
+    <Card>
+      <CardHeader>
+        <CardTitle>Qué se tocó y qué pasó</CardTitle>
+        <CardDescription>{`Los ${insights.change_window_days} días anteriores y posteriores a cada cambio.`}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DataTable
+          ariaLabel="Impacto de los cambios de la cuenta"
+          columns={columns}
+          rows={rows}
+        />
 
-      {/* Sin esta frase, una flecha roja invita a leerse como causa probada. */}
-      <p className="mt-3 text-xs text-muted">
-        Esto es coincidencia en el tiempo, no causa demostrada: sirve para saber
-        dónde mirar. El día del cambio queda fuera de las dos ventanas porque es
-        mitad viejo y mitad nuevo.
-      </p>
+        {/* Sin esta frase, una flecha roja invita a leerse como causa probada. */}
+        <p className="mt-3 text-sm text-muted">
+          Esto es coincidencia en el tiempo, no causa demostrada: sirve para saber
+          dónde mirar. El día del cambio queda fuera de las dos ventanas porque es
+          mitad viejo y mitad nuevo.
+        </p>
+      </CardContent>
     </Card>
   );
 }
@@ -1115,8 +1164,14 @@ type AudienceTableRow = MetaAudienceRow & { id: string };
 function AudiencesSection({ insights }: { insights: MetaInsights }) {
   if (!insights.audiences.length) {
     return (
-      <Card title="Públicos" description="Cuáles se usan y cuáles sobran.">
-        <PendingSync what="los públicos de la cuenta" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Públicos</CardTitle>
+          <CardDescription>Cuáles se usan y cuáles sobran.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PendingSync what="los públicos de la cuenta" />
+        </CardContent>
       </Card>
     );
   }
@@ -1127,7 +1182,7 @@ function AudiencesSection({ insights }: { insights: MetaInsights }) {
   }));
   const unused = rows.filter((row) => row.ad_sets_using === 0);
 
-  const columns: TableColumnDef<AudienceTableRow>[] = [
+  const columns: DataTableColumn<AudienceTableRow>[] = [
     {
       key: "audience_name",
       label: "Público",
@@ -1136,7 +1191,7 @@ function AudiencesSection({ insights }: { insights: MetaInsights }) {
           <p className="truncate font-medium">
             {row.audience_name ?? "Sin nombre"}
           </p>
-          <p className="truncate text-xs text-muted">
+          <p className="truncate text-sm text-muted">
             {row.is_lookalike
               ? [
                   "similar",
@@ -1185,26 +1240,32 @@ function AudiencesSection({ insights }: { insights: MetaInsights }) {
   ];
 
   return (
-    <Card title="Públicos" description="Cuáles se usan y cuáles sobran.">
-      {unused.length ? (
-        <p className="mb-4 text-sm text-muted">
-          {unused.length} de {rows.length} públicos no aparecen en la
-          segmentación de ningún conjunto.
+    <Card>
+      <CardHeader>
+        <CardTitle>Públicos</CardTitle>
+        <CardDescription>Cuáles se usan y cuáles sobran.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {unused.length ? (
+          <p className="mb-4 text-sm text-muted">
+            {unused.length} de {rows.length} públicos no aparecen en la
+            segmentación de ningún conjunto.
+          </p>
+        ) : null}
+
+        <DataTable
+          ariaLabel="Públicos de la cuenta"
+          columns={columns}
+          rows={rows}
+        />
+
+        {/* La contrapartida de buscar el id con comodin recursivo. Decirlo evita
+            que alguien borre un publico que solo se usa como exclusion. */}
+        <p className="mt-3 text-sm text-muted">
+          &quot;En uso&quot; cuenta que el público aparezca en la segmentación,
+          sin distinguir si es para incluir o para excluir.
         </p>
-      ) : null}
-
-      <Table
-        ariaLabel="Públicos de la cuenta"
-        columns={columns}
-        rows={rows}
-      />
-
-      {/* La contrapartida de buscar el id con comodin recursivo. Decirlo evita
-          que alguien borre un publico que solo se usa como exclusion. */}
-      <p className="mt-3 text-xs text-muted">
-        &quot;En uso&quot; cuenta que el público aparezca en la segmentación,
-        sin distinguir si es para incluir o para excluir.
-      </p>
+      </CardContent>
     </Card>
   );
 }
@@ -1245,15 +1306,7 @@ export function MetaInsightsSections({
         if (!isCurrent()) return;
 
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: string;
-            message?: string;
-          } | null;
-          setError(
-            [body?.error ?? `HTTP ${response.status}`, body?.message]
-              .filter(Boolean)
-              .join(" - "),
-          );
+          setError(await readApiError(response));
           return;
         }
 
@@ -1280,7 +1333,9 @@ export function MetaInsightsSections({
   if (error) {
     return (
       <Card>
-        <ErrorBlock>{error}</ErrorBlock>
+        <CardContent>
+          <ErrorBlock>{error}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
@@ -1288,7 +1343,9 @@ export function MetaInsightsSections({
   if (!insights) {
     return (
       <Card>
-        <LoadingBlock label="Cargando creatividades, píxel y cambios..." />
+        <CardContent>
+          <LoadingBlock label="Cargando creatividades, píxel y cambios..." />
+        </CardContent>
       </Card>
     );
   }

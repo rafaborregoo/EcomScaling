@@ -1,5 +1,8 @@
 "use client";
 
+import dx from "./diagnostico.module.css";
+import { integrationErrorSummary } from "@/app/integraciones/shared";
+import { LazyPanel } from "./lazy-panel";
 import { useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -91,23 +94,27 @@ import {
   AsyncState,
   LoadingBlock,
   Banner,
-  Card,
   EmptyState,
   ErrorBlock,
   EYEBROW,
   IconChevronLeft,
   Link,
   Pagination,
-  Table,
+  DataTable,
   Tabs,
-  type TableColumnDef,
+  type DataTableColumn,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 const syncBlockLabels: Record<
   "catalog" | "inventory" | "orders" | "refunds" | "customers",
   string
 > = {
-  catalog: "Catalogo",
+  catalog: "Catálogo",
   inventory: "Inventario",
   orders: "Pedidos",
   refunds: "Reembolsos",
@@ -155,7 +162,7 @@ const PAGE_SIZE = 10;
 
 type SummaryRow = { id: string; field: string; value: string; detail: string };
 
-const summaryColumns: TableColumnDef<SummaryRow>[] = [
+const summaryColumns: DataTableColumn<SummaryRow>[] = [
   {
     key: "field",
     label: "Campo",
@@ -181,7 +188,7 @@ type SyncBlockRow = {
   block: ShopifyOverview["sync_blocks"][keyof ShopifyOverview["sync_blocks"]];
 };
 
-const syncBlockColumns: TableColumnDef<SyncBlockRow>[] = [
+const syncBlockColumns: DataTableColumn<SyncBlockRow>[] = [
   { key: "label", label: "Bloque" },
   {
     key: "status",
@@ -206,7 +213,7 @@ const syncBlockColumns: TableColumnDef<SyncBlockRow>[] = [
   },
   {
     key: "finished_at",
-    label: "Ultima corrida",
+    label: "Última corrida",
     render: (row) => formatDate(row.block?.finished_at),
   },
   {
@@ -224,7 +231,7 @@ type ScopeRow = ShopifyOverview["scope_catalog"][number] & { id: string };
 
 function scopeColumns(
   authorizedScopes: Set<string>,
-): TableColumnDef<ScopeRow>[] {
+): DataTableColumn<ScopeRow>[] {
   return [
     {
       key: "scope",
@@ -258,7 +265,7 @@ function scopeColumns(
 
 type DatasetRow = ShopifyOverview["datasets"][number] & { id: string };
 
-const datasetColumns: TableColumnDef<DatasetRow>[] = [
+const datasetColumns: DataTableColumn<DatasetRow>[] = [
   {
     key: "label",
     label: "Bloque de datos",
@@ -291,7 +298,7 @@ const datasetColumns: TableColumnDef<DatasetRow>[] = [
 
 type ProductRow = ShopifyOverview["samples"]["products"][number];
 
-const productColumns: TableColumnDef<ProductRow>[] = [
+const productColumns: DataTableColumn<ProductRow>[] = [
   {
     key: "title",
     label: "Producto",
@@ -328,7 +335,7 @@ const productColumns: TableColumnDef<ProductRow>[] = [
 
 type OrderRow = ShopifyOverview["samples"]["orders"][number];
 
-function orderColumns(currency: string | null): TableColumnDef<OrderRow>[] {
+function orderColumns(currency: string | null): DataTableColumn<OrderRow>[] {
   return [
     {
       key: "order_name",
@@ -378,7 +385,7 @@ function orderColumns(currency: string | null): TableColumnDef<OrderRow>[] {
 
 type InventoryRow = ShopifyOverview["samples"]["inventory"][number];
 
-function inventoryColumns(currency: string | null): TableColumnDef<InventoryRow>[] {
+function inventoryColumns(currency: string | null): DataTableColumn<InventoryRow>[] {
   return [
     {
       key: "sku",
@@ -538,155 +545,157 @@ function ShopifyDiagnosticoView({
       <Tabs items={tabs} value={tab} onChange={setTab} />
 
       {tab === "resumen" ? (
-        <div className="space-y-6">
+        <div className={`space-y-6 ${dx.dx}`}>
           {/* F3/D03, D05, D06, D04, D10, D11 y D02, en el orden en que se
               leen: de que es capaz el negocio, que ha cambiado, que patron
               forman esos cambios juntos, como deja eso a cada capacidad, cuanto
               dano hay medido, de cuanto de todo eso nos podemos fiar y contra
               que se compara cada movimiento. Cada uno lee al anterior, asi que
               leerlo al reves es empezar por la conclusion. */}
-          <MaturityPanel />
-          <SignalListPanel />
-          <SymptomMapPanel />
+          <LazyPanel><MaturityPanel /></LazyPanel>
+          <LazyPanel><SignalListPanel /></LazyPanel>
+          <LazyPanel><SymptomMapPanel /></LazyPanel>
           {/* La declaracion va JUSTO ENCIMA de la salud, no en otra pantalla:
               quien lee "no hay guardrail declarado para adquisicion" lo declara
               aqui mismo. Un hueco que te dice que falta algo y no te deja
               arreglarlo es una queja, no una herramienta. */}
-          <HealthReferencesPanel />
-          <CapabilityHealthPanel />
-          <SeverityThresholdsPanel organizationId={selectedOrganizationId} />
-          <SeverityPanel />
+          <LazyPanel><HealthReferencesPanel /></LazyPanel>
+          <LazyPanel><CapabilityHealthPanel /></LazyPanel>
+          <LazyPanel><SeverityThresholdsPanel organizationId={selectedOrganizationId} /></LazyPanel>
+          <LazyPanel><SeverityPanel /></LazyPanel>
           {/* D07 va detras de la severidad y delante de la confianza: primero
               cuanto duele, luego por donde puede ir la cosa, y al final de
               cuanto de todo eso nos podemos fiar. */}
-          <CausalPathsPanel />
+          <LazyPanel><CausalPathsPanel /></LazyPanel>
           {/* D08 va justo detras: las rutas de arriba, convertidas en
               explicaciones con nombre, y con las descartadas conservadas. */}
-          <HypothesesPanel />
+          <LazyPanel><HypothesesPanel /></LazyPanel>
           {/* D09 va justo detras: de las hipotesis vivas a una conclusion
               calibrada, casi siempre sin cerrar -- y el limite candidato,
               por separado, sin ninguna clave que los ate. */}
-          <RootCausePanel />
-          <AdversarialPanel />
+          <LazyPanel><RootCausePanel /></LazyPanel>
+          <LazyPanel><AdversarialPanel /></LazyPanel>
           {/* D11 va el ultimo a proposito: le pone freno a todo lo de arriba.
               Con senal, patron e impacto medido, un caso parece cerrado hasta
               que se lee la fila que dice que nadie sabe por que pasa. */}
-          <ConfidencePanel />
-          <ContextReadingsPanel />
-          <TemporalPanel />
-          <DiagnosticOutputPanel />
-          <DecisionContextPanel />
-          <TemporalUrgencyPanel />
-          <DecisionImpactPanel />
-          <ConstraintsPanel />
-          <FeasibilityPanel />
-          <F4DimensionsPanel />
-          <PlaybookFrameworkPanel />
-          <PlaybookDiagnosticOverviewPanel />
-          <AcquisitionPlaybookPanel />
-          <PaidMediaPlaybookPanel />
-          <ConversionCroPlaybookPanel />
-          <OfferPricingPlaybookPanel />
-          <RetentionCrmPlaybookPanel />
-          <UnitEconomicsPlaybookPanel />
-          <ProductInventoryPlaybookPanel />
-          <OperationsCxPlaybookPanel />
-          <MeasurementExperimentationPlaybookPanel />
-          <ScalabilityPlaybookPanel />
-          <RecoveryCrisisPlaybookPanel />
-          <BenchmarkGuardrailsPanel />
-          <CohortContextPanel />
-          <DataQualityReliabilityPanel />
-          <AcquisitionDemandPanel />
-          <PaidMediaBenchmarksPanel />
-          <ConversionCroBenchmarksPanel />
-          <OfferPricingBenchmarksPanel />
-          <RetentionCrmBenchmarksPanel />
-          <UnitEconomicsBenchmarksPanel />
-          <OperationsCxBenchmarksPanel />
-          <ProductInventoryBenchmarksPanel />
-          <ScalabilityBenchmarksPanel />
-          <AnomaliesRedFlagsPanel />
-          <BenchmarkConfidencePanel />
-      <InterventionEligibilityPanel organizationId={selectedOrganizationId} />
-      <InterventionMatchingPanel organizationId={selectedOrganizationId} />
-      <InterventionPrioritizationPanel organizationId={selectedOrganizationId} />
-      <InterventionImpactPanel organizationId={selectedOrganizationId} />
-      <InterventionFeasibilityPanel organizationId={selectedOrganizationId} />
-      <InterventionRiskPanel organizationId={selectedOrganizationId} />
-      <InterventionSequencingPanel organizationId={selectedOrganizationId} />
-      <InterventionTestExecutePanel organizationId={selectedOrganizationId} />
-      <InterventionIntensityPanel organizationId={selectedOrganizationId} />
-      <MaturityRecommendationsPanel organizationId={selectedOrganizationId} />
-      <ConstraintRecommendationsPanel organizationId={selectedOrganizationId} />
-      <RecommendationPortfolioPanel organizationId={selectedOrganizationId} />
-      <DynamicDecisionPanel organizationId={selectedOrganizationId} />
-      <RestraintDecisionPanel organizationId={selectedOrganizationId} />
-      <ExpectedOutcomePanel organizationId={selectedOrganizationId} />
-      <RecommendationConfidencePanel organizationId={selectedOrganizationId} />
-      <RecommendationCommunicationPanel organizationId={selectedOrganizationId} />
-      <ExecutionLifecyclePanel organizationId={selectedOrganizationId} />
-      <HitlApprovalPanel organizationId={selectedOrganizationId} />
-      <ClosureHandoffPanel organizationId={selectedOrganizationId} />
-      <InterventionEffectsPanel organizationId={selectedOrganizationId} />
-      <ExecutionPlanPanel organizationId={selectedOrganizationId} />
-      <ReadinessPanel organizationId={selectedOrganizationId} />
-      <ActionEnvelopePanel organizationId={selectedOrganizationId} />
-      <ExecutionSupervisionPanel organizationId={selectedOrganizationId} />
-      <ContinuousLearningPanel organizationId={selectedOrganizationId} />
-          <PrioritizationPanel />
+          <LazyPanel><ConfidencePanel /></LazyPanel>
+          <LazyPanel><ContextReadingsPanel /></LazyPanel>
+          <LazyPanel><TemporalPanel /></LazyPanel>
+          <LazyPanel><DiagnosticOutputPanel /></LazyPanel>
+          <LazyPanel><DecisionContextPanel /></LazyPanel>
+          <LazyPanel><TemporalUrgencyPanel /></LazyPanel>
+          <LazyPanel><DecisionImpactPanel /></LazyPanel>
+          <LazyPanel><ConstraintsPanel /></LazyPanel>
+          <LazyPanel><FeasibilityPanel /></LazyPanel>
+          <LazyPanel><F4DimensionsPanel /></LazyPanel>
+          <LazyPanel><PlaybookFrameworkPanel /></LazyPanel>
+          <LazyPanel><PlaybookDiagnosticOverviewPanel /></LazyPanel>
+          <LazyPanel><AcquisitionPlaybookPanel /></LazyPanel>
+          <LazyPanel><PaidMediaPlaybookPanel /></LazyPanel>
+          <LazyPanel><ConversionCroPlaybookPanel /></LazyPanel>
+          <LazyPanel><OfferPricingPlaybookPanel /></LazyPanel>
+          <LazyPanel><RetentionCrmPlaybookPanel /></LazyPanel>
+          <LazyPanel><UnitEconomicsPlaybookPanel /></LazyPanel>
+          <LazyPanel><ProductInventoryPlaybookPanel /></LazyPanel>
+          <LazyPanel><OperationsCxPlaybookPanel /></LazyPanel>
+          <LazyPanel><MeasurementExperimentationPlaybookPanel /></LazyPanel>
+          <LazyPanel><ScalabilityPlaybookPanel /></LazyPanel>
+          <LazyPanel><RecoveryCrisisPlaybookPanel /></LazyPanel>
+          <LazyPanel><BenchmarkGuardrailsPanel /></LazyPanel>
+          <LazyPanel><CohortContextPanel /></LazyPanel>
+          <LazyPanel><DataQualityReliabilityPanel /></LazyPanel>
+          <LazyPanel><AcquisitionDemandPanel /></LazyPanel>
+          <LazyPanel><PaidMediaBenchmarksPanel /></LazyPanel>
+          <LazyPanel><ConversionCroBenchmarksPanel /></LazyPanel>
+          <LazyPanel><OfferPricingBenchmarksPanel /></LazyPanel>
+          <LazyPanel><RetentionCrmBenchmarksPanel /></LazyPanel>
+          <LazyPanel><UnitEconomicsBenchmarksPanel /></LazyPanel>
+          <LazyPanel><OperationsCxBenchmarksPanel /></LazyPanel>
+          <LazyPanel><ProductInventoryBenchmarksPanel /></LazyPanel>
+          <LazyPanel><ScalabilityBenchmarksPanel /></LazyPanel>
+          <LazyPanel><AnomaliesRedFlagsPanel /></LazyPanel>
+          <LazyPanel><BenchmarkConfidencePanel /></LazyPanel>
+      <LazyPanel><InterventionEligibilityPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionMatchingPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionPrioritizationPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionImpactPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionFeasibilityPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionRiskPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionSequencingPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionTestExecutePanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionIntensityPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><MaturityRecommendationsPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ConstraintRecommendationsPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><RecommendationPortfolioPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><DynamicDecisionPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><RestraintDecisionPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ExpectedOutcomePanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><RecommendationConfidencePanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><RecommendationCommunicationPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ExecutionLifecyclePanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><HitlApprovalPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ClosureHandoffPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><InterventionEffectsPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ExecutionPlanPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ReadinessPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ActionEnvelopePanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ExecutionSupervisionPanel organizationId={selectedOrganizationId} /></LazyPanel>
+      <LazyPanel><ContinuousLearningPanel organizationId={selectedOrganizationId} /></LazyPanel>
+          <LazyPanel><PrioritizationPanel /></LazyPanel>
           {overview.connection?.last_error_message ? (
-            <Banner tone="danger">
-              <span className="font-medium">Ultimo error Shopify:</span>{" "}
-              <span className="font-mono break-words">
+            <Banner tone="danger" title={`Último error de Shopify: ${integrationErrorSummary(overview.connection.last_error_message).toLowerCase()}`}>
+              <span className="font-mono text-xs break-words">
                 {overview.connection.last_error_message}
               </span>
             </Banner>
           ) : null}
 
-          <Card
-            title="Resumen de la conexión"
-            description="Estado actual de la tienda y del último proceso de sincronización."
-          >
-            <Table
-              ariaLabel="Resumen de la conexion Shopify"
-              columns={summaryColumns}
-              rows={[
-                {
-                  id: "conexion",
-                  field: "Conexion",
-                  value: displayValue(overview.connection?.status ?? "sin_conexion"),
-                  detail:
-                    overview.connection?.provider_account_id ??
-                    "Tienda pendiente",
-                },
-                {
-                  id: "tienda",
-                  field: "Tienda",
-                  value: overview.store?.shop_name ?? "Sin tienda",
-                  detail:
-                    overview.store?.primary_domain ?? "sin dominio primario",
-                },
-                {
-                  id: "ultimo-sync",
-                  field: "Ultimo sync",
-                  value: displayValue(overview.sync_runs[0]?.status ?? "sin_sync"),
-                  detail: formatDate(overview.sync_runs[0]?.finished_at),
-                },
-                {
-                  id: "registros",
-                  field: "Registros escritos",
-                  value: String(overview.sync_runs[0]?.records_written ?? 0),
-                  detail: "en el último sync",
-                },
-              ]}
-            />
+          <Card>
+            <CardHeader>
+              <CardTitle>Resumen de la conexión</CardTitle>
+              <CardDescription>Estado actual de la tienda y del último proceso de sincronización.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                ariaLabel="Resumen de la conexion Shopify"
+                columns={summaryColumns}
+                rows={[
+                  {
+                    id: "conexion",
+                    field: "Conexion",
+                    value: displayValue(overview.connection?.status ?? "sin_conexion"),
+                    detail:
+                      overview.connection?.provider_account_id ??
+                      "Tienda pendiente",
+                  },
+                  {
+                    id: "tienda",
+                    field: "Tienda",
+                    value: overview.store?.shop_name ?? "Sin tienda",
+                    detail:
+                      overview.store?.primary_domain ?? "sin dominio primario",
+                  },
+                  {
+                    id: "ultimo-sync",
+                    field: "Ultimo sync",
+                    value: displayValue(overview.sync_runs[0]?.status ?? "sin_sync"),
+                    detail: formatDate(overview.sync_runs[0]?.finished_at),
+                  },
+                  {
+                    id: "registros",
+                    field: "Registros escritos",
+                    value: String(overview.sync_runs[0]?.records_written ?? 0),
+                    detail: "en el último sync",
+                  },
+                ]}
+              />
+            </CardContent>
           </Card>
         </div>
       ) : null}
 
       {tab === "sincronizacion" ? (
-        <div className="space-y-6">
+        <div className={`space-y-6 ${dx.dx}`}>
           <div className="grid gap-0 overflow-hidden rounded-lg bg-surface shadow-surface md:grid-cols-4">
             <article className="border-b border-separator p-4 md:border-r">
               <p className={EYEBROW}>
@@ -723,7 +732,7 @@ function ShopifyDiagnosticoView({
             </article>
           </div>
 
-          <Table
+          <DataTable
             ariaLabel="Estado de sincronizacion por bloque"
             columns={syncBlockColumns}
             rows={(
@@ -740,85 +749,106 @@ function ShopifyDiagnosticoView({
       ) : null}
 
       {tab === "permisos" ? (
-        <div className="space-y-6">
-          <Card
-            title="Permisos concedidos"
-            description="Scopes disponibles para esta conexión y su estado de autorización."
-          >
-            <Table
-              ariaLabel="Permisos de Shopify concedidos"
-              columns={scopeColumns(authorizedScopes)}
-              rows={overview.scope_catalog.map((item) => ({
-                id: item.scope,
-                ...item,
-              }))}
-            />
+        <div className={`space-y-6 ${dx.dx}`}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Permisos concedidos</CardTitle>
+              <CardDescription>Scopes disponibles para esta conexión y su estado de autorización.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                ariaLabel="Permisos de Shopify concedidos"
+                columns={scopeColumns(authorizedScopes)}
+                rows={overview.scope_catalog.map((item) => ({
+                  id: item.scope,
+                  ...item,
+                }))}
+              />
+            </CardContent>
           </Card>
 
-          <Card
-            title="Datasets de Shopify"
-            description="Bloques de datos que la conexión puede importar."
-          >
-            <Table
-              ariaLabel="Datasets de Shopify"
-              columns={datasetColumns}
-              rows={overview.datasets.map((dataset) => ({
-                id: dataset.key,
-                ...dataset,
-              }))}
-            />
+          <Card>
+            <CardHeader>
+              <CardTitle>Datasets de Shopify</CardTitle>
+              <CardDescription>Bloques de datos que la conexión puede importar.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                ariaLabel="Datasets de Shopify"
+                columns={datasetColumns}
+                rows={overview.datasets.map((dataset) => ({
+                  id: dataset.key,
+                  ...dataset,
+                }))}
+              />
+            </CardContent>
           </Card>
         </div>
       ) : null}
 
       {tab === "muestras" ? (
-        <div className="space-y-6">
-          <Card title={`Productos (${overview.samples.products.length})`}>
-            <Table
-              className="mt-3"
-              ariaLabel="Muestra de productos"
-              columns={productColumns}
-              rows={products.pageItems}
-              emptyLabel="Sin productos sincronizados todavia."
-            />
-            <Pagination
-              className="mt-3"
-              page={products.page}
-              pageCount={products.pageCount}
-              onChange={products.setPage}
-            />
+        <div className={`space-y-6 ${dx.dx}`}>
+          <Card>
+            <CardHeader>
+              <CardTitle>{`Productos (${overview.samples.products.length})`}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                className="mt-3"
+                ariaLabel="Muestra de productos"
+                columns={productColumns}
+                rows={products.pageItems}
+                emptyLabel="Sin productos sincronizados todavia."
+              />
+              <Pagination
+                className="mt-3"
+                page={products.page}
+                pageCount={products.pageCount}
+                onChange={products.setPage}
+              />
+            </CardContent>
           </Card>
 
-          <Card title={`Pedidos (${overview.samples.orders.length})`}>
-            <Table
-              className="mt-3"
-              ariaLabel="Muestra de pedidos"
-              columns={orderColumns(currency)}
-              rows={orders.pageItems}
-              emptyLabel="Sin pedidos sincronizados todavia."
-            />
-            <Pagination
-              className="mt-3"
-              page={orders.page}
-              pageCount={orders.pageCount}
-              onChange={orders.setPage}
-            />
+          <Card>
+            <CardHeader>
+              <CardTitle>{`Pedidos (${overview.samples.orders.length})`}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                className="mt-3"
+                ariaLabel="Muestra de pedidos"
+                columns={orderColumns(currency)}
+                rows={orders.pageItems}
+                emptyLabel="Sin pedidos sincronizados todavia."
+              />
+              <Pagination
+                className="mt-3"
+                page={orders.page}
+                pageCount={orders.pageCount}
+                onChange={orders.setPage}
+              />
+            </CardContent>
           </Card>
 
-          <Card title={`Elementos de inventario (${overview.samples.inventory.length})`}>
-            <Table
-              className="mt-3"
-              ariaLabel="Muestra de inventario"
-              columns={inventoryColumns(currency)}
-              rows={inventory.pageItems}
-              emptyLabel="Sin items de inventario sincronizados todavia."
-            />
-            <Pagination
-              className="mt-3"
-              page={inventory.page}
-              pageCount={inventory.pageCount}
-              onChange={inventory.setPage}
-            />
+          <Card>
+            <CardHeader>
+              <CardTitle>{`Elementos de inventario (${overview.samples.inventory.length})`}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                className="mt-3"
+                ariaLabel="Muestra de inventario"
+                columns={inventoryColumns(currency)}
+                rows={inventory.pageItems}
+                emptyLabel="Sin items de inventario sincronizados todavia."
+              />
+              <Pagination
+                className="mt-3"
+                page={inventory.page}
+                pageCount={inventory.pageCount}
+                onChange={inventory.setPage}
+              />
+            </CardContent>
           </Card>
         </div>
       ) : null}

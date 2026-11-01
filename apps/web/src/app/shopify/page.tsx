@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { integrationErrorSummary } from "@/app/integraciones/shared";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -13,15 +14,16 @@ import { useModuleSummary } from "@/components/module-summary";
 import { ClientShopify } from "../dashboard/client-shopify";
 import { ChannelBand } from "../dashboard/channel-band";
 import { ShopifyTrustStrip } from "./trust-strip";
+import r from "./legible.module.css";
 import { PortfolioAttention } from "@/components/portfolio-attention";
 import { useProfitability } from "../panel/panel-data";
-import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { AiSpecialistItem } from "@/components/ai-diagnostic-section";
 import {
+  Accordion,
   AsyncState,
   Badge,
   Banner,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   IconChevronRight,
@@ -29,8 +31,22 @@ import {
   List,
   LoadingBlock,
   RetryIcon,
-  Select,
+  SearchableSelect,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  IconChevronDown,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 type ShopifyMetrics = {
@@ -374,7 +390,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isAggregate = !selectedConnectionId && overview.connections.length > 1;
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
+    <div className="portal-page nora-min space-y-5 sm:space-y-6">
       <ChannelBand
         eyebrow={
           isAggregate
@@ -426,10 +442,13 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null}
         {!isAggregate && overview.connection?.last_error_message ? (
           <div className="mt-3">
-            <Banner tone="danger">
-              <span className="font-mono text-xs">
-                {overview.connection.last_error_message}
-              </span>
+            <Banner tone="danger" title={integrationErrorSummary(overview.connection.last_error_message)}>
+              <Collapsible>
+                <CollapsibleTrigger className="text-xs">Detalle técnico<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                <CollapsibleContent>
+                <p className="mt-1 break-words font-mono text-xs">{overview.connection.last_error_message}</p>
+              </CollapsibleContent>
+              </Collapsible>
             </Banner>
           </div>
         ) : null}
@@ -445,6 +464,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null}
       </ChannelBand>
 
+      <div className={`nora-min ${r.min}`}>
       <ClientShopify
         key={costsVersion}
         organizationId={organization.id}
@@ -478,14 +498,16 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </>
         }
       />
+      </div>
 
       {/* Los dos especialistas del modulo. Las anclas apuntan a las secciones
           de arriba que demuestran cada hallazgo. */}
       {isConsultant ? (
-      <details id="shopify-ia" className="group rounded-xl border border-separator bg-surface p-4">
-        <summary className="cursor-pointer text-base font-semibold">Análisis de los especialistas IA</summary>
-        <div className="mt-4 space-y-5">
-        <AiDiagnosticSection
+      <section id="shopify-ia" aria-labelledby="shopify-ia-title" className="border-t border-separator pt-4">
+        <h2 id="shopify-ia-title" className="text-base font-semibold">Análisis de los especialistas IA</h2>
+        <Accordion multiple className="mt-1">
+        <AiSpecialistItem
+          value="retencion"
           organizationId={organization.id}
           title="Retención de clientes"
           getPath="/ai/retencion-clientes"
@@ -499,7 +521,8 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             medicion: { label: "Ver medición", href: "#shopify-medicion" },
           }}
         />
-        <AiDiagnosticSection
+        <AiSpecialistItem
+          value="adquisicion"
           organizationId={organization.id}
           title="Adquisición y conversión"
           getPath="/ai/adquisicion-shopify"
@@ -515,8 +538,8 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             medicion: { label: "Ver medición", href: "#shopify-medicion" },
           }}
         />
-        </div>
-      </details>
+        </Accordion>
+      </section>
       ) : null}
     </div>
   );
@@ -595,7 +618,7 @@ function ConsultantStoresView() {
         if (cancelled) return;
         if (!response.ok) {
           setError(
-            `No se pudieron cargar las tiendas (HTTP ${response.status}).`,
+            "No se han podido cargar las tiendas. Inténtalo de nuevo en unos segundos.",
           );
           return;
         }
@@ -675,107 +698,107 @@ function ConsultantStoresView() {
           blind: store.blind,
         }))}
       />
-      <Card
-        title="Tiendas por urgencia de revisión"
-        description={
-          ranking.length === 0
+      <Card>
+        <CardHeader>
+          <CardTitle>Tiendas por urgencia de revisión</CardTitle>
+          <CardDescription>{ranking.length === 0
             ? "Todavía no hay tiendas conectadas en la cartera."
             : `${needsReview.length} de ${ranking.length} piden revisión${
                 blind.length
                   ? ` · ${blind.length} sin datos suficientes para juzgarlas`
                   : ""
-              }.`
-        }
-      >
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Select
-            className="w-52"
-            aria-label="Filtrar por cliente"
-            value={clientFilter}
-            onChange={setClientFilter}
-            options={[
-              { value: "all", label: "Todos los clientes" },
-              ...data.organizations.map((organization) => ({
+              }.`}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <SearchableSelect
+              className="w-52"
+              aria-label="Filtrar por cliente"
+              placeholder="Todos los clientes"
+              emptyText="No hay ningún cliente con ese nombre."
+              showClear
+              value={clientFilter === "all" ? "" : clientFilter}
+              onChange={(value) => setClientFilter(value || "all")}
+              options={data.organizations.map((organization) => ({
                 value: organization.id,
                 label: organization.display_name,
-              })),
-            ]}
-          />
-          <Button
-            variant={onlyNeedsReview ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => setOnlyNeedsReview((value) => !value)}
-          >
-            Solo las que piden revisión
-          </Button>
-        </div>
+              }))}
+            />
+            <Button
+              variant={onlyNeedsReview ? "default" : "secondary"}
+              size="sm"
+              onClick={() => setOnlyNeedsReview((value) => !value)}
+            >
+              Solo las que piden revisión
+            </Button>
+          </div>
 
-        {rows.length === 0 ? (
-          <EmptyState
-            title={
-              onlyNeedsReview
-                ? "Ninguna tienda pide revisión"
-                : "Sin tiendas conectadas"
-            }
-            hint={
-              onlyNeedsReview
-                ? "Toda la cartera al día según los agentes."
-                : "Los clientes conectan sus tiendas desde Integraciones."
-            }
-          />
-        ) : (
-          <List>
-            {rows.map((store, index) => {
-              const level = LEVEL_PRESENTATION[store.level];
-              return (
-                <List.Item
-                  as="button"
-                  key={store.connection_id}
-                  type="button"
-                  onClick={() => openStore(store)}
-                  className="flex w-full items-start gap-4 py-3 text-left hover:bg-surface"
-                >
-                  {/* El puesto se muestra solo mientras la lista está entera:
-                      con un filtro puesto, un "3" sería el tercero de lo que
-                      queda en pantalla, no de la cartera. */}
-                  <span className="w-6 shrink-0 pt-0.5 text-sm tabular-nums text-muted">
-                    {clientFilter === "all" && !onlyNeedsReview
-                      ? index + 1
-                      : "·"}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={level.tone}>{level.label}</Badge>
-                      {store.blind ? (
-                        <Badge tone="neutral">sin datos fiables</Badge>
-                      ) : null}
-                      <span className="font-medium">{store.store_name}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {store.organization_name} · {analyzedLabel(store.analyzed_at)}
-                      {store.agents_reporting > 0
-                        ? ` · ${store.agents_reporting} de 5 agentes`
-                        : ""}
-                    </p>
-                    {store.reasons.length ? (
-                      <ul className="mt-2 space-y-1">
-                        {store.reasons.map((reason) => (
-                          <li key={reason.text} className="text-sm">
-                            {reason.text}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted">
-                        Los agentes no han encontrado nada que revisar.
-                      </p>
-                    )}
-                  </div>
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
+          {rows.length === 0 ? (
+            <EmptyState
+              title={
+                onlyNeedsReview
+                  ? "Ninguna tienda pide revisión"
+                  : "Sin tiendas conectadas"
+              }
+              hint={
+                onlyNeedsReview
+                  ? "Toda la cartera al día según los agentes."
+                  : "Los clientes conectan sus tiendas desde Integraciones."
+              }
+            />
+          ) : (
+            <List>
+              {rows.map((store, index) => {
+                const level = LEVEL_PRESENTATION[store.level];
+                return (
+                  <Item
+                    key={store.connection_id}
+                    role="listitem"
+                    className="flex-nowrap items-start"
+                    render={<button type="button" onClick={() => openStore(store)} />}
+                  >
+                    {/* El puesto se muestra solo mientras la lista está entera:
+                        con un filtro puesto, un "3" sería el tercero de lo que
+                        queda en pantalla, no de la cartera. */}
+                    <ItemMedia className="w-6 pt-0.5 text-sm tabular-nums text-muted">
+                      {clientFilter === "all" && !onlyNeedsReview
+                        ? index + 1
+                        : "·"}
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>
+                        <Badge tone={level.tone}>{level.label}</Badge>
+                        {store.blind ? (
+                          <Badge tone="neutral">sin datos fiables</Badge>
+                        ) : null}
+                        <span>{store.store_name}</span>
+                      </ItemTitle>
+                      <ItemDescription>
+                        {store.organization_name} · {analyzedLabel(store.analyzed_at)}
+                        {store.agents_reporting > 0
+                          ? ` · ${store.agents_reporting} de 5 agentes`
+                          : ""}
+                      </ItemDescription>
+                      {store.reasons.length ? (
+                        <ul className="mt-2 space-y-1">
+                          {store.reasons.map((reason) => (
+                            <li key={reason.text} className="text-sm">
+                              {reason.text}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted">
+                          Los agentes no han encontrado nada que revisar.
+                        </p>
+                      )}
+                    </ItemContent>
+                  </Item>
+                );
+              })}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

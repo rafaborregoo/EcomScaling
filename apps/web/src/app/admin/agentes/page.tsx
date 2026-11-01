@@ -1,5 +1,6 @@
 "use client";
 
+
 import { useEffect, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { AgentReleaseGatePanel } from "./release-gate-panel";
@@ -9,13 +10,20 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import {
+  Field,
+  EmptyState,
   AsyncState,
   Button,
-  Card,
   ErrorBlock,
   Input,
-  Select,
+  SearchableSelect,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 
 type AgentRefreshLimit = {
@@ -56,7 +64,6 @@ export default function AdminAiAgentsPage() {
   } = useCachedQuery<AdminClientList>("/v1/admin/clients");
   const [organizationId, setOrganizationId] = useState("");
   const [consultantFilter, setConsultantFilter] = useState("");
-  const [modelDraft, setModelDraft] = useState("gpt-6-luna");
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const runtimeQuery = organizationId
     ? `?organizationId=${encodeURIComponent(organizationId)}`
@@ -116,10 +123,6 @@ export default function AdminAiAgentsPage() {
     }
   }, [clients, filteredClients, organizationId]);
 
-  useEffect(() => {
-    if (runtimeConfig) setModelDraft(runtimeConfig.model_id);
-  }, [runtimeConfig]);
-
   async function saveRuntimeConfig(activeAgentCodes: string[]) {
     if (!organizationId) return;
     setRuntimeSaving(true);
@@ -130,7 +133,7 @@ export default function AdminAiAgentsPage() {
         body: JSON.stringify({
           organization_id: organizationId,
           active_agent_codes: activeAgentCodes,
-          model_id: modelDraft,
+          model_id: runtimeConfig?.model_id ?? "gpt-6-luna",
         }),
       });
       if (!response.ok) {
@@ -187,280 +190,231 @@ export default function AdminAiAgentsPage() {
           <JudgeDatasetPanel />
           <AgentReleaseEvalFixturesPanel />
           <AgentReleaseGatePanel />
-          <Card
-            kicker="Activación por cliente"
-            title="Agente y modelo de ejecución"
-            description="Los agentes activos del catálogo se habilitan por defecto. Solo un platform admin puede configurar cada cliente y desactivarlos durante las pruebas."
-          >
-            {clientsLoading && !clientData ? (
-              <p className="text-sm text-muted">Cargando clientes...</p>
-            ) : clientError && !clientData ? (
-              <ErrorBlock>{clientError}</ErrorBlock>
-            ) : !clients.length ? (
-              <p className="text-sm text-muted">
-                Todavía no hay clientes para configurar.
-              </p>
-            ) : (
-              <div className="grid gap-5">
-                <p className="text-sm text-muted">
-                  La configuración se guarda en la organización cliente. Puedes
-                  localizarla por cliente o filtrar la lista por su consultor
-                  asignado.
-                </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm text-muted">
-                    Consultor asignado (filtro)
-                    <Select
-                      className="mt-1"
-                      aria-label="Filtrar clientes por consultor"
-                      value={consultantFilter}
-                      onChange={setConsultantFilter}
-                      options={[
-                        { value: "", label: "Todos los consultores" },
-                        ...consultantOptions,
-                      ]}
-                    />
-                  </label>
-                  <label className="text-sm text-muted">
-                    Cliente exacto
-                    <Select
-                      className="mt-1"
-                      aria-label="Cliente para configurar agentes"
-                      value={organizationId}
-                      onChange={setOrganizationId}
-                      options={filteredClients.map((client) => {
-                        const consultantNames = client.consultants
-                          .map(
-                            (consultant) =>
-                              consultant.full_name ?? consultant.user_id,
-                          )
-                          .join(", ");
-                        return {
-                          value: client.id,
-                          label: consultantNames
-                            ? `${client.display_name} · ${consultantNames}`
-                            : `${client.display_name} · sin consultor`,
-                        };
-                      })}
-                    />
-                  </label>
+          <Card>
+            <CardHeader>
+              <CardKicker>Activación por cliente</CardKicker>
+              <CardTitle>Agente y modelo de ejecución</CardTitle>
+              <CardDescription>Los agentes activos del catálogo se habilitan por defecto. Solo un platform admin puede configurar cada cliente y desactivarlos durante las pruebas.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {clientsLoading && !clientData ? (
+                <p className="text-sm text-muted">Cargando clientes...</p>
+              ) : clientError && !clientData ? (
+                <ErrorBlock>{clientError}</ErrorBlock>
+              ) : !clients.length ? (
+                <EmptyState size="sm" title="Todavía no hay clientes para configurar" />
+              ) : (
+                <div className="grid gap-5">
+                  <p className="text-sm text-muted">
+                    La configuración se guarda en la organización cliente. Puedes
+                    localizarla por cliente o filtrar la lista por su consultor
+                    asignado.
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Consultor asignado (filtro)"><SearchableSelect aria-label="Filtrar clientes por consultor"
+                        placeholder="Todos los consultores"
+                        emptyText="No hay ningún consultor con ese nombre."
+                        showClear
+                        value={consultantFilter}
+                        onChange={setConsultantFilter}
+                        options={consultantOptions} /></Field>
+                    <Field label="Cliente exacto"><SearchableSelect aria-label="Cliente para configurar agentes"
+                        placeholder="Busca un cliente o su consultor"
+                        emptyText="No hay ningún cliente con ese nombre."
+                        value={organizationId}
+                        onChange={setOrganizationId}
+                        options={filteredClients.map((client) => {
+                          const consultantNames = client.consultants
+                            .map(
+                              (consultant) =>
+                                consultant.full_name ?? consultant.user_id,
+                            )
+                            .join(", ");
+                          return {
+                            value: client.id,
+                            label: client.display_name,
+                            hint: consultantNames || "Sin consultor",
+                          };
+                        })} /></Field>
+                  </div>
+                  {runtimeError ? (
+                    <ErrorBlock>{runtimeError}</ErrorBlock>
+                  ) : runtimeLoading || !runtimeConfig ? (
+                    <p className="text-sm text-muted">Cargando agentes...</p>
+                  ) : (
+                    <>
+                      <p className="max-w-2xl text-sm text-muted">La plataforma fija un modelo para cada especialista desde Costes de IA. Aquí se eligen los agentes activos de cada cliente. El copiloto mantiene su selección según plan y saldo.</p>
+                      <Card><CardContent className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-foreground">
+                            Activación de agentes
+                          </p>
+                          <p className="mt-1 text-sm text-muted">
+                            {runtimeConfig.active_agent_codes.length} de{" "}
+                            {runtimeConfig.agents.length} agentes activos para
+                            este cliente.
+                          </p>
+                        </div>
+                        <div role="group" aria-label="Acciones de configuracion del agente" className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            disabled={
+                              runtimeSaving ||
+                              runtimeConfig.active_agent_codes.length ===
+                                runtimeConfig.agents.length
+                            }
+                            onClick={() =>
+                              void saveRuntimeConfig(
+                                runtimeConfig.agents.map((agent) => agent.code),
+                              )
+                            }
+                          >
+                            {runtimeSaving ? "Guardando..." : "Activar todos"}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={
+                              runtimeSaving ||
+                              runtimeConfig.active_agent_codes.length === 0
+                            }
+                            onClick={() => void saveRuntimeConfig([])}
+                          >
+                            Desactivar todos
+                          </Button>
+                        </div>
+                      </CardContent></Card>
+                      <ul className="grid gap-3">
+                        {runtimeConfig.agents.map((agent) => {
+                          const active =
+                            runtimeConfig.active_agent_codes.includes(agent.code);
+                          return (
+                            <li key={agent.code}><Card><CardContent className="flex flex-wrap items-center justify-between gap-4">
+                              <div className="min-w-0">
+                                <p className="font-medium text-foreground">
+                                  {agent.name}
+                                </p>
+                                <p className="mt-1 truncate font-mono text-xs text-muted">
+                                  {agent.code}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-3">
+                                <span
+                                  className={`text-sm font-medium ${active ? "text-foreground" : "text-muted"}`}
+                                >
+                                  {runtimeSaving
+                                    ? "Guardando..."
+                                    : active
+                                      ? "Activo"
+                                      : "Desactivado"}
+                                </span>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={active}
+                                  aria-label={`${active ? "Desactivar" : "Activar"} agente ${agent.name}`}
+                                  disabled={runtimeSaving}
+                                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${active ? "bg-accent" : "bg-separator"}`}
+                                  onClick={() =>
+                                    void saveRuntimeConfig(
+                                      active
+                                        ? runtimeConfig.active_agent_codes.filter(
+                                            (code) => code !== agent.code,
+                                          )
+                                        : [
+                                            ...runtimeConfig.active_agent_codes,
+                                            agent.code,
+                                          ],
+                                    )
+                                  }
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    className={`inline-block size-5 rounded-full bg-white shadow-sm transition-transform ${active ? "translate-x-6" : "translate-x-1"}`}
+                                  />
+                                </button>
+                              </div>
+                            </CardContent></Card></li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
                 </div>
-                {runtimeError ? (
-                  <ErrorBlock>{runtimeError}</ErrorBlock>
-                ) : runtimeLoading || !runtimeConfig ? (
-                  <p className="text-sm text-muted">Cargando agentes...</p>
-                ) : (
-                  <>
-                    <div className="grid gap-2 sm:max-w-xl">
-                      <label className="text-sm text-muted">
-                        Modelo para los agentes activos del cliente
-                        <Select
-                          className="mt-1"
-                          aria-label="Modelo de IA del cliente"
-                          value={modelDraft}
-                          onChange={setModelDraft}
-                          options={runtimeConfig.models.map((model) => ({
-                            value: model.id,
-                            label: `${model.provider === "openai" ? "OpenAI" : "Claude"} · ${model.tier} · ${model.id}`,
-                          }))}
-                        />
-                      </label>
-                      <p className="text-xs leading-5 text-muted">
-                        El proveedor elegido debe tener su API key configurada
-                        en el runtime. La selección se aplica a todos los
-                        agentes activos de este cliente.
-                      </p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardKicker>Límites por agente</CardKicker>
+              <CardTitle>Actualizaciones manuales</CardTitle>
+              <CardDescription>Cada agente tiene un cupo diario independiente por organización. Las actualizaciones manuales no se suman entre agentes.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4 rounded-md border border-accent bg-accent/5 p-3 text-sm leading-6 text-muted">
+                El valor inicial para agentes sin un ajuste propio es de{" "}
+                <span className="font-semibold text-foreground">
+                  {data?.default_daily_limit.toLocaleString("es-ES") ?? 1000}
+                </span>{" "}
+                actualizaciones al día. Los presupuestos de coste de IA siguen
+                funcionando de forma independiente.
+              </p>
+
+              {isLoading ? (
+                <AsyncState status="loading" loadingLabel="Cargando agentes..." />
+              ) : error || !data ? (
+                <ErrorBlock>
+                  {error ?? "No se pudo cargar la configuración."}
+                </ErrorBlock>
+              ) : data.agents.length ? (
+                <ul className="divide-y divide-separator">
+                  {data.agents.map((agent) => (
+                    <li
+                      key={agent.code}
+                      className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground">
+                          {agent.name}
+                        </p>
+                        <p className="mt-1 truncate font-mono text-xs text-muted">
+                          {agent.code}
+                        </p>
+                      </div>
+                      <Field label="Límite por organización / día"><Input type="number"
+                          min={1}
+                          max={10000}
+                          step={1}
+                          value={
+                            drafts[agent.code] ?? agent.daily_manual_refresh_limit
+                          }
+                          aria-label={`Límite diario para ${agent.name}`}
+                          onChange={(event) =>
+                            setDrafts((current) => ({
+                              ...current,
+                              [agent.code]: event.target.value,
+                            }))
+                          } /></Field>
                       <Button
                         variant="secondary"
                         size="sm"
-                        disabled={
-                          runtimeSaving || modelDraft === runtimeConfig.model_id
-                        }
-                        onClick={() =>
-                          void saveRuntimeConfig(
-                            runtimeConfig.active_agent_codes,
-                          )
-                        }
+                        disabled={savingAgent !== null}
+                        onClick={() => saveLimit(agent)}
                       >
-                        {runtimeSaving ? "Guardando..." : "Guardar modelo"}
+                        {savingAgent === agent.code ? "Guardando..." : "Guardar"}
                       </Button>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-separator bg-surface-subtle p-4">
-                      <div>
-                        <p className="font-medium text-foreground">
-                          Activación de agentes
-                        </p>
-                        <p className="mt-1 text-sm text-muted">
-                          {runtimeConfig.active_agent_codes.length} de{" "}
-                          {runtimeConfig.agents.length} agentes activos para
-                          este cliente.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={
-                            runtimeSaving ||
-                            runtimeConfig.active_agent_codes.length ===
-                              runtimeConfig.agents.length
-                          }
-                          onClick={() =>
-                            void saveRuntimeConfig(
-                              runtimeConfig.agents.map((agent) => agent.code),
-                            )
-                          }
-                        >
-                          {runtimeSaving ? "Guardando..." : "Activar todos"}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={
-                            runtimeSaving ||
-                            runtimeConfig.active_agent_codes.length === 0
-                          }
-                          onClick={() => void saveRuntimeConfig([])}
-                        >
-                          Desactivar todos
-                        </Button>
-                      </div>
-                    </div>
-                    <ul className="grid gap-3">
-                      {runtimeConfig.agents.map((agent) => {
-                        const active =
-                          runtimeConfig.active_agent_codes.includes(agent.code);
-                        return (
-                          <li
-                            key={agent.code}
-                            className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-separator bg-surface px-4 py-3"
-                          >
-                            <div className="min-w-0">
-                              <p className="font-medium text-foreground">
-                                {agent.name}
-                              </p>
-                              <p className="mt-1 truncate font-mono text-xs text-muted">
-                                {agent.code}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-3">
-                              <span
-                                className={`text-sm font-medium ${active ? "text-foreground" : "text-muted"}`}
-                              >
-                                {runtimeSaving
-                                  ? "Guardando..."
-                                  : active
-                                    ? "Activo"
-                                    : "Desactivado"}
-                              </span>
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-checked={active}
-                                aria-label={`${active ? "Desactivar" : "Activar"} agente ${agent.name}`}
-                                disabled={runtimeSaving}
-                                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${active ? "bg-accent" : "bg-separator"}`}
-                                onClick={() =>
-                                  void saveRuntimeConfig(
-                                    active
-                                      ? runtimeConfig.active_agent_codes.filter(
-                                          (code) => code !== agent.code,
-                                        )
-                                      : [
-                                          ...runtimeConfig.active_agent_codes,
-                                          agent.code,
-                                        ],
-                                  )
-                                }
-                              >
-                                <span
-                                  aria-hidden="true"
-                                  className={`inline-block size-5 rounded-full bg-white shadow-sm transition-transform ${active ? "translate-x-6" : "translate-x-1"}`}
-                                />
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )}
-          </Card>
-          <Card
-            kicker="Límites por agente"
-            title="Actualizaciones manuales"
-            description="Cada agente tiene un cupo diario independiente por organización. Las actualizaciones manuales no se suman entre agentes."
-          >
-            <p className="mb-4 rounded-md border border-accent bg-accent/5 p-3 text-sm leading-6 text-muted">
-              El valor inicial para agentes sin un ajuste propio es de{" "}
-              <span className="font-semibold text-foreground">
-                {data?.default_daily_limit.toLocaleString("es-ES") ?? 1000}
-              </span>{" "}
-              actualizaciones al día. Los presupuestos de coste de IA siguen
-              funcionando de forma independiente.
-            </p>
-
-            {isLoading ? (
-              <AsyncState status="loading" loadingLabel="Cargando agentes..." />
-            ) : error || !data ? (
-              <ErrorBlock>
-                {error ?? "No se pudo cargar la configuración."}
-              </ErrorBlock>
-            ) : data.agents.length ? (
-              <ul className="divide-y divide-separator">
-                {data.agents.map((agent) => (
-                  <li
-                    key={agent.code}
-                    className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-center"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium text-foreground">
-                        {agent.name}
-                      </p>
-                      <p className="mt-1 truncate font-mono text-xs text-muted">
-                        {agent.code}
-                      </p>
-                    </div>
-                    <label className="text-xs text-muted">
-                      Límite por organización / día
-                      <Input
-                        className="mt-1"
-                        type="number"
-                        min={1}
-                        max={10000}
-                        step={1}
-                        value={
-                          drafts[agent.code] ?? agent.daily_manual_refresh_limit
-                        }
-                        aria-label={`Límite diario para ${agent.name}`}
-                        onChange={(event) =>
-                          setDrafts((current) => ({
-                            ...current,
-                            [agent.code]: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={savingAgent !== null}
-                      onClick={() => saveLimit(agent)}
-                    >
-                      {savingAgent === agent.code ? "Guardando..." : "Guardar"}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <AsyncState
-                status="empty"
-                emptyTitle="No hay agentes activos"
-                emptyHint="Cuando haya agentes activos aparecerán aquí."
-              />
-            )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <AsyncState
+                  status="empty"
+                  emptyTitle="No hay agentes activos"
+                  emptyHint="Cuando haya agentes activos aparecerán aquí."
+                />
+              )}
+            </CardContent>
           </Card>
         </div>
       )}

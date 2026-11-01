@@ -1,10 +1,10 @@
-export const SHOPIFY_RECONCILE_CRON = "0 2 * * *";
+export const SHOPIFY_RECONCILE_CRON = "*/15 * * * *";
 export const SHOPIFY_RECONCILE_TZ = "Europe/Madrid";
 // Conserva la cadencia del crontab del VPS, ahora registrada en BullMQ para
 // que el mismo worker la ejecute también en desarrollo local.
-export const META_RECONCILE_CRON = "17 0 * * *";
+export const META_RECONCILE_CRON = "*/10 * * * *";
 export const META_RECONCILE_TZ = "UTC";
-export const KLAVIYO_RECONCILE_CRON = "43 */6 * * *";
+export const KLAVIYO_RECONCILE_CRON = "3,18,33,48 * * * *";
 export const KLAVIYO_RECONCILE_TZ = "UTC";
 export const FATHOM_WEBHOOK_CRON = "* * * * *";
 export const FATHOM_WEBHOOK_TZ = "Europe/Madrid";
@@ -45,6 +45,15 @@ export function isStaleShopifyReconcileRepeatable(
     repeatable.name === "shopify-reconcile" &&
     repeatable.pattern !== currentCronPattern
   );
+}
+
+export function isStaleIntegrationRepeatable(repeatable: { name: string; pattern?: string | null }) {
+  const expected: Record<string, string> = {
+    "shopify-reconcile": SHOPIFY_RECONCILE_CRON,
+    "meta-reconcile": META_RECONCILE_CRON,
+    "klaviyo-reconcile": KLAVIYO_RECONCILE_CRON,
+  };
+  return repeatable.name in expected && repeatable.pattern !== expected[repeatable.name];
 }
 
 // «Para hoy» y propuestas de la IA pendientes (notification-daily.ts).

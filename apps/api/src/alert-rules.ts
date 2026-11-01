@@ -48,7 +48,7 @@ function assertCanManage(context: AuthContext, organizationId: string) {
       statusCode: 403,
       error: "alert_rules_manage_denied",
       message:
-        "Solo owner, manager, consultor o platform admin pueden configurar las alertas.",
+        "Las alertas las configuran el propietario, un gestor o el consultor de la tienda.",
     };
   }
 

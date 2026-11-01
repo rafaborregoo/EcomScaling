@@ -1,6 +1,9 @@
 "use client";
 
 import ReactMarkdown, { type Components } from "react-markdown";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
+import { ScrollArea } from "./scroll-area";
+import { Separator } from "./separator";
 
 // Sin plugin de Tailwind Typography en el proyecto: estilos minimos por
 // elemento via `components`, con los mismos tokens de texto que el resto de
@@ -51,31 +54,26 @@ const components: Components = {
     <code className="rounded bg-surface px-1 py-0.5 text-xs">{children}</code>
   ),
   pre: ({ children }) => (
-    <pre className="mb-3 overflow-x-auto rounded-md border border-separator bg-surface p-3 text-xs leading-5">
-      {children}
-    </pre>
+    <ScrollArea className="mb-3 rounded-md border border-separator bg-surface p-3 text-xs leading-5">
+      <pre>{children}</pre>
+    </ScrollArea>
   ),
   blockquote: ({ children }) => (
     <blockquote className="mb-3 rounded-md border border-separator bg-surface-subtle p-3 text-sm text-muted">
       {children}
     </blockquote>
   ),
-  hr: () => <hr className="my-4 border-separator" />,
+  hr: () => <Separator className="my-4" />,
   table: ({ children }) => (
-    <div className="mb-3 overflow-x-auto">
-      <table className="w-full border-collapse text-sm">{children}</table>
+    <div className="mb-3">
+      <Table>{children}</Table>
     </div>
   ),
-  th: ({ children }) => (
-    <th className="border-b border-separator px-2 py-1 text-left font-medium text-foreground">
-      {children}
-    </th>
-  ),
-  td: ({ children }) => (
-    <td className="border-b border-separator px-2 py-1 text-muted">
-      {children}
-    </td>
-  ),
+  thead: ({ children }) => <TableHeader>{children}</TableHeader>,
+  tbody: ({ children }) => <TableBody>{children}</TableBody>,
+  tr: ({ children }) => <TableRow>{children}</TableRow>,
+  th: ({ children }) => <TableHead>{children}</TableHead>,
+  td: ({ children }) => <TableCell className="text-muted">{children}</TableCell>,
 };
 
 export function Markdown({ children }: { children: string }) {

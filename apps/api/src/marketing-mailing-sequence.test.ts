@@ -5,6 +5,8 @@ import {
   isWeeklyMailingGenerationLeaseExpired,
   sameWeeklyMailingPlanRequest,
   weeklyMailingDraftsAreComplete,
+  readWeeklyMailingDates,
+  resolveWeeklyMailingSchedule,
 } from "./marketing-mailing-sequence.js";
 
 const sequenceId = "550e8400-e29b-41d4-a716-446655440000";
@@ -50,14 +52,40 @@ test("sequence completes only when every planned email has a scheduled idempoten
   const complete = expected.map((number) => ({
     idempotency_key: `${sequenceId}:${number}`,
     scheduled_for: `2026-10-0${number}T09:00:00.000Z`,
+    status: "pending_approval",
+    request: { store_id: "store-connection" },
   }));
-  assert.equal(weeklyMailingDraftsAreComplete(sequenceId, expected, complete), true);
-  assert.equal(weeklyMailingDraftsAreComplete(sequenceId, expected, complete.slice(0, 2)), false);
+  const check = (drafts: typeof complete) => weeklyMailingDraftsAreComplete(sequenceId, expected, drafts,
+    complete.map((item) => item.scheduled_for), "store-connection");
+  assert.equal(check(complete), true);
+  assert.equal(check(complete.slice(0, 2)), false);
   const third = complete[2]!;
   assert.equal(weeklyMailingDraftsAreComplete(sequenceId, expected, [
     ...complete.slice(0, 2), { ...third, scheduled_for: null },
-  ]), false);
-  assert.equal(weeklyMailingDraftsAreComplete(sequenceId, expected, [
+  ], complete.map((item) => item.scheduled_for), "store-connection"), false);
+  assert.equal(check([
     ...complete.slice(0, 2), { ...third, idempotency_key: `${sequenceId}:4` },
   ]), false);
+  assert.equal(check([{ ...complete[0]!, status: "rejected" }, ...complete.slice(1)]), false);
+  assert.equal(check([{ ...complete[0]!, scheduled_for: "1900-01-01T00:00:00Z" }, ...complete.slice(1)]), false);
+  assert.equal(check([{ ...complete[0]!, request: { store_id: "another-store" } }, ...complete.slice(1)]), false);
+});
+
+test("dates reject impossible, duplicate and excessive dates; store timezone controls UTC instants", () => {
+  assert.equal(readWeeklyMailingDates(["2026-02-31"]), null);
+  assert.equal(readWeeklyMailingDates(["2026-10-22", "2026-10-22"]), null);
+  assert.equal(readWeeklyMailingDates(Array(8).fill("2026-10-22")), null);
+  assert.deepEqual(readWeeklyMailingDates(["2028-02-29"]), ["2028-02-29"]);
+  const now = Date.parse("2026-10-01T00:00:00Z");
+  assert.deepEqual(resolveWeeklyMailingSchedule(["2026-10-24", "2026-10-26"], "Europe/Madrid", now),
+    ["2026-10-24T07:00:00.000Z", "2026-10-26T08:00:00.000Z"]);
+  assert.throws(() => resolveWeeklyMailingSchedule(["2000-01-01"], "Europe/Madrid", now), /in_past/);
+});
+
+test("idempotency includes effective design, resources, images and literal copy", () => {
+  const saved = { selected_template: { id: "template", design: { blocks: [1], colors: { a: "red", b: "blue" } } },
+    production: { image_urls: ["https://example/image"], verbatim_texts: ["Gratis"] } };
+  assert.equal(sameWeeklyMailingPlanRequest(saved, structuredClone(saved)), true);
+  assert.equal(sameWeeklyMailingPlanRequest(saved, { ...saved, selected_template: { id: "template", design: { blocks: [2] } } }), false);
+  assert.equal(sameWeeklyMailingPlanRequest(saved, { ...saved, production: { ...saved.production, verbatim_texts: ["Descuento"] } }), false);
 });

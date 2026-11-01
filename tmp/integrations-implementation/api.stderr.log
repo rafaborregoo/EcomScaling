@@ -1,0 +1,31 @@
+{"level":"error","service":"shopify-webhook-handler","message":"Shopify webhook context temporarily unavailable","error":{"shop_domain":"delivery-test-d5035db2-c7b6-42e5-a29a-f07bd4426602.myshopify.com","error":"shopify_webhook_store_initializing"}}
+{"level":"error","service":"shopify-webhook-handler","message":"Shopify webhook context temporarily unavailable","error":{"shop_domain":"delivery-test-a611fcb1-b1fb-4e3b-b215-b1fd48bb8ae9.myshopify.com","error":"shopify_webhook_store_initializing"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"operations_load_failed","detail":"canceling statement due to statement timeout"}}
+{"level":"error","service":"api:shopify-metrics","message":"shopify_metrics_load_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"meta_metrics_load_failed","detail":"canceling statement due to statement timeout"}}
+{"level":"error","service":"api:shopify-metrics","message":"shopify_metrics_load_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"operations_load_failed","detail":"canceling statement due to statement timeout"}}
+consultant_attention_load_failed canceling statement due to statement timeout
+{"level":"error","service":"api:shopify-metrics","message":"shopify_metrics_load_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api:shopify-metrics","message":"shopify_metrics_load_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+meta_insights_rpc_failed[creatives] canceling statement due to statement timeout
+{"level":"error","service":"api:meta-insights","message":"meta_insights_blocks_unavailable","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","blocks":["creatives"]}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"operations_load_failed","detail":"canceling statement due to statement timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"operations_load_failed","detail":"TimeoutError: The operation was aborted due to timeout"}}
+meta_insights_rpc_failed[rendimiento diario] canceling statement due to statement timeout
+meta_insights_rpc_failed[creatives] canceling statement due to statement timeout
+{"level":"error","service":"api:meta-insights","message":"meta_insights_blocks_unavailable","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","blocks":["rendimiento diario","creatives"]}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"shopify_metrics_load_failed","detail":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api:shopify-metrics","message":"shopify_metrics_load_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"shopify_sales_summary_failed: canceling statement due to statement timeout"}}
+{"level":"error","service":"api:shopify-metrics","message":"shopify_financial_summary_year_ago_failed","error":{"organization_id":"5ebc7b02-ca86-402e-bd61-9abd22f1ee04","error":"TimeoutError: The operation was aborted due to timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"klaviyo_email_report_failed","detail":"TimeoutError: The operation was aborted due to timeout"}}
+{"level":"error","service":"api","message":"service_request_failed","error":{"statusCode":500,"error":"operations_load_failed","detail":"canceling statement due to statement timeout"}}

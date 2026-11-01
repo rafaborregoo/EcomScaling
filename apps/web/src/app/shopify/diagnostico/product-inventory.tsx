@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type ProductInventoryRun = {
   organization_id: string;
@@ -45,21 +45,27 @@ export function ProductInventoryPlaybookPanel() {
   const profile = current?.result?.selected_instance?.domain_extension?.product_inventory;
   const value = (key: string) => facts[key] ?? "UNKNOWN";
   return (
-    <Card id="insight-product-inventory" title="Producto, catálogo e inventario" description="Separa catálogo, disponibilidad, demanda y reposición; no convierte un stockout en una compra automática ni el stock absoluto en overstock.">
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">{current.candidate_count ? `${current.candidate_count} playbook(s) de producto/inventario evaluado(s).` : "No hay templates PRODUCT_INVENTORY activos; no se inventa reposición, forecast ni racionalización."}</p>
-          <p className="text-muted mt-2 text-xs">Catálogo: {value("product_inventory.catalog.available")}; variantes: {value("product_inventory.variants.available")}; snapshot de inventario: {value("product_inventory.inventory.snapshot_available")}; stock bajo: {value("product_inventory.stock.low_observed")}; stockout: {value("product_inventory.stockout.observed")}.</p>
-          <p className="text-muted mt-2 text-xs">Demanda/velocidad: {value("product_inventory.demand.observed")}/{value("product_inventory.demand.velocity_observed")}; economics: {value("product_inventory.economics.available")}; replenishment: {value("product_inventory.replenishment.observed")}; forecast: {value("product_inventory.forecast.observed")}; supplier: {value("product_inventory.supplier.observed")}.</p>
-          <p className="text-muted mt-2 text-xs">Overstock: {value("product_inventory.overstock.observed")}; calidad: {value("product_inventory.quality.observed")}; precisión de inventario: {value("product_inventory.inventory_accuracy.observed")}; demand/supply: {value("product_inventory.demand_supply.alignment")}.</p>
-          {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.product_inventory_motion}; superficie: {profile.intervention_surface}; scope: {profile.product_scope}.</p> : null}
-          <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar disponibilidad, demanda, reposición y economics."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
-        </article>
-      ) : <p className="text-muted text-sm">Todavía no hay evaluaciones de producto e inventario.</p>}
+    <Card id="insight-product-inventory">
+      <CardHeader>
+        <CardTitle>Producto, catálogo e inventario</CardTitle>
+        <CardDescription>Separa catálogo, disponibilidad, demanda y reposición; no convierte un stockout en una compra automática ni el stock absoluto en overstock.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">{current.candidate_count ? `${current.candidate_count} playbook(s) de producto/inventario evaluado(s).` : "No hay templates PRODUCT_INVENTORY activos; no se inventa reposición, forecast ni racionalización."}</p>
+            <p className="text-muted mt-2 text-xs">Catálogo: {value("product_inventory.catalog.available")}; variantes: {value("product_inventory.variants.available")}; snapshot de inventario: {value("product_inventory.inventory.snapshot_available")}; stock bajo: {value("product_inventory.stock.low_observed")}; stockout: {value("product_inventory.stockout.observed")}.</p>
+            <p className="text-muted mt-2 text-xs">Demanda/velocidad: {value("product_inventory.demand.observed")}/{value("product_inventory.demand.velocity_observed")}; economics: {value("product_inventory.economics.available")}; replenishment: {value("product_inventory.replenishment.observed")}; forecast: {value("product_inventory.forecast.observed")}; supplier: {value("product_inventory.supplier.observed")}.</p>
+            <p className="text-muted mt-2 text-xs">Overstock: {value("product_inventory.overstock.observed")}; calidad: {value("product_inventory.quality.observed")}; precisión de inventario: {value("product_inventory.inventory_accuracy.observed")}; demand/supply: {value("product_inventory.demand_supply.alignment")}.</p>
+            {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.product_inventory_motion}; superficie: {profile.intervention_surface}; scope: {profile.product_scope}.</p> : null}
+            <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar disponibilidad, demanda, reposición y economics."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
+          </CardContent></Card>
+        ) : <EmptyState title="Todavía no hay evaluaciones de producto e inventario" />}
+      </CardContent>
     </Card>
   );
 }

@@ -1,4 +1,5 @@
 -- A14 reservations are atomic by organization, store and UTC day.
+drop function if exists public.reserve_a14_manual_refresh(uuid, uuid, text, integer, text, uuid);
 create or replace function public.reserve_a14_manual_refresh(
   p_run_id uuid, p_organization_id uuid, p_agent_code text, p_daily_limit integer,
   p_request_key text default null, p_store_id uuid default null
@@ -47,7 +48,6 @@ alter table public.ai_diagnostic_gate_log add constraint ai_diagnostic_gate_log_
 -- One spend row per ad/account/day. Keep both purchase count and value on one
 -- attribution window so the resulting CPA and ROAS use compatible evidence.
 drop function if exists public.meta_spend_summary(uuid, date, date, uuid);
-
 create or replace function public.meta_spend_summary(
   target_organization_id uuid,
   period_start date,

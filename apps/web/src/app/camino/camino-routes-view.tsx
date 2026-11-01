@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import s from "./camino-routes.module.css";
 
 /**
@@ -9,7 +10,7 @@ import s from "./camino-routes.module.css";
  * sus tiendas propias. Las metas nunca se suman: cada tienda mide lo suyo.
  */
 
-export type RouteStop = "done" | "current" | "late" | "pending" | "locked";
+export type RouteStop = "done" | "skipped" | "current" | "late" | "pending" | "locked";
 
 export type CaminoRoute = {
   organization_id: string;
@@ -32,6 +33,7 @@ export type CaminoRoute = {
     focus: { code: string | null; name: string; target_date: string | null; days: number | null } | null;
     late_milestones: number;
     milestones_done: number;
+    milestones_skipped?: number;
     milestones_total: number;
     week_tasks: number;
     review: { summary: string; observed: number | null; expected: number | null; period_end: string } | null;
@@ -47,6 +49,7 @@ export type RouteCard = {
 
 const STOP_CLASS: Record<RouteStop, string> = {
   done: s.done,
+  skipped: s.pending,
   current: s.current,
   late: s.lateDot,
   pending: s.pending,
@@ -175,7 +178,7 @@ function RouteCardView({ card, openLabel, onOpen }: { card: RouteCard; openLabel
         </div>
         <div className={s.none}>
           <p>Todavía no tiene camino. Se puede pedir una propuesta a la IA con sus datos, importar una plantilla o escribirlo a mano.</p>
-          <button type="button" className={`${s.btn} ${s.btnGhost}`} onClick={() => onOpen(card.route)}>
+          <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => onOpen(card.route)}>
             Crear el camino
           </button>
         </div>
@@ -189,12 +192,12 @@ function RouteCardView({ card, openLabel, onOpen }: { card: RouteCard; openLabel
     plan.status === "draft"
       ? [s.chipAcc, "Borrador"]
       : plan.status === "completed"
-        ? [s.chipGood, "Completado"]
+        ? [s.chipGood, "Recorrido cerrado"]
         : lateDays !== null
           ? [s.chipBad, `Va ${lateDays} ${lateDays === 1 ? "día" : "días"} tarde`]
           : plan.late_milestones > 0
             ? [s.chipBad, `${plan.late_milestones} ${plan.late_milestones === 1 ? "hito tarde" : "hitos tarde"}`]
-            : [s.chipGood, "Al ritmo"];
+            : [s.chipGood, "Sin hitos retrasados"];
 
   const goal = plan.goal;
   const observed = plan.review?.observed ?? null;
@@ -282,9 +285,9 @@ function RouteCardView({ card, openLabel, onOpen }: { card: RouteCard; openLabel
 
       <div className={s.foot}>
         <span className={s.meta}>
-          {plan.week_tasks} {plan.week_tasks === 1 ? "tarea con fecha" : "tareas con fecha"} esta semana
+          {plan.milestones_skipped ?? 0} omitidos · {plan.week_tasks} {plan.week_tasks === 1 ? "tarea con fecha" : "tareas con fecha"} esta semana
         </span>
-        <button type="button" className={s.btn} onClick={() => onOpen(card.route)}>
+        <button type="button" className={buttonVariants()} onClick={() => onOpen(card.route)}>
           {openLabel}
         </button>
       </div>

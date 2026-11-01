@@ -5,12 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { PortalShell } from "@/components/portal-shell";
-import { AsyncState, EmptyState, ErrorBlock } from "@/components/ui";
+import { Select, AsyncState, Pagination, EmptyState, ErrorBlock, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { cx, Spark } from "../../dashboard/client-pulse";
 import { fmtNum } from "../../dashboard/client-pulse-model";
 import pulse from "../../dashboard/client-pulse.module.css";
+import r from "../../shopify/legible.module.css";
 import s from "../../shopify/productos/catalogo.module.css";
 import m from "../campanas.module.css";
 import type { MetaCampaignListRow, MetaCampaignsResponse } from "../campaign-types";
@@ -143,8 +144,8 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     : [];
 
   return (
-    <div className={pulse.root}>
-      <header className={s.top}>
+    <div className={`${pulse.root} ${r.pg} ${r.min} nora-min`}>
+      <header className={`${s.top} client-sr-title`}>
         <div>
           <h1>Campañas</h1>
         </div>
@@ -175,35 +176,33 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <input type="search" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} maxLength={120} placeholder="Buscar por nombre" aria-label="Buscar campañas" />
             </form>
             <div className={s.barR}>
-              <div className={pulse.seg} role="group" aria-label="Estado">
+              <ToggleGroup aria-label="Estado" value={status} onValueChange={(value) => { setStatus(value); setFilter(""); setPage(1); }}>
                 {STATUSES.map((item) => (
-                  <button key={item.value || "all"} type="button" aria-pressed={status === item.value} onClick={() => { setStatus(item.value); setFilter(""); setPage(1); }}>
+                  <ToggleGroupItem key={item.value || "all"} value={item.value}>
                     {item.label}
-                    {summary ? <b>{fmtNum(item.count(summary))}</b> : null}
-                  </button>
+                    {summary ? <span className="text-xs text-muted tabular-nums">{fmtNum(item.count(summary))}</span> : null}
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
               <label className={s.selectL}>
                 Ordenar
-                <select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setPage(1); }} aria-label="Ordenar por">
-                  {SORTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </select>
+                <Select className="w-auto" value={sort} onChange={(value) => { setSort(value as Sort); setPage(1); }} aria-label="Ordenar por" options={SORTS} />
               </label>
-              <div className={pulse.seg} role="group" aria-label="Periodo">
+              <ToggleGroup aria-label="Periodo" value={periodDays} onValueChange={(value) => { setPeriodDays(value); setPage(1); }}>
                 {PERIODS.map((value) => (
-                  <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => { setPeriodDays(value); setPage(1); }}>
+                  <ToggleGroupItem key={value} value={value}>
                     {value === 365 ? "1 año" : `${value} días`}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
-              <div className={pulse.seg} role="group" aria-label="Vista">
-                <button type="button" aria-pressed={view === "grid"} onClick={() => setView("grid")}>Tarjetas</button>
-                <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>Tabla</button>
-              </div>
+              </ToggleGroup>
+              <ToggleGroup aria-label="Vista" value={view} onValueChange={setView}>
+                <ToggleGroupItem value="grid">Tarjetas</ToggleGroupItem>
+                <ToggleGroupItem value="table">Tabla</ToggleGroupItem>
+              </ToggleGroup>
             </div>
           </div>
 
-          {query.error && !data ? <ErrorBlock>{query.error}</ErrorBlock> : null}
+          {query.error && !data ? <ErrorBlock onRetry={() => query.reload()}>No se han podido cargar los datos. Inténtalo de nuevo en unos segundos.</ErrorBlock> : null}
           {!data && !query.error ? <AsyncState status="loading" loadingLabel="Cargando campañas…" /> : null}
 
           {data && rows.length === 0 ? (
@@ -251,11 +250,11 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             </a>
                           </td>
                           <td><span className={cx(pulse.chip, state.tone === "good" ? pulse.chipGood : undefined)}>{state.label}</span></td>
-                          <td className={pulse.tdN}>{money(row.spend, data.currency)}</td>
-                          <td className={pulse.tdN}>{money(row.purchase_value, data.currency)}</td>
-                          <td className={pulse.tdN} style={{ color: belowBreakeven ? "var(--bad)" : undefined }}>{roasText(row.roas)}</td>
-                          <td className={pulse.tdN}>{fmtNum(row.purchases)}</td>
-                          <td className={pulse.tdN}>{row.purchases ? money(row.spend / row.purchases, data.currency) : "—"}</td>
+                          <td className={pulse.tdN} style={{ textAlign: "right" }}>{money(row.spend, data.currency)}</td>
+                          <td className={pulse.tdN} style={{ textAlign: "right" }}>{money(row.purchase_value, data.currency)}</td>
+                          <td className={pulse.tdN} style={{ textAlign: "right", color: belowBreakeven ? "var(--bad)" : undefined }}>{roasText(row.roas)}</td>
+                          <td className={pulse.tdN} style={{ textAlign: "right" }}>{fmtNum(row.purchases)}</td>
+                          <td className={pulse.tdN} style={{ textAlign: "right" }}>{row.purchases ? money(row.spend / row.purchases, data.currency) : "—"}</td>
                           <td>{alert ? <span className={cx(pulse.chip, alert.tone === "bad" ? pulse.chipBad : pulse.chipWarn)}>{alert.text}</span> : null}</td>
                         </tr>
                       );
@@ -268,13 +267,10 @@ function CampaignsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
           {data && totalPages > 1 ? (
             <div className={s.pager}>
-              <span className={pulse.muted} style={{ fontSize: 12.5 }}>
-                {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"} · página {page} de {totalPages}
+              <span className={pulse.muted}>
+                {data.total ? `Mostrando ${fmtNum(from)}–${fmtNum(to)} de ${fmtNum(data.total)}` : "Sin resultados"}
               </span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
-              </div>
+              <Pagination page={page} pageCount={totalPages} onChange={setPage} />
             </div>
           ) : null}
 

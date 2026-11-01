@@ -1,4 +1,5 @@
 import { cn } from "@/components/ui/cn";
+import { Badge } from "@/components/ui/badge";
 
 /**
  * Identidad visual del canal.
@@ -80,15 +81,16 @@ export function ChannelBadge({
 }) {
   const style = channelStyle(channel);
   return (
-    <span
+    <Badge
+      variant="ghost"
       className={cn(
-        "inline-flex items-center px-2 py-1 text-[0.7rem] font-medium uppercase tracking-[0.08em]",
+        "h-auto rounded-md px-2 py-1 text-[0.7rem] font-medium uppercase tracking-[0.08em]",
         style.soft,
         style.text,
         className,
       )}
     >
       {style.label}
-    </span>
+    </Badge>
   );
 }

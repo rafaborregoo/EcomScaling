@@ -6,6 +6,7 @@ import {
   type Payback,
 } from "@e-nora/contracts";
 import { createLogger } from "@e-nora/observability";
+import { createClient } from "@supabase/supabase-js";
 import { type AuthContext, createUserScopedClient, membershipCoversStore } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { recordProtectedDataAccess } from "./protected-data-access.js";
@@ -18,6 +19,7 @@ const logger = createLogger("api:shopify-insights");
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   REDIS_URL?: string;
 };
 
@@ -305,7 +307,7 @@ export async function getShopifyInsights(
       ok: false as const,
       statusCode: 403,
       error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      message: "No tienes acceso a esta tienda.",
     };
   }
 
@@ -388,7 +390,8 @@ export async function getShopifyInsights(
     // Se registra antes de mirar la cache: quien pide el panel accede a los
     // datos igual, venga la respuesta de Redis o de Postgres. Registrar solo
     // los fallos de cache dejaria huecos en el rastro sin ningun motivo.
-    void recordProtectedDataAccess(supabase, {
+    // audit_logs no admite insert del rol authenticated (solo select): el rastro se escribe con service role.
+    void recordProtectedDataAccess(createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", { auth: { persistSession: false, autoRefreshToken: false } }), {
       organizationId,
       actorUserId: context.user.id,
       surface: "shopify_insights",

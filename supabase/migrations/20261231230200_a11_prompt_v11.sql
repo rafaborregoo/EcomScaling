@@ -5,22 +5,21 @@ from public.prompt_versions p
 where p.code = 'a11_generador_marketing_system' and p.version = 'v10'
 on conflict (code, version) do update set content = excluded.content, checksum = excluded.checksum;
 
-insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, output_schema_version, config)
-select v.definition_id, 'v11', v.model, 'a11_generador_marketing_system', 'v11', v.allowed_tools, v.approval_mode, v.output_schema_version, v.config
+insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, output_schema_version, config, is_active)
+select v.definition_id, 'v11', v.model, 'a11_generador_marketing_system', 'v11', v.allowed_tools, v.approval_mode, v.output_schema_version, v.config, false
 from public.agent_versions v
 join public.agent_definitions d on d.id = v.definition_id
 where d.code = 'a11_generador_marketing' and v.version = 'v10'
 on conflict (definition_id, version) do update set
   model = excluded.model, prompt_code = excluded.prompt_code, prompt_version = excluded.prompt_version,
   allowed_tools = excluded.allowed_tools, approval_mode = excluded.approval_mode,
-  output_schema_version = excluded.output_schema_version, config = excluded.config, is_active = false;
+  output_schema_version = excluded.output_schema_version, config = excluded.config;
 
 select public.promote_agent_version(v.id)
-from public.agent_versions v
-join public.agent_definitions d on d.id = v.definition_id
+from public.agent_versions v join public.agent_definitions d on d.id = v.definition_id
 where d.code = 'a11_generador_marketing' and v.version = 'v11';
 
-do $
+do $$
 begin
   if not exists (
     select 1 from public.agent_versions v

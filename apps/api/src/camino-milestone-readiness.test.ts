@@ -8,3 +8,12 @@ test("el hito exige tareas terminadas y evidencia concreta", () => {
   assert.equal(assessMilestoneCompletion([{ task_id: "1", tasks: { title: "Validar stock", status: "completed" } }], "Listo").ready, false);
   assert.equal(assessMilestoneCompletion([{ task_id: "1", tasks: { title: "Validar stock", status: "completed" } }], "Stock comprobado en Shopify el 7 de octubre.").ready, true);
 });
+
+test("las tareas ignoradas y canceladas no bloquean; las propuestas requieren decidir", () => {
+  const evidence = "Stock comprobado en Shopify el 7 de octubre.";
+  for (const status of ["ignored", "cancelled"]) {
+    assert.equal(assessMilestoneCompletion([{ task_id: "1", tasks: { title: "Validar stock", status } }], evidence).ready, true, status);
+  }
+  assert.equal(assessMilestoneCompletion([{ task_id: "1", tasks: { title: "Por decidir", status: "proposed" } }], evidence).ready, false);
+  assert.deepEqual(assessMilestoneCompletion([{ task_id: "1", tasks: { title: "Validar stock", status: "in_progress" } }], evidence).unfinished, ["Validar stock"]);
+});

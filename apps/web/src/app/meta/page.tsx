@@ -10,19 +10,31 @@ import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { ClientMeta } from "../dashboard/client-meta";
 import { ChannelBand } from "../dashboard/channel-band";
 import { MetaTrustStrip } from "./trust-strip";
+import r from "../shopify/legible.module.css";
 import { PortfolioAttention } from "@/components/portfolio-attention";
-import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { AiSpecialistItem } from "@/components/ai-diagnostic-section";
 import {
+  Accordion,
   Badge,
   Banner,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Link,
   List,
   LoadingBlock,
   type Tone,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 type TriagedMetaAccount = {
@@ -75,7 +87,9 @@ function ConsultantAccountsView() {
   if (error) {
     return (
       <Card>
-        <ErrorBlock>{error}</ErrorBlock>
+        <CardContent>
+          <ErrorBlock>{error}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
@@ -83,7 +97,9 @@ function ConsultantAccountsView() {
   if (!ranking) {
     return (
       <Card>
-        <LoadingBlock label="Revisando las cuentas de la cartera..." />
+        <CardContent>
+          <LoadingBlock label="Revisando las cuentas de la cartera..." />
+        </CardContent>
       </Card>
     );
   }
@@ -109,81 +125,81 @@ function ConsultantAccountsView() {
           blind: account.blind,
         }))}
       />
-      <Card
-        title="Cuentas de Meta"
-        description="Ordenadas por lo que cuesta no mirarlas."
-        actions={
-          <Button
-            variant={onlyNeedsReview ? "primary" : "secondary"}
+      <Card>
+        <CardHeader>
+          <CardTitle>Cuentas de Meta</CardTitle>
+          <CardDescription>Ordenadas por lo que cuesta no mirarlas.</CardDescription>
+          <CardAction><Button
+            variant={onlyNeedsReview ? "default" : "secondary"}
             onClick={() => setOnlyNeedsReview((value) => !value)}
           >
             Solo las que piden revisión
-          </Button>
-        }
-      >
-        {ranking.length === 0 ? (
-          <EmptyState
-            title="No hay clientes en tu cartera."
-            hint="Los clientes se asignan desde Configuración."
-          />
-        ) : shown.length === 0 ? (
-          <EmptyState title="Ninguna cuenta pide revisión ahora mismo." />
-        ) : (
-          <List>
-            {shown.map((account, index) => {
-              const level = LEVEL_PRESENTATION[account.level];
+          </Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          {ranking.length === 0 ? (
+            <EmptyState
+              title="No hay clientes en tu cartera."
+              hint="Los clientes se asignan desde Configuración."
+            />
+          ) : shown.length === 0 ? (
+            <EmptyState title="Ninguna cuenta pide revisión ahora mismo." />
+          ) : (
+            <List>
+              {shown.map((account, index) => {
+                const level = LEVEL_PRESENTATION[account.level];
 
-              return (
-                <List.Item
-                  key={account.organization_id}
-                  as="button"
-                  type="button"
-                  onClick={() => setOrganizationId(account.organization_id)}
-                  className="flex w-full items-start gap-4 py-3 text-left"
-                >
-                  {/* El puesto solo mientras la lista está entera: con el
-                      filtro puesto, un "3" sería el tercero de lo que queda en
-                      pantalla, no de la cartera. */}
-                  <span className="w-6 shrink-0 pt-0.5 text-sm tabular-nums text-muted">
-                    {onlyNeedsReview ? "·" : index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={level.tone}>{level.label}</Badge>
-                      {/* "No sabemos cómo va" no es lo mismo que "va mal", y
-                          el puesto de estas cuentas sale de lo primero. */}
-                      {account.blind ? (
-                        <Badge tone="neutral">sin datos fiables</Badge>
-                      ) : null}
-                      <span className="font-medium">
-                        {account.organization_name}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {syncLabel(account.last_sync_at)}
-                      {account.spend > 0
-                        ? ` · ${Math.round(account.spend).toLocaleString("es-ES")} de gasto en 30 días`
-                        : " · sin gasto en 30 días"}
-                    </p>
-                    {account.reasons.length ? (
-                      <ul className="mt-2 space-y-1">
-                        {account.reasons.map((reason) => (
-                          <li key={reason.text} className="text-sm">
-                            {reason.text}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted">
-                        Sin nada roto que contar.
-                      </p>
-                    )}
-                  </div>
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
+                return (
+                  <Item
+                    key={account.organization_id}
+                    role="listitem"
+                    className="flex-nowrap items-start"
+                    render={<button type="button" onClick={() => setOrganizationId(account.organization_id)} />}
+                  >
+                    {/* El puesto solo mientras la lista está entera: con el
+                        filtro puesto, un "3" sería el tercero de lo que queda en
+                        pantalla, no de la cartera. */}
+                    <ItemMedia className="w-6 pt-0.5 text-sm tabular-nums text-muted">
+                      {onlyNeedsReview ? "·" : index + 1}
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>
+                        <Badge tone={level.tone}>{level.label}</Badge>
+                        {/* "No sabemos cómo va" no es lo mismo que "va mal", y
+                            el puesto de estas cuentas sale de lo primero. */}
+                        {account.blind ? (
+                          <Badge tone="neutral">sin datos fiables</Badge>
+                        ) : null}
+                        <span>
+                          {account.organization_name}
+                        </span>
+                      </ItemTitle>
+                      <ItemDescription>
+                        {syncLabel(account.last_sync_at)}
+                        {account.spend > 0
+                          ? ` · ${Math.round(account.spend).toLocaleString("es-ES")} de gasto en 30 días`
+                          : " · sin gasto en 30 días"}
+                      </ItemDescription>
+                      {account.reasons.length ? (
+                        <ul className="mt-2 space-y-1">
+                          {account.reasons.map((reason) => (
+                            <li key={reason.text} className="text-sm">
+                              {reason.text}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted">
+                          Sin nada roto que contar.
+                        </p>
+                      )}
+                    </ItemContent>
+                  </Item>
+                );
+              })}
+            </List>
+          )}
+        </CardContent>
       </Card>
     </div>
   );
@@ -248,13 +264,15 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (!organizationId) {
     return (
       <Card>
-        <EmptyState title="Elige un cliente para ver su cuenta de Meta." />
+        <CardContent>
+          <EmptyState title="Elige un cliente para ver su cuenta de Meta." />
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="portal-page grid gap-5 sm:gap-6">
+    <div className="portal-page nora-min grid gap-5 sm:gap-6">
       <ChannelBand
         eyebrow="Tu publicidad en Facebook e Instagram"
         title={organization?.display_name ?? "Meta Ads"}
@@ -266,6 +284,7 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Banner>
       ) : null}
 
+      <div className={`nora-min ${r.min}`}>
       <ClientMeta
         organizationId={organizationId}
         organizationName={organization?.display_name ?? "Meta Ads"}
@@ -285,6 +304,7 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         }
       />
+      </div>
 
       {/* Los dos especialistas, en el mismo orden que los bloques de arriba y
           por la misma razon: si la medicion esta rota, lo que diga el de
@@ -293,10 +313,11 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           `areas` cierra el circulo: cada hallazgo vuelve al bloque de datos que
           lo prueba. */}
       {isConsultant ? (
-      <details id="meta-ia" className="rounded-xl border border-separator bg-surface p-4">
-      <summary className="cursor-pointer text-base font-semibold">Análisis de los especialistas IA</summary>
-      <div className="mt-4 grid gap-5 sm:gap-6">
-      <AiDiagnosticSection
+      <section id="meta-ia" aria-labelledby="meta-ia-title" className="border-t border-separator pt-4">
+      <h2 id="meta-ia-title" className="text-base font-semibold">Análisis de los especialistas IA</h2>
+      <Accordion multiple className="mt-1">
+      <AiSpecialistItem
+        value="medicion"
         organizationId={organizationId}
         title="Medición y entrega"
         getPath="/ai/medicion-meta"
@@ -308,11 +329,14 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         areas={{
           medicion: { label: "Ver el píxel", href: "#meta-measure" },
           general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
+          aprendizaje: { label: "Ver el estado de aprendizaje", href: "#meta-medicion" },
         }}
       />
-      <AiDiagnosticSection
+      <AiSpecialistItem
+        value="creatividad"
         organizationId={organizationId}
         title="Creatividad y subasta"
+        description="Revisa anuncios y piezas de Meta en la tienda seleccionada durante los últimos 30 días completos. El análisis se prepara en el ciclo automático cuando hay una cuenta conectada y sincronizada; también puedes actualizarlo desde aquí. Las propuestas requieren revisión del consultor."
         getPath="/ai/creatividad-meta"
         runPath="/ai/creatividad-meta-run"
         loadingLabel="Analizando qué pieza funciona y cuál quema presupuesto…"
@@ -328,8 +352,24 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           general: { label: "Ver la fiabilidad de las cifras", href: "#meta-medicion" },
         }}
       />
-      </div>
-      </details>
+      <AiSpecialistItem
+        value="cambios"
+        organizationId={organizationId}
+        title="Cambios y públicos"
+        getPath="/ai/cambios-meta"
+        runPath="/ai/cambios-meta-run"
+        loadingLabel="Revisando los cambios de la cuenta y la cobertura de sus públicos…"
+        tasksLabelSingular="tarea"
+        days={30}
+        showInternals={isConsultant}
+        areas={{
+          cambios: { label: "Ver la actividad de Meta", href: "#meta-ads" },
+          publicos: { label: "Revisar este análisis", href: "#meta-ia" },
+          general: { label: "Ver la fiabilidad de las cifras", href: "#meta-measure" },
+        }}
+      />
+      </Accordion>
+      </section>
       ) : null}
     </div>
   );

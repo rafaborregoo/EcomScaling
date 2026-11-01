@@ -6,6 +6,7 @@ import {
 import WebSocket from "ws";
 import { isErr } from "./result-guard.js";
 import { createSingleFlight } from "./single-flight.js";
+import { gatedFetch } from "./request-gate.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -190,7 +191,7 @@ export function requireOperationalOrganization(
       ok: false as const,
       statusCode: 403,
       error: "organization_not_operational",
-      message: `La organizacion no admite operaciones en estado ${organizationStatus}.`,
+      message: `Esta cuenta no admite cambios ahora mismo. Escribe a tu consultor si crees que es un error.`,
     };
   }
 
@@ -206,11 +207,59 @@ export function requireOperationalOrganization(
       ok: false as const,
       statusCode: 403,
       error: "subscription_not_active",
-      message: "La suscripcion de la organizacion no esta activa.",
+      message: "El plan de esta cuenta no está activo. Revísalo en Configuración › Plan.",
     };
   }
 
   return { ok: true as const, membership };
+}
+
+/** Authorize a diagnostic against the exact store selected by the caller. */
+export function requireOperationalStore(
+  context: AuthContext,
+  organizationId: string,
+  storeId: string,
+): OperationalOrganizationResult {
+  const organizationMembership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+  if (organizationMembership) {
+    const operational = requireOperationalOrganization(context, organizationId);
+    if (!operational.ok) return operational;
+    if (!membershipCoversStore(operational.membership, storeId)) {
+      return { ok: false, statusCode: 403, error: "store_access_denied" };
+    }
+    return operational;
+  }
+
+  const storeMembership = context.storeMemberships?.find(
+    (item) => item.organization_id === organizationId &&
+      membershipCoversStore(item, storeId),
+  );
+  if (!storeMembership) {
+    return { ok: false, statusCode: 403, error: "store_access_denied" };
+  }
+  const organizationStatus = storeMembership.organization?.status;
+  if (["suspended", "cancelled", "pending_deletion"].includes(organizationStatus ?? "")) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: "organization_not_operational",
+      message: `Esta cuenta no admite cambios ahora mismo. Escribe a tu consultor si crees que es un error.`,
+    };
+  }
+  const subscription = context.subscriptions.find(
+    (item) => item.organization_id === organizationId,
+  );
+  if (organizationStatus === "active" && subscription && !["active", "trial"].includes(subscription.status)) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: "subscription_not_active",
+      message: "El plan de esta cuenta no está activo. Revísalo en Configuración › Plan.",
+    };
+  }
+  return { ok: true, membership: storeMembership };
 }
 
 export function isAuthContextError(
@@ -233,6 +282,8 @@ export function createUserScopedClient(env: ApiEnv, token: string) {
       transport: realtimeTransport,
     },
     global: {
+      // Cola en la API en vez de en el pool de PostgREST (ver request-gate.ts).
+      fetch: gatedFetch,
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -612,9 +663,15 @@ async function resolveAuthContextUncached(
 // que una revocacion queda cubierta aunque el contexto siga en cache.
 const AUTH_CONTEXT_TTL_MS = 30_000;
 
+// `refreshAfter`: pasado ese instante el contexto sigue valiendo (hasta `expiresAt`),
+// pero la siguiente petición lo renueva en segundo plano: quien está activo no paga
+// nunca los ~4 viajes seguidos a Supabase de un fallo de caché (con el REST atascado
+// son segundos por cada petición). La cota de revocación no cambia: sigue siendo `expiresAt`.
+const AUTH_CONTEXT_REFRESH_AFTER_MS = 15_000;
+
 const authContextCache = new Map<
   string,
-  { expiresAt: number; context: AuthContext }
+  { expiresAt: number; refreshAfter: number; context: AuthContext }
 >();
 const authContextSingleFlight = createSingleFlight<AuthContextResult>();
 
@@ -648,9 +705,19 @@ export async function withAuthContextCache(
   const cached = authContextCache.get(token);
 
   if (cached && cached.expiresAt > Date.now()) {
+    if (cached.refreshAfter <= Date.now()) {
+      void refreshAuthContext(token, resolve).catch(() => undefined);
+    }
     return { ok: true, context: cached.context };
   }
 
+  return refreshAuthContext(token, resolve);
+}
+
+function refreshAuthContext(
+  token: string,
+  resolve: () => Promise<AuthContextResult>,
+): Promise<AuthContextResult> {
   return authContextSingleFlight(token, async () => {
     const result = await resolve();
 
@@ -674,7 +741,11 @@ export async function withAuthContextCache(
           authContextCache.delete(key);
         }
       }
-      authContextCache.set(token, { expiresAt, context: result.context });
+      authContextCache.set(token, {
+        expiresAt,
+        refreshAfter: Math.min(now + AUTH_CONTEXT_REFRESH_AFTER_MS, expiresAt),
+        context: result.context,
+      });
     }
 
     return result;

@@ -11,7 +11,6 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   AsyncState,
-  Card,
   cn,
   EmptyState,
   ErrorBlock,
@@ -19,6 +18,12 @@ import {
   LoadingBlock,
   Select,
   Tabs,
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 import {
   ClientDesk,
@@ -103,11 +108,11 @@ function WorkbenchHeader({
     : [];
 
   return (
-    <Card
-      kicker={today}
-      title="Tu mesa de hoy"
-      actions={
-        <Field label="Periodo de las cifras">
+    <Card>
+      <CardHeader>
+        <CardKicker>{today}</CardKicker>
+        <CardTitle>Tu mesa de hoy</CardTitle>
+        <CardAction><Field label="Periodo de las cifras">
           <Select
             value={String(windowDays)}
             onChange={(value) => onWindowChange(Number(value))}
@@ -116,45 +121,46 @@ function WorkbenchHeader({
               label: `Últimos ${days} días`,
             }))}
           />
-        </Field>
-      }
-    >
-      {stats.length > 0 ? (
-        <dl className="flex flex-wrap gap-x-6 gap-y-2">
-          {stats.map((stat) => {
-            const valueClass = cn(
-              "text-lg font-semibold tabular-nums",
-              stat.needsAttention ? "text-warning" : "text-foreground",
-            );
-            return (
-              <div key={stat.label} className="flex items-baseline gap-1.5">
-                {stat.filter ? (
-                  <button
-                    type="button"
-                    onClick={() => onStatClick(stat.filter!)}
-                    className="flex items-baseline gap-1.5 hover:opacity-75"
-                  >
-                    <dt className={valueClass}>{stat.value}</dt>
-                    <dd className="text-xs text-muted underline decoration-dotted">
-                      {stat.label}
-                    </dd>
-                  </button>
-                ) : (
-                  <>
-                    <dt className={valueClass}>{stat.value}</dt>
-                    <dd className="text-xs text-muted">{stat.label}</dd>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </dl>
-      ) : (
-        <p className="text-[13px] text-muted">
-          Reuniendo alertas, tareas, llamadas, mensajes e integraciones de tu
-          cartera…
-        </p>
-      )}
+        </Field></CardAction>
+      </CardHeader>
+      <CardContent>
+        {stats.length > 0 ? (
+          <dl className="flex flex-wrap gap-x-6 gap-y-2">
+            {stats.map((stat) => {
+              const valueClass = cn(
+                "text-lg font-semibold tabular-nums",
+                stat.needsAttention ? "text-warning" : "text-foreground",
+              );
+              return (
+                <div key={stat.label} className="flex items-baseline gap-1.5">
+                  {stat.filter ? (
+                    <button
+                      type="button"
+                      onClick={() => onStatClick(stat.filter!)}
+                      className="flex items-baseline gap-1.5 hover:opacity-75"
+                    >
+                      <dt className={valueClass}>{stat.value}</dt>
+                      <dd className="text-xs text-muted underline decoration-dotted">
+                        {stat.label}
+                      </dd>
+                    </button>
+                  ) : (
+                    <>
+                      <dt className={valueClass}>{stat.value}</dt>
+                      <dd className="text-xs text-muted">{stat.label}</dd>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </dl>
+        ) : (
+          <p className="text-[13px] text-muted">
+            Reuniendo alertas, tareas, llamadas, mensajes e integraciones de tu
+            cartera…
+          </p>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -230,7 +236,7 @@ function ConsultantPanel({
   // suyo -- aqui no se filtra nada a mano).
   const workbenchQuery = useCachedQuery<DailyWorkbench>(
     `/v1/consultant/daily-workbench?days=${windowDays}${
-      focusId ? `&organizationId=${focusId}` : ""
+      focusId && tab === "mesa" ? `&organizationId=${encodeURIComponent(focusId)}` : ""
     }`,
   );
   const workbench = workbenchQuery.data;
@@ -263,10 +269,10 @@ function ConsultantPanel({
 
   // "Sin permiso para un cliente": el endpoint decide, la UI vuelve a cartera.
   useEffect(() => {
-    if (workbenchQuery.error === "organization_access_denied") {
+    if (workbenchQuery.errorCode === "organization_access_denied") {
       setOrganizationId("");
     }
-  }, [workbenchQuery.error, setOrganizationId]);
+  }, [workbenchQuery.errorCode, setOrganizationId]);
 
   if (organizationsQuery.isLoading) {
     return <AsyncState status="loading" loadingLabel="Cargando tu mesa..." />;
@@ -314,12 +320,13 @@ function ConsultantPanel({
     null;
 
   // --- Mesa de un cliente --------------------------------------------------
-  if (focusId && client && workbench) {
+  if (tab === "mesa" && focusId && client && workbench) {
     return (
       <div className="portal-page space-y-6">
         <DegradedSources sources={workbench.sources} onRetry={reload} />
         <ClientDesk
           client={client}
+          onboarding={workbench.onboarding?.find((item) => item.organization_id === client.organization_id)}
           actions={workbench.actions}
           upcoming={workbench.upcoming}
           onBack={backToPortfolio}
@@ -351,11 +358,11 @@ function ConsultantPanel({
     );
   }
 
-  if (focusId && workbenchQuery.isLoading) {
+  if (tab === "mesa" && focusId && workbenchQuery.isLoading) {
     return <AsyncState status="loading" loadingLabel="Abriendo el cliente..." />;
   }
 
-  if (!focusId && tab !== "mesa") {
+  if (tab !== "mesa") {
     return (
       <div className="portal-page space-y-6">
         <CarteraTabs active={tab} />
@@ -363,7 +370,10 @@ function ConsultantPanel({
           <Captacion />
         ) : (
           <PortfolioManagement
+            key={focusId}
+            initialOrganizationId={focusId}
             organizations={organizations}
+            workbench={workbenchQuery.error ? undefined : workbench}
             isPlatformAdmin={isPlatformAdmin}
             canManageStores={canManageStores}
             onChanged={reload}

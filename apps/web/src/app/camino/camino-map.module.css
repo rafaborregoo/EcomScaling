@@ -214,26 +214,6 @@
 }
 .styleSeg {
   margin-left: auto;
-  display: inline-flex;
-  background: var(--hero-2);
-  border: 1px solid var(--hero-line);
-  border-radius: 10px;
-  padding: 3px;
-  gap: 2px;
-}
-.styleSeg button {
-  border: 0;
-  background: transparent;
-  color: var(--hero-muted);
-  padding: 4px 10px;
-  border-radius: 7px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.styleSeg button[aria-pressed="true"] {
-  background: var(--hero-ink);
-  color: var(--hero);
 }
 
 /* ---------- hito seleccionado ---------- */
@@ -694,31 +674,6 @@
 }
 .task input {
   z-index: 1;
-  appearance: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid var(--line);
-  margin: 0;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  background: var(--surface);
-}
-.task input:checked {
-  background: var(--good);
-  border-color: var(--good);
-}
-.task input:checked::after {
-  content: "";
-  width: 8px;
-  height: 5px;
-  border-bottom: 2px solid #fff;
-  border-left: 2px solid #fff;
-  transform: rotate(-45deg) translateY(-1px);
-}
-.task input:disabled {
-  cursor: default;
 }
 .taskT {
   font-weight: 500;
@@ -755,7 +710,7 @@
   grid-column: 2 / -1;
   font-size: 12.5px;
 }
-.how summary {
+.how [data-slot="collapsible-trigger"] {
   width: fit-content;
   color: var(--accent-ink);
   font-weight: 600;
@@ -1149,30 +1104,16 @@
   font-size: 12.5px;
   font-weight: 600;
 }
+/* Solo posición: el aspecto es el del botón único (secondary xs). */
 .taskAction {
   grid-column: 2 / -1;
   justify-self: start;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--ink);
-  padding: 4px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
 }
 .taskAssetStatus {
   grid-column: 2 / -1;
   justify-self: start;
   color: var(--ink-3);
   font-size: 11px;
-}
-.taskAction:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-.taskAction:disabled {
-  cursor: wait;
-  opacity: 0.65;
 }
 @media (max-width: 860px) {
   .sheetGrid {

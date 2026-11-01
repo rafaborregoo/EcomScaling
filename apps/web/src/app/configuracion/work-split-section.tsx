@@ -1,18 +1,29 @@
 "use client";
 
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Input,
   List,
   LoadingBlock,
   toast,
+  AvatarGroup,
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+  avatarInitials,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import { toPercentages } from "./work-split";
 
@@ -28,6 +39,7 @@ import { toPercentages } from "./work-split";
 type Consultant = {
   user_id: string;
   full_name: string | null;
+  avatar_url?: string | null;
   is_primary: boolean;
   work_share: number;
 };
@@ -163,170 +175,198 @@ export function WorkSplitSection() {
 
   if (error) {
     return (
-      <Card title="Reparto de trabajo">
-        <ErrorBlock>{error}</ErrorBlock>
+      <Card>
+        <CardHeader>
+          <CardTitle>Reparto de trabajo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorBlock>{error}</ErrorBlock>
+        </CardContent>
       </Card>
     );
   }
 
   if (payload === null) {
     return (
-      <Card title="Reparto de trabajo">
-        <LoadingBlock label="Cargando…" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Reparto de trabajo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LoadingBlock label="Cargando…" />
+        </CardContent>
       </Card>
     );
   }
 
   if (payload.clients.length === 0) {
     return (
-      <Card
-        title="Reparto de trabajo"
-        description="Cuando compartas un cliente con otro consultor, aquí decides a quién se le asigna cada tarea."
-      >
-        <EmptyState
-          title="No compartes ningún cliente"
-          hint={
-            payload.solo_clients > 0
-              ? `Llevas tus ${payload.solo_clients} clientes tú solo: todas las tareas son tuyas.`
-              : "Todavía no tienes clientes asignados."
-          }
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Reparto de trabajo</CardTitle>
+          <CardDescription>Cuando compartas un cliente con otro consultor, aquí decides a quién se le asigna cada tarea.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <EmptyState
+            title="No compartes ningún cliente"
+            hint={
+              payload.solo_clients > 0
+                ? `Llevas tus ${payload.solo_clients} clientes tú solo: todas las tareas son tuyas.`
+                : "Todavía no tienes clientes asignados."
+            }
+          />
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card
-      title="Reparto de trabajo"
-      description="Las tareas que nacen solas (alertas, IA) se asignan según este reparto. El principal es el interlocutor que ve el cliente."
-      actions={
-        <div className="flex flex-wrap gap-2">
+    <Card>
+      <CardHeader>
+        <CardTitle>Reparto de trabajo</CardTitle>
+        <CardDescription>Las tareas que nacen solas (alertas, IA) se asignan según este reparto. El principal es el interlocutor que ve el cliente.</CardDescription>
+        <CardAction><div className="flex flex-wrap gap-2">
           {payload.workload.map((entry) => (
             <Badge key={entry.user_id} tone="neutral">
               {entry.full_name ?? "Sin nombre"}: {entry.open_tasks} abiertas
             </Badge>
           ))}
-        </div>
-      }
-    >
-      <List as="ul">
-        {payload.clients.map((client) => {
-          const draft = drafts[client.organization_id];
-          if (!draft) return null;
+        </div></CardAction>
+      </CardHeader>
+      <CardContent>
+        <List as="ul">
+          {payload.clients.map((client) => {
+            const draft = drafts[client.organization_id];
+            if (!draft) return null;
 
-          const percentages = toPercentages(
-            client.consultants.map(
-              (consultant) => draft.shares[consultant.user_id] ?? 0,
-            ),
-          );
-          const busy = saving === client.organization_id;
+            const percentages = toPercentages(
+              client.consultants.map(
+                (consultant) => draft.shares[consultant.user_id] ?? 0,
+              ),
+            );
+            const busy = saving === client.organization_id;
 
-          return (
-            <List.Item
-              as="li"
-              key={client.organization_id}
-              className="flex flex-col gap-3 py-4"
-            >
-              <span className="text-sm font-medium">{client.display_name}</span>
+            return (
+              <List.Item
+                as="li"
+                key={client.organization_id}
+                className="flex flex-col gap-3 py-4"
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-sm font-medium">{client.display_name}</span>
+                  <AvatarGroup>
+                    {client.consultants.map((consultant) => (
+                      <Avatar key={consultant.user_id} size="sm" title={consultant.full_name ?? undefined}>
+                        <AvatarImage src={consultant.avatar_url ?? undefined} alt="" />
+                        <AvatarFallback>{avatarInitials(consultant.full_name)}</AvatarFallback>
+                      </Avatar>
+                    ))}
+                  </AvatarGroup>
+                </span>
 
-              {client.consultants.map((consultant, index) => (
-                <div
-                  key={consultant.user_id}
-                  className="flex flex-wrap items-center gap-3"
-                >
-                  <span className="min-w-40 flex-1 truncate text-sm">
-                    {consultant.full_name ?? "Sin nombre"}
-                  </span>
+                {client.consultants.map((consultant, index) => (
+                  <div
+                    key={consultant.user_id}
+                    className="flex flex-wrap items-center gap-3"
+                  >
+                    <span className="flex min-w-40 flex-1 items-center gap-2 truncate text-sm">
+                      <Avatar size="sm">
+                        <AvatarImage src={consultant.avatar_url ?? undefined} alt="" />
+                        <AvatarFallback>{avatarInitials(consultant.full_name)}</AvatarFallback>
+                      </Avatar>
+                      {consultant.full_name ?? "Sin nombre"}
+                    </span>
 
-                  {draft.primaryUserId === consultant.user_id ? (
-                    <Badge tone="brand">Principal</Badge>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
+                    {draft.primaryUserId === consultant.user_id ? (
+                      <Badge tone="brand">Principal</Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          patchDraft(client.organization_id, {
+                            primaryUserId: consultant.user_id,
+                          })
+                        }
+                      >
+                        Hacer principal
+                      </Button>
+                    )}
+
+                    <Input
+                      className="w-20"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={String(draft.shares[consultant.user_id] ?? 0)}
+                      onChange={(event) =>
                         patchDraft(client.organization_id, {
-                          primaryUserId: consultant.user_id,
+                          shares: {
+                            ...draft.shares,
+                            [consultant.user_id]: Math.max(
+                              0,
+                              Math.min(
+                                100,
+                                Math.round(Number(event.target.value) || 0),
+                              ),
+                            ),
+                          },
                         })
                       }
-                    >
-                      Hacer principal
-                    </Button>
-                  )}
+                    />
+                    <span className="w-28 text-xs text-muted">
+                      {percentages[index] ?? 0}% de las tareas
+                    </span>
+                  </div>
+                ))}
 
-                  <Input
-                    className="w-20"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={String(draft.shares[consultant.user_id] ?? 0)}
-                    onChange={(event) =>
-                      patchDraft(client.organization_id, {
-                        shares: {
-                          ...draft.shares,
-                          [consultant.user_id]: Math.max(
-                            0,
-                            Math.min(
-                              100,
-                              Math.round(Number(event.target.value) || 0),
-                            ),
-                          ),
-                        },
-                      })
-                    }
-                  />
-                  <span className="w-28 text-xs text-muted">
-                    {percentages[index] ?? 0}% de las tareas
-                  </span>
-                </div>
-              ))}
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    patchDraft(client.organization_id, {
-                      shares: Object.fromEntries(
-                        client.consultants.map((consultant) => [
-                          consultant.user_id,
-                          100,
-                        ]),
-                      ),
-                    })
-                  }
-                >
-                  A partes iguales
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void save(client, [client.organization_id])}
-                >
-                  {busy ? "Guardando…" : "Guardar"}
-                </Button>
-                {allOrgIds.length > 1 ? (
+                <div role="group" aria-label="Acciones del reparto" className="flex flex-wrap items-center gap-2">
                   <Button
                     size="sm"
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => void save(client, allOrgIds)}
+                    variant="ghost"
+                    onClick={() =>
+                      patchDraft(client.organization_id, {
+                        shares: Object.fromEntries(
+                          client.consultants.map((consultant) => [
+                            consultant.user_id,
+                            100,
+                          ]),
+                        ),
+                      })
+                    }
                   >
-                    Aplicar a mis {allOrgIds.length} clientes compartidos
+                    A partes iguales
                   </Button>
-                ) : null}
-              </div>
-            </List.Item>
-          );
-        })}
-      </List>
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void save(client, [client.organization_id])}
+                  >
+                    {busy ? "Guardando…" : "Guardar"}
+                  </Button>
+                  {allOrgIds.length > 1 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void save(client, allOrgIds)}
+                    >
+                      Aplicar a mis {allOrgIds.length} clientes compartidos
+                    </Button>
+                  ) : null}
+                </div>
+              </List.Item>
+            );
+          })}
+        </List>
 
-      {payload.solo_clients > 0 ? (
-        <p className="mt-4 text-xs text-muted">
-          Los otros {payload.solo_clients} clientes los llevas tú solo: sus
-          tareas se te asignan siempre.
-        </p>
-      ) : null}
+        {payload.solo_clients > 0 ? (
+          <p className="mt-4 text-xs text-muted">
+            Los otros {payload.solo_clients} clientes los llevas tú solo: sus
+            tareas se te asignan siempre.
+          </p>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

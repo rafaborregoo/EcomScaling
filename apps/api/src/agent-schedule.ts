@@ -5,11 +5,12 @@
  * enseñar lo mismo que se va a aplicar.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { A01_MODEL_DECISION, A04_MODEL_DECISION, A06_MODEL_DECISION, getAgentModelDecision } from "@e-nora/contracts";
 import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("agent-schedule");
 
-export const AGENT_MODEL_IDS = ["claude-sonnet-5", "claude-opus-5", "gpt-6-sol", "gpt-6-luna"] as const;
+export const AGENT_MODEL_IDS = ["claude-sonnet-5", "claude-opus-5", "claude-sonnet-5-5", "claude-opus-5-5", "gpt-6-sol", "gpt-6-luna", A01_MODEL_DECISION.model, A04_MODEL_DECISION.model, A06_MODEL_DECISION.model] as const;
 export type AgentModelId = (typeof AGENT_MODEL_IDS)[number];
 
 /** El copiloto decide su modelo por el saldo del plan: no se fija desde aqui. */
@@ -56,15 +57,16 @@ const VERSION_MODEL_AGENTS = new Set(["a02_monitor_negocio", "a29_analista_metri
 
 /** Modelo que usa el runtime para un agente cuando nadie ha elegido otro. */
 export function defaultAgentModel(agentCode: string, versionModel: string): string {
+  const decision = getAgentModelDecision(agentCode);
+  if (decision) return decision.model;
   if (agentCode === COPILOT_AGENT_CODE || VERSION_MODEL_AGENTS.has(agentCode)) return versionModel;
   // El Camino es el entregable de consultoria mas importante y se genera pocas veces.
   return agentCode === "a19_arquitecto_camino" ? "gpt-6-sol" : "gpt-6-luna";
 }
 
 /**
- * Modelo de una ejecucion de agente de cliente. La eleccion del cliente
- * (Clientes › agentes) manda; despues, la de plataforma; despues, el defecto.
- * A02 y A29 no atienden a la del cliente, pero si a la de plataforma.
+ * Los especialistas usan la política de plataforma. La preferencia heredada
+ * del cliente solo se conserva para el copiloto, cuyo saldo se resuelve fuera.
  */
 export function resolveAgentModel(input: {
   agentCode: string;
@@ -72,8 +74,10 @@ export function resolveAgentModel(input: {
   clientModel: string | null | undefined;
   platformModel: string | null | undefined;
 }): string {
-  if (VERSION_MODEL_AGENTS.has(input.agentCode)) return input.platformModel ?? input.versionModel;
-  return input.clientModel ?? input.platformModel ?? defaultAgentModel(input.agentCode, input.versionModel);
+  const decision = getAgentModelDecision(input.agentCode);
+  if (decision) return decision.model;
+  if (input.agentCode === COPILOT_AGENT_CODE) return input.clientModel ?? input.versionModel;
+  return input.platformModel ?? defaultAgentModel(input.agentCode, input.versionModel);
 }
 
 const MIN_RUN_AGE_FLOOR_MS = 60 * 60 * 1000;

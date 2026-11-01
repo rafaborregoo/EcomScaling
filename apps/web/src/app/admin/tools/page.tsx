@@ -1,23 +1,27 @@
 "use client";
 
+
 import { useMemo, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import {
+  ScrollArea,
+  EmptyState,
   AsyncState,
   Badge,
   Banner,
   Button,
-  Card,
   EYEBROW,
   Metric,
   Select,
-  Table,
+  DataTable,
   toast,
-  type TableColumnDef,
+  type DataTableColumn,
   type Tone,
+  Card,
+  CardContent,
 } from "@/components/ui";
 
 /**
@@ -153,7 +157,7 @@ function ProposalInbox() {
   );
   const pendientes = data.proposals.filter((p) => p.status === "pending").length;
 
-  const columns: TableColumnDef<Proposal>[] = [
+  const columns: DataTableColumn<Proposal>[] = [
     {
       key: "title",
       label: "Qué piden",
@@ -176,7 +180,7 @@ function ProposalInbox() {
             <div className="space-y-2 pt-1">
               {row.benefit ? <p className="text-sm">{row.benefit}</p> : null}
               {row.sql_draft ? (
-                <pre className="max-h-48 overflow-auto rounded bg-default p-2 font-mono text-xs">{row.sql_draft}</pre>
+                <ScrollArea className="max-h-48 rounded bg-default p-2 font-mono text-xs"><pre>{row.sql_draft}</pre></ScrollArea>
               ) : null}
               {row.examples.map((example, index) => (
                 <p key={index} className="text-xs text-muted">
@@ -218,7 +222,7 @@ function ProposalInbox() {
       render: (row) => (
         <div className="flex flex-col items-start gap-2">
           <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
-          <div className="flex flex-wrap gap-1">
+          <div role="group" aria-label="Decision sobre la solicitud" className="flex flex-wrap items-center gap-2">
             {row.status === "pending" ? (
               <>
                 <Button size="sm" onClick={() => decide(row.id, "accepted")}>Aceptar</Button>
@@ -236,30 +240,32 @@ function ProposalInbox() {
 
   return (
     <Card>
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className={EYEBROW}>Bandeja de la IA</p>
-          <h2 className="text-lg font-medium">
-            Lo que piden los agentes{pendientes ? ` · ${pendientes} pendientes` : ""}
-          </h2>
+      <CardContent>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className={EYEBROW}>Bandeja de la IA</p>
+            <h2 className="text-lg font-medium">
+              Lo que piden los agentes{pendientes ? ` · ${pendientes} pendientes` : ""}
+            </h2>
+          </div>
+          <Select
+            aria-label="Filtrar propuestas"
+            value={filtro}
+            onChange={(value) => setFiltro(value)}
+            options={[
+              { value: "abiertas", label: "Abiertas" },
+              { value: "done", label: "Hechas" },
+              { value: "rejected", label: "Descartadas" },
+              { value: "todas", label: "Todas" },
+            ]}
+          />
         </div>
-        <Select
-          aria-label="Filtrar propuestas"
-          value={filtro}
-          onChange={(value) => setFiltro(value)}
-          options={[
-            { value: "abiertas", label: "Abiertas" },
-            { value: "done", label: "Hechas" },
-            { value: "rejected", label: "Descartadas" },
-            { value: "todas", label: "Todas" },
-          ]}
-        />
-      </div>
-      {filas.length ? (
-        <Table ariaLabel="Propuestas de la IA" columns={columns} rows={filas} />
-      ) : (
-        <p className="text-sm text-muted">Nada pendiente.</p>
-      )}
+        {filas.length ? (
+          <DataTable ariaLabel="Propuestas de la IA" columns={columns} rows={filas} />
+        ) : (
+          <EmptyState size="sm" title="Nada pendiente" />
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -284,7 +290,7 @@ function ToolCatalogPanel() {
     return todas;
   }, [data?.tools, filtro]);
 
-  const columns: TableColumnDef<ToolRow & { id: string }>[] = [
+  const columns: DataTableColumn<ToolRow & { id: string }>[] = [
     {
       key: "name",
       label: "Tool",
@@ -379,28 +385,30 @@ function ToolCatalogPanel() {
       ) : null}
 
       <Card>
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className={EYEBROW}>Catálogo</p>
-            <h2 className="text-lg font-medium">Qué sabe hacer el copiloto</h2>
+        <CardContent>
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className={EYEBROW}>Catálogo</p>
+              <h2 className="text-lg font-medium">Qué sabe hacer el copiloto</h2>
+            </div>
+            <Select
+              aria-label="Filtrar tools"
+              value={filtro}
+              onChange={(value) => setFiltro(value)}
+              options={[
+                { value: "implementadas", label: "Construidas" },
+                { value: "sin_agente", label: "Sin agente" },
+                { value: "planned", label: "Solo declaradas" },
+                { value: "todas", label: "Todas" },
+              ]}
+            />
           </div>
-          <Select
-            aria-label="Filtrar tools"
-            value={filtro}
-            onChange={(value) => setFiltro(value)}
-            options={[
-              { value: "implementadas", label: "Construidas" },
-              { value: "sin_agente", label: "Sin agente" },
-              { value: "planned", label: "Solo declaradas" },
-              { value: "todas", label: "Todas" },
-            ]}
+          <DataTable
+            ariaLabel="Catálogo de tools"
+            columns={columns}
+            rows={filas.map((tool) => ({ id: tool.name, ...tool }))}
           />
-        </div>
-        <Table
-          ariaLabel="Catálogo de tools"
-          columns={columns}
-          rows={filas.map((tool) => ({ id: tool.name, ...tool }))}
-        />
+        </CardContent>
       </Card>
     </div>
   );

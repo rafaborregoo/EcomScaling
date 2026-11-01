@@ -15,11 +15,15 @@ import {
 import {
   BrandLogo,
   Button,
-  Card,
   ErrorBlock,
   Field,
   Heading,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -98,62 +102,67 @@ export default function NuevaContrasenaPage() {
       </div>
 
       {!haySesion ? (
-        <Card
-          title="Enlace no válido"
-          description="Ha caducado o ya se usó. Pide uno nuevo."
-        >
-          <Button className="mt-4" onClick={() => router.push("/recuperar")}>
-            Pedir otro enlace
-          </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Enlace no válido</CardTitle>
+            <CardDescription>Ha caducado o ya se usó. Pide uno nuevo.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button className="mt-4" onClick={() => router.push("/recuperar")}>
+              Pedir otro enlace
+            </Button>
+          </CardContent>
         </Card>
       ) : (
         <Card>
-          <form className="grid gap-4" onSubmit={handleSubmit}>
-            <Field label="Contraseña">
-              <PasswordInput
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="new-password"
-                minLength={PASSWORD_MIN_LENGTH}
-                required
-              />
-            </Field>
-            <PasswordRequirements password={password} />
-            {corta ? (
-              <p className="text-xs text-danger">Mínimo 8 caracteres.</p>
-            ) : null}
+          <CardContent>
+            <form className="grid gap-4" onSubmit={handleSubmit}>
+              <Field label="Contraseña">
+                <PasswordInput
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={PASSWORD_MIN_LENGTH}
+                  required
+                />
+              </Field>
+              <PasswordRequirements password={password} />
+              {corta ? (
+                <p className="text-xs text-danger">Mínimo 8 caracteres.</p>
+              ) : null}
 
-            <Field label="Repite la contraseña">
-              <PasswordInput
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-                autoComplete="new-password"
-                minLength={PASSWORD_MIN_LENGTH}
-                aria-invalid={noCoincide}
-                aria-describedby={
-                  confirm.length > 0 ? "password-confirmation-status" : undefined
-                }
-                required
-              />
-            </Field>
-            {noCoincide ? (
-              <p id="password-confirmation-status" className="text-xs text-danger" role="alert">
-                Las contraseñas no coinciden.
-              </p>
-            ) : null}
+              <Field label="Repite la contraseña">
+                <PasswordInput
+                  value={confirm}
+                  onChange={(event) => setConfirm(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={PASSWORD_MIN_LENGTH}
+                  aria-invalid={noCoincide}
+                  aria-describedby={
+                    confirm.length > 0 ? "password-confirmation-status" : undefined
+                  }
+                  required
+                />
+              </Field>
+              {noCoincide ? (
+                <p id="password-confirmation-status" className="text-xs text-danger" role="alert">
+                  Las contraseñas no coinciden.
+                </p>
+              ) : null}
 
-            {confirm.length > 0 && !noCoincide ? (
-              <p id="password-confirmation-status" className="text-xs text-success" role="status">
-                Las contraseñas coinciden.
-              </p>
-            ) : null}
+              {confirm.length > 0 && !noCoincide ? (
+                <p id="password-confirmation-status" className="text-xs text-success" role="status">
+                  Las contraseñas coinciden.
+                </p>
+              ) : null}
 
-            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+              {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-            <Button type="submit" disabled={!puedeEnviar}>
-              {isSubmitting ? "Guardando..." : "Guardar y entrar"}
-            </Button>
-          </form>
+              <Button type="submit" disabled={!puedeEnviar}>
+                {isSubmitting ? "Guardando..." : "Guardar y entrar"}
+              </Button>
+            </form>
+          </CardContent>
         </Card>
       )}
 

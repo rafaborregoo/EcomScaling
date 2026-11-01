@@ -1,5 +1,7 @@
 "use client";
 
+
+import { StoreIcon } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -8,6 +10,7 @@ import {
 } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
@@ -16,12 +19,12 @@ import { panelPct } from "@e-nora/contracts";
 import { useProfitability } from "@/app/panel/panel-data";
 import { CONNECTION_STATES, stateFromStatus } from "@/app/integraciones/store-view-model";
 import { timeAgo } from "@/lib/elapsed";
-import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 import {
   Avatar,
+  avatarInitials,
+  AvatarFallback,
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
@@ -33,6 +36,35 @@ import {
   Select,
   Tabs,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  ButtonLink,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 // Navegador de tiendas del consultor: sus tiendas propias (membership real) y
@@ -66,15 +98,17 @@ function statusLabel(status: string) {
 
 function OpenStoreLink({
   organizationId,
+  connectionId,
   children,
 }: {
   organizationId: string;
+  connectionId?: string | null;
   children: ReactNode;
 }) {
   const { setOrganizationId } = useActiveOrganization();
   return (
     <Link
-      href="/dashboard"
+      href={withPortalRouteContext("/dashboard", organizationId, connectionId)}
       onClick={() => setOrganizationId(organizationId)}
       className="font-medium no-underline hover:text-brand hover:no-underline"
     >
@@ -83,10 +117,10 @@ function OpenStoreLink({
   );
 }
 
-function OpenStoreButton({ organizationId }: { organizationId: string }) {
+function OpenStoreButton({ organizationId, connectionId }: { organizationId: string; connectionId?: string | null }) {
   const { setOrganizationId } = useActiveOrganization();
   return (
-    <Link href="/dashboard" onClick={() => setOrganizationId(organizationId)}>
+    <Link href={withPortalRouteContext("/dashboard", organizationId, connectionId)} onClick={() => setOrganizationId(organizationId)}>
       <Button variant="secondary" size="sm">
         Abrir
       </Button>
@@ -95,11 +129,13 @@ function OpenStoreButton({ organizationId }: { organizationId: string }) {
 }
 
 // Alta y edición comparten campos (nombre + moneda); `store` presente = editar.
-function OwnStoreForm({
+function OwnStoreDialog({
   store,
+  onOpenChange,
   onDone,
 }: {
   store?: OwnStore;
+  onOpenChange: (open: boolean) => void;
   onDone: (result: { id: string; name: string }) => void;
 }) {
   const [displayName, setDisplayName] = useState(store?.display_name ?? "");
@@ -149,10 +185,17 @@ function OwnStoreForm({
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="grid gap-3 border-b border-separator pb-4 sm:grid-cols-[1fr_8rem_auto] sm:items-end"
+    <Dialog
+      open
+      onOpenChange={onOpenChange}
+      busy={isSaving}
+      dirty={displayName !== (store?.display_name ?? "") || currencyCode !== (store?.currency_code ?? "EUR")}
     >
+      <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{isEdit ? "Editar tienda" : "Añadir mi tienda"}</DialogTitle>
+      </DialogHeader>
+    <form id="own-store-form" onSubmit={submit} className="grid gap-4 sm:grid-cols-[1fr_8rem]">
       <Field label="Nombre de la tienda">
         <Input
           value={displayName}
@@ -170,19 +213,20 @@ function OwnStoreForm({
           maxLength={3}
         />
       </Field>
-      <Button type="submit" size="sm" disabled={isSaving}>
-        {isSaving
-          ? "Guardando..."
-          : isEdit
-            ? "Guardar cambios"
-            : "Crear tienda"}
-      </Button>
       {error ? (
-        <div className="sm:col-span-3">
+        <div className="sm:col-span-2">
           <ErrorBlock>{error}</ErrorBlock>
         </div>
       ) : null}
     </form>
+      <DialogFooter>
+        <DialogClose>Cancelar</DialogClose>
+        <Button type="submit" form="own-store-form" disabled={isSaving || !displayName.trim()}>
+          {isSaving ? "Guardando…" : isEdit ? "Guardar cambios" : "Crear tienda"}
+        </Button>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -243,146 +287,144 @@ function OwnStoresCard({ days, query }: { days: number; query: string }) {
     }
   }
 
-  const addForm = (
-    <OwnStoreForm
+  const editingStore = allStores?.find((store) => store.organization_id === editingId);
+  const storeDialog = isAdding || editingStore ? (
+    <OwnStoreDialog
+      store={editingStore}
+      onOpenChange={(open) => {
+        if (open) return;
+        setIsAdding(false);
+        setEditingId(null);
+      }}
       onDone={({ id, name }) => {
+        if (editingStore) {
+          setEditingId(null);
+          void loadStores();
+          return;
+        }
         setIsAdding(false);
         startOnboarding(id, name);
       }}
     />
-  );
+  ) : null;
 
   // Sin tiendas propias: no ocupamos una card entera, solo el disparador.
   if (allStores !== null && allStores.length === 0 && !error) {
-    return isAdding ? (
-      <Card title="Añadir mi tienda">
-        {addForm}
-        <div className="mt-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsAdding(false)}
-          >
-            Cancelar
-          </Button>
-        </div>
-      </Card>
-    ) : (
-      <Button variant="secondary" size="sm" onClick={() => setIsAdding(true)}>
-        Añadir mi tienda
-      </Button>
+    return (
+      <>
+        <Button variant="secondary" size="sm" onClick={() => setIsAdding(true)}>
+          Añadir mi tienda
+        </Button>
+        {storeDialog}
+      </>
     );
   }
 
   return (
-    <Card
-      title="Mis tiendas"
-      description={`Tiendas de tu propiedad, con sus totales de los últimos ${days} días.`}
-      actions={
-        <Button
+    <Card>
+      <CardHeader>
+        <CardTitle>Mis tiendas</CardTitle>
+        <CardDescription>{`Tiendas de tu propiedad, con sus totales de los últimos ${days} días.`}</CardDescription>
+        <CardAction><Button
           variant="secondary"
           size="sm"
-          onClick={() => setIsAdding((value) => !value)}
+          onClick={() => setIsAdding(true)}
         >
-          {isAdding ? "Cancelar" : "Añadir mi tienda"}
-        </Button>
-      }
-    >
-      {isAdding ? <div className="mb-4">{addForm}</div> : null}
-      {error ? (
-        <ErrorBlock>{error}</ErrorBlock>
-      ) : stores === null ? (
-        <LoadingBlock label="Cargando tus tiendas..." />
-      ) : stores.length === 0 ? (
-        <p className="text-[13px] text-muted">Ninguna tienda tuya coincide con la búsqueda.</p>
-      ) : (
-        <List as="ul">
-          {stores.map((store) => (
-            <List.Item
-              as="li"
-              key={store.organization_id}
-              className="py-3 first:pt-1 last:pb-1"
-            >
-              {editingId === store.organization_id ? (
-                <div className="space-y-2">
-                  <OwnStoreForm
-                    store={store}
-                    onDone={() => {
-                      setEditingId(null);
-                      void loadStores();
-                    }}
-                  />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setEditingId(null)}
-                  >
-                    Cancelar
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-start gap-3">
-                  <Avatar name={store.display_name} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <OpenStoreLink organizationId={store.organization_id}>
-                        {store.display_name}
-                      </OpenStoreLink>
-                      <Badge
-                        tone={store.status === "active" ? "success" : "neutral"}
+          Añadir mi tienda
+        </Button></CardAction>
+      </CardHeader>
+      <CardContent>
+        {storeDialog}
+        {error ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : stores === null ? (
+          <LoadingBlock label="Cargando tus tiendas..." />
+        ) : stores.length === 0 ? (
+          <EmptyState size="sm" title="Ninguna tienda tuya coincide con la búsqueda" />
+        ) : (
+          <List as="ul">
+            {stores.map((store) => (
+              <Item key={store.organization_id} className="first:pt-1 last:pb-1" render={<li />}>
+                    <ItemMedia>
+                      <Avatar>
+                        <AvatarFallback>{avatarInitials(store.display_name)}</AvatarFallback>
+                      </Avatar>
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>
+                        <OpenStoreLink organizationId={store.organization_id}>
+                          {store.display_name}
+                        </OpenStoreLink>
+                        <Badge
+                          tone={store.status === "active" ? "success" : "neutral"}
+                        >
+                          {statusLabel(store.status)}
+                        </Badge>
+                      </ItemTitle>
+                      <ItemDescription>
+                        {/* Sin moneda unica el API no suma ventas (no mezcla divisas): se dice, no se pinta "—". */}
+                        {store.net_sales == null
+                          ? store.orders > 0
+                            ? "Ventas: moneda no comparable"
+                            : "Sin ventas"
+                          : formatMoney(store.net_sales, store.currency_code)}{" "}
+                        ·{" "}
+                        {store.orders} {store.orders === 1 ? "pedido" : "pedidos"}
+                        {" · "}
+                        {store.roas == null
+                          ? "ROAS —"
+                          : `ROAS ${store.roas.toFixed(2)}`}
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions role="group" aria-label="Acciones de la tienda">
+                      <OpenStoreButton organizationId={store.organization_id} />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingId(store.organization_id)}
                       >
-                        {statusLabel(store.status)}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {/* Sin moneda unica el API no suma ventas (no mezcla divisas): se dice, no se pinta "—". */}
-                      {store.net_sales == null
-                        ? store.orders > 0
-                          ? "Ventas: moneda no comparable"
-                          : "Sin ventas"
-                        : formatMoney(store.net_sales, store.currency_code)}{" "}
-                      ·{" "}
-                      {store.orders} {store.orders === 1 ? "pedido" : "pedidos"}
-                      {" · "}
-                      {store.roas == null
-                        ? "ROAS —"
-                        : `ROAS ${store.roas.toFixed(2)}`}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <OpenStoreButton organizationId={store.organization_id} />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEditingId(store.organization_id)}
-                    >
-                      Editar
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDeleteTarget(store)}
-                    >
-                      Borrar
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </List.Item>
-          ))}
-        </List>
-      )}
-      {deleteTarget ? (
-        <ConfirmDangerDialog
-          title={`Borrar la tienda "${deleteTarget.display_name}"`}
-          note="Borrado con 30 días de gracia para restaurarla."
-          confirmPhrase={deleteTarget.display_name}
-          actionLabel="Borrar tienda"
-          isBusy={isDeleting}
-          onCancel={() => setDeleteTarget(null)}
-          onConfirm={() => void confirmDelete()}
-        />
-      ) : null}
+                        Editar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteTarget(store)}
+                      >
+                        Borrar
+                      </Button>
+                    </ItemActions>
+              </Item>
+            ))}
+          </List>
+        )}
+        {/* confirmDelete lo cierra al acabar bien; si falla, sigue abierto. */}
+        {deleteTarget ? (
+          <AlertDialog open onOpenChange={(open) => !open && setDeleteTarget(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogMedia className="bg-danger/10 text-danger">
+                  <StoreIcon />
+                </AlertDialogMedia>
+                <AlertDialogTitle>¿Borrar la tienda «{deleteTarget.display_name}»?</AlertDialogTitle>
+                <AlertDialogDescription>Se borra con 30 días de gracia para restaurarla.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogConfirmPhrase phrase={deleteTarget.display_name} />
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={async () => {
+                    await confirmDelete();
+                    return false;
+                  }}
+                >
+                  Borrar tienda
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
@@ -497,92 +539,94 @@ function ClientStoresCard({
   }
 
   return (
-    <Card
-      title="Tiendas de tus clientes"
-      description={`Últimos ${days} días, sin IVA. Primero las que pierden dinero; dentro de cada grupo, la palanca más grande.`}
-      actions={
-        <Link
+    <Card>
+      <CardHeader>
+        <CardTitle>Tiendas de tus clientes</CardTitle>
+        <CardDescription>{`Últimos ${days} días, sin IVA. Primero las que pierden dinero; dentro de cada grupo, la palanca más grande.`}</CardDescription>
+        <CardAction><Link
           href="/consultor?tab=gestion"
           className="text-xs text-muted no-underline hover:text-brand hover:no-underline"
         >
           Gestionar clientes
-        </Link>
-      }
-    >
-      {failed.length > 0 ? (
-        <div className="mb-4">
-          <ErrorBlock>
-            No se pudo leer {failed.map((store) => store.shop_name).join(", ")}. No aparece con datos a medias; recarga en unos segundos.
-          </ErrorBlock>
-        </div>
-      ) : null}
-      {error ? (
-        <ErrorBlock>{error}</ErrorBlock>
-      ) : profitability.isLoading ? (
-        <LoadingBlock label="Cargando tiendas..." />
-      ) : stores.length === 0 ? (
-        <EmptyState
-          title={needle || tier ? "Ninguna tienda coincide" : "Aún no hay tiendas de clientes"}
-          hint={needle || tier ? "Quita el filtro o prueba con otro nombre." : "Cuando un cliente conecte Shopify, su tienda aparecerá aquí."}
-        />
-      ) : (
-        <List as="ul">
-          {stores.map((store) => {
-            const badge = TIER_BADGE[store.tier];
-            const panelHref = store.connection_id
-              ? `/panel?organizationId=${store.organization_id}&connectionId=${store.connection_id}`
-              : `/panel?organizationId=${store.organization_id}`;
-            const change = store.revenue_change_pct;
-            return (
-              <List.Item as="li" key={store.store_id} className="py-3 first:pt-1 last:pb-1">
-                <div className="flex items-start gap-3">
-                  <Avatar name={store.shop_name} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <OpenStoreLink organizationId={store.organization_id}>{store.shop_name}</OpenStoreLink>
-                      <Badge tone={badge.tone}>{badge.label}</Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {store.organization_name} · {formatMoney(store.revenue, store.currency_code)}
-                      {change == null ? null : (
-                        <span className={change < 0 ? "text-danger" : "text-success"}>
-                          {" "}({panelPct(change)})
-                        </span>
-                      )}{" "}
-                      · {store.orders} {store.orders === 1 ? "pedido" : "pedidos"}
-                    </p>
-                    <p className={`mt-1 text-xs ${store.tier === "datos" ? "text-warning" : "text-ink"}`}>
-                      {storeSignals(store).join(" · ")}
-                    </p>
-                    <ConnectionChips connections={connectionsByOrg.get(store.organization_id) ?? []} />
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {store.tier === "datos" ? (
-                      <Link
-                        href="/configuracion?section=rentabilidad"
-                        onClick={() => setOrganizationId(store.organization_id)}
-                      >
-                        <Button variant="ghost" size="sm">
+        </Link></CardAction>
+      </CardHeader>
+      <CardContent>
+        {failed.length > 0 ? (
+          <div className="mb-4">
+            <ErrorBlock>
+              No se pudo leer {failed.map((store) => store.shop_name).join(", ")}. No aparece con datos a medias; recarga en unos segundos.
+            </ErrorBlock>
+          </div>
+        ) : null}
+        {error ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : profitability.isLoading ? (
+          <LoadingBlock label="Cargando tiendas..." />
+        ) : stores.length === 0 ? (
+          <EmptyState
+            title={needle || tier ? "Ninguna tienda coincide" : "Aún no hay tiendas de clientes"}
+            hint={needle || tier ? "Quita el filtro o prueba con otro nombre." : "Cuando un cliente conecte Shopify, su tienda aparecerá aquí."}
+          />
+        ) : (
+          <List as="ul">
+            {stores.map((store) => {
+              const badge = TIER_BADGE[store.tier];
+              const panelHref = store.connection_id
+                ? `/panel?organizationId=${store.organization_id}&connectionId=${store.connection_id}`
+                : `/panel?organizationId=${store.organization_id}`;
+              const change = store.revenue_change_pct;
+              return (
+                <Item key={store.store_id} className="first:pt-1 last:pb-1" render={<li />}>
+                    <ItemMedia>
+                      <Avatar>
+                        <AvatarFallback>{avatarInitials(store.shop_name)}</AvatarFallback>
+                      </Avatar>
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>
+                        <OpenStoreLink organizationId={store.organization_id} connectionId={store.connection_id}>{store.shop_name}</OpenStoreLink>
+                        <Badge tone={badge.tone}>{badge.label}</Badge>
+                      </ItemTitle>
+                      <ItemDescription>
+                        {store.organization_name} · {formatMoney(store.revenue, store.currency_code)}
+                        {change == null ? null : (
+                          <span className={change < 0 ? "text-danger" : "text-success"}>
+                            {" "}({panelPct(change)})
+                          </span>
+                        )}{" "}
+                        · {store.orders} {store.orders === 1 ? "pedido" : "pedidos"}
+                      </ItemDescription>
+                      <ItemDescription className={store.tier === "datos" ? "text-warning" : "text-ink"}>
+                        {storeSignals(store).join(" · ")}
+                      </ItemDescription>
+                      <ConnectionChips connections={connectionsByOrg.get(store.organization_id) ?? []} />
+                    </ItemContent>
+                    <ItemActions role="group" aria-label="Acciones de la tienda">
+                      {/* Enlaces con forma de botón: un <a> con un <button> dentro son dos paradas de tabulador. */}
+                      {store.tier === "datos" ? (
+                        <ButtonLink
+                          href="/configuracion?section=rentabilidad"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setOrganizationId(store.organization_id)}
+                        >
                           Completar costes
-                        </Button>
-                      </Link>
-                    ) : null}
-                    <Link href={panelHref} onClick={() => setOrganizationId(store.organization_id)}>
-                      <Button variant="secondary" size="sm">
+                        </ButtonLink>
+                      ) : null}
+                      <ButtonLink href={panelHref} variant="secondary" size="sm" onClick={() => setOrganizationId(store.organization_id)}>
                         Rentabilidad
-                      </Button>
-                    </Link>
-                    <OpenStoreButton organizationId={store.organization_id} />
-                  </div>
-                </div>
-              </List.Item>
-            );
-          })}
-        </List>
-      )}
-      {profitability.data?.truncated ? (
-        <p className="mt-4 text-xs text-muted">La cartera es muy grande: se muestran las primeras 150 tiendas.</p>
-      ) : null}
+                      </ButtonLink>
+                      <OpenStoreButton organizationId={store.organization_id} connectionId={store.connection_id} />
+                    </ItemActions>
+                </Item>
+              );
+            })}
+          </List>
+        )}
+        {profitability.data?.truncated ? (
+          <p className="mt-4 text-xs text-muted">La cartera es muy grande: se muestran las primeras 150 tiendas.</p>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

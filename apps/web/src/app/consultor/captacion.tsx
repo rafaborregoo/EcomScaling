@@ -8,13 +8,16 @@ import {
   AsyncState,
   Badge,
   Button,
-  Card,
   ErrorBlock,
   Field,
   Input,
   Metric,
-  Table,
+  DataTable,
   toast,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 // Captacion: lo que trae clientes nuevos. Antes vivia en /consultor/referidos
@@ -83,26 +86,31 @@ function CrearCodigo({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <Card title="Crea tu código">
-      <form className="grid gap-4" onSubmit={submit}>
-        <Field label="Código">
-          <Input
-            value={code}
-            onChange={(event) => setCode(event.target.value.toLowerCase())}
-            placeholder="ricardo"
-            required
-          />
-        </Field>
-        <p className="text-sm text-muted">
-          No se puede cambiar: rompería los enlaces que ya hayas compartido.
-        </p>
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <div>
-          <Button type="submit" disabled={busy || code.length < 3}>
-            {busy ? "Creando..." : "Crear código"}
-          </Button>
-        </div>
-      </form>
+    <Card>
+      <CardHeader>
+        <CardTitle>Crea tu código</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="grid gap-4" onSubmit={submit}>
+          <Field label="Código">
+            <Input
+              value={code}
+              onChange={(event) => setCode(event.target.value.toLowerCase())}
+              placeholder="ricardo"
+              required
+            />
+          </Field>
+          <p className="text-sm text-muted">
+            No se puede cambiar: rompería los enlaces que ya hayas compartido.
+          </p>
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <div>
+            <Button type="submit" disabled={busy || code.length < 3}>
+              {busy ? "Creando..." : "Crear código"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
     </Card>
   );
 }
@@ -152,96 +160,111 @@ function Programa({ data, reload }: { data: Program; reload: () => void }) {
         />
       </div>
 
-      <Card title="Tu código de referido">
-        <div className="flex flex-wrap items-center gap-4">
-          <code className="text-sm">{link}</code>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void navigator.clipboard.writeText(link);
-              toast.success("Enlace copiado");
-            }}
-          >
-            Copiar
-          </Button>
-          <Badge tone={active ? "success" : "neutral"}>{active ? "Activo" : "Pausado"}</Badge>
-        </div>
-        <p className="mt-4 text-sm text-muted">
-          Código <strong>{data.code.code}</strong> · {data.code.discount_percent}% durante{" "}
-          {data.code.discount_months} meses para quien se registre. No se puede cambiar: rompería los enlaces ya
-          compartidos.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button
-            variant="secondary"
-            disabled={busy === "code"}
-            onClick={() => patch(`${KEY}/code`, { is_active: !active }, "code")}
-          >
-            {active ? "Pausar el código" : "Reactivar el código"}
-          </Button>
-          {active ? null : (
-            <span className="text-sm text-muted">Mientras esté pausado, el enlace no da descuento.</span>
-          )}
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tu código de referido</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-4">
+            <code className="text-sm">{link}</code>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void navigator.clipboard.writeText(link);
+                toast.success("Enlace copiado");
+              }}
+            >
+              Copiar
+            </Button>
+            <Badge tone={active ? "success" : "neutral"}>{active ? "Activo" : "Pausado"}</Badge>
+          </div>
+          <p className="mt-4 text-sm text-muted">
+            Código <strong>{data.code.code}</strong> · {data.code.discount_percent}% durante{" "}
+            {data.code.discount_months} meses para quien se registre. No se puede cambiar: rompería los enlaces ya
+            compartidos.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              disabled={busy === "code"}
+              onClick={() => patch(`${KEY}/code`, { is_active: !active }, "code")}
+            >
+              {active ? "Pausar el código" : "Reactivar el código"}
+            </Button>
+            {active ? null : (
+              <span className="text-sm text-muted">Mientras esté pausado, el enlace no da descuento.</span>
+            )}
+          </div>
+        </CardContent>
       </Card>
 
 
-      <Card title="Quieren conocer tu consultoría">
-        <Table
-          ariaLabel="Leads de consultoría"
-          emptyLabel="Nadie ha pedido contacto todavía."
-          rows={leads.map((row) => ({ ...row, id: row.referral_id }))}
-          columns={[
-            { key: "contact_name", label: "Nombre" },
-            {
-              key: "contact_email",
-              label: "Email",
-              render: (row) => (
-                <a className="underline" href={`mailto:${row.contact_email}`}>
-                  {row.contact_email}
-                </a>
-              ),
-            },
-            { key: "organization_name", label: "Negocio" },
-            {
-              key: "contact_consent_at",
-              label: "Desde",
-              render: (row) => (row.contact_consent_at ? dayFormat(row.contact_consent_at) : ""),
-            },
-            {
-              key: "contacted_at",
-              label: "Estado",
-              render: (row) => (
-                <Button
-                  variant="secondary"
-                  disabled={busy === row.referral_id}
-                  onClick={() =>
-                    patch(`${KEY}/${row.referral_id}/contacted`, { contacted: !row.contacted_at }, row.referral_id)
-                  }
-                >
-                  {row.contacted_at ? `Contactado el ${dayFormat(row.contacted_at)}` : "Marcar contactado"}
-                </Button>
-              ),
-            },
-          ]}
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Quieren conocer tu consultoría</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Leads de consultoría"
+            emptyLabel="Nadie ha pedido contacto todavía."
+            rows={leads.map((row) => ({ ...row, id: row.referral_id }))}
+            columns={[
+              { key: "contact_name", label: "Nombre" },
+              {
+                key: "contact_email",
+                label: "Email",
+                render: (row) => (
+                  <a className="underline" href={`mailto:${row.contact_email}`}>
+                    {row.contact_email}
+                  </a>
+                ),
+              },
+              { key: "organization_name", label: "Negocio" },
+              {
+                key: "contact_consent_at",
+                label: "Desde",
+                render: (row) => (row.contact_consent_at ? dayFormat(row.contact_consent_at) : ""),
+              },
+              {
+                key: "contacted_at",
+                label: "Estado",
+                render: (row) => (
+                  <Button
+                    variant="secondary"
+                    disabled={busy === row.referral_id}
+                    onClick={() =>
+                      patch(`${KEY}/${row.referral_id}/contacted`, { contacted: !row.contacted_at }, row.referral_id)
+                    }
+                  >
+                    {row.contacted_at ? `Contactado el ${dayFormat(row.contacted_at)}` : "Marcar contactado"}
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </CardContent>
       </Card>
 
-      <Card title="Clientes referidos">
-        <Table
-          ariaLabel="Clientes referidos"
-          emptyLabel="Aún no se ha registrado nadie con tu código."
-          rows={data.referrals.map((row) => ({ ...row, id: row.referral_id }))}
-          columns={[
-            { key: "organization_name", label: "Negocio" },
-            { key: "created_at", label: "Alta", render: (row) => dayFormat(row.created_at) },
-            {
-              key: "estado",
-              label: "Estado",
-              render: (row) => <Badge tone={ESTADO_TONE[row.estado]}>{row.estado}</Badge>,
-            },
-          ]}
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Clientes referidos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Clientes referidos"
+            emptyLabel="Aún no se ha registrado nadie con tu código."
+            rows={data.referrals.map((row) => ({ ...row, id: row.referral_id }))}
+            columns={[
+              { key: "organization_name", label: "Negocio" },
+              { key: "created_at", label: "Alta", render: (row) => dayFormat(row.created_at) },
+              {
+                key: "estado",
+                label: "Estado",
+                render: (row) => <Badge tone={ESTADO_TONE[row.estado]}>{row.estado}</Badge>,
+              },
+            ]}
+          />
+        </CardContent>
       </Card>
     </div>
   );

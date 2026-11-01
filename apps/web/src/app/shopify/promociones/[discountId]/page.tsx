@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -9,7 +10,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import type { BootstrapResponse } from "@/lib/bootstrap";
-import { AsyncState, Card, ErrorBlock } from "@/components/ui";
+import { AsyncState, Pagination, ErrorBlock, ToggleGroup, ToggleGroupItem, Card, CardContent, CardDescription, CardHeader, CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 import { cx, Empty, SectionHead } from "../../../dashboard/client-pulse";
 import { fmtNum } from "../../../dashboard/client-pulse-model";
 import pulse from "../../../dashboard/client-pulse.module.css";
@@ -119,8 +120,18 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
     activeConnection.setConnectionId(connectionId);
   }
 
-  if (!organizationId) return <div className={pulse.root}><Card title="Selecciona un cliente" description="Elige una organización en la barra superior." /></div>;
-  if (query.error && !data) return <div className={pulse.root}><Card title="No se pudo abrir la promoción"><ErrorBlock>{query.error}</ErrorBlock></Card></div>;
+  if (!organizationId) return <div className={pulse.root}><Card>
+    <CardHeader>
+      <CardTitle>Selecciona un cliente</CardTitle>
+      <CardDescription>Elige una organización en la barra superior.</CardDescription>
+    </CardHeader>
+  </Card></div>;
+  if (query.error && !data) return <div className={pulse.root}><Card>
+    <CardHeader>
+      <CardTitle>No se pudo abrir la promoción</CardTitle>
+    </CardHeader>
+    <CardContent><ErrorBlock>{query.error}</ErrorBlock></CardContent>
+  </Card></div>;
   if (!data) return <div className={pulse.root}><AsyncState status="loading" loadingLabel="Cargando ficha de promoción…" /></div>;
 
   // ---- derivados ----
@@ -203,7 +214,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </dl>
           )}
           <div className={s.actions}>
-            <button type="button" className={cx(pulse.btn, pulse.acc)} onClick={() => askCopilot("Explícame cómo funciona esta promoción y qué haría primero", "Ficha de promoción")}>
+            <button type="button" className={buttonVariants()} onClick={() => askCopilot("Explícame cómo funciona esta promoción y qué haría primero", "Ficha de promoción")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
             </button>
@@ -212,8 +223,9 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </section>
 
       {/* ------------------------------ Fiabilidad ------------------------------ */}
-      <details>
-      <summary className={pulse.sub} style={{ cursor: "pointer" }}>Sobre estos datos</summary>
+      <Collapsible>
+      <CollapsibleTrigger className={pulse.sub}>Sobre estos datos<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+      <CollapsibleContent>
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Regla</span><span className={cx(pulse.chip, appManaged || data.details_coverage === "migration_pending" ? pulse.chipWarn : pulse.chipGood)}>{appManaged ? "no visible" : data.details_coverage === "migration_pending" ? "pendiente" : "leída"}</span></div>
@@ -232,16 +244,17 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <p>Solo pedidos sincronizados. Shopify cuenta {fmtNum(discount.usage_count)} usos{m ? `; aquí se ven ${fmtNum(m.orders)} en ${periodDays} días` : ""}.</p>
         </div>
       </div>
-      </details>
+      </CollapsibleContent>
+      </Collapsible>
 
       {/* ------------------------------ Rendimiento ------------------------------ */}
       <section id="rendimiento" className={pulse.sec}>
         <div className={pulse.secHead} style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}>
           <h2>Rendimiento</h2>
           <p className={pulse.aiLine}>{m?.orders ? `${fmtNum(weekly.reduce((sum, value) => sum + value, 0))} pedidos en las últimas ${WEEKS} semanas.` : ""}</p>
-          <div className={pulse.seg} role="group" aria-label="Periodo de las métricas">
-            {PERIODS.map((value) => <button key={value} type="button" aria-pressed={periodDays === value} onClick={() => setPeriodDays(value)}>{value === 365 ? "1 año" : `${value} días`}</button>)}
-          </div>
+          <ToggleGroup aria-label="Periodo de las métricas" value={periodDays} onValueChange={setPeriodDays}>
+            {PERIODS.map((value) => <ToggleGroupItem key={value} value={value}>{value === 365 ? "1 año" : `${value} días`}</ToggleGroupItem>)}
+          </ToggleGroup>
         </div>
         {metricsOn ? (
           <div className={pulse.two}>
@@ -324,11 +337,8 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
           {targetTotalPages > 1 ? (
             <div className={s.pager} style={{ marginTop: 14 }}>
-              <span className={pulse.muted} style={{ fontSize: 12.5 }}>Productos de la regla · página {targetsPage} de {targetTotalPages}</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={targetsPage <= 1} onClick={() => setTargetsPage((value) => value - 1)}>Anterior</button>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={targetsPage >= targetTotalPages} onClick={() => setTargetsPage((value) => value + 1)}>Siguiente</button>
-              </div>
+              <span className={pulse.muted}>Productos de la regla</span>
+              <Pagination page={targetsPage} pageCount={targetTotalPages} onChange={setTargetsPage} />
             </div>
           ) : null}
         </div>
@@ -383,11 +393,7 @@ function PromotionDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : <Empty>{discount.status?.toUpperCase() === "SCHEDULED" ? "La promoción todavía no ha empezado." : "No hay aplicaciones enlazadas en los pedidos sincronizados disponibles."}</Empty>}
           {data.applications_total != null && data.applications_total > data.applications_page_size ? (
             <div className={s.pager} style={{ marginTop: 14 }}>
-              <span className={pulse.muted} style={{ fontSize: 12.5 }}>Página {page} de {totalPages}</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button>
-                <button type="button" className={cx(pulse.btn, pulse.ghost, pulse.sm)} disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
-              </div>
+              <Pagination page={page} pageCount={totalPages} onChange={setPage} />
             </div>
           ) : null}
         </div>

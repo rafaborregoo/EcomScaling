@@ -68,7 +68,7 @@ export type Explanation = {
   /** Una frase que cualquiera entiende. `null` cuando no hay nada que contar. */
   detail: string | null;
   /** Lo que hay que hacer, si hay algo que hacer. */
-  fix: "reconnect" | "retry" | "wait" | "connect" | "discard" | null;
+  fix: "reconnect" | "retry" | "wait" | "connect" | "discard" | "configure" | null;
   /** E-NORA lo reintenta sola (Meta/Klaviyo); no cuenta como error tuyo. */
   automaticRetry?: boolean;
 };
@@ -240,6 +240,13 @@ export function explainHealth(
   if (connection) {
     const attempt = classifyAuthorizationAttempt(connection);
     if (attempt) return ATTEMPT_EXPLANATION[attempt];
+    if (providerId === "klaviyo" && /conversion_metric/.test(connection.last_error_message ?? "")) {
+      return {
+        label: "Elegir métrica de compra",
+        detail: "Selecciona en Klaviyo la métrica que representa una compra. Hasta elegirla no podemos calcular los ingresos atribuidos.",
+        fix: "configure",
+      };
+    }
     if (connectionNeedsReconnect(connection)) {
       return {
         label: "Hay que reconectar",
@@ -252,7 +259,7 @@ export function explainHealth(
       health.reason === "connection_error" &&
       ["meta_ads", "klaviyo"].includes(providerId ?? "")
     ) {
-      const cadence = providerId === "klaviyo" ? "6 horas" : "día";
+      const cadence = providerId === "klaviyo" ? "15 minutos" : "10 minutos";
       return {
         label: "Reintento automático",
         detail: `La última solicitud no terminó bien. E-NORA la volverá a intentar cada ${cadence}; no hace falta pulsar sincronizar.`,
@@ -328,6 +335,14 @@ export function explainError(
 ): { text: string; technical: string | null } | null {
   const message = raw?.trim();
   if (!message) return null;
+  if (/conversion_metric/.test(message)) return {
+    text: "Falta seleccionar la métrica de compra de Klaviyo para calcular sus ingresos atribuidos.",
+    technical: message,
+  };
+  if (/Application has been deleted|aplicación.*eliminada/i.test(message)) return {
+    text: "La aplicación de Meta ya no está disponible. Hay que configurar una aplicación activa y volver a autorizar la cuenta.",
+    technical: message,
+  };
 
   const known = BY_ERROR_CODE[message.toLowerCase()];
   if (known) return { text: known, technical: message };

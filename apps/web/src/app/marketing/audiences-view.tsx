@@ -1,6 +1,6 @@
 "use client";
 
-import { ButtonLink, Card, EmptyState, Sparkline, Table, type TableColumnDef } from "@/components/ui";
+import { ButtonLink, EmptyState, Sparkline, DataTable, type DataTableColumn, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 import { StatusStrip } from "@/components/trabajo-ui";
 import { int, pct, type KSeriesPoint, type KWorkspace } from "./klaviyo-workspace";
 import s from "./marketing-views.module.css";
@@ -22,7 +22,7 @@ export function AudiencesView({ workspace }: { workspace: KWorkspace | undefined
           title="Tus listas y segmentos viven en Klaviyo"
           hint="Al conectar la cuenta, NORA trae cada lista y segmento con su tamaño y su evolución, y los formularios que las alimentan."
           action={
-            <ButtonLink href="/integraciones" variant="primary">
+            <ButtonLink href="/integraciones" variant="default">
               Conectar Klaviyo
             </ButtonLink>
           }
@@ -37,7 +37,7 @@ export function AudiencesView({ workspace }: { workspace: KWorkspace | undefined
   const viewed = forms.reduce((sum, form) => sum + (form.stats?.viewed_form_uniques ?? 0), 0);
   const submits = forms.reduce((sum, form) => sum + (form.stats?.submits ?? 0), 0);
 
-  const columns: Array<TableColumnDef<AudienceRow>> = [
+  const columns: Array<DataTableColumn<AudienceRow>> = [
     {
       key: "name",
       label: "Nombre",
@@ -95,29 +95,47 @@ export function AudiencesView({ workspace }: { workspace: KWorkspace | undefined
           { value: int(submits), label: "Altas por formulario · 30 d" },
         ]}
       />
-      <Card title="Listas" description="Perfiles y evolución de los últimos días.">
-        <Table ariaLabel="Listas" columns={columns} rows={audiences.lists} emptyLabel="No hay listas." />
+      <Card>
+        <CardHeader>
+          <CardTitle>Listas</CardTitle>
+          <CardDescription>Perfiles y evolución de los últimos días.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable ariaLabel="Listas" columns={columns} rows={audiences.lists} emptyLabel="No hay listas." />
+        </CardContent>
       </Card>
-      <Card title="Segmentos" description="Klaviyo guarda su histórico de los últimos 60 días: se trae completo.">
-        <Table ariaLabel="Segmentos" columns={columns} rows={audiences.segments} emptyLabel="No hay segmentos." />
+      <Card>
+        <CardHeader>
+          <CardTitle>Segmentos</CardTitle>
+          <CardDescription>Klaviyo guarda su histórico de los últimos 60 días: se trae completo.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable ariaLabel="Segmentos" columns={columns} rows={audiences.segments} emptyLabel="No hay segmentos." />
+        </CardContent>
       </Card>
-      <Card title="Formularios de captación" description="Últimos 30 días.">
-        <Table
-          ariaLabel="Formularios"
-          rows={forms}
-          emptyLabel="No hay formularios."
-          columns={[
-            { key: "name", label: "Formulario", render: (row) => <b>{row.name}</b> },
-            { key: "status", label: "Estado", render: (row) => (String(row.status).toLowerCase() === "live" ? "Activo" : row.status ?? "—") },
-            { key: "viewed", label: "Vistas", render: (row) => <span className={s.num}>{int(row.stats?.viewed_form_uniques ?? null)}</span> },
-            { key: "submits", label: "Altas", render: (row) => <span className={s.num}>{int(row.stats?.submits ?? null)}</span> },
-            {
-              key: "rate",
-              label: "Conversión",
-              render: (row) => <span className={s.num}>{row.stats?.submit_rate != null ? pct(row.stats.submit_rate) : "—"}</span>,
-            },
-          ]}
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>Formularios de captación</CardTitle>
+          <CardDescription>Últimos 30 días.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Formularios"
+            rows={forms}
+            emptyLabel="No hay formularios."
+            columns={[
+              { key: "name", label: "Formulario", render: (row) => <b>{row.name}</b> },
+              { key: "status", label: "Estado", render: (row) => (String(row.status).toLowerCase() === "live" ? "Activo" : row.status ?? "—") },
+              { key: "viewed", label: "Vistas", render: (row) => <span className={s.num}>{int(row.stats?.viewed_form_uniques ?? null)}</span> },
+              { key: "submits", label: "Altas", render: (row) => <span className={s.num}>{int(row.stats?.submits ?? null)}</span> },
+              {
+                key: "rate",
+                label: "Conversión",
+                render: (row) => <span className={s.num}>{row.stats?.submit_rate != null ? pct(row.stats.submit_rate) : "—"}</span>,
+              },
+            ]}
+          />
+        </CardContent>
       </Card>
     </div>
   );
@@ -125,7 +143,7 @@ export function AudiencesView({ workspace }: { workspace: KWorkspace | undefined
 
 function Header() {
   return (
-    <div className={s.head}>
+    <div className={`${s.head} client-sr-title`}>
       <div>
         <h1>Audiencias</h1>
         <p>A quién llegas, cuánto crece cada lista y qué formularios la alimentan.</p>

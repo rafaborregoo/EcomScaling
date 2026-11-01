@@ -12,12 +12,22 @@ Leer primero el [plan principal](../PLAN_ORGANIZACION_CANALES_STOCK_Y_AUDITORIA_
 - [Auditoría transversal del software](./AUDITORIA_TRANSVERSAL_SOFTWARE.md).
 - [Evidencia de cierre de F0](./evidencias/F0_CIERRE.md).
 - [Evidencia de cierre de F1](./evidencias/F1_CIERRE.md).
+- [Evidencia de cierre de F2](./evidencias/F2_CIERRE.md).
+- [Evidencia de cierre de F3](./evidencias/F3_CIERRE.md).
+- [Evidencia de F4: propuestas y códigos de descuento Shopify](./evidencias/F4_CIERRE.md).
+- [Evidencia de F5: biblioteca y jerarquía Meta](./evidencias/F5_CIERRE.md).
+- [Evidencia de F6: áreas operativas de Klaviyo](./evidencias/F6_CIERRE.md).
+- [Evidencia de F7: web pública y capturas](./evidencias/F7_CIERRE.md).
+- [Evidencia de F8: métricas, atribución y resultados](./evidencias/F8_CIERRE.md).
+- [Evidencia de F9.1: permisos, aislamiento y navegación](./evidencias/F9_1_CIERRE.md).
+- [Evidencia de F9.2: recuperación de sincronizaciones Shopify](./evidencias/F9_2_CIERRE.md).
+- [Evidencia de F9.3: compilación, accesibilidad y carga](./evidencias/F9_3_CIERRE.md).
 
 Las rutas propuestas en los anexos son opciones de diseño; el mapa de rutas del plan principal prevalece para la implementación. Los informes distinguen viabilidad de plataforma, existencia en código y ejecución real no certificada.
 
 ## Evidencia
 
-- [Inventario estático de superficies](./evidencias/inventario-superficies.json): 90 páginas; 0 enlaces href literales sin ruta encontrada. No acredita query params, anclas, permisos, enlaces dinámicos ni navegación en navegador.
+- [Inventario estático de superficies](./evidencias/inventario-superficies.json): 94 páginas y 0 enlaces href literales sin ruta encontrada; incluye `/meta/creativos`, las áreas Klaviyo y `/web`. No acredita query params, anclas, permisos, enlaces dinámicos ni navegación en navegador.
 - [Script del inventario](./evidencias/inventariar-superficies.cjs), ejecutable desde la raíz con Node.
 - [Tests focalizados de conectores y navegación](./evidencias/tests-conectores-navegacion.txt): 69 correctos.
 - El informe de stock registra su selección local: 14 correctos.

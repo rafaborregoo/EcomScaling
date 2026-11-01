@@ -1,5 +1,6 @@
 "use client";
 
+import { StoreIcon } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { SHOPIFY_SCOPES_USED } from "@e-nora/contracts";
 import { PortalShell } from "@/components/portal-shell";
@@ -10,11 +11,30 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
-  ConfirmDialog,
   ErrorBlock,
   Input,
   TrashIcon,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  RadioCard,
+  RadioGroup,
 } from "@/components/ui";
 import {
   BackToHub,
@@ -158,162 +178,140 @@ function ShopifyIntegrationPage({
         title="Encuentra el dominio interno de Shopify"
         label="¿Dónde veo mi dominio?"
       >
-        <Card
-          title="¿No recuerdas tu dominio .myshopify.com?"
-          description="No es el dominio público de tu web. Es el identificador interno que Shopify asignó a la tienda y no cambia."
-        >
-          <Steps
-            items={[
-              <>
-                Abre el admin de tu tienda. En la URL verás{" "}
-                <span className="font-mono">
-                  admin.shopify.com/store/TU-HANDLE
-                </span>
-                : tu dominio es{" "}
-                <span className="font-mono">TU-HANDLE.myshopify.com</span>.
-              </>,
-              <>
-                O entra en{" "}
-                <span className="font-medium">Configuración → Dominios</span>:
-                ahí aparece el dominio{" "}
-                <span className="font-mono">xxxx.myshopify.com</span> exacto.
-              </>,
-              <>
-                Si al conectar ves una página de Shopify tipo{" "}
-                <span className="italic">
-                  &laquo;This store will be right back&raquo;
-                </span>
-                , el dominio no corresponde a tu tienda activa: revisa el
-                handle.
-              </>,
-            ]}
-          />
+        <Card>
+          <CardHeader>
+            <CardTitle>¿No recuerdas tu dominio .myshopify.com?</CardTitle>
+            <CardDescription>No es el dominio público de tu web. Es el identificador interno que Shopify asignó a la tienda y no cambia.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Steps
+              items={[
+                <>
+                  Abre el admin de tu tienda. En la URL verás{" "}
+                  <span className="font-mono">
+                    admin.shopify.com/store/TU-HANDLE
+                  </span>
+                  : tu dominio es{" "}
+                  <span className="font-mono">TU-HANDLE.myshopify.com</span>.
+                </>,
+                <>
+                  O entra en{" "}
+                  <span className="font-medium">Configuración → Dominios</span>:
+                  ahí aparece el dominio{" "}
+                  <span className="font-mono">xxxx.myshopify.com</span> exacto.
+                </>,
+                <>
+                  Si al conectar ves una página de Shopify tipo{" "}
+                  <span className="italic">
+                    &laquo;This store will be right back&raquo;
+                  </span>
+                  , el dominio no corresponde a tu tienda activa: revisa el
+                  handle.
+                </>,
+              ]}
+            />
+          </CardContent>
         </Card>
       </InfoModalButton>
 
-      <Card
-        className="border border-[#168446]"
-        title={shopifyConnections.length > 0 ? "Añade otra tienda" : "Conecta tu tienda"}
-        description="Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales."
-      >
-        {shopifyConnections.length > 0 ? (
-          <Button
-            type="button"
-            variant="secondary"
-            aria-expanded={showConnectForm}
-            onClick={() => setShowConnectForm((visible) => !visible)}
-          >
-            {showConnectForm ? "Cerrar formulario" : "A\u00f1adir otra tienda"}
-          </Button>
-        ) : null}
-        {shopifyConnections.length === 0 || showConnectForm ? (
-          <>
-        {!shopify.available ? (
-          <Banner tone="warn">
-            Shopify está desactivado por configuración. El administrador puede
-            habilitarlo con{" "}
-            <span className="font-mono">INTEGRATION_FEATURE_FLAGS</span>.
-          </Banner>
-        ) : !configured ? (
-          <Banner tone="warn">
-            Shopify está habilitado en la interfaz, pero faltan las credenciales
-            de la app en el servidor. La conexión se activará automáticamente
-            cuando estén completas.
-          </Banner>
-        ) : null}
+      <Card className="border border-[#168446]">
+        <CardHeader>
+          <CardTitle>{shopifyConnections.length > 0 ? "Añade otra tienda" : "Conecta tu tienda"}</CardTitle>
+          <CardDescription>Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Collapsible open={shopifyConnections.length === 0 || showConnectForm} onOpenChange={setShowConnectForm}>
+          {shopifyConnections.length > 0 ? (
+            <CollapsibleTrigger render={<Button variant="secondary" />}>
+              {showConnectForm ? "Cerrar formulario" : "A\u00f1adir otra tienda"}
+            </CollapsibleTrigger>
+          ) : null}
+          <CollapsibleContent>
+          {!shopify.available ? (
+            <Banner tone="warn">
+              La conexión con Shopify está desactivada por ahora. En cuanto se
+              active, podrás conectarla desde aquí.
+            </Banner>
+          ) : !configured ? (
+            <Banner tone="warn">
+              Conectar Shopify aún no está disponible: falta configurarlo en el
+              servidor. Se activará solo en cuanto esté listo.
+            </Banner>
+          ) : null}
 
-        <div className="mt-4">
-          <InfoModalButton
-            title="Qué ocurre al conectar Shopify"
-            label="Ver pasos y permisos"
-          >
-          <Steps
-            items={[
-              <>
-                Escribe el dominio{" "}
-                <span className="font-mono">TU-HANDLE.myshopify.com</span> abajo
-                y pulsa <span className="font-medium">Conectar Shopify</span>.
-              </>,
-              <>
-                En la pantalla de Shopify revisa los permisos y pulsa{" "}
-                <span className="font-medium">Instalar</span> (necesitas ser
-                owner o staff con permiso de apps, con la sesión de Shopify
-                iniciada). Hay que aceptarlos todos: cada uno alimenta una parte
-                del panel (
-                {SHOPIFY_SCOPES_USED.map((item) => item.label).join(", ")}).
-              </>,
-              <>
-                Vuelves aquí solo y la sincronización inicial arranca sola. Los
-                datos aparecen en la sección Shopify en unos minutos.
-              </>,
-            ]}
-          />
-          </InfoModalButton>
-        </div>
-
-        {payload?.shopify_custom_app_available ? (
           <div className="mt-4">
-            <p className="text-sm font-medium text-foreground">App de Shopify a usar</p>
-            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="App de Shopify">
-              <Button
-                type="button"
-                size="sm"
-                variant={appMode === "public" ? "primary" : "secondary"}
-                aria-pressed={appMode === "public"}
-                onClick={() => setAppMode("public")}
-              >
-                App pública (recomendada)
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={appMode === "custom" ? "primary" : "secondary"}
-                aria-pressed={appMode === "custom"}
-                onClick={() => setAppMode("custom")}
-              >
-                App personalizada heredada
-              </Button>
-            </div>
-            <p className="mt-1 text-xs text-muted">
-              Usa la app pública para nuevas conexiones. Elige la personalizada
-              solo si esa tienda ya fue instalada con esa app heredada.
-            </p>
+            <InfoModalButton
+              title="Qué ocurre al conectar Shopify"
+              label="Ver pasos y permisos"
+            >
+            <Steps
+              items={[
+                <>
+                  Escribe el dominio{" "}
+                  <span className="font-mono">TU-HANDLE.myshopify.com</span> abajo
+                  y pulsa <span className="font-medium">Conectar Shopify</span>.
+                </>,
+                <>
+                  En la pantalla de Shopify revisa los permisos y pulsa{" "}
+                  <span className="font-medium">Instalar</span> (necesitas ser
+                  owner o staff con permiso de apps, con la sesión de Shopify
+                  iniciada). Hay que aceptarlos todos: cada uno alimenta una parte
+                  del panel (
+                  {SHOPIFY_SCOPES_USED.map((item) => item.label).join(", ")}).
+                </>,
+                <>
+                  Vuelves aquí solo y la sincronización inicial arranca sola. Los
+                  datos aparecen en la sección Shopify en unos minutos.
+                </>,
+              ]}
+            />
+            </InfoModalButton>
           </div>
-        ) : null}
 
-        <p className="mt-5 text-sm font-medium text-foreground">
-          Dominio interno de Shopify
-        </p>
-        <p className="mt-1 text-xs text-muted">
-          Usa el dominio terminado en{" "}
-          <span className="font-mono">.myshopify.com</span>.
-        </p>
-        <form
-          className="mt-3 flex flex-col gap-3 md:flex-row"
-          onSubmit={submit}
-        >
-          <Input
-            className="min-w-0 flex-1"
-            aria-label="Dominio .myshopify.com de la tienda"
-            value={shopDomain}
-            onChange={(event) => setShopDomain(event.target.value)}
-            placeholder="tu-tienda.myshopify.com"
-            autoComplete="off"
-            required
-          />
-          <Button type="submit" disabled={pending === "shopify" || !canConnect}>
-            {pending === "shopify"
-              ? "Conectando..."
-            : "Conectar Shopify"}
-          </Button>
-        </form>
-        {actionError ? (
-          <Banner className="mt-3" tone="danger">
-            {actionError}
-          </Banner>
-        ) : null}
-          </>
-        ) : null}
+          {payload?.shopify_custom_app_available ? (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-foreground">App de Shopify a usar</p>
+              <RadioGroup aria-label="App de Shopify" className="mt-2 gap-2 sm:grid-cols-2" value={appMode} onValueChange={setAppMode}>
+                <RadioCard value="public" title="App pública" description="La recomendada para nuevas conexiones." />
+                <RadioCard value="custom" title="App personalizada heredada" description="Solo si la tienda ya fue instalada con esa app." />
+              </RadioGroup>
+            </div>
+          ) : null}
+
+          <p className="mt-5 text-sm font-medium text-foreground">
+            Dominio interno de Shopify
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Usa el dominio terminado en{" "}
+            <span className="font-mono">.myshopify.com</span>.
+          </p>
+          <form
+            className="mt-3 flex flex-col gap-3 md:flex-row"
+            onSubmit={submit}
+          >
+            <Input
+              className="min-w-0 flex-1"
+              aria-label="Dominio .myshopify.com de la tienda"
+              value={shopDomain}
+              onChange={(event) => setShopDomain(event.target.value)}
+              placeholder="tu-tienda.myshopify.com"
+              autoComplete="off"
+              required
+            />
+            <Button type="submit" disabled={pending === "shopify" || !canConnect}>
+              {pending === "shopify"
+                ? "Conectando..."
+              : "Conectar Shopify"}
+            </Button>
+          </form>
+          {actionError ? (
+            <Banner className="mt-3" tone="danger">
+              {actionError}
+            </Banner>
+          ) : null}
+          </CollapsibleContent>
+          </Collapsible>
+        </CardContent>
       </Card>
 
       <LastErrorBanner
@@ -327,75 +325,91 @@ function ShopifyIntegrationPage({
       />
 
       {shopifyConnections.length > 0 ? (
-        <Card
-          title={`Tiendas conectadas (${shopifyConnections.length})`}
-          description="Revisa rápidamente el dominio y estado de cada conexión."
-        >
-            <div className="space-y-3">
-              {shopifyConnections.map((connection) => (
-                <div
-                  key={connection.id}
-                  className="rounded-lg border border-separator p-3"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-sm">
-                      {connection.provider_account_id ?? "Dominio pendiente"}
-                    </span>
-                    {/* Salud, no el estado crudo: una tienda 'connected' que
-                      lleva dos semanas sin sincronizar no esta bien, y aqui
-                      salia en verde. */}
-                    <StateBadge connection={connection} providerId="shopify" />
-                    {connection.id === activeConnectionId ? (
-                      <Badge tone="brand">Tienda activa</Badge>
-                    ) : null}
-                    {connection.app_mode ? (
-                      <span className="text-xs text-muted">
-                        App{" "}
-                        {connection.app_mode === "custom"
-                          ? "personalizada"
-                          : "pública"}
+        <Card>
+          <CardHeader>
+            <CardTitle>{`Tiendas conectadas (${shopifyConnections.length})`}</CardTitle>
+            <CardDescription>Revisa rápidamente el dominio y estado de cada conexión.</CardDescription>
+          </CardHeader>
+          <CardContent>
+              <div className="space-y-3">
+                {shopifyConnections.map((connection) => (
+                  <Card size="sm" key={connection.id}><CardContent>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm">
+                        {connection.provider_account_id ?? "Dominio pendiente"}
                       </span>
-                    ) : null}
-                  </div>
-                  {connection.last_error_message ? (
-                    <p className="mt-2 text-xs text-danger">
-                      Fall&#xF3; la &#xFA;ltima sincronizaci&#xF3;n. Abre &laquo;Detalles t&eacute;cnicos&raquo; para consultar el motivo.
-                    </p>
-                  ) : null}
-                  {canManageConnections ? (
-                    <div className="mt-3 flex justify-end">
-                      <ConfirmDialog
-                        trigger={
-                          <Button
-                            type="button"
-                            variant="danger"
-                            size="sm"
-                            disabled={pending === `remove-${connection.id}`}
-                          >
-                            <TrashIcon aria-hidden className="size-4" />
-                            Eliminar tienda
-                          </Button>
-                        }
-                        title={`Eliminar ${connection.provider_account_id ?? "esta tienda"} de E-NORA`}
-                        description={
-                          connection.status === "error" &&
-                          !connection.last_sync_at
-                            ? "Esta conexión falló antes de sincronizar datos. Se eliminará ahora de E-NORA de forma definitiva. Esto no desinstala la app de Shopify."
-                            : "La tienda dejará de sincronizar y desaparecerá de E-NORA ahora. Sus datos se conservarán 30 días para poder restaurarla; después se eliminarán definitivamente. Esto no desinstala la app de Shopify."
-                        }
-                        confirmLabel={
-                          pending === `remove-${connection.id}`
-                            ? "Eliminando…"
-                            : "Eliminar tienda"
-                        }
-                        confirmPhrase={connection.provider_account_id ?? undefined}
-                        onConfirm={() => removeStore(connection.id)}
-                      />
+                      {/* Salud, no el estado crudo: una tienda 'connected' que
+                        lleva dos semanas sin sincronizar no esta bien, y aqui
+                        salia en verde. */}
+                      <StateBadge connection={connection} providerId="shopify" />
+                      {connection.id === activeConnectionId ? (
+                        <Badge tone="brand">Tienda activa</Badge>
+                      ) : null}
+                      {connection.app_mode ? (
+                        <span className="text-xs text-muted">
+                          App{" "}
+                          {connection.app_mode === "custom"
+                            ? "personalizada"
+                            : "pública"}
+                        </span>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
+                    {connection.last_error_message ? (
+                      <p className="mt-2 text-xs text-danger">
+                        Fall&#xF3; la &#xFA;ltima sincronizaci&#xF3;n. Abre &laquo;Detalles t&eacute;cnicos&raquo; para consultar el motivo.
+                      </p>
+                    ) : null}
+                    {canManageConnections ? (
+                      <div className="mt-3 flex justify-end">
+                        <AlertDialog>
+                          <AlertDialogTrigger
+                            render={
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                disabled={pending === `remove-${connection.id}`}
+                              >
+                                <TrashIcon aria-hidden className="size-4" />
+                                Eliminar tienda
+                              </Button>
+                            }
+                          />
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogMedia className="bg-danger/10 text-danger">
+                                <StoreIcon />
+                              </AlertDialogMedia>
+                              <AlertDialogTitle>
+                                ¿Eliminar {connection.provider_account_id ?? "esta tienda"} de E-NORA?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {connection.status === "error" && !connection.last_sync_at
+                                  ? "Esta conexión falló antes de sincronizar datos. Se eliminará ahora de E-NORA de forma definitiva. Esto no desinstala la app de Shopify."
+                                  : "La tienda dejará de sincronizar y desaparecerá de E-NORA ahora. Sus datos se conservarán 30 días para poder restaurarla; después se eliminarán definitivamente. Esto no desinstala la app de Shopify."}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            {connection.provider_account_id ? (
+                              <AlertDialogConfirmPhrase phrase={connection.provider_account_id} />
+                            ) : null}
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                busyLabel="Eliminando…"
+                                onClick={() => removeStore(connection.id)}
+                              >
+                                Eliminar tienda
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    ) : null}
+                  </CardContent></Card>
+                ))}
+              </div>
+          </CardContent>
         </Card>
       ) : null}
 

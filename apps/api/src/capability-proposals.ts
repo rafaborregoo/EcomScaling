@@ -129,7 +129,7 @@ function requirePlatformAdmin(context: AuthContext) {
       ok: false as const,
       statusCode: 403,
       error: "platform_admin_required",
-      message: "Solo un platform admin puede ver la bandeja de la IA.",
+      message: "Solo un administrador de la plataforma puede ver la bandeja de la IA.",
     };
   }
   return { ok: true as const };

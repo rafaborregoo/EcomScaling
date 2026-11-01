@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useState } from "react";
 import type { CampaignBrief } from "@e-nora/contracts";
 import { formatMoney } from "@/lib/money";
@@ -128,15 +129,15 @@ function Loaded({
         actions={
           <>
             {first ? (
-              <button type="button" className={cx(s.btn, s.acc)} onClick={() => nav.campaign(organizationId, first.item_id)}>
+              <button type="button" className={buttonVariants()} onClick={() => nav.campaign(organizationId, first.item_id)}>
                 Revisar «{first.title}»
               </button>
             ) : null}
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={onPropose}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={onPropose}>
               <IaTag />
               Proponer campañas
             </button>
-            <button type="button" className={cx(s.btn, s.ghost)} onClick={onCreate}>
+            <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={onCreate}>
               Nueva campaña
             </button>
           </>
@@ -215,7 +216,7 @@ function Loaded({
                       <b>{entry.last_week.revenue === null ? "—" : formatMoney(entry.last_week.revenue, currency)}</b>
                     </div>
                     <div>
-                      <button type="button" className={cx(s.btn, s.sm, s.ghost)} onClick={() => nav.store(organizationId, entry.connection_id)}>
+                      <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => nav.store(organizationId, entry.connection_id)}>
                         Abrir tienda
                       </button>
                     </div>
@@ -291,7 +292,7 @@ function Loaded({
                     <span className={cx(s.qn, s[row.tone])}>{index + 1}</span>
                     <b>{row.title}</b>
                     <p>{row.text}</p>
-                    <button type="button" className={cx(s.btn, s.sm, s.ghost)} onClick={() => nav.campaign(organizationId, row.id)}>
+                    <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => nav.campaign(organizationId, row.id)}>
                       {row.cta}
                     </button>
                   </div>

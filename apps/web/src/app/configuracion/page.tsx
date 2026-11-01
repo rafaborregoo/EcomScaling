@@ -1,5 +1,6 @@
 "use client";
 
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { AlertRulesSection } from "./alert-rules-section";
@@ -16,6 +17,7 @@ import { PrivacySection } from "./privacy-section";
 import { SecuritySection } from "./security-section";
 import { SummarySection } from "./summary-section";
 import { OrganizationIdentity } from "./organization-identity";
+import { BusinessContextSection } from "./business-context-section";
 import { ProfileSection } from "./profile-section";
 import { ConsultoraSection, PortfolioSettingsMatrix } from "./consultant-settings";
 import { ConsultoraBrandSection, ConsultoraRolesCard, ConsultoraTeamSection, InviteCodesSection } from "./consultora-section";
@@ -34,7 +36,6 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
@@ -42,9 +43,27 @@ import {
   Link,
   List,
   LoadingBlock,
+  SearchableSelect,
   Select,
   SettingRow,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 
 type FinancialSettings = {
@@ -432,317 +451,320 @@ function FinancialConfigSection({
 
       {!canManage ? (
         <Banner tone="warn">
-          Solo lectura: necesitas rol owner o manager para editar la
-          configuración financiera.
+          Solo lectura: la configuración financiera la cambian el propietario o
+          un gestor de la tienda.
         </Banner>
       ) : null}
 
       {part === "costs" ? (
         <>
-      <Card
-        title="Por cada pedido"
-        description="Lo que se descuenta de cada venta antes del producto y el IVA."
-        actions={
-          canManage && isConsultantRole ? (
+      <Card>
+        <CardHeader>
+          <CardTitle>Por cada pedido</CardTitle>
+          <CardDescription>Lo que se descuenta de cada venta antes del producto y el IVA.</CardDescription>
+          <CardAction>{canManage && isConsultantRole ? (
             <CopyCostsFrom
               organizationId={organizationId}
               currency={currency}
               existingRuleNames={(config?.shipping_cost_rules ?? []).map((rule) => rule.name)}
               onCopied={loadConfig}
             />
-          ) : null
-        }
-      >
-        <form onSubmit={saveSettings}>
-          <SettingRow
-            label="Comisión de la pasarela"
-            hint="Lo que se queda Shopify Payments, Stripe o PayPal: un porcentaje y, si lo hay, un fijo."
-            htmlFor="fee-pct"
-          >
-            <div className="w-24">
-            <Input
-              id="fee-pct"
-              aria-label="Comisión en porcentaje"
-              type="number"
-              step="0.01"
-              min="0"
-              max="100"
-              value={paymentFeePct}
-              onChange={(event) => setPaymentFeePct(event.target.value)}
-              placeholder="2.9"
-              disabled={!canManage}
-                          />
-            </div>
-            <span className="text-sm text-muted">% +</span>
-            <div className="w-24">
-            <Input
-              aria-label={`Comisión fija por pedido en ${currency}`}
-              type="number"
-              step="0.01"
-              min="0"
-              value={paymentFeeFixed}
-              onChange={(event) => setPaymentFeeFixed(event.target.value)}
-              placeholder="0.30"
-              disabled={!canManage}
-                          />
-            </div>
-            <span className="text-sm text-muted">{currency} fijo</span>
-          </SettingRow>
-          <SettingRow
-            label="Envío medio"
-            hint="Lo que te cuesta a ti enviar un pedido, no lo que cobras. Las reglas por importe de abajo lo sustituyen."
-            htmlFor="shipping"
-          >
-            <div className="w-24">
-            <Input
-              id="shipping"
-              type="number"
-              step="0.01"
-              min="0"
-              value={defaultShippingCost}
-              onChange={(event) => setDefaultShippingCost(event.target.value)}
-              placeholder="4.50"
-              disabled={!canManage}
-                          />
-            </div>
-            <span className="text-sm text-muted">{currency} por pedido</span>
-          </SettingRow>
-          <SettingRow
-            label="Coste de producto"
-            hint="Se pone por referencia en Productos: es el coste que más pesa en el margen."
-          >
-            <Link href="/shopify/productos">Completar en Productos</Link>
-          </SettingRow>
-          <div className="flex flex-wrap items-center gap-3 border-t border-separator pt-4">
-            <Button type="submit" disabled={!canManage || isSaving}>
-              {isSaving ? "Guardando..." : "Guardar"}
-            </Button>
-            {savedAt ? (
-              <p className="text-xs text-muted">Guardado a las {savedAt}.</p>
-            ) : null}
-          </div>
-        </form>
-        <OrderExample
-          paymentFeePct={paymentFeePct}
-          paymentFeeFixed={paymentFeeFixed}
-          shippingCost={defaultShippingCost}
-          currency={currency}
-        />
-      </Card>
-
-      <Card
-        title="Gastos fijos"
-        description="Nóminas, alquiler, herramientas. Se reparten entre los días del mes para el punto de equilibrio."
-        actions={
-          <Badge tone="neutral" className="whitespace-nowrap text-sm">
-            {money(monthlyFixedTotal)}/mes
-          </Badge>
-        }
-      >
-        <List>
-          {(config?.fixed_expenses ?? []).length === 0 ? (
-            <EmptyState
-              title="Sin gastos fijos configurados"
-              hint="Sin ellos el punto de equilibrio no es fiable."
-            />
-          ) : (
-            (config?.fixed_expenses ?? []).map((expense) => (
-              <List.Item
-                key={expense.id}
-                className="flex items-center justify-between gap-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium">{expense.name}</p>
-                  <p className="text-xs text-muted">
-                    desde {formatDate(expense.valid_from)}
-                    {expense.valid_until ? ` hasta ${formatDate(expense.valid_until)}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-sm tabular-nums">
-                    {formatMoney(Number(expense.amount), expense.currency_code || currency)}
-                    {expense.billing_period === "yearly" ? "/año" : "/mes"}
-                  </p>
-                  {canManage ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      onClick={() => void removeExpense(expense.id)}
-                      disabled={busyExpenseId === expense.id}
-                    >
-                      {busyExpenseId === expense.id ? "Quitando..." : "Quitar"}
-                    </Button>
-                  ) : null}
-                </div>
-              </List.Item>
-            ))
-          )}
-        </List>
-        {canManage ? (
-          <form
-            className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_8rem_auto] md:items-end"
-            onSubmit={addExpense}
-          >
-            <Field label="Nombre del gasto">
+          ) : null}</CardAction>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={saveSettings}>
+            <SettingRow
+              label="Comisión de la pasarela"
+              hint="Lo que se queda Shopify Payments, Stripe o PayPal: un porcentaje y, si lo hay, un fijo."
+              htmlFor="fee-pct"
+            >
+              <div className="w-24">
               <Input
-                value={expenseName}
-                onChange={(event) => setExpenseName(event.target.value)}
-                placeholder="Ej.: Klaviyo, nóminas..."
-                required
-              />
-            </Field>
-            <Field label={`Importe (${currency})`}>
-              <Input
+                id="fee-pct"
+                aria-label="Comisión en porcentaje"
                 type="number"
                 step="0.01"
                 min="0"
-                value={expenseAmount}
-                onChange={(event) => setExpenseAmount(event.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Periodicidad">
-              <Select
-                value={expensePeriod}
-                onChange={(value) =>
-                  setExpensePeriod(value === "yearly" ? "yearly" : "monthly")
-                }
-                options={[
-                  { value: "monthly", label: "al mes" },
-                  { value: "yearly", label: "al año" },
-                ]}
-              />
-            </Field>
-            <Button type="submit" disabled={isAddingExpense}>
-              {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
-            </Button>
+                max="100"
+                value={paymentFeePct}
+                onChange={(event) => setPaymentFeePct(event.target.value)}
+                placeholder="2.9"
+                disabled={!canManage}
+                            />
+              </div>
+              <span className="text-sm text-muted">% +</span>
+              <div className="w-24">
+              <Input
+                id="fee-fixed"
+                aria-label={`Comisión fija por pedido en ${currency}`}
+                type="number"
+                step="0.01"
+                min="0"
+                value={paymentFeeFixed}
+                onChange={(event) => setPaymentFeeFixed(event.target.value)}
+                placeholder="0.30"
+                disabled={!canManage}
+                            />
+              </div>
+              <span className="text-sm text-muted">{currency} fijo</span>
+            </SettingRow>
+            <SettingRow
+              label="Envío medio"
+              hint="Lo que te cuesta a ti enviar un pedido, no lo que cobras. Las reglas por importe de abajo lo sustituyen."
+              htmlFor="shipping"
+            >
+              <div className="w-24">
+              <Input
+                id="shipping"
+                type="number"
+                step="0.01"
+                min="0"
+                value={defaultShippingCost}
+                onChange={(event) => setDefaultShippingCost(event.target.value)}
+                placeholder="4.50"
+                disabled={!canManage}
+                            />
+              </div>
+              <span className="text-sm text-muted">{currency} por pedido</span>
+            </SettingRow>
+            <SettingRow
+              label="Coste de producto"
+              hint="Se pone por referencia en Productos: es el coste que más pesa en el margen."
+            >
+              <Link href="/shopify/productos">Completar en Productos</Link>
+            </SettingRow>
+            <div className="flex flex-wrap items-center gap-3 border-t border-separator pt-4">
+              <Button type="submit" disabled={!canManage || isSaving}>
+                {isSaving ? "Guardando..." : "Guardar"}
+              </Button>
+              {savedAt ? (
+                <p className="text-xs text-muted">Guardado a las {savedAt}.</p>
+              ) : null}
+            </div>
           </form>
-        ) : null}
+          <OrderExample
+            paymentFeePct={paymentFeePct}
+            paymentFeeFixed={paymentFeeFixed}
+            shippingCost={defaultShippingCost}
+            currency={currency}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Gastos fijos</CardTitle>
+          <CardDescription>Nóminas, alquiler, herramientas. Se reparten entre los días del mes para el punto de equilibrio.</CardDescription>
+          <CardAction><Badge tone="neutral" className="whitespace-nowrap text-sm">
+            {money(monthlyFixedTotal)}/mes
+          </Badge></CardAction>
+        </CardHeader>
+        <CardContent>
+          <List>
+            {(config?.fixed_expenses ?? []).length === 0 ? (
+              <EmptyState
+                title="Sin gastos fijos configurados"
+                hint="Sin ellos el punto de equilibrio no es fiable."
+              />
+            ) : (
+              (config?.fixed_expenses ?? []).map((expense) => (
+                <Item key={expense.id} role="listitem">
+                  <ItemContent>
+                    <ItemTitle>{expense.name}</ItemTitle>
+                    <ItemDescription>
+                      desde {formatDate(expense.valid_from)}
+                      {expense.valid_until ? ` hasta ${formatDate(expense.valid_until)}` : ""}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions className="gap-3">
+                    <p className="text-sm tabular-nums">
+                      {formatMoney(Number(expense.amount), expense.currency_code || currency)}
+                      {expense.billing_period === "yearly" ? "/año" : "/mes"}
+                    </p>
+                    {canManage ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        onClick={() => void removeExpense(expense.id)}
+                        disabled={busyExpenseId === expense.id}
+                      >
+                        {busyExpenseId === expense.id ? "Quitando..." : "Quitar"}
+                      </Button>
+                    ) : null}
+                  </ItemActions>
+                </Item>
+              ))
+            )}
+          </List>
+          {canManage ? (
+            <form
+              className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_8rem_auto] md:items-end"
+              onSubmit={addExpense}
+            >
+              <Field label="Nombre del gasto">
+                <Input
+                  value={expenseName}
+                  onChange={(event) => setExpenseName(event.target.value)}
+                  placeholder="Ej.: Klaviyo, nóminas..."
+                  required
+                />
+              </Field>
+              <Field label={`Importe (${currency})`}>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={expenseAmount}
+                  onChange={(event) => setExpenseAmount(event.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Periodicidad">
+                <Select
+                  value={expensePeriod}
+                  onChange={(value) =>
+                    setExpensePeriod(value === "yearly" ? "yearly" : "monthly")
+                  }
+                  options={[
+                    { value: "monthly", label: "al mes" },
+                    { value: "yearly", label: "al año" },
+                  ]}
+                />
+              </Field>
+              <Button type="submit" disabled={isAddingExpense}>
+                {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
+              </Button>
+            </form>
+          ) : null}
+        </CardContent>
       </Card>
         </>
       ) : null}
 
       {part === "targets" ? (
-      <Card
-        title="Objetivos"
-        description="La cifra a batir en cada métrica, con cómo vas en los últimos 30 días. El panel la enseña junto al dato."
-      >
-        <ObjectivesProgress
-          organizationId={organizationId}
-          targets={config?.metric_targets ?? []}
-          currency={currency}
-          labelFor={(key) =>
-            METRIC_TARGET_OPTIONS.find((option) => option.value === key)?.label ?? key
-          }
-        />
-        {(config?.metric_targets ?? []).length === 0 ? (
-          <EmptyState
-            title="Sin objetivos fijados"
-            hint="Sin objetivo, una cifra no dice si va bien o mal."
+      <Card>
+        <CardHeader>
+          <CardTitle>Objetivos</CardTitle>
+          <CardDescription>La cifra a batir en cada métrica, con cómo vas en los últimos 30 días. El panel la enseña junto al dato.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ObjectivesProgress
+            organizationId={organizationId}
+            targets={config?.metric_targets ?? []}
+            currency={currency}
+            labelFor={(key) =>
+              METRIC_TARGET_OPTIONS.find((option) => option.value === key)?.label ?? key
+            }
           />
-        ) : null}
-        {/* Mi Camino es la única fuente de objetivos (decisión 2026-10-19):
-            fijarlos aquí y allí daba dos cifras para la misma métrica. */}
-        <p className="mt-4 border-t border-separator pt-4 text-sm">
-          Los objetivos se fijan en{" "}
-          <Link href={`/camino?organizationId=${organizationId}`}>Mi Camino</Link>
-          {canManage ? ", junto a la meta y los hitos que los persiguen." : "."}
-        </p>
+          {(config?.metric_targets ?? []).length === 0 ? (
+            <EmptyState
+              title="Sin objetivos fijados"
+              hint="Sin objetivo, una cifra no dice si va bien o mal."
+            />
+          ) : null}
+          {/* Mi Camino es la única fuente de objetivos (decisión 2026-10-19):
+              fijarlos aquí y allí daba dos cifras para la misma métrica. */}
+          <p className="mt-4 border-t border-separator pt-4 text-sm">
+            Los objetivos se fijan en{" "}
+            <Link href={`/camino?organizationId=${organizationId}`}>Mi Camino</Link>
+            {canManage ? ", junto a la meta y los hitos que los persiguen." : "."}
+          </p>
+        </CardContent>
       </Card>
       ) : null}
 
       {part === "costs" ? (
-      <Card
-        title="Reglas de envío"
-        description="Coste de envío por tramo de importe: sustituye al envío medio en los pedidos que entren en el tramo."
-      >
-        <List>
-          {(config?.shipping_cost_rules ?? []).length === 0 ? (
-            <EmptyState
-              title="Sin reglas de envío"
-              hint="Sin reglas se usa el envío medio por pedido para todo el negocio."
-            />
-          ) : (
-            (config?.shipping_cost_rules ?? []).map((rule) => (
-              <List.Item
-                key={rule.id}
-                className="flex items-center justify-between gap-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium">{rule.name}</p>
-                  <p className="text-xs text-muted">
-                    {rule.country_code
-                      ? `${rule.country_code} · no se aplica: el cálculo ignora el país`
-                      : "cualquier país"}
-                    {rule.min_order_total
-                      ? ` · desde ${formatMoney(Number(rule.min_order_total), rule.currency_code || currency)}`
-                      : ""}
-                    {rule.max_order_total
-                      ? ` hasta ${formatMoney(Number(rule.max_order_total), rule.currency_code || currency)}`
-                      : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-sm tabular-nums">
-                    {formatMoney(Number(rule.cost_per_order), rule.currency_code || currency)}/pedido
-                  </p>
-                  {canManage ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      onClick={() => void removeShippingRule(rule.id)}
-                      disabled={busyShippingRuleId === rule.id}
-                    >
-                      {busyShippingRuleId === rule.id
-                        ? "Quitando..."
-                        : "Quitar"}
-                    </Button>
-                  ) : null}
-                </div>
-              </List.Item>
-            ))
-          )}
-        </List>
-        {canManage ? (
-          <form
-            className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_9rem_auto] md:items-end"
-            onSubmit={addShippingRule}
-          >
-            <Field label="Nombre de la regla">
-              <Input
-                value={ruleName}
-                onChange={(event) => setRuleName(event.target.value)}
-                placeholder="Ej.: Envío nacional"
-                required
+      <Card>
+        <CardHeader>
+          <CardTitle>Reglas de envío</CardTitle>
+          <CardDescription>Coste de envío por tramo de importe: sustituye al envío medio en los pedidos que entren en el tramo.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <List>
+            {(config?.shipping_cost_rules ?? []).length === 0 ? (
+              <EmptyState
+                title="Sin reglas de envío"
+                hint="Sin reglas se usa el envío medio por pedido para todo el negocio."
               />
-            </Field>
-            <Field label={`Coste (${currency})`}>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={ruleCostPerOrder}
-                onChange={(event) => setRuleCostPerOrder(event.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Desde (opcional)">
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={ruleMinOrderTotal}
-                onChange={(event) => setRuleMinOrderTotal(event.target.value)}
-                placeholder="0"
-              />
-            </Field>
-            <Button type="submit" disabled={isAddingShippingRule}>
-              {isAddingShippingRule ? "Añadiendo..." : "Añadir regla"}
-            </Button>
-          </form>
-        ) : null}
+            ) : (
+              (config?.shipping_cost_rules ?? []).map((rule) => (
+                <Item key={rule.id} role="listitem">
+                  <ItemContent>
+                    <ItemTitle>{rule.name}</ItemTitle>
+                    <ItemDescription>
+                      {rule.country_code
+                        ? `${rule.country_code} · no se aplica: el cálculo ignora el país`
+                        : "cualquier país"}
+                      {rule.min_order_total
+                        ? ` · desde ${formatMoney(Number(rule.min_order_total), rule.currency_code || currency)}`
+                        : ""}
+                      {rule.max_order_total
+                        ? ` hasta ${formatMoney(Number(rule.max_order_total), rule.currency_code || currency)}`
+                        : ""}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions className="gap-3">
+                    <p className="text-sm tabular-nums">
+                      {formatMoney(Number(rule.cost_per_order), rule.currency_code || currency)}/pedido
+                    </p>
+                    {canManage ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        onClick={() => void removeShippingRule(rule.id)}
+                        disabled={busyShippingRuleId === rule.id}
+                      >
+                        {busyShippingRuleId === rule.id
+                          ? "Quitando..."
+                          : "Quitar"}
+                      </Button>
+                    ) : null}
+                  </ItemActions>
+                </Item>
+              ))
+            )}
+          </List>
+          {canManage ? (
+            <form
+              className="mt-4 grid gap-3 border-t border-separator pt-4 md:grid-cols-[minmax(0,2fr)_8rem_9rem_auto] md:items-end"
+              onSubmit={addShippingRule}
+            >
+              <Field label="Nombre de la regla">
+                <Input
+                  value={ruleName}
+                  onChange={(event) => setRuleName(event.target.value)}
+                  placeholder="Ej.: Envío nacional"
+                  required
+                />
+              </Field>
+              <Field label={`Coste (${currency})`}>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={ruleCostPerOrder}
+                  onChange={(event) => setRuleCostPerOrder(event.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Desde (opcional)">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={ruleMinOrderTotal}
+                  onChange={(event) => setRuleMinOrderTotal(event.target.value)}
+                  placeholder="0"
+                />
+              </Field>
+              <Button type="submit" disabled={isAddingShippingRule}>
+                {isAddingShippingRule ? "Añadiendo..." : "Añadir regla"}
+              </Button>
+            </form>
+          ) : null}
+        </CardContent>
       </Card>
       ) : null}
 
@@ -863,16 +885,15 @@ function CopyCostsFrom({
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Select
+    <div role="group" aria-label="Acciones de configuracion" className="flex flex-wrap items-center gap-2">
+      <SearchableSelect
         aria-label="Cliente del que copiar"
         className="w-52"
+        placeholder="Busca un cliente"
+        emptyText="No hay ningún cliente con ese nombre."
         value={sourceId}
         onChange={setSourceId}
-        options={[
-          { value: "", label: "Elige un cliente" },
-          ...options.map((item) => ({ value: item.id, label: item.display_name })),
-        ]}
+        options={options.map((item) => ({ value: item.id, label: item.display_name }))}
       />
       <Button size="sm" disabled={!sourceId || busy} onClick={() => void copy()}>
         {busy ? "Copiando…" : "Copiar"}
@@ -930,27 +951,32 @@ function KlaviyoCurrencyCard({
   }
 
   return (
-    <Card title="Moneda de los ingresos de Klaviyo" className="scroll-mt-24">
-      <div id="klaviyo-revenue-currency">
-        <SettingRow
-          label="Moneda confirmada"
-          hint="La moneda real de los ingresos que devuelve Klaviyo. Su moneda preferida solo cambia el símbolo: no sirve para confirmar ni convertir. Si no estás seguro, déjalo sin confirmar."
-        >
-          <Select
-            aria-label="Moneda de los ingresos de Klaviyo"
-            className="max-w-xs"
-            value={code}
-            onChange={(next) => void save(next)}
-            options={[
-              { value: "", label: "Sin confirmar" },
-              ...FINANCIAL_CURRENCIES.map((item) => ({ value: item, label: item })),
-            ]}
-            disabled={!canManage || isSaving}
-          />
-          {isSaving ? <span className="text-xs text-muted">Guardando…</span> : null}
-        </SettingRow>
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-      </div>
+    <Card className="scroll-mt-24">
+      <CardHeader>
+        <CardTitle>Moneda de los ingresos de Klaviyo</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div id="klaviyo-revenue-currency">
+          <SettingRow
+            label="Moneda confirmada"
+            hint="La moneda real de los ingresos que devuelve Klaviyo. Su moneda preferida solo cambia el símbolo: no sirve para confirmar ni convertir. Si no estás seguro, déjalo sin confirmar."
+          >
+            <SearchableSelect
+              aria-label="Moneda de los ingresos de Klaviyo"
+              className="max-w-xs"
+              placeholder="Sin confirmar"
+              emptyText="No hay ninguna moneda con ese código."
+              showClear
+              value={code}
+              onChange={(next) => void save(next)}
+              options={FINANCIAL_CURRENCIES.map((item) => ({ value: item, label: item }))}
+              disabled={!canManage || isSaving}
+            />
+            {isSaving ? <span className="text-xs text-muted">Guardando…</span> : null}
+          </SettingRow>
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -984,6 +1010,7 @@ type SettingsTab =
   | "tienda"
   | "rentabilidad"
   | "objetivos"
+  | "negocio"
   | "alertas"
   | "notificaciones"
   | "copiloto"
@@ -1002,6 +1029,7 @@ const SETTINGS_SECTIONS = [
   "tienda",
   "rentabilidad",
   "objetivos",
+  "negocio",
   "alertas",
   "notificaciones",
   "copiloto",
@@ -1019,44 +1047,49 @@ const SETTINGS_SECTIONS = [
 // guarda de la API que la hace cumplir.
 function RolesCard() {
   return (
-    <Card title="Qué puede hacer cada rol">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem] text-sm">
-          <thead>
-            <tr className="text-left text-xs text-muted">
-              <th className="pb-2 font-medium">&nbsp;</th>
+    <Card>
+      <CardHeader>
+        <CardTitle>Qué puede hacer cada rol</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table className="min-w-[36rem]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <span className="sr-only">Acción</span>
+              </TableHead>
               {MEMBER_ROLES.map((role) => (
-                <th key={role} className="pb-2 text-center font-medium">
+                <TableHead key={role} className="text-center">
                   {ROLE_LABEL[role]}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
+            </TableRow>
+          </TableHeader>
           {ROLE_MATRIX.map((group) => (
-            <tbody key={group.group} className="divide-y divide-separator">
-              <tr>
-                <th colSpan={5} className="pb-1 pt-4 text-left text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted">
+            <TableBody key={group.group}>
+              <TableRow>
+                <TableHead colSpan={MEMBER_ROLES.length + 1} scope="colgroup" className="h-auto pb-1 pt-4 text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
                   {group.group}
-                </th>
-              </tr>
+                </TableHead>
+              </TableRow>
               {group.rows.map((row) => (
-                <tr key={row.action}>
-                  <td className="py-2 pr-4">{row.action}</td>
+                <TableRow key={row.action}>
+                  <TableCell>{row.action}</TableCell>
                   {MEMBER_ROLES.map((role) => (
-                    <td
+                    <TableCell
                       key={role}
-                      className={`py-2 text-center ${row.roles[role] ? "font-semibold text-success" : "text-muted"}`}
+                      className={`text-center ${row.roles[role] ? "font-semibold text-success" : "text-muted"}`}
                       aria-label={row.roles[role] ? "Puede" : "No puede"}
                     >
                       {row.roles[role] ? "✓" : "—"}
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
+            </TableBody>
           ))}
-        </table>
-      </div>
+        </Table>
+      </CardContent>
     </Card>
   );
 }
@@ -1116,12 +1149,17 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : isConsultant ? (
           <PortfolioSettingsMatrix />
         ) : (
-          <Card title="Sin tienda activa">
-            <p className="text-sm">
-              Elige un cliente arriba para configurar su tienda. Tu cuenta está en{" "}
-              <Link href="/configuracion?section=perfil">Perfil</Link> y{" "}
-              <Link href="/configuracion?section=seguridad">Seguridad</Link>.
-            </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Sin tienda activa</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">
+                Elige un cliente arriba para configurar su tienda. Tu cuenta está en{" "}
+                <Link href="/configuracion?section=perfil">Perfil</Link> y{" "}
+                <Link href="/configuracion?section=seguridad">Seguridad</Link>.
+              </p>
+            </CardContent>
           </Card>
         )
       ) : tab === "tienda" ? (
@@ -1137,14 +1175,19 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               canManage={canManageOrganization}
             />
           ) : (
-            <Card title="Organización activa">
-              <dl className="space-y-3 text-sm">
-                <InfoRow label="Nombre">Sin organización</InfoRow>
-              </dl>
-              <p className="mt-4 text-xs text-muted">
-                Tu nombre, avatar y datos de cuenta están en{" "}
-                <Link href="/configuracion?section=perfil">Perfil</Link>.
-              </p>
+            <Card>
+              <CardHeader>
+                <CardTitle>Organización activa</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="space-y-3 text-sm">
+                  <InfoRow label="Nombre">Sin organización</InfoRow>
+                </dl>
+                <p className="mt-4 text-xs text-muted">
+                  Tu nombre, avatar y datos de cuenta están en{" "}
+                  <Link href="/configuracion?section=perfil">Perfil</Link>.
+                </p>
+              </CardContent>
             </Card>
           )}
 
@@ -1157,6 +1200,13 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             part={tab === "rentabilidad" ? "costs" : "targets"}
           />
         ) : null
+      ) : tab === "negocio" ? (
+        organization ? (
+          <BusinessContextSection
+            organizationId={organization.id}
+            isConsultant={isConsultant}
+          />
+        ) : null
       ) : tab === "notificaciones" ? (
         <NotificationsSection bootstrap={bootstrap} />
       ) : tab === "copiloto" ? (
@@ -1165,10 +1215,15 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         organization && isOwner ? (
           <BillingSection organizationId={organization.id} />
         ) : (
-          <Card title="Plan y facturación">
-            <p className="text-sm text-muted">
-              La facturación la gestiona el propietario de la tienda.
-            </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Plan y facturación</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted">
+                La facturación la gestiona el propietario de la tienda.
+              </p>
+            </CardContent>
           </Card>
         )
       ) : tab === "consultor" ? (

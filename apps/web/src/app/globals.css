@@ -18,14 +18,51 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  /* Fondo de pagina de toda la app: blanco que se funde, muy poco, con el gris
-     del logo (#3d3b3a). Las tarjetas siguen en blanco puro y asi se separan. */
-  --app-backdrop: linear-gradient(
-    165deg,
-    #ffffff 0%,
-    color-mix(in srgb, #3d3b3a 2%, #ffffff) 45%,
-    color-mix(in srgb, #3d3b3a 4.5%, #ffffff) 100%
-  ) fixed;
+  /* Identidad del dashboard. Los tokens son propios de /dashboard y /panel;
+     no cambian el resto del portal ni las marcas de sus canales. */
+  --nora-dash-brand: #3d3b3a;
+  --nora-dash-background: #f7f6f4;
+  --nora-dash-surface: #fdfcfb;
+  --nora-dash-elevated: #ffffff;
+  --nora-dash-subtle: #f2f1ef;
+  --nora-dash-border: #e5e3df;
+  --nora-dash-text: #242323;
+  --nora-dash-text-secondary: #696664;
+  --nora-dash-text-tertiary: #77736f;
+  --nora-dash-accent: #6256c9;
+  --nora-dash-accent-hover: #5145b4;
+  --nora-dash-accent-soft: #f0eefc;
+  --nora-dash-blue: #3478f6;
+  --nora-dash-blue-ink: #2458b2;
+  --nora-dash-green: #198754;
+  --nora-dash-green-ink: #146c43;
+  --nora-dash-amber: #a15b20;
+  --nora-dash-amber-ink: #875019;
+  --nora-dash-red: #b6384b;
+  --nora-dash-red-ink: #a02b3d;
+  --nora-dash-pink: #b74683;
+  --nora-dash-pink-ink: #9d376f;
+  /* Paleta de marca: blanco de la app, gris del logo y morado del boton.
+     Los tonos intermedios salen de mezclarlos, no de colores nuevos. */
+  --nora-white: var(--background);
+  --nora-gray: #3d3b3a;
+  --nora-purple: #6256c9;
+  --nora-gray-50: color-mix(in srgb, var(--nora-gray) 3%, var(--nora-white));
+  --nora-gray-100: color-mix(in srgb, var(--nora-gray) 7%, var(--nora-white));
+  --nora-purple-50: color-mix(in srgb, var(--nora-purple) 5%, var(--nora-white));
+  --nora-purple-100: color-mix(in srgb, var(--nora-purple) 10%, var(--nora-white));
+  --nora-mist: color-mix(in srgb, var(--nora-purple) 4%, var(--nora-gray-50));
+  /* Barra de desplazamiento: gris del logo muy claro, más oscuro al pasar. */
+  --scrollbar-thumb: color-mix(in srgb, var(--nora-gray) 20%, var(--nora-white));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--nora-gray) 38%, var(--nora-white));
+
+  /* Fondo de pagina de toda la app: base blanca que baja hacia un gris muy
+     claro, con un halo morado arriba a la derecha y uno gris abajo a la
+     izquierda. Las tarjetas siguen en blanco puro y asi se separan. */
+  --app-backdrop:
+    radial-gradient(60rem 40rem at 100% 0%, var(--nora-purple-100), transparent 70%) fixed,
+    radial-gradient(50rem 36rem at 0% 100%, var(--nora-gray-100), transparent 70%) fixed,
+    linear-gradient(165deg, var(--nora-white) 0%, var(--nora-mist) 55%, var(--nora-gray-50) 100%) fixed;
 
   /* Acento de producto: grafito del logo sobre una interfaz monocroma. */
   --accent: #3d3b3a;
@@ -107,6 +144,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  /* Nombres de color utilizados por los gráficos oficiales de shadcn/ui. */
+  --color-muted-foreground: var(--muted);
+  --color-border: var(--separator);
 
   /* Colapsa la escala de radios de HeroUI a --radius para que las utilidades
      rounded-sm..rounded-3xl emitan todas el mismo valor (ver el bloque :root
@@ -132,20 +172,18 @@
     sans-serif;
 }
 
-/* Escala global del portal en escritorio: equivale a verlo al 90 % en el
-   navegador. Para cambiarla, basta --ui-zoom. Con `zoom`, las unidades de
-   viewport (dvh) siguen midiendo el viewport real y se quedarían un 10 % cortas,
-   así que todo lo que las usa divide entre --ui-zoom. */
+/* Escala global del portal. Estuvo al 90 % en escritorio y dejaba el cuerpo de
+   13 px en ~11,7 px: textos y títulos ilegibles en toda la app (2026-10-25).
+   Se deja a 100 %; --ui-zoom sigue siendo el mando si hiciera falta ajustarla.
+   Con `zoom`, las unidades de viewport (dvh) miden el viewport real, así que
+   todo lo que las usa divide entre --ui-zoom. */
 :root {
   --ui-zoom: 1;
 }
-@media (min-width: 1024px) {
-  :root {
-    --ui-zoom: 0.9;
-  }
-}
 html {
   zoom: var(--ui-zoom);
+  /* scrollbar-color se hereda: todo overflow de la app sale con el gris. */
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 /* Los popovers, menús y tooltips los coloca react-aria con coordenadas del
    viewport; dentro de un `zoom` se aplicarían escaladas y caerían a un lado de
@@ -165,10 +203,7 @@ html {
    dejando sin oscurecer la franja inferior. */
 :is(
   [data-slot="modal-backdrop"],
-  [data-slot="modal-container"],
-  [data-slot="drawer-backdrop"],
-  [data-slot="drawer-container"],
-  .drawer__content
+  [data-slot="modal-container"]
 ) {
   height: calc(var(--visual-viewport-height, 100dvh) / var(--ui-zoom));
 }
@@ -179,6 +214,11 @@ body {
   font-family: var(--font-sans);
   line-height: 1.5;
 }
+
+/* Mientras se arrastra el asa de un Resizable (components/ui/resizable.tsx) el
+   cursor no cambia al pasar por encima de enlaces y no se selecciona texto. */
+html[data-resizing="horizontal"] * { cursor: col-resize !important; user-select: none; }
+html[data-resizing="vertical"] * { cursor: row-resize !important; user-select: none; }
 
 /* Accesibilidad: foco visible coherente en toda la app (FE-08 Bloque A). */
 :focus-visible {
@@ -376,51 +416,6 @@ body {
   }
 }
 
-/* Selector "bare" de la barra superior: dropdown inline sin caja (sin borde
-   ni fondo propio), sobre el mismo fondo de la barra, estilo selector de
-   proyecto de Supabase. Sin `@layer` a proposito: las clases de HeroUI
-   (`select__trigger`) van sin capa y ganarian a una regla en capa aunque
-   tuviera mas especificidad. */
-.select-bare [data-slot="select-trigger"] {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.35rem;
-  min-height: 0;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0.2rem 0.35rem;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-muted);
-}
-
-.select-bare [data-slot="select-value"] {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.select-bare [data-slot="select-default-indicator"],
-.select-bare [data-slot="select-indicator"] {
-  position: static;
-  flex: none;
-  margin-left: auto;
-  width: 0.9rem;
-  height: 0.9rem;
-  color: var(--color-muted);
-}
-
-.select-bare [data-slot="select-trigger"]:hover,
-.select-bare [data-slot="select-trigger"][data-open="true"] {
-  color: var(--color-ink);
-}
-
 /* Radio unico en toda la app. El colapso de la escala (bloques :root y
    @theme inline de arriba) ya deja rounded-sm..3xl = --radius, asi que
    botones, cards, inputs, selects, popovers, menus, dropdowns, tooltips,
@@ -442,19 +437,7 @@ a[data-slot="button"],
   border-radius: 9999px;
 }
 
-/* Card: el titulo de HeroUI viene a 0.875rem, igual que el cuerpo, y la
-   cabecera de cada modulo no se distinguia del contenido. Un paso mas grande
-   (1rem) y semibold para que se lea como cabecera. El borde fino lo pone el
-   wrapper (@/components/ui/card.tsx) como utilidad, para que una Card que
-   quiera su propio color (border-accent, border-warn) pueda sobreescribirlo. */
-[data-slot="card-title"] {
-  font-size: 1rem;
-  line-height: 1.4;
-  font-weight: 600;
-  color: var(--color-ink);
-}
-
-/* Superficies superpuestas (Dialog, Sheet, ConfirmDialog): ADR-0020 §7.
+/* Superficies superpuestas (Dialog, Sheet; las alertas van en AlertDialog): ADR-0020 §7.
    Blanco, un solo radio, borde fino y espaciado de la rejilla de 8 (16 px en
    movil, 24 px desde sm). El acento NO tiñe la superficie: solo la accion
    primaria, el borde de los botones secundarios, el foco y la seleccion. */
@@ -499,7 +482,7 @@ body[data-role="admin"] {
   --ov-edge: #d8d8d8;
   --ov-surface: #fafafa;
 }
-body[data-role] :is([data-slot="modal-backdrop"], [data-slot="drawer-backdrop"]) {
+body[data-role] :is([data-slot="modal-backdrop"], .ui-drawer) {
   --foreground: var(--ov-ink);
   --color-foreground: var(--ov-ink);
   --color-ink: var(--ov-ink);
@@ -535,155 +518,74 @@ body[data-role] :is([data-slot="modal-backdrop"], [data-slot="drawer-backdrop"])
   --tw-accent-soft: var(--ov-accent-soft);
   --tw-accent-ink: var(--ov-accent-ink);
 }
-body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .text-accent {
+body[data-role] :is(.ui-dialog, .ui-drawer) .text-accent {
   color: var(--ov-accent-ink);
 }
 
-[data-slot="modal-dialog"],
-[data-slot="drawer-dialog"] {
-  padding: 0;
-  background: #ffffff;
-  color: var(--color-ink);
-  border: 1px solid var(--color-edge);
-  border-radius: var(--radius);
-  box-shadow: 0 20px 48px -16px rgb(15 15 15 / 0.28);
-}
-
-[data-slot="modal-header"],
-[data-slot="drawer-header"] {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 1rem 3.5rem 1rem 1rem;
-  border-bottom: 1px solid var(--color-line);
-}
-
-[data-slot="modal-heading"],
-[data-slot="drawer-heading"] {
-  font-size: 1rem;
-  line-height: 1.35;
-  font-weight: 600;
-  color: var(--color-ink);
-}
-
-[data-slot="modal-body"],
-[data-slot="drawer-body"] {
-  padding: 1rem;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--color-ink);
-}
-
-[data-slot="modal-footer"],
-[data-slot="drawer-footer"] {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--color-line);
-}
-
-[data-slot="modal-header"] + [data-slot="modal-body"],
-[data-slot="modal-body"] + [data-slot="modal-footer"],
-[data-slot="modal-header"] + [data-slot="modal-footer"] {
-  margin-top: 0;
-}
-
-[data-slot="modal-close-trigger"],
-[data-slot="drawer-close-trigger"] {
-  position: absolute;
-  top: 0.75rem;
-  right: 1rem;
-}
-
-/* Botones dentro de una superficie: el secundario lleva el borde del acento
-   (sobre blanco); el primario es el relleno del acento. */
-:is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .button--secondary {
-  background: #ffffff;
-  color: var(--color-ink);
-  border: 1px solid var(--accent);
-}
-:is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .button--secondary:hover {
-  background: var(--accent-soft);
-}
-
-/* Anchos: sm 24 rem, md 32, lg 44, xl 60. El contenedor de HeroUI es
-   `sm:w-fit`, asi que el ancho se fija en el dialogo, no en un max-width. */
-.ui-dialog {
-  width: 32rem;
-  max-width: 100%;
-}
-.ui-dialog--sm { width: 24rem; }
-.ui-dialog--lg { width: 44rem; }
-.ui-dialog--xl { width: 60rem; }
-.ui-dialog--cover { width: 100%; }
-
-/* Hojas laterales: sm 28 rem (altas), md 40 (fichas), lg 60 (vista previa). */
-.ui-sheet {
-  height: 100%;
-  max-width: 100vw;
-  border-width: 0 0 0 1px;
-  border-radius: 0;
-  box-shadow: -16px 0 40px -20px rgb(15 15 15 / 0.3);
-}
-.ui-sheet--sm { width: 28rem; }
-.ui-sheet--md { width: 40rem; }
-.ui-sheet--lg { width: 60rem; }
-.ui-sheet--bottom {
-  width: 100%;
-  height: auto;
-  max-height: 85dvh;
-  border-width: 1px 0 0 0;
-  border-radius: var(--radius) var(--radius) 0 0;
-  box-shadow: 0 -16px 40px -20px rgb(15 15 15 / 0.3);
-}
-.ui-sheet--flush [data-slot="drawer-body"] {
-  padding: 0;
-}
-[data-slot="drawer-body"] {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-@media (min-width: 640px) {
-  [data-slot="modal-header"],
-  [data-slot="drawer-header"] {
-    padding: 1rem 3.5rem 1rem 1.5rem;
+/* ---------------------------------------------------------------------------
+   Diálogo único (components/ui/dialog.tsx): API de shadcn sobre el Modal de
+   HeroUI. 32 rem por defecto; más ancho con `sm:max-w-*` en DialogContent.
+   Si el contenido no cabe, se desplaza el diálogo entero y el pie (gris, con
+   borde arriba, como el de shadcn) queda pegado abajo.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-dialog-backdrop { background: rgb(15 15 15 / 0.4); }
+  .ui-dialog {
+    --dialog-pad: 1rem;
+    position: relative;
+    display: grid;
+    align-content: start;
+    gap: 1rem;
+    width: calc(100vw - 2rem);
+    max-width: 32rem;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--dialog-pad) var(--dialog-pad) 0;
+    border: 1px solid var(--color-edge);
+    border-radius: var(--radius);
+    background: #ffffff;
+    color: var(--color-ink);
+    font-size: 0.875rem;
+    line-height: 1.55;
+    box-shadow: 0 24px 48px -16px rgb(15 15 15 / 0.3);
   }
-  [data-slot="modal-body"],
-  [data-slot="drawer-body"] {
-    padding: 1rem 1.5rem;
+  .ui-dialog:not(:has(> .ui-dialog__footer)) { padding-bottom: var(--dialog-pad); }
+  .ui-dialog__close { position: absolute; top: 0.625rem; right: 0.625rem; }
+  .ui-dialog__header { display: grid; gap: 0.375rem; padding-right: 1.75rem; }
+  .ui-dialog__title {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
   }
-  [data-slot="modal-footer"],
-  [data-slot="drawer-footer"] {
-    padding: 0.75rem 1.5rem;
+  .ui-dialog__description { margin: 0; color: var(--color-muted); font-size: 0.875rem; line-height: 1.5; text-wrap: pretty; }
+  .ui-dialog__footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+    margin: 0 calc(var(--dialog-pad) * -1);
+    padding: 1rem var(--dialog-pad) calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-line);
+    background: var(--nora-gray-50);
+  }
+  .ui-dialog__discard { margin-right: auto; font-weight: 500; }
+
+  @media (min-width: 640px) {
+    .ui-dialog { --dialog-pad: 1.5rem; width: calc(100vw - 5rem); }
+    .ui-dialog__footer { flex-flow: row wrap; align-items: center; justify-content: flex-end; }
   }
 }
 
-/* Movil: hoja inferior a todo el ancho, con el pie sobre el area segura. */
-@media (max-width: 639px) {
-  [data-slot="modal-container"] {
-    padding: 0;
-  }
-  [data-slot="modal-dialog"].ui-dialog {
-    width: 100%;
-    max-height: 92dvh;
-    border-width: 1px 0 0 0;
-    border-radius: var(--radius) var(--radius) 0 0;
-  }
-  [data-slot="modal-footer"],
-  [data-slot="drawer-footer"] {
-    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-  }
-  .ui-sheet--sm,
-  .ui-sheet--md,
-  .ui-sheet--lg {
-    width: 100vw;
-  }
+/* Desplazamiento sin barra visible (ejemplos de shadcn: «Sticky Footer»). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
 }
 
 .skip-link {
@@ -735,7 +637,7 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   --admin-ink: #292827;
   --admin-muted: #74716f;
   --admin-line: #e6e3e0;
-  --admin-paper: #f7f6f4;
+  --admin-paper: var(--app-backdrop);
   --admin-accent: #3d3b3a;
   padding-top: 0 !important;
   background: var(--admin-paper) !important;
@@ -817,7 +719,6 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 .admin-brand-copy { display: grid; gap: 0.14rem; }
 .admin-brand-copy strong { font-size: 0.9rem; letter-spacing: 0.035em; }
 .admin-brand-copy small { color: #9aa99e; font-size: 0.58rem; font-weight: 650; letter-spacing: 0.14em; }
-.admin-brand-close { display: none; margin-left: auto; }
 .admin-sidebar-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0.35rem 0.15rem; }
 
 .admin-overview-link,
@@ -843,6 +744,8 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 .admin-nav-group > p { margin: 0 0 0.35rem; padding: 0 0.65rem; color: #819188; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
 .admin-sidebar-footer { display: flex; min-height: 2.7rem; align-items: center; gap: 0.55rem; border-top: 1px solid rgb(255 255 255 / 11%); padding: 0.7rem 0.55rem 0.2rem; color: #b2c0b4; font-size: 0.67rem; }
 .admin-sidebar-footer > svg { margin-left: auto; color: #87968b; }
+.admin-sidebar--drawer { width: min(18rem, calc(100vw - 3rem)); height: 100%; border: 0; }
+.admin-sidebar--drawer .ui-drawer__close { color: #eff5ee; }
 .admin-access-dot, .admin-live i { width: 0.42rem; height: 0.42rem; flex: none; border-radius: 50%; background: #91cc70; box-shadow: 0 0 0 3px rgb(145 204 112 / 12%); }
 
 .admin-main-column { display: flex; min-width: 0; flex-direction: column; }
@@ -873,7 +776,6 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 .admin-client-detail-section-heading h2 { margin: 0; color: var(--admin-ink); font-size: 1rem; font-weight: 650; letter-spacing: -0.02em; }
 .admin-client-detail-section-heading p { margin: 0.3rem 0 0; color: var(--admin-muted); font-size: 0.75rem; }
 .admin-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #e6e3e0; padding: 1.25rem 1.4rem; }
-.admin-detail-header [data-slot="drawer-heading"] { color: #292827; font-size: 1.08rem; font-weight: 650; letter-spacing: -0.025em; }
 .admin-detail-tabs { display: flex; gap: 0.35rem; border-bottom: 1px solid #e6e3e0; padding: 0.55rem 1.4rem; }
 .admin-detail-body { min-height: 0; overflow-y: auto; padding: 1.1rem 1.4rem 1.5rem; }
 .admin-detail-body > [data-slot="card"] { margin: 0; }
@@ -881,17 +783,12 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 .admin-data-summary [data-slot="card"] { min-height: 5.2rem; }
 .admin-data-summary [data-slot="card-content"] { display: flex; min-height: 5.2rem; align-items: center; }
 .admin-table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.55rem; }
-.admin-form-drawer { animation: admin-form-in 180ms ease-out both; }
-.admin-form-drawer [data-slot="card"] { border-color: #d1decf; box-shadow: 0 8px 24px rgb(25 39 32 / 5%); }
 .admin-settings-disclosure { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 0.65rem; background: white; }
-.admin-settings-disclosure > summary { display: flex; min-height: 3.5rem; align-items: center; cursor: pointer; padding: 0.8rem 1rem; color: var(--admin-ink); font-size: 0.8rem; font-weight: 620; }
-.admin-settings-disclosure > summary::marker { color: #8a8582; }
-.admin-settings-disclosure[open] > summary { border-bottom: 1px solid var(--admin-line); }
+.admin-settings-disclosure > [data-slot="collapsible-trigger"] { display: flex; width: 100%; min-height: 3.5rem; align-items: center; cursor: pointer; padding: 0.8rem 1rem; color: var(--admin-ink); font-size: 0.8rem; font-weight: 620; }
+.admin-settings-disclosure > [data-slot="collapsible-trigger"][data-state="open"] { border-bottom: 1px solid var(--admin-line); }
 .admin-settings-disclosure-content { display: grid; gap: 1rem; padding: 1rem; }
-@keyframes admin-form-in { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .admin-footer { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--admin-line); padding: 1rem 2.4rem; color: #818d84; font-size: 0.65rem; }
 .admin-footer span:last-child { display: inline-flex; align-items: center; gap: 0.35rem; }
-.admin-backdrop { display: none; }
 
 .admin-workspace .admin-page-content [data-slot="card"] { border-color: var(--admin-line); border-radius: 0.7rem; background: white; box-shadow: 0 2px 9px rgb(25 39 32 / 3%); }
 .admin-workspace .admin-page-content [data-slot="card-title"] { color: var(--admin-ink); }
@@ -900,7 +797,8 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 .admin-workspace .admin-page-content table { border-color: var(--admin-line); }
 .admin-portal > button[aria-controls="copilot-panel"],
 .admin-portal > #copilot-panel,
-.admin-portal > .admin-shell-grid > #copilot-panel { display: none !important; }
+.admin-portal > .admin-shell-grid #copilot-panel,
+.admin-portal > .admin-shell-grid [data-slot="resizable-handle"] { display: none !important; }
 
 .admin-overview { display: grid; gap: 2.1rem; }
 .admin-page-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
@@ -925,7 +823,7 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 .admin-shortcut { display: flex; min-width: 0; min-height: 4.45rem; align-items: center; gap: 0.7rem; border: 1px solid var(--admin-line); border-radius: 0.65rem; padding: 0.7rem 0.8rem; background: white; color: var(--admin-ink); font-size: 0.76rem; font-weight: 570; text-decoration: none; transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease; }
 .admin-shortcut > span:nth-child(2) { min-width: 0; flex: 1; }
 .admin-shortcut > svg:last-child { flex: none; color: #8a968d; }
-.admin-shortcut:hover { transform: translateY(-2px); border-color: #bdb9b6; box-shadow: 0 5px 18px rgb(25 39 32 / 6%); color: var(--admin-accent); text-decoration: none; }
+.admin-shortcut:hover { color: var(--admin-accent); text-decoration: none; }
 .admin-shortcut-icon, .admin-module-icon { display: grid; width: 2.15rem; height: 2.15rem; flex: none; place-items: center; border-radius: 0.55rem; }
 .admin-shortcut-green .admin-shortcut-icon { background: #efedeb; color: #3d3b3a; }
 .admin-shortcut-sand .admin-shortcut-icon { background: #f5eee1; color: #90713b; }
@@ -948,10 +846,8 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 
 @media (max-width: 1023px) {
   .admin-workspace { grid-template-columns: minmax(0, 1fr); min-height: calc(100dvh / var(--ui-zoom, 1)); }
-  .admin-sidebar { position: fixed; z-index: 60; inset: 0 auto 0 0; width: min(18rem, calc(100vw - 3rem)); transform: translateX(-105%); transition: transform 180ms ease; }
-  .admin-sidebar.is-open { transform: translateX(0); }
-  .admin-brand-close { display: inline-flex; }
-  .admin-backdrop { position: fixed; z-index: 55; inset: 0; display: block; border: 0; background: rgb(8 18 12 / 48%); }
+  /* En móvil la navegación va en un Drawer izquierdo (platform-admin-shell). */
+  .admin-workspace > .admin-sidebar { display: none; }
   .admin-menu-button { display: inline-grid; width: 2.25rem; height: 2.25rem; flex: none; place-items: center; border: 1px solid var(--admin-line); border-radius: 0.45rem; background: white; color: var(--admin-ink); }
   .admin-topbar { min-height: 3.8rem; gap: 0.7rem; padding-inline: 1rem; }
   .admin-topbar-meta { gap: 0.7rem; }
@@ -984,29 +880,6 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
 
 @media (prefers-reduced-motion: reduce) {
   .admin-sidebar, .admin-nav-link, .admin-overview-link { transition: none; }
-  .admin-form-drawer { animation: none; }
-}
-
-/* Alert de HeroUI reestilado al lenguaje editorial "Libro Mayor": regla
-   lateral de color, sin caja rellena ni sombra (en vez del look por defecto
-   con fondo de color solido). Usado por Banner y ErrorBlock
-   (apps/web/src/components/ui). */
-@layer components {
-  .alert {
-    @apply rounded-none border-0 border-l-2 bg-transparent py-0.5 pl-3 text-sm leading-6 shadow-none;
-  }
-
-  .alert--danger {
-    @apply border-danger text-danger;
-  }
-
-  .alert--warning {
-    @apply border-warning text-warning;
-  }
-
-  .alert--success {
-    @apply border-success text-success;
-  }
 }
 
 /* Llegada desde la zona de IA del header (InsightsMenu): el campo enlazado
@@ -1091,15 +964,19 @@ body[data-role] :is([data-slot="modal-dialog"], [data-slot="drawer-dialog"]) .te
   --tw-accent-ink: #3d3b3a;
   --tw-good: #3d3b3a;
 }
-/* Todo el portal del consultor va sobre el mismo papel, también Inicio y
-   Analítica, que pintan su propia paleta (client-pulse) y no pueden llevar
-   .trabajo-theme (congela /klaviyo). Solo el fondo; sus tokens no se tocan.
-   Los módulos con .trabajo-theme (Trabajo, Marketing, Configuración, Cartera...)
-   quedan fuera: pintan su propio papel y esta regla, más específica, se lo
-   pisaba con blanco, así que el consultor veía distinto que el cliente. */
-#portal-content,
-#portal-content[data-role="consultant"]:not(.admin-portal-content):not(.trabajo-theme) {
+/* Todas las páginas comparten el fondo de Inicio, para cualquier rol o canal. */
+#portal-content {
   background: var(--app-backdrop);
+}
+/* Los contenedores de página organizan contenido sobre el fondo común.
+   Incluye las dos capas que algunos módulos heredados añaden al marco;
+   los controles, estados y componentes individuales conservan sus superficies. */
+#portal-content[data-role] > .portal-page-content > :is(div, section, main, article):not([data-slot]):not([role]):has(:is(header, h1, h2, section, [role="status"], [role="alert"])),
+#portal-content[data-role] > .portal-page-content > :is(div, section, main, article):not([data-slot]):not([role]) > :is(div, section, main, article):not([data-slot]):not([role]):has(:is(header, h1, h2, section)) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 #portal-content.trabajo-theme {
   background: var(--app-backdrop);
@@ -1158,10 +1035,9 @@ body:has(#portal-content.trabajo-theme) {
   --success: #3d3b3a;
   --color-success: #3d3b3a;
 }
-#portal-content[data-channel][data-role]:not(.trabajo-theme) { background: var(--ch-paper); }
-#portal-content[data-channel="shopify"] { --ch-paper: #f5f4f2; --ch-accent: #3d3b3a; --ch-hover: #292827; --ch-soft: #f0edeb; --ch-ink: #3d3b3a; }
-#portal-content[data-channel="meta"] { --ch-paper: #e6effc; --ch-accent: #0866ff; --ch-hover: #0050d0; --ch-soft: #e5eefe; --ch-ink: #0a4fc4; }
-#portal-content[data-channel="klaviyo"] { --ch-paper: #efefef; --ch-accent: #232426; --ch-hover: #000000; --ch-soft: #ececed; --ch-ink: #232426; }
+#portal-content[data-channel="shopify"] { --ch-accent: #5e8e3e; --ch-hover: #4a7330; --ch-soft: #eaf3e0; --ch-ink: #3f6527; }
+#portal-content[data-channel="meta"] { --ch-accent: #0866ff; --ch-hover: #0050d0; --ch-soft: #e5eefe; --ch-ink: #0a4fc4; }
+#portal-content[data-channel="klaviyo"] { --ch-accent: #232426; --ch-hover: #000000; --ch-soft: #ececed; --ch-ink: #232426; }
 #portal-content[data-channel] .text-accent { color: var(--ch-ink); }
 
 /* Tarjetas HeroUI dentro de cada mundo, con la misma forma que las de client-pulse. */
@@ -1181,7 +1057,7 @@ body:has(#portal-content.trabajo-theme) {
   --color-separator: #eeebe8;
   --success: #3d3b3a;
   --color-success: #3d3b3a;
-  background: var(--ch-paper);
+  background: var(--app-backdrop);
   color: #3d3b3a;
 }
 #portal-content.analytics-theme[data-channel] [data-slot="card"] {
@@ -1214,33 +1090,23 @@ body:has(#portal-content.trabajo-theme) {
   .hover-sweep { transition: none; }
 }
 
-/* Fila de tarea: al pasar el ratón se levanta un poco con una sombra suave,
-   para saber cuál está bajo el cursor. `task-lift` es para filas planas (sin
-   borde ni relleno lateral): la sombra blanca de 8 px les hace de margen sin
-   mover el layout. `task-lift-card` es para filas que ya son tarjeta con borde. */
-.task-lift,
-.task-lift-card {
+/* Elevación compartida: el mismo acabado que las tareas del cliente, sin
+   halos que ensanchen la fila ni cambios de tamaño al interactuar. */
+:is(:root, #portal-content[data-role]) :is(.task-lift, .task-lift-card, .admin-shortcut, .zone-card[data-zone-open]) {
   border-radius: 6px;
   transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
 }
-.task-lift:hover,
-.task-lift:has(:focus-visible) {
+:is(:root, #portal-content[data-role]) :is(.task-lift, .task-lift-card, .admin-shortcut, .zone-card[data-zone-open]):not(:disabled):not([aria-disabled="true"]):is(:hover, :focus-visible, :has(:focus-visible), [data-lift-selected="true"]) {
+  position: relative;
+  z-index: 1;
   transform: translateY(-2px);
-  background-color: #fff;
-  box-shadow: 0 0 0 8px #fff, 0 0 0 9px rgb(0 0 0 / 7%), 0 14px 24px -14px rgb(39 35 32 / 32%);
-}
-.task-lift-card:hover,
-.task-lift-card:has(:focus-visible) {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 22px -12px rgb(39 35 32 / 30%);
+  border-radius: 6px;
+  background-color: var(--nora-dash-surface);
+  box-shadow: 0 8px 20px -12px rgb(39 35 32 / 28%), 0 0 0 1px var(--nora-dash-border);
 }
 @media (prefers-reduced-motion: reduce) {
-  .task-lift,
-  .task-lift-card { transition: none; }
-  .task-lift:hover,
-  .task-lift:has(:focus-visible),
-  .task-lift-card:hover,
-  .task-lift-card:has(:focus-visible) { transform: none; }
+  :is(:root, #portal-content[data-role]) :is(.task-lift, .task-lift-card, .admin-shortcut, .zone-card[data-zone-open]) { transition: none; }
+  :is(:root, #portal-content[data-role]) :is(.task-lift, .task-lift-card, .admin-shortcut, .zone-card[data-zone-open]):not(:disabled):not([aria-disabled="true"]):is(:hover, :focus-visible, :has(:focus-visible), [data-lift-selected="true"]) { transform: none; }
 }
 
 /* ---------- Notas del consultor en tarjetas (components/zone-notes.tsx) ----------
@@ -1255,7 +1121,6 @@ body:has(#portal-content.trabajo-theme) {
   box-shadow: 0 0 0 1px #d6d2cd, 0 6px 20px -8px rgb(61 59 58 / 20%);
 }
 .zone-card[data-zone-open] { cursor: pointer; }
-.zone-card[data-zone-open]:hover { transform: translateY(-1px); }
 .zone-card[data-zone-open]:focus-visible { outline: 2px solid #262423; outline-offset: 2px; }
 .zone-card { transition: box-shadow 200ms ease, transform 200ms ease; }
 /* Copia de la tarjeta dentro del modal: sin marca ni halo. */
@@ -1373,14 +1238,8 @@ body:has(#portal-content.trabajo-theme) {
 .zone-note-meta .zone-note-seen:hover {
   background: #57534f;
 }
-/* Compositor de notas: superficie elevada que se separa del panel, cabecera
-   con la cifra, duración segmentada y pie con la acción. */
-.zone-note-popover {
-  border: 1px solid #dedad6;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgb(38 36 35 / 6%), 0 12px 32px -4px rgb(38 36 35 / 18%);
-}
+/* Compositor de notas (dentro de un Popover, que pone la superficie):
+   cabecera con la cifra, duración segmentada y pie con la acción. */
 .zone-note-pop {
   box-sizing: border-box;
   display: grid;
@@ -1527,4 +1386,2101 @@ body:has(#portal-content.trabajo-theme) {
     animation: none;
     box-shadow: 0 0 0 2px var(--accent);
   }
+}
+
+/* Las tarjetas exteriores son secciones abiertas sobre el fondo común.
+   Se conserva el contenedor para sus anclas, títulos y distribución; las
+   superficies de diálogo mantienen su contención propia. */
+:is(body, #portal-content[data-role]) .ui-card:not(:where(dialog, [role="dialog"], [role="alertdialog"]) .ui-card) {
+  padding: 0;
+  gap: 1.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+:is(body, #portal-content[data-role]) .ui-card:not(:where(dialog, [role="dialog"], [role="alertdialog"]) .ui-card) > :is(.ui-card__header, .ui-card__content, .ui-card__footer) {
+  padding-inline: 0;
+}
+:is(body, #portal-content[data-role]) .ui-card:not(:where(dialog, [role="dialog"], [role="alertdialog"]) .ui-card) > .ui-card__footer {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+/* Ajustes de tablas de las vistas que ya usaban el modo minimalista. */
+.nora-min table { font-size: 15px; }
+.nora-min table th { font-size: 13.5px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.nora-min table td { padding-block: 14px; }
+.nora-min table td .text-xs, .nora-min table th.text-xs { font-size: 13.5px; }
+.nora-min .ui-data-table__frame {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.nora-min [data-slot="card-content"] { padding-inline: 0; }
+.nora-min [data-slot="card-header"] { padding-inline: 0; }
+/* meta paper: suave */
+
+/* Cliente y consultor: sin cabeceras que solo dicen en qué página o subpágina
+   está (el menú ya lo marca). Siguen en el DOM para los lectores de pantalla. */
+#portal-content[data-role] .client-sr-title {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Botón único (components/ui/button.tsx): API de shadcn, variant × size.
+   En @layer components, como el CSS de HeroUI, para que cualquier utilidad de
+   Tailwind en `className` gane. Los colores son tokens del tema, así que el
+   tema por rol/canal los recolorea sin tocar cada botón.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Primario y secundario de marca: el morado de E-NORA. No siguen a --accent
+     (que cambia por rol y canal): los botones son iguales en toda la app. */
+  --btn-primary: var(--nora-dash-accent);
+  --btn-primary-hover: var(--nora-dash-accent-hover);
+  --btn-primary-foreground: #ffffff;
+  /* Secundario sin relleno: transparente con borde morado suave. */
+  --btn-secondary: transparent;
+  --btn-secondary-hover: var(--nora-dash-accent-soft);
+  --btn-secondary-border: color-mix(in srgb, var(--nora-dash-accent) 35%, transparent);
+  --btn-secondary-foreground: var(--nora-dash-accent-hover);
+  /* Navegación dentro de las páginas: solo el texto activo y el subrayado van en morado. */
+  --nav-active: var(--nora-dash-accent);
+}
+
+@layer components {
+  .ui-btn {
+    --btn-bg: transparent;
+    --btn-bg-hover: var(--btn-bg);
+    --btn-fg: var(--foreground);
+    --btn-border: transparent;
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.25rem;
+    padding: 0 1rem;
+    border: 1px solid var(--btn-border);
+    border-radius: var(--radius);
+    background-color: var(--btn-bg);
+    color: var(--btn-fg);
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+  }
+  .ui-btn:hover { background-color: var(--btn-bg-hover); }
+  .ui-btn:active { transform: scale(0.98); }
+  .ui-btn:focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+  .ui-btn:disabled,
+  .ui-btn[aria-disabled="true"] { opacity: 0.5; cursor: default; pointer-events: none; }
+  .ui-btn svg { width: 1rem; height: 1rem; flex-shrink: 0; pointer-events: none; }
+  .ui-btn [data-icon="inline-start"] { margin-inline-start: -0.125rem; }
+  .ui-btn [data-icon="inline-end"] { margin-inline-end: -0.125rem; }
+
+  .ui-btn--default { --btn-bg: var(--btn-primary); --btn-bg-hover: var(--btn-primary-hover); --btn-fg: var(--btn-primary-foreground); }
+  .ui-btn--secondary { --btn-bg: var(--btn-secondary); --btn-bg-hover: var(--btn-secondary-hover); --btn-fg: var(--btn-secondary-foreground); --btn-border: var(--btn-secondary-border); }
+  .ui-btn--outline { --btn-bg-hover: var(--default); --btn-border: var(--border); }
+  .ui-btn--ghost { --btn-bg-hover: var(--default); --btn-fg: var(--default-foreground); }
+  .ui-btn--destructive { --btn-bg: var(--danger); --btn-bg-hover: var(--danger-hover); --btn-fg: var(--danger-foreground); }
+  .ui-btn--link { --btn-fg: var(--btn-primary); height: auto; padding: 0; border: 0; text-underline-offset: 4px; }
+  .ui-btn--link:hover { text-decoration: underline; }
+  .ui-btn--link:active { transform: none; }
+
+  .ui-btn--xs { height: 1.5rem; padding: 0 0.5rem; gap: 0.25rem; font-size: 0.75rem; }
+  .ui-btn--xs svg { width: 0.75rem; height: 0.75rem; }
+  .ui-btn--sm { height: 2rem; padding: 0 0.75rem; gap: 0.375rem; }
+  .ui-btn--lg { height: 2.5rem; padding: 0 1.5rem; }
+  .ui-btn--icon { width: 2.25rem; padding: 0; }
+  .ui-btn--icon-xs { width: 1.5rem; height: 1.5rem; padding: 0; }
+  .ui-btn--icon-xs svg { width: 0.75rem; height: 0.75rem; }
+  .ui-btn--icon-sm { width: 2rem; height: 2rem; padding: 0; }
+  .ui-btn--icon-lg { width: 2.5rem; height: 2.5rem; padding: 0; }
+
+  /* Con el dedo el mínimo usable son 44 px; va por capacidad del dispositivo,
+     no por ancho de pantalla (un portátil táctil también lo necesita). */
+  @media (pointer: coarse) {
+    .ui-btn:not(.ui-btn--link) { min-height: 2.75rem; }
+    .ui-btn:is(.ui-btn--icon, .ui-btn--icon-xs, .ui-btn--icon-sm, .ui-btn--icon-lg) { min-width: 2.75rem; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Aviso único (components/ui/alert.tsx): API de shadcn. Mismo criterio que el
+   botón: @layer components para que `className` gane. Rejilla de tres
+   columnas: icono | texto | acción. Sin icono la primera mide 0; sin acción, la
+   tercera no existe. Colores sacados de la paleta (blanco, gris, morado) y de
+   los tokens de estado, nunca valores sueltos.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-alert {
+    --alert-bg: var(--nora-purple-50);
+    --alert-border: color-mix(in srgb, var(--nora-purple) 18%, var(--nora-white));
+    --alert-icon: var(--nora-purple);
+    --alert-title: var(--foreground);
+    --alert-text: color-mix(in srgb, var(--foreground) 78%, var(--nora-white));
+    position: relative;
+    display: grid;
+    grid-template-columns: 0 minmax(0, 1fr);
+    align-items: start;
+    column-gap: 0;
+    row-gap: 0.125rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--alert-border);
+    border-radius: var(--radius);
+    background-color: var(--alert-bg);
+    color: var(--alert-text);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: start;
+  }
+  .ui-alert:has(> svg) { grid-template-columns: 1rem minmax(0, 1fr); column-gap: 0.75rem; }
+  .ui-alert:has(> .ui-alert__action) { grid-template-columns: 0 minmax(0, 1fr) auto; }
+  .ui-alert:has(> svg):has(> .ui-alert__action) { grid-template-columns: 1rem minmax(0, 1fr) auto; }
+  .ui-alert > svg { grid-row: 1 / span 2; width: 1rem; height: 1rem; margin-top: 0.125rem; color: var(--alert-icon); }
+  .ui-alert__title { grid-column: 2; color: var(--alert-title); font-weight: 600; letter-spacing: -0.01em; }
+  .ui-alert__description { grid-column: 2; display: grid; justify-items: start; gap: 0.25rem; }
+  .ui-alert__description :is(ul, ol) { margin: 0; }
+  .ui-alert__description a:not(.ui-btn) { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+  .ui-alert__action { grid-column: 3; grid-row: 1 / span 2; align-self: center; display: flex; flex-wrap: wrap; gap: 0.5rem; margin-inline-start: 1rem; }
+  @media (max-width: 640px) {
+    .ui-alert:has(> .ui-alert__action) { grid-template-columns: 0 minmax(0, 1fr); }
+    .ui-alert:has(> svg):has(> .ui-alert__action) { grid-template-columns: 1rem minmax(0, 1fr); }
+    .ui-alert__action { grid-column: 2; grid-row: auto; margin: 0.5rem 0 0; }
+  }
+
+  .ui-alert--success {
+    --alert-bg: var(--nora-white);
+    --alert-border: var(--nora-gray-100);
+    --alert-icon: var(--nora-gray);
+  }
+  .ui-alert--warning {
+    --alert-bg: color-mix(in srgb, var(--warning) 7%, var(--nora-white));
+    --alert-border: color-mix(in srgb, var(--warning) 24%, var(--nora-white));
+    --alert-icon: var(--warning);
+  }
+  .ui-alert--destructive {
+    --alert-bg: color-mix(in srgb, var(--danger) 5%, var(--nora-white));
+    --alert-border: color-mix(in srgb, var(--danger) 24%, var(--nora-white));
+    --alert-icon: var(--danger);
+    --alert-title: color-mix(in srgb, var(--danger) 82%, var(--foreground));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Tarjeta única (components/ui/card.tsx): API de shadcn. Mismo criterio que el
+   botón y el aviso: @layer components para que `className` gane. Todo el
+   espaciado sale de --card-spacing (16 px; 12 px con size="sm"). Blanco puro
+   sobre el fondo de la app, borde del gris del logo muy rebajado y el radio
+   único (ADR-0020). El morado no tiñe la tarjeta: solo lo llevan sus botones.
+
+   Diferencias deliberadas con shadcn: el borde es un `border` real y no un
+   ring, porque los temas por zona (.trabajo-theme, data-channel, nora-min) lo
+   recolorean o lo quitan con border-color/box-shadow; sin overflow:hidden, que
+   cortaba popovers y sticky; y la letra se hereda (la escala la fija el
+   cuerpo, ver legibilidad).
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-card {
+    --card-spacing: 1rem;
+    --card-border: color-mix(in srgb, var(--nora-gray) 14%, var(--nora-white));
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--card-spacing);
+    width: 100%;
+    min-width: 0;
+    padding-block: var(--card-spacing);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    background-color: var(--nora-white);
+    color: var(--foreground);
+  }
+  .ui-card[data-size="sm"] { --card-spacing: 0.75rem; }
+  .ui-card:has(> .ui-card__footer) { padding-bottom: 0; }
+  .ui-card:has(> img:first-child) { padding-top: 0; }
+  .ui-card > img:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+  .ui-card > img:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+
+  /* Cabecera: texto a la izquierda y CardAction arriba a la derecha. Si la
+     tarjeta es estrecha la acción baja debajo del texto, como hacía el
+     wrapper anterior con flex-wrap. */
+  .ui-card__header {
+    container: card-header / inline-size;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: min-content;
+    align-items: start;
+    row-gap: 0.25rem;
+    padding-inline: var(--card-spacing);
+  }
+  .ui-card__header:has(> .ui-card__action) { grid-template-columns: minmax(0, 1fr) auto; }
+  .ui-card__header.border-b { padding-bottom: var(--card-spacing); }
+  /* Un título o una descripción condicional que llega vacío no deja hueco. */
+  .ui-card__header > :empty { display: none; }
+  .ui-card__header:not(:has(> :not(:empty))) { display: none; }
+
+  .ui-card__kicker,
+  .ui-card__title,
+  .ui-card__description { grid-column: 1; }
+  .ui-card__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--color-ink);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+  .ui-card[data-size="sm"] > .ui-card__header > .ui-card__title { font-size: 0.875rem; }
+  .ui-card__description { color: var(--color-muted); font-size: 0.875rem; line-height: 1.5; }
+
+  .ui-card__action {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-inline-start: 1rem;
+  }
+  @container card-header (min-width: 18rem) {
+    .ui-card__header:is(:has(> .ui-card__kicker:not(:empty)), :has(> .ui-card__description:not(:empty))) > .ui-card__action { grid-row: 1 / span 2; }
+    .ui-card__header:has(> .ui-card__kicker:not(:empty)):has(> .ui-card__description:not(:empty)) > .ui-card__action { grid-row: 1 / span 3; }
+  }
+  @container card-header (max-width: 18rem) {
+    .ui-card__header > .ui-card__action {
+      grid-column: 1 / -1;
+      grid-row: auto;
+      justify-self: start;
+      margin: 0.5rem 0 0;
+    }
+  }
+
+  .ui-card__content { min-width: 0; padding-inline: var(--card-spacing); }
+
+  /* Casilla única (components/ui/checkbox.tsx): 16 px, radio de 4 px como la
+     de shadcn, borde gris del logo y relleno morado al marcarla. La marca y
+     el guion son SVG en línea para no depender de una fuente de iconos. */
+  .ui-checkbox {
+    --checkbox-accent: var(--nora-purple);
+    appearance: none;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    border: 1px solid color-mix(in srgb, var(--nora-gray) 38%, var(--nora-white));
+    border-radius: 4px;
+    background: var(--nora-white) center / 0.75rem no-repeat;
+    cursor: pointer;
+    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .ui-checkbox:hover:not(:disabled) { border-color: color-mix(in srgb, var(--nora-gray) 60%, var(--nora-white)); }
+  .ui-checkbox:checked,
+  .ui-checkbox:indeterminate { border-color: var(--checkbox-accent); background-color: var(--checkbox-accent); }
+  .ui-checkbox:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  }
+  .ui-checkbox:indeterminate {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
+  }
+  .ui-checkbox:focus-visible {
+    outline: none;
+    border-color: var(--checkbox-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--checkbox-accent) 22%, transparent);
+  }
+  .ui-checkbox[aria-invalid="true"] {
+    --checkbox-accent: var(--danger);
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+  }
+  .ui-checkbox:disabled { cursor: not-allowed; opacity: 0.5; }
+
+  /* Radio único (components/ui/radio-group.tsx): el mismo trazo que la
+     casilla, redondo, con el punto morado al marcarlo. */
+  .ui-radio {
+    --radio-accent: var(--nora-purple);
+    appearance: none;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    border: 1px solid color-mix(in srgb, var(--nora-gray) 38%, var(--nora-white));
+    border-radius: 50%;
+    background: var(--nora-white);
+    cursor: pointer;
+    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .ui-radio:hover:not(:disabled) { border-color: color-mix(in srgb, var(--nora-gray) 60%, var(--nora-white)); }
+  .ui-radio:checked { border-color: var(--radio-accent); background-image: radial-gradient(circle, var(--radio-accent) 0 0.25rem, transparent calc(0.25rem + 0.5px)); }
+  .ui-radio:focus-visible {
+    outline: none;
+    border-color: var(--radio-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--radio-accent) 22%, transparent);
+  }
+  .ui-radio[aria-invalid="true"] {
+    --radio-accent: var(--danger);
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+  }
+  .ui-radio:disabled { cursor: not-allowed; opacity: 0.5; }
+  .ui-radio-group { display: grid; gap: 0.75rem; min-width: 0; }
+  .ui-radio-group[data-orientation="horizontal"] { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+
+  .ui-checkbox-field {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    cursor: pointer;
+  }
+  /* Alinea la casilla con la primera línea del texto (14 px × 1,5). */
+  .ui-checkbox-field > .ui-checkbox { margin-top: 0.15625rem; }
+  .ui-checkbox-field__label { min-width: 0; }
+  .ui-checkbox-field:has(> .ui-checkbox:disabled) { cursor: not-allowed; opacity: 0.6; }
+  .ui-checkbox-field:has(> .ui-checkbox:disabled) > .ui-checkbox { opacity: 1; }
+  .ui-checkbox-field > .ui-radio { margin-top: 0.15625rem; }
+  .ui-checkbox-field:has(> .ui-radio:disabled) { cursor: not-allowed; opacity: 0.6; }
+  .ui-checkbox-field:has(> .ui-radio:disabled) > .ui-radio { opacity: 1; }
+
+  .ui-card__footer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: var(--card-spacing);
+    border-top: 1px solid var(--card-border);
+    border-radius: 0 0 var(--radius) var(--radius);
+    background-color: var(--nora-gray-50);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Vacío único (components/ui/empty.tsx): API de shadcn. Centrado y sin borde;
+   el contorno discontinuo se pide con `border border-dashed`. size="sm" es la
+   lista vacía dentro de una tarjeta: una línea gris, sin título grande.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    min-width: 0;
+    padding: 2rem 1.5rem;
+    border-radius: var(--radius);
+    border-color: color-mix(in srgb, var(--nora-gray) 20%, var(--nora-white));
+    text-align: center;
+    text-wrap: balance;
+  }
+  .ui-empty[data-size="sm"] { gap: 0.75rem; padding: 1.25rem 1rem; }
+
+  .ui-empty__header { display: flex; flex-direction: column; align-items: center; gap: 0.375rem; max-width: 28rem; }
+  .ui-empty__media { display: flex; flex-shrink: 0; align-items: center; justify-content: center; margin-bottom: 0.5rem; }
+  .ui-empty__media svg { flex-shrink: 0; pointer-events: none; }
+  .ui-empty__media[data-variant="icon"] {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius);
+    background-color: var(--nora-gray-50);
+    color: var(--color-ink);
+  }
+  .ui-empty__media[data-variant="icon"] svg:not([class*="size-"]) { width: 1.25rem; height: 1.25rem; }
+  .ui-empty[data-size="sm"] .ui-empty__media { margin-bottom: 0.25rem; }
+  .ui-empty[data-size="sm"] .ui-empty__media[data-variant="icon"] { width: 2rem; height: 2rem; background-color: transparent; color: var(--color-muted); }
+
+  .ui-empty__title {
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+  .ui-empty[data-size="sm"] .ui-empty__title { color: var(--color-muted); font-family: inherit; font-size: 0.875rem; font-weight: 400; line-height: 1.5; letter-spacing: 0; }
+  .ui-empty__description { color: var(--color-muted); font-size: 0.875rem; line-height: 1.6; }
+  .ui-empty__description a:not(.ui-btn) { color: inherit; text-decoration: underline; text-underline-offset: 4px; }
+  .ui-empty__description a:not(.ui-btn):hover { color: var(--nora-purple); }
+
+  .ui-empty__content { display: flex; flex-direction: column; align-items: center; gap: 1rem; width: 100%; max-width: 28rem; min-width: 0; font-size: 0.875rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Campo único (components/ui/field.tsx): API de shadcn. Etiqueta de 14 px en
+   peso medio encima del control; la ayuda, gris y también de 14 px
+   (legibilidad: nada secundario por debajo); el error, en rojo. Horizontal
+   pone el control al lado (Checkbox, Switch); responsive apila en estrecho y
+   pasa a fila cuando el FieldGroup mide 28rem o más.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+  }
+  .ui-field[data-orientation="horizontal"] { flex-direction: row; align-items: center; gap: 0.75rem; }
+  .ui-field[data-orientation="horizontal"]:has(> .ui-field__content) { align-items: flex-start; }
+  .ui-field[data-orientation="horizontal"] > .ui-field__label { flex: 1 1 auto; }
+  .ui-field[data-orientation="horizontal"]:has(> .ui-field__content) > :is(.ui-checkbox, .ui-radio) { margin-top: 0.15625rem; }
+  @container field-group (min-width: 28rem) {
+    .ui-field[data-orientation="responsive"] { flex-direction: row; align-items: center; gap: 1rem; }
+    .ui-field[data-orientation="responsive"] > :is(.ui-field__label, .ui-field__content) { flex: 1 1 auto; }
+    .ui-field[data-orientation="responsive"]:has(> .ui-field__content) { align-items: flex-start; }
+  }
+
+  .ui-field__content { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0.25rem; min-width: 0; }
+
+  .ui-field__label,
+  .ui-field__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: fit-content;
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .ui-field:has(> :is(input, textarea, select, button):disabled) > .ui-field__label { cursor: not-allowed; opacity: 0.6; }
+
+  /* Tarjeta de elección: FieldLabel que envuelve un Field con su casilla o
+     radio. Marcada, borde y fondo morado suave. */
+  .ui-field__label:has(> .ui-field) {
+    width: 100%;
+    border: 1px solid color-mix(in srgb, var(--nora-gray) 14%, var(--nora-white));
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .ui-field__label:has(> .ui-field) > .ui-field { padding: 0.75rem 1rem; }
+  .ui-field__label:has(> .ui-field):has(:checked) {
+    border-color: var(--nora-purple);
+    background-color: color-mix(in srgb, var(--nora-purple) 6%, var(--nora-white));
+  }
+  .ui-field__label:has(> .ui-field):has(:focus-visible) { border-color: var(--nora-purple); }
+  .ui-field__label:has(> .ui-field):has(:disabled) { cursor: not-allowed; opacity: 0.6; }
+  /* Logo o icono a la izquierda de una RadioCard. */
+  .ui-radio-card__media { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; }
+
+  .ui-field__description { margin: 0; color: var(--color-muted); font-size: 0.875rem; font-weight: 400; line-height: 1.5; text-wrap: pretty; }
+  .ui-field__description a:not(.ui-btn) { color: inherit; text-decoration: underline; text-underline-offset: 4px; }
+  .ui-field__description a:not(.ui-btn):hover { color: var(--nora-purple); }
+  .ui-field__error { color: var(--danger); font-size: 0.875rem; font-weight: 400; line-height: 1.5; }
+
+  .ui-field-group { container: field-group / inline-size; display: flex; flex-direction: column; gap: 1.5rem; width: 100%; }
+  .ui-field-group .ui-field-group { gap: 1rem; }
+
+  .ui-field-set { display: flex; flex-direction: column; gap: 1rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+  /* La leyenda no es un hijo flex del fieldset (el navegador la saca aparte):
+     el aire hasta lo siguiente es su margen, más corto si sigue una descripción. */
+  .ui-field-legend { margin: 0 0 0.75rem; padding: 0; color: var(--color-ink); font-size: 1rem; font-weight: 600; line-height: 1.4; }
+  .ui-field-legend[data-variant="label"] { font-size: 0.875rem; font-weight: 500; }
+  .ui-field-legend:has(+ .ui-field__description) { margin-bottom: 0.25rem; }
+
+  .ui-field-separator { position: relative; height: 1.25rem; margin-block: -0.5rem; font-size: 0.875rem; }
+  .ui-field-separator::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 50%;
+    border-top: 1px solid color-mix(in srgb, var(--nora-gray) 14%, var(--nora-white));
+  }
+  .ui-field-separator__content {
+    position: relative;
+    display: block;
+    width: fit-content;
+    margin-inline: auto;
+    padding-inline: 0.5rem;
+    background-color: var(--nora-white);
+    color: var(--color-muted);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Combobox único (components/ui/combobox.tsx): API de shadcn. La caja copia
+   la del campo de texto; el foco y la opción resaltada van en morado suave;
+   el desplegable es blanco con el borde de las tarjetas y vive en la capa
+   superior (popover), por eso lleva position: fixed y no z-index.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-combobox__control,
+  .ui-combobox__chips {
+    --combobox-border: color-mix(in srgb, var(--nora-gray) 22%, var(--nora-white));
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    min-height: 2.25rem;
+    border: 1px solid var(--combobox-border);
+    border-radius: var(--radius);
+    background-color: var(--nora-white);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .ui-combobox__control { padding: 0 0.25rem 0 0.75rem; }
+  .ui-combobox__chips { flex-wrap: wrap; padding: 0.25rem 0.5rem; cursor: text; }
+  .ui-combobox__control:focus-within,
+  .ui-combobox__chips:focus-within {
+    border-color: var(--nora-purple);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--nora-purple) 18%, transparent);
+  }
+  .ui-combobox__control[data-invalid] { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent); }
+  .ui-combobox__control[data-disabled],
+  .ui-combobox__chips[data-disabled] { cursor: not-allowed; opacity: 0.5; }
+  .ui-combobox__control > svg { flex-shrink: 0; width: 1rem; height: 1rem; color: var(--color-muted); }
+
+  .ui-combobox__input,
+  .ui-combobox__chips-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    outline: none !important;
+  }
+  .ui-combobox__input::placeholder,
+  .ui-combobox__chips-input::placeholder { color: var(--color-muted); }
+  .ui-combobox__chips-input { min-width: 6rem; height: 1.75rem; padding-inline: 0.25rem; }
+
+  .ui-combobox__icon-btn {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 0;
+    border-radius: calc(var(--radius) - 2px);
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+  .ui-combobox__icon-btn:hover { background-color: var(--nora-gray-50); color: var(--foreground); }
+  .ui-combobox__icon-btn svg { width: 1rem; height: 1rem; }
+
+  .ui-combobox__trigger { min-width: 0; }
+  /* Botón sin caja para la barra superior (mismo aspecto que Select bare). */
+  .ui-combobox__bare {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.35rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .ui-combobox__bare:hover,
+  .ui-combobox__bare[aria-expanded="true"] { color: var(--color-ink); }
+  .ui-combobox__bare > svg { flex: none; width: 0.9rem; height: 0.9rem; }
+  .ui-combobox__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .ui-combobox__content {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    padding: 0.25rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    max-width: min(28rem, calc(100vw - 1rem));
+    border: 1px solid color-mix(in srgb, var(--nora-gray) 14%, var(--nora-white));
+    border-radius: var(--radius);
+    background-color: var(--nora-white);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    box-shadow: 0 10px 28px rgb(61 59 58 / 12%), 0 2px 6px rgb(61 59 58 / 6%);
+  }
+  .ui-combobox__search {
+    position: sticky;
+    top: -0.25rem;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: -0.25rem -0.25rem 0.25rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--nora-gray) 10%, var(--nora-white));
+    background-color: var(--nora-white);
+  }
+  .ui-combobox__search > svg { flex-shrink: 0; width: 1rem; height: 1rem; color: var(--color-muted); }
+  .ui-combobox__search > .ui-combobox__input { height: 2.5rem; }
+
+  .ui-combobox__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: calc(var(--radius) - 2px);
+    cursor: pointer;
+    user-select: none;
+  }
+  .ui-combobox__item[data-highlighted] { background-color: var(--nora-purple-100); }
+  .ui-combobox__item[aria-disabled="true"] { cursor: not-allowed; opacity: 0.5; }
+  .ui-combobox__item-text { flex: 1 1 auto; min-width: 0; }
+  .ui-combobox__indicator { display: grid; flex-shrink: 0; place-items: center; width: 1rem; color: var(--nora-purple); }
+  .ui-combobox__indicator svg { width: 1rem; height: 1rem; }
+  /* Descripción de una opción (título + detalle). */
+  .ui-combobox__hint { display: block; color: var(--color-muted); font-size: 0.75rem; }
+
+  .ui-combobox__label { padding: 0.5rem 0.5rem 0.25rem; color: var(--color-muted); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
+  .ui-combobox__group:last-child > .ui-combobox__separator { display: none; }
+  .ui-combobox__separator { height: 1px; margin: 0.25rem -0.25rem; background-color: color-mix(in srgb, var(--nora-gray) 10%, var(--nora-white)); }
+  .ui-combobox__empty { padding: 0.75rem 0.5rem; color: var(--color-muted); text-align: center; }
+
+  .ui-combobox__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    max-width: 100%;
+    height: 1.5rem;
+    padding: 0 0.125rem 0 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--nora-purple) 18%, var(--nora-white));
+    border-radius: 4px;
+    background-color: var(--nora-purple-50);
+    color: var(--nora-dash-accent-hover);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+  .ui-combobox__chip-remove {
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .ui-combobox__chip-remove:hover { background-color: color-mix(in srgb, var(--nora-purple) 14%, var(--nora-white)); }
+  .ui-combobox__chip-remove svg { width: 0.75rem; height: 0.75rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Adjunto único (components/ui/attachment.tsx): API de shadcn. Tarjeta con
+   miniatura | nombre y datos | acciones; en vertical la miniatura va arriba.
+   El trigger cubre la tarjeta por detrás de las acciones, así ambas cosas se
+   pueden pulsar por separado.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-attachment {
+    --att-media: 2.5rem;
+    --att-pad: 0.5rem;
+    --att-border: var(--nora-gray-100);
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+    padding: var(--att-pad);
+    border: 1px solid var(--att-border);
+    border-radius: var(--radius);
+    background-color: var(--nora-white);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    text-align: start;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .ui-attachment[data-size="sm"] { --att-media: 2rem; --att-pad: 0.375rem; font-size: 0.8125rem; gap: 0.5rem; }
+  .ui-attachment[data-size="xs"] { --att-media: 1.5rem; --att-pad: 0.25rem 0.5rem 0.25rem 0.25rem; font-size: 0.75rem; gap: 0.5rem; }
+  .ui-attachment[data-size="xs"] .ui-attachment__description { display: none; }
+
+  .ui-attachment__media {
+    position: relative;
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: var(--att-media);
+    height: var(--att-media);
+    overflow: hidden;
+    border-radius: calc(var(--radius) - 2px);
+    background-color: var(--nora-gray-50);
+    color: color-mix(in srgb, var(--foreground) 70%, var(--nora-white));
+  }
+  .ui-attachment__media svg { width: 1rem; height: 1rem; }
+  .ui-attachment[data-size="xs"] .ui-attachment__media svg { width: 0.875rem; height: 0.875rem; }
+  .ui-attachment__media[data-variant="image"] { background-color: var(--nora-gray-100); }
+  .ui-attachment__media[data-variant="image"] > img { width: 100%; height: 100%; object-fit: cover; }
+
+  .ui-attachment__content { display: grid; flex: 1; min-width: 0; gap: 0.0625rem; }
+  .ui-attachment__title { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-attachment__description {
+    overflow: hidden;
+    color: color-mix(in srgb, var(--foreground) 62%, var(--nora-white));
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ui-attachment__actions { position: relative; z-index: 2; display: flex; flex-shrink: 0; align-items: center; gap: 0.125rem; margin-inline-start: auto; }
+  .ui-attachment__trigger {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .ui-attachment__trigger:focus-visible { outline: 2px solid var(--nora-purple); outline-offset: 2px; }
+  .ui-attachment:has(> .ui-attachment__trigger:hover) { --att-border: color-mix(in srgb, var(--foreground) 30%, var(--nora-white)); }
+  /* Elegida (aria-pressed en selectores) o abierta (aria-expanded, p. ej. su ficha). */
+  .ui-attachment:has(> .ui-attachment__trigger:is([aria-pressed="true"], [aria-expanded="true"])) {
+    --att-border: var(--nora-purple);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--nora-purple) 22%, transparent);
+  }
+
+  /* Vertical: miniatura a todo el ancho y acciones en la esquina. */
+  .ui-attachment[data-orientation="vertical"] { flex-direction: column; align-items: stretch; gap: 0.5rem; padding: 0.375rem 0.375rem 0.5rem; }
+  .ui-attachment[data-orientation="vertical"] .ui-attachment__media { width: 100%; height: auto; aspect-ratio: 4 / 3; }
+  .ui-attachment[data-orientation="vertical"] .ui-attachment__content { padding-inline: 0.25rem; }
+  .ui-attachment[data-orientation="vertical"] .ui-attachment__actions { position: absolute; top: 0.75rem; inset-inline-end: 0.75rem; margin: 0; }
+  .ui-attachment[data-orientation="vertical"] .ui-attachment__actions .ui-btn { background-color: color-mix(in srgb, var(--nora-white) 92%, transparent); }
+
+  /* Estados de la subida. */
+  .ui-attachment:is([data-state="uploading"], [data-state="processing"]) .ui-attachment__title {
+    background: linear-gradient(90deg, var(--foreground) 35%, color-mix(in srgb, var(--foreground) 30%, var(--nora-white)) 50%, var(--foreground) 65%) 0 0 / 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: ui-attachment-shimmer 1.6s linear infinite;
+  }
+  .ui-attachment[data-state="error"] { --att-border: color-mix(in srgb, var(--danger) 35%, var(--nora-white)); background-color: color-mix(in srgb, var(--danger) 4%, var(--nora-white)); }
+  .ui-attachment[data-state="error"] .ui-attachment__media { background-color: color-mix(in srgb, var(--danger) 10%, var(--nora-white)); color: var(--danger); }
+  .ui-attachment[data-state="error"] .ui-attachment__description { color: var(--danger); }
+  .ui-attachment[data-state="idle"] { border-style: dashed; }
+
+  .ui-attachment-group {
+    display: flex;
+    gap: 0.5rem;
+    margin-inline: -0.75rem;
+    padding: 0.125rem 0.75rem 0.375rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 0.75rem;
+    scrollbar-width: thin;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
+  }
+  .ui-attachment-group > .ui-attachment { flex-shrink: 0; scroll-snap-align: start; }
+  .ui-attachment-group > .ui-attachment[data-orientation="vertical"] { width: 10rem; }
+
+  @keyframes ui-attachment-shimmer { to { background-position: -250% 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-attachment:is([data-state="uploading"], [data-state="processing"]) .ui-attachment__title { animation: none; color: var(--foreground); background: none; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Acordeón único (components/ui/accordion.tsx): API de shadcn. Mismo criterio
+   que el botón: @layer components para que `className` gane. El panel se
+   abre animando grid-template-rows (0fr → 1fr), sin medir alturas en JS.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-accordion { display: grid; }
+  .ui-accordion__item { border-bottom: 1px solid var(--separator); }
+  .ui-accordion__item:last-child { border-bottom: 0; }
+  /* flex: 1 para que, en una fila con acciones al lado, el disparador ocupe el resto. */
+  .ui-accordion__header { display: flex; flex: 1; min-width: 0; margin: 0; font: inherit; }
+  .ui-accordion__trigger {
+    display: flex;
+    flex: 1;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    min-width: 0;
+    padding: 1rem 0;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.4;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ui-accordion__trigger:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .ui-accordion__trigger:focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+  .ui-accordion__trigger:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+  .ui-accordion__chevron {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.125rem;
+    color: var(--muted);
+    pointer-events: none;
+    transition: transform 200ms ease;
+  }
+  .ui-accordion__trigger[aria-expanded="true"] > .ui-accordion__chevron { transform: rotate(180deg); }
+  .ui-accordion__panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    font-size: 0.875rem;
+    transition: grid-template-rows 200ms ease;
+  }
+  .ui-accordion__panel[data-open] { grid-template-rows: 1fr; }
+  .ui-accordion__clip { min-height: 0; overflow: hidden; }
+  /* Abierto, deja asomar los anillos de foco de lo que va pegado al borde. */
+  .ui-accordion__panel[data-open] > .ui-accordion__clip { overflow: clip; overflow-clip-margin: 0.375rem; }
+  .ui-accordion__content { padding-bottom: 1rem; }
+
+  @media (pointer: coarse) {
+    .ui-accordion__trigger { min-height: 2.75rem; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Plegable único (components/ui/collapsible.tsx): API de shadcn, misma
+   animación que el acordeón (grid-template-rows 0fr → 1fr). El disparador sin
+   `render` no trae aspecto: lo pone quien lo usa o CollapsibleSection.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-collapsible__trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ui-collapsible__trigger:focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+  .ui-collapsible__trigger:disabled { opacity: 0.5; cursor: default; }
+  .ui-collapsible__chevron { flex-shrink: 0; width: 1rem; height: 1rem; color: var(--muted); transition: rotate 200ms ease; }
+  [data-slot="collapsible-trigger"][data-state="open"] .ui-collapsible__chevron { rotate: 180deg; }
+  .ui-collapsible__panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 200ms ease; }
+  .ui-collapsible__panel[data-state="open"] { grid-template-rows: 1fr; }
+  .ui-collapsible__clip { min-height: 0; overflow: hidden; }
+  .ui-collapsible__panel[data-state="open"] > .ui-collapsible__clip { overflow: clip; overflow-clip-margin: 0.375rem; }
+
+  /* CollapsibleSection: caja con borde, título y flecha. */
+  .ui-collapsible-section { border: 1px solid var(--separator); border-radius: var(--radius); background: var(--background); }
+  .ui-collapsible-section > .ui-collapsible__trigger {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .ui-collapsible-section__body { border-top: 1px solid var(--separator); padding: 1rem; }
+
+  @media (pointer: coarse) {
+    .ui-collapsible-section > .ui-collapsible__trigger { min-height: 2.75rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-collapsible__panel, .ui-collapsible__chevron { transition: none; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Command (components/ui/command.tsx): API de shadcn. Lista con buscador; el
+   elemento activo va en gris (como el hover de los botones fantasma) y el
+   texto sigue en negro. CommandDialog = paleta ⌘K sobre un <dialog> nativo.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-command {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+  }
+  .ui-command__input {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.75rem;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--separator);
+  }
+  .ui-command__input svg { width: 1rem; height: 1rem; flex-shrink: 0; color: var(--muted); }
+  .ui-command__input input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.875rem;
+  }
+  .ui-command__input input::placeholder { color: var(--muted); }
+  .ui-command__list { max-height: 20rem; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 0.25rem; }
+  .ui-command__empty { padding: 1.5rem 1rem; color: var(--muted); font-size: 0.875rem; text-align: center; }
+  .ui-command__group { padding: 0.25rem; }
+  .ui-command__group:not(:has([data-slot="command-item"])) { display: none; }
+  .ui-command__heading { padding: 0.375rem 0.5rem; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
+  .ui-command__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: calc(var(--radius) - 2px);
+    font-size: 0.875rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .ui-command__item svg { width: 1rem; height: 1rem; flex-shrink: 0; color: var(--muted); }
+  .ui-command__item[data-selected] { background: var(--default); color: var(--foreground); }
+  .ui-command__item[data-selected] svg { color: var(--foreground); }
+  .ui-command__item[data-disabled] { opacity: 0.5; cursor: default; pointer-events: none; }
+  .ui-command__separator { height: 1px; margin: 0 -0.25rem; background: var(--separator); }
+  .ui-command[data-searching] .ui-command__separator { display: none; }
+  .ui-command__shortcut { margin-left: auto; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.1em; }
+
+  .ui-command-dialog {
+    width: calc(100% - 2rem);
+    max-width: 36rem;
+    margin: 12vh auto auto;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    box-shadow: 0 24px 48px -16px rgb(15 15 15 / 0.3);
+    transition: opacity 150ms ease, scale 150ms ease;
+    @starting-style { opacity: 0; scale: 0.97; }
+  }
+  .ui-command-dialog:not([open]) { display: none; }
+  .ui-command-dialog::backdrop { background: rgb(15 15 15 / 0.4); }
+  .ui-command-dialog .ui-command__input { height: 3rem; }
+  .ui-command-dialog .ui-command__list { max-height: min(24rem, 60vh); }
+
+  @media (pointer: coarse) {
+    .ui-command__item { min-height: 2.75rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-command-dialog { transition: none; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Menú de acciones (components/ui/dropdown-menu.tsx): API de shadcn sobre un
+   popover nativo. Mismo aspecto que la lista de Command: la opción con foco
+   en gris, la destructiva en rojo.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-dropdown-menu {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    min-width: 12rem;
+    max-width: calc(100vw - 1rem);
+    padding: 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: 0 12px 32px -12px rgb(15 15 15 / 0.25);
+    transition: opacity 120ms ease, scale 120ms ease;
+    @starting-style { opacity: 0; scale: 0.97; }
+  }
+  .ui-dropdown-menu__item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    padding: 0.375rem 0.5rem;
+    border: 0;
+    border-radius: calc(var(--radius) - 2px);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+    outline: none;
+  }
+  .ui-dropdown-menu__item svg { width: 1rem; height: 1rem; flex-shrink: 0; color: var(--muted); }
+  .ui-dropdown-menu__item:focus-visible,
+  .ui-dropdown-menu__item:focus { background: var(--default); }
+  .ui-dropdown-menu__item:focus svg { color: var(--foreground); }
+  .ui-dropdown-menu__item[data-variant="destructive"],
+  .ui-dropdown-menu__item[data-variant="destructive"] svg { color: var(--danger); }
+  .ui-dropdown-menu__item[data-variant="destructive"]:focus { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+  .ui-dropdown-menu__item[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+  .ui-dropdown-menu__label { padding: 0.375rem 0.5rem; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
+  .ui-dropdown-menu__separator { height: 1px; margin: 0.25rem -0.25rem; background: var(--separator); }
+  .ui-dropdown-menu__shortcut { margin-left: auto; color: var(--muted); font-size: 0.75rem; letter-spacing: 0.1em; }
+
+  @media (pointer: coarse) {
+    .ui-dropdown-menu__item { min-height: 2.75rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-dropdown-menu { transition: none; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Tarjeta al pasar (components/ui/hover-card.tsx): API de shadcn sobre un
+   popover nativo. Blanca con el borde y la sombra del menú de acciones; el
+   texto hereda los colores del tema de la pantalla donde está su trigger.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-hover-card {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 16rem;
+    max-width: calc(100vw - 1rem);
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 12px 32px -12px rgb(15 15 15 / 0.25);
+    transition: opacity 120ms ease, translate 120ms ease;
+    @starting-style { opacity: 0; }
+  }
+  .ui-hover-card:not(:popover-open) { display: none; }
+  /* Popover (components/ui/popover.tsx): misma superficie que HoverCard, 18rem.
+     Con `p-0` el contenido pone su propio relleno (paneles con cabecera y lista). */
+  .ui-popover {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 18rem;
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 1rem);
+    overflow: auto;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 12px 32px -12px rgb(15 15 15 / 0.25);
+    outline: none;
+    transition: opacity 120ms ease, translate 120ms ease;
+    @starting-style { opacity: 0; }
+  }
+  .ui-popover:not(:popover-open) { display: none; }
+  .ui-popover[data-side="bottom"] { @starting-style { translate: 0 -4px; } }
+  .ui-popover[data-side="top"] { @starting-style { translate: 0 4px; } }
+  .ui-popover[data-side="left"] { @starting-style { translate: 4px 0; } }
+  .ui-popover[data-side="right"] { @starting-style { translate: -4px 0; } }
+  .ui-popover__header { display: flex; flex-direction: column; gap: 0.25rem; }
+  .ui-popover__title { margin: 0; font-size: 0.9375rem; font-weight: 600; line-height: 1.35; }
+  .ui-popover__description { margin: 0; color: var(--muted); font-size: 0.875rem; }
+  .ui-hover-card[data-side="bottom"] { @starting-style { translate: 0 -4px; } }
+  .ui-hover-card[data-side="top"] { @starting-style { translate: 0 4px; } }
+  .ui-hover-card[data-side="left"] { @starting-style { translate: 4px 0; } }
+  .ui-hover-card[data-side="right"] { @starting-style { translate: -4px 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ui-hover-card, .ui-popover { transition: none; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Código de un solo uso (components/ui/input-otp.tsx): API de shadcn. Un
+   <input> transparente encima recoge lo que se escribe o se pega; las
+   casillas de cada grupo van pegadas, con el borde y el radio de los campos,
+   y la activa lleva el anillo de foco morado. Con error, en rojo.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-otp { position: relative; display: inline-flex; width: fit-content; align-items: center; gap: 0.5rem; }
+  .ui-otp[data-disabled] { opacity: 0.5; }
+  .ui-otp__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    font-size: 1rem;
+    letter-spacing: -0.5em;
+    /* El anillo lo pinta la casilla activa; el outline global de foco va sin capa. */
+    outline: none !important;
+    cursor: text;
+  }
+  .ui-otp__input:disabled { cursor: not-allowed; }
+  .ui-otp__group { display: flex; align-items: center; }
+  .ui-otp__slot {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 3rem;
+    border: 1px solid var(--border);
+    border-left-width: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 1.25rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    transition: box-shadow 120ms ease, border-color 120ms ease;
+  }
+  .ui-otp__slot:first-child { border-left-width: 1px; border-top-left-radius: var(--radius); border-bottom-left-radius: var(--radius); }
+  .ui-otp__slot:last-child { border-top-right-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+  .ui-otp__slot[data-active] { z-index: 1; box-shadow: 0 0 0 2px var(--btn-primary); }
+  .ui-otp__slot[data-invalid] { border-color: var(--danger); }
+  .ui-otp__slot[data-invalid][data-active] { box-shadow: 0 0 0 2px var(--danger); }
+  .ui-otp__caret { width: 1px; height: 1.25rem; background: var(--foreground); animation: ui-otp-caret 1s step-end infinite; }
+  .ui-otp__separator { display: flex; color: var(--muted); }
+  .ui-otp__separator span { width: 0.625rem; height: 2px; border-radius: 1px; background: currentColor; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ui-otp__caret { animation: none; }
+  }
+}
+@keyframes ui-otp-caret { 50% { opacity: 0; } }
+
+/* ---------------------------------------------------------------------------
+   Fila de contenido (components/ui/item.tsx): API de shadcn. Media + título y
+   descripción + acciones; en estrecho las acciones bajan a otra línea. La
+   descripción nunca baja de 14 px. Dentro de una List va a ras (sin relleno
+   lateral) y la línea entre filas la pone la List; si es enlace o botón, el
+   gris del hover sobresale un poco para no pegarse al texto.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    text-align: left;
+    text-decoration: none;
+    outline: none;
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .ui-item[data-size="sm"] { gap: 0.5rem 0.75rem; padding: 0.625rem 0.875rem; }
+  .ui-item[data-size="xs"] { gap: 0.5rem; padding: 0.375rem 0.625rem; }
+  .ui-item[data-variant="outline"] { border-color: var(--border); background: var(--background); }
+  .ui-item[data-variant="muted"] { background: var(--default); }
+  .ui-item:is(a, button) { cursor: pointer; }
+  button.ui-item { width: 100%; font: inherit; }
+  .ui-item:is(a, button):hover { background: color-mix(in srgb, var(--default) 70%, transparent); text-decoration: none; }
+  .ui-item:is(a, button):focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+
+  /* La List pone la línea (divide-y) y su color tiñe los cuatro bordes: los laterales, fuera. */
+  .ui-list > .ui-item[data-variant="default"] { padding-inline: 0; border-inline-width: 0; border-radius: 0; }
+  .ui-list > .ui-item[data-variant="default"]:is(a, button) { margin-inline: -0.5rem; padding-inline: 0.5rem; border-radius: var(--radius); }
+
+  .ui-item__media { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 0.5rem; }
+  .ui-item:has(.ui-item__description) > .ui-item__media { align-self: flex-start; }
+  .ui-item__media[data-variant="icon"] {
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--default);
+    color: var(--foreground);
+  }
+  .ui-item__media[data-variant="icon"] svg { width: 1rem; height: 1rem; }
+  .ui-item__media[data-variant="image"] { width: 2.5rem; height: 2.5rem; overflow: hidden; border-radius: calc(var(--radius) - 2px); }
+  .ui-item__media[data-variant="image"] img { width: 100%; height: 100%; object-fit: cover; }
+  .ui-item[data-size="xs"] .ui-item__media[data-variant="image"] { width: 2rem; height: 2rem; }
+
+  .ui-item__content { display: flex; flex: 1 1 14rem; min-width: 0; flex-direction: column; gap: 0.125rem; }
+  .ui-item__title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; font-size: 0.9375rem; font-weight: 500; line-height: 1.35; }
+  .ui-item[data-size="sm"] .ui-item__title,
+  .ui-item[data-size="xs"] .ui-item__title { font-size: 0.875rem; }
+  .ui-item__description { color: var(--muted); font-size: 0.875rem; line-height: 1.45; text-wrap: pretty; }
+  .ui-item__description a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+  .ui-item__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .ui-item__header,
+  .ui-item__footer { display: flex; flex-basis: 100%; align-items: center; justify-content: space-between; gap: 0.5rem; }
+
+  .ui-item-group { display: flex; flex-direction: column; gap: 0.5rem; }
+  .ui-item-separator { margin-block: 0.25rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Fila de mensaje (components/ui/message.tsx): API de shadcn. start = el otro
+   a la izquierda, end = yo a la derecha con el avatar al otro lado. El avatar
+   va abajo; si hay pie, sube para quedar a la altura de la burbuja. Cabecera y
+   pie a 14 px; el pie va del lado del mensaje.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-message {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: min(85%, 40rem);
+    align-self: flex-start;
+  }
+  .ui-message[data-align="end"] { flex-direction: row-reverse; align-self: flex-end; margin-left: auto; }
+  .ui-message__avatar { display: flex; flex-shrink: 0; width: 2rem; }
+  .ui-message:has(> .ui-message__content > .ui-message__footer) > .ui-message__avatar { margin-bottom: 1.5rem; }
+  .ui-message__content { display: flex; flex: 0 1 auto; flex-direction: column; align-items: flex-start; gap: 0.25rem; min-width: 0; }
+  .ui-message[data-align="end"] > .ui-message__content { align-items: flex-end; }
+  .ui-message__header { align-self: flex-start; padding-inline: 0.25rem; color: var(--foreground); font-size: 0.875rem; font-weight: 500; }
+  .ui-message__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    padding-inline: 0.25rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.4;
+  }
+  .ui-message-group { display: flex; flex-direction: column; gap: 0.25rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Barra de progreso (components/ui/progress.tsx): API de shadcn. Pista fina
+   de 4 px en morado muy claro y relleno morado de marca; etiqueta a la
+   izquierda y valor a la derecha, encima de la pista.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; width: 100%; }
+  .ui-progress__label { color: var(--foreground); font-size: 0.875rem; font-weight: 500; }
+  .ui-progress__value { margin-left: auto; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .ui-progress__track {
+    position: relative;
+    flex: 1 0 100%;
+    height: 0.25rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--btn-primary) 14%, transparent);
+  }
+  .ui-progress__indicator { height: 100%; border-radius: inherit; background: var(--btn-primary); transition: width 300ms ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-progress__indicator { transition: none; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Paginación (components/ui/pagination.tsx): API de shadcn. Página activa con
+   borde (outline), el resto ghost. En móvil «Anterior»/«Siguiente» quedan
+   solo como flecha (siguen en el nombre accesible); si el rango no cabe,
+   desliza en horizontal en vez de romper la fila.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-pagination { display: flex; justify-content: center; max-width: 100%; overflow-x: auto; }
+  .ui-pagination__content { display: flex; align-items: center; gap: 0.25rem; margin: 0; padding: 0; list-style: none; }
+  .ui-pagination__link { font-variant-numeric: tabular-nums; text-decoration: none; }
+  .ui-pagination__link:hover { text-decoration: none; }
+  a.ui-pagination__link[aria-disabled] { pointer-events: none; opacity: 0.5; }
+  .ui-pagination__step { gap: 0.25rem; }
+  .ui-pagination__ellipsis { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; color: var(--muted); }
+  .ui-pagination__ellipsis svg,
+  .ui-pagination__link svg { width: 1rem; height: 1rem; }
+  @media (max-width: 39.99rem) {
+    .ui-pagination__step { padding-inline: 0.5rem; }
+    .ui-pagination__step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Ventanita del chat con el consultor (components/consultant-chat-float.tsx):
+   botón redondo abajo a la derecha y, encima, el panel con el hilo. En móvil
+   queda por encima de la barra de navegación inferior.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .consultant-chat-float__launcher {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--background);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+    color: var(--foreground);
+    cursor: pointer;
+    transition: transform 150ms ease, box-shadow 150ms ease;
+  }
+  .consultant-chat-float__launcher:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgb(0 0 0 / 0.16); }
+  .consultant-chat-float__launcher:focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+  .consultant-chat-float {
+    position: fixed;
+    right: 0.5rem;
+    left: 0.5rem;
+    bottom: calc(9rem + env(safe-area-inset-bottom));
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    height: min(34rem, calc(100dvh - 11rem));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 0.16);
+  }
+  .consultant-chat-float__header { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.75rem 0.75rem 1rem; border-bottom: 1px solid var(--separator); }
+  @media (min-width: 64rem) {
+    .consultant-chat-float__launcher { right: 1.5rem; bottom: 1.5rem; }
+    .consultant-chat-float { left: auto; right: 1.5rem; bottom: 6rem; width: 24rem; height: min(36rem, calc(100dvh - 8rem)); }
+  }
+  @media (prefers-reduced-motion: reduce) { .consultant-chat-float__launcher { transition: none; } }
+}
+
+/* ---------------------------------------------------------------------------
+   Scroll de chat (components/ui/message-scroller.tsx): llena a su padre; el
+   botón «Ir a lo último» flota abajo al centro y solo se ve lejos del final.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-message-scroller { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .ui-message-scroller__viewport { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .ui-message-scroller__content { display: flex; flex-direction: column; gap: 0.25rem; min-height: 100%; }
+  .ui-message-scroller__button {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--background);
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.08);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transform: translateX(-50%);
+    transition: opacity 150ms ease, transform 150ms ease;
+  }
+  .ui-message-scroller__button svg { width: 1rem; height: 1rem; }
+  .ui-message-scroller__button:focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+  .ui-message-scroller__button[data-hidden] { opacity: 0; pointer-events: none; transform: translate(-50%, 0.5rem); }
+  @media (prefers-reduced-motion: reduce) { .ui-message-scroller__button { transition: none; } }
+}
+
+/* ---------------------------------------------------------------------------
+   Marca de conversación (components/ui/marker.tsx): API de shadcn. Nota en
+   línea gris de 14 px; `border` con línea debajo; `separator` rótulo centrado
+   entre dos líneas decorativas (pseudo-elementos, sin rol).
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-marker {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    text-align: left;
+    text-decoration: none;
+  }
+  .ui-marker[data-variant="border"] { padding-block: 0.5rem; border-bottom: 1px solid var(--separator); }
+  .ui-marker[data-variant="separator"] { justify-content: center; text-align: center; }
+  .ui-marker[data-variant="separator"]::before,
+  .ui-marker[data-variant="separator"]::after { content: ""; flex: 1 1 0; height: 1px; background: var(--separator); }
+  .ui-marker:is(a, button) { cursor: pointer; font: inherit; background: none; border-inline: 0; border-top: 0; }
+  .ui-marker:is(a, button):hover { color: var(--foreground); }
+  .ui-marker:is(a, button):focus-visible { outline: 2px solid var(--btn-primary); outline-offset: 2px; border-radius: 4px; }
+  .ui-marker__icon { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; }
+  .ui-marker__icon svg { width: 1rem; height: 1rem; }
+  .ui-marker__content { min-width: 0; text-wrap: pretty; }
+}
+
+/* ---------------------------------------------------------------------------
+   Diálogo de alerta único (components/ui/alert-dialog.tsx): API de shadcn
+   sobre un <dialog> nativo. default 32 rem con el icono a la izquierda en
+   escritorio; sm 20 rem, centrado y con los dos botones a partes iguales.
+   --------------------------------------------------------------------------- */
+html:has(.ui-alert-dialog[open]) { overflow: hidden; }
+
+@layer components {
+  .ui-alert-dialog {
+    display: grid;
+    gap: 1rem;
+    width: calc(100% - 2rem);
+    max-width: 32rem;
+    margin: auto;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: 0 24px 48px -16px rgb(15 15 15 / 0.3);
+    transition: opacity 150ms ease, scale 150ms ease;
+    @starting-style { opacity: 0; scale: 0.96; }
+  }
+  .ui-alert-dialog:not([open]) { display: none; }
+  .ui-alert-dialog[data-size="sm"] { max-width: 20rem; }
+  .ui-alert-dialog::backdrop { background: rgb(15 15 15 / 0.4); }
+
+  .ui-alert-dialog__header {
+    display: grid;
+    gap: 0.375rem;
+    justify-items: center;
+    text-align: center;
+  }
+  .ui-alert-dialog__media {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    height: 4rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--radius);
+    background: var(--nora-gray-100);
+    color: var(--foreground);
+  }
+  .ui-alert-dialog__media svg { width: 2rem; height: 2rem; }
+  .ui-alert-dialog__title { margin: 0; font-size: 1.125rem; font-weight: 500; line-height: 1.4; }
+  .ui-alert-dialog__description {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+  .ui-alert-dialog__footer { display: flex; flex-direction: column-reverse; gap: 0.5rem; }
+  .ui-alert-dialog[data-size="sm"] .ui-alert-dialog__footer { display: grid; grid-template-columns: 1fr 1fr; }
+
+  @media (min-width: 640px) {
+    .ui-alert-dialog[data-size="default"] .ui-alert-dialog__header { justify-items: start; text-align: left; }
+    .ui-alert-dialog[data-size="default"] .ui-alert-dialog__header:has(.ui-alert-dialog__media) {
+      grid-template-columns: auto 1fr;
+      column-gap: 1.5rem;
+    }
+    .ui-alert-dialog[data-size="default"] .ui-alert-dialog__media { grid-row: span 2; margin-bottom: 0; }
+    .ui-alert-dialog__footer { flex-direction: row; justify-content: flex-end; }
+  }
+
+  /* Contenido extra del cuerpo (lo que se pierde, un aviso, la frase). */
+  .ui-alert-dialog__error,
+  .ui-alert-dialog__note {
+    margin: 0;
+    padding: 0.625rem 0.75rem;
+    border-radius: var(--radius);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .ui-alert-dialog__error,
+  .ui-alert-dialog__note[data-tone="danger"] {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    color: var(--danger);
+  }
+  .ui-alert-dialog__note { background: var(--nora-gray-50); color: var(--muted); }
+  .ui-alert-dialog__list {
+    margin: 0;
+    padding-left: 1.125rem;
+    list-style: disc;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .ui-alert-dialog__list li + li { margin-top: 0.25rem; }
+  .ui-alert-dialog__phrase { display: grid; gap: 0.5rem; font-size: 0.8125rem; }
+  .ui-alert-dialog__phrase b { padding: 0 0.375rem; border: 1px solid var(--border); border-radius: var(--radius); font-weight: 500; }
+}
+
+/* ---------------------------------------------------------------------------
+   Cajón único (components/ui/drawer.tsx): API de shadcn sobre un <dialog>
+   nativo que ocupa el viewport; el panel (__popup) se pega al borde de
+   data-swipe-direction. Vertical: alto según contenido, tope 100dvh - 6rem.
+   Lateral: 75 % del ancho, 24 rem desde sm; se amplía con max-w-* en
+   DrawerContent (las utilidades ganan a @layer components).
+   --------------------------------------------------------------------------- */
+html:has(.ui-drawer[open][data-modal="true"]) { overflow: hidden; }
+
+@layer components {
+  .ui-drawer {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+    color: var(--foreground);
+  }
+  .ui-drawer:not([open]) { display: none; }
+  .ui-drawer::backdrop { background: rgb(15 15 15 / 0.4); transition: opacity 200ms ease; }
+  .ui-drawer[data-modal="false"] { z-index: 50; pointer-events: none; }
+  .ui-drawer[data-modal="false"] > .ui-drawer__popup { pointer-events: auto; }
+
+  .ui-drawer__popup {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 0 solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    box-shadow: 0 24px 48px -16px rgb(15 15 15 / 0.3);
+    transition: translate 250ms cubic-bezier(0.32, 0.72, 0, 1), scale 200ms ease;
+  }
+  .ui-drawer__popup[data-swiping] { transition: none; user-select: none; }
+  /* Snap points: el panel mide el mayor y se esconde lo que sobra del activo. */
+  .ui-drawer__popup[data-swipe-axis="y"][data-snap-points] { max-height: none; translate: 0 var(--drawer-snap-offset, 0); }
+  .ui-drawer__popup[data-swipe-axis="y"] { width: 100%; max-height: calc(100dvh - 6rem); }
+  .ui-drawer__popup[data-swipe-axis="x"] { width: 75%; height: 100%; }
+  .ui-drawer__popup[data-swipe-direction="down"] {
+    margin-top: auto;
+    border-top-width: 1px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    @starting-style { translate: 0 100%; }
+  }
+  .ui-drawer__popup[data-swipe-direction="up"] {
+    margin-bottom: auto;
+    border-bottom-width: 1px;
+    border-radius: 0 0 var(--radius) var(--radius);
+    @starting-style { translate: 0 -100%; }
+  }
+  .ui-drawer__popup[data-swipe-direction="right"] {
+    margin-left: auto;
+    border-left-width: 1px;
+    @starting-style { translate: 100% 0; }
+  }
+  .ui-drawer__popup[data-swipe-direction="left"] {
+    margin-right: auto;
+    border-right-width: 1px;
+    @starting-style { translate: -100% 0; }
+  }
+  /* Anidado: el de debajo retrocede un poco mientras hay otro encima. */
+  .ui-drawer__popup:has(.ui-drawer[open]) { scale: 0.96; }
+
+  .ui-drawer__handle {
+    flex-shrink: 0;
+    width: 6.25rem;
+    height: 0.375rem;
+    margin: 0.75rem auto 0;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--nora-gray) 20%, var(--nora-white));
+    cursor: grab;
+    touch-action: none;
+  }
+  [data-swipe-axis="x"] > .ui-drawer__handle {
+    position: absolute;
+    top: calc(50% - 3.125rem);
+    width: 0.375rem;
+    height: 6.25rem;
+    margin: 0;
+  }
+  [data-swipe-direction="right"] > .ui-drawer__handle { left: 0.5rem; }
+  [data-swipe-direction="left"] > .ui-drawer__handle { right: 0.5rem; }
+
+  .ui-drawer__close { position: absolute; top: 0.75rem; right: 0.75rem; }
+
+  .ui-drawer__header {
+    display: grid;
+    gap: 0.25rem;
+    padding: 1rem;
+    touch-action: none;
+  }
+  .ui-drawer__popup:has(> .ui-drawer__close) > .ui-drawer__header { padding-right: 3.5rem; }
+  .ui-drawer__title { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.4; }
+  .ui-drawer__description {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .ui-drawer__footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: auto;
+    padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+  .ui-drawer__discard { margin: 0; font-size: 0.8125rem; font-weight: 500; }
+
+  @media (min-width: 640px) {
+    .ui-drawer__popup[data-swipe-axis="x"] { max-width: 24rem; }
+    .ui-drawer__header { padding: 1rem 1.5rem; }
+    .ui-drawer__footer { padding-inline: 1.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-drawer__popup { transition: none; }
+  }
+}
+@starting-style {
+  .ui-drawer[open]::backdrop { opacity: 0; }
+}
+
+/* ---------------------------------------------------------------------------
+   Avatar único (components/ui/avatar.tsx): API de shadcn. sm 24 px, default
+   32, lg 40; más grande con una utilidad de tamaño (size-16). La foto va
+   encima de las iniciales y solo se ve cuando ha cargado.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-avatar {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    background: var(--nora-gray-100);
+    color: var(--foreground);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+    vertical-align: middle;
+    user-select: none;
+  }
+  .ui-avatar[data-size="sm"] { width: 1.5rem; height: 1.5rem; font-size: 0.625rem; }
+  .ui-avatar[data-size="lg"] { width: 2.5rem; height: 2.5rem; font-size: 0.875rem; }
+  .ui-avatar__image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: cover;
+  }
+  .ui-avatar__image:not([data-status="loaded"]) { opacity: 0; }
+  .ui-avatar__fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+  }
+  .ui-avatar__badge {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background: var(--btn-primary);
+    color: #ffffff;
+    box-shadow: 0 0 0 2px var(--background);
+  }
+  .ui-avatar__badge svg { width: 0.5rem; height: 0.5rem; }
+  .ui-avatar[data-size="sm"] .ui-avatar__badge { width: 0.5rem; height: 0.5rem; }
+  .ui-avatar[data-size="sm"] .ui-avatar__badge svg { display: none; }
+  .ui-avatar[data-size="lg"] .ui-avatar__badge { width: 0.75rem; height: 0.75rem; }
+
+  .ui-avatar-group { display: flex; isolation: isolate; }
+  .ui-avatar-group > * + * { margin-left: -0.5rem; }
+  .ui-avatar-group > .ui-avatar { box-shadow: 0 0 0 2px var(--background); }
+  .ui-avatar-group__count { color: var(--muted); }
+  .ui-avatar-group__count svg { width: 1rem; height: 1rem; }
+}
+
+/* Pestañas de HeroUI (variante secondary, la de components/ui/tabs.tsx): texto
+   activo y subrayado en morado. Fuera de capas para ganar al CSS de HeroUI. */
+.tabs--secondary .tabs__tab[data-selected="true"] { color: var(--nav-active); }
+.tabs--secondary .tabs__indicator { background-color: var(--nav-active); }
+
+/* ---------------------------------------------------------------------------
+   Contador de notificaciones (components/ui/notification-badge.tsx).
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-notification-badge { position: relative; display: inline-flex; width: fit-content; }
+  .ui-notification-badge__count {
+    --nb-bg: var(--btn-primary);
+    --nb-fg: var(--btn-primary-foreground);
+    position: absolute;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.3125rem;
+    border-radius: 999px;
+    background: var(--nb-bg);
+    color: var(--nb-fg);
+    box-shadow: 0 0 0 2px var(--background, #fff);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: ui-notification-badge-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .ui-notification-badge__count[data-size="sm"] { min-width: 1rem; height: 1rem; padding: 0 0.25rem; font-size: 0.6875rem; }
+  .ui-notification-badge__count[data-dot] { min-width: 0; width: 0.625rem; height: 0.625rem; padding: 0; }
+  .ui-notification-badge__count[data-placement="top-right"] { top: 0; right: 0; translate: 45% -45%; }
+  .ui-notification-badge__count[data-placement="top-left"] { top: 0; left: 0; translate: -45% -45%; }
+  .ui-notification-badge__count[data-placement="bottom-right"] { bottom: 0; right: 0; translate: 45% 45%; }
+  .ui-notification-badge__count[data-placement="bottom-left"] { bottom: 0; left: 0; translate: -45% 45%; }
+  .ui-notification-badge__count[data-variant="secondary"] { --nb-bg: var(--nora-gray); --nb-fg: #fff; }
+  .ui-notification-badge__count[data-variant="success"] { --nb-bg: var(--success); --nb-fg: #fff; }
+  .ui-notification-badge__count[data-variant="warning"] { --nb-bg: var(--warning); --nb-fg: #fff; }
+  .ui-notification-badge__count[data-variant="destructive"] { --nb-bg: var(--danger); --nb-fg: var(--danger-foreground, #fff); }
+  @keyframes ui-notification-badge-pop { from { scale: 0.4; opacity: 0; } to { scale: 1; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .ui-notification-badge__count { animation: none; } }
+}
+
+/* ---------------------------------------------------------------------------
+   Grupo de botones (components/ui/button-group.tsx): API de shadcn. Hijos
+   pegados: sin hueco, esquinas interiores rectas y un solo borde entre dos.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-button-group { display: flex; width: fit-content; max-width: 100%; align-items: stretch; }
+  .ui-button-group[data-orientation="vertical"] { flex-direction: column; }
+  .ui-button-group:has(> .ui-button-group) { gap: 0.5rem; }
+  .ui-button-group > :focus-visible { position: relative; z-index: 1; }
+  .ui-button-group > .ui-btn:active { transform: none; }
+  /* Fondo opaco: un outline transparente sobre el degradado de la página se
+     ve hueco y las juntas parecen huecos entre botones sueltos. */
+  .ui-button-group > .ui-btn--outline { --btn-bg: var(--background); }
+  /* Opción activa de un ToggleGroup: morado suave, como el tramo del calendario. */
+  /* ToggleGroup con `spacing`: botones sueltos que saltan de línea. */
+  .ui-toggle-group { display: flex; flex-wrap: wrap; align-items: center; max-width: 100%; }
+  .ui-toggle-group > .ui-btn--outline { --btn-bg: var(--background); }
+  .ui-toggle-group > .ui-btn[aria-pressed="true"],
+  .ui-button-group > .ui-btn[aria-pressed="true"] { --btn-bg: var(--nora-dash-accent-soft); --btn-bg-hover: var(--nora-dash-accent-soft); --btn-fg: var(--btn-secondary-foreground); }
+  /* !important: las reglas sin capa `[data-slot="button"] { border-radius }`
+     (ancla del radio y temas por canal) ganan a cualquier regla de esta capa
+     y dejaban cada botón redondeado, como botones sueltos sin hueco. */
+  .ui-button-group[data-orientation="horizontal"] > :not(:first-child) { border-start-start-radius: 0 !important; border-end-start-radius: 0 !important; border-inline-start-width: 0; }
+  .ui-button-group[data-orientation="horizontal"] > :not(:last-child) { border-start-end-radius: 0 !important; border-end-end-radius: 0 !important; }
+  .ui-button-group[data-orientation="vertical"] > :not(:first-child) { border-start-start-radius: 0 !important; border-start-end-radius: 0 !important; border-block-start-width: 0; }
+  .ui-button-group[data-orientation="vertical"] > :not(:last-child) { border-end-start-radius: 0 !important; border-end-end-radius: 0 !important; }
+  .ui-button-group__text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--default);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .ui-button-group__text svg { width: 1rem; height: 1rem; pointer-events: none; }
+  .ui-button-group__separator { position: relative; z-index: 1; background: var(--border); }
+}
+
+/* ---------------------------------------------------------------------------
+   Calendario único (components/ui/calendar.tsx): API de shadcn sobre
+   react-day-picker, sin su hoja de estilos. Morado para lo elegido (texto
+   blanco), morado suave para el tramo de un periodo (texto morado oscuro),
+   gris para hoy y el hover (texto negro): cada estado se lee por contraste,
+   no solo por el fondo.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-calendar {
+    --cal-cell: 2.25rem;
+    --cal-range: var(--nora-dash-accent-soft);
+    --cal-range-foreground: var(--btn-primary-hover);
+    position: relative;
+    width: fit-content;
+    color: var(--foreground);
+    font-size: 0.875rem;
+  }
+  @media (pointer: coarse) {
+    .ui-calendar { --cal-cell: 2.75rem; }
+  }
+  .ui-calendar .rdp-months { position: relative; display: flex; flex-wrap: wrap; gap: 1.5rem; }
+  @media (min-width: 640px) {
+    .ui-calendar .rdp-months { flex-wrap: nowrap; }
+  }
+  .ui-calendar .rdp-month { display: flex; flex-direction: column; gap: 0.75rem; }
+  .ui-calendar .rdp-nav {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--cal-cell);
+    pointer-events: none;
+  }
+  .ui-calendar .rdp-nav > button { pointer-events: auto; color: var(--muted); }
+  .ui-calendar .rdp-nav > button:hover { color: var(--foreground); }
+  .ui-calendar .rdp-month_caption {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--cal-cell);
+    padding-inline: calc(var(--cal-cell) + 0.25rem);
+    font-weight: 600;
+  }
+  .ui-calendar .rdp-dropdowns { display: flex; align-items: center; gap: 0.375rem; }
+  .ui-calendar .rdp-month_grid { border-collapse: separate; border-spacing: 0 0.125rem; }
+  .ui-calendar .rdp-weekday {
+    width: var(--cal-cell);
+    padding-bottom: 0.25rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: center;
+    text-transform: capitalize;
+  }
+  .ui-calendar .rdp-day { width: var(--cal-cell); height: var(--cal-cell); padding: 0; text-align: center; }
+  .ui-calendar .rdp-day_button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .ui-calendar .rdp-day_button:hover { background: var(--default); color: var(--foreground); }
+  .ui-calendar .rdp-day_button:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--btn-primary); outline-offset: 2px; }
+
+  .ui-calendar .rdp-outside { color: var(--muted); }
+  .ui-calendar .rdp-today:not(.rdp-selected, .rdp-outside) .rdp-day_button { background: var(--default); color: var(--foreground); font-weight: 600; }
+  .ui-calendar .rdp-selected .rdp-day_button,
+  .ui-calendar .rdp-selected .rdp-day_button:hover { background: var(--btn-primary); color: var(--btn-primary-foreground); font-weight: 600; }
+  .ui-calendar .rdp-selected .rdp-day_button:hover { background: var(--btn-primary-hover); }
+
+  /* Periodo: el tramo es una banda continua; inicio y final, píldoras moradas
+     que se funden con ella. */
+  .ui-calendar .rdp-range_middle { background: var(--cal-range); }
+  .ui-calendar .rdp-range_middle .rdp-day_button,
+  .ui-calendar .rdp-range_middle .rdp-day_button:hover { background: transparent; color: var(--cal-range-foreground); font-weight: 500; }
+  .ui-calendar .rdp-range_middle .rdp-day_button:hover { background: color-mix(in srgb, var(--btn-primary) 16%, transparent); }
+  .ui-calendar .rdp-range_start:not(.rdp-range_end) { background: linear-gradient(to right, transparent 50%, var(--cal-range) 50%); }
+  .ui-calendar .rdp-range_end:not(.rdp-range_start) { background: linear-gradient(to left, transparent 50%, var(--cal-range) 50%); }
+  .ui-calendar .rdp-week > .rdp-range_middle:first-child { border-start-start-radius: var(--radius); border-end-start-radius: var(--radius); }
+  .ui-calendar .rdp-week > .rdp-range_middle:last-child { border-start-end-radius: var(--radius); border-end-end-radius: var(--radius); }
+
+  /* Los días del mes vecino no repiten la selección: ya se ve en su mes. */
+  .ui-calendar .rdp-outside.rdp-selected { background: transparent; }
+  .ui-calendar .rdp-outside.rdp-selected .rdp-day_button { background: transparent; color: var(--muted); font-weight: 400; }
+  .ui-calendar .rdp-outside.rdp-selected .rdp-day_button:hover { background: var(--default); color: var(--foreground); }
+  .ui-calendar .rdp-disabled { opacity: 0.4; }
+  .ui-calendar .rdp-disabled .rdp-day_button { cursor: default; pointer-events: none; }
+  .ui-calendar .rdp-hidden { visibility: hidden; }
+
+  /* TimeInput: sin el reloj nativo y con el segmento activo en morado, como el día elegido. */
+  .ui-time-input { appearance: none; font-variant-numeric: tabular-nums; }
+  .ui-time-input::-webkit-calendar-picker-indicator { display: none; appearance: none; }
+  .ui-time-input::-webkit-datetime-edit-hour-field:focus,
+  .ui-time-input::-webkit-datetime-edit-minute-field:focus {
+    border-radius: 0.25rem;
+    background: var(--btn-primary);
+    color: var(--btn-primary-foreground);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Tabla única (components/ui/table.tsx) y tabla de datos (data-table.tsx):
+   API de shadcn, mismo criterio que la tarjeta: @layer components para que
+   `className` gane. Filas separadas por una línea del gris del logo, hover
+   gris y fila seleccionada en morado suave (como el calendario). Las celdas
+   sí parten línea (shadcn las deja en nowrap), porque muchas tablas de la app
+   llevan textos largos; las cabeceras no.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-table-container { position: relative; width: 100%; overflow-x: auto; }
+  .ui-table {
+    width: 100%;
+    caption-side: bottom;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    color: var(--foreground);
+  }
+  .ui-table__header .ui-table__row { border-bottom: 1px solid var(--separator); }
+  .ui-table__row { border-bottom: 1px solid var(--separator); transition: background-color 120ms ease; }
+  .ui-table__body .ui-table__row:last-child { border-bottom: 0; }
+  .ui-table__body .ui-table__row:hover { background: color-mix(in srgb, var(--default) 60%, transparent); }
+  .ui-table__row[data-state="selected"],
+  .ui-table__body .ui-table__row[data-state="selected"]:hover { background: var(--nora-dash-accent-soft); }
+  .ui-table__head {
+    height: 2.5rem;
+    padding-inline: 0.5rem;
+    color: var(--foreground);
+    font-weight: 500;
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .ui-table__cell { padding: 0.5rem; vertical-align: middle; }
+  .ui-table__head:has(> .ui-checkbox), .ui-table__cell:has(> .ui-checkbox) { width: 2.5rem; padding-right: 0; }
+  .ui-table__head[data-align="end"], .ui-table__cell[data-align="end"] { text-align: right; font-variant-numeric: tabular-nums; }
+  .ui-table__footer { border-top: 1px solid var(--separator); background: color-mix(in srgb, var(--default) 50%, transparent); font-weight: 500; }
+  .ui-table__footer .ui-table__row:last-child { border-bottom: 0; }
+  .ui-table__caption { margin-top: 1rem; color: var(--muted); font-size: 0.875rem; }
+
+  .ui-data-table { display: grid; gap: 0.75rem; min-width: 0; }
+  .ui-data-table__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .ui-data-table__frame {
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--nora-gray) 14%, var(--nora-white));
+    border-radius: var(--radius);
+    background: var(--nora-white);
+  }
+  /* El botón de ordenar se alinea con el texto de la cabecera. */
+  .ui-data-table__sort { margin-inline-start: -0.625rem; font-weight: 500; }
+  .ui-table__head[data-align="end"] .ui-data-table__sort { margin-inline: 0 -0.625rem; }
+  .ui-data-table__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; padding-inline: 0.25rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   Zona desplazable (components/ui/scroll-area.tsx): API de shadcn, nativa.
+   Barra fina con el pulgar redondeado en gris del logo, sin pista; anillo de
+   foco cuando se recorre con teclado. Las utilidades (overflow-x-hidden,
+   overscroll-contain) van después y ganan.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-scroll-area { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+  .ui-scroll-area:hover { scrollbar-color: var(--scrollbar-thumb-hover) transparent; }
+  .ui-scroll-area:focus-visible { outline: 2px solid var(--btn-primary); outline-offset: -2px; }
+  /* Safari no lee scrollbar-color; Chrome y Firefox ignoran esto. */
+  .ui-scroll-area::-webkit-scrollbar { width: 0.625rem; height: 0.625rem; }
+  .ui-scroll-area::-webkit-scrollbar-track { background: transparent; }
+  .ui-scroll-area::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: var(--scrollbar-thumb) padding-box; }
+  .ui-scroll-area::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+}
+
+/* ---------------------------------------------------------------------------
+   Select (components/ui/select.tsx): API de shadcn, nativo. El botón copia la
+   caja del campo de texto y del combobox (borde gris, foco morado suave,
+   rojo si es inválido); `bare` es el botón sin caja de la barra superior. La
+   lista reutiliza `.ui-combobox__content` y sus opciones.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-select__trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    height: 2.25rem;
+    padding: 0 0.625rem 0 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--nora-gray) 22%, var(--nora-white));
+    border-radius: var(--radius);
+    background-color: var(--nora-white);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .ui-select__trigger[data-size="sm"] { height: 2rem; padding-inline: 0.625rem 0.5rem; }
+  .ui-select__trigger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--nora-gray) 34%, var(--nora-white)); }
+  .ui-select__trigger:focus-visible,
+  .ui-select__trigger[aria-expanded="true"] {
+    outline: none;
+    border-color: var(--nora-purple);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--nora-purple) 18%, transparent);
+  }
+  .ui-select__trigger[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent); }
+  .ui-select__trigger:disabled { cursor: not-allowed; opacity: 0.5; }
+  .ui-select__value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ui-select__value[data-placeholder] { color: var(--color-muted); }
+  .ui-select__chevron { flex-shrink: 0; width: 1rem; height: 1rem; margin-left: auto; color: var(--color-muted); transition: transform 150ms ease; }
+  .ui-select__trigger[aria-expanded="true"] .ui-select__chevron { transform: rotate(180deg); }
+  /* Mismo mínimo táctil que Button. */
+  @media (pointer: coarse) { .ui-select__trigger:not([data-variant="bare"]) { min-height: 2.75rem; } }
+
+  .ui-select__trigger[data-variant="bare"] {
+    width: 100%;
+    height: auto;
+    gap: 0.35rem;
+    padding: 0.2rem 0.35rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    box-shadow: none;
+    color: var(--color-muted);
+    font-weight: 500;
+  }
+  .ui-select__trigger[data-variant="bare"]:hover,
+  .ui-select__trigger[data-variant="bare"][aria-expanded="true"] { color: var(--color-ink); }
+  .ui-select__trigger[data-variant="bare"]:focus-visible { outline: 2px solid var(--nora-purple); outline-offset: 2px; }
+  .ui-select__trigger[data-variant="bare"] .ui-select__chevron { width: 0.9rem; height: 0.9rem; }
+  @media (prefers-reduced-motion: reduce) { .ui-select__chevron { transition: none; } }
+}
+
+/* ---------------------------------------------------------------------------
+   Separador (components/ui/separator.tsx): API de shadcn, nativo. 1 px en el
+   gris de las líneas; horizontal a todo el ancho, vertical estirado al alto
+   de la fila.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .ui-separator { flex-shrink: 0; background-color: var(--separator); }
+  .ui-separator[data-orientation="horizontal"] { width: 100%; height: 1px; }
+  .ui-separator[data-orientation="vertical"] { width: 1px; align-self: stretch; }
 }

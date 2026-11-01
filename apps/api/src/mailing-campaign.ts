@@ -16,8 +16,10 @@
  * nunca del cuerpo de la peticion.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import crypto from "node:crypto";
 import WebSocket from "ws";
 import { Command } from "@langchain/langgraph";
+import { weeklyMailingPlanOutputSchema } from "@e-nora/ai";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { createLogger } from "@e-nora/observability";
 import {
@@ -27,15 +29,17 @@ import {
   mailingFailureDecisionSchema,
   isMailingEmailTerminal,
   mailingRetryFeedback,
+  mailingCampaignGraphStateSchema,
   type MailingApproverRole,
   type MailingCampaignView,
   type MailingEmailState,
 } from "@e-nora/contracts";
 import type { AuthContext } from "./auth-context.js";
+import { requireMailingAccess } from "./marketing-mailing-access.js";
 import { buildPlatformAdminContext, runMarketingContentDraft } from "./ai-runtime.js";
 import { setMarketingDraftSchedule } from "./consultant.js";
 import { recordAuditLog } from "./audit-log.js";
-import { isStaffActor, resolveThreadActor, type ThreadActor } from "./campaign-review.js";
+import { isStaffActor, type ThreadActor } from "./campaign-review.js";
 import {
   buildMailingCampaignGraph,
   listMailingInterrupts,
@@ -44,6 +48,8 @@ import {
 } from "./mailing-campaign-graph.js";
 import { MailingCampaignCheckpointSaver, createSupabaseCheckpointStore } from "./mailing-campaign-checkpointer.js";
 import { reviewMailingDraft } from "./mailing-campaign-review.js";
+import { verifyMailingResources, verifyMailingApprovalContext } from "./marketing-mailing-production.js";
+import { mailingObservationReadiness } from "./marketing-mailing-delivery-context.js";
 
 const logger = createLogger("mailing-campaign");
 
@@ -51,7 +57,7 @@ type Env = Pick<LoadedApiEnv, "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY" | "MA
 type Failure = { ok: false; statusCode: number; error: string; message?: string };
 
 /** Un proceso que muere deja el lease; caduca a los 15 min y otro proceso lo recoge. */
-const LEASE_MS = 15 * 60 * 1_000;
+const LEASE_RENEW_MS = 60_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -78,6 +84,10 @@ type SequenceRow = {
   plan: Record<string, unknown>;
   client_state: Record<string, unknown>;
   graph_requires_consultant_review: boolean | null;
+  revision: string;
+  graph_bootstrap: unknown;
+  context_snapshot: unknown;
+  approved_at?: string | null;
 };
 
 /** Textos literales pedidos para toda la campaña (uno por linea en el planificador). */
@@ -98,16 +108,18 @@ export function readMailingVerbatimTexts(clientState: Record<string, unknown> | 
  * de la campaña.
  */
 export function authorizeMailingCampaign(
-  context: Pick<AuthContext, "memberships" | "profile">,
+  context: Pick<AuthContext, "memberships" | "profile"> & Partial<Pick<AuthContext, "storeMemberships" | "subscriptions">>,
   organizationId: string,
   sequence: Pick<SequenceRow, "organization_id" | "store_id"> | null,
   requestedStoreId?: string | null,
 ): { ok: true; actor: ThreadActor } | Failure {
-  const actor = resolveThreadActor(context, organizationId);
-  if (!actor) return { ok: false, statusCode: 403, error: "marketing_access_required" };
   if (!sequence || sequence.organization_id !== organizationId) {
     return { ok: false, statusCode: 404, error: "mailing_campaign_not_found" };
   }
+  const operational = requireMailingAccess({ ...context, subscriptions: context.subscriptions ?? [] } as AuthContext,
+    organizationId, sequence.store_id);
+  if (!operational.ok) return operational;
+  const actor = approverRole(context.profile.platform_role);
   if (requestedStoreId !== undefined && requestedStoreId !== null && requestedStoreId !== sequence.store_id) {
     return { ok: false, statusCode: 404, error: "mailing_campaign_not_found" };
   }
@@ -118,23 +130,12 @@ async function loadSequence(supabase: SupabaseClient, organizationId: string, se
   if (!UUID.test(sequenceId)) return null;
   const { data, error } = await supabase
     .from("marketing_mailing_sequences")
-    .select("id, organization_id, store_id, status, orchestrator, request, plan, client_state, graph_requires_consultant_review")
+    .select("id, organization_id, store_id, status, orchestrator, request, plan, client_state, graph_requires_consultant_review, revision, graph_bootstrap, context_snapshot, approved_at")
     .eq("organization_id", organizationId)
     .eq("id", sequenceId)
     .maybeSingle();
   if (error) throw new Error(`mailing_sequence_load_failed: ${error.message}`);
   return (data as SequenceRow | null) ?? null;
-}
-
-async function hasAssignedConsultant(supabase: SupabaseClient, organizationId: string) {
-  const { data, error } = await supabase
-    .from("consultant_assignments")
-    .select("consultant_user_id")
-    .eq("organization_id", organizationId)
-    .eq("is_active", true)
-    .limit(1);
-  // Ante la duda, revisa el consultor: es el lado seguro.
-  return Boolean(error) || Boolean(data?.length);
 }
 
 function approverRole(platformRole: string | null | undefined): MailingApproverRole {
@@ -144,7 +145,15 @@ function approverRole(platformRole: string | null | undefined): MailingApproverR
 }
 
 /** Dependencias reales del grafo: los runners y tablas existentes. */
-function realDeps(env: Env, context: AuthContext, sequence: SequenceRow): MailingGraphDeps {
+async function mutateGraph(supabase: SupabaseClient, sequenceId: string, token: string, operation: string, payload: unknown = {}) {
+  const { data, error } = await supabase.rpc("mutate_mailing_graph", {
+    p_sequence_id: sequenceId, p_token: token, p_operation: operation, p_payload: payload,
+  });
+  if (error) throw new Error(`mailing_graph_${operation}_failed: ${error.message}`);
+  return data === true;
+}
+
+function realDeps(env: Env, context: AuthContext, sequence: SequenceRow, token: string): MailingGraphDeps {
   const supabase = serviceClient(env);
   const organizationId = sequence.organization_id;
   const clientState = sequence.client_state ?? {};
@@ -155,13 +164,19 @@ function realDeps(env: Env, context: AuthContext, sequence: SequenceRow): Mailin
     ? clientState.base_design_template_id
     : null;
   const verbatimTexts = readMailingVerbatimTexts(clientState);
+  const mutate = async (operation: string, payload?: unknown) => {
+    if (!await mutateGraph(supabase, sequence.id, token, operation, payload)) throw new Error("mailing_graph_lease_lost_or_cancelled");
+  };
   return {
     async draft(email, feedback) {
+      await mutate("assert");
       const result = await runMarketingContentDraft(env as LoadedApiEnv, context, organizationId, {
         content_type: "campaign",
         channel: "email_klaviyo",
         mailing_sequence_id: sequence.id,
         mailing_email_number: email.sequence_number,
+        mailing_revision: sequence.revision,
+        mailing_lease_token: token,
         idempotency_key: email.attempt === 0
           ? `${sequence.id}:${email.sequence_number}`
           : `${sequence.id}:${email.sequence_number}:r${email.attempt}`,
@@ -251,44 +266,20 @@ function realDeps(env: Env, context: AuthContext, sequence: SequenceRow): Mailin
       return parsed.success ? parsed.data : null;
     },
     async schedule(email) {
+      await mutate("assert");
       // programar(email) -- hoy: fecha prevista en nuestra tabla, como el flujo
       // del navegador. El envio a Klaviyo sigue siendo manual (ADR-0025).
       const result = await setMarketingDraftSchedule(env as LoadedApiEnv, context, organizationId, email.draft_id!, {
         scheduled_for: email.scheduled_for,
+        mailing_lease_token: token,
       });
       return result.ok ? { ok: true } : { ok: false, error: result.error };
     },
     async project(email) {
-      const newReviewCycle = !["approved", "scheduled", "rejected", "failed"].includes(email.status);
-      const { error } = await supabase.from("marketing_mailing_campaign_emails").upsert(
-        {
-          sequence_id: sequence.id,
-          sequence_number: email.sequence_number,
-          organization_id: organizationId,
-          store_id: sequence.store_id,
-          title: email.title,
-          scheduled_for: email.scheduled_for,
-          status: email.status,
-          attempt: email.attempt,
-          draft_id: email.draft_id,
-          auto_review_passed: email.auto_review_passed,
-          rejections: email.rejections,
-          last_error: email.last_error,
-          decided_by: email.decided_by,
-          decided_role: email.decided_role,
-          decided_membership_role: email.decided_membership_role ?? null,
-          ...(email.status === "failed"
-            ? {}
-            : { failure_decision: null, failure_decided_by: null, failure_decided_at: null }),
-          ...(newReviewCycle
-            ? { consultant_review_decision: null, consultant_review_reason: null, consultant_reviewed_by: null, consultant_reviewed_at: null }
-            : {}),
-        },
-        { onConflict: "sequence_id,sequence_number" },
-      );
-      if (error) throw new Error(`mailing_projection_write_failed: ${error.message}`);
+      await mutate("project", email);
     },
     async recordRetry(email, rejection) {
+      await mutate("assert");
       // La nueva redaccion de A11 corre con la sesion de quien movio el grafo
       // (el presupuesto diario se carga a la organizacion, no a esa persona):
       // queda constancia de quien fue.
@@ -301,37 +292,27 @@ function realDeps(env: Env, context: AuthContext, sequence: SequenceRow): Mailin
         newData: { sequence_number: email.sequence_number, attempt: rejection.attempt + 1, source: rejection.source },
       });
       if (!email.draft_id) return;
-      const { data: draft } = await supabase
+      const { data: draft, error: draftError } = await supabase
         .from("marketing_content_drafts")
         .select("agent_run_id, agent_output_id")
         .eq("organization_id", organizationId)
         .eq("id", email.draft_id)
         .maybeSingle();
+      if (draftError) throw new Error(`mailing_retry_draft_read_failed: ${draftError.message}`);
       // El borrador superado por la revision automatica sale de la cola de
       // aprobacion: nadie debe aprobar una version que ya se esta rehaciendo.
       if (rejection.source === "auto_review") {
-        await supabase
-          .from("marketing_content_drafts")
-          .update({ status: "rejected", decided_at: rejection.at, decision_reason: `Revisión automática: ${rejection.reasons.join(" · ")}`.slice(0, 2000) })
-          .eq("organization_id", organizationId)
-          .eq("id", email.draft_id)
-          .eq("status", "pending_approval");
-        if (draft?.agent_output_id) {
-          await supabase
-            .from("agent_outputs")
-            .update({ status: "rejected" })
-            .eq("organization_id", organizationId)
-            .eq("id", draft.agent_output_id)
-            .eq("status", "pending_approval");
-        }
+        await mutate("reject_draft", { draft_id: email.draft_id, at: rejection.at,
+          reason: `Revisión automática: ${rejection.reasons.join(" · ")}`.slice(0, 2000) });
       }
       const runId = draft?.agent_run_id as string | undefined;
       if (!runId) return;
-      const { data: steps } = await supabase
+      const { data: steps, error: stepsError } = await supabase
         .from("agent_run_steps")
         .select("position, step_type, payload")
         .eq("run_id", runId)
         .order("position", { ascending: false });
+      if (stepsError) throw new Error(`mailing_retry_steps_read_failed: ${stepsError.message}`);
       const already = (steps ?? []).some((step) =>
         step.step_type === "graph_retry" &&
         (step.payload as Record<string, unknown> | null)?.attempt === rejection.attempt);
@@ -353,26 +334,20 @@ function realDeps(env: Env, context: AuthContext, sequence: SequenceRow): Mailin
       });
       if (error) throw new Error(`mailing_retry_step_failed: ${error.message}`);
     },
-    async closeCampaign(results) {
-      // Sin ningun email programado la campaña no se completo: no se marca como tal.
-      const status = results.some((email) => email.status === "scheduled") ? "completed" : "abandoned";
-      await supabase
-        .from("marketing_mailing_sequences")
-        .update({ status })
-        .eq("organization_id", organizationId)
-        .eq("id", sequence.id)
-        .eq("orchestrator", "graph")
-        .eq("status", "in_progress");
+    async closeCampaign() {
+      await mutate("close");
     },
   };
 }
 
-function graphFor(env: Env, context: AuthContext, sequence: SequenceRow, deps = realDeps(env, context, sequence)) {
+function graphFor(env: Env, context: AuthContext, sequence: SequenceRow, token: string, deps = realDeps(env, context, sequence, token)) {
   const saver = new MailingCampaignCheckpointSaver(
     createSupabaseCheckpointStore(serviceClient(env), {
       organizationId: sequence.organization_id,
       storeId: sequence.store_id,
       sequenceId: sequence.id,
+    }, async (operation, payload) => {
+      if (!await mutateGraph(serviceClient(env), sequence.id, token, operation, payload)) throw new Error("mailing_graph_lease_lost_or_cancelled");
     }),
     { organizationId: sequence.organization_id, storeId: sequence.store_id, sequenceId: sequence.id },
   );
@@ -404,34 +379,26 @@ function serialize(sequenceId: string, task: () => Promise<unknown>) {
   return next;
 }
 
-async function claimLease(supabase: SupabaseClient, sequenceId: string) {
-  const now = new Date();
-  const { data, error } = await supabase
-    .from("marketing_mailing_sequences")
-    .update({ graph_lease_until: new Date(now.getTime() + LEASE_MS).toISOString() })
-    .eq("id", sequenceId)
-    .or(`graph_lease_until.is.null,graph_lease_until.lt.${now.toISOString()}`)
-    .select("id")
-    .maybeSingle();
-  if (error) throw new Error(`mailing_lease_claim_failed: ${error.message}`);
-  return Boolean(data);
-}
-
 /** Cola del proceso + lease entre procesos. Si otro proceso tiene el hilo, no hace nada: el barrido lo recoge. */
-function runExclusive(env: Env, sequenceId: string, task: () => Promise<unknown>) {
+function runExclusive(env: Env, sequenceId: string, task: (token: string) => Promise<unknown>) {
   return serialize(sequenceId, async () => {
     const supabase = serviceClient(env);
-    if (!(await claimLease(supabase, sequenceId))) {
+    const token = crypto.randomUUID();
+    if (!(await mutateGraph(supabase, sequenceId, token, "claim"))) {
       logger.info("mailing_graph_lease_held", { sequence_id: sequenceId });
-      return;
+      return false;
     }
+    const heartbeat = setInterval(() => {
+      void mutateGraph(supabase, sequenceId, token, "renew").catch((error) =>
+        logger.error("mailing_graph_renew_failed", { sequence_id: sequenceId, error: String(error) }));
+    }, LEASE_RENEW_MS);
+    heartbeat.unref();
     try {
-      await task();
+      await task(token);
+      return true;
     } finally {
-      await supabase
-        .from("marketing_mailing_sequences")
-        .update({ graph_lease_until: null })
-        .eq("id", sequenceId);
+      clearInterval(heartbeat);
+      await mutateGraph(supabase, sequenceId, token, "release");
     }
   });
 }
@@ -447,19 +414,26 @@ async function pruneIfClosed(graph: MailingCampaignGraph, sequenceId: string) {
  * Avanza el hilo: reanuda las pausas cuya decision ya esta registrada y, si un
  * proceso murio a mitad, continua desde el ultimo checkpoint.
  */
-async function advance(env: Env, context: AuthContext, sequence: SequenceRow) {
-  const deps = realDeps(env, context, sequence);
-  const graph = graphFor(env, context, sequence, deps);
+async function advance(env: Env, context: AuthContext, sequence: SequenceRow, token: string) {
+  const deps = realDeps(env, context, sequence, token);
+  const graph = graphFor(env, context, sequence, token, deps);
   const config = graphConfig(sequence.id);
   const snapshot = await graph.getState(config);
-  if (!snapshot.next.length) return;
+  if (!snapshot.next.length) {
+    if (snapshot.values?.sequence_id) return;
+    const bootstrap = mailingCampaignGraphStateSchema.omit({ results: true, closed: true }).safeParse(sequence.graph_bootstrap);
+    if (!bootstrap.success) throw new Error("mailing_graph_bootstrap_missing");
+    await graph.invoke(bootstrap.data, config);
+    await pruneIfClosed(graph, sequence.id);
+    return;
+  }
   const pending = await listMailingInterrupts(graph, sequence.id);
   const resume: Record<string, unknown> = {};
   for (const item of pending) {
     const decided = item.value.kind === "approval"
       ? (await deps.readDecision(item.value.draft_id!)).status !== "pending_approval"
       : item.value.kind === "consultant_review"
-        ? Boolean(await deps.readConsultantReview(item.value.sequence_number))
+        ? true
         : Boolean(await deps.readFailureDecision(item.value.sequence_number));
     if (decided) resume[item.id] = { sequence_number: item.value.sequence_number };
   }
@@ -476,7 +450,7 @@ export async function startMailingCampaign(
   context: AuthContext,
   organizationId: string,
   sequenceId: string,
-  body: { scheduled_for?: unknown },
+  body: { scheduled_for?: unknown; revision?: unknown },
 ) {
   if (!isMailingGraphEnabled(env, organizationId)) {
     return { ok: false as const, statusCode: 404, error: "mailing_graph_disabled" };
@@ -486,20 +460,26 @@ export async function startMailingCampaign(
   const access = authorizeMailingCampaign(context, organizationId, sequence);
   if (!access.ok) return access;
   const row = sequence!;
+  if (body.revision !== row.revision) return { ok: false as const, statusCode: 409, error: "mailing_revision_conflict" };
   if (row.orchestrator === "graph") {
     return { ok: true as const, data: { sequence_id: row.id, status: row.status, already_started: true } };
   }
   if (row.status !== "planned") {
     return { ok: false as const, statusCode: 409, error: "mailing_campaign_not_planned" };
   }
-  const plan = row.plan as {
-    diagnosis?: string; sequence_rationale?: string; visual_direction?: string;
-    emails?: Array<Record<string, string> & { sequence_number: number }>;
-  };
+  const parsedPlan = weeklyMailingPlanOutputSchema.safeParse(row.plan);
+  if (!parsedPlan.success) return { ok: false as const, statusCode: 409, error: "mailing_campaign_plan_invalid" };
+  const plan = parsedPlan.data;
+  const resourceCheck = await verifyMailingResources(supabase, organizationId, row.request, row.store_id ?? undefined);
+  if (!resourceCheck.ok) return resourceCheck;
+  const contextCheck = await verifyMailingApprovalContext(supabase, organizationId, row.store_id!, row.request, row.context_snapshot);
+  if (!contextCheck.ok) return contextCheck;
   const planEmails = [...(plan.emails ?? [])].sort((a, b) => a.sequence_number - b.sequence_number);
-  const dates = Array.isArray(body.scheduled_for) ? body.scheduled_for : [];
+  const dates = Array.isArray(row.request.scheduled_for) ? row.request.scheduled_for : [];
   if (!planEmails.length || dates.length !== planEmails.length ||
-    !dates.every((value) => typeof value === "string" && Number.isFinite(Date.parse(value)))) {
+    plan.decision && plan.decision !== "ready" ||
+    !dates.every((value) => typeof value === "string" && Date.parse(value) > Date.now()) ||
+    (body.scheduled_for !== undefined && JSON.stringify(body.scheduled_for) !== JSON.stringify(dates))) {
     return { ok: false as const, statusCode: 400, error: "mailing_campaign_schedule_invalid" };
   }
   const request = row.request as Record<string, string>;
@@ -519,6 +499,7 @@ export async function startMailingCampaign(
         instructions: request.instructions ?? "",
         campaignName: request.campaign_name ?? "",
         plan: {
+          ...plan,
           diagnosis: plan.diagnosis ?? "",
           sequence_rationale: plan.sequence_rationale ?? "",
           visual_direction: plan.visual_direction ?? "",
@@ -528,10 +509,13 @@ export async function startMailingCampaign(
           audience: email.audience ?? "", subject_direction: email.subject_direction ?? "",
           preheader_direction: email.preheader_direction ?? "", cta: email.cta ?? "",
           copy_brief: email.copy_brief ?? "", visual_modules: email.visual_modules ?? "",
+          evidence: email.evidence, source_refs: email.source_refs,
         },
         index,
         total: planEmails.length,
-        scheduledDate: scheduledFor.slice(0, 10),
+        scheduledDate: (row.request.scheduled_dates as string[])[index]!,
+        timezone: String(row.request.timezone ?? "UTC"),
+        revision: row.revision,
       }),
       image_url: images.length ? images[index % images.length]! : null,
       status: "queued",
@@ -544,17 +528,17 @@ export async function startMailingCampaign(
       decided_role: null,
     };
   });
-  const requiresConsultantReview = await hasAssignedConsultant(supabase, organizationId);
-  // Reserva condicional: dos clics a la vez solo arrancan un grafo.
-  const { data: claimed, error: claimError } = await supabase
-    .from("marketing_mailing_sequences")
-    .update({ status: "in_progress", orchestrator: "graph", graph_requires_consultant_review: requiresConsultantReview })
-    .eq("organization_id", organizationId)
-    .eq("id", row.id)
-    .eq("status", "planned")
-    .eq("orchestrator", "browser")
-    .select("id")
-    .maybeSingle();
+  // La revisión del consultor es una opinión; no bloquea la decisión del cliente.
+  const requiresConsultantReview = false;
+  const bootstrap = { sequence_id: row.id, organization_id: organizationId, store_id: row.store_id,
+    requires_consultant_review: requiresConsultantReview, emails };
+  if (!mailingCampaignGraphStateSchema.omit({ results: true, closed: true }).safeParse(bootstrap).success) {
+    return { ok: false as const, statusCode: 409, error: "mailing_campaign_bootstrap_invalid" };
+  }
+  const { data: claimed, error: claimError } = await supabase.rpc("approve_mailing_sequence", {
+    p_organization_id: organizationId, p_sequence_id: row.id, p_revision: row.revision,
+    p_actor_id: context.user.id, p_orchestrator: "graph", p_bootstrap: bootstrap,
+  });
   if (claimError) return { ok: false as const, statusCode: 503, error: "mailing_campaign_claim_failed" };
   if (!claimed) return { ok: false as const, statusCode: 409, error: "mailing_campaign_already_started" };
   const started: SequenceRow = {
@@ -562,6 +546,7 @@ export async function startMailingCampaign(
     status: "in_progress",
     orchestrator: "graph",
     graph_requires_consultant_review: requiresConsultantReview,
+    graph_bootstrap: bootstrap,
   };
   await recordAuditLog(supabase, {
     organizationId,
@@ -571,20 +556,7 @@ export async function startMailingCampaign(
     entityId: row.id,
     newData: { emails: emails.length, actor_role: access.actor, requires_consultant_review: requiresConsultantReview },
   });
-  void runExclusive(env, row.id, async () => {
-    const graph = graphFor(env, context, started);
-    await graph.invoke(
-      {
-        sequence_id: row.id,
-        organization_id: organizationId,
-        store_id: row.store_id,
-        requires_consultant_review: requiresConsultantReview,
-        emails,
-      },
-      graphConfig(row.id),
-    );
-    await pruneIfClosed(graph, row.id);
-  });
+  void runExclusive(env, row.id, (token) => advance(env, context, started, token));
   return { ok: true as const, data: { sequence_id: row.id, status: "in_progress", already_started: false } };
 }
 
@@ -608,12 +580,14 @@ async function loadCampaignRows(supabase: SupabaseClient, organizationId: string
  * campaña. Un email fallido sin decision espera a una persona, no esta parado.
  */
 export function campaignNeedsResume(sequenceStatus: string, rows: Array<Record<string, any>>, now: number) {
+  if (sequenceStatus !== "in_progress") return false;
+  if (rows.length === 0) return true;
   const stale = (row: Record<string, any>) => now - Date.parse(row.updated_at) > MAILING_GRAPH_STALE_MS;
   const perEmail = rows.some((row) => {
     const draft = Array.isArray(row.marketing_content_drafts) ? row.marketing_content_drafts[0] : row.marketing_content_drafts;
     const waitingDecided =
       (row.status === "awaiting_approval" && draft && draft.status !== "pending_approval") ||
-      (row.status === "awaiting_consultant_review" && row.consultant_review_decision) ||
+      row.status === "awaiting_consultant_review" ||
       (row.status === "failed" && row.failure_decision);
     const stuck = !isMailingEmailTerminal(row.status) &&
       !["awaiting_approval", "awaiting_consultant_review"].includes(row.status) &&
@@ -655,6 +629,7 @@ export async function getMailingCampaign(
       rejections: row.rejections ?? [],
       last_error: row.last_error,
       decided_role: row.decided_role,
+      consultant_review_decision: row.consultant_review_decision ?? null,
       updated_at: row.updated_at,
     };
   });
@@ -664,6 +639,7 @@ export async function getMailingCampaign(
       sequence_id: sequenceId,
       campaign_name: String(sequence!.request?.campaign_name ?? ""),
       sequence_status: sequence!.status,
+      timezone: String(sequence!.request?.timezone ?? "UTC"),
       orchestrator: sequence!.orchestrator === "graph" ? "graph" : "browser",
       requires_consultant_review: Boolean(sequence!.graph_requires_consultant_review) ||
         emails.some((email) => email.status === "awaiting_consultant_review"),
@@ -698,7 +674,7 @@ export async function resumeMailingCampaign(
     entityId: sequenceId,
     newData: { actor_role: access.actor },
   });
-  void runExclusive(env, sequenceId, () => advance(env, context, sequence!));
+  void runExclusive(env, sequenceId, (token) => advance(env, context, sequence!, token));
   return { ok: true as const, data: { sequence_id: sequenceId, resuming: true } };
 }
 
@@ -724,7 +700,7 @@ export async function advanceMailingCampaignForDraft(
     if (!data) return;
     const sequence = await loadSequence(supabase, organizationId, data.sequence_id as string);
     if (!sequence || sequence.orchestrator !== "graph") return;
-    void runExclusive(env, sequence.id, () => advance(env, context, sequence));
+    void runExclusive(env, sequence.id, (token) => advance(env, context, sequence, token));
   } catch (error) {
     logger.error("mailing_graph_advance_failed", {
       organization_id: organizationId,
@@ -775,39 +751,13 @@ export async function reviewMailingCampaignEmail(
     .eq("organization_id", organizationId)
     .eq("sequence_id", sequenceId)
     .eq("sequence_number", sequenceNumber)
-    .eq("status", "awaiting_consultant_review")
+    .in("status", ["awaiting_consultant_review", "approved", "scheduled"])
     .is("consultant_review_decision", null)
     .select("draft_id")
     .maybeSingle();
   if (error) return { ok: false as const, statusCode: 503, error: "mailing_review_failed" };
   if (!updated) return { ok: false as const, statusCode: 409, error: "mailing_review_already_decided" };
   const draftId = updated.draft_id as string | null;
-  if (draftId) {
-    const { data: draft } = await supabase
-      .from("marketing_content_drafts")
-      .select("agent_output_id")
-      .eq("organization_id", organizationId)
-      .eq("id", draftId)
-      .maybeSingle();
-    if (decision === "rejected") {
-      // Aprobado por el cliente, frenado por el consultor: no debe poder salir a Klaviyo.
-      await supabase
-        .from("marketing_content_drafts")
-        .update({ status: "rejected", decision_reason: `Revisión del consultor: ${reason}`.slice(0, 2000) })
-        .eq("organization_id", organizationId)
-        .eq("id", draftId)
-        .eq("status", "approved");
-    }
-    if (draft?.agent_output_id) {
-      await supabase.from("agent_approvals").insert({
-        output_id: draft.agent_output_id,
-        organization_id: organizationId,
-        decision,
-        decided_by: context.user.id,
-        reason: reason ? `Revisión del consultor: ${reason}` : "Revisión del consultor",
-      });
-    }
-  }
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
@@ -816,7 +766,7 @@ export async function reviewMailingCampaignEmail(
     entityId: sequenceId,
     newData: { sequence_number: sequenceNumber, draft_id: draftId, actor_role: access.actor, reason: reason || null },
   });
-  void runExclusive(env, sequenceId, () => advance(env, context, sequence!));
+  void runExclusive(env, sequenceId, (token) => advance(env, context, sequence!, token));
   return { ok: true as const, data: { sequence_id: sequenceId, sequence_number: sequenceNumber, decision } };
 }
 
@@ -867,7 +817,7 @@ export async function decideFailedMailingEmail(
     entityId: sequenceId,
     newData: { sequence_number: sequenceNumber, draft_id: updated.draft_id, actor_role: access.actor },
   });
-  void runExclusive(env, sequenceId, () => advance(env, context, sequence!));
+  void runExclusive(env, sequenceId, (token) => advance(env, context, sequence!, token));
   return { ok: true as const, data: { sequence_id: sequenceId, sequence_number: sequenceNumber, decision: decision.data } };
 }
 
@@ -877,13 +827,101 @@ export async function decideFailedMailingEmail(
  * plataforma, como el resto de motores autonomos, y respeta el lease: si la API
  * esta moviendo el hilo, lo deja.
  */
+export async function getMailingDelivery(env: Env, context: AuthContext, organizationId: string, sequenceId: string) {
+  const supabase = serviceClient(env);
+  const sequence = await loadSequence(supabase, organizationId, sequenceId);
+  const access = authorizeMailingCampaign(context, organizationId, sequence);
+  if (!access.ok) return access;
+  const [drafts, receipts] = await Promise.all([
+    supabase.from("marketing_content_drafts").select("id, status, version, request, created_at", { count: "exact" })
+      .eq("organization_id", organizationId).filter("request->mailing_sequence->>sequence_id", "eq", sequenceId)
+      .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100),
+    supabase.from("marketing_mailing_delivery_receipts").select("id, sequence_number, draft_id, draft_version, provider_message_id, provider_send_time, content_match_status")
+      .eq("organization_id", organizationId).eq("sequence_id", sequenceId).eq("revision", sequence!.revision)
+      .order("linked_at", { ascending: false }).limit(100),
+  ]);
+  if (drafts.error || receipts.error) return { ok: false as const, statusCode: 503, error: "mailing_delivery_load_failed" };
+  const emails = (sequence!.plan.emails ?? []) as Array<{ sequence_number: number; title: string }>;
+  return { ok: true as const, data: { revision: sequence!.revision, approved: Boolean(sequence!.approved_at), timezone: String(sequence!.request.timezone ?? "UTC"),
+    drafts_truncated: (drafts.count ?? 0) > (drafts.data?.length ?? 0),
+    emails: emails.map((email) => {
+      const draft = drafts.data?.find((item) => {
+        const request = item.request as Record<string, any>;
+        return request?.mailing_sequence?.revision === sequence!.revision && request.mailing_sequence.email_number === email.sequence_number;
+      });
+      return { ...email, draft_id: draft?.id ?? null, draft_version: draft?.version ?? null, draft_status: draft?.status ?? null,
+        observation: mailingObservationReadiness(sequence!.plan, receipts.data?.find((receipt) => receipt.sequence_number === email.sequence_number)?.provider_send_time ?? null),
+        receipts: receipts.data?.filter((receipt) => receipt.sequence_number === email.sequence_number).map((receipt) => ({ ...receipt,
+          observation: mailingObservationReadiness(sequence!.plan, receipt.provider_send_time) })) ?? [] };
+    }),
+  } };
+}
+
+export async function listMailingDeliveryCandidates(
+  env: Env, context: AuthContext, organizationId: string, sequenceId: string, afterId?: string,
+) {
+  const supabase = serviceClient(env);
+  const sequence = await loadSequence(supabase, organizationId, sequenceId);
+  const access = authorizeMailingCampaign(context, organizationId, sequence);
+  if (!access.ok) return access;
+  if (afterId && !UUID.test(afterId)) return { ok: false as const, statusCode: 400, error: "mailing_delivery_cursor_invalid" };
+  if (!sequence!.approved_at) return { ok: true as const, data: { candidates: [], next_cursor: null } };
+  let query = supabase.from("klaviyo_campaign_messages")
+    .select("id, subject, sent_at, klaviyo_campaigns!inner(name, send_time, status, klaviyo_accounts!inner(store_id, is_active, integration_connections!inner(status)))")
+    .eq("organization_id", organizationId).eq("channel", "email")
+    .eq("klaviyo_campaigns.klaviyo_accounts.store_id", sequence!.store_id)
+    .eq("klaviyo_campaigns.klaviyo_accounts.is_active", true)
+    .in("klaviyo_campaigns.klaviyo_accounts.integration_connections.status", ["connected", "syncing"])
+    .in("klaviyo_campaigns.status", ["Sent", "sent", "SENT"])
+    .gte("klaviyo_campaigns.send_time", sequence!.approved_at)
+    .lte("klaviyo_campaigns.send_time", new Date().toISOString())
+    .order("id", { ascending: true }).limit(51);
+  if (afterId) query = query.gt("id", afterId);
+  const { data, error } = await query;
+  if (error) return { ok: false as const, statusCode: 503, error: "mailing_delivery_candidates_failed" };
+  const rows = (data ?? []).slice(0, 50);
+  const one = (value: any) => Array.isArray(value) ? value[0] : value;
+  return { ok: true as const, data: { candidates: rows.map((row) => {
+    const campaign = one(row.klaviyo_campaigns);
+    return { id: row.id, subject: row.subject, campaign_name: campaign?.name ?? "Email",
+      sent_at: row.sent_at ?? campaign?.send_time ?? null };
+  }), next_cursor: (data?.length ?? 0) > 50 ? rows.at(-1)!.id : null } };
+}
+
+export async function linkMailingDelivery(
+  env: Env, context: AuthContext, organizationId: string, sequenceId: string, number: number,
+  body: { revision?: unknown; draft_id?: unknown; draft_version?: unknown; message_id?: unknown },
+) {
+  if (!Number.isSafeInteger(number) || number < 1 || number > 7 ||
+    ![body.revision, body.draft_id, body.message_id].every((value) => typeof value === "string" && UUID.test(value)) ||
+    typeof body.draft_version !== "number" || !Number.isSafeInteger(body.draft_version) || body.draft_version < 1) {
+    return { ok: false as const, statusCode: 400, error: "mailing_delivery_invalid" };
+  }
+  const supabase = serviceClient(env);
+  const sequence = await loadSequence(supabase, organizationId, sequenceId);
+  const access = authorizeMailingCampaign(context, organizationId, sequence);
+  if (!access.ok) return access;
+  const { data, error } = await supabase.rpc("link_mailing_delivery", {
+    p_organization_id: organizationId, p_sequence_id: sequenceId, p_revision: body.revision, p_number: number,
+    p_draft_id: body.draft_id, p_draft_version: body.draft_version, p_message_id: body.message_id, p_actor: context.user.id,
+  });
+  if (error || !data) return { ok: false as const, statusCode: error?.code === "P0001" || error?.code === "23505" ? 409 : 503, error: "mailing_delivery_link_failed" };
+  await recordAuditLog(supabase, { organizationId, actorUserId: context.user.id, action: "ai.mailing_delivery_linked",
+    entityType: "marketing_mailing_sequence", entityId: sequenceId,
+    newData: { sequence_number: number, draft_id: body.draft_id, draft_version: body.draft_version,
+      provider_message_id: body.message_id, content_match_status: "unverified" } });
+  return { ok: true as const, data };
+}
+
 export async function resumeStalledMailingCampaigns(env: LoadedApiEnv) {
   const supabase = serviceClient(env);
   const { data: sequences, error } = await supabase
     .from("marketing_mailing_sequences")
-    .select("id, organization_id, store_id, status, orchestrator, request, plan, client_state, graph_requires_consultant_review")
+    .select("id, organization_id, store_id, status, orchestrator, request, plan, client_state, graph_requires_consultant_review, revision, graph_bootstrap, context_snapshot")
     .eq("orchestrator", "graph")
     .eq("status", "in_progress")
+    .order("updated_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(100);
   if (error) throw new Error(`mailing_sweep_load_failed: ${error.message}`);
   const summary = { checked: 0, resumed: 0, skipped: 0, failed: 0 };
@@ -905,8 +943,9 @@ export async function resumeStalledMailingCampaigns(env: LoadedApiEnv) {
         if (!built.ok) throw new Error(built.error);
         platform = built.context;
       }
-      await runExclusive(env, sequence.id, () => advance(env, platform!, sequence));
-      summary.resumed += 1;
+      const resumed = await runExclusive(env, sequence.id, (token) => advance(env, platform!, sequence, token));
+      if (resumed) summary.resumed += 1;
+      else summary.skipped += 1;
     } catch (error) {
       summary.failed += 1;
       logger.error("mailing_sweep_resume_failed", {

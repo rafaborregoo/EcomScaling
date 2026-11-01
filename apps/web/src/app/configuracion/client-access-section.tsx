@@ -1,5 +1,6 @@
 "use client";
 
+import { KeyRoundIcon } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -9,17 +10,36 @@ import {
   Banner,
   Badge,
   Button,
-  Card,
   Checkbox,
-  ConfirmDialog,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   LoadingBlock,
+  SearchableSelect,
   Select,
-  Table,
+  DataTable,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 import { ROLE_LABEL, ROLE_OPTIONS, type MemberRole } from "./role-permissions";
 
@@ -117,7 +137,7 @@ function StorePicker({
                 key={store.id}
                 checked={checked}
                 disabled={disabled || (checked && value.length === 1)}
-                onChange={(next) =>
+                onCheckedChange={(next) =>
                   onChange(next ? [...value, store.id] : value.filter((id) => id !== store.id))
                 }
               >
@@ -304,237 +324,261 @@ export function ClientAccessSection({
 
   return (
     <div className="space-y-6">
-      <Card
-        title="Personas"
-        description={`${access.usage.member_count} de ${memberLimit ?? "∞"} usuarios del plan ${
+      <Card>
+        <CardHeader>
+          <CardTitle>Personas</CardTitle>
+          <CardDescription>{`${access.usage.member_count} de ${memberLimit ?? "∞"} usuarios del plan ${
           access.plan ? planLabel(access.plan.plan_code, access.plan.status) : ""
-        }. Las invitaciones pendientes también ocupan plaza.`}
-        actions={<Badge tone="success">{activeMembers.length} con acceso</Badge>}
-      >
-        {rows.length === 0 ? (
-          <EmptyState title="Sin personas todavía" hint="Invita abajo a quien tenga que entrar." />
-        ) : (
-          <Table<Row>
-            ariaLabel="Personas con acceso"
-            rows={rows}
-            columns={[
-              {
-                key: "person",
-                label: "Persona",
-                render: (member) => (
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {member.profile?.full_name ?? "Sin nombre"}
-                      {member.user_id === currentUserId ? <span className="text-muted"> (tú)</span> : null}
-                    </p>
-                    <p className="text-xs text-muted">
-                      {!member.is_active
-                        ? "sin acceso"
-                        : member.joined_at
-                          ? `entró el ${new Date(member.joined_at).toLocaleDateString("es-ES")}`
-                          : "todavía no ha entrado"}
-                    </p>
-                  </div>
-                ),
-              },
-              {
-                key: "role",
-                label: "Rol",
-                render: (member) =>
-                  canManage && (isOwner || member.role !== "owner") && member.user_id !== currentUserId ? (
-                    <Select
-                      className="w-40"
-                      aria-label={`Rol de ${member.profile?.full_name ?? "la persona"}`}
-                      value={member.role}
-                      onChange={(next) => void patchMember(member.user_id, { role: next })}
-                      options={roleOptions}
-                      disabled={busyUserId === member.user_id || isLastOwner(member)}
-                    />
-                  ) : (
-                    <Badge tone={member.role === "owner" ? "brand" : "neutral"}>{ROLE_LABEL[member.role] ?? member.role}</Badge>
+        }. Las invitaciones pendientes también ocupan plaza.`}</CardDescription>
+          <CardAction><Badge tone="success">{activeMembers.length} con acceso</Badge></CardAction>
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0 ? (
+            <EmptyState title="Sin personas todavía" hint="Invita abajo a quien tenga que entrar." />
+          ) : (
+            <DataTable<Row>
+              ariaLabel="Personas con acceso"
+              rows={rows}
+              columns={[
+                {
+                  key: "person",
+                  label: "Persona",
+                  render: (member) => (
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {member.profile?.full_name ?? "Sin nombre"}
+                        {member.user_id === currentUserId ? <span className="text-muted"> (tú)</span> : null}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {!member.is_active
+                          ? "sin acceso"
+                          : member.joined_at
+                            ? `entró el ${new Date(member.joined_at).toLocaleDateString("es-ES")}`
+                            : "todavía no ha entrado"}
+                      </p>
+                    </div>
                   ),
-              },
-              {
-                key: "stores",
-                label: "Tiendas",
-                render: (member) =>
-                  canManage && member.role !== "owner" && access.stores.length > 1 ? (
-                    <StorePicker
-                      label={`Tiendas de ${member.profile?.full_name ?? "la persona"}`}
-                      stores={access.stores}
-                      value={member.access_scope === "store" ? (member.store_ids ?? []) : null}
-                      disabled={busyUserId === member.user_id}
-                      onChange={(next) =>
-                        void patchMember(
-                          member.user_id,
-                          next ? { access_scope: "store", store_ids: next } : { access_scope: "organization" },
-                        )
-                      }
-                    />
-                  ) : (
-                    <span className="text-sm">{member.access_scope === "store" ? storesLabel(member.store_ids) : "Todas"}</span>
-                  ),
-              },
-              {
-                key: "mfa",
-                label: "2FA",
-                render: (member) => {
-                  const hasMfa = mfaByUser.get(member.user_id);
-                  return hasMfa === undefined ? (
-                    <span className="text-muted">—</span>
-                  ) : (
-                    <Badge tone={hasMfa ? "success" : "warn"}>{hasMfa ? "Activa" : "Sin activar"}</Badge>
-                  );
                 },
-              },
-              {
-                key: "actions",
-                label: "",
-                render: (member) =>
-                  !canManage || member.user_id === currentUserId ? null : isLastOwner(member) ? (
-                    <span className="text-xs text-muted">Único propietario</span>
-                  ) : member.role === "owner" && !isOwner ? null : (
+                {
+                  key: "role",
+                  label: "Rol",
+                  render: (member) =>
+                    canManage && (isOwner || member.role !== "owner") && member.user_id !== currentUserId ? (
+                      <Select
+                        className="w-40"
+                        aria-label={`Rol de ${member.profile?.full_name ?? "la persona"}`}
+                        value={member.role}
+                        onChange={(next) => void patchMember(member.user_id, { role: next })}
+                        options={roleOptions}
+                        disabled={busyUserId === member.user_id || isLastOwner(member)}
+                      />
+                    ) : (
+                      <Badge tone={member.role === "owner" ? "brand" : "neutral"}>{ROLE_LABEL[member.role] ?? member.role}</Badge>
+                    ),
+                },
+                {
+                  key: "stores",
+                  label: "Tiendas",
+                  render: (member) =>
+                    canManage && member.role !== "owner" && access.stores.length > 1 ? (
+                      <StorePicker
+                        label={`Tiendas de ${member.profile?.full_name ?? "la persona"}`}
+                        stores={access.stores}
+                        value={member.access_scope === "store" ? (member.store_ids ?? []) : null}
+                        disabled={busyUserId === member.user_id}
+                        onChange={(next) =>
+                          void patchMember(
+                            member.user_id,
+                            next ? { access_scope: "store", store_ids: next } : { access_scope: "organization" },
+                          )
+                        }
+                      />
+                    ) : (
+                      <span className="text-sm">{member.access_scope === "store" ? storesLabel(member.store_ids) : "Todas"}</span>
+                    ),
+                },
+                {
+                  key: "mfa",
+                  label: "2FA",
+                  render: (member) => {
+                    const hasMfa = mfaByUser.get(member.user_id);
+                    return hasMfa === undefined ? (
+                      <span className="text-muted">—</span>
+                    ) : (
+                      <Badge tone={hasMfa ? "success" : "warn"}>{hasMfa ? "Activa" : "Sin activar"}</Badge>
+                    );
+                  },
+                },
+                {
+                  key: "actions",
+                  label: "",
+                  render: (member) =>
+                    !canManage || member.user_id === currentUserId ? null : isLastOwner(member) ? (
+                      <span className="text-xs text-muted">Único propietario</span>
+                    ) : member.role === "owner" && !isOwner ? null : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busyUserId === member.user_id}
+                        onClick={() => void patchMember(member.user_id, { isActive: !member.is_active })}
+                      >
+                        {member.is_active ? "Quitar acceso" : "Devolver acceso"}
+                      </Button>
+                    ),
+                },
+              ]}
+            />
+          )}
+
+          {access.pending_invites.length > 0 ? (
+            <div className="mt-6 grid gap-3 border-t border-separator pt-4">
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted">Invitaciones pendientes</p>
+              {access.pending_invites.map((pending) => (
+                <Item key={pending.id} size="xs" className="px-0">
+                  <ItemContent>
+                    <ItemTitle>{pending.email}</ItemTitle>
+                    <ItemDescription>
+                      {pending.access_scope === "store" ? storesLabel(pending.store_ids) : "Todas las tiendas"} · caduca el{" "}
+                      {new Date(pending.expires_at).toLocaleDateString("es-ES")}
+                    </ItemDescription>
+                  </ItemContent>
+                  {canManage ? (
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={busyUserId === member.user_id}
-                      onClick={() => void patchMember(member.user_id, { isActive: !member.is_active })}
+                      disabled={busyInviteId === pending.id}
+                      onClick={() => void revokeInvite(pending.id)}
                     >
-                      {member.is_active ? "Quitar acceso" : "Devolver acceso"}
+                      Anular
                     </Button>
-                  ),
-              },
-            ]}
-          />
-        )}
+                  ) : null}
+                </Item>
+              ))}
+            </div>
+          ) : null}
 
-        {access.pending_invites.length > 0 ? (
-          <div className="mt-6 grid gap-3 border-t border-separator pt-4">
-            <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted">Invitaciones pendientes</p>
-            {access.pending_invites.map((pending) => (
-              <div key={pending.id} className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{pending.email}</p>
-                  <p className="text-xs text-muted">
-                    {pending.access_scope === "store" ? storesLabel(pending.store_ids) : "Todas las tiendas"} · caduca el{" "}
-                    {new Date(pending.expires_at).toLocaleDateString("es-ES")}
-                  </p>
-                </div>
-                {canManage ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busyInviteId === pending.id}
-                    onClick={() => void revokeInvite(pending.id)}
-                  >
-                    Anular
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {access.consultants.length > 0 ? (
-          <p className="mt-6 border-t border-separator pt-4 text-xs text-muted">
-            Consultores (no ocupan usuario):{" "}
-            {access.consultants
-              .map((consultant) => `${consultant.profile?.full_name ?? "sin nombre"}${consultant.is_primary ? " (principal)" : ""}`)
-              .join(" · ")}
-          </p>
-        ) : null}
+          {access.consultants.length > 0 ? (
+            <p className="mt-6 border-t border-separator pt-4 text-xs text-muted">
+              Consultores (no ocupan usuario):{" "}
+              {access.consultants
+                .map((consultant) => `${consultant.profile?.full_name ?? "sin nombre"}${consultant.is_primary ? " (principal)" : ""}`)
+                .join(" · ")}
+            </p>
+          ) : null}
+        </CardContent>
       </Card>
 
       {canManage ? (
-        <Card title="Invitar a una persona" description="La invitación reserva una plaza hasta que se acepte o caduque.">
-          {atMemberLimit ? (
-            <Banner className="mb-4" tone="warn">
-              {!access.plan
-                ? "No puedes invitar hasta que la cuenta tenga un plan activo."
-                : `Las ${memberLimit} plazas del plan están ocupadas. Amplía el plan o libera una para invitar a otra persona.`}
-            </Banner>
-          ) : null}
-          <form className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_minmax(0,1fr)]" onSubmit={invite}>
-            <Field label="Correo">
-              <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nombre@empresa.com" />
-            </Field>
-            <Field label="Nombre (opcional)">
-              <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Nombre Apellido" />
-            </Field>
-            <Field label="Rol">
-              <Select aria-label="Rol de la persona invitada" value={role} onChange={setRole} options={roleOptions} />
-            </Field>
-            {access.stores.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Invitar a una persona</CardTitle>
+            <CardDescription>La invitación reserva una plaza hasta que se acepte o caduque.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {atMemberLimit ? (
+              <Banner className="mb-4" tone="warn">
+                {!access.plan
+                  ? "No puedes invitar hasta que la cuenta tenga un plan activo."
+                  : `Las ${memberLimit} plazas del plan están ocupadas. Amplía el plan o libera una para invitar a otra persona.`}
+              </Banner>
+            ) : null}
+            <form className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_minmax(0,1fr)]" onSubmit={invite}>
+              <Field label="Correo">
+                <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nombre@empresa.com" />
+              </Field>
+              <Field label="Nombre (opcional)">
+                <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Nombre Apellido" />
+              </Field>
+              <Field label="Rol">
+                <Select aria-label="Rol de la persona invitada" value={role} onChange={setRole} options={roleOptions} />
+              </Field>
+              {access.stores.length > 1 ? (
+                <div className="md:col-span-3">
+                  <StorePicker label="Tiendas de la invitación" stores={access.stores} value={inviteStores} onChange={setInviteStores} />
+                </div>
+              ) : null}
               <div className="md:col-span-3">
-                <StorePicker label="Tiendas de la invitación" stores={access.stores} value={inviteStores} onChange={setInviteStores} />
+                <Button type="submit" disabled={inviting || !email.trim() || atMemberLimit}>
+                  {inviting ? "Invitando…" : "Invitar"}
+                </Button>
+              </div>
+            </form>
+            {lastInviteUrl ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-separator pt-4">
+                <p className="min-w-0 flex-1 break-all text-sm">{lastInviteUrl}</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(lastInviteUrl)
+                      .then(() => toast.success("Enlace copiado"))
+                      .catch(() => toast.danger("No se pudo copiar."))
+                  }
+                >
+                  Copiar enlace
+                </Button>
               </div>
             ) : null}
-            <div className="md:col-span-3">
-              <Button type="submit" disabled={inviting || !email.trim() || atMemberLimit}>
-                {inviting ? "Invitando…" : "Invitar"}
-              </Button>
-            </div>
-          </form>
-          {lastInviteUrl ? (
-            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-separator pt-4">
-              <p className="min-w-0 flex-1 break-all text-sm">{lastInviteUrl}</p>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  void navigator.clipboard
-                    .writeText(lastInviteUrl)
-                    .then(() => toast.success("Enlace copiado"))
-                    .catch(() => toast.danger("No se pudo copiar."))
-                }
-              >
-                Copiar enlace
-              </Button>
-            </div>
-          ) : null}
+          </CardContent>
         </Card>
       ) : null}
 
       {isOwner ? (
-        <Card
-          title="Traspasar la propiedad"
-          description="La cuenta siempre tiene un propietario. Al traspasarla pasas a ser gestor."
-        >
-          {transferCandidates.length === 0 ? (
-            <p className="text-sm text-muted">Invita antes a la persona que vaya a ser propietaria.</p>
-          ) : (
-            <div className="flex flex-wrap items-center gap-3">
-              <Select
-                className="w-64"
-                aria-label="Nuevo propietario"
-                value={newOwner}
-                onChange={setNewOwner}
-                options={[
-                  { value: "", label: "Elige a quién" },
-                  ...transferCandidates.map((member) => ({
+        <Card>
+          <CardHeader>
+            <CardTitle>Traspasar la propiedad</CardTitle>
+            <CardDescription>La cuenta siempre tiene un propietario. Al traspasarla pasas a ser gestor.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {transferCandidates.length === 0 ? (
+              <p className="text-sm text-muted">Invita antes a la persona que vaya a ser propietaria.</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <SearchableSelect
+                  className="w-64"
+                  aria-label="Nuevo propietario"
+                  placeholder="Busca a quién"
+                  emptyText="No hay nadie con ese nombre."
+                  value={newOwner}
+                  onChange={setNewOwner}
+                  options={transferCandidates.map((member) => ({
                     value: member.user_id,
                     label: member.profile?.full_name ?? "Sin nombre",
-                  })),
-                ]}
-              />
-              <ConfirmDialog
-                trigger={
-                  <Button variant="danger" disabled={!newOwner}>
-                    Traspasar
-                  </Button>
-                }
-                title="¿Traspasar la propiedad?"
-                description="Solo el nuevo propietario podrá devolvértela."
-                consequences={[
-                  "Dejas de gestionar el plan y la facturación.",
-                  "Dejas de decidir qué puede hacer tu consultor.",
-                  "Pasas a ser gestor de la cuenta.",
-                ]}
-                confirmLabel="Traspasar"
-                onConfirm={transfer}
-              />
-            </div>
-          )}
+                  }))}
+                />
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button variant="destructive" disabled={!newOwner}>
+                        Traspasar
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogMedia className="bg-danger/10 text-danger">
+                        <KeyRoundIcon />
+                      </AlertDialogMedia>
+                      <AlertDialogTitle>¿Traspasar la propiedad?</AlertDialogTitle>
+                      <AlertDialogDescription>Solo el nuevo propietario podrá devolvértela.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <ul className="ui-alert-dialog__list">
+                      <li>Dejas de gestionar el plan y la facturación.</li>
+                      <li>Dejas de decidir qué puede hacer tu consultor.</li>
+                      <li>Pasas a ser gestor de la cuenta.</li>
+                    </ul>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" onClick={transfer}>
+                        Traspasar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            )}
+          </CardContent>
         </Card>
       ) : null}
     </div>

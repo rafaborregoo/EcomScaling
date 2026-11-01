@@ -1,6 +1,13 @@
 /** Boundary for RAG, playbooks, connector data and tool outputs. */
 const MAX_BLOCK_CHARS = 12_000;
 const MAX_CONTEXT_CHARS = 48_000;
+// A01 must retain a real 2-hour transcript (116,740 characters in the TEST
+// benchmark) plus its business snapshot. It still fails closed above these
+// explicit bounds instead of silently summarizing a partial meeting.
+export const A01_CALL_CONTEXT_LIMITS = {
+  maxBlockChars: 600_000,
+  maxContextChars: 800_000,
+} as const;
 const INJECTION_PATTERNS: RegExp[] = [
   /ignore\s+(all\s+|any\s+)?(previous|prior|above)\s+instructions?/gi,
   /ignora\s+(todas\s+las\s+|las\s+)?instrucciones\s+(anteriores|previas)/gi,
@@ -9,6 +16,11 @@ const INJECTION_PATTERNS: RegExp[] = [
   /call\s+the\s+tool|execute\s+this\s+tool|llama\s+a\s+la\s+herramienta/gi,
   /change\s+your\s+role|cambia\s+tu\s+rol/gi,
   /bypass\s+(security|approval|policy)|omite\s+(seguridad|aprobaci[oó]n|pol[ií]tica)/gi,
+  /prompt\s+de\s+sistema|instrucciones?\s+de\s+sistema/gi,
+  /assume\s+(the\s+)?role|asume\s+(el\s+)?rol/gi,
+  /publica\s+(la\s+)?(campa[nñ]a|tarea|correo)\s+sin\s+aprobaci[oó]n/gi,
+  /marca\s+como\s+aprobada?|da\s+por\s+aprobada?\s+(la\s+)?(tarea|campa[nñ]a|acci[oó]n)/gi,
+  /incluye\s+(el\s+)?(c[oó]digo|marcador|cadena)|incorpora\s+(el\s+)?(marcador|cadena)/gi,
 ];
 
 function neutralize(text: string): { text: string; blocked: number } {

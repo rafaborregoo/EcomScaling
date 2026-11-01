@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { caminoReviewCalendarWindows, caminoReviewWeekStart, canRetryCaminoReview, isCaminoReviewClaimStale } from "./camino-review-scheduling.js";
+import { caminoReviewCalendarWindows, caminoReviewWeekStart, caminoReviewCycleStart, CAMINO_REVIEW_CADENCE_DAYS, isCaminoReviewDue, canRetryCaminoReview, isCaminoReviewClaimStale } from "./camino-review-scheduling.js";
+
+test("el seguimiento se deduplica por semana y empieza siete días después de activar", () => {
+  assert.equal(CAMINO_REVIEW_CADENCE_DAYS, 7);
+  assert.equal(caminoReviewCycleStart(new Date("2026-10-04T23:59:00Z")), "2026-09-28");
+  assert.equal(isCaminoReviewDue("2026-09-28T12:00:00Z", Date.parse("2026-10-05T11:59:59Z")), false);
+  assert.equal(isCaminoReviewDue("2026-09-28T12:00:00Z", Date.parse("2026-10-05T12:00:00Z")), true);
+});
 
 test("la clave de revisión es el lunes UTC, estable durante toda la semana y entre zonas horarias", () => {
   assert.equal(caminoReviewWeekStart(new Date("2026-09-28T00:00:00.000Z")), "2026-09-28");

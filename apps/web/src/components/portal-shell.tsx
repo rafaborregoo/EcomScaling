@@ -22,14 +22,41 @@ import { getSupabaseClient } from "@/lib/supabase";
 import { invalidateCachedQueries } from "@/lib/use-cached-query";
 import { clearViewAs, getViewAs, setViewAs, type ViewAs } from "@/lib/view-as";
 import {
-  Alert,
+  ScrollArea,
   Avatar,
+  avatarInitials,
+  AvatarImage,
+  AvatarFallback,
+  Banner,
   AsyncState,
   BrandLogo,
+  Breadcrumbs,
   Button,
   CloseIcon,
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+  ComboboxSeparator,
+  ComboboxTrigger,
+  ComboboxValue,
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   EmptyState,
   ErrorBlock,
+  IconChevronDown,
   IconChevronRight,
   Link,
   LoadingBlock,
@@ -37,11 +64,20 @@ import {
   OverlayRole,
   PanelLeftIcon,
   Popover,
+  PopoverContent,
+  PopoverTrigger,
   PlusIcon,
   Select,
   SparklesIcon,
   StoreIcon,
   Tooltip,
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
 } from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
@@ -52,6 +88,7 @@ import {
   ActiveConnectionContext,
 } from "@/components/active-connection";
 import { CopilotPanel } from "@/components/copilot-panel";
+import { ConsultantChatFloat } from "@/components/consultant-chat-float";
 import { CopilotAskProvider, type CopilotAsk } from "@/components/copilot-ask";
 import { buildCopilotEvidenceReference } from "@/lib/copilot-evidence";
 import {
@@ -59,10 +96,12 @@ import {
   type ModuleSummaryData,
 } from "@/components/module-summary";
 import { NotificationsBell } from "@/components/notifications-bell";
+import { CommandPalette, CommandPaletteButton } from "@/components/command-palette";
 import { FocusTarget } from "@/components/focus-target";
 import { PortalFeedback } from "@/components/portal-feedback";
 import { InsightsProvider } from "@/components/insights-context";
 import { SettingsNavStatus } from "@/app/configuracion/settings-status";
+import { IntegrationLiveUpdates } from "@/components/integration-live-updates";
 import { MfaRequiredBanner } from "@/components/mfa-required-banner";
 import {
   getActivePortalModule,
@@ -78,7 +117,13 @@ type PortalShellProps = {
   children: (bootstrap: BootstrapResponse, token: string) => ReactNode;
 };
 
-type PortalSession = { bootstrap: BootstrapResponse; token: string };
+type ProfilePatch = Partial<Pick<BootstrapResponse["profile"], "full_name" | "avatar_url">>;
+type PortalSession = {
+  bootstrap: BootstrapResponse;
+  token: string;
+  /** Tras guardar el perfil: el shell (foto y nombre de arriba) lo refleja sin recargar. */
+  updateProfile: (patch: ProfilePatch) => void;
+};
 const PortalSessionContext = createContext<PortalSession | null>(null);
 
 export function usePortalSession() {
@@ -92,6 +137,8 @@ export function usePortalSession() {
 // Valores centinela para las opciones "Vista general" (cliente) y "Todas las
 // tiendas" de los selectores del header (el control no admite key vacia).
 const GENERAL_VIEW_KEY = "__all__";
+type ClientOption = { value: string; label: string; section?: string };
+type ClientGroupOrOption = ClientOption | { value: string; items: ClientOption[] };
 const ALL_STORES_KEY = "__all_stores__";
 const PRIMARY_NAV_MODE_STORAGE_KEY = "ecomscaling:primary-nav-mode";
 
@@ -128,6 +175,15 @@ function readConnectionMap(): Record<string, string> {
   }
 }
 
+/** Un hilo de /v1/consultant/message-threads, lo que usan el nav y la ventanita del chat. */
+type ConsultantThreadSummary = {
+  organization_id: string;
+  unread_count?: number;
+  counterpart_user_id?: string | null;
+  counterpart_name?: string | null;
+  counterpart_avatar_url?: string | null;
+};
+
 function writeConnectionMap(organizationId: string, connectionId: string) {
   const map = readConnectionMap();
   map[organizationId] = connectionId;
@@ -136,6 +192,13 @@ function writeConnectionMap(organizationId: string, connectionId: string) {
     JSON.stringify(map),
   );
 }
+
+const PLAN_STATE_TEXT: Record<string, string> = {
+  paused: "está en pausa",
+  cancelled: "está cancelado",
+  expired: "ha caducado",
+  pending: "está pendiente de pago",
+};
 
 function AccountStateBanner({
   organizationStatus,
@@ -151,51 +214,35 @@ function AccountStateBanner({
   // página. El aviso es solo para el cliente, que sí queda bloqueado.
   if (organizationStatus === "suspended" && !isConsultant) {
     return (
-      <Alert
-        status="danger"
-        className="border-b border-separator px-6 py-3 lg:px-10"
+      <Banner
+        tone="danger"
+        className="rounded-none border-x-0 border-t-0 px-6 py-3 lg:px-10"
+        title="Tu cuenta está pausada"
       >
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>Organización suspendida</Alert.Title>
-          <Alert.Description>
-            El acceso operativo está pausado. Contacta con tu consultor para
-            reactivar la cuenta.
-          </Alert.Description>
-        </Alert.Content>
-      </Alert>
+        Tu consultor ha pausado el acceso. Escríbele para reactivarla.
+      </Banner>
     );
   }
 
-  if (
-    subscriptionStatus &&
-    ["paused", "cancelled", "expired", "pending"].includes(subscriptionStatus)
-  ) {
+  const planState = subscriptionStatus ? PLAN_STATE_TEXT[subscriptionStatus] : undefined;
+  if (planState) {
     return (
-      <Alert
-        status="warning"
-        className="border-b border-separator px-6 py-3 lg:px-10"
+      <Banner
+        tone="warn"
+        className="rounded-none border-x-0 border-t-0 px-6 py-3 lg:px-10"
+        title={isConsultant ? `El plan de este cliente ${planState}` : `Tu plan ${planState}`}
+        action={
+          <Link
+            className="inline-flex items-center gap-1 whitespace-nowrap"
+            href={isConsultant ? "/consultor" : "/configuracion?section=plan"}
+          >
+            {isConsultant ? "Gestionar cliente" : "Ver mi plan"}
+            <IconChevronRight aria-hidden />
+          </Link>
+        }
       >
-        <Alert.Indicator />
-        <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
-          <div>
-            <Alert.Title>Suscripción no activa</Alert.Title>
-            <Alert.Description>
-              El plan está en estado {subscriptionStatus}. Verifica el acceso
-              comercial antes de activar nuevas operaciones.
-            </Alert.Description>
-          </div>
-          {isConsultant ? (
-            <Link
-              className="inline-flex items-center gap-1 whitespace-nowrap"
-              href="/consultor"
-            >
-              Gestionar cliente
-              <IconChevronRight aria-hidden />
-            </Link>
-          ) : null}
-        </Alert.Content>
-      </Alert>
+        Mientras no esté activo, las funciones del plan se quedan paradas.
+      </Banner>
     );
   }
 
@@ -311,6 +358,9 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   );
   // Mensajes sin leer -> numerito en la entrada "Chats" del nav.
   const [messagesUnread, setMessagesUnread] = useState(0);
+  const [messageThreads, setMessageThreads] = useState<ConsultantThreadSummary[]>([]);
+  // Sube al leer o escribir en la ventanita del chat: refresca el numerito ya.
+  const [messagesRefreshKey, setMessagesRefreshKey] = useState(0);
   // null = todavía no se sabe. Importa tanto como el valor: apagar Chats y
   // volver a encenderlo un segundo después es peor que esperar un ciclo.
   const [hasConsultantThread, setHasConsultantThread] = useState<
@@ -394,6 +444,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     ShopifyConnectionSummary[]
   >([]);
   const [activeConnectionId, setActiveConnectionId] = useState("");
+  // Organización cuya lista de tiendas ya llegó. Hasta entonces la tienda
+  // vigente es la de la URL o la guardada para este cliente: sin esto cada
+  // pantalla pedía sus métricas dos veces (sin tienda y, al llegar la lista,
+  // con tienda) y con el pool de PostgREST pequeño la segunda tanda hacía cola.
+  const [connectionsReadyFor, setConnectionsReadyFor] = useState<string | null>(null);
+  const pendingConnectionId =
+    connectionsReadyFor === activeOrganizationId || typeof window === "undefined"
+      ? ""
+      : connectionIdFromUrl || (activeOrganizationId ? (readConnectionMap()[activeOrganizationId] ?? "") : "");
+  const currentConnectionId = activeConnectionId || pendingConnectionId;
 
   const searchParamsKey = searchParams.toString();
 
@@ -409,15 +469,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         current.offsetLeft - (tabs.clientWidth - current.offsetWidth) / 2;
     }
   }, [pathname, searchParamsKey, bootstrap]);
-
-  useEffect(() => {
-    if (!isMobileNavOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsMobileNavOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isMobileNavOpen]);
 
   // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
   // <title>"E-NORA IA" del layout raiz (los componentes de pagina son
@@ -468,10 +519,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         const response = await apiFetch("/v1/consultant/message-threads");
         if (cancelled || !response.ok) return;
         const payload = (await response.json()) as {
-          threads?: Array<{
-            unread_count?: number;
-            counterpart_user_id?: string | null;
-          }>;
+          threads?: ConsultantThreadSummary[];
         };
         const threads = payload.threads ?? [];
         setMessagesUnread(
@@ -484,6 +532,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         setHasConsultantThread(
           threads.some((thread) => Boolean(thread.counterpart_user_id)),
         );
+        // La misma lista alimenta la ventanita del chat del cliente.
+        setMessageThreads(threads);
       } catch {
         /* transitorio: se reintenta en el siguiente ciclo */
       }
@@ -494,7 +544,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [bootstrapUserId, pathname]);
+  }, [bootstrapUserId, pathname, messagesRefreshKey]);
 
   // Numerito de tareas nuevas en el nav. Son las notificaciones sin leer que
   // apuntan a /tareas: hoy solo las genera el consultor al aprobar propuestas
@@ -583,6 +633,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       );
 
       if (cancelled || !response.ok) {
+        if (!cancelled) setConnectionsReadyFor(activeOrganizationId);
         return;
       }
 
@@ -618,6 +669,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         // una tienda concreta para el dashboard de esa tienda.
         return stored && validIds.includes(stored) ? stored : "";
       });
+      setConnectionsReadyFor(activeOrganizationId);
     }
 
     void loadConnections();
@@ -626,6 +678,32 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- connectionIdFromUrl solo debe aplicarse una vez por carga, no en cada re-render por cambio de URL propio (lo escribe selectConnection).
   }, [activeOrganizationId, token]);
+
+  // Un enlace con ?organizationId= (los CTA de la mesa del consultor) cambia
+  // de cliente. La carga de la cuenta también lo mira, pero se salta entera si
+  // el bootstrap tiene menos de 30 s: navegar desde la mesa justo al entrar
+  // dejaba la página en "Vista general" con la URL de otro cliente.
+  useEffect(() => {
+    if (
+      bootstrap &&
+      organizationIdFromUrl &&
+      bootstrap.memberships.some((membership) => membership.organization_id === organizationIdFromUrl)
+    ) {
+      setActiveOrganizationId(organizationIdFromUrl);
+    }
+  }, [organizationIdFromUrl, bootstrap]);
+
+  // Un enlace con ?connectionId= (p. ej. un hito de la mesa del consultor,
+  // que vive en el camino de otra tienda) cambia la tienda aunque ya hubiera
+  // una elegida: la carga de arriba solo mira la URL al cambiar de cliente.
+  useEffect(() => {
+    if (
+      connectionIdFromUrl &&
+      shopifyConnections.some((connection) => connection.id === connectionIdFromUrl)
+    ) {
+      setActiveConnectionId(connectionIdFromUrl);
+    }
+  }, [connectionIdFromUrl, shopifyConnections]);
 
   function selectConnection(connectionId: string) {
     setActiveConnectionId(connectionId);
@@ -885,6 +963,39 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const showAddStoreAction =
     navigationRole === "client" && Boolean(activeOrganizationId);
   const activeModule = getActivePortalModule(navigationModules, pathname);
+  const hasActiveModuleMatch = navigationModules.some((module) =>
+    module.matchPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)),
+  );
+  const activeNavItem = hasActiveModuleMatch
+    ? activeModule.items.find((item) =>
+        isPortalNavItemActive(item, pathname, searchParams),
+      ) ?? activeModule.items.find((item) => item.defaultForPath) ?? activeModule.items[0]
+    : undefined;
+  const activeNavPath = activeNavItem?.href.split("?")[0];
+  const isNestedNavPage = Boolean(activeNavItem && pathname !== activeNavPath);
+  const currentBreadcrumbLabel =
+    isNestedNavPage && title !== activeModule.label && title !== activeNavItem?.label
+      ? title
+      : activeNavItem?.label ?? title;
+  const breadcrumbItems: Array<{ label: string; href?: string }> = [
+    { label: "Inicio", href: "/dashboard?tab=todo" },
+  ];
+  if (activeModule.id !== "inicio" && activeModule.label !== activeNavItem?.label) {
+    breadcrumbItems.push({
+      label: activeModule.label,
+      href: activeModule.items[0]?.href,
+    });
+  }
+  if (
+    activeNavItem &&
+    activeNavItem.label !== activeModule.label &&
+    currentBreadcrumbLabel !== activeNavItem.label
+  ) {
+    breadcrumbItems.push({ label: activeNavItem.label, href: activeNavItem.href });
+  }
+  if (breadcrumbItems.at(-1)?.label !== currentBreadcrumbLabel) {
+    breadcrumbItems.push({ label: currentBreadcrumbLabel });
+  }
   // Un módulo con una sola sección no abre la segunda columna: esa opción
   // solo repetiría el nombre del módulo.
   const hasSectionNav = activeModule.items.length > 1;
@@ -939,6 +1050,14 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   // Chats sirve para hablar con el consultor. Sin consultor asignado no hay
   // nadie al otro lado; al consultor no se le desactiva nunca.
   const chatsDisabled = !isConsultant && hasConsultantThread === false;
+  const clientChatThread =
+    isConsultant || viewAs
+      ? null
+      : messageThreads.find(
+          (thread) =>
+            thread.counterpart_user_id &&
+            (!activeOrganizationId || thread.organization_id === activeOrganizationId),
+        ) ?? null;
 
   const navItemPath = (item: PortalNavItem) => item.href.split("?")[0];
 
@@ -994,7 +1113,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 className={[
                   "group flex w-full min-w-0 min-h-10 items-center rounded-lg px-3 py-2.5 text-left text-[0.9375rem] no-underline transition-colors duration-150 hover:bg-surface hover:no-underline motion-reduce:transition-none",
                   active
-                    ? "bg-surface font-medium text-foreground"
+                    ? "bg-surface font-medium text-[var(--nav-active)]"
                     : "text-muted hover:text-foreground",
                 ].join(" ")}
               >
@@ -1008,7 +1127,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 ) : null}
                 {badge > 0 ? (
                   <span
-                    className={`ml-2 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${navBadgeClass(itemPath)}`}
+                    className={`ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold leading-none tabular-nums ${navBadgeClass(itemPath)}`}
                     aria-label={itemPath.startsWith("/integraciones")
                       ? `${badge} incidencias de integración, ${integrationSeverity(itemPath) === "error" ? "error" : "advertencia"}`
                       : `${badge} sin leer`}
@@ -1033,9 +1152,9 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   const contextPanel = (
     <aside className="sticky top-14 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] min-h-0 flex-col overflow-hidden border-r border-separator bg-white text-foreground lg:flex admin-context-nav">
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      <ScrollArea className="min-h-0 flex-1 px-3 py-4">
         {contextNavigation}
-      </div>
+      </ScrollArea>
     </aside>
   );
 
@@ -1094,60 +1213,39 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     </nav>
   );
   const profileMenu = (
-    <Popover>
-      <Popover.Trigger>
-        <button
-          type="button"
-          aria-label="Abrir menú de perfil"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent pointer-coarse:size-11"
-        >
-          <Avatar
-            name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
-            src={bootstrap.profile.avatar_url ?? undefined}
-            size="sm"
-            color="accent"
+    // Menú de acciones (role=menu, ↑↓ entre opciones): DropdownMenu, no un
+    // Popover con enlaces sueltos.
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Abrir menú de perfil"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent pointer-coarse:size-11"
           />
-        </button>
-      </Popover.Trigger>
-      <Popover.Content
-        placement="bottom end"
-        className="w-64 overflow-hidden rounded-xl p-0 shadow-lg"
+        }
       >
-        <Popover.Dialog aria-label="Menú de perfil" className="p-2">
-          <div className="border-b border-separator px-2.5 pb-3 pt-1">
-            <p className="truncate text-sm font-medium text-foreground">
-              {bootstrap.profile.full_name ?? "Tu perfil"}
-            </p>
-            <p className="truncate text-xs text-muted">{bootstrap.user.email}</p>
-          </div>
-          <div className="grid gap-0.5 py-2">
-            <Link
-              href="/configuracion?section=perfil"
-              className="rounded-md px-2.5 py-2 text-sm text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
-            >
-              Ver perfil
-            </Link>
-            <Link
-              href="/configuracion?section=resumen"
-              className="rounded-md px-2.5 py-2 text-sm text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
-            >
-              Configuración
-            </Link>
-          </div>
-          <div className="border-t border-separator pt-2">
-            {/* Sin confirmación: salir es reversible (se vuelve a entrar) y la
-                pregunta frenaba más de lo que protegía. */}
-            <Button
-              variant="secondary"
-              className="flex w-full justify-start border-0 bg-transparent px-2.5 py-2 text-sm text-muted hover:bg-surface hover:text-foreground"
-              onClick={signOut}
-            >
-              Cerrar sesión
-            </Button>
-          </div>
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover>
+        <Avatar>
+          <AvatarImage src={bootstrap.profile.avatar_url ?? undefined} alt="" />
+          <AvatarFallback className="bg-accent text-white">{avatarInitials(bootstrap.profile.full_name ?? bootstrap.user.email ?? "?")}</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-64" aria-label="Menú de perfil">
+        <Item size="xs" className="px-2 pb-2 pt-1">
+          <ItemContent>
+            <ItemTitle className="block truncate">{bootstrap.profile.full_name ?? "Tu perfil"}</ItemTitle>
+            <ItemDescription className="truncate">{bootstrap.user.email}</ItemDescription>
+          </ItemContent>
+        </Item>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => router.push("/configuracion?section=perfil")}>Ver perfil</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => router.push("/configuracion?section=resumen")}>Configuración</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* Sin confirmación: salir es reversible (se vuelve a entrar) y la
+            pregunta frenaba más de lo que protegía. */}
+        <DropdownMenuItem onSelect={() => void signOut()}>Cerrar sesión</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   // Selector de cliente / tienda: se muestra en la barra superior en desktop y
@@ -1179,7 +1277,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         ]),
       )
     : undefined;
-  const clientSelectOptions = [
+  const clientSelectOptions: ClientOption[] = [
     ...(isConsultant
       ? [{ value: GENERAL_VIEW_KEY, label: "Vista general" }]
       : []),
@@ -1197,21 +1295,52 @@ function PortalShellContent({ title, children }: PortalShellProps) {
         : {}),
     })),
   ];
+  const clientSelectValue = isConsultant
+    ? activeOrganizationId || GENERAL_VIEW_KEY
+    : activeOrganizationId;
+  // Con muchos clientes un desplegable sin buscador no escala: botón discreto
+  // que abre un buscador, con «Mis tiendas» y «Clientes» como grupos.
+  const clientGroups = groupClientSelect
+    ? ["", "Mis tiendas", "Clientes"]
+        .map((section) => ({ value: section, items: clientSelectOptions.filter((option) => (option.section ?? "") === section) }))
+        .filter((group) => group.items.length)
+    : null;
+  const renderClientOption = (option: ClientOption) => (
+    <ComboboxItem key={option.value} value={option}>
+      {option.label}
+    </ComboboxItem>
+  );
   const clientSelectNode = showClientSelect ? (
-    <Select
-      bare
-      className="max-w-[16rem]"
-      aria-label="Cliente activo"
-      value={
-        isConsultant
-          ? activeOrganizationId || GENERAL_VIEW_KEY
-          : activeOrganizationId
-      }
-      onChange={(value) =>
-        selectOrganization(value === GENERAL_VIEW_KEY ? "" : value)
-      }
-      options={clientSelectOptions}
-    />
+    <Combobox
+      items={clientGroups ?? clientSelectOptions}
+      value={clientSelectOptions.find((option) => option.value === clientSelectValue) ?? null}
+      onValueChange={(option) => {
+        if (option) selectOrganization(option.value === GENERAL_VIEW_KEY ? "" : option.value);
+      }}
+      autoHighlight
+    >
+      <ComboboxTrigger render={<button type="button" aria-label="Cliente activo" className="ui-combobox__bare max-w-[16rem]" />}>
+        <ComboboxValue placeholder="Elegir cliente" />
+        <IconChevronDown aria-hidden />
+      </ComboboxTrigger>
+      <ComboboxContent className="w-72">
+        <ComboboxInput placeholder="Busca un cliente" aria-label="Buscar cliente" />
+        <ComboboxEmpty>No hay ningún cliente con ese nombre.</ComboboxEmpty>
+        <ComboboxList<ClientGroupOrOption>>
+          {(entry) =>
+            "items" in entry ? (
+              <ComboboxGroup key={entry.value || "general"} items={entry.items}>
+                {entry.value ? <ComboboxLabel>{entry.value}</ComboboxLabel> : null}
+                <ComboboxCollection<ClientOption>>{renderClientOption}</ComboboxCollection>
+                <ComboboxSeparator />
+              </ComboboxGroup>
+            ) : (
+              renderClientOption(entry)
+            )
+          }
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   ) : null;
   // Selector de tiendas propias. Va en la barra superior pero pegado a la
   // derecha, separado del de cliente/tienda que vive a la izquierda: son dos
@@ -1247,7 +1376,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       bare
       className="max-w-[14rem]"
       aria-label="Tienda"
-      value={activeConnectionId || ALL_STORES_KEY}
+      value={currentConnectionId || ALL_STORES_KEY}
       onChange={(value) =>
         selectConnection(value === ALL_STORES_KEY ? "" : value)
       }
@@ -1272,6 +1401,23 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const activeSubscription = bootstrap.subscriptions.find(
     (subscription) => subscription.organization_id === activeOrganization?.id,
   );
+  // El perfil lo escribe el navegador contra Postgres; sin esto el shell
+  // seguía con la foto vieja hasta recargar (y la caché de 30 s de abajo la
+  // devolvía igual en cada navegación).
+  function updateProfile(patch: ProfilePatch) {
+    setBootstrap((current) =>
+      current ? { ...current, profile: { ...current.profile, ...patch } } : current,
+    );
+    if (bootstrapCache) {
+      bootstrapCache = {
+        ...bootstrapCache,
+        bootstrap: {
+          ...bootstrapCache.bootstrap,
+          profile: { ...bootstrapCache.bootstrap.profile, ...patch },
+        },
+      };
+    }
+  }
   const copilotLabel = isCopilotOpen
     ? "Cerrar Consultor IA"
     : "Abrir Consultor IA";
@@ -1302,11 +1448,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
       {/* dvh, no vh: en Safari movil 100vh incluye la barra de URL, asi que
           la pagina siempre quedaba un poco scrolleable aunque no hubiera
           contenido de sobra. */}
-      <PortalSessionContext.Provider value={{ bootstrap, token }}>
+      <PortalSessionContext.Provider value={{ bootstrap, token, updateProfile }}>
+        <IntegrationLiveUpdates organizationId={activeOrganizationId} />
         <InsightsProvider
           scope={{
             organizationId: activeOrganizationId,
-            connectionId: activeConnectionId,
+            connectionId: currentConnectionId,
             isConsultant,
           }}
         >
@@ -1353,19 +1500,20 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 {title}
               </p>
               <div className="flex shrink-0 items-center">
+                <CommandPaletteButton compact />
                 {bootstrap.memberships.length > 0 ? copilotToggle(true) : null}
                 <NotificationsBell token={token} storeNames={notificationStoreNames} />
                 {profileMenu}
               </div>
             </div>
             {clientSelectNode || storeSelectNode || ownStoreSelectNode ? (
-              <div className="flex items-center gap-2 overflow-x-auto px-3 pb-2 [&>*]:shrink-0">
+              <ScrollArea className="flex items-center gap-2 px-3 pb-2 [&>*]:shrink-0">
                 {clientSelectNode}
                 {storeSelectNode}
                 {/* En movil no hay barra superior donde separarlo a la derecha,
                   asi que va al final de la misma fila. */}
                 {ownStoreSelectNode}
-              </div>
+              </ScrollArea>
             ) : null}
             {/* Secciones del módulo activo: en escritorio son la columna
               lateral; aquí, pestañas desplazables. Sin ellas solo se llegaba
@@ -1388,7 +1536,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       className={[
                         "shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm no-underline transition-colors hover:no-underline",
                         active
-                          ? "bg-surface font-medium text-foreground"
+                          ? "bg-surface font-medium text-[var(--nav-active)]"
                           : "text-muted hover:text-foreground",
                       ].join(" ")}
                     >
@@ -1400,26 +1548,17 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             ) : null}
           </div>
 
-          {/* Hoja inferior «Más»: el resto de módulos. */}
-          {isMobileNavOpen ? (
-            // Por debajo de la barra inferior (z-50): «Más» sigue a la vista y
-            // vuelve a pulsarse para cerrar, como en una app nativa.
-            <div className="fixed inset-0 z-40 lg:hidden">
-              <button
-                type="button"
-                aria-label="Cerrar menú"
-                className="absolute inset-0 bg-black/30"
-                onClick={() => setIsMobileNavOpen(false)}
-              />
-              <div
-                id="mobile-nav"
-                className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto overscroll-contain rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
-              >
-                <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
+          {/* Cajón inferior «Más»: el resto de módulos. */}
+          <Drawer open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen} swipeDirection="down" showSwipeHandle>
+            <DrawerContent id="mobile-nav" className="lg:hidden">
+              <DrawerHeader>
+                <DrawerTitle>Más</DrawerTitle>
+              </DrawerHeader>
+              <ScrollArea className="flex-1 overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] [&_a]:py-2.5 pointer-coarse:[&_a]:py-3">
                 {mobileNavigation}
-              </div>
-            </div>
-          ) : null}
+              </ScrollArea>
+            </DrawerContent>
+          </Drawer>
 
           {/* Barra superior de escritorio a todo el ancho, por encima de los
           dos navs: logo en el hueco de las columnas de navegación, y a partir
@@ -1475,6 +1614,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               <div className="ml-auto flex items-center gap-3">
                 {ownStoreSelectNode}
                 {!isConsultant && activeOrganization ? <PortalFeedback organizationId={activeOrganization.id} /> : null}
+                <CommandPaletteButton />
                 {bootstrap.memberships.length > 0 ? copilotToggle(false) : null}
                 <NotificationsBell token={token} storeNames={notificationStoreNames} />
                 {profileMenu}
@@ -1486,20 +1626,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             className={[
               "relative grid min-h-dvh lg:min-h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] admin-shell-grid",
               !hasSectionNav
-                ? isCopilotOpen
-                  ? primaryNavMode === "expanded"
-                    ? "lg:grid-cols-[13rem_minmax(0,1fr)_26rem]"
-                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)_26rem]"
-                  : primaryNavMode === "expanded"
-                    ? "lg:grid-cols-[13rem_minmax(0,1fr)]"
-                    : "lg:grid-cols-[4.75rem_minmax(0,1fr)]"
-                : isCopilotOpen
-                  ? primaryNavMode === "expanded"
-                    ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
-                    : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)_26rem]"
-                  : primaryNavMode === "expanded"
-                    ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
-                    : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)]",
+                ? primaryNavMode === "expanded"
+                  ? "lg:grid-cols-[13rem_minmax(0,1fr)]"
+                  : "lg:grid-cols-[4.75rem_minmax(0,1fr)]"
+                : primaryNavMode === "expanded"
+                  ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
+                  : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)]",
             ].join(" ")}
           >
             <aside
@@ -1565,7 +1697,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                           {module.label}
                         </span>
                         {badge > 0 && isPrimaryNavExpanded ? (
-                          <span className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 bg-accent text-white`}>
+                          <span className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold leading-none tabular-nums bg-accent text-white`}>
                             {badge > 99 ? "99+" : badge}
                           </span>
                         ) : null}
@@ -1683,7 +1815,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                           {module.label}
                         </span>
                         {module.id === "configuracion" && integrationIssueCount > 0 && isPrimaryNavExpanded ? (
-                          <span className={`ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium leading-4 ${navBadgeClass("/integraciones")}`}>
+                          <span className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold leading-none tabular-nums ${navBadgeClass("/integraciones")}`}>
                             {integrationIssueCount > 99 ? "99+" : integrationIssueCount}
                           </span>
                         ) : null}
@@ -1700,11 +1832,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                     );
                   })}
                 <Popover
-                  isOpen={isPrimaryNavControlOpen}
+                  open={isPrimaryNavControlOpen}
                   onOpenChange={setIsPrimaryNavControlOpen}
                 >
-                  <Popover.Trigger>
-                    <button
+                  <PopoverTrigger
+                    render={<button
                       type="button"
                       title="Control de navegación"
                       aria-label="Control de navegación lateral"
@@ -1726,13 +1858,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       >
                         Navegación
                       </span>
-                    </button>
-                  </Popover.Trigger>
-                  <Popover.Content
-                    placement="top start"
-                    className="w-60 overflow-hidden rounded-xl p-0 shadow-lg"
-                  >
-                    <Popover.Dialog aria-label="Control de navegación lateral">
+                    </button>}
+                  />
+                  <PopoverContent side="top" align="start" className="w-60 gap-0 overflow-hidden p-0" aria-label="Control de navegación lateral">
+                    <div>
                       <p className="border-b border-separator px-4 py-3 text-sm font-medium text-foreground">
                         Control de navegación
                       </p>
@@ -1769,14 +1898,21 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                           </button>
                         ))}
                       </div>
-                    </Popover.Dialog>
-                  </Popover.Content>
+                    </div>
+                  </PopoverContent>
                 </Popover>
               </div>
             </aside>
 
             {hasSectionNav ? contextPanel : null}
 
+            {/* Pantalla y Consultor IA comparten la última columna como paneles:
+              en escritorio el asa entre ambos cambia el ancho del copiloto (se
+              recuerda en este navegador). En móvil el grupo es un bloque y el
+              copiloto abre su cajón. Montado siempre, para que abrir el
+              copiloto no vuelva a montar la pantalla. */}
+            <ResizablePanelGroup autoSaveId="copilot" className="min-w-0 max-lg:block">
+            <ResizablePanel>
             <section
               id="portal-content"
               tabIndex={-1}
@@ -1790,7 +1926,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 // Marketing, Integraciones y Cartera comparten los colores de Trabajo e Inicio (grafito +
                 // azafrán en cliente, grafito + mandarina en consultor).
                 // Comunicación y Conocimiento, solo en el consultor: el cliente las sigue viendo con la paleta base.
-                  activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "comunicacion" || activeModule?.id === "configuracion" || activeModule?.id === "cartera" ||
+                  activeModule?.id === "trabajo" || activeModule?.id === "marketing" || activeModule?.id === "comunicacion" || activeModule?.id === "configuracion" || activeModule?.id === "cartera"  ||
                 (navigationRole === "consultant" && (activeModule?.id === "comunicacion" || activeModule?.id === "conocimiento"))
                   ? ` trabajo-theme trabajo-theme--${navigationRole === "client" ? "client" : "consultant"}`
                   : ""
@@ -1833,7 +1969,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   </Link>
                 </div>
               ) : null}
-              <div className={`px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14${isPlatformAdmin ? " admin-portal-page" : ""}`}>
+              <div className={`portal-page-content px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14${isPlatformAdmin ? " admin-portal-page" : ""}`}>
+                <Breadcrumbs items={breadcrumbItems} className="mb-4" />
                 <ActiveOrganizationContext.Provider
                   value={{
                     // Un consultor puede estar en vista general -> "" real.
@@ -1847,7 +1984,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 >
                   <ActiveConnectionContext.Provider
                     value={{
-                      connectionId: activeConnectionId,
+                      connectionId: currentConnectionId,
                       setConnectionId: selectConnection,
                       stores: shopifyConnections.map((connection) => ({
                         connectionId: connection.id,
@@ -1880,7 +2017,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                                 route: pathname,
                                 title,
                                 focusLabel: next.focusLabel,
-                                connectionId: activeConnectionId,
+                                connectionId: currentConnectionId,
                                 periodLabel: moduleSummary?.period,
                                 searchParams,
                                 target: next.reference,
@@ -1898,10 +2035,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 </ActiveOrganizationContext.Provider>
               </div>
             </section>
-            {/* En escritorio CopilotPanel se convierte en un rail del grid: el
-              contenido conserva su columna y no queda detrás de un backdrop.
-              En móvil el propio componente elige el drawer accesible. */}
+            </ResizablePanel>
             {isCopilotOpen ? (
+              <>
+              <ResizableHandle aria-label="Cambiar el ancho del Consultor IA" className="max-lg:hidden" />
+              <ResizablePanel defaultSize="26rem" minSize="20rem" maxSize="50%" className="max-lg:contents">
               <CopilotPanel
                 organizationId={activeOrganizationId}
                 canManageEscalations={isConsultant}
@@ -1914,10 +2052,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 view={{
                   route: pathname,
                   title,
-                  storeId: activeConnectionId || undefined,
+                  storeId: currentConnectionId || undefined,
                   storeLabel:
                     shopifyConnections.find(
-                      (connection) => connection.id === activeConnectionId,
+                      (connection) => connection.id === currentConnectionId,
                     )?.provider_account_id ?? undefined,
                   summary: moduleSummary,
                 }}
@@ -1927,7 +2065,49 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   setCopilotAsk(null);
                 }}
               />
+              </ResizablePanel>
+              </>
             ) : null}
+            </ResizablePanelGroup>
+            {/* Chat con el consultor desde cualquier pantalla: solo el cliente
+              (no el consultor ni «Ver como»), con consultor asignado, fuera
+              de Chats y sin el Consultor IA abierto encima. */}
+            {clientChatThread && !isCopilotOpen && pathname !== "/mensajes" ? (
+              <ConsultantChatFloat
+                key={clientChatThread.organization_id}
+                organizationId={clientChatThread.organization_id}
+                consultantName={clientChatThread.counterpart_name ?? null}
+                consultantAvatarUrl={clientChatThread.counterpart_avatar_url ?? null}
+                unread={clientChatThread.unread_count ?? 0}
+                onActivity={() => setMessagesRefreshKey((key) => key + 1)}
+              />
+            ) : null}
+            <CommandPalette
+              modules={navigationModules}
+              clients={isConsultant || showClientSelect ? clientSelectOptions : undefined}
+              clientsHeading={isConsultant ? "Cambiar de cliente" : "Cambiar de negocio"}
+              onSelectClient={(value) => selectOrganization(value === GENERAL_VIEW_KEY ? "" : value)}
+              stores={
+                showStoreSelect
+                  ? [
+                      { value: "", label: "Todas las tiendas" },
+                      ...shopifyConnections.map((connection) => ({
+                        value: connection.id,
+                        label: connection.provider_account_id ?? connection.provider_account_name ?? connection.id,
+                      })),
+                    ]
+                  : undefined
+              }
+              onSelectStore={selectConnection}
+              onAsk={
+                bootstrap.memberships.length > 0
+                  ? (question) => {
+                      setCopilotAsk({ question, key: Date.now() });
+                      setIsCopilotOpen(true);
+                    }
+                  : undefined
+              }
+            />
           </div>
 
           {/* Barra de navegación inferior (solo móvil): app nativa en web. */}

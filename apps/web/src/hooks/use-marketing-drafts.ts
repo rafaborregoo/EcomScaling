@@ -25,6 +25,13 @@ export type MarketingDraft = {
     channel?: string;
     content_type?: string;
     brief?: string;
+    ai_lab?: {
+      model: string;
+      model_label: string;
+      synthetic: boolean;
+      estimated_api_cost_low: number;
+      estimated_api_cost_high: number;
+    };
     /** Versión 1: editor anterior. Versión 2: estudio de contenido. */
     design?: TemplateDesign | StudioDesign;
     template_profile?: Record<string, unknown>;
@@ -116,6 +123,7 @@ export function useMarketingDrafts(
   return {
     drafts: query.data?.drafts ?? [],
     isLoading: query.isLoading,
+    loadError: query.error,
     error: manualError ?? query.error,
     setError: setManualError,
     reload,

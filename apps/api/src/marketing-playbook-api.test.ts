@@ -10,6 +10,15 @@ import {
 import type { AuthContext } from "./auth-context.js";
 
 const env = {} as never;
+
+test("invalid internal template slots fail before database access", async () => {
+  const result = await saveInternalMailingPlaybookDraft(env, context("platform_admin"), {
+    kind: "example", title: "Demo", objective: "Demo editable", audience_tags: [], lifecycle_tags: [],
+    content: { raw_html: "<p>{{undeclared}}</p>", template: { version: 1, key: "safe-demo", description: "Example", variables: [{ key: "headline", label: "Titular", kind: "text", example: "Texto" }] } },
+    evidence: {}, source: { type: "internal", rights_confirmed: true },
+  });
+  assert.ok(!result.ok); if (!result.ok) assert.equal(result.error, "invalid_mailing_template");
+});
 const serviceEnv = {
   SUPABASE_URL: "https://playbook-test.invalid",
   SUPABASE_SERVICE_ROLE_KEY: "local-test-only",

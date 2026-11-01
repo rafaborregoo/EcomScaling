@@ -38,6 +38,20 @@ const FLOW_METRICS = new Set(["net_sales", "net_profit", "orders_count"]);
 const CALENDAR_MONTH_METRICS = new Set(["net_sales", "net_profit", "net_margin_pct", "orders_count", "aov"]);
 const DOWN_IS_BETTER = new Set(["cac", "out_of_stock_items"]);
 
+export function calculateCaminoGoalProgress(input: Parameters<typeof calculateCaminoGoalProgressInternal>[0]) {
+  const result = calculateCaminoGoalProgressInternal(input);
+  const now = input.now ?? new Date();
+  const point = result.measurement_period === "point_in_time";
+  const start = result.measurement_period === "calendar_month_to_date" && input.calendarMonth
+    ? input.calendarMonth.periodStart
+    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6));
+  const provider = ["roas", "cac"].includes(String(record(input.goal)?.metric_key)) ? "meta_ads" : "shopify";
+  const syncs = (input.coverage.connections ?? []).filter((c) => c.provider === provider).map((c) => c.last_sync_at).filter((s): s is string => Boolean(s)).sort();
+  return { ...result, source: provider === "meta_ads" ? "Meta Ads" : "Shopify", period_start: (point ? now : start).toISOString(),
+    period_end: now.toISOString(), measured_at: now.toISOString(), last_sync_at: syncs[0] ?? null,
+    period_label: point ? "Inventario actual" : result.measurement_period === "calendar_month_to_date" ? "Mes natural hasta la fecha" : result.measurement_period === "equivalent_monthly" ? "Equivalente mensual desde siete días" : "Últimos siete días" };
+}
+
 function record(value: unknown): Row | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Row
@@ -101,7 +115,7 @@ function insufficient(
  * Computes Camino goal status exclusively from server-read, store-scoped
  * metrics. The target pace is a transparent linear reference, not a forecast.
  */
-export function calculateCaminoGoalProgress(input: {
+function calculateCaminoGoalProgressInternal(input: {
   goal: unknown;
   planStartedAt: string | null;
   planCreatedAt?: string | null;

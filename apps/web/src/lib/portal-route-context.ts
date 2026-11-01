@@ -5,14 +5,15 @@ export function withPortalRouteContext(
   organizationId: string,
   connectionId?: string | null,
 ): string {
-  if (!href.startsWith("/")) return href;
+  if (!href.startsWith("/") || href.startsWith("//")) return href;
   const url = new URL(href, "http://local");
+  if (url.origin !== "http://local") return href;
   if (!url.searchParams.has("organizationId")) {
     url.searchParams.set("organizationId", organizationId);
   }
   if (
     connectionId &&
-    url.pathname.startsWith("/shopify") &&
+    ["/dashboard", "/tareas", "/camino", "/panel", "/informes", "/shopify", "/meta", "/klaviyo", "/marketing"].some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`)) &&
     !url.searchParams.has("connectionId")
   ) {
     url.searchParams.set("connectionId", connectionId);

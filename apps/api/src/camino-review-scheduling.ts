@@ -1,5 +1,5 @@
 const CAMINO_REVIEW_STALE_AFTER_MS = 30 * 60 * 1000;
-export const CAMINO_REVIEW_CADENCE_DAYS = 3;
+export const CAMINO_REVIEW_CADENCE_DAYS = 7;
 const CAMINO_REVIEW_CADENCE_MS = CAMINO_REVIEW_CADENCE_DAYS * 24 * 60 * 60 * 1000;
 
 /** Compatibility helper for older calendar-week review rows. */
@@ -10,14 +10,12 @@ export function caminoReviewWeekStart(date: Date): string {
   return monday.toISOString().slice(0, 10);
 }
 
-/** Stable UTC three-day bucket used to deduplicate Camino follow-up reviews. */
+/** Calendar week, shared by the scheduler and retry endpoint. */
 export function caminoReviewCycleStart(date: Date): string {
-  const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  const cycleStart = Math.floor(dayStart / CAMINO_REVIEW_CADENCE_MS) * CAMINO_REVIEW_CADENCE_MS;
-  return new Date(cycleStart).toISOString().slice(0, 10);
+  return caminoReviewWeekStart(date);
 }
 
-/** First follow-up is due three days after the Camino was activated. */
+/** First follow-up is due a week after activation. */
 export function isCaminoReviewDue(
   activatedAt: string | null | undefined,
   now = Date.now(),

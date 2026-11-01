@@ -2,6 +2,8 @@
 
 import { useId, useState, type ComponentProps, type ReactNode } from "react";
 import { Button } from "./button";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./chart-primitives";
+export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle, type ChartConfig } from "./chart-primitives";
 import {
   ResponsiveContainer,
   AreaChart as RAreaChart,
@@ -19,11 +21,8 @@ import {
   ZAxis,
 } from "recharts";
 
-// Charts sobre Recharts con los tokens del design system (ADR-0020). HeroUI v3
-// (no-Pro) no trae charts; `@heroui-pro/react` es un wrapper de Recharts con
-// tema HeroUI -- aqui se hace lo mismo con `recharts` directo y nuestros
-// tokens, con una API de props simple (no compound) porque los usos actuales
-// son series planas.
+// Modelos oficiales de shadcn/ui sobre Recharts. Las API de series conservan
+// los datos, formatos y acciones de las pantallas existentes.
 
 type Serie = { key: string; label?: string; color?: string };
 
@@ -73,7 +72,7 @@ function CategoryTick({
       dy={3}
       textAnchor="end"
       fill="var(--color-muted)"
-      fontSize={11}
+      fontSize={12}
     >
       {short}
       <title>{full}</title>
@@ -91,17 +90,6 @@ const TOOLTIP_PROPS = {
   },
   labelStyle: { color: "var(--color-muted)", fontSize: 11, marginBottom: 2 },
 } as const;
-
-type TooltipFormatter = NonNullable<
-  ComponentProps<typeof Tooltip>["formatter"]
->;
-
-function makeTooltipFormatter(
-  valueFormatter?: (value: number) => string,
-): TooltipFormatter | undefined {
-  if (!valueFormatter) return undefined;
-  return (value) => valueFormatter(Number(value));
-}
 
 function withColors(series: Serie[]): Required<Serie>[] {
   return series.map((serie, index) => ({
@@ -220,12 +208,15 @@ export function AreaChart({
   actions,
   onSelectRange,
   selectedRange,
+  axisValueFormatter,
 }: {
   data: ChartData;
   xKey: string;
   series: Serie[];
   height?: number;
   valueFormatter?: (value: number) => string;
+  // Formato corto para el eje; el tooltip usa valueFormatter.
+  axisValueFormatter?: (value: number) => string;
   actions?: (row: ChartRow) => ChartAction[];
   onSelectRange?: (from: string | number, to: string | number) => void;
   selectedRange?: { from: string | number; to: string | number } | null;
@@ -250,43 +241,41 @@ export function AreaChart({
     setPinned(null);
     onSelectRange?.(from, to);
   }
+  const config = Object.fromEntries(resolved.map((serie) => [serie.key, { label: serie.label, color: serie.color }]));
   const area = (
-    <ResponsiveContainer width="100%" height={height}>
+    <ChartContainer config={config} className="w-full" style={{ height, aspectRatio: "auto" }}>
       <RAreaChart
+        accessibilityLayer
         data={data}
-        margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+        margin={{ left: 12, right: 12 }}
         style={interactive ? { cursor: "crosshair", userSelect: "none" } : undefined}
         onMouseDown={interactive ? (state) => { const label = labelOf(state as never); if (label != null) setDrag({ from: label, to: label }); } : undefined}
         onMouseMove={interactive ? (state) => { const label = labelOf(state as never); if (drag && label != null) setDrag({ ...drag, to: label }); } : undefined}
         onMouseUp={interactive ? finishDrag : undefined}
         onMouseLeave={interactive ? () => setDrag(null) : undefined}
       >
-        <CartesianGrid stroke="var(--color-separator)" vertical={false} />
-        <XAxis dataKey={xKey} {...AXIS_PROPS} />
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey={xKey} tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
         <YAxis
-          {...AXIS_PROPS}
-          width={48}
+          hide
+          domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]}
           tickFormatter={
-            valueFormatter ? (value) => valueFormatter(Number(value)) : undefined
+            (axisValueFormatter ?? valueFormatter)
+              ? (value) => (axisValueFormatter ?? valueFormatter)!(Number(value))
+              : undefined
           }
         />
-        <Tooltip
-          {...TOOLTIP_PROPS}
-          cursor={{ stroke: "var(--color-separator)" }}
-          formatter={makeTooltipFormatter(valueFormatter)}
-        />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" {...(valueFormatter ? { valueFormatter } : {})} />} />
         {resolved.map((serie) => (
           <Area
             key={serie.key}
-            type="monotone"
+            type="linear"
             dataKey={serie.key}
             name={serie.label}
             stroke={serie.color}
             fill={serie.color}
-            fillOpacity={0.12}
-            strokeWidth={2}
-            activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--color-surface)" }}
-            animationDuration={700}
+            fillOpacity={0.4}
+            isAnimationActive={false}
           />
         ))}
         {drag && drag.from !== drag.to ? (
@@ -296,7 +285,7 @@ export function AreaChart({
           <ReferenceArea x1={selectedRange.from} x2={selectedRange.to} fill="var(--color-accent)" fillOpacity={0.1} />
         ) : null}
       </RAreaChart>
-    </ResponsiveContainer>
+    </ChartContainer>
   );
   if (!interactive) return area;
   return (
@@ -336,6 +325,7 @@ export function BarChart({
   stacked = false,
   axisValueFormatter,
   onBarClick,
+  domain,
 }: {
   data: ChartData;
   xKey: string;
@@ -350,36 +340,51 @@ export function BarChart({
   axisValueFormatter?: (value: number) => string;
   // Clic en una barra: abre su detalle. Las barras se resaltan al pasar el ratón.
   onBarClick?: (row: ChartRow) => void;
+  // Escala fija del eje de valores (p. ej. [0, 100] para repartos en %).
+  domain?: [number, number];
 }) {
   const resolved = withColors(series);
   const axisBase = axisValueFormatter ?? valueFormatter;
   const axisFormatter = axisBase
     ? (value: number | string) => axisBase(Number(value))
     : undefined;
+  const config = Object.fromEntries(resolved.map((serie) => [serie.key, { label: serie.label, color: serie.color }]));
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ChartContainer config={config} className="w-full" style={{ height, aspectRatio: "auto" }}>
       <RBarChart
+        accessibilityLayer
         data={data}
         layout={horizontal ? "vertical" : "horizontal"}
         margin={{ top: 4, right: 12, bottom: 0, left: 0 }}
-        barCategoryGap={horizontal ? "28%" : "20%"}
+        // El clic va al gráfico, no a la barra: la barra resaltada se vuelve a
+        // pintar al pasar el ratón y se comía el clic. Así vale toda la franja.
+        {...(onBarClick
+          ? {
+              style: { cursor: "pointer" },
+              onClick: (state: { activeIndex?: unknown }) => {
+                const row = data[Number(state?.activeIndex)];
+                if (row) onBarClick(row);
+              },
+            }
+          : {})}
       >
-        <CartesianGrid stroke="var(--color-separator)" vertical={horizontal} horizontal={!horizontal} />
+        {!horizontal ? <CartesianGrid vertical={false} /> : null}
         {horizontal ? (
           <>
             <XAxis
               type="number"
-              {...AXIS_PROPS}
+              hide
               tickFormatter={axisFormatter}
-              tickCount={4}
+              tickCount={domain ? 5 : 4}
               height={20}
+              {...(domain ? { domain, allowDataOverflow: true } : {})}
             />
             <YAxis
               type="category"
               dataKey={xKey}
               tickLine={false}
-              axisLine={{ stroke: "var(--color-separator)" }}
+              axisLine={false}
               tick={<CategoryTick />}
               interval={0}
               width={CATEGORY_AXIS_WIDTH}
@@ -388,15 +393,11 @@ export function BarChart({
           </>
         ) : (
           <>
-            <XAxis dataKey={xKey} {...AXIS_PROPS} />
-            <YAxis {...AXIS_PROPS} width={44} tickFormatter={axisFormatter} />
+            <XAxis dataKey={xKey} tickLine={false} axisLine={false} tickMargin={10} />
+            <YAxis hide {...(domain ? { domain, allowDataOverflow: true } : {})} />
           </>
         )}
-        <Tooltip
-          {...TOOLTIP_PROPS}
-          cursor={{ fill: "var(--color-surface)" }}
-          formatter={makeTooltipFormatter(valueFormatter)}
-        />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator={horizontal ? "dot" : "dashed"} {...(valueFormatter ? { valueFormatter } : {})} />} />
         {resolved.map((serie, index) => (
           <Bar
             key={serie.key}
@@ -408,23 +409,19 @@ export function BarChart({
             radius={
               stacked && index < resolved.length - 1
                 ? [0, 0, 0, 0]
-                : horizontal
-                  ? [0, 4, 4, 0]
-                  : [4, 4, 0, 0]
+                : horizontal ? 5 : 4
             }
-            maxBarSize={horizontal ? 22 : 48}
-            animationDuration={600}
+            isAnimationActive={false}
             {...(onBarClick
               ? {
                   cursor: "pointer",
                   activeBar: { fillOpacity: 0.82, stroke: "var(--color-foreground)", strokeWidth: 1 },
-                  onClick: (entry: { payload?: ChartRow }) => entry?.payload && onBarClick(entry.payload),
                 }
               : {})}
           />
         ))}
       </RBarChart>
-    </ResponsiveContainer>
+    </ChartContainer>
   );
 }
 

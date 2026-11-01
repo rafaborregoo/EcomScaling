@@ -31,13 +31,18 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
   LoadingBlock,
+  SearchableSelect,
   Select,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -52,6 +57,7 @@ import {
   type CausalPathView,
   type CausalStepView,
 } from "./causal-view-model";
+import { capabilityLabel } from "./capability-health-view-model";
 
 /**
  * Los tipos de relacion que un consultor puede declarar.
@@ -280,6 +286,7 @@ export function CausalPathsPanel() {
     (n) => ({
       value: n.id,
       label: n.label,
+      section: n.capability ? capabilityLabel(n.capability) : "Otras",
     }),
   );
 
@@ -323,147 +330,152 @@ export function CausalPathsPanel() {
   const casos = groupByCase(paths ?? []);
 
   return (
-    <Card
-      title="Por dónde puede ir, y por dónde no"
-      description="Recorridos hacia atrás desde lo que se movió. Ninguno está sostenido todavía, y eso no es un fallo: lo que hoy aporta el bloque es descartar. Si las ventas cayeron y los pedidos, que sí se vigilan, no se movieron, esa rama queda cerrada y lo que se hundió es el ticket."
-    >
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+    <Card>
+      <CardHeader>
+        <CardTitle>Por dónde puede ir, y por dónde no</CardTitle>
+        <CardDescription>Recorridos hacia atrás desde lo que se movió. Ninguno está sostenido todavía, y eso no es un fallo: lo que hoy aporta el bloque es descartar. Si las ventas cayeron y los pedidos, que sí se vigilan, no se movieron, esa rama queda cerrada y lo que se hundió es el ticket.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      {casos.length === 0 ? (
-        <EmptyState
-          title="Sin rutas causales"
-          hint="Aparecen cuando hay un caso abierto con una señal y el motor recorre el grafo declarado hacia atrás desde ella."
-        />
-      ) : (
-        <div className="space-y-6">
-          {casos.map(({ caseId, paths: rutas }) => (
-            <div key={caseId}>
-              {rutas.map((path) => (
-                <Ruta key={path.id} path={path} edges={edges} nodes={nodes} />
-              ))}
-            </div>
-          ))}
+        {casos.length === 0 ? (
+          <EmptyState
+            title="Sin rutas causales"
+            hint="Aparecen cuando hay un caso abierto con una señal y el motor recorre el grafo declarado hacia atrás desde ella."
+          />
+        ) : (
+          <div className="space-y-6">
+            {casos.map(({ caseId, paths: rutas }) => (
+              <div key={caseId}>
+                {rutas.map((path) => (
+                  <Ruta key={path.id} path={path} edges={edges} nodes={nodes} />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="border-default-200 mt-6 border-t pt-4">
+          <p className="text-xs uppercase tracking-wide">
+            Declarar una relación de esta tienda
+          </p>
+          <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+            El grafo que viene de serie solo trae lo que se sostiene con las
+            métricas que la plataforma lee hoy. Lo que sepas de esta tienda en
+            concreto no cabía en ningún sitio, y sin ello el motor casi no tiene
+            por dónde recorrer.
+          </p>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Tienda">
+              <Select
+                value={draft.organization_id}
+                onChange={(organization_id) =>
+                  setDraft({
+                    ...draft,
+                    organization_id,
+                    from_node_id: "",
+                    to_node_id: "",
+                  })
+                }
+                options={tiendas}
+                placeholder="Elige la tienda"
+                aria-label="Tienda"
+              />
+            </Field>
+
+            <Field label="Tipo de relación">
+              <Select
+                value={draft.relation_type}
+                onChange={(relation_type) =>
+                  setDraft({ ...draft, relation_type })
+                }
+                options={RELACIONES}
+                aria-label="Tipo de relación"
+              />
+            </Field>
+
+            <Field label="Cuando cambia esto">
+              <SearchableSelect
+                value={draft.from_node_id}
+                onChange={(from_node_id) => setDraft({ ...draft, from_node_id })}
+                options={disponibles}
+                placeholder="Busca la causa"
+                emptyText="No hay ningún nodo con ese nombre."
+                aria-label="Causa"
+              />
+            </Field>
+
+            <Field label="Se mueve esto">
+              <SearchableSelect
+                value={draft.to_node_id}
+                onChange={(to_node_id) => setDraft({ ...draft, to_node_id })}
+                options={disponibles}
+                placeholder="Busca el efecto"
+                emptyText="No hay ningún nodo con ese nombre."
+                aria-label="Efecto"
+              />
+            </Field>
+
+            <Field label="En qué sentido">
+              <Select
+                value={draft.expected_sign}
+                onChange={(expected_sign) =>
+                  setDraft({ ...draft, expected_sign })
+                }
+                options={SIGNOS}
+                aria-label="Sentido esperado"
+              />
+            </Field>
+
+            <Field label="Cuántos días tarda en notarse">
+              <Input
+                value={draft.expected_lag_days}
+                onChange={(e) =>
+                  setDraft({ ...draft, expected_lag_days: e.target.value })
+                }
+                placeholder="0"
+                inputMode="numeric"
+              />
+            </Field>
+          </div>
+
+          <div className="mt-4 grid gap-4">
+            <Field label="Por qué lo uno mueve a lo otro">
+              <Input
+                value={draft.mechanism}
+                onChange={(e) =>
+                  setDraft({ ...draft, mechanism: e.target.value })
+                }
+                placeholder="Subir el mínimo de envío gratis empuja a añadir un producto más al carrito para alcanzarlo, y deja fuera a quien no quiere gastar tanto."
+              />
+            </Field>
+
+            <Field label="Qué permite distinguir">
+              <Input
+                value={draft.diagnostic_rationale}
+                onChange={(e) =>
+                  setDraft({ ...draft, diagnostic_rationale: e.target.value })
+                }
+                placeholder="Separa una subida de ticket por cambio de política de una por cambio de mezcla de productos."
+              />
+            </Field>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => void declarar()}
+              disabled={Boolean(problema) || isSaving}
+            >
+              Declarar relación
+            </Button>
+            {/* El motivo por el que el botón está apagado, en vez de una pared. */}
+            {problema ? (
+              <span className="text-muted text-sm">{problema}</span>
+            ) : null}
+          </div>
         </div>
-      )}
-
-      <div className="border-default-200 mt-6 border-t pt-4">
-        <p className="text-xs uppercase tracking-wide">
-          Declarar una relación de esta tienda
-        </p>
-        <p className="text-muted mt-1 max-w-prose text-sm leading-6">
-          El grafo que viene de serie solo trae lo que se sostiene con las
-          métricas que la plataforma lee hoy. Lo que sepas de esta tienda en
-          concreto no cabía en ningún sitio, y sin ello el motor casi no tiene
-          por dónde recorrer.
-        </p>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Field label="Tienda">
-            <Select
-              value={draft.organization_id}
-              onChange={(organization_id) =>
-                setDraft({
-                  ...draft,
-                  organization_id,
-                  from_node_id: "",
-                  to_node_id: "",
-                })
-              }
-              options={tiendas}
-              placeholder="Elige la tienda"
-              aria-label="Tienda"
-            />
-          </Field>
-
-          <Field label="Tipo de relación">
-            <Select
-              value={draft.relation_type}
-              onChange={(relation_type) =>
-                setDraft({ ...draft, relation_type })
-              }
-              options={RELACIONES}
-              aria-label="Tipo de relación"
-            />
-          </Field>
-
-          <Field label="Cuando cambia esto">
-            <Select
-              value={draft.from_node_id}
-              onChange={(from_node_id) => setDraft({ ...draft, from_node_id })}
-              options={disponibles}
-              placeholder="Elige la causa"
-              aria-label="Causa"
-            />
-          </Field>
-
-          <Field label="Se mueve esto">
-            <Select
-              value={draft.to_node_id}
-              onChange={(to_node_id) => setDraft({ ...draft, to_node_id })}
-              options={disponibles}
-              placeholder="Elige el efecto"
-              aria-label="Efecto"
-            />
-          </Field>
-
-          <Field label="En qué sentido">
-            <Select
-              value={draft.expected_sign}
-              onChange={(expected_sign) =>
-                setDraft({ ...draft, expected_sign })
-              }
-              options={SIGNOS}
-              aria-label="Sentido esperado"
-            />
-          </Field>
-
-          <Field label="Cuántos días tarda en notarse">
-            <Input
-              value={draft.expected_lag_days}
-              onChange={(e) =>
-                setDraft({ ...draft, expected_lag_days: e.target.value })
-              }
-              placeholder="0"
-              inputMode="numeric"
-            />
-          </Field>
-        </div>
-
-        <div className="mt-4 grid gap-4">
-          <Field label="Por qué lo uno mueve a lo otro">
-            <Input
-              value={draft.mechanism}
-              onChange={(e) =>
-                setDraft({ ...draft, mechanism: e.target.value })
-              }
-              placeholder="Subir el mínimo de envío gratis empuja a añadir un producto más al carrito para alcanzarlo, y deja fuera a quien no quiere gastar tanto."
-            />
-          </Field>
-
-          <Field label="Qué permite distinguir">
-            <Input
-              value={draft.diagnostic_rationale}
-              onChange={(e) =>
-                setDraft({ ...draft, diagnostic_rationale: e.target.value })
-              }
-              placeholder="Separa una subida de ticket por cambio de política de una por cambio de mezcla de productos."
-            />
-          </Field>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button
-            onClick={() => void declarar()}
-            disabled={Boolean(problema) || isSaving}
-          >
-            Declarar relación
-          </Button>
-          {/* El motivo por el que el botón está apagado, en vez de una pared. */}
-          {problema ? (
-            <span className="text-muted text-sm">{problema}</span>
-          ) : null}
-        </div>
-      </div>
+      </CardContent>
     </Card>
   );
 }

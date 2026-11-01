@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type ScalabilityRun = {
   organization_id: string;
@@ -62,24 +62,30 @@ export function ScalabilityPlaybookPanel() {
   const observed = FACTS.filter(([key]) => value(key) !== "UNKNOWN").length;
 
   return (
-    <Card id="insight-scalability" title="Escalabilidad y constraints" description="Localiza la restricción que limita el sistema y exige evidencia de capacidad, headroom, economics y resiliencia antes de escalar.">
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {FACTS.map(([key, label]) => {
-              const fact = value(key);
-              return <div key={key} className="rounded border border-default-200 p-3"><div className="flex items-center justify-between gap-2 text-xs"><span>{label}</span><span className="font-mono text-muted">{fact}</span></div><div className="mt-2 h-1.5 rounded bg-default-100"><div className={`h-1.5 rounded ${factTone(fact)}`} style={{ width: fact === "UNKNOWN" ? "22%" : "100%" }} /></div></div>;
-            })}
-          </div>
-          <p className="text-muted mt-3 text-xs">Cobertura de señales: {observed}/{FACTS.length}. Capacidad y headroom no se infieren del volumen actual.</p>
-          {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.scalability_motion}; constraint: {profile.constraint_ref}; scope: {profile.scale_scope}; headroom declarado: {profile.headroom_state ?? "UNKNOWN"}.</p> : null}
-          <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar el constraint, capacidad, headroom y economics marginales."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
-        </article>
-      ) : <p className="text-muted text-sm">Todavía no hay evaluaciones de escalabilidad.</p>}
+    <Card id="insight-scalability">
+      <CardHeader>
+        <CardTitle>Escalabilidad y constraints</CardTitle>
+        <CardDescription>Localiza la restricción que limita el sistema y exige evidencia de capacidad, headroom, economics y resiliencia antes de escalar.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {FACTS.map(([key, label]) => {
+                const fact = value(key);
+                return <Card size="sm" key={key}><CardContent><div className="flex items-center justify-between gap-2 text-xs"><span>{label}</span><span className="font-mono text-muted">{fact}</span></div><div className="mt-2 h-1.5 rounded bg-default-100"><div className={`h-1.5 rounded ${factTone(fact)}`} style={{ width: fact === "UNKNOWN" ? "22%" : "100%" }} /></div></CardContent></Card>;
+              })}
+            </div>
+            <p className="text-muted mt-3 text-xs">Cobertura de señales: {observed}/{FACTS.length}. Capacidad y headroom no se infieren del volumen actual.</p>
+            {profile ? <p className="text-muted mt-2 text-xs">Movimiento: {profile.scalability_motion}; constraint: {profile.constraint_ref}; scope: {profile.scale_scope}; headroom declarado: {profile.headroom_state ?? "UNKNOWN"}.</p> : null}
+            <p className="text-muted mt-2 text-xs">{current.selected_instance_id ? "Instancia trazable preparada." : "Sin instancia seleccionada: primero validar el constraint, capacidad, headroom y economics marginales."}{current.unresolved_unknowns.length ? ` Unknowns: ${current.unresolved_unknowns.join(", ")}.` : ""}</p>
+          </CardContent></Card>
+        ) : <EmptyState title="Todavía no hay evaluaciones de escalabilidad" />}
+      </CardContent>
     </Card>
   );
 }

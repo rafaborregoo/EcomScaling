@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { EmptyState, Badge, ErrorBlock, LoadingBlock, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type PaidMediaRun = {
   organization_id: string;
@@ -52,34 +52,36 @@ export function PaidMediaPlaybookPanel() {
 
   const current = runs[0];
   return (
-    <Card
-      id="insight-paid-media"
-      title="Paid Media y eficiencia de tráfico"
-      description="Descompone distribución, respuesta, tráfico, conversión y verdad económica antes de proponer cambios."
-    >
-      {current ? (
-        <article className="rounded border border-default-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted text-xs">{current.organization_id}</span>
-            <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
-          </div>
-          <p className="mt-3 text-sm">
-            {current.candidate_count
-              ? `${current.candidate_count} playbook(s) de Paid Media evaluado(s).`
-              : "No hay templates PAID_MEDIA activos; no se inventa una campaña, audiencia ni presupuesto."}
-          </p>
-          <p className="text-muted mt-2 text-xs">
-            {current.selected_instance_id
-              ? "Instancia trazable preparada para recomendación."
-              : "Sin instancia seleccionada: primero hay que validar la evidencia."}{" "}
-            {current.unresolved_unknowns.length
-              ? `Unknowns: ${current.unresolved_unknowns.join(", ")}.`
-              : ""}
-          </p>
-        </article>
-      ) : (
-        <p className="text-muted text-sm">Todavía no hay evaluaciones de Paid Media.</p>
-      )}
+    <Card id="insight-paid-media">
+      <CardHeader>
+        <CardTitle>Paid Media y eficiencia de tráfico</CardTitle>
+        <CardDescription>Descompone distribución, respuesta, tráfico, conversión y verdad económica antes de proponer cambios.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {current ? (
+          <Card role="article"><CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted text-xs">{current.organization_id}</span>
+              <Badge tone={tone(current.disposition)}>{current.disposition}</Badge>
+            </div>
+            <p className="mt-3 text-sm">
+              {current.candidate_count
+                ? `${current.candidate_count} playbook(s) de Paid Media evaluado(s).`
+                : "No hay templates PAID_MEDIA activos; no se inventa una campaña, audiencia ni presupuesto."}
+            </p>
+            <p className="text-muted mt-2 text-xs">
+              {current.selected_instance_id
+                ? "Instancia trazable preparada para recomendación."
+                : "Sin instancia seleccionada: primero hay que validar la evidencia."}{" "}
+              {current.unresolved_unknowns.length
+                ? `Unknowns: ${current.unresolved_unknowns.join(", ")}.`
+                : ""}
+            </p>
+          </CardContent></Card>
+        ) : (
+          <EmptyState title="Todavía no hay evaluaciones de Paid Media" />
+        )}
+      </CardContent>
     </Card>
   );
 }

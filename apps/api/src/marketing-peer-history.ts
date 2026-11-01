@@ -9,6 +9,8 @@ type PeerRun = {
 } | null;
 
 export type MarketingPeerHistoryRow = {
+  id?: unknown;
+  run_id?: unknown;
   created_at?: unknown;
   status?: unknown;
   output?: unknown;
@@ -16,6 +18,11 @@ export type MarketingPeerHistoryRow = {
 };
 
 export type MarketingPeerSummary = {
+  output_id?: string;
+  run_id?: string;
+  content_reviews?: unknown[];
+  proposal_delivery?: unknown[];
+  sequence_delivery?: unknown;
   agent: string;
   code: string;
   generated_at: string;
@@ -26,6 +33,11 @@ export type MarketingPeerSummary = {
   recommendations: string[];
   flow_architecture?: NonNullable<ReturnType<typeof summarizeKlaviyoFlowArchitecture>>;
   mailing_strategy?: {
+    decision: string;
+    success_criteria: string[];
+    stop_criteria: string[];
+    experiment: { hypothesis: string; primary_metric: string; design: string; decision_rule: string; evidence_status: string };
+    execution_status: "strategy_approval_only_execution_unverified";
     plan_name: string;
     strategy_decision: string;
     objective_rationale: string;
@@ -94,7 +106,7 @@ export function summarizeMarketingPeerHistory(
     if (!code || !RELEVANT_MARKETING_PEERS.has(code) || seen.has(code)) continue;
     const generatedAt = typeof row.created_at === "string" ? row.created_at : null;
     if (!generatedAt) continue;
-    const maxAgeDays = options.maxAgeDaysByCode?.[code];
+    const maxAgeDays = options.maxAgeDaysByCode?.[code] ?? (code === "a27_planificador_mailing" ? 30 : 90);
     if (maxAgeDays !== undefined) {
       const generatedAtMs = Date.parse(generatedAt);
       if (
@@ -141,8 +153,17 @@ export function summarizeMarketingPeerHistory(
     const cadence = typeof output.cadence === "object" && output.cadence !== null
       ? output.cadence as Record<string, unknown>
       : {};
+    const experiment = output.experiment && typeof output.experiment === "object" ? output.experiment as Record<string, unknown> : {};
+    const criteria = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string")
+      .slice(0, 4).map((item) => item.slice(0, 300)) : [];
     const mailingStrategy = code === "a27_planificador_mailing"
       ? {
+          decision: text(output.decision, 30) || "historical_unverified",
+          success_criteria: criteria(output.success_criteria),
+          stop_criteria: criteria(output.stop_criteria),
+          experiment: { hypothesis: text(experiment.hypothesis, 300), primary_metric: text(experiment.primary_metric, 120),
+            design: text(experiment.design, 400), decision_rule: text(experiment.decision_rule, 300), evidence_status: text(experiment.evidence_status, 40) },
+          execution_status: "strategy_approval_only_execution_unverified" as const,
           plan_name: text(output.plan_name, 180),
           strategy_decision: text(output.strategy_decision, 700),
           objective_rationale: text(output.objective_rationale, 400),
@@ -165,7 +186,7 @@ export function summarizeMarketingPeerHistory(
               })
             : [],
           email_angles: Array.isArray(output.emails)
-            ? output.emails.slice(0, 5).flatMap((item) => {
+            ? output.emails.slice(0, 7).flatMap((item) => {
                 if (typeof item !== "object" || item === null) return [];
                 const email = item as Record<string, unknown>;
                 if (typeof email.sequence_number !== "number" || !Number.isInteger(email.sequence_number)) return [];
@@ -212,6 +233,12 @@ export function summarizeMarketingPeerHistory(
       : null;
 
     summaries.push({
+      ...(typeof row.id === "string" ? { output_id: row.id } : {}),
+      ...(typeof row.run_id === "string" ? { run_id: row.run_id } : {}),
+      ...(code === "a26_contenido_email" ? {
+        content_reviews: Array.isArray(output.content_reviews) ? output.content_reviews.slice(0, 5) : [],
+        proposal_delivery: Array.isArray(output.proposal_delivery) ? output.proposal_delivery.slice(0, 4) : [],
+      } : {}),
       agent,
       code,
       generated_at: generatedAt,

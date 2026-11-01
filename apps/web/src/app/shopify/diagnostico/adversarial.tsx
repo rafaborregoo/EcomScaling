@@ -1,16 +1,21 @@
 "use client";
 
+
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 import {
   checkStatusLabel,
@@ -60,12 +65,12 @@ function RevisionBlock({ review }: { review: AdversarialReviewView }) {
   }
   if (abierta && !decided) {
     return (
-      <div className="rounded-md border border-default-200 p-3 text-sm">
+      <Card size="sm"><CardContent className="text-sm">
         <p>
           D12 propone reabrir {abierta.reopened_blocks.join(", ") || "los bloques previos"} (reapertura {abierta.attempt} de 2).
           Hasta que se revise, la confianza del caso no pasa de baja.
         </p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div role="group" aria-label="Decision sobre el diagnostico" className="flex flex-wrap items-center gap-2 mt-2">
           <Button size="sm" onClick={() => void decide(abierta.id, "confirm")} disabled={busy}>
             Confirmar reapertura
           </Button>
@@ -73,7 +78,7 @@ function RevisionBlock({ review }: { review: AdversarialReviewView }) {
             Descartar
           </Button>
         </div>
-      </div>
+      </CardContent></Card>
     );
   }
   if (review.revision_state === "confirmed" || decided === "confirm") {
@@ -106,7 +111,7 @@ function Review({ review }: { review: AdversarialReviewView }) {
         <span className="text-muted text-xs">Caso {review.case_id}</span>
       </div>
       <p className="text-muted max-w-prose text-sm leading-6">{status.hint}</p>
-      <div className="rounded-md border border-separator bg-subtle p-4">
+      <Card><CardContent>
         <p className="text-xs uppercase tracking-wide">
           La mejor contraexplicación
         </p>
@@ -124,7 +129,7 @@ function Review({ review }: { review: AdversarialReviewView }) {
             Para zanjarlo: {review.red_team_required_evidence}
           </p>
         ) : null}
-      </div>
+      </CardContent></Card>
       {review.confidence_adjustment ? (
         <p className="text-muted text-sm">{review.confidence_adjustment}</p>
       ) : null}
@@ -137,18 +142,13 @@ function Review({ review }: { review: AdversarialReviewView }) {
       <div>
         <p className="text-xs uppercase tracking-wide">Confusores evaluados</p>
         {review.confounders.length === 0 ? (
-          <p className="text-muted mt-2 text-sm">
-            No hay confusores observados en las fuentes disponibles.
-          </p>
+          <EmptyState title="No hay confusores observados en las fuentes disponibles" />
         ) : (
           <ul className="mt-2 space-y-3">
             {review.confounders.map((confounder) => {
               const label = confounderStatusLabel(confounder.status);
               return (
-                <li
-                  key={confounder.id}
-                  className="rounded-md border border-default-200 p-3 text-sm"
-                >
+                <li key={confounder.id}><Card size="sm"><CardContent className="text-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={label.tone}>{label.label}</Badge>
                     <span className="font-medium">
@@ -171,7 +171,7 @@ function Review({ review }: { review: AdversarialReviewView }) {
                       Efecto: {confounder.confidence_effect}
                     </p>
                   ) : null}
-                </li>
+                </CardContent></Card></li>
               );
             })}
           </ul>
@@ -242,27 +242,29 @@ export function AdversarialPanel() {
   if (!reviews) return null;
   const groups = groupReviewsByCase(reviews);
   return (
-    <Card
-      id="insight-d12-adversarial"
-      title="¿Podría estar engañándonos el diagnóstico?"
-      description="D12 intenta refutar la interpretación completa. Los candidatos siguen siendo posibilidades; solo la evidencia los puede promover o descartar."
-    >
-      {groups.length === 0 ? (
-        <EmptyState
-          title="Sin revisiones adversariales"
-          hint="Aparecen al ejecutar el motor D12 sobre un caso abierto."
-        />
-      ) : (
-        <div className="space-y-6">
-          {groups.map((group) => (
-            <div key={group.caseId}>
-              {group.reviews.map((review) => (
-                <Review key={review.id} review={review} />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
+    <Card id="insight-d12-adversarial">
+      <CardHeader>
+        <CardTitle>¿Podría estar engañándonos el diagnóstico?</CardTitle>
+        <CardDescription>D12 intenta refutar la interpretación completa. Los candidatos siguen siendo posibilidades; solo la evidencia los puede promover o descartar.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {groups.length === 0 ? (
+          <EmptyState
+            title="Sin revisiones adversariales"
+            hint="Aparecen al ejecutar el motor D12 sobre un caso abierto."
+          />
+        ) : (
+          <div className="space-y-6">
+            {groups.map((group) => (
+              <div key={group.caseId}>
+                {group.reviews.map((review) => (
+                  <Review key={review.id} review={review} />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
+import { DatePicker } from "@/components/ui";
 
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Button, Input, LoadingBlock, Textarea } from "@/components/ui";
+import { Button, Checkbox, Input, LoadingBlock, Textarea } from "@/components/ui";
 import { upcomingCalendarIdeas } from "./camino-calendar";
 import s from "./camino-intake-wizard.module.css";
 
@@ -289,11 +290,11 @@ export function CaminoIntakeWizard({
             {context.importantDates.map((item, index) => (
               <div className={s.dateRow} key={index}>
                 <label className={s.field}><span>Evento o fecha</span><Input value={item.name} maxLength={120} disabled={disabled} onChange={(event) => updateDate(index, { name: event.target.value })} placeholder="Aniversario de la tienda" /></label>
-                <label className={s.field}><span>Fecha</span><Input type="date" value={item.date} disabled={disabled} onChange={(event) => updateDate(index, { date: event.target.value })} /></label>
+                <label className={s.field}><span>Fecha</span><DatePicker value={item.date} disabled={disabled} onChange={(value) => updateDate(index, { date: value })} /></label>
                 <label className={s.field}><span>Qué tener en cuenta <em>Opcional</em></span><Input value={item.note} maxLength={500} disabled={disabled} onChange={(event) => updateDate(index, { note: event.target.value })} placeholder="Preparar stock 6 semanas antes" /></label>
                 <div className={s.dateFlags}>
-                  <label className={s.repeat}><input type="checkbox" checked={item.confirmed} disabled={disabled} onChange={(event) => updateDate(index, { confirmed: event.target.checked })} />Confirmado para esta tienda</label>
-                  <label className={s.repeat}><input type="checkbox" checked={item.repeatsAnnually} disabled={disabled} onChange={(event) => updateDate(index, { repeatsAnnually: event.target.checked })} />Se repite cada año</label>
+                  <label className={s.repeat}><Checkbox checked={item.confirmed} disabled={disabled} onChange={(event) => updateDate(index, { confirmed: event.target.checked })} />Confirmado para esta tienda</label>
+                  <label className={s.repeat}><Checkbox checked={item.repeatsAnnually} disabled={disabled} onChange={(event) => updateDate(index, { repeatsAnnually: event.target.checked })} />Se repite cada año</label>
                 </div>
                 <button className={s.removeDate} type="button" disabled={disabled} onClick={() => update({ importantDates: context.importantDates.filter((_, itemIndex) => itemIndex !== index) })}>Quitar fecha</button>
               </div>
@@ -301,7 +302,7 @@ export function CaminoIntakeWizard({
           </div>
           <div className={s.dateActions}>
             <Button type="button" variant="secondary" disabled={disabled || context.importantDates.length >= 10} onClick={addDate}>Añadir fecha importante</Button>
-            <label className={s.repeat}><input type="checkbox" checked={noDates} disabled={disabled} onChange={(event) => { setNoDates(event.target.checked); if (event.target.checked) update({ importantDates: [] }); }} />No hay fechas relevantes que añadir</label>
+            <label className={s.repeat}><Checkbox checked={noDates} disabled={disabled} onChange={(event) => { setNoDates(event.target.checked); if (event.target.checked) update({ importantDates: [] }); }} />No hay fechas relevantes que añadir</label>
           </div>
         </div>
       ) : null}

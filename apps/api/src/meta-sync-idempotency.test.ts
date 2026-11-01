@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildMetaSyncIdempotencyKey } from "./meta-sync.js";
 
-test("Meta sync reuses the same daily key for retries", () => {
+test("Meta sync reuses a ten-minute key for retries", () => {
   assert.equal(
     buildMetaSyncIdempotencyKey(
       "connection-1",
@@ -10,16 +10,16 @@ test("Meta sync reuses the same daily key for retries", () => {
       "incremental",
       "2026-08-24T10:00:00.000Z",
     ),
-    "meta:incremental:insights:act_123:connection-1:2026-08-24",
+    "meta:incremental:insights:act_123:connection-1:2026-08-24T10:00:00.000Z",
   );
   assert.equal(
     buildMetaSyncIdempotencyKey(
       "connection-1",
       "insights:act_123",
       "incremental",
-      "2026-08-24T19:00:00.000Z",
+      "2026-08-24T10:09:59.000Z",
     ),
-    "meta:incremental:insights:act_123:connection-1:2026-08-24",
+    "meta:incremental:insights:act_123:connection-1:2026-08-24T10:00:00.000Z",
   );
 });
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { milestonesInMonth } from "./monthly-route";
+import { milestonesInMonth } from "./monthly-route-model";
 
 test("reparte los hitos en la ventana mensual del Camino", () => {
   const milestones = [

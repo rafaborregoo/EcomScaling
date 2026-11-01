@@ -7,7 +7,7 @@
 // padre decide cómo convertirlo en el payload del PUT.
 
 import { useId, useState } from "react";
-import { Button, ColorField, Input } from "@/components/ui";
+import { Select, Button, ColorField, Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Input, Card, CardContent } from "@/components/ui";
 import { CloseIcon, IconChevronDown, IconChevronUp, PlusIcon } from "@/components/ui/icons";
 import {
   contrastGrade,
@@ -69,14 +69,16 @@ export function PaletteEditor({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-3">
         {roles.map((role) => (
-          <div key={role} className="flex w-40 flex-col gap-2 rounded-md border border-edge p-2">
+          <Card size="sm" key={role} className="w-48"><CardContent className="flex flex-col gap-2">
             <ColorField label={PALETTE_ROLE_LABEL[role] ?? role} value={value[role]} onChange={(hex) => onChange({ ...value, [role]: hex })} />
             <div className="flex items-center gap-1">
-              <select
-                className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-1 text-xs hover:border-edge"
+              <Select
+                bare
+                size="sm"
+                className="min-w-0 flex-1"
+                aria-label="Nombre del color"
                 value={roles.includes(role) ? role : ""}
-                onChange={(event) => {
-                  const next = event.target.value;
+                onChange={(next) => {
                   if (next === "__custom") {
                     setCustomName("");
                     setCustomFor(role);
@@ -84,13 +86,12 @@ export function PaletteEditor({
                   }
                   rename(role, next);
                 }}
-              >
-                <option value={role}>{PALETTE_ROLE_LABEL[role] ?? role}</option>
-                {freeRoles.map((free) => (
-                  <option key={free} value={free}>{PALETTE_ROLE_LABEL[free]}</option>
-                ))}
-                <option value="__custom">Otro nombre…</option>
-              </select>
+                options={[
+                  { value: role, label: PALETTE_ROLE_LABEL[role] ?? role },
+                  ...freeRoles.map((free) => ({ value: free, label: PALETTE_ROLE_LABEL[free] })),
+                  { value: "__custom", label: "Otro nombre…" },
+                ]}
+              />
               <Button variant="ghost" size="sm" className="min-w-0 px-1.5" aria-label={`Quitar ${PALETTE_ROLE_LABEL[role] ?? role}`} onClick={() => remove(role)}>
                 <CloseIcon className="size-3.5" />
               </Button>
@@ -123,13 +124,13 @@ export function PaletteEditor({
               </form>
             ) : null}
             <span className="text-xs tabular-nums text-muted">{value[role]}</span>
-          </div>
+          </CardContent></Card>
         ))}
         {roles.length < PALETTE_MAX_ROLES ? (
           <button
             type="button"
             onClick={add}
-            className="flex w-40 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-edge-strong text-sm text-muted hover:border-accent hover:text-foreground"
+            className="flex min-h-24 w-48 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-edge-strong text-sm text-muted hover:border-accent hover:text-foreground"
           >
             <PlusIcon className="size-4" />
             Añadir color
@@ -164,14 +165,12 @@ export function PaletteEditor({
 const FONT_SUGGESTIONS = ["Georgia", "Arial", "Helvetica", "Verdana", "Trebuchet MS", "Lora", "DM Sans", "IBM Plex Sans"];
 
 export function FontListEditor({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
-  const [draft, setDraft] = useState("");
   const hasSafeFallback = value.some(isEmailSafeFont);
 
   function add(name: string) {
     const trimmed = name.trim().slice(0, 80);
     if (!trimmed || value.includes(trimmed)) return;
     onChange([...value, trimmed]);
-    setDraft("");
   }
   function move(index: number, by: 1 | -1) {
     const next = [...value];
@@ -187,7 +186,7 @@ export function FontListEditor({ value, onChange }: { value: string[]; onChange:
       {value.map((font, i) => {
         const safe = isEmailSafeFont(font);
         return (
-          <div key={`${font}-${i}`} className="flex items-center gap-3 rounded-md border border-edge px-3 py-2">
+          <Card size="sm" key={`${font}-${i}`}><CardContent className="flex items-center gap-3">
             <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted">{i + 1}</span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-xl" style={{ fontFamily: `'${font}', ${i === 0 ? "serif" : "sans-serif"}` }}>
@@ -209,7 +208,7 @@ export function FontListEditor({ value, onChange }: { value: string[]; onChange:
                 <CloseIcon className="size-4" />
               </Button>
             </div>
-          </div>
+          </CardContent></Card>
         );
       })}
       {value.length > 0 && !hasSafeFallback ? (
@@ -218,21 +217,23 @@ export function FontListEditor({ value, onChange }: { value: string[]; onChange:
         </p>
       ) : null}
       {value.length < 12 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            list="guia-font-suggestions"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(draft); } }}
-            placeholder="Añadir tipografía"
-            className="max-w-64"
-          />
-          <datalist id="guia-font-suggestions">
-            {FONT_SUGGESTIONS.filter((f) => !value.includes(f)).map((f) => <option key={f} value={f} />)}
-          </datalist>
-          <Button variant="secondary" size="sm" onClick={() => add(draft)}>
-            <PlusIcon className="size-4" /> Añadir
-          </Button>
+        <div className="max-w-64">
+          {/* Sugerencias que funcionan en email; cualquier otra se añade escribiéndola y pulsando Intro. */}
+          <Combobox<string>
+            items={FONT_SUGGESTIONS.filter((f) => !value.includes(f))}
+            value={null}
+            onValueChange={(font) => font && add(font)}
+            allowsCustomValue
+            autoHighlight
+          >
+            <ComboboxInput placeholder="Añadir tipografía" aria-label="Añadir tipografía">
+              <PlusIcon aria-hidden />
+            </ComboboxInput>
+            <ComboboxContent>
+              <ComboboxEmpty>Escribe el nombre y pulsa Intro.</ComboboxEmpty>
+              <ComboboxList<string>>{(font) => <ComboboxItem key={font} value={font}>{font}</ComboboxItem>}</ComboboxList>
+            </ComboboxContent>
+          </Combobox>
         </div>
       ) : null}
     </div>

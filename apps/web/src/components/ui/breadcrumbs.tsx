@@ -1,23 +1,37 @@
 "use client";
 
-import { Breadcrumbs as HeroBreadcrumbs } from "@heroui/react";
+import { Fragment } from "react";
+import {
+  Breadcrumb,
+  BreadcrumbItem as BreadcrumbCrumbItem,
+  BreadcrumbLink as BreadcrumbCrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage as BreadcrumbCurrentPage,
+  BreadcrumbSeparator,
+} from "./breadcrumb";
 
-export type BreadcrumbItem = { label: string; href?: string };
+export type BreadcrumbEntry = { label: string; href?: string };
 
-export function Breadcrumbs({ items, className }: { items: BreadcrumbItem[]; className?: string }) {
+/** Array-based adapter retained for simple, route-driven breadcrumb trails. */
+export function Breadcrumbs({ items, className }: { items: BreadcrumbEntry[]; className?: string }) {
+  if (!items.length) return null;
+
   return (
-    <HeroBreadcrumbs className={className}>
-      {items.map((item, index) =>
-        item.href ? (
-          <HeroBreadcrumbs.Item key={`${item.label}-${index}`} href={item.href}>
-            {item.label}
-          </HeroBreadcrumbs.Item>
-        ) : (
-          <HeroBreadcrumbs.Item key={`${item.label}-${index}`}>
-            {item.label}
-          </HeroBreadcrumbs.Item>
-        ),
-      )}
-    </HeroBreadcrumbs>
+    <Breadcrumb className={className}>
+      <BreadcrumbList>
+        {items.map((item, index) => (
+          <Fragment key={`${item.label}-${index}`}>
+            <BreadcrumbCrumbItem>
+              {index === items.length - 1 || !item.href ? (
+                <BreadcrumbCurrentPage>{item.label}</BreadcrumbCurrentPage>
+              ) : (
+                <BreadcrumbCrumbLink href={item.href}>{item.label}</BreadcrumbCrumbLink>
+              )}
+            </BreadcrumbCrumbItem>
+            {index < items.length - 1 ? <BreadcrumbSeparator /> : null}
+          </Fragment>
+        ))}
+      </BreadcrumbList>
+    </Breadcrumb>
   );
 }

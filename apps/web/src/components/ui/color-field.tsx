@@ -14,11 +14,10 @@ import {
   ColorSwatch,
   Label,
   parseColor,
-  ToggleButton,
-  ToggleButtonGroup,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
 import { sameHex, toEmailHex } from "./color-hex";
+import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 
 const colorChannelsByColorSpace: Record<ColorSpace, ColorChannel[]> = {
   hsb: ["hue", "saturation", "brightness", "alpha"],
@@ -80,9 +79,9 @@ export function ColorField({
       {/* El trigger es un <button>: la etiqueta va en un <span>. Un <label>
           aquí dentro es contenido interactivo anidado (WCAG 4.1.2) y puede
           quedarse el clic que debía abrir el desplegable. */}
-      {/* Misma altura que un ToggleButton sm: estos disparadores conviven en
+      {/* Misma altura que un ToggleGroupItem sm: estos disparadores conviven en
           fila con los grupos de alineacion del constructor de plantillas. */}
-      <ColorPicker.Trigger aria-label={label} className="h-9 md:h-8">
+      <ColorPicker.Trigger aria-label={label} className="h-8">
         <ColorSwatch size="sm" />
         <span>{label}</span>
       </ColorPicker.Trigger>
@@ -90,25 +89,18 @@ export function ColorField({
         {/* Segmentado, no <Select>: su desplegable abre un popover DENTRO del
             popover del ColorPicker y el clic en la opcion no llegaba a cambiar
             el espacio de color, asi que se quedaba siempre en HSL. */}
-        <ToggleButtonGroup
+        <ToggleGroup
           aria-label="Espacio de color"
           className="self-center"
-          disallowEmptySelection
-          selectedKeys={[colorSpace]}
-          selectionMode="single"
-          size="sm"
-          onSelectionChange={(keys) => {
-            const [space] = [...keys];
-
-            if (space) setColorSpace(space as ColorSpace);
-          }}
+          value={colorSpace}
+          onValueChange={(space) => setColorSpace(space as ColorSpace)}
         >
           {Object.keys(colorChannelsByColorSpace).map((space) => (
-            <ToggleButton key={space} className="uppercase" id={space}>
+            <ToggleGroupItem key={space} className="uppercase" value={space}>
               {space}
-            </ToggleButton>
+            </ToggleGroupItem>
           ))}
-        </ToggleButtonGroup>
+        </ToggleGroup>
         {/* Campo hex: pegar el color de marca directamente, sin pelearse con
             los sliders. Lo alimenta el ColorPicker via contexto. */}
         <HexField aria-label={`Codigo de color: ${label}`} className="px-1">

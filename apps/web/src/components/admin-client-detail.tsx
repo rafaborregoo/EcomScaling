@@ -1,5 +1,6 @@
 "use client";
 
+import { UserMinusIcon } from "lucide-react";
 import { useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -17,8 +18,13 @@ import {
   AsyncState,
   Badge,
   Button,
-  Card,
-  ConfirmDialog,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   ErrorBlock,
   Field,
@@ -27,10 +33,37 @@ import {
   List,
   LoadingBlock,
   Select,
-  Sheet,
-  Table,
-  type TableColumnDef,
+  DataTable,
+  type DataTableColumn,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+  AvatarBadge,
+  avatarInitials,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
 } from "@/components/ui";
 
 export type Client = {
@@ -42,7 +75,7 @@ export type Client = {
   currency_code: string;
   created_at: string;
   member_count: number;
-  consultants: Array<{ user_id: string; full_name: string | null; is_primary: boolean }>;
+  consultants: Array<{ user_id: string; full_name: string | null; avatar_url?: string | null; is_primary: boolean }>;
   plan: { plan_code: string; store_limit: number | null; member_limit: number | null; status: string; ends_at: string | null } | null;
 };
 
@@ -80,6 +113,7 @@ type Overview = {
   consultants: Array<{
     user_id: string;
     full_name: string | null;
+    avatar_url?: string | null;
     is_primary: boolean;
   }>;
   pending_invite: { id: string; email: string; expires_at: string } | null;
@@ -118,46 +152,45 @@ export function ClientAuditCard({ organizationId }: { organizationId: string }) 
   );
 
   return (
-    <Card
-      title="Últimos movimientos"
-      description="Lo que se ha hecho sobre este cliente."
-      actions={
-        <Link href={`/admin/logs/auditoria?organizationId=${organizationId}`}>
+    <Card>
+      <CardHeader>
+        <CardTitle>Últimos movimientos</CardTitle>
+        <CardDescription>Lo que se ha hecho sobre este cliente.</CardDescription>
+        <CardAction><Link href={`/admin/logs/auditoria?organizationId=${organizationId}`}>
           Ver todo
-        </Link>
-      }
-    >
-      {error && !data ? (
-        <ErrorBlock>{error}</ErrorBlock>
-      ) : !data ? (
-        <LoadingBlock label="Cargando movimientos…" />
-      ) : data.entries.length === 0 ? (
-        <EmptyState
-          title="Sin movimientos"
-          hint="Todavía no hay acciones registradas sobre este cliente."
-        />
-      ) : (
-        <List as="ul">
-          {data.entries.map((entry) => {
-            const summary = auditSummary(entry.action);
-            return (
-              <List.Item
-                as="li"
-                key={entry.id}
-                className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3"
-              >
-                <Badge>{summary.area}</Badge>
-                <span className="min-w-0 flex-1 text-sm">
-                  <strong>{entry.actor_name ?? "Alguien"}</strong> {summary.verb}
-                </span>
-                <span className="shrink-0 text-xs text-muted">
-                  {when(entry.created_at)}
-                </span>
-              </List.Item>
-            );
-          })}
-        </List>
-      )}
+        </Link></CardAction>
+      </CardHeader>
+      <CardContent>
+        {error && !data ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : !data ? (
+          <LoadingBlock label="Cargando movimientos…" />
+        ) : data.entries.length === 0 ? (
+          <EmptyState
+            title="Sin movimientos"
+            hint="Todavía no hay acciones registradas sobre este cliente."
+          />
+        ) : (
+          <List as="ul">
+            {data.entries.map((entry) => {
+              const summary = auditSummary(entry.action);
+              return (
+                <Item key={entry.id} size="sm" render={<li />}>
+                  <ItemMedia>
+                    <Badge>{summary.area}</Badge>
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle className="font-normal">
+                      <span><strong>{entry.actor_name ?? "Alguien"}</strong> {summary.verb}</span>
+                    </ItemTitle>
+                  </ItemContent>
+                  <ItemDescription>{when(entry.created_at)}</ItemDescription>
+                </Item>
+              );
+            })}
+          </List>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -270,7 +303,7 @@ export function ClientOverviewPanel({ organizationId }: { organizationId: string
 
   const pendingInvite = data.pending_invite;
 
-  const integrationColumns: TableColumnDef<Overview["integrations"][number]>[] = [
+  const integrationColumns: DataTableColumn<Overview["integrations"][number]>[] = [
     { key: "provider", label: "Proveedor", render: (row) => displayValue(row.provider) },
     {
       key: "account",
@@ -293,7 +326,7 @@ export function ClientOverviewPanel({ organizationId }: { organizationId: string
     },
   ];
 
-  const memberColumns: TableColumnDef<Overview["members"][number]>[] = [
+  const memberColumns: DataTableColumn<Overview["members"][number]>[] = [
     { key: "name", label: "Nombre", render: (row) => row.full_name ?? row.user_id },
     {
       key: "role",
@@ -323,17 +356,35 @@ export function ClientOverviewPanel({ organizationId }: { organizationId: string
       render: (row) => (
         <div className="flex justify-end">
           {row.is_active ? (
-            <ConfirmDialog
-              trigger={
-                <Button size="sm" variant="ghost" disabled={busyUserId === row.user_id}>
-                  Quitar acceso
-                </Button>
-              }
-              title={`Quitar acceso a ${row.full_name ?? row.user_id}`}
-              description="Deja de poder entrar en la organización. Se le puede devolver el acceso desde aquí mismo."
-              confirmLabel="Quitar acceso"
-              onConfirm={() => void saveMember(row.user_id, { is_active: false })}
-            />
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button size="sm" variant="ghost" disabled={busyUserId === row.user_id}>
+                    Quitar acceso
+                  </Button>
+                }
+              />
+              <AlertDialogContent size="sm">
+                <AlertDialogHeader>
+                  <AlertDialogMedia className="bg-danger/10 text-danger">
+                    <UserMinusIcon />
+                  </AlertDialogMedia>
+                  <AlertDialogTitle>¿Quitar el acceso a {row.full_name ?? row.user_id}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Deja de poder entrar en la organización. Se le puede devolver el acceso desde aquí mismo.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => saveMember(row.user_id, { is_active: false })}
+                  >
+                    Quitar acceso
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           ) : (
             <Button
               size="sm"
@@ -351,127 +402,144 @@ export function ClientOverviewPanel({ organizationId }: { organizationId: string
 
   return (
     <div className="grid gap-6">
-      <Card
-        kicker="Ficha 360"
-        title="Integraciones"
-        description="Shopify, Meta Ads y Klaviyo conectados por este cliente."
-      >
-        <Table
-          ariaLabel="Integraciones del cliente"
-          columns={integrationColumns}
-          rows={data.integrations}
-          emptyLabel="Sin integraciones conectadas."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Ficha 360</CardKicker>
+          <CardTitle>Integraciones</CardTitle>
+          <CardDescription>Shopify, Meta Ads y Klaviyo conectados por este cliente.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Integraciones del cliente"
+            columns={integrationColumns}
+            rows={data.integrations}
+            emptyLabel="Sin integraciones conectadas."
+          />
+        </CardContent>
       </Card>
 
-      <Card title="Últimos syncs" description="Las 15 sincronizaciones más recientes.">
-        {data.recent_syncs.length === 0 ? (
-          <EmptyState title="Sin syncs todavía" hint="Este cliente no tiene sincronizaciones registradas." />
-        ) : (
-          <List as="ul">
-            {data.recent_syncs.map((run) => (
-              <List.Item
-                as="li"
-                key={run.id}
-                className="flex flex-wrap items-start gap-3 py-3"
-              >
-                <Badge tone={syncStatusTone(run.status)}>
-                  {displayValue(run.status)}
-                </Badge>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    {displayValue(run.provider)} · {run.sync_type}
+      <Card>
+        <CardHeader>
+          <CardTitle>Últimos syncs</CardTitle>
+          <CardDescription>Las 15 sincronizaciones más recientes.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.recent_syncs.length === 0 ? (
+            <EmptyState title="Sin syncs todavía" hint="Este cliente no tiene sincronizaciones registradas." />
+          ) : (
+            <List as="ul">
+              {data.recent_syncs.map((run) => (
+                <Item key={run.id} size="sm" render={<li />}>
+                  <ItemMedia>
+                    <Badge tone={syncStatusTone(run.status)}>
+                      {displayValue(run.status)}
+                    </Badge>
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>
+                      {displayValue(run.provider)} · {run.sync_type}
+                    </ItemTitle>
+                    {run.error_message ? (
+                      <ItemDescription className="break-words">
+                        {run.error_message.slice(0, 300)}
+                      </ItemDescription>
+                    ) : null}
+                  </ItemContent>
+                  <ItemActions>
+                  <span className="text-sm text-muted">
+                    {when(run.started_at)}
                   </span>
-                  {run.error_message ? (
-                    <span className="mt-0.5 block break-words text-xs text-muted">
-                      {run.error_message.slice(0, 300)}
-                    </span>
+                  {run.status === "failed" || run.status === "cancelled" ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={retryingSyncId === run.id}
+                      onClick={() => void retrySync(run.id)}
+                    >
+                      {retryingSyncId === run.id ? "Relanzando…" : "Reintentar"}
+                    </Button>
                   ) : null}
-                </span>
-                <span className="shrink-0 text-xs text-muted">
-                  {when(run.started_at)}
-                </span>
-                {run.status === "failed" || run.status === "cancelled" ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={retryingSyncId === run.id}
-                    onClick={() => void retrySync(run.id)}
-                  >
-                    {retryingSyncId === run.id ? "Relanzando…" : "Reintentar"}
-                  </Button>
-                ) : null}
-              </List.Item>
-            ))}
-          </List>
-        )}
+                  </ItemActions>
+                </Item>
+              ))}
+            </List>
+          )}
+        </CardContent>
       </Card>
 
       <ClientAuditCard organizationId={organizationId} />
 
-      <Card
-        title="Acceso"
-        description="Miembros del cliente y consultores asignados."
-      >
-        <div className="grid gap-4">
-          {pendingInvite ? (
-            <div className="grid gap-2 rounded-md border border-separator p-4">
-              <p className="text-sm">
-                Invitación sin usar para <strong>{pendingInvite.email}</strong>,
-                caduca el {when(pendingInvite.expires_at)}.
-              </p>
-              {freshInvite ? (
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    readOnly
-                    value={freshInvite}
-                    aria-label="Enlace de acceso"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(freshInvite).then(() => {
-                        setCopied(true);
-                        window.setTimeout(() => setCopied(false), 2000);
-                      });
-                    }}
-                  >
-                    {copied ? "Copiado" : "Copiar enlace"}
-                  </Button>
-                </div>
-              ) : (
-                <div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={regenerating}
-                    onClick={() => void regenerateInvite(pendingInvite.id)}
-                  >
-                    {regenerating ? "Regenerando…" : "Regenerar enlace"}
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : null}
-          {data.consultants.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {data.consultants.map((c) => (
-                <Badge key={c.user_id} tone="brand">
-                  {c.full_name ?? c.user_id}
-                  {c.is_primary ? " · principal" : ""}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <Badge tone="warn">sin consultor</Badge>
-          )}
-          <Table
-            ariaLabel="Miembros del cliente"
-            columns={memberColumns}
-            rows={data.members}
-            emptyLabel="Sin miembros."
-          />
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Acceso</CardTitle>
+          <CardDescription>Miembros del cliente y consultores asignados.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4">
+            {pendingInvite ? (
+              <Card><CardContent className="grid gap-2">
+                <p className="text-sm">
+                  Invitación sin usar para <strong>{pendingInvite.email}</strong>,
+                  caduca el {when(pendingInvite.expires_at)}.
+                </p>
+                {freshInvite ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      readOnly
+                      value={freshInvite}
+                      aria-label="Enlace de acceso"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(freshInvite).then(() => {
+                          setCopied(true);
+                          window.setTimeout(() => setCopied(false), 2000);
+                        });
+                      }}
+                    >
+                      {copied ? "Copiado" : "Copiar enlace"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={regenerating}
+                      onClick={() => void regenerateInvite(pendingInvite.id)}
+                    >
+                      {regenerating ? "Regenerando…" : "Regenerar enlace"}
+                    </Button>
+                  </div>
+                )}
+              </CardContent></Card>
+            ) : null}
+            {data.consultants.length > 0 ? (
+              <ul className="flex flex-wrap gap-x-4 gap-y-2">
+                {data.consultants.map((c) => (
+                  <li key={c.user_id} className="flex items-center gap-2 text-sm">
+                    <Avatar>
+                      <AvatarImage src={c.avatar_url ?? undefined} alt="" />
+                      <AvatarFallback>{avatarInitials(c.full_name)}</AvatarFallback>
+                      {c.is_primary ? <AvatarBadge aria-hidden /> : null}
+                    </Avatar>
+                    {c.full_name ?? c.user_id}
+                    {c.is_primary ? <span className="text-xs text-muted">principal</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Badge tone="warn">sin consultor</Badge>
+            )}
+            <DataTable
+              ariaLabel="Miembros del cliente"
+              columns={memberColumns}
+              rows={data.members}
+              emptyLabel="Sin miembros."
+            />
+          </div>
+        </CardContent>
       </Card>
     </div>
   );
@@ -546,16 +614,14 @@ export function CreateClientSheet({
     concesionValida(plan);
 
   return (
-    <Sheet
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      size="md"
-      title="Nuevo cliente"
-      isBusy={busy}
-      isDirty={Boolean(displayName.trim() || ownerEmail.trim())}
-      formId="create-client-form"
-      primary={{ label: "Crear cliente", busyLabel: "Creando…", disabled: !canSubmit }}
-    >
+    <Dialog open={isOpen} onOpenChange={onOpenChange} busy={busy} dirty={Boolean(displayName.trim() || ownerEmail.trim())}>
+      <DialogContent className="sm:max-w-[44rem]">
+      <DialogHeader>
+        <DialogTitle>Nuevo cliente</DialogTitle>
+        <DialogDescription>
+          Crea la organización e invita a su owner por email, y decide si le concedes el plan o lo paga él.
+        </DialogDescription>
+      </DialogHeader>
       <form
         id="create-client-form"
         className="space-y-4"
@@ -564,9 +630,6 @@ export function CreateClientSheet({
           void submit();
         }}
       >
-        <p className="text-muted">
-          Crea la organización e invita a su owner por email, y decide si le concedes el plan o lo paga él.
-        </p>
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nombre del cliente">
@@ -592,7 +655,14 @@ export function CreateClientSheet({
           avisoSinPlan="Entra en trial abierto y elige plan en /planes. Un cliente sin ninguna suscripción no podría ni acceder a su organización."
         />
       </form>
-    </Sheet>
+      <DialogFooter>
+        <DialogClose>Cancelar</DialogClose>
+        <Button type="submit" form="create-client-form" disabled={!canSubmit || busy}>
+          {busy ? "Creando…" : "Crear cliente"}
+        </Button>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -667,58 +737,64 @@ export function EditClientForm({
   }
 
   return (
-    <Card kicker="Editar" title={client.display_name}>
-      <div className="grid gap-4">
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nombre del cliente">
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </Field>
-          <Field label="Estado">
-            <Select
-              aria-label="Estado"
-              value={status}
-              onChange={setStatus}
-              options={CLIENT_STATUS_OPTIONS}
-            />
-          </Field>
-          <Field label="Moneda">
-            <Input
-              value={currencyCode}
-              onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
-              maxLength={3}
-            />
-          </Field>
-          <Field label="Zona horaria">
-            <Input
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-            />
-          </Field>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={() => void submit()}>
-            {busy ? "Guardando..." : "Guardar cambios"}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={exporting}
-            onClick={() => void exportData()}
-          >
-            {exporting ? "Exportando..." : "Exportar datos"}
-          </Button>
-        </div>
+    <Card>
+      <CardHeader>
+        <CardKicker>Editar</CardKicker>
+        <CardTitle>{client.display_name}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4">
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Nombre del cliente">
+              <Input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+            </Field>
+            <Field label="Estado">
+              <Select
+                aria-label="Estado"
+                value={status}
+                onChange={setStatus}
+                options={CLIENT_STATUS_OPTIONS}
+              />
+            </Field>
+            <Field label="Moneda">
+              <Input
+                value={currencyCode}
+                onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
+                maxLength={3}
+              />
+            </Field>
+            <Field label="Zona horaria">
+              <Input
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={busy} onClick={() => void submit()}>
+              {busy ? "Guardando..." : "Guardar cambios"}
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={exporting}
+              onClick={() => void exportData()}
+            >
+              {exporting ? "Exportando..." : "Exportar datos"}
+            </Button>
+          </div>
 
-        <PlanEditor
-          subjectType="organization"
-          subjectId={client.id}
-          plan={client.plan}
-          onSaved={onSaved}
-        />
-      </div>
+          <PlanEditor
+            subjectType="organization"
+            subjectId={client.id}
+            plan={client.plan}
+            onSaved={onSaved}
+          />
+        </div>
+      </CardContent>
     </Card>
   );
 }

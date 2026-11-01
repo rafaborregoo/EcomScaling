@@ -6,12 +6,24 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorBlock,
   List,
   LoadingBlock,
   toast,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
 import { fmtDate } from "./format";
 
@@ -139,90 +151,93 @@ export function KlaviyoImportPanel({
   }
 
   return (
-    <Card
-      title="Importar plantillas de Klaviyo"
-      description="Trae plantillas de tu cuenta como borrador (solo HTML; no se abren en el editor visual)."
-    >
-      {status === "loading" ? (
-        <LoadingBlock label="Cargando plantillas de Klaviyo…" />
-      ) : status === "error" ? (
-        <div className="space-y-3">
-          <ErrorBlock>{error}</ErrorBlock>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setReloadToken((token) => token + 1)}
-          >
-            Reintentar
-          </Button>
-        </div>
-      ) : templates.length === 0 ? (
-        <EmptyState
-          title="Sin plantillas"
-          hint="No hay plantillas en la cuenta Klaviyo conectada."
-        />
-      ) : (
-        <>
-          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-          <List as="ul">
-            {templates.map((template) => {
-              const alreadyImported = importedTemplateIds.includes(template.id);
-              return (
-                <List.Item as="li" key={template.id} className="space-y-2 py-2">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">{template.name}</p>
-                      <p className="text-xs text-muted">
-                        {template.editor_type ?? "—"}
-                        {template.updated ? ` · ${fmtDate(template.updated)}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {alreadyImported ? <Badge>Ya importada</Badge> : null}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => void togglePreview(template.id)}
-                      >
-                        {previewId === template.id ? "Ocultar" : "Ver"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={importingId === template.id}
-                        onClick={() => void importTemplate(template.id)}
-                      >
-                        {importingId === template.id
-                          ? "Importando…"
-                          : alreadyImported
-                            ? "Importar otra vez"
-                            : "Importar"}
-                      </Button>
-                    </div>
-                  </div>
-                  {previewId === template.id ? (
-                    <div className="overflow-hidden border border-separator bg-white">
-                      {previewHtml === null ? (
-                        <div className="p-3">
-                          <LoadingBlock label="Cargando vista previa…" />
-                        </div>
-                      ) : (
-                        <iframe
-                          title={`Vista previa de ${template.name}`}
-                          srcDoc={previewHtml}
-                          sandbox=""
-                          loading="lazy"
-                          className="h-96 w-full"
-                        />
-                      )}
-                    </div>
-                  ) : null}
-                </List.Item>
-              );
-            })}
-          </List>
-        </>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>Importar plantillas de Klaviyo</CardTitle>
+        <CardDescription>Trae plantillas de tu cuenta como borrador (solo HTML; no se abren en el editor visual).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {status === "loading" ? (
+          <LoadingBlock label="Cargando plantillas de Klaviyo…" />
+        ) : status === "error" ? (
+          <div className="space-y-3">
+            <ErrorBlock>{error}</ErrorBlock>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setReloadToken((token) => token + 1)}
+            >
+              Reintentar
+            </Button>
+          </div>
+        ) : templates.length === 0 ? (
+          <EmptyState
+            title="Sin plantillas"
+            hint="No hay plantillas en la cuenta Klaviyo conectada."
+          />
+        ) : (
+          <>
+            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+            <List as="ul">
+              {templates.map((template) => {
+                const alreadyImported = importedTemplateIds.includes(template.id);
+                return (
+                  <List.Item as="li" key={template.id} className="py-2">
+                    <Collapsible open={previewId === template.id} onOpenChange={() => void togglePreview(template.id)}>
+                    <Item size="xs" className="px-0">
+                      <ItemContent>
+                        <ItemTitle>{template.name}</ItemTitle>
+                        <ItemDescription>
+                          {template.editor_type ?? "—"}
+                          {template.updated ? ` · ${fmtDate(template.updated)}` : ""}
+                        </ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        {alreadyImported ? <Badge>Ya importada</Badge> : null}
+                        <CollapsibleTrigger render={<Button variant="ghost" />}>
+                          {previewId === template.id ? "Ocultar" : "Ver"}
+                        </CollapsibleTrigger>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={importingId === template.id}
+                          onClick={() => void importTemplate(template.id)}
+                        >
+                          {importingId === template.id
+                            ? "Importando…"
+                            : alreadyImported
+                              ? "Importar otra vez"
+                              : "Importar"}
+                        </Button>
+                      </ItemActions>
+                    </Item>
+                    <CollapsibleContent className="pt-2">
+                    {previewId === template.id ? (
+                      <div className="overflow-hidden border border-separator bg-white">
+                        {previewHtml === null ? (
+                          <div className="p-3">
+                            <LoadingBlock label="Cargando vista previa…" />
+                          </div>
+                        ) : (
+                          <iframe
+                            title={`Vista previa de ${template.name}`}
+                            srcDoc={previewHtml}
+                            sandbox=""
+                            loading="lazy"
+                            className="h-96 w-full"
+                          />
+                        )}
+                      </div>
+                    ) : null}
+                    </CollapsibleContent>
+                    </Collapsible>
+                  </List.Item>
+                );
+              })}
+            </List>
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }

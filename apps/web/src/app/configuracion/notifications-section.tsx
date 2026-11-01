@@ -10,13 +10,19 @@ import {
   Badge,
   Button,
   ButtonLink,
-  Card,
   ErrorBlock,
   LoadingBlock,
   Select,
   SettingRow,
   Switch,
+  TimezoneCombobox,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -83,49 +89,55 @@ function MutedClientsCard({ userId }: { userId: string }) {
   const available = clients.filter((client) => !(muted ?? []).includes(client.id));
 
   return (
-    <Card title="Clientes silenciados" description="No te llega nada de ellos a la campana. Su trabajo sigue en la Mesa de hoy.">
-      {muted === null ? (
-        <LoadingBlock label="Cargando..." />
-      ) : (
-        <>
-          <SettingRow label="Silenciados ahora">
-            {muted.length === 0 ? (
-              <span className="text-sm text-muted">Ninguno</span>
-            ) : (
-              muted.map((id) => (
-                <Badge key={id} tone="neutral">
-                  {nameOf(id)}{" "}
-                  <button
-                    type="button"
-                    className="ml-1 text-muted hover:text-foreground"
-                    aria-label={`Quitar el silencio a ${nameOf(id)}`}
-                    onClick={() => void unmute(id)}
-                  >
-                    ×
-                  </button>
-                </Badge>
-              ))
-            )}
-          </SettingRow>
-          {available.length > 0 ? (
-            <SettingRow label="Silenciar otro cliente">
-              <Select
-                aria-label="Cliente a silenciar"
-                className="w-56"
-                value={choice}
-                onChange={setChoice}
-                options={[
-                  { value: "", label: "Elige un cliente" },
-                  ...available.map((client) => ({ value: client.id, label: client.display_name })),
-                ]}
-              />
-              <Button size="sm" variant="secondary" disabled={!choice || busy} onClick={() => void mute()}>
-                {busy ? "Guardando…" : "Silenciar"}
-              </Button>
+    <Card>
+      <CardHeader>
+        <CardTitle>Clientes silenciados</CardTitle>
+        <CardDescription>No te llega nada de ellos a la campana. Su trabajo sigue en la Mesa de hoy.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {muted === null ? (
+          <LoadingBlock label="Cargando..." />
+        ) : (
+          <>
+            <SettingRow label="Silenciados ahora">
+              {muted.length === 0 ? (
+                <span className="text-sm text-muted">Ninguno</span>
+              ) : (
+                muted.map((id) => (
+                  <Badge key={id} tone="neutral">
+                    {nameOf(id)}{" "}
+                    <button
+                      type="button"
+                      className="ml-1 text-muted hover:text-foreground"
+                      aria-label={`Quitar el silencio a ${nameOf(id)}`}
+                      onClick={() => void unmute(id)}
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))
+              )}
             </SettingRow>
-          ) : null}
-        </>
-      )}
+            {available.length > 0 ? (
+              <SettingRow label="Silenciar otro cliente">
+                <Select
+                  aria-label="Cliente a silenciar"
+                  className="w-56"
+                  value={choice}
+                  onChange={setChoice}
+                  options={[
+                    { value: "", label: "Elige un cliente" },
+                    ...available.map((client) => ({ value: client.id, label: client.display_name })),
+                  ]}
+                />
+                <Button size="sm" variant="secondary" disabled={!choice || busy} onClick={() => void mute()}>
+                  {busy ? "Guardando…" : "Silenciar"}
+                </Button>
+              </SettingRow>
+            ) : null}
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -175,16 +187,6 @@ const EMAIL_OPTIONS = [
 ];
 const WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const HOURS = Array.from({ length: 24 }, (_, hour) => ({ value: String(hour), label: `${hour}:00` }));
-const TIMEZONES = [
-  "Europe/Madrid",
-  "Atlantic/Canary",
-  "Europe/Lisbon",
-  "America/Mexico_City",
-  "America/Bogota",
-  "America/Lima",
-  "America/Santiago",
-  "America/Argentina/Buenos_Aires",
-];
 
 export function NotificationsSection({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["consultant", "platform_admin"].includes(bootstrap.profile.platform_role);
@@ -234,129 +236,149 @@ export function NotificationsSection({ bootstrap }: { bootstrap: BootstrapRespon
   const settings = data.settings;
   return (
     <div className="space-y-6">
-      <Card
-        title="Qué te avisamos"
-        description="En la app es la campana. Por email, al momento o junto en el resumen. Son tuyas: no cambian las de tu equipo."
-      >
-        <div className="grid gap-0">
-          {data.preferences.map((pref) => {
-            const label = labels[pref.category] ?? { label: pref.category, hint: "" };
-            // Qué avisos concretos entran en este interruptor (catálogo único).
-            const audience = labels === CONSULTANT_LABELS ? "consultor" : "cliente";
-            const included = notificationTypesIn(pref.category as NotificationCategory)
-              .filter((type) => type.audience === "ambos" || type.audience === audience)
-              .map((type) => type.label);
-            const hint = included.length > 1 ? `${label.hint} Incluye: ${included.join(", ")}.` : label.hint;
-            return (
-              <SettingRow key={pref.category} label={label.label} hint={hint}>
-                <Switch
-                  aria-label={`${label.label} en la app`}
-                  isSelected={pref.in_app}
-                  isDisabled={saving}
-                  onChange={(value: boolean) => void save({ preferences: [{ category: pref.category, in_app: value }] })}
-                >
-                  <Switch.Control>
-                    <Switch.Thumb />
-                  </Switch.Control>
-                </Switch>
-                <span className="text-xs text-muted">App</span>
+      <Card>
+        <CardHeader>
+          <CardTitle>Qué te avisamos</CardTitle>
+          <CardDescription>En la app es la campana. Por email, al momento o junto en el resumen. Son tuyas: no cambian las de tu equipo.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-0">
+            {data.preferences.map((pref) => {
+              const label = labels[pref.category] ?? { label: pref.category, hint: "" };
+              // Qué avisos concretos entran en este interruptor (catálogo único).
+              const audience = labels === CONSULTANT_LABELS ? "consultor" : "cliente";
+              const included = notificationTypesIn(pref.category as NotificationCategory)
+                .filter((type) => type.audience === "ambos" || type.audience === audience)
+                .map((type) => type.label);
+              const hint = included.length > 1 ? `${label.hint} Incluye: ${included.join(", ")}.` : label.hint;
+              return (
+                <SettingRow key={pref.category} label={label.label} hint={hint}>
+                  <Switch
+                    aria-label={`${label.label} en la app`}
+                    isSelected={pref.in_app}
+                    isDisabled={saving}
+                    onChange={(value: boolean) => void save({ preferences: [{ category: pref.category, in_app: value }] })}
+                  >
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch>
+                  <span className="text-xs text-muted">App</span>
+                  <Select
+                    className="w-40"
+                    aria-label={`${label.label} por email`}
+                    value={pref.email}
+                    onChange={(value) => void save({ preferences: [{ category: pref.category, email: value as EmailMode }] })}
+                    options={EMAIL_OPTIONS}
+                    disabled={saving}
+                  />
+                </SettingRow>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Resumen por email</CardTitle>
+          <CardDescription>{data.email ? `A ${data.email}.` : undefined}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SettingRow label="Frecuencia">
+            <Select
+              className="w-40"
+              aria-label="Frecuencia del resumen"
+              value={settings.digest_frequency}
+              onChange={(value) => void save({ settings: { digest_frequency: value as DigestSettings["digest_frequency"] } })}
+              options={[
+                { value: "daily", label: "Diario" },
+                { value: "weekly", label: "Semanal" },
+                { value: "never", label: "Nunca" },
+              ]}
+            />
+          </SettingRow>
+          {settings.digest_frequency !== "never" ? (
+            <SettingRow label="Cuándo llega">
+              {settings.digest_frequency === "weekly" ? (
                 <Select
-                  className="w-40"
-                  aria-label={`${label.label} por email`}
-                  value={pref.email}
-                  onChange={(value) => void save({ preferences: [{ category: pref.category, email: value as EmailMode }] })}
-                  options={EMAIL_OPTIONS}
-                  disabled={saving}
+                  className="w-36"
+                  aria-label="Día del resumen"
+                  value={String(settings.digest_weekday)}
+                  onChange={(value) => void save({ settings: { digest_weekday: Number(value) } })}
+                  options={WEEKDAYS.map((day, index) => ({ value: String(index + 1), label: day }))}
                 />
-              </SettingRow>
-            );
-          })}
-        </div>
-      </Card>
-
-      <Card title="Resumen por email" description={data.email ? `A ${data.email}.` : undefined}>
-        <SettingRow label="Frecuencia">
-          <Select
-            className="w-40"
-            aria-label="Frecuencia del resumen"
-            value={settings.digest_frequency}
-            onChange={(value) => void save({ settings: { digest_frequency: value as DigestSettings["digest_frequency"] } })}
-            options={[
-              { value: "daily", label: "Diario" },
-              { value: "weekly", label: "Semanal" },
-              { value: "never", label: "Nunca" },
-            ]}
-          />
-        </SettingRow>
-        {settings.digest_frequency !== "never" ? (
-          <SettingRow label="Cuándo llega">
-            {settings.digest_frequency === "weekly" ? (
+              ) : null}
               <Select
-                className="w-36"
-                aria-label="Día del resumen"
-                value={String(settings.digest_weekday)}
-                onChange={(value) => void save({ settings: { digest_weekday: Number(value) } })}
-                options={WEEKDAYS.map((day, index) => ({ value: String(index + 1), label: day }))}
+                className="w-28"
+                aria-label="Hora del resumen"
+                value={String(settings.digest_hour)}
+                onChange={(value) => void save({ settings: { digest_hour: Number(value) } })}
+                options={HOURS}
               />
-            ) : null}
-            <Select
-              className="w-28"
-              aria-label="Hora del resumen"
-              value={String(settings.digest_hour)}
-              onChange={(value) => void save({ settings: { digest_hour: Number(value) } })}
-              options={HOURS}
+            </SettingRow>
+          ) : null}
+          <SettingRow label="Tu zona horaria">
+            <TimezoneCombobox
+              className="w-72"
+              aria-label="Zona horaria de los avisos"
+              value={settings.timezone}
+              onChange={(value) => void save({ settings: { timezone: value } })}
             />
           </SettingRow>
-        ) : null}
-        <SettingRow label="Tu zona horaria">
-          <Select
-            className="w-64"
-            aria-label="Zona horaria de los avisos"
-            value={settings.timezone}
-            onChange={(value) => void save({ settings: { timezone: value } })}
-            options={[...new Set([settings.timezone, ...TIMEZONES])].map((zone) => ({ value: zone, label: zone.replaceAll("_", " ") }))}
-          />
-        </SettingRow>
+        </CardContent>
       </Card>
 
-      <Card title="Horario sin emails" description="Fuera de este horario solo llegan las alertas críticas; el resto espera a que acabe.">
-        <SettingRow label="Activar">
-          <Switch
-            aria-label="Activar horario sin emails"
-            isSelected={settings.quiet_enabled}
-            onChange={(value: boolean) => void save({ settings: { quiet_enabled: value } })}
-          >
-            <Switch.Control>
-              <Switch.Thumb />
-            </Switch.Control>
-          </Switch>
-        </SettingRow>
-        {settings.quiet_enabled ? (
-          <SettingRow label="Silencio">
-            <span className="text-sm text-muted">de</span>
-            <Select
-              className="w-28"
-              aria-label="Desde"
-              value={String(settings.quiet_from)}
-              onChange={(value) => void save({ settings: { quiet_from: Number(value) } })}
-              options={HOURS}
-            />
-            <span className="text-sm text-muted">a</span>
-            <Select
-              className="w-28"
-              aria-label="Hasta"
-              value={String(settings.quiet_to)}
-              onChange={(value) => void save({ settings: { quiet_to: Number(value) } })}
-              options={HOURS}
-            />
+      <Card>
+        <CardHeader>
+          <CardTitle>Horario sin emails</CardTitle>
+          <CardDescription>Fuera de este horario solo llegan las alertas críticas; el resto espera a que acabe.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SettingRow label="Activar">
+            <Switch
+              aria-label="Activar horario sin emails"
+              isSelected={settings.quiet_enabled}
+              onChange={(value: boolean) => void save({ settings: { quiet_enabled: value } })}
+            >
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch>
           </SettingRow>
-        ) : null}
+          {settings.quiet_enabled ? (
+            <SettingRow label="Silencio">
+              <span className="text-sm text-muted">de</span>
+              <Select
+                className="w-28"
+                aria-label="Desde"
+                value={String(settings.quiet_from)}
+                onChange={(value) => void save({ settings: { quiet_from: Number(value) } })}
+                options={HOURS}
+              />
+              <span className="text-sm text-muted">a</span>
+              <Select
+                className="w-28"
+                aria-label="Hasta"
+                value={String(settings.quiet_to)}
+                onChange={(value) => void save({ settings: { quiet_to: Number(value) } })}
+                options={HOURS}
+              />
+            </SettingRow>
+          ) : null}
+        </CardContent>
       </Card>
 
       {isConsultant ? <MutedClientsCard userId={bootstrap.user.id} /> : null}
 
-      <Card title="Informe mensual en PDF" actions={<ButtonLink href="/informes" size="sm" variant="ghost">Abrir Informes</ButtonLink>}>
-        <p className="text-sm text-muted">El envío mensual y sus destinatarios se gestionan en Informes.</p>
+      <Card>
+        <CardHeader>
+          <CardTitle>Informe mensual en PDF</CardTitle>
+          <CardAction><ButtonLink href="/informes" size="sm" variant="ghost">Abrir Informes</ButtonLink></CardAction>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted">El envío mensual y sus destinatarios se gestionan en Informes.</p>
+        </CardContent>
       </Card>
     </div>
   );

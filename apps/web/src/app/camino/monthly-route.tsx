@@ -1,3 +1,6 @@
+import { Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
+import { calendarMonth, milestonesInMonth, type MonthlyTarget, type RouteMilestone } from "./monthly-route-model";
+
 /**
  * Ruta económica mes a mes del Camino: lo que el cliente ve cada mes que sigue
  * el plan (objetivo del mes, cuánto sube sobre hoy, por qué y qué hitos lo
@@ -5,29 +8,7 @@
  * la ayuda que recibe mes a mes.
  */
 
-export type MonthlyTarget = { month: number; target_value: number | null; rationale: string; seasonal_baseline?: number | null };
-export type RouteMilestone = { name: string; date: string | null };
-
-function calendarMonth(startDate: string, month: number) {
-  const start = Date.parse(`${startDate}T00:00:00Z`);
-  if (!Number.isFinite(start)) return null;
-  const date = new Date(start);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + month - 1, 1));
-}
-
 const monthLabel = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric", timeZone: "UTC" });
-
-/** Hitos del mes natural que usa la revisión del objetivo del Camino. */
-export function milestonesInMonth(startDate: string, month: number, milestones: RouteMilestone[]): RouteMilestone[] {
-  const period = calendarMonth(startDate, month);
-  if (!period) return [];
-  const from = period.getTime();
-  const to = new Date(Date.UTC(period.getUTCFullYear(), period.getUTCMonth() + 1, 1)).getTime();
-  return milestones.filter((milestone) => {
-    const at = milestone.date ? Date.parse(`${milestone.date.slice(0, 10)}T00:00:00Z`) : NaN;
-    return Number.isFinite(at) && at >= from && at < to;
-  });
-}
 
 export function MonthlyRoute({
   targets,
@@ -81,7 +62,7 @@ export function MonthlyRoute({
           const inMonth = milestonesInMonth(startDate, target.month, milestones);
           const isGoal = goalTarget !== null && value === goalTarget;
           return (
-            <li key={target.month} className="rounded-lg border border-separator bg-surface p-3 text-sm">
+            <li key={target.month}><Card size="sm"><CardContent className="text-sm">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <strong>
                   Mes {target.month}
@@ -104,8 +85,9 @@ export function MonthlyRoute({
                   <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(2, Math.round((value / max) * 100))}%` }} />
                 </div>
               ) : null}
-              <details className="mt-2 text-xs">
-                <summary className="cursor-pointer font-medium">Ver estrategia del mes</summary>
+              <Collapsible className="mt-2 text-xs">
+                <CollapsibleTrigger className="font-medium">Ver estrategia del mes<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+                <CollapsibleContent>
                 <div className="mt-2 space-y-1 text-muted">
                   <p>{target.rationale}</p>
                   {seasonalChange !== null ? (
@@ -116,8 +98,9 @@ export function MonthlyRoute({
                   ) : null}
                   {inMonth.length ? <p>Hitos: {inMonth.map((milestone) => milestone.name).join(" · ")}</p> : null}
                 </div>
-              </details>
-            </li>
+              </CollapsibleContent>
+              </Collapsible>
+            </CardContent></Card></li>
           );
         })}
       </ol>

@@ -1,9 +1,9 @@
 "use client";
 
+
+import { StoreIcon, Trash2Icon, UserMinusIcon } from "lucide-react";
 import {
   type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   useCallback,
   useState,
 } from "react";
@@ -13,56 +13,62 @@ import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Avatar,
+  avatarInitials,
+  AvatarFallback,
   Badge,
   Button,
   ButtonLink,
-  Card,
   Checkbox,
-  Dropdown,
   EmptyState,
   ErrorBlock,
   Field,
   Heading,
   ArchiveIcon,
-  IconChevronDown,
-  IconChevronUp,
   Input,
-  Label,
   Link,
   List,
   LoadingBlock,
   MoreIcon,
   PencilIcon,
   RetryIcon,
+  SearchableSelect,
   Select,
   toast,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
 } from "@/components/ui";
-import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 import { ObjectiveTypesCard } from "./objective-types";
 import { planName } from "@/lib/plan-labels";
-
-// Toda la fila del cliente es un objetivo de clic para plegar/desplegar sus
-// tiendas; los controles de dentro (links, menu) paran la propagacion para no
-// disparar tambien el toggle. Mismo patron que camino/page.tsx.
-function cardToggle(handler: () => void) {
-  return {
-    role: "button" as const,
-    tabIndex: 0,
-    onClick: handler,
-    onKeyDown: (event: ReactKeyboardEvent) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        handler();
-      }
-    },
-  };
-}
-
-const stopToggle = {
-  onClick: (event: ReactMouseEvent) => event.stopPropagation(),
-  onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
-};
+import { ClientOnboardingSteps, STATUS_BADGE, type DailyWorkbench } from "./workbench";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 
 const ORGANIZATION_STATUSES = [
   "onboarding",
@@ -146,19 +152,6 @@ type OrganizationAccess = {
   }>;
   available_profiles: AccessProfile[];
 };
-
-function attentionBadge(score: number) {
-  if (score >= 15) {
-    return { label: "Urgente", tone: "danger" as const };
-  }
-  if (score >= 5) {
-    return { label: "Revisar", tone: "warn" as const };
-  }
-  if (score > 0) {
-    return { label: "Vigilar", tone: "neutral" as const };
-  }
-  return { label: "Al día", tone: "success" as const };
-}
 
 export function AccessPanel({ organizationId }: { organizationId: string }) {
   const accessQuery = useCachedQuery<OrganizationAccess>(
@@ -331,21 +324,19 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
         <div>
           <h4 className="text-sm font-semibold text-foreground">Miembros</h4>
           {access.members.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">Sin miembros asignados.</p>
+            <EmptyState size="sm" title="Sin miembros asignados" />
           ) : (
             <List as="ul" bordered className="mt-2">
               {access.members.map((member) => (
-                <List.Item
-                  as="li"
-                  key={member.id}
-                  className="flex items-center justify-between gap-3 py-2 text-sm"
-                >
-                  <span>{member.profile?.full_name ?? member.user_id}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs text-muted">
+                <Item key={member.id} size="sm" render={<li />}>
+                  <ItemContent>
+                    <ItemTitle>{member.profile?.full_name ?? member.user_id}</ItemTitle>
+                    <ItemDescription>
                       {displayValue(member.role)} ·{" "}
                       {member.is_active ? "activo" : "inactivo"}
-                    </span>
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
                     {member.is_active ? (
                       <Button
                         size="sm"
@@ -358,8 +349,8 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
                           : "Quitar"}
                       </Button>
                     ) : null}
-                  </span>
-                </List.Item>
+                  </ItemActions>
+                </Item>
               ))}
             </List>
           )}
@@ -368,11 +359,12 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
             className="mt-3 grid gap-2 sm:grid-cols-[1fr_130px_auto] sm:items-end"
           >
             <Field label="Perfil existente">
-              <Select
+              <SearchableSelect
                 aria-label="Perfil existente"
+                placeholder="Busca a una persona"
+                emptyText="No hay nadie con ese nombre."
                 value={memberUserId}
                 onChange={setMemberUserId}
-                required
                 options={access.available_profiles.map((profile) => ({
                   value: profile.id,
                   label: profile.full_name ?? profile.id,
@@ -400,26 +392,22 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
             Consultores asignados
           </h4>
           {access.assignments.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">
-              Sin consultores asignados.
-            </p>
+            <EmptyState size="sm" title="Sin consultores asignados" />
           ) : (
             <List as="ul" bordered className="mt-2">
               {access.assignments.map((assignment) => (
-                <List.Item
-                  as="li"
-                  key={assignment.id}
-                  className="flex items-center justify-between gap-3 py-2 text-sm"
-                >
-                  <span>
-                    {assignment.profile?.full_name ??
-                      assignment.consultant_user_id}
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs text-muted">
+                <Item key={assignment.id} size="sm" render={<li />}>
+                  <ItemContent>
+                    <ItemTitle>
+                      {assignment.profile?.full_name ??
+                        assignment.consultant_user_id}
+                    </ItemTitle>
+                    <ItemDescription>
                       {assignment.is_primary ? "principal · " : ""}
                       {assignment.is_active ? "activo" : "inactivo"}
-                    </span>
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
                     {assignment.is_active ? (
                       <Button
                         size="sm"
@@ -434,8 +422,8 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
                           : "Quitar"}
                       </Button>
                     ) : null}
-                  </span>
-                </List.Item>
+                  </ItemActions>
+                </Item>
               ))}
             </List>
           )}
@@ -444,11 +432,12 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
             className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end"
           >
             <Field label="Consultor existente">
-              <Select
+              <SearchableSelect
                 aria-label="Consultor existente"
+                placeholder="Busca un consultor"
+                emptyText="No hay ningún consultor con ese nombre."
                 value={consultantUserId}
                 onChange={setConsultantUserId}
-                required
                 options={consultantProfiles.map((profile) => ({
                   value: profile.id,
                   label: profile.full_name ?? profile.id,
@@ -456,7 +445,7 @@ export function AccessPanel({ organizationId }: { organizationId: string }) {
               />
             </Field>
             <div className="pb-2">
-              <Checkbox checked={isPrimary} onChange={setIsPrimary}>
+              <Checkbox checked={isPrimary} onCheckedChange={setIsPrimary}>
                 Principal
               </Checkbox>
             </div>
@@ -572,7 +561,7 @@ function EditOrganizationForm({
           <ErrorBlock>{error}</ErrorBlock>
         </div>
       ) : null}
-      <div className="flex gap-4 md:col-span-4">
+      <div role="group" aria-label="Acciones del formulario" className="flex flex-wrap items-center gap-2 md:col-span-4">
         <Button type="submit" disabled={isSaving}>
           {isSaving ? "Guardando..." : "Guardar cambios"}
         </Button>
@@ -685,7 +674,7 @@ export function StoresPanel({
       {stores === null ? (
         <LoadingBlock label="Cargando tiendas..." />
       ) : stores.length === 0 ? (
-        <p className="text-sm text-muted">Sin tiendas conectadas.</p>
+        <EmptyState size="sm" title="Sin tiendas conectadas" />
       ) : (
         <List>
           {stores.map((store) => (
@@ -752,20 +741,40 @@ export function StoresPanel({
         </Link>
       </div>
 
+      {/* confirmStoreDeletion lo cierra al acabar bien; si falla, sigue abierto. */}
       {confirmDeleteStore ? (
-        <ConfirmDangerDialog
-          title={`Borrar tienda "${confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name}"`}
-          note="30 dias para restaurarla antes del borrado definitivo"
-          confirmPhrase={
-            confirmDeleteStore.provider_account_id ??
-            confirmDeleteStore.provider_account_name ??
-            confirmDeleteStore.id
-          }
-          actionLabel="Borrar tienda"
-          isBusy={deletingStoreId === confirmDeleteStore.id}
-          onConfirm={confirmStoreDeletion}
-          onCancel={() => setConfirmDeleteStore(null)}
-        />
+        <AlertDialog open onOpenChange={(open) => !open && setConfirmDeleteStore(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogMedia className="bg-danger/10 text-danger">
+                <StoreIcon />
+              </AlertDialogMedia>
+              <AlertDialogTitle>
+                ¿Borrar la tienda «{confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name}»?
+              </AlertDialogTitle>
+              <AlertDialogDescription>Tienes 30 días para restaurarla antes del borrado definitivo.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogConfirmPhrase
+              phrase={
+                confirmDeleteStore.provider_account_id ??
+                confirmDeleteStore.provider_account_name ??
+                confirmDeleteStore.id
+              }
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={async () => {
+                  await confirmStoreDeletion();
+                  return false;
+                }}
+              >
+                Borrar tienda
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
     </div>
   );
@@ -829,56 +838,51 @@ function ClientActionsMenu({
 
   return (
     <>
-      <Dropdown>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Acciones de ${organization.display_name}`}
-          disabled={busy}
-          className="min-h-8 min-w-8 shrink-0 px-2"
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Acciones de ${organization.display_name}`}
+              disabled={busy}
+              className="min-h-8 min-w-8 shrink-0 px-2"
+            />
+          }
         >
           <MoreIcon aria-hidden />
-        </Button>
-        <Dropdown.Popover>
-          <Dropdown.Menu onAction={(key) => onAction(String(key))}>
-            <Dropdown.Item id="edit" textValue="Editar">
-              <PencilIcon aria-hidden />
-              <Label>Editar</Label>
-            </Dropdown.Item>
-            {!pendingDeletion ? (
-              suspended ? (
-                <Dropdown.Item id="resume" textValue="Reanudar">
-                  <RetryIcon aria-hidden />
-                  <Label>Reanudar</Label>
-                </Dropdown.Item>
-              ) : (
-                <Dropdown.Item id="pause" textValue="Pausar">
-                  <RetryIcon aria-hidden />
-                  <Label>Pausar</Label>
-                </Dropdown.Item>
-              )
-            ) : null}
-            <Dropdown.Item
-              id="unlink"
-              textValue="Quitar de mi cartera"
-              variant="danger"
-            >
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onSelect={() => onAction("edit")}>
+            <PencilIcon aria-hidden />
+            Editar
+          </DropdownMenuItem>
+          {!pendingDeletion ? (
+            suspended ? (
+              <DropdownMenuItem onSelect={() => onAction("resume")}>
+                <RetryIcon aria-hidden />
+                Reanudar
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={() => onAction("pause")}>
+                <RetryIcon aria-hidden />
+                Pausar
+              </DropdownMenuItem>
+            )
+          ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={() => onAction("unlink")}>
+            <ArchiveIcon aria-hidden />
+            Quitar de mi cartera
+          </DropdownMenuItem>
+          {isPlatformAdmin ? (
+            <DropdownMenuItem variant="destructive" onSelect={() => onAction("delete")}>
               <ArchiveIcon aria-hidden />
-              <Label>Quitar de mi cartera</Label>
-            </Dropdown.Item>
-            {isPlatformAdmin ? (
-              <Dropdown.Item
-                id="delete"
-                textValue="Eliminar definitivamente"
-                variant="danger"
-              >
-                <ArchiveIcon aria-hidden />
-                <Label>Eliminar definitivamente</Label>
-              </Dropdown.Item>
-            ) : null}
-          </Dropdown.Menu>
-        </Dropdown.Popover>
-      </Dropdown>
+              Eliminar definitivamente
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {error ? (
         <p className="mt-1 text-xs text-danger" role="alert">
@@ -886,38 +890,54 @@ function ClientActionsMenu({
         </p>
       ) : null}
 
-      {confirm === "unlink" ? (
-        <ConfirmDangerDialog
-          title={`Quitar a "${organization.display_name}" de tu cartera`}
-          note="Sale de tu cartera y dejamos de traer sus datos. Conserva su acceso, integraciones y suscripción. Para recuperarlo hay que reasignarlo desde el panel admin."
-          confirmPhrase={organization.display_name}
-          actionLabel="Quitar de mi cartera"
-          isBusy={busy}
-          onConfirm={() =>
-            void post("unlink", onRemoved, "No se pudo quitar el cliente.")
-          }
-          onCancel={() => setConfirm(null)}
-        />
-      ) : null}
+      {/* `post` cierra el diálogo al acabar (bien o mal: el error va bajo el menú). */}
+      <AlertDialog open={confirm === "unlink"} onOpenChange={(open) => !open && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <UserMinusIcon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Quitar a «{organization.display_name}» de tu cartera?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Sale de tu cartera y dejamos de traer sus datos. Conserva su acceso, integraciones y suscripción. Para recuperarlo hay que reasignarlo desde el panel admin.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogConfirmPhrase phrase={organization.display_name} />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => post("unlink", onRemoved, "No se pudo quitar el cliente.")}
+            >
+              Quitar de mi cartera
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      {confirm === "delete" ? (
-        <ConfirmDangerDialog
-          title={`Eliminar "${organization.display_name}" para siempre`}
-          note="Elimina de forma permanente los datos de Shopify, Meta y Klaviyo, además de tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás."
-          irreversible
-          confirmPhrase={organization.display_name}
-          actionLabel="Eliminar definitivamente"
-          isBusy={busy}
-          onConfirm={() =>
-            void post(
-              "hard-delete",
-              onRemoved,
-              "No se pudo eliminar el cliente.",
-            )
-          }
-          onCancel={() => setConfirm(null)}
-        />
-      ) : null}
+      <AlertDialog open={confirm === "delete"} onOpenChange={(open) => !open && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-danger/10 text-danger">
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Eliminar «{organization.display_name}» para siempre?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Elimina de forma permanente los datos de Shopify, Meta y Klaviyo, además de tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogConfirmPhrase phrase={organization.display_name} />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => post("hard-delete", onRemoved, "No se pudo eliminar el cliente.")}
+            >
+              Eliminar definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -928,11 +948,14 @@ type CreatedInvite = {
 
 export function OwnStoreShortcut() {
   return (
-    <Card
-      title="Añadir mi tienda"
-      description="Crea una organización propia y conecta tus canales sin mezclarla con las organizaciones de tus clientes."
-    >
-      <ButtonLink href="/tiendas">Añadir mi tienda</ButtonLink>
+    <Card>
+      <CardHeader>
+        <CardTitle>Añadir mi tienda</CardTitle>
+        <CardDescription>Crea una organización propia y conecta tus canales sin mezclarla con las organizaciones de tus clientes.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ButtonLink href="/tiendas">Añadir mi tienda</ButtonLink>
+      </CardContent>
     </Card>
   );
 }
@@ -975,82 +998,91 @@ export function NewClientForm({ onCreated }: { onCreated: () => void }) {
 
   if (created) {
     return (
-      <Card
-        title={created.invite.code}
-        description="Compártelo con tu cliente. Lo introduce en /acceso, crea su cuenta y su organización queda en tu cartera."
-      >
-        <div className="grid gap-4">
-          <div className="flex flex-wrap items-center gap-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>{created.invite.code}</CardTitle>
+          <CardDescription>Compártelo con tu cliente. Lo introduce en /acceso, crea su cuenta y su organización queda en tu cartera.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(created.invite.access_url)
+                    .then(() => {
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 2000);
+                    });
+                }}
+              >
+                {copied ? "Enlace copiado" : "Copiar enlace"}
+              </Button>
+              <span className="text-xs text-muted">
+                Caduca el{" "}
+                {new Date(created.invite.expires_at).toLocaleDateString("es-ES")}
+              </span>
+            </div>
             <Button
+              variant="ghost"
               size="sm"
               onClick={() => {
-                void navigator.clipboard
-                  .writeText(created.invite.access_url)
-                  .then(() => {
-                    setCopied(true);
-                    window.setTimeout(() => setCopied(false), 2000);
-                  });
+                setCreated(null);
+                setOpen(false);
               }}
             >
-              {copied ? "Enlace copiado" : "Copiar enlace"}
+              Generar otro
             </Button>
-            <span className="text-xs text-muted">
-              Caduca el{" "}
-              {new Date(created.invite.expires_at).toLocaleDateString("es-ES")}
-            </span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setCreated(null);
-              setOpen(false);
-            }}
-          >
-            Generar otro
-          </Button>
-        </div>
+        </CardContent>
       </Card>
     );
   }
 
   if (!open) {
     return (
-      <Card
-        title="Invitar cliente"
-        description="Genera un código para que tu cliente cree su cuenta y quede en tu cartera."
-      >
-        <Button size="sm" onClick={() => setOpen(true)}>
-          Invitar cliente
-        </Button>
+      <Card>
+        <CardHeader>
+          <CardTitle>Invitar cliente</CardTitle>
+          <CardDescription>Genera un código para que tu cliente cree su cuenta y quede en tu cartera.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button size="sm" onClick={() => setOpen(true)}>
+            Invitar cliente
+          </Button>
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card
-      title="Invitar cliente"
-      description="El código no caduca hasta que se use o pasen 7 días. Tu cliente crea su cuenta y su organización queda vinculada a tu cartera."
-    >
-      <div className="grid gap-4">
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <Field label="Email del cliente (opcional, para enviárselo por correo)">
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="owner@acme.com"
-          />
-        </Field>
-        <div className="flex gap-3">
-          <Button disabled={busy} onClick={() => void submit()}>
-            {busy ? "Generando..." : "Generar código"}
-          </Button>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Cancelar
-          </Button>
+    <Card>
+      <CardHeader>
+        <CardTitle>Invitar cliente</CardTitle>
+        <CardDescription>El código no caduca hasta que se use o pasen 7 días. Tu cliente crea su cuenta y su organización queda vinculada a tu cartera.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4">
+          {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+          <Field label="Email del cliente (opcional, para enviárselo por correo)">
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="owner@acme.com"
+            />
+          </Field>
+          <div role="group" aria-label="Acciones de generacion de codigo" className="flex flex-wrap items-center gap-2">
+            <Button disabled={busy} onClick={() => void submit()}>
+              {busy ? "Generando..." : "Generar código"}
+            </Button>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+          </div>
         </div>
-      </div>
+      </CardContent>
     </Card>
   );
 }
@@ -1063,17 +1095,21 @@ export function NewClientForm({ onCreated }: { onCreated: () => void }) {
  */
 export function PortfolioManagement({
   organizations,
+  workbench,
+  initialOrganizationId,
   isPlatformAdmin,
   canManageStores,
   onChanged,
 }: {
   organizations: ConsultantOrganization[];
+  workbench?: DailyWorkbench;
+  initialOrganizationId?: string;
   isPlatformAdmin: boolean;
   canManageStores: boolean;
   onChanged: () => void;
 }) {
   const { setOrganizationId } = useActiveOrganization();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(initialOrganizationId || null);
   const [editingId, setEditingId] = useState<string | null>(null);
   // FE-07: sin buscador, encontrar un cliente concreto entre muchos exigia
   // escanear la tabla entera a ojo -- filtro por nombre o slug, en el propio
@@ -1098,97 +1134,100 @@ export function PortfolioManagement({
 
       <ObjectiveTypesCard organizations={organizations} />
 
-      <Card
-        title="Clientes asignados"
-        description="Mantenimiento de la cartera: datos de la organización, tiendas y accesos."
-      >
-        <Field label="Buscar cliente">
-          <Input
-            type="search"
-            placeholder="Nombre o slug..."
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            className="w-full max-w-sm"
-          />
-        </Field>
-        {filteredOrganizations.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">
-            Sin resultados para &quot;{searchQuery}&quot;.
-          </p>
-        ) : (
-          <List as="ul">
-            {filteredOrganizations.map((row) => {
-              const badge = attentionBadge(row.attention.score);
-              const open = expandedId === row.id;
-              return (
-                <List.Item
-                  as="li"
-                  key={row.id}
-                  className="py-3 first:pt-1 last:pb-1"
-                >
-                  <div
-                    {...cardToggle(() => setExpandedId(open ? null : row.id))}
-                    aria-expanded={open}
-                    className="-mx-2 flex cursor-pointer flex-wrap items-start gap-3 rounded-md px-2 py-1 hover:bg-surface"
-                  >
-                    <Avatar name={row.display_name} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span {...stopToggle}>
-                          <Link
-                            href={`/consultor?organizationId=${row.id}`}
-                            onClick={() => setOrganizationId(row.id)}
-                            className="font-medium no-underline hover:text-accent hover:no-underline"
-                          >
-                            {row.display_name}
-                          </Link>
-                        </span>
-                        <Badge
-                          tone={badge.tone}
-                          title={`Puntuación: ${row.attention.score}`}
-                        >
-                          {badge.label}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-muted">
-                        {row.slug} ·{" "}
-                        {row.status === "pending_deletion"
-                          ? "Borrado en 30 días"
-                          : (ORGANIZATION_STATUS_LABELS[row.status] ??
-                            row.status)}
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        {row.attention.open_alerts} alertas
-                        {row.attention.critical_alerts > 0 ? (
-                          <span className="text-danger">
-                            {" "}
-                            · {row.attention.critical_alerts} críticas
+      <Card>
+        <CardHeader>
+          <CardTitle>Clientes asignados</CardTitle>
+          <CardDescription>Datos del cliente, tiendas y accesos. La prioridad utiliza las mismas señales que la mesa diaria.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Field label="Buscar cliente">
+            <Input
+              type="search"
+              placeholder="Nombre o slug..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="w-full max-w-sm"
+            />
+          </Field>
+          {filteredOrganizations.length === 0 ? (
+            <p className="mt-4 text-sm text-muted">
+              {searchQuery ? <>Sin resultados para &quot;{searchQuery}&quot;.</> : "Invita a tu primer cliente para empezar. También puedes gestionar tus tiendas propias desde Tiendas."}
+            </p>
+          ) : (
+            // Una fila de acordeón por cliente: el disparador lleva solo el
+            // nombre y sus datos; los enlaces y el menú van al lado, no dentro
+            // (no se anidan controles en un botón, WCAG 4.1.2). Las tiendas se
+            // montan solo al abrir: cada panel pide las suyas.
+            <Accordion
+              value={expandedId ? [expandedId] : []}
+              onValueChange={(value) => setExpandedId(value[0] ?? null)}
+            >
+              {filteredOrganizations.map((row) => {
+                const health = workbench?.portfolio.find((item) => item.organization_id === row.id);
+                const badge = health ? STATUS_BADGE[health.status] : { label: "Sin comprobar", tone: "neutral" as const };
+                const onboarding = workbench?.onboarding?.find((item) => item.organization_id === row.id);
+                const open = expandedId === row.id;
+                return (
+                  <AccordionItem key={row.id} value={row.id}>
+                    <div className="flex flex-wrap items-start gap-x-3 py-2">
+                      <Avatar className="mt-3">
+                        <AvatarFallback>{avatarInitials(row.display_name)}</AvatarFallback>
+                      </Avatar>
+                      <AccordionTrigger className="min-w-[12rem] py-3">
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-medium">{row.display_name}</span>
+                            <Badge
+                              tone={badge.tone}
+                              title={health?.next_action?.title ?? (health ? "Prioridad de la mesa diaria" : "No se pudo comprobar la prioridad")}
+                            >
+                              {badge.label}
+                            </Badge>
                           </span>
-                        ) : null}
-                        {" · "}
-                        {row.attention.open_tasks} tareas
-                        {" · "}
-                        {row.subscription
-                          ? `${planName(row.subscription.plan_code)} · ${SUBSCRIPTION_STATUS_LABELS[row.subscription.status] ?? row.subscription.status}`
-                          : "Sin plan"}
-                      </p>
-                    </div>
-                    <div className="mt-2 flex shrink-0 basis-full items-center justify-end gap-2 sm:mt-0 sm:basis-auto">
-                      <span {...stopToggle}>
+                          <span className="mt-1 block text-xs font-normal text-muted">
+                            {row.slug} ·{" "}
+                            {row.status === "pending_deletion"
+                              ? "Borrado en 30 días"
+                              : (ORGANIZATION_STATUS_LABELS[row.status] ??
+                                row.status)}
+                          </span>
+                          <span className="mt-1 block text-xs font-normal text-muted">
+                            {row.attention.open_alerts} alertas
+                            {row.attention.critical_alerts > 0 ? (
+                              <span className="text-danger">
+                                {" "}
+                                · {row.attention.critical_alerts} críticas
+                              </span>
+                            ) : null}
+                            {" · "}
+                            {row.attention.open_tasks} tareas
+                            {" · "}
+                            {row.subscription
+                              ? `${planName(row.subscription.plan_code)} · ${SUBSCRIPTION_STATUS_LABELS[row.subscription.status] ?? row.subscription.status}`
+                              : "Sin plan"}
+                          </span>
+                        </span>
+                      </AccordionTrigger>
+                      <div className="flex shrink-0 basis-full items-center justify-end gap-2 sm:basis-auto sm:pt-2">
                         <Link
-                          href="/tareas"
+                          href={`/consultor?organizationId=${row.id}`}
+                          onClick={() => setOrganizationId(row.id)}
+                          className="px-2 py-1 text-xs text-muted no-underline hover:text-accent hover:no-underline"
+                        >
+                          Abrir
+                        </Link>
+                        <Link
+                          href={withPortalRouteContext("/tareas", row.id)}
                           onClick={() => setOrganizationId(row.id)}
                           className="px-2 py-1 text-xs text-muted no-underline hover:text-accent hover:no-underline"
                         >
                           Tareas
                         </Link>
-                      </span>
-                      <span className="text-xs text-muted">
-                        {row.store_count}{" "}
-                        {row.store_count === 1 ? "tienda" : "tiendas"}
-                      </span>
-                      {canManageStores ? (
-                        <span {...stopToggle}>
+                        <span className="text-xs text-muted">
+                          {row.store_count}{" "}
+                          {row.store_count === 1 ? "tienda" : "tiendas"}
+                        </span>
+                        {canManageStores ? (
                           <ClientActionsMenu
                             organization={row}
                             isPlatformAdmin={isPlatformAdmin}
@@ -1207,35 +1246,32 @@ export function PortfolioManagement({
                               onChanged();
                             }}
                           />
-                        </span>
-                      ) : null}
+                        ) : null}
+                      </div>
+                    </div>
+                    <AccordionContent>
+                      {open && onboarding ? <ClientOnboardingSteps onboarding={onboarding} /> : null}
                       {open ? (
-                        <IconChevronUp aria-hidden />
-                      ) : (
-                        <IconChevronDown aria-hidden />
-                      )}
-                    </div>
-                  </div>
-
-                  {open ? (
-                    <div className="mt-3 rounded-md border border-separator bg-surface p-4 sm:ml-11">
-                      <StoresPanel
-                        organization={row}
-                        isPlatformAdmin={isPlatformAdmin}
-                        canManageStores={canManageStores}
-                        isEditing={editingId === row.id}
-                        onEditingChange={(editing) =>
-                          setEditingId(editing ? row.id : null)
-                        }
-                        onOrganizationUpdated={onChanged}
-                      />
-                    </div>
-                  ) : null}
-                </List.Item>
-              );
-            })}
-          </List>
-        )}
+                        <Card className="sm:ml-11"><CardContent>
+                          <StoresPanel
+                            organization={row}
+                            isPlatformAdmin={isPlatformAdmin}
+                            canManageStores={canManageStores}
+                            isEditing={editingId === row.id}
+                            onEditingChange={(editing) =>
+                              setEditingId(editing ? row.id : null)
+                            }
+                            onOrganizationUpdated={onChanged}
+                          />
+                        </CardContent></Card>
+                      ) : null}
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

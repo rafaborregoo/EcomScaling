@@ -1,4 +1,6 @@
 "use client";
+import { Checkbox, DateRangePicker } from "@/components/ui";
+
 
 import { useMemo, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
@@ -8,16 +10,27 @@ import {
   Banner,
   BarChart,
   Button,
-  Card,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   ErrorBlock,
   Field,
   Input,
   Metric,
   Select,
-  Sheet,
-  Table,
+  DataTable,
   Textarea,
-  type TableColumnDef,
+  type DataTableColumn,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -267,20 +280,16 @@ function ExpenseSheet({
   }
 
   return (
-    <Sheet
-      isOpen={isOpen}
+    <Dialog
+      open={isOpen}
       onOpenChange={onOpenChange}
-      size="md"
-      title={expense ? "Editar gasto" : "Registrar gasto"}
-      isBusy={busy}
-      isDirty={expense ? name !== expense.name || amount !== String(expense.amount) : Boolean(name.trim() || amount)}
-      formId="expense-form"
-      primary={{
-        label: expense ? "Guardar cambios" : "Añadir gasto",
-        busyLabel: "Guardando…",
-        disabled: !name.trim() || !amount || !startsOn,
-      }}
+      busy={busy}
+      dirty={expense ? name !== expense.name || amount !== String(expense.amount) : Boolean(name.trim() || amount)}
     >
+      <DialogContent className="sm:max-w-[44rem]">
+      <DialogHeader>
+        <DialogTitle>{expense ? "Editar gasto" : "Registrar gasto"}</DialogTitle>
+      </DialogHeader>
       <form
         id="expense-form"
         className="space-y-4"
@@ -316,11 +325,15 @@ function ExpenseSheet({
           <Field label="Moneda">
             <Input value={currency} maxLength={3} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
           </Field>
-          <Field label="Primer cargo">
-            <Input type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} />
-          </Field>
-          <Field label="Fin opcional">
-            <Input type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} />
+          <Field label="Vigencia de los cargos (fin opcional)">
+            <DateRangePicker
+              value={{ from: startsOn, to: endsOn }}
+              onChange={(range) => {
+                setStartsOn(range.from ?? "");
+                setEndsOn(range.to ?? "");
+              }}
+              aria-label="Elegir vigencia de los cargos"
+            />
           </Field>
         </div>
         <Field label="Factura o justificante (URL)">
@@ -329,12 +342,18 @@ function ExpenseSheet({
         <Field label="Notas">
           <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} />
         </Field>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={deductible} onChange={(event) => setDeductible(event.target.checked)} />
+        <Checkbox checked={deductible} onCheckedChange={setDeductible}>
           Gasto fiscalmente deducible
-        </label>
+        </Checkbox>
       </form>
-    </Sheet>
+      <DialogFooter>
+        <DialogClose>Cancelar</DialogClose>
+        <Button type="submit" form="expense-form" disabled={!name.trim() || !amount || !startsOn || busy}>
+          {busy ? "Guardando…" : expense ? "Guardar cambios" : "Añadir gasto"}
+        </Button>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -410,10 +429,16 @@ function FinancePanel() {
 
   if (finance.isLoading || expenseQuery.isLoading) {
     return (
-      <Card kicker="Ledger" title="Cargando finanzas...">
-        <p className="text-sm text-muted">
-          Consultando Stripe y el libro de gastos.
-        </p>
+      <Card>
+        <CardHeader>
+          <CardKicker>Ledger</CardKicker>
+          <CardTitle>Cargando finanzas...</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted">
+            Consultando Stripe y el libro de gastos.
+          </p>
+        </CardContent>
       </Card>
     );
   }
@@ -438,7 +463,7 @@ function FinancePanel() {
   const multipleCurrencies =
     (!data.currency && data.by_currency.length > 1) ||
     data.expenses.by_currency.length > 1;
-  const paymentColumns: TableColumnDef<FinancialPayment>[] = [
+  const paymentColumns: DataTableColumn<FinancialPayment>[] = [
     {
       key: "date",
       label: "Fecha",
@@ -474,7 +499,7 @@ function FinancePanel() {
       render: (row) => money(row.gross_amount, row.currency),
     },
   ];
-  const expenseColumns: TableColumnDef<Expense>[] = [
+  const expenseColumns: DataTableColumn<Expense>[] = [
     {
       key: "name",
       label: "Gasto",
@@ -517,7 +542,7 @@ function FinancePanel() {
       key: "actions",
       label: "",
       render: (row) => (
-        <div className="flex gap-2">
+        <div role="group" aria-label="Acciones del gasto" className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="ghost"
@@ -538,12 +563,12 @@ function FinancePanel() {
 
   return (
     <div className="grid gap-6">
-      <Card
-        kicker="Ledger Stripe + gastos"
-        title="Dashboard financiero"
-        description={`Resultado real de los últimos ${days} días${finance.isValidating || expenseQuery.isValidating ? " · actualizando" : ""}`}
-        actions={
-          <div className="flex items-center gap-2">
+      <Card>
+        <CardHeader>
+          <CardKicker>Ledger Stripe + gastos</CardKicker>
+          <CardTitle>Dashboard financiero</CardTitle>
+          <CardDescription>{`Resultado real de los últimos ${days} días${finance.isValidating || expenseQuery.isValidating ? " · actualizando" : ""}`}</CardDescription>
+          <CardAction><div className="flex items-center gap-2">
             <Select
               aria-label="Periodo financiero"
               value={String(days)}
@@ -558,115 +583,128 @@ function FinancePanel() {
             <Button size="sm" variant="ghost" onClick={reloadAll}>
               Actualizar
             </Button>
+          </div></CardAction>
+        </CardHeader>
+        <CardContent>
+          {multipleCurrencies ? (
+            <Banner tone="warn">
+              Hay movimientos en varias monedas. Se muestran por separado y no se
+              aplica conversión automática.
+            </Banner>
+          ) : null}
+          {data.truncated ? (
+            <Banner tone="warn">
+              Stripe tiene más movimientos que los cargados. Reduce el periodo para
+              ver el detalle completo.
+            </Banner>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <Metric
+              card
+              label="Ingresos brutos"
+              value={money(data.totals.gross_amount, data.currency)}
+              hint={`${data.totals.successful_payments} cobros confirmados`}
+            />
+            <Metric
+              card
+              label="Comisiones Stripe"
+              value={money(data.totals.fee_amount, data.currency)}
+              tone="warn"
+            />
+            <Metric
+              card
+              label="Reembolsos"
+              value={money(data.totals.refunded_amount, data.currency)}
+              tone="danger"
+            />
+            <Metric
+              card
+              label="Neto recibido"
+              value={money(data.totals.net_amount, data.currency)}
+              tone="success"
+            />
+            <Metric
+              card
+              label="Gastos del periodo"
+              value={money(data.expenses.total, data.expenses.currency)}
+              hint={`${data.expenses.active_recurring} costes recurrentes activos`}
+              tone="warn"
+            />
+            <Metric
+              card
+              label="Beneficio operativo"
+              value={money(data.operating_profit, currency)}
+              hint="Neto Stripe menos gastos, antes de IRPF"
+              tone={
+                data.operating_profit !== null && data.operating_profit < 0
+                  ? "danger"
+                  : "success"
+              }
+            />
           </div>
-        }
-      >
-        {multipleCurrencies ? (
-          <Banner tone="warn">
-            Hay movimientos en varias monedas. Se muestran por separado y no se
-            aplica conversión automática.
-          </Banner>
-        ) : null}
-        {data.truncated ? (
-          <Banner tone="warn">
-            Stripe tiene más movimientos que los cargados. Reduce el periodo para
-            ver el detalle completo.
-          </Banner>
-        ) : null}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <Metric
-            card
-            label="Ingresos brutos"
-            value={money(data.totals.gross_amount, data.currency)}
-            hint={`${data.totals.successful_payments} cobros confirmados`}
-          />
-          <Metric
-            card
-            label="Comisiones Stripe"
-            value={money(data.totals.fee_amount, data.currency)}
-            tone="warn"
-          />
-          <Metric
-            card
-            label="Reembolsos"
-            value={money(data.totals.refunded_amount, data.currency)}
-            tone="danger"
-          />
-          <Metric
-            card
-            label="Neto recibido"
-            value={money(data.totals.net_amount, data.currency)}
-            tone="success"
-          />
-          <Metric
-            card
-            label="Gastos del periodo"
-            value={money(data.expenses.total, data.expenses.currency)}
-            hint={`${data.expenses.active_recurring} costes recurrentes activos`}
-            tone="warn"
-          />
-          <Metric
-            card
-            label="Beneficio operativo"
-            value={money(data.operating_profit, currency)}
-            hint="Neto Stripe menos gastos, antes de IRPF"
-            tone={
-              data.operating_profit !== null && data.operating_profit < 0
-                ? "danger"
-                : "success"
-            }
-          />
-        </div>
-        {data.totals.failed_payments || data.totals.pending_payments ? (
-          <p className="mt-4 text-sm text-muted">
-            {data.totals.failed_payments} pagos fallidos ·{" "}
-            {data.totals.pending_payments} pendientes
-          </p>
-        ) : null}
+          {data.totals.failed_payments || data.totals.pending_payments ? (
+            <p className="mt-4 text-sm text-muted">
+              {data.totals.failed_payments} pagos fallidos ·{" "}
+              {data.totals.pending_payments} pendientes
+            </p>
+          ) : null}
+        </CardContent>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card kicker="Ingresos" title="Cobros y reembolsos">
-          <AreaChart
-            data={timeline}
-            xKey="period"
-            series={[
-              { key: "gross", label: "Bruto" },
-              {
-                key: "refunds",
-                label: "Reembolsos",
-                color: "var(--color-danger)",
-              },
-            ]}
-            valueFormatter={(value) => money(value, data.currency)}
-            height={250}
-          />
-        </Card>
-        <Card kicker="Costes" title="Gastos por categoría">
-          {categoryChart.length ? (
-            <BarChart
-              data={categoryChart}
-              xKey="name"
-              series={[{ key: "amount", label: "Gasto" }]}
-              horizontal
-              height={Math.max(150, categoryChart.length * 42)}
-              valueFormatter={(value) => money(value, data.expenses.currency)}
+        <Card>
+          <CardHeader>
+            <CardKicker>Ingresos</CardKicker>
+            <CardTitle>Cobros y reembolsos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AreaChart
+              data={timeline}
+              xKey="period"
+              series={[
+                { key: "gross", label: "Bruto" },
+                {
+                  key: "refunds",
+                  label: "Reembolsos",
+                  color: "var(--color-danger)",
+                },
+              ]}
+              valueFormatter={(value) => money(value, data.currency)}
+              height={250}
             />
-          ) : (
-            <p className="text-sm text-muted">
-              Registra gastos para ver su distribución.
-            </p>
-          )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardKicker>Costes</CardKicker>
+            <CardTitle>Gastos por categoría</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {categoryChart.length ? (
+              <BarChart
+                data={categoryChart}
+                xKey="name"
+                series={[{ key: "amount", label: "Gasto" }]}
+                horizontal
+                height={Math.max(150, categoryChart.length * 42)}
+                valueFormatter={(value) => money(value, data.expenses.currency)}
+              />
+            ) : (
+              <p className="text-sm text-muted">
+                Registra gastos para ver su distribución.
+              </p>
+            )}
+          </CardContent>
         </Card>
       </div>
 
       {mutationError ? <ErrorBlock>{mutationError}</ErrorBlock> : null}
-      <Card
-        kicker="Libro de gastos"
-        title="Costes activos"
-        description="Los gastos archivados se conservan en base de datos, pero dejan de proyectarse."
-        actions={
-          <Button
+      <Card>
+        <CardHeader>
+          <CardKicker>Libro de gastos</CardKicker>
+          <CardTitle>Costes activos</CardTitle>
+          <CardDescription>Los gastos archivados se conservan en base de datos, pero dejan de proyectarse.</CardDescription>
+          <CardAction><Button
             size="sm"
             onClick={() => {
               setEditing(null);
@@ -675,15 +713,16 @@ function FinancePanel() {
             }}
           >
             Registrar gasto
-          </Button>
-        }
-      >
-        <Table
-          ariaLabel="Gastos de plataforma"
-          columns={expenseColumns}
-          rows={expenses}
-          emptyLabel="Todavía no hay gastos registrados."
-        />
+          </Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Gastos de plataforma"
+            columns={expenseColumns}
+            rows={expenses}
+            emptyLabel="Todavía no hay gastos registrados."
+          />
+        </CardContent>
       </Card>
 
       <ExpenseSheet
@@ -697,29 +736,41 @@ function FinancePanel() {
         onSaved={saved}
       />
 
-      <Card kicker="Acceso comercial" title="Suscripciones">
-        <div className="grid gap-4 sm:grid-cols-4">
-          <Metric
-            label="Activas"
-            value={data.subscriptions.active}
-            tone="success"
-          />
-          <Metric label="En prueba" value={data.subscriptions.trial} />
-          <Metric label="Pagadas" value={data.subscriptions.paid} />
-          <Metric
-            label="Concedidas"
-            value={data.subscriptions.granted}
-            tone="warn"
-          />
-        </div>
+      <Card>
+        <CardHeader>
+          <CardKicker>Acceso comercial</CardKicker>
+          <CardTitle>Suscripciones</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-4">
+            <Metric
+              label="Activas"
+              value={data.subscriptions.active}
+              tone="success"
+            />
+            <Metric label="En prueba" value={data.subscriptions.trial} />
+            <Metric label="Pagadas" value={data.subscriptions.paid} />
+            <Metric
+              label="Concedidas"
+              value={data.subscriptions.granted}
+              tone="warn"
+            />
+          </div>
+        </CardContent>
       </Card>
-      <Card kicker="Stripe" title="Últimos movimientos">
-        <Table
-          ariaLabel="Movimientos financieros de Stripe"
-          columns={paymentColumns}
-          rows={data.payments}
-          emptyLabel="No hay movimientos en este periodo."
-        />
+      <Card>
+        <CardHeader>
+          <CardKicker>Stripe</CardKicker>
+          <CardTitle>Últimos movimientos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            ariaLabel="Movimientos financieros de Stripe"
+            columns={paymentColumns}
+            rows={data.payments}
+            emptyLabel="No hay movimientos en este periodo."
+          />
+        </CardContent>
       </Card>
     </div>
   );

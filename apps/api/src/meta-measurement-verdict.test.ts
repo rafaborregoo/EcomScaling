@@ -13,9 +13,11 @@ const freshLearning = {
 };
 const freshMapping = {
   ad_set_id: "set-1",
+  pixel_id: "pixel-1",
   eligible_ad_set_count: 1,
   spend_in_period: 30,
   mapping_status: "mapped_event_observed",
+  matched_event_last_date: "2026-09-28",
   pixel_last_synced_at: freshSync,
   ad_set_rows_truncated: false,
 };
@@ -25,7 +27,8 @@ test("A24 only returns usable when spend-bearing ad sets explicitly observed the
     pixels: source([{ is_unavailable: false }]),
     learning: source([freshLearning]),
     issues: source(),
-    eventMapping: source([{ ...freshMapping, eligible_ad_set_count: 2 }]),
+    eventMapping: source([freshMapping]),
+    issueSnapshot: source([{ complete: true }]),
   }, evaluatedAt);
   assert.equal(verdict.status, "usable_with_attribution_limits");
   assert.match(verdict.limitations.join(" "), /causalidad/);
@@ -37,6 +40,7 @@ test("A24 restricts known event gaps and fresh rejection without describing them
     learning: source([freshLearning]),
     issues: source([{ review_category: "rejected", freshness: "fresh" }]),
     eventMapping: source([{ ...freshMapping, spend_in_period: 5, mapping_status: "mapped_event_not_observed_in_synced_window" }]),
+    issueSnapshot: source([{ complete: true }]),
   }, evaluatedAt);
   assert.equal(verdict.status, "restricted");
   assert.ok(verdict.reason_codes.includes("promoted_event_not_observed_or_unresolved"));
@@ -49,6 +53,7 @@ test("A24 treats failed or stale required sources as unknown, never as healthy",
     learning: { available: false, rows: [] },
     issues: source(),
     eventMapping: source([{ ...freshMapping, spend_in_period: 5 }]),
+    issueSnapshot: source([{ complete: true }]),
   }, evaluatedAt);
   assert.equal(verdict.status, "unknown");
   assert.deepEqual(unknownMetaMeasurementVerdict().status, "unknown");
@@ -60,6 +65,7 @@ test("A24 does not call a no-spend period healthy", () => {
     learning: source([{ activity_sync_state: "fresh" }]),
     issues: source(),
     eventMapping: source(),
+    issueSnapshot: source([{ complete: true }]),
   }, evaluatedAt);
   assert.equal(verdict.status, "not_assessable");
   assert.ok(verdict.reason_codes.includes("no_eligible_spend_observed"));
@@ -82,6 +88,7 @@ test("A24 returns unknown for stale pixel/account/issue sync or incomplete sampl
     learning: source([freshLearning]),
     issues: source(),
     eventMapping: source([freshMapping]),
+    issueSnapshot: source([{ complete: true }]),
   };
   const stalePixel = buildMetaMeasurementVerdict({
     ...base,
@@ -100,6 +107,7 @@ test("A24 returns unknown for stale pixel/account/issue sync or incomplete sampl
   const staleIssue = buildMetaMeasurementVerdict({
     ...base,
     issues: source([{ review_category: "warning", freshness: "stale" }]),
+    issueSnapshot: source([{ complete: false }]),
   }, evaluatedAt);
   assert.equal(staleIssue.status, "unknown");
   assert.ok(staleIssue.reason_codes.includes("review_issue_sync_stale_or_unknown"));
@@ -113,20 +121,19 @@ test("A24 returns unknown for stale pixel/account/issue sync or incomplete sampl
 
   const fullIssuePage = buildMetaMeasurementVerdict({
     ...base,
-    issues: source(Array.from({ length: 30 }, () => ({ freshness: "fresh" }))),
+    issues: source(Array.from({ length: 500 }, () => ({ freshness: "fresh" }))),
   }, evaluatedAt);
   assert.equal(fullIssuePage.status, "unknown");
   assert.ok(fullIssuePage.reason_codes.includes("review_issue_sample_may_be_truncated"));
 });
 
-test("A24 v8 prompt documents the freshness and sample gates", () => {
+test("A24 final migration keeps the v9 prompt and cache writer guard", () => {
   const migration = readFileSync(
-    new URL("../../../supabase/migrations/20261115800000_a24_measurement_freshness_v8.sql", import.meta.url),
+    new URL("../../../supabase/migrations/20270107120000_a24_measurement_integrity.sql", import.meta.url),
     "utf8",
   );
-  assert.match(migration, /'v8'/);
-  assert.match(migration, /48 h/);
-  assert.match(migration, /ad_set_rows_truncated/);
-  assert.match(migration, /se limita a 30 filas/);
-  assert.match(migration, /a24-medicion-v2|a24-measurement-v2/);
+  assert.match(migration, /'v9'/);
+  assert.match(migration, /meta_save_measurement_verdict/);
+  assert.match(migration, /source_fingerprint/);
+  assert.match(migration, /where public\.meta_measurement_verdict_cache\.evaluated_at <= excluded\.evaluated_at/);
 });

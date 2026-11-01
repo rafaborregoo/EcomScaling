@@ -1,0 +1,331 @@
+- alert
+- main:
+  - link "Saltar al contenido principal":
+    - /url: "#portal-content"
+  - link "E-NORA, ir al inicio":
+    - /url: /dashboard
+  - paragraph: Shopify
+  - generic: /
+  - button "Todas las tiendas Tienda":
+    - generic: Todas las tiendas
+  - combobox
+  - button "Enviar feedback":
+    - generic: Feedback
+  - button "Cerrar Consultor IA" [expanded]:
+    - generic: Cerrar
+  - button "Centro de actividad (1 elementos)":
+    - button "Centro de actividad (1 elementos)":
+      - generic: "1"
+  - button "Abrir menú de perfil":
+    - button "Abrir menú de perfil":
+      - generic: RE
+  - complementary:
+    - navigation "Módulos":
+      - link "Inicio":
+        - /url: /dashboard?tab=todo
+      - link "Trabajo":
+        - /url: /camino
+      - link "Marketing":
+        - /url: /marketing?section=plan
+      - link "Comunicación":
+        - /url: /mensajes
+      - link "Shopify":
+        - /url: /shopify
+      - link "Meta":
+        - /url: /meta
+      - link "Klaviyo":
+        - /url: /klaviyo
+      - link "Analítica":
+        - /url: /informes
+      - link "Conocimiento":
+        - /url: /conocimiento?section=cuestionario
+    - link "Añadir tienda Shopify":
+      - /url: /integraciones/shopify
+    - link "Configuración":
+      - /url: /configuracion?section=resumen
+      - generic "1 incidencias de integración"
+    - button "Control de navegación lateral":
+      - button "Control de navegación lateral":
+  - complementary:
+    - 'navigation "Shopify: secciones"':
+      - link "Resumen":
+        - /url: /shopify
+        - generic: Resumen
+      - link "Productos":
+        - /url: /shopify/productos
+        - generic: Productos
+      - link "Inventario":
+        - /url: /shopify/inventario
+        - generic: Inventario
+      - link "Promociones":
+        - /url: /shopify/promociones
+        - generic: Promociones
+  - navigation "Ruta":
+    - link "Shopify":
+      - /url: /shopify
+    - generic: /
+    - link "Productos":
+      - /url: /shopify/productos
+    - generic: /
+    - generic: The Complete Snowboard
+  - region "The Complete Snowboard":
+    - generic: Snowboard Vendor · snowboard
+    - generic: Activo
+    - heading "The Complete Snowboard" [level=1]
+    - strong: 699,95 US$
+    - term: Vendidas (90 días)
+    - definition:
+      - text: "0"
+      - generic: igual que el periodo anterior
+    - term: Devueltas
+    - definition:
+      - text: "0"
+      - generic: sin ventas
+    - term: Stock total
+    - definition:
+      - text: "0"
+      - generic: sin ritmo de ventas reciente
+    - term: Margen
+    - definition:
+      - text: —
+      - generic: falta el coste
+    - term: Último pedido
+    - definition:
+      - text: —
+      - generic: sin pedidos observados
+    - button "IA Preguntar qué haría" [active]:
+      - generic: IA
+      - text: Preguntar qué haría
+  - region "Demanda prevista y cobertura":
+    - heading "Demanda prevista y cobertura" [level=2]
+    - generic: Sin demanda observada
+    - generic: Demanda estimada · 30 días
+    - strong: —
+    - generic: Stock disponible
+    - strong: Sin dato fiable
+    - generic: Cobertura al ritmo previsto
+    - strong: —
+    - generic: Sin historial suficiente · 12 semanas observadas (0 con ventas)
+    - paragraph: Estimación a partir de las ventas de las últimas semanas. No tiene en cuenta promociones ni temporada.
+  - generic "Sobre estos datos"
+  - heading "Ventas" [level=2]
+  - paragraph: 0 unidades en los últimos 90 días.
+  - group "Periodo de actividad del producto":
+    - button "30 días"
+    - button "90 días" [pressed]
+    - button "1 año"
+  - heading "Unidades por semana" [level=3]
+  - paragraph: Pedidas y reembolsadas en pedidos sincronizados
+  - paragraph: Sin ventas en pedidos sincronizados en este periodo.
+  - generic: Unidades pedidas
+  - generic: "0"
+  - generic: igual que el periodo anterior
+  - generic: Reembolsadas
+  - generic: "0"
+  - generic: sin ventas
+  - generic: Pedidos
+  - generic: "0"
+  - generic: sin pedidos
+  - generic: Ritmo actual
+  - generic: 0,0/día
+  - generic: últimos 14 días
+  - heading "Variantes" [level=2]
+  - paragraph: Precio, coste y stock. El coste se edita aquí.
+  - heading "Precio, coste y stock" [level=3]
+  - generic: 5 variantes
+  - table:
+    - rowgroup:
+      - row "Variante SKU Precio Comparado Coste Vendidas / devueltas Stock por ubicación Estado":
+        - columnheader "Variante"
+        - columnheader "SKU"
+        - columnheader "Precio"
+        - columnheader "Comparado"
+        - columnheader "Coste"
+        - columnheader "Vendidas / devueltas"
+        - columnheader "Stock por ubicación"
+        - columnheader "Estado"
+    - rowgroup:
+      - row "Ice — 699,95 US$ — Añadir coste — Sin niveles activos importados Activa":
+        - cell "Ice":
+          - generic: Ice
+        - cell "—"
+        - cell "699,95 US$"
+        - cell "—"
+        - cell "Añadir coste":
+          - button "Añadir coste"
+        - cell "—"
+        - cell "Sin niveles activos importados"
+        - cell "Activa":
+          - generic: Activa
+      - row "Dawn — 699,95 US$ — Añadir coste — Sin niveles activos importados Activa":
+        - cell "Dawn":
+          - generic: Dawn
+        - cell "—"
+        - cell "699,95 US$"
+        - cell "—"
+        - cell "Añadir coste":
+          - button "Añadir coste"
+        - cell "—"
+        - cell "Sin niveles activos importados"
+        - cell "Activa":
+          - generic: Activa
+      - row "Powder — 699,95 US$ — Añadir coste — Sin niveles activos importados Activa":
+        - cell "Powder":
+          - generic: Powder
+        - cell "—"
+        - cell "699,95 US$"
+        - cell "—"
+        - cell "Añadir coste":
+          - button "Añadir coste"
+        - cell "—"
+        - cell "Sin niveles activos importados"
+        - cell "Activa":
+          - generic: Activa
+      - row "Electric — 699,95 US$ — Añadir coste — Sin niveles activos importados Activa":
+        - cell "Electric":
+          - generic: Electric
+        - cell "—"
+        - cell "699,95 US$"
+        - cell "—"
+        - cell "Añadir coste":
+          - button "Añadir coste"
+        - cell "—"
+        - cell "Sin niveles activos importados"
+        - cell "Activa":
+          - generic: Activa
+      - row "Sunset — 699,95 US$ — Añadir coste — Sin niveles activos importados Activa":
+        - cell "Sunset":
+          - generic: Sunset
+        - cell "—"
+        - cell "699,95 US$"
+        - cell "—"
+        - cell "Añadir coste":
+          - button "Añadir coste"
+        - cell "—"
+        - cell "Sin niveles activos importados"
+        - cell "Activa":
+          - generic: Activa
+  - heading "Stock" [level=2]
+  - paragraph: Cuántos días aguanta cada variante al ritmo de los últimos 30 días.
+  - heading "Días de cobertura por variante" [level=3]
+  - paragraph: Stock disponible ÷ ventas diarias de los últimos 30 días
+  - generic: Ice
+  - generic: agotada
+  - generic: Dawn
+  - generic: agotada
+  - generic: Powder
+  - generic: agotada
+  - generic: Electric
+  - generic: agotada
+  - generic: Sunset
+  - generic: agotada
+  - heading "Por ubicación" [level=3]
+  - paragraph: Disponible, comprometido y entrante
+  - paragraph: Sin niveles de stock activos importados.
+  - heading "Promociones" [level=2]
+  - paragraph: Descuentos de Shopify que incluyen este producto.
+  - heading "Promociones que lo incluyen" [level=3]
+  - generic: "0"
+  - paragraph: "Cobertura pending: pueden faltar reglas, especialmente si Shopify las administra mediante una app."
+  - paragraph: No hay coincidencias verificadas en las reglas disponibles. La cobertura actual no permite confirmar que no exista una promoción aplicable.
+  - heading "Descripción" [level=2]
+  - paragraph
+  - paragraph: "Cobertura de metadata: pending."
+  - paragraph: Shopify no devuelve una descripción para este producto.
+  - paragraph: Categoría Shopify
+  - paragraph: Sin categoría estándar asignada
+  - paragraph: Proveedor
+  - paragraph: Snowboard Vendor
+  - paragraph: Etiquetas
+  - paragraph: Sin etiquetas
+  - generic: Datos de Shopify. Ventas en unidades, de los pedidos sincronizados.
+  - link "← Volver al catálogo":
+    - /url: /shopify/productos
+  - complementary "Consultor IA":
+    - heading "Consultor IA" [level=2]
+    - generic: EcomScaling Prueba 1
+    - button "Historial de conversaciones":
+    - button "Nueva conversación":
+    - button "Cerrar Consultor IA":
+    - log "Conversación con el Consultor IA":
+      - generic: Explícame cómo va este producto y qué haría primero (producto «The Complete Snowboard», últimos 90 días)
+      - article:
+        - generic: A09
+        - generic: Confianza media
+        - button "5 herramientas · 73,0 s"
+        - heading "The Complete Snowboard lleva 0 ventas desde su creación, está sin stock en sus 5 variantes y el conector Shopify lleva más de un mes sin sincronizar, lo que obliga a verificar los datos antes de actuar sobre el producto." [level=3]
+        - paragraph:
+          - strong: The Complete Snowboard
+          - text: "no ha vendido ninguna unidad en los 90 días analizados (ni en ningún momento desde su creación el 2026-09-07): la vista de producto y una consulta directa a pedidos coinciden en"
+          - strong: 0 unidades, 0 pedidos
+          - text: . Además, sus
+          - strong: 5 de 5 variantes están sin stock disponible
+          - text: "y"
+          - strong: ninguna tiene coste cargado
+          - text: ", por lo que tampoco se puede calcular margen. Precio único: 699,95 USD (≈625,60 EUR al tipo BCE del 2026-10-26)."
+        - paragraph:
+          - text: "Hay un matiz importante: el conector de Shopify está en"
+          - strong: estado de error
+          - text: ", con última sincronización el"
+          - strong: 2026-09-22
+          - text: (más de un mes sin refrescar), así que antes de dar por buena la cifra de "0 ventas" hay que confirmar que no es un problema de sincronización.
+        - paragraph:
+          - strong: "Qué haría primero, por impacto:"
+        - list:
+          - listitem: Revisar/reconectar la sincronización de Shopify (módulo Configuración → Integraciones) — sin esto no se puede confiar en ningún dato de este producto.
+          - listitem: Reponer stock en las 5 variantes (módulo Shopify → Inventario) — aunque hubiera demanda, hoy no se puede comprar.
+          - listitem: Cargar el coste unitario de las variantes (módulo Shopify → Productos) para poder ver margen.
+        - paragraph: "No hay playbook, diagnóstico F3/F4 ni priorización F7 aplicables a este producto: todos los snapshots devuelven estado vacío o ABSTAIN, así que esta recomendación se basa solo en los datos verificados, no en un diagnóstico automatizado."
+        - paragraph: "El conector Shopify está en estado de error con última sincronización el 2026-09-22 (más de un mes); el '0 ventas' podría estar afectado por datos desactualizados, no solo por falta real de demanda. · No hay diagnóstico F3/F4 ni priorización F7 aplicable a este producto (ABSTAIN / catálogos vacíos); la recomendación se basa solo en datos verificados, no en un análisis automatizado validado. · El margen no es calculable: las 5 variantes carecen de coste unitario cargado."
+        - paragraph: Unidades vendidas (90 días)
+        - paragraph: 0 unidades
+        - application
+        - paragraph: Shopify · 2026-07-29 a 2026-10-27
+        - paragraph: Stock disponible
+        - paragraph: 0 unidades (5 de 5 variantes sin stock)
+        - paragraph: Shopify · 2026-10-27
+        - paragraph: Precio
+        - paragraph: 699,95 USD (≈625,60 EUR al tipo BCE 0,893815)
+        - paragraph: Shopify · 2026-10-27
+        - region "Hallazgos":
+          - paragraph: Hallazgos
+          - list:
+            - generic: Alto
+            - paragraph: Cero ventas confirmadas en todo el histórico
+            - paragraph: La consulta SQL sobre shopify_order_items/shopify_order_facts para este producto devuelve 0 líneas de pedido, coincidiendo con la evidencia de catálogo (units_ordered=0, orders_count=0) en los últimos 90 días.
+            - generic: Alto
+            - paragraph: Sin stock disponible en ninguna variante
+            - paragraph: 5 de 5 variantes trackeadas están 'out' (stock_available=0), por lo que no es posible vender el producto aunque hubiera demanda.
+            - generic: Medio
+            - paragraph: Sincronización Shopify en error
+            - paragraph: data_coverage muestra connection_status='error' y última sincronización el 2026-09-22, con freshness de más de 850 horas, lo que limita la fiabilidad del '0 ventas'.
+        - region "Siguiente acción":
+          - paragraph: Siguiente acción
+          - paragraph: Antes de decidir sobre este producto, confirma con el equipo técnico que la sincronización de Shopify está al día; si se confirma el 0 de ventas, el bloqueo real es el stock agotado en las 5 variantes.
+          - paragraph: Revisar el estado del conector Shopify en Configuración → Integraciones y, en paralelo, reponer stock de las 5 variantes en Shopify → Inventario.
+          - 'link "Revisar datos faltantes: Calidad / fiabilidad. El conector Shopify está en error desde el 2026-09-22; hay que confirmar si el 0 de ventas es real o un problema de sincronización."':
+            - /url: /shopify/diagnostico#insight-data-quality-reliability
+            - text: "Revisar datos faltantes: Calidad / fiabilidad"
+          - 'link "Abrir card: Producto / stock. Las 5 variantes del producto están sin stock disponible, lo que impide cualquier venta independientemente de la demanda."':
+            - /url: /shopify/diagnostico#insight-product-inventory
+            - text: "Abrir card: Producto / stock"
+        - button "Me ha servido":
+        - button "No me ha servido":
+        - button "Copiar respuesta":
+        - button "Volver a preguntar":
+        - button "2 fuentes":
+          - text: 2 fuentes
+    - generic "Contexto que viaja con la pregunta":
+      - text: Pantalla
+      - generic: Shopify
+      - text: Foco
+      - generic: Ficha de producto
+    - textbox "Pregunta para el Consultor IA":
+      - /placeholder: Pregunta sobre EcomScaling Prueba 1… escribe / para atajos
+    - button "Atajos": /
+    - 'button "Saldo: quedan 890.403 tokens"':
+      - 'button "Saldo: quedan 890.403 tokens"':
+        - text: 890 mil
+    - button "Enviar" [disabled]:
+    - generic: Enter envía · Shift+Enter, nueva línea
+    - 'generic "Última respuesta: claude-sonnet-5"': "Solo lectura: nada cambia sin tu aprobación"

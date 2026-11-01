@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Button, Card, ErrorBlock, LoadingBlock, Select, toast, type Tone } from "@/components/ui";
+import { EmptyState, Badge, Button, ErrorBlock, LoadingBlock, SearchableSelect, Select, toast, type Tone, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 
 type Effect = {
   store_id: string | null;
@@ -146,11 +146,14 @@ function EffectRow({
         <Select aria-label="Métrica objetivo" placeholder="Métrica objetivo" value={metric} onChange={setMetric} options={METRICS} disabled={saving} />
         <Select aria-label="Dirección esperada" value={direction} onChange={setDirection} options={DIRECTIONS} disabled={saving} />
         {stores.length > 1 ? (
-          <Select
+          <SearchableSelect
             aria-label="Tienda"
+            placeholder="Todas las tiendas"
+            emptyText="No hay ninguna tienda con ese nombre."
+            showClear
             value={storeId}
             onChange={setStoreId}
-            options={[{ value: "", label: "Todas las tiendas" }, ...stores.map((s) => ({ value: s.id, label: s.name }))]}
+            options={stores.map((s) => ({ value: s.id, label: s.name }))}
             disabled={saving}
           />
         ) : (
@@ -188,27 +191,29 @@ export function InterventionEffectsPanel({ organizationId }: { organizationId?: 
   const pending = data.interventions.filter((i) => !i.effect).length;
 
   return (
-    <Card
-      id="insight-intervention-effects"
-      title="¿Movió el negocio?"
-      description="Qué métrica debía mover cada intervención cerrada. Se comparan las 4 semanas anteriores al arranque con las siguientes: sin grupo de control, así que no separa la intervención de la temporada."
-      actions={pending ? <Badge tone="warn">{pending} sin métrica objetivo</Badge> : undefined}
-    >
-      {data.interventions.length ? (
-        <ul>
-          {data.interventions.map((intervention) => (
-            <EffectRow
-              key={intervention.intervention_id}
-              intervention={intervention}
-              stores={data.stores}
-              organizationId={organizationId}
-              onSaved={load}
-            />
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted">Todavía no hay intervenciones cerradas en esta tienda.</p>
-      )}
+    <Card id="insight-intervention-effects">
+      <CardHeader>
+        <CardTitle>¿Movió el negocio?</CardTitle>
+        <CardDescription>Qué métrica debía mover cada intervención cerrada. Se comparan las 4 semanas anteriores al arranque con las siguientes: sin grupo de control, así que no separa la intervención de la temporada.</CardDescription>
+        <CardAction>{pending ? <Badge tone="warn">{pending} sin métrica objetivo</Badge> : undefined}</CardAction>
+      </CardHeader>
+      <CardContent>
+        {data.interventions.length ? (
+          <ul>
+            {data.interventions.map((intervention) => (
+              <EffectRow
+                key={intervention.intervention_id}
+                intervention={intervention}
+                stores={data.stores}
+                organizationId={organizationId}
+                onSaved={load}
+              />
+            ))}
+          </ul>
+        ) : (
+          <EmptyState title="Todavía no hay intervenciones cerradas en esta tienda" />
+        )}
+      </CardContent>
     </Card>
   );
 }

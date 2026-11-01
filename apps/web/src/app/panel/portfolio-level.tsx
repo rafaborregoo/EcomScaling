@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { buttonVariants } from "@/components/ui/button";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
+  CAC_MIN_NEW_CUSTOMERS,
   buildPortfolioHeadline,
   panelMoney,
   panelNumber,
@@ -32,7 +35,10 @@ import {
   cx,
 } from "./panel-parts";
 import { useProfitability, type PanelNav } from "./panel-data";
+import { PortfolioCompare } from "./portfolio-compare";
+import { withPortalRouteContext } from "@/lib/portal-route-context";
 import s from "./panel.module.css";
+import { usePanelSection } from "./panel-navigation";
 
 /**
  * Alcance 1 -- la cartera entera, cliente por cliente o tienda por tienda.
@@ -58,12 +64,23 @@ type MatrixRow = {
   contribution: number | null;
   cac: number | null;
   cacTarget: number | null;
+  /** Por qué no hay CAC: sin publicidad, o con tan pocos clientes nuevos que no dice nada. */
+  cacMissing: string;
   flags: ProfitFlag[];
   lever: number;
   open: () => void;
 };
 
-function fromClient(row: ProfitClientRow, nav: PanelNav): MatrixRow {
+/** Sin CAC hay dos motivos muy distintos, y el consultor tiene que saber cuál. */
+export function cacMissingText(stores: ProfitStoreRow[]): string {
+  const ads = stores.reduce((sum, store) => sum + store.ads_spend, 0);
+  const newCustomers = stores.reduce((sum, store) => sum + store.new_customers, 0);
+  if (ads <= 0) return "Sin publicidad";
+  if (newCustomers < CAC_MIN_NEW_CUSTOMERS) return `${panelNumber(newCustomers)} ${newCustomers === 1 ? "cliente nuevo" : "clientes nuevos"}: muestra corta`;
+  return "Sin CAC calculado";
+}
+
+function fromClient(row: ProfitClientRow, nav: PanelNav, stores: ProfitStoreRow[]): MatrixRow {
   return {
     id: row.organization_id,
     name: row.name,
@@ -78,6 +95,7 @@ function fromClient(row: ProfitClientRow, nav: PanelNav): MatrixRow {
     contribution: row.contribution_per_order,
     cac: row.cac,
     cacTarget: row.cac_target,
+    cacMissing: cacMissingText(stores.filter((store) => store.organization_id === row.organization_id)),
     flags: row.flags,
     lever: row.lever_total,
     open: () => nav.client(row.organization_id),
@@ -99,6 +117,7 @@ function fromStore(row: ProfitStoreRow, nav: PanelNav): MatrixRow {
     contribution: row.tier === "datos" ? null : row.per_order.contribution,
     cac: row.cac,
     cacTarget: row.cac_target,
+    cacMissing: cacMissingText([row]),
     flags: row.flags,
     lever: row.lever_total,
     open: () => nav.store(row.organization_id, row.connection_id),
@@ -167,7 +186,7 @@ function MatrixLine({ row }: { row: MatrixRow }) {
       </td>
       <td>
         {row.cac === null ? (
-          <span className={s.mut}>Sin CAC calculado</span>
+          <span className={s.mut}>{row.cacMissing}</span>
         ) : (
           <GoalBar
             value={row.cac}
@@ -248,29 +267,38 @@ export function PortfolioLevel({
 }) {
   const query = useProfitability(days, null);
   const ask = useCopilotAsk();
-  const [view, setView] = useState<View>("cliente");
-  const [filter, setFilter] = useState<Filter>("todos");
+  const router = useRouter();
+  const params = useSearchParams();
+  const view: View = params.get("view") === "tienda" ? "tienda" : "cliente";
+  const requestedFilter = params.get("filter");
+  const filter: Filter = requestedFilter === "pierde" || requestedFilter === "datos" || requestedFilter === "bajo" ? requestedFilter : "todos";
+  const updateTable = (values: Record<string, string>, hash = "") => {
+    const next = new URLSearchParams(params.toString());
+    for (const [key, value] of Object.entries(values)) next.set(key, value);
+    router.push(`/panel?${next}${hash}`, { scroll: Boolean(hash) });
+  };
 
+  const section = usePanelSection();
   const bar = <ScopeBar days={days} onDays={onDays} />;
 
   if (query.isLoading) {
-    return <div className={s.stage}><div className={s.wrap}>{bar}<AsyncState status="loading" loadingLabel="Calculando la rentabilidad de tu cartera…" /></div></div>;
+    return <>{bar}<AsyncState status="loading" loadingLabel="Calculando la rentabilidad de tu cartera…" /></>;
   }
   if (query.error && !query.data) {
-    return <div className={s.stage}><div className={s.wrap}>{bar}<AsyncState status="error" error={query.error} /></div></div>;
+    return <>{bar}<AsyncState status="error" error={query.error} /></>;
   }
   const data = query.data;
   if (!data || data.stores.length === 0) {
     return (
-      <div className={s.stage}>
-        <div className={s.wrap}>
+      <>
+
           {bar}
           <EmptyState
             title="Todavía no hay tiendas en tu cartera"
             hint="Cuando un cliente conecte Shopify, aparecerá aquí con su rentabilidad."
           />
-        </div>
-      </div>
+
+      </>
     );
   }
 
@@ -282,15 +310,13 @@ export function PortfolioLevel({
 
   const rows: MatrixRow[] =
     view === "cliente"
-      ? data.clients.map((client) => fromClient(client, nav))
+      ? data.clients.map((client) => fromClient(client, nav, stores))
       : stores.map((store) => fromStore(store, nav));
   const shown = rows.filter((row) => filter === "todos" || row.tier === filter);
   const count = (tier: Filter) => (tier === "todos" ? rows.length : rows.filter((row) => row.tier === tier).length);
 
   function jump(next: Filter) {
-    setView("tienda");
-    setFilter(next);
-    document.getElementById("matriz")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    updateTable({ section: "costes", view: "tienda", filter: next }, "#matriz");
   }
 
   // Datos por completar: cada aviso con las tiendas a las que afecta.
@@ -327,15 +353,15 @@ export function PortfolioLevel({
   const costs = totals.costs;
 
   return (
-    <div className={s.stage}>
-      <div className={s.wrap}>
+    <>
+
         {bar}
 
-        <Hero
+        {section === "resumen" ? (<>
+<Hero
           id="h-cartera"
           meta={
             <>
-              <span>Rentabilidad</span>
               <span>
                 Tu cartera · {totals.counts.clients} {totals.counts.clients === 1 ? "cliente" : "clientes"} · {totals.counts.stores} {totals.counts.stores === 1 ? "tienda" : "tiendas"}
               </span>
@@ -348,7 +374,7 @@ export function PortfolioLevel({
             <>
               <button
                 type="button"
-                className={cx(s.btn, s.acc)}
+                className={buttonVariants()}
                 onClick={() =>
                   ask({
                     question:
@@ -361,7 +387,7 @@ export function PortfolioLevel({
                 ¿Dónde se me escapa el dinero?
               </button>
               {totals.counts.pierde > 0 ? (
-                <button type="button" className={cx(s.btn, s.ghost)} onClick={() => jump("pierde")}>
+                <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={() => jump("pierde")}>
                   Ver las tiendas que pierden
                 </button>
               ) : null}
@@ -369,22 +395,22 @@ export function PortfolioLevel({
           }
           side={
             <div className={s.counters}>
-              <button type="button" className={cx(s.counter, totals.counts.pierde > 0 && s.hot)} onClick={() => jump("pierde")}>
+              <button type="button" className={cx(s.counter, totals.counts.pierde > 0 && s.hot)} disabled={totals.counts.pierde === 0} onClick={() => jump("pierde")}>
                 <b>{totals.counts.pierde}</b>
-                <span>Tiendas que pierden dinero</span>
+                <span>{totals.counts.pierde === 1 ? "Tienda que pierde dinero" : "Tiendas que pierden dinero"}</span>
               </button>
-              <button type="button" className={cx(s.counter, totals.counts.datos > 0 && s.hot)} onClick={() => jump("datos")}>
+              <button type="button" className={cx(s.counter, totals.counts.datos > 0 && s.hot)} disabled={totals.counts.datos === 0} onClick={() => jump("datos")}>
                 <b>{totals.counts.datos}</b>
                 <span>Con beneficio no fiable</span>
               </button>
-              <button type="button" className={s.counter} onClick={() => jump("bajo")}>
+              <button type="button" className={s.counter} disabled={totals.counts.bajo === 0} onClick={() => jump("bajo")}>
                 <b>{totals.counts.bajo}</b>
                 <span>Por debajo del objetivo de margen</span>
               </button>
-              <div className={s.counter}>
+              <button type="button" className={s.counter} disabled={totals.counts.over_cac === 0} onClick={() => jump("todos")}>
                 <b>{totals.counts.over_cac}</b>
                 <span>Pagan más por cliente que su objetivo</span>
-              </div>
+              </button>
               <div className={cx(s.counter, s.wide)}>
                 <b>+{money(totals.lever_total)}/mes</b>
                 <span>Dinero sobre la mesa si todo llegara a su objetivo</span>
@@ -418,7 +444,7 @@ export function PortfolioLevel({
               value: panelPct(totals.margin_pct),
               foot: (
                 <span>
-                  {totals.counts.ok} de {totals.counts.reliable} tiendas fiables cumplen su objetivo
+                  {totals.counts.ok} de {totals.counts.reliable} {totals.counts.reliable === 1 ? "tienda fiable cumple" : "tiendas fiables cumplen"} su objetivo
                 </span>
               ),
             },
@@ -430,7 +456,7 @@ export function PortfolioLevel({
             {
               label: "Ticket medio",
               value: money(totals.aov, 1),
-              foot: <Delta value={totals.aov_change_pct} suffix="media de la cartera" />,
+              foot: <Delta value={totals.aov_change_pct} suffix="vs periodo anterior" />,
             },
             {
               label: "Inversión publicitaria",
@@ -444,8 +470,12 @@ export function PortfolioLevel({
             },
           ]}
         />
+</>) : null}
 
-        <Section
+        {section === "costes" || section === "captacion" ? <PortfolioCompare data={data} days={days} nav={nav} mode={section} /> : null}
+
+        {section === "costes" ? (
+<Section
           id="matriz"
           title="Quién gana y quién pierde"
           lead="Lo peor primero. Cada fila lleva al nivel de abajo. Por tienda no se esconde ninguna: una tienda que pierde no se diluye en el total de su cliente."
@@ -458,14 +488,13 @@ export function PortfolioLevel({
                 { key: "tienda", label: "Por tienda" },
               ]}
               onChange={(next) => {
-                setView(next);
-                setFilter("todos");
+                updateTable({ view: next, filter: "todos" });
               }}
             />
           }
         >
           <Panel
-            title={view === "cliente" ? `${data.clients.length} clientes` : `${stores.length} tiendas`}
+            title={view === "cliente" ? `${data.clients.length} ${data.clients.length === 1 ? "cliente" : "clientes"}` : `${stores.length} ${stores.length === 1 ? "tienda" : "tiendas"}`}
             sub={`${days === 365 ? "Último año" : `Últimos ${days} días`} · sin IVA · la marca negra es el objetivo que tú fijaste`}
             aside={
               <Seg
@@ -477,7 +506,7 @@ export function PortfolioLevel({
                   { key: "datos", label: "Datos no fiables", count: count("datos") },
                   { key: "bajo", label: "Bajo objetivo", count: count("bajo") },
                 ]}
-                onChange={setFilter}
+                onChange={(filter) => updateTable({ filter })}
               />
             }
           >
@@ -516,8 +545,10 @@ export function PortfolioLevel({
             </p>
           </Panel>
         </Section>
+) : null}
 
-        <Section
+        {section === "acciones" ? (
+<Section
           id="dinero"
           title="Qué hacer primero"
           lead="Arriba, dónde está el dinero. Abajo, lo que hay que arreglar antes de poder fiarse de las cifras."
@@ -529,7 +560,13 @@ export function PortfolioLevel({
             >
               {leverRows.length === 0 ? (
                 <p className={s.empty}>
-                  Nada que calcular todavía. Fija objetivos en Configuración: sin objetivo no hay escenario, y no nos inventamos medias del sector.
+                  Nada que calcular todavía.{" "}
+                  {data.clients.length === 1 ? (
+                    <Link href={withPortalRouteContext("/camino?vista=objetivos", data.clients[0]!.organization_id)}>Fija objetivos en su Camino</Link>
+                  ) : (
+                    "Fija objetivos en el Camino de cada cliente"
+                  )}
+                  : sin objetivo no hay escenario, y no nos inventamos medias del sector.
                 </p>
               ) : (
                 <>
@@ -573,7 +610,7 @@ export function PortfolioLevel({
                       <li key={entry.key} className={s.qi}>
                         <span className={cx(s.qn, blocking && s.w)}>{entry.affected.length}</span>
                         <b>{entry.label}</b>
-                        <button type="button" className={cx(s.btn, s.ghost, s.sm)} onClick={() => nav.store(first.organization_id, first.connection_id)}>
+                        <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={() => nav.store(first.organization_id, first.connection_id)}>
                           Abrir
                         </button>
                         <p>
@@ -589,10 +626,12 @@ export function PortfolioLevel({
             </Panel>
           </div>
         </Section>
+) : null}
 
-        <Section id="evolucion" title="Cómo evoluciona" lead={evolutionLead(totals)}>
+        {section === "resumen" ? (
+<Section id="evolucion" title="Cómo evoluciona" lead={evolutionLead(totals)}>
           <div className={s.two}>
-            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · la parte verde de cada barra es el beneficio">
+            <Panel title="Ingresos y beneficio por mes" sub="Doce meses · ingresos y beneficio neto en barras separadas">
               {data.monthly.length === 0 ? (
                 <p className={s.empty}>Sin serie mensual.</p>
               ) : (
@@ -604,7 +643,8 @@ export function PortfolioLevel({
             </Panel>
           </div>
         </Section>
-      </div>
-    </div>
+) : null}
+
+    </>
   );
 }

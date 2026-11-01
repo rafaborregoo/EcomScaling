@@ -689,7 +689,7 @@ function requirePlatformAdmin(context: AuthContext) {
       statusCode: 403,
       error: "platform_admin_required",
       message:
-        "Solo un platform admin puede consultar la salud de la plataforma.",
+        "Solo un administrador de la plataforma puede consultar la salud de la plataforma.",
     };
   }
   return { ok: true as const };

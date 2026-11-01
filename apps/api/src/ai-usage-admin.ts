@@ -47,7 +47,7 @@ export function sumUsage(rows: AiUsageRow[]) {
 
 export async function getAdminAiUsage(env: LoadedApiEnv, context: AuthContext, rangeInput: unknown) {
   if (context.profile.platform_role !== "platform_admin") {
-    return { ok: false as const, statusCode: 403, error: "platform_admin_required", message: "Solo un platform admin puede ver el consumo de IA." };
+    return { ok: false as const, statusCode: 403, error: "platform_admin_required", message: "Solo un administrador de la plataforma puede ver el consumo de IA." };
   }
   const range: AiUsageRange = typeof rangeInput === "string" && rangeInput in RANGE_DAYS ? (rangeInput as AiUsageRange) : "all";
   const days = RANGE_DAYS[range];

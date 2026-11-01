@@ -5,11 +5,26 @@ import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import {
+  ScrollArea,
   Badge,
   Button,
-  Card,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  EYEBROW,
   EmptyState,
   ErrorBlock,
   Field,
@@ -17,9 +32,14 @@ import {
   List,
   LoadingBlock,
   Markdown,
-  Sheet,
   Textarea,
   toast,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 /**
@@ -47,6 +67,7 @@ type GlobalDocument = {
 
 function PlatformKnowledgePanel() {
   const [documents, setDocuments] = useState<GlobalDocument[] | null>(null);
+  const isDesktop = useIsDesktop();
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
@@ -175,23 +196,19 @@ function PlatformKnowledgePanel() {
     <div className="portal-page space-y-5 sm:space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <Sheet
-        isOpen={adding}
+      <Dialog
+        open={adding}
         onOpenChange={setAdding}
-        size="sm"
-        title="Añadir a la metodología"
-        isBusy={isSaving}
-        isDirty={Boolean(title.trim() || content.trim())}
-        formId="methodology-form"
-        primary={{
-          label: "Guardar texto",
-          busyLabel: "Indexando…",
-          disabled: !title.trim() || !content.trim(),
-        }}
+        busy={isSaving}
+        dirty={Boolean(title.trim() || content.trim())}
       >
-        <p className="text-muted">
-          Lo que subas aquí lo usa el copiloto de todos los clientes. Ni los consultores ni los clientes lo ven listado: para ellos, Conocimiento es solo el contexto de su tienda.
-        </p>
+        <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Añadir a la metodología</DialogTitle>
+          <DialogDescription>
+            Lo que subas aquí lo usa el copiloto de todos los clientes. Ni los consultores ni los clientes lo ven listado: para ellos, Conocimiento es solo el contexto de su tienda.
+          </DialogDescription>
+        </DialogHeader>
         <div>
           <Button
             type="button"
@@ -232,61 +249,69 @@ function PlatformKnowledgePanel() {
             />
           </Field>
         </form>
-      </Sheet>
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button type="submit" form="methodology-form" disabled={isSaving || !title.trim() || !content.trim()}>
+            {isSaving ? "Indexando…" : "Guardar texto"}
+          </Button>
+        </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Card
-        title={`Metodología (${documents?.length ?? 0})`}
-        description="Lo que el copiloto puede citar en cualquier cliente."
-        actions={
-          <Button onClick={() => setAdding(true)}>Añadir material</Button>
-        }
-      >
-        {documents === null ? (
-          <LoadingBlock label="Cargando metodología…" />
-        ) : documents.length === 0 ? (
-          <EmptyState
-            title="Todavía no hay metodología"
-            hint="Sube el primer playbook: es la base que comparten los copilotos de todos los clientes."
-          />
-        ) : (
-          <List>
-            {documents.map((document) => (
-              <List.Item
-                key={document.id}
-                className="grid items-center gap-2 px-4 py-3 md:grid-cols-[1fr_140px_120px_80px]"
-              >
-                <div>
-                  <p className="font-medium">{document.title}</p>
-                  {document.description ? (
-                    <p className="text-sm text-muted">{document.description}</p>
-                  ) : null}
-                </div>
-                <span>
-                  <Badge
-                    tone={document.authority === "canonical" ? "brand" : "neutral"}
-                  >
-                    {displayValue(document.authority)}
-                  </Badge>
-                </span>
-                <span className="text-xs text-muted">
-                  {displayValue(document.status)} ·{" "}
-                  {new Date(document.created_at).toLocaleDateString("es-ES")}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void openDocument(document)}
+      <Card>
+        <CardHeader>
+          <CardTitle>{`Metodología (${documents?.length ?? 0})`}</CardTitle>
+          <CardDescription>Lo que el copiloto puede citar en cualquier cliente.</CardDescription>
+          <CardAction><Button onClick={() => setAdding(true)}>Añadir material</Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          {documents === null ? (
+            <LoadingBlock label="Cargando metodología…" />
+          ) : documents.length === 0 ? (
+            <EmptyState
+              title="Todavía no hay metodología"
+              hint="Sube el primer playbook: es la base que comparten los copilotos de todos los clientes."
+            />
+          ) : (
+            <List>
+              {documents.map((document) => (
+                <List.Item
+                  key={document.id}
+                  className="grid items-center gap-2 px-4 py-3 md:grid-cols-[1fr_140px_120px_80px]"
                 >
-                  Ver
-                </Button>
-              </List.Item>
-            ))}
-          </List>
-        )}
+                  <div>
+                    <p className="font-medium">{document.title}</p>
+                    {document.description ? (
+                      <p className="text-sm text-muted">{document.description}</p>
+                    ) : null}
+                  </div>
+                  <span>
+                    <Badge
+                      tone={document.authority === "canonical" ? "brand" : "neutral"}
+                    >
+                      {displayValue(document.authority)}
+                    </Badge>
+                  </span>
+                  <span className="text-xs text-muted">
+                    {displayValue(document.status)} ·{" "}
+                    {new Date(document.created_at).toLocaleDateString("es-ES")}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void openDocument(document)}
+                  >
+                    Ver
+                  </Button>
+                </List.Item>
+              ))}
+            </List>
+          )}
+        </CardContent>
       </Card>
 
-      <Dialog
-        isOpen={viewing !== null}
+      <Drawer
+        open={viewing !== null}
         onOpenChange={(open) => {
           if (!open) {
             setViewing(null);
@@ -294,34 +319,43 @@ function PlatformKnowledgePanel() {
             setViewError(null);
           }
         }}
-        size="lg"
-        eyebrow={viewing ? `${displayValue(viewing.authority)} · ${displayValue(viewing.status)}` : undefined}
-        title={viewing?.title ?? "Documento"}
-        cancelLabel="Cerrar"
-        start={
-          viewedContent ? (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(viewedContent)
-                  .then(() => toast.success("Texto copiado"))
-                  .catch(() => toast.danger("No se pudo copiar el texto"));
-              }}
-            >
-              Copiar texto
-            </Button>
-          ) : undefined
-        }
+        swipeDirection={isDesktop ? "right" : "down"}
+        showSwipeHandle={!isDesktop}
       >
-        {viewError ? (
-          <ErrorBlock>{viewError}</ErrorBlock>
-        ) : viewedContent === null ? (
-          <LoadingBlock label="Cargando documento…" />
-        ) : (
-          <Markdown>{viewedContent}</Markdown>
-        )}
-      </Dialog>
+        <DrawerContent className="sm:max-w-[44rem]">
+          <DrawerHeader>
+            <DrawerTitle>{viewing?.title ?? "Documento"}</DrawerTitle>
+            {viewing ? (
+              <DrawerDescription>{`${displayValue(viewing.authority)} · ${displayValue(viewing.status)}`}</DrawerDescription>
+            ) : null}
+          </DrawerHeader>
+          <ScrollArea className="flex-1 p-4 sm:px-6">
+          {viewError ? (
+            <ErrorBlock>{viewError}</ErrorBlock>
+          ) : viewedContent === null ? (
+            <LoadingBlock label="Cargando documento…" />
+          ) : (
+            <Markdown>{viewedContent}</Markdown>
+          )}
+          </ScrollArea>
+          <DrawerFooter>
+            {viewedContent ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(viewedContent)
+                    .then(() => toast.success("Texto copiado"))
+                    .catch(() => toast.danger("No se pudo copiar el texto"));
+                }}
+              >
+                Copiar texto
+              </Button>
+            ) : null}
+            <DrawerClose render={<Button variant="outline" />}>Cerrar</DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

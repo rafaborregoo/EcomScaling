@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { invalidateCachedQueries, useCachedQuery } from "@/lib/use-cached-query";
-import { Button, Card, ErrorBlock, LoadingBlock, SettingRow, Switch, Tabs, toast } from "@/components/ui";
+import { EmptyState, Button, ErrorBlock, LoadingBlock, SettingRow, Switch, Tabs, toast, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
 import { ACTIVITY_FILTERS, activityLabel, type ActivityItem } from "./activity-labels";
 
 /**
@@ -51,22 +51,28 @@ export function TeamSecurityCard({ organizationId }: { organizationId: string })
 
   const withMfa = query.data.members.filter((member) => member.has_mfa).length;
   return (
-    <Card title="Seguridad del equipo" description={query.data.can_edit ? undefined : "La cambia el propietario de la cuenta."}>
-      <SettingRow
-        label="Exigir verificación en dos pasos a todo el equipo"
-        hint={`Quien no la tenga no podrá operar en la cuenta hasta activarla. Hoy: ${withMfa} de ${query.data.members.length} personas. No afecta a tu consultor.`}
-      >
-        <Switch
-          aria-label="Exigir verificación en dos pasos"
-          isSelected={query.data.require_mfa}
-          isDisabled={!query.data.can_edit || busy}
-          onChange={(value: boolean) => void toggle(value)}
+    <Card>
+      <CardHeader>
+        <CardTitle>Seguridad del equipo</CardTitle>
+        <CardDescription>{query.data.can_edit ? undefined : "La cambia el propietario de la cuenta."}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <SettingRow
+          label="Exigir verificación en dos pasos a todo el equipo"
+          hint={`Quien no la tenga no podrá operar en la cuenta hasta activarla. Hoy: ${withMfa} de ${query.data.members.length} personas. No afecta a tu consultor.`}
         >
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
-        </Switch>
-      </SettingRow>
+          <Switch
+            aria-label="Exigir verificación en dos pasos"
+            isSelected={query.data.require_mfa}
+            isDisabled={!query.data.can_edit || busy}
+            onChange={(value: boolean) => void toggle(value)}
+          >
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch>
+        </SettingRow>
+      </CardContent>
     </Card>
   );
 }
@@ -122,39 +128,45 @@ export function ActivityCard({ organizationId }: { organizationId: string }) {
   }
 
   return (
-    <Card id="actividad" title="Actividad de la cuenta" description="Quién cambió qué, empezando por lo último.">
-      <Tabs value={category} onChange={setCategory} items={ACTIVITY_FILTERS.map((filter) => ({ ...filter }))} />
-      <div className="mt-4">
-        {error ? (
-          <ErrorBlock>{error}</ErrorBlock>
-        ) : !items ? (
-          <LoadingBlock label="Leyendo la actividad…" />
-        ) : items.length === 0 ? (
-          <p className="text-sm text-muted">Sin actividad en este filtro.</p>
-        ) : (
-          <ul className="divide-y divide-separator">
-            {items.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm">{activityLabel(item.action)}</p>
-                  <p className="text-xs text-muted">
-                    {item.actor ? (item.actor.name ?? "Sin nombre") : "Sistema"}
-                    {item.actor?.kind === "consultant" ? " · consultor" : ""}
-                  </p>
-                </div>
-                <span className="text-xs text-muted">
-                  {new Date(item.created_at).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {next ? (
-          <Button className="mt-4" size="sm" variant="ghost" disabled={loadingMore} onClick={() => void more()}>
-            {loadingMore ? "Cargando…" : "Ver más"}
-          </Button>
-        ) : null}
-      </div>
+    <Card id="actividad">
+      <CardHeader>
+        <CardTitle>Actividad de la cuenta</CardTitle>
+        <CardDescription>Quién cambió qué, empezando por lo último.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs value={category} onChange={setCategory} items={ACTIVITY_FILTERS.map((filter) => ({ ...filter }))} />
+        <div className="mt-4">
+          {error ? (
+            <ErrorBlock>{error}</ErrorBlock>
+          ) : !items ? (
+            <LoadingBlock label="Leyendo la actividad…" />
+          ) : items.length === 0 ? (
+            <EmptyState size="sm" title="Sin actividad en este filtro" />
+          ) : (
+            <ul className="divide-y divide-separator">
+              {items.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm">{activityLabel(item.action)}</p>
+                    <p className="text-xs text-muted">
+                      {item.actor ? (item.actor.name ?? "Sin nombre") : "Sistema"}
+                      {item.actor?.kind === "consultant" ? " · consultor" : ""}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted">
+                    {new Date(item.created_at).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {next ? (
+            <Button className="mt-4" size="sm" variant="ghost" disabled={loadingMore} onClick={() => void more()}>
+              {loadingMore ? "Cargando…" : "Ver más"}
+            </Button>
+          ) : null}
+        </div>
+      </CardContent>
     </Card>
   );
 }

@@ -25,10 +25,14 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
-  Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui";
 
 import {
@@ -51,7 +55,7 @@ function Test({ hypothesis }: { hypothesis: HypothesisView }) {
   const origen = availabilityLabel(test.availability);
 
   return (
-    <div className="mt-3 rounded-md border border-default-200 p-3">
+    <Card size="sm" className="mt-3"><CardContent>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="text-xs uppercase tracking-wide">
           Lo que despejaría esto
@@ -73,7 +77,7 @@ function Test({ hypothesis }: { hypothesis: HypothesisView }) {
         <li>Si es cierta: {test.expected_if_true}</li>
         <li>Si no lo es: {test.expected_if_false}</li>
       </ul>
-    </div>
+    </CardContent></Card>
   );
 }
 
@@ -192,68 +196,71 @@ export function HypothesesPanel() {
   const casos = groupByCase(hypotheses);
 
   return (
-    <Card
-      title="Qué puede estar pasando"
-      description="Las explicaciones que se han barajado para cada caso, ninguna elegida. Las descartadas siguen abajo con el motivo: sin eso, dentro de un mes alguien repite la misma búsqueda."
-    >
-      {casos.length === 0 ? (
-        <EmptyState
-          title="Sin hipótesis"
-          hint="Aparecen cuando el motor causal ha dejado rutas candidatas sobre las que trabajar."
-        />
-      ) : (
-        <div className="space-y-8">
-          {casos.map(({ caseId, hypotheses: lista }) => {
-            const { challenger, vivas, descartadas } = splitHypotheses(lista);
-            const aviso = separationWarning(lista);
+    <Card>
+      <CardHeader>
+        <CardTitle>Qué puede estar pasando</CardTitle>
+        <CardDescription>Las explicaciones que se han barajado para cada caso, ninguna elegida. Las descartadas siguen abajo con el motivo: sin eso, dentro de un mes alguien repite la misma búsqueda.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {casos.length === 0 ? (
+          <EmptyState
+            title="Sin hipótesis"
+            hint="Aparecen cuando el motor causal ha dejado rutas candidatas sobre las que trabajar."
+          />
+        ) : (
+          <div className="space-y-8">
+            {casos.map(({ caseId, hypotheses: lista }) => {
+              const { challenger, vivas, descartadas } = splitHypotheses(lista);
+              const aviso = separationWarning(lista);
 
-            return (
-              <div key={caseId}>
-                {challenger.length > 0 ? (
-                  // Arriba a propósito: si esto es cierto, lo de abajo sobra.
-                  <div className="mb-4 rounded-md border border-warning/40 bg-warning-soft/20 p-3">
-                    <p className="text-xs uppercase tracking-wide">
-                      Lo que tumbaría todo lo demás
+              return (
+                <div key={caseId}>
+                  {challenger.length > 0 ? (
+                    // Arriba a propósito: si esto es cierto, lo de abajo sobra.
+                    <div className="mb-4 rounded-md border border-warning/40 bg-warning-soft/20 p-3">
+                      <p className="text-xs uppercase tracking-wide">
+                        Lo que tumbaría todo lo demás
+                      </p>
+                      <ul>
+                        {challenger.map((h) => (
+                          <Hipotesis key={h.id} hypothesis={h} />
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {aviso ? (
+                    <p className="text-muted mb-2 max-w-prose text-sm leading-6">
+                      {aviso}
                     </p>
+                  ) : null}
+
+                  {vivas.length > 0 ? (
                     <ul>
-                      {challenger.map((h) => (
+                      {vivas.map((h) => (
                         <Hipotesis key={h.id} hypothesis={h} />
                       ))}
                     </ul>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {aviso ? (
-                  <p className="text-muted mb-2 max-w-prose text-sm leading-6">
-                    {aviso}
-                  </p>
-                ) : null}
-
-                {vivas.length > 0 ? (
-                  <ul>
-                    {vivas.map((h) => (
-                      <Hipotesis key={h.id} hypothesis={h} />
-                    ))}
-                  </ul>
-                ) : null}
-
-                {descartadas.length > 0 ? (
-                  <div className="border-default-200 mt-4 border-t pt-3">
-                    <p className="text-muted text-xs uppercase tracking-wide">
-                      Ya descartadas, y por qué
-                    </p>
-                    <ul>
-                      {descartadas.map((h) => (
-                        <Hipotesis key={h.id} hypothesis={h} />
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  {descartadas.length > 0 ? (
+                    <div className="border-default-200 mt-4 border-t pt-3">
+                      <p className="text-muted text-xs uppercase tracking-wide">
+                        Ya descartadas, y por qué
+                      </p>
+                      <ul>
+                        {descartadas.map((h) => (
+                          <Hipotesis key={h.id} hypothesis={h} />
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

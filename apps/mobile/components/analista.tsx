@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronRight, CircleAlert, MessageCircle, MessageSquare, Plus, Sparkles, Target } from "lucide-react-native";
 import { METRIC_SPECS, type MetricAnalysis, type MetricId, type MetricVerdict } from "@e-nora/contracts";
 import { apiSend } from "../lib/api";
@@ -167,7 +167,7 @@ function AnalysisSheet({ analysis: a, org, days, onClose }: { analysis: MetricAn
   );
 }
 
-type Explained = { output: { answer: string; recommendations: Array<{ action: string; owner: string }>; warnings: string[] }; generated_at: string; renews_at: string };
+type Explained = { output_id: string; output: { answer: string; findings?: Array<{ title: string; evidence?: string; figures?: Array<{ label: string; value: string; previous: string | null; change_pct: number | null }> }>; recommendations: Array<{ action: string; owner: string }>; warnings: string[] }; generated_at: string; renews_at: string };
 
 /**
  * Lo que explica A29 al abrir la hoja. El POST devuelve la explicación guardada si tiene
@@ -212,9 +212,17 @@ function Explanation({ org, days, metric, label }: { org: Scope; days: number; m
         <Sparkles size={16} color={c.accent} style={{ marginTop: 3 }} />
         <Text style={{ flex: 1, fontSize: 15, lineHeight: 22, fontFamily: font.regular, color: c.ink }}>{o.answer}</Text>
       </View>
+      {(o.findings ?? []).flatMap((finding, findingIndex) => (finding.figures ?? []).map((figure, figureIndex) => (
+        <View key={`${findingIndex}-${figureIndex}`} style={{ paddingLeft: 24, gap: 2 }}>
+          <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>{finding.title} · {figure.label}</Text>
+          <Text style={{ fontSize: 14, fontFamily: font.semibold, color: c.ink }}>{figure.value}{figure.previous ? ` · antes ${figure.previous}` : ""}</Text>
+        </View>
+      )))}
       {o.recommendations.map((r, i) => (
-        <ActionRow key={i} org={org} days={days} metric={metric} index={i} rec={r} />
+        <ActionRow key={i} org={org} days={days} metric={metric} index={i} outputId={state.data!.output_id} rec={r} />
       ))}
+      {(o.warnings ?? []).length > 0 && <Text style={{ fontSize: 12, lineHeight: 18, fontFamily: font.regular, color: c.muted }}>{o.warnings.join(" · ")}</Text>}
+      <MetricFeedback org={org} metric={metric} outputId={state.data.output_id} />
       <View style={{ flexDirection: "row", gap: 10 }}>
         <Pressable
           onPress={() => askCopilot(`Sobre ${label}: ${o.answer}\n\n¿Qué más debería mirar?`)}
@@ -240,13 +248,42 @@ function Explanation({ org, days, metric, label }: { org: Scope; days: number; m
   );
 }
 
+function MetricFeedback({ org, metric, outputId }: { org: Scope; metric: MetricId; outputId: string }) {
+  const [sent, setSent] = useState(false);
+  const [correction, setCorrection] = useState("");
+  const [rating, setRating] = useState<"helpful" | "incorrect" | null>(null);
+  async function vote(rating: "helpful" | "incorrect") {
+    try {
+      await apiSend("POST", `/v1/organizations/${org.id}/metric-analysis/${metric}/feedback`, { outputId, rating, correction });
+      setSent(true);
+    } catch {
+      // El feedback es opcional; no interrumpe la lectura de la métrica.
+    }
+  }
+  if (sent) return <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>Gracias por valorar esta explicación.</Text>;
+  if (rating === "incorrect") return (
+    <View style={{ gap: 8 }}>
+      <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>¿Qué deberíamos corregir? (opcional)</Text>
+      <TextInput value={correction} onChangeText={setCorrection} maxLength={1200} multiline placeholder="Añade una aclaración" placeholderTextColor={c.muted} style={{ minHeight: 48, borderWidth: 1, borderColor: c.edge, borderRadius: 10, padding: 10, color: c.ink, fontFamily: font.regular, fontSize: 13 }} />
+      <Pressable onPress={() => void vote("incorrect")} accessibilityRole="button"><Text style={{ fontSize: 12, fontFamily: font.semibold, color: c.ink }}>Enviar valoración</Text></Pressable>
+    </View>
+  );
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <Text style={{ fontSize: 12, fontFamily: font.regular, color: c.muted }}>¿Te ha servido?</Text>
+      <Pressable onPress={() => void vote("helpful")} accessibilityRole="button"><Text style={{ fontSize: 12, fontFamily: font.semibold, color: c.ink }}>Sí</Text></Pressable>
+      <Pressable onPress={() => setRating("incorrect")} accessibilityRole="button"><Text style={{ fontSize: 12, fontFamily: font.semibold, color: c.ink }}>No del todo</Text></Pressable>
+    </View>
+  );
+}
+
 /** Una recomendación de A29 y su botón: crea la tarea (el toque es la aprobación) y queda marcada como hecha. */
-function ActionRow({ org, days, metric, index, rec }: { org: Scope; days: number; metric: MetricId; index: number; rec: { action: string; owner: string } }) {
+function ActionRow({ org, days, metric, index, outputId, rec }: { org: Scope; days: number; metric: MetricId; index: number; outputId: string; rec: { action: string; owner: string } }) {
   const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
   async function create() {
     setState("busy");
     try {
-      await apiSend("POST", `/v1/organizations/${org.id}/metric-analysis/${metric}/actions?${query(org, days)}`, { index });
+      await apiSend("POST", `/v1/organizations/${org.id}/metric-analysis/${metric}/actions?${query(org, days)}`, { index, outputId, action: rec.action });
       setState("done");
     } catch {
       setState("error");

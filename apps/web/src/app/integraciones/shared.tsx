@@ -6,6 +6,8 @@
 // mezclados; aqui se centraliza la carga, las acciones OAuth/retry y los
 // bloques visuales reutilizables.
 
+import { readApiError } from "@/lib/api-error";
+import { buttonVariants } from "@/components/ui/button";
 import { useState, type ReactNode } from "react";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -15,13 +17,25 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   IconChevronLeft,
   IntegrationActivationChecklist,
   InfoIcon,
   Link,
   ProviderIcon,
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardKicker,
+  CardTitle,
 } from "@/components/ui";
 import { CONNECTION_STATES, connectionState, explainHealth } from "./store-view-model";
 
@@ -193,18 +207,7 @@ export const PROVIDER_SLUG: Record<string, string> = {
   instagram: "instagram",
 };
 
-export async function readErr(response: Response): Promise<string> {
-  const body = (await response.json().catch(() => null)) as {
-    error?: string;
-    message?: string;
-    detail?: string;
-  } | null;
-  return (
-    [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-      .filter(Boolean)
-      .join(" · ") || `HTTP ${response.status}`
-  );
-}
+export const readErr = readApiError;
 
 function notifyIntegrationStatusChanged() {
   if (typeof window !== "undefined") {
@@ -222,20 +225,21 @@ export function integrationErrorMessage(
   );
 }
 
-function integrationErrorSummary(message: string): string {
+/** El último error de sincronización en una frase; el texto técnico va aparte, plegado. */
+export function integrationErrorSummary(message: string): string {
   if (
     /klaviyo_api_error:PERMISSION_MISSING:403/i.test(message) &&
     /events:read/i.test(message)
   ) {
-    return "Falta events:read. Reautoriza Klaviyo y acepta el permiso para que la sincronización pueda continuar.";
+    return "Falta el permiso de eventos de Klaviyo. Vuelve a conectarla aceptándolo para que la sincronización siga.";
   }
   if (message.includes("token_refresh")) {
-    return "No hemos podido renovar el acceso a la cuenta. Vuelve a autorizarla o reintenta la sincronización.";
+    return "No hemos podido renovar el acceso a la cuenta. Vuelve a conectarla o reintenta la sincronización.";
   }
   if (message.includes("reauthor")) {
-    return "El proveedor pide que renueves la autorización antes de traer datos nuevos.";
+    return "La cuenta pide que la vuelvas a conectar antes de traer datos nuevos.";
   }
-  return "La última sincronización no se pudo completar. Puedes reintentarlo o revisar el detalle técnico.";
+  return "La última sincronización no se pudo completar. Puedes reintentarla.";
 }
 
 /** El estado de una conexión con las seis palabras de CONNECTION_STATES. */
@@ -601,14 +605,16 @@ export function InfoModalButton({
         <InfoIcon aria-hidden className="size-4" />
         {label}
       </Button>
-      <Dialog
-        isOpen={isOpen}
-        onOpenChange={setIsOpen}
-        size="md"
-        title={title}
-        cancelLabel="Cerrar"
-      >
-        <div className="space-y-3 leading-relaxed">{children}</div>
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 leading-relaxed">{children}</div>
+          <DialogFooter>
+            <DialogClose>Cerrar</DialogClose>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </>
   );
@@ -635,44 +641,42 @@ export function ProviderStatusCard({
     }[provider.id] ?? "Fuente de datos";
   const account = connection?.provider_account_name ?? connection?.provider_account_id;
   return (
-    <Card
-      kicker={label}
-      title={
-        <span className="flex items-center gap-3">
+    <Card>
+      <CardHeader>
+        <CardKicker>{label}</CardKicker>
+        <CardTitle><span className="flex items-center gap-3">
           <ProviderIcon provider={provider.id} size={24} />
           {provider.name}
-        </span>
-      }
-      description={account ?? provider.description}
-      actions={<StateBadge connection={connection} providerId={provider.id} available={provider.available} />}
-    >
-      <div className="space-y-3">
-        {account ? <p className="text-sm text-muted">{provider.description}</p> : null}
-        <IntegrationActivationChecklist
-          ready={provider.activation.ready}
-          missing={provider.activation.missing}
-        />
-        {!provider.available ? (
-          <Banner tone="warn">
-            <span className="font-medium">Disponible más adelante.</span> El
-            conector no se activa hasta que haya credenciales y sincronización
-            real. No se muestran datos simulados.
-          </Banner>
-        ) : cfg === "credentials_missing" ? (
-          <Banner tone="warn">
-            Faltan las credenciales de la app del proveedor en el servidor.
-            Cuando se configuren, esta página habilitará OAuth y sincronización
-            real.
-          </Banner>
-        ) : cfg === "feature_disabled" ? (
-          <Banner tone="warn">
-            El conector está configurado pero su feature flag{" "}
-            <span className="font-mono">{provider.feature_flag}</span> está
-            desactivado. No se llamará al proveedor hasta habilitarlo.
-          </Banner>
-        ) : null}
-        {children}
-      </div>
+        </span></CardTitle>
+        <CardDescription>{account ?? provider.description}</CardDescription>
+        <CardAction><StateBadge connection={connection} providerId={provider.id} available={provider.available} /></CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {account ? <p className="text-sm text-muted">{provider.description}</p> : null}
+          <IntegrationActivationChecklist
+            ready={provider.activation.ready}
+            missing={provider.activation.missing}
+          />
+          {!provider.available ? (
+            <Banner tone="info" title="Disponible más adelante">
+              Esta conexión llegará pronto. Mientras tanto no enseñamos cifras de
+              ejemplo.
+            </Banner>
+          ) : cfg === "credentials_missing" ? (
+            <Banner tone="warn" title="Esta conexión aún no está disponible">
+              Falta configurarla en el servidor. En cuanto esté, podrás conectarla
+              desde aquí.
+            </Banner>
+          ) : cfg === "feature_disabled" ? (
+            <Banner tone="warn" title="Esta conexión está desactivada por ahora">
+              Cuando se active podrás conectarla aquí. Hasta entonces no se pide
+              ningún dato a {provider.name}.
+            </Banner>
+          ) : null}
+          {children}
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -778,43 +782,46 @@ export function ConnectionPicker({
   );
 
   return (
-    <Card
-      title="Cuenta que estás configurando"
-      description="Esta organización tiene varias cuentas conectadas de este proveedor. Lo que guardes abajo se aplica solo a la elegida."
-    >
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Cuentas conectadas">
-        {connections.map((item) => {
-          const store = storeByConnection?.get(item.id);
-          const selected = item.id === connection?.id;
-          return (
-            <Button
-              key={item.id}
-              type="button"
-              size="sm"
-              variant={selected ? "primary" : "secondary"}
-              aria-pressed={selected}
-              onClick={() => onChange(item.id)}
-            >
-              <span className="max-w-48 truncate">
-                {item.provider_account_name ?? item.provider_account_id ?? item.id}
-              </span>
-              <span className="text-xs opacity-75">
-                {store ? storeLabel(store) : stateOf(item).label}
-              </span>
-            </Button>
-          );
-        })}
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Cuenta que estás configurando</CardTitle>
+        <CardDescription>Esta organización tiene varias cuentas conectadas de este proveedor. Lo que guardes abajo se aplica solo a la elegida.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Cuentas conectadas">
+          {connections.map((item) => {
+            const store = storeByConnection?.get(item.id);
+            const selected = item.id === connection?.id;
+            return (
+              <Button
+                key={item.id}
+                type="button"
+                size="sm"
+                variant={selected ? "default" : "secondary"}
+                aria-pressed={selected}
+                onClick={() => onChange(item.id)}
+              >
+                <span className="max-w-48 truncate">
+                  {item.provider_account_name ?? item.provider_account_id ?? item.id}
+                </span>
+                <span className="text-xs opacity-75">
+                  {store ? storeLabel(store) : stateOf(item).label}
+                </span>
+              </Button>
+            );
+          })}
+        </div>
 
-      {mismatch ? (
-        <Banner className="mt-3" tone="warn">
-          Estás viendo{" "}
-          <span className="font-medium">{storeLabel(activeStore!)}</span> en el
-          encabezado, pero esta cuenta es de{" "}
-          <span className="font-medium">{storeLabel(currentStore!)}</span>. Lo
-          que guardes se aplica a {storeLabel(currentStore!)}.
-        </Banner>
-      ) : null}
+        {mismatch ? (
+          <Banner className="mt-3" tone="warn">
+            Estás viendo{" "}
+            <span className="font-medium">{storeLabel(activeStore!)}</span> en el
+            encabezado, pero esta cuenta es de{" "}
+            <span className="font-medium">{storeLabel(currentStore!)}</span>. Lo
+            que guardes se aplica a {storeLabel(currentStore!)}.
+          </Banner>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
@@ -935,7 +942,7 @@ export function LastErrorBanner({
         </span>
         {needsKlaviyoEventsPermission ? (
           <Link
-            className="inline-flex min-h-9 items-center rounded-md border border-current px-3 text-sm font-medium no-underline hover:underline"
+            className={buttonVariants({ variant: "outline" })}
             href="/integraciones/klaviyo"
           >
             Reautorizar Klaviyo
