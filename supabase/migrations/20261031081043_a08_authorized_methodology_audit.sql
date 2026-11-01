@@ -1,6 +1,7 @@
 -- Separate service-role-only A08 audit RPCs. Legacy client-visible RPCs stay unchanged.
 -- Shared global methodology is eligible; local private and foreign tenant material are not.
 
+DROP FUNCTION IF EXISTS public.ai_knowledge_audit_coverage(uuid);
 CREATE OR REPLACE FUNCTION public.ai_knowledge_audit_coverage(target_organization_id uuid)
  RETURNS TABLE(active_documents bigint, global_documents bigint, organization_documents bigint, indexed_documents bigint, documents_pending_index bigint, documents_without_chunks bigint, total_chunks bigint, chunks_without_embeddings bigint, audience_counts jsonb, latest_document_updated_at timestamp with time zone)
  LANGUAGE sql
@@ -37,6 +38,7 @@ $function$
 revoke all on function public.ai_knowledge_audit_coverage(uuid) from public, anon, authenticated;
 grant execute on function public.ai_knowledge_audit_coverage(uuid) to service_role;
 
+DROP FUNCTION IF EXISTS public.ai_knowledge_audit_document_evidence(uuid, uuid[]);
 CREATE OR REPLACE FUNCTION public.ai_knowledge_audit_document_evidence(target_organization_id uuid, target_document_ids uuid[])
  RETURNS TABLE(document_id uuid, title character varying, visibility character varying, audience character varying, version integer, checksum character varying, store_id uuid, chunk_index integer, content text)
  LANGUAGE sql
@@ -61,6 +63,7 @@ $function$
 revoke all on function public.ai_knowledge_audit_document_evidence(uuid, uuid[]) from public, anon, authenticated;
 grant execute on function public.ai_knowledge_audit_document_evidence(uuid, uuid[]) to service_role;
 
+DROP FUNCTION IF EXISTS public.ai_knowledge_audit_semantic_candidates(uuid, integer, integer);
 CREATE OR REPLACE FUNCTION public.ai_knowledge_audit_semantic_candidates(target_organization_id uuid, source_document_limit integer DEFAULT 12, max_candidates integer DEFAULT 30)
  RETURNS TABLE(source_document_id uuid, source_title character varying, source_visibility character varying, source_audience character varying, source_updated_at timestamp with time zone, candidate_document_id uuid, candidate_title character varying, candidate_visibility character varying, candidate_audience character varying, candidate_updated_at timestamp with time zone, semantic_similarity double precision)
  LANGUAGE sql

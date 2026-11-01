@@ -25,10 +25,10 @@ async function walk(directory) {
       .replace(/```[\s\S]*?```/g, "")
       .replace(/`[^`\n]*`/g, "");
     for (const match of scannable.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
-      const target = match[1].trim();
-      if (/^(?:https?:\/\/|mailto:|#|app:\/\/)/i.test(target)) continue;
+      const target = match[1].trim().replace(/^<|>$/g, "");
+      if (/^(?:https?:\/\/|mailto:|#|app:\/\/|data:)/i.test(target)) continue;
 
-      const fileTarget = target.split("#", 1)[0].split("?", 1)[0];
+      const fileTarget = decodeURIComponent(target.split("#", 1)[0].split("?", 1)[0]);
       if (!fileTarget) continue;
 
       const resolved = path.resolve(path.dirname(filePath), fileTarget);

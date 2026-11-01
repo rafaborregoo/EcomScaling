@@ -27,6 +27,9 @@ const policyTables = names(
   /create\s+policy\s+[^\n]+\s+on\s+public\.([a-z0-9_]+)/gi,
 );
 const serviceOnlyTables = new Set([
+  "a06_stock_event_settings",
+  "a06_stock_event_queue",
+  "a06_stock_event_evaluations",
   "a26_content_reviews",
   "a26_content_run_claims",
   "a26_render_receipts",

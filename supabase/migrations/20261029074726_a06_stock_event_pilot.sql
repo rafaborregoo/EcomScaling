@@ -1,5 +1,5 @@
 -- A06 pilot only. No store is enrolled and no paid call is enabled by this migration.
-create table public.a06_stock_event_settings (
+create table if not exists public.a06_stock_event_settings (
   store_id uuid primary key references public.shopify_stores(id) on delete cascade,
   organization_id uuid not null references public.organizations(id) on delete cascade,
   mode text not null default 'shadow' check (mode in ('off', 'shadow', 'live')),
@@ -9,7 +9,7 @@ create table public.a06_stock_event_settings (
   updated_at timestamptz not null default now()
 );
 
-create table public.a06_stock_event_queue (
+create table if not exists public.a06_stock_event_queue (
   store_id uuid primary key references public.a06_stock_event_settings(store_id) on delete cascade,
   organization_id uuid not null references public.organizations(id) on delete cascade,
   revision bigint not null default 1,
@@ -23,10 +23,10 @@ create table public.a06_stock_event_queue (
   last_model_signature text,
   updated_at timestamptz not null default now()
 );
-create index a06_stock_event_queue_due_idx on public.a06_stock_event_queue(due_at)
+create index if not exists a06_stock_event_queue_due_idx on public.a06_stock_event_queue(due_at)
   where due_at is not null;
 
-create table public.a06_stock_event_evaluations (
+create table if not exists public.a06_stock_event_evaluations (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   store_id uuid not null references public.a06_stock_event_settings(store_id) on delete cascade,
@@ -39,9 +39,9 @@ create table public.a06_stock_event_evaluations (
   created_at timestamptz not null default now(),
   finished_at timestamptz
 );
-create index a06_stock_event_evaluations_store_time_idx
+create index if not exists a06_stock_event_evaluations_store_time_idx
   on public.a06_stock_event_evaluations(store_id, created_at desc);
-create index a06_stock_event_evaluations_org_time_idx
+create index if not exists a06_stock_event_evaluations_org_time_idx
   on public.a06_stock_event_evaluations(organization_id, created_at desc);
 
 alter table public.a06_stock_event_settings enable row level security;
@@ -64,6 +64,7 @@ begin
 end;
 $$;
 revoke all on function private.a06_verify_event_store() from public, anon, authenticated;
+drop trigger if exists a06_event_settings_scope on public.a06_stock_event_settings;
 create trigger a06_event_settings_scope before insert or update on public.a06_stock_event_settings
   for each row execute function private.a06_verify_event_store();
 
@@ -113,6 +114,7 @@ begin
 end;
 $$;
 revoke all on function private.a06_capture_inventory_change() from public, anon, authenticated;
+drop trigger if exists a06_inventory_event on public.shopify_inventory_current_state;
 create trigger a06_inventory_event after update of available_quantity, is_active
   on public.shopify_inventory_current_state for each row
   when (old.available_quantity is distinct from new.available_quantity or old.is_active is distinct from new.is_active)
