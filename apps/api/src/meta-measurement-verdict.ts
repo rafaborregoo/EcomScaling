@@ -1,4 +1,5 @@
-export const META_MEASUREMENT_VERDICT_VERSION = "a24-measurement-v4";
+export const META_MEASUREMENT_VERDICT_VERSION = "a24-measurement-v5";
+export const META_MEASUREMENT_SOURCE_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
 export type MetaMeasurementSource = {
   available: boolean;
@@ -34,6 +35,10 @@ const META_MEASUREMENT_STATUSES = new Set<MetaMeasurementVerdict["status"]>([
   "unknown",
 ]);
 
+export function isMetaMeasurementStatus(value: unknown): value is MetaMeasurementVerdict["status"] {
+  return typeof value === "string" && META_MEASUREMENT_STATUSES.has(value as MetaMeasurementVerdict["status"]);
+}
+
 /** Reads only the server-owned A24 context block; absent or malformed evidence stays fail-closed. */
 export function metaMeasurementStatusFromContext(blocks: unknown): MetaMeasurementVerdict["status"] {
   if (!Array.isArray(blocks)) return "unknown";
@@ -44,7 +49,7 @@ export function metaMeasurementStatusFromContext(blocks: unknown): MetaMeasureme
   ) as { data?: unknown } | undefined;
   if (!block?.data || typeof block.data !== "object") return "unknown";
   const status = (block.data as { status?: unknown }).status;
-  return typeof status === "string" && META_MEASUREMENT_STATUSES.has(status as MetaMeasurementVerdict["status"])
+  return isMetaMeasurementStatus(status)
     ? status as MetaMeasurementVerdict["status"]
     : "unknown";
 }
@@ -59,8 +64,15 @@ export function buildMetaMeasurementVerdict(
   evidence: MetaMeasurementEvidence,
   evaluatedAt = new Date(),
 ): MetaMeasurementVerdict {
-  const sources = Object.values(evidence);
+  const sources = [
+    evidence.pixels,
+    evidence.learning,
+    evidence.issues,
+    evidence.eventMapping,
+    ...(evidence.issueSnapshot ? [evidence.issueSnapshot] : []),
+  ];
   const allSourcesAvailable = sources.every((source) => source.available);
+  const hasIncompleteSource = sources.some((source) => source.complete === false);
   const mappingRows = evidence.eventMapping.rows;
   const eligibleRows = mappingRows.filter((row) => asNumber(row.eligible_ad_set_count ?? 1) > 0);
   const spendRows = eligibleRows.filter((row) => asNumber(row.spend_in_period) > 0);
@@ -87,7 +99,7 @@ export function buildMetaMeasurementVerdict(
     if (typeof value !== "string") return false;
     const timestamp = Date.parse(value);
     const ageMs = evaluatedAt.getTime() - timestamp;
-    return Number.isFinite(timestamp) && ageMs >= 0 && ageMs <= 48 * 60 * 60 * 1000;
+    return Number.isFinite(timestamp) && ageMs >= 0 && ageMs <= META_MEASUREMENT_SOURCE_MAX_AGE_MS;
   };
   const pixelSyncedRows = spendRows.filter((row) =>
     ["mapped_event_observed", "mapped_event_not_observed_in_synced_window", "pixel_reported_unavailable"]
@@ -123,6 +135,7 @@ export function buildMetaMeasurementVerdict(
   const reasons: string[] = [];
 
   if (!allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing) reasons.push("source_missing_or_stale");
+  if (hasIncompleteSource) reasons.push("source_incomplete");
   if (pixelSyncUnknown) reasons.push("pixel_sync_stale_or_unknown");
   if (accountSyncUnknown) reasons.push("account_sync_stale_or_unknown");
   if (observedEventsOld) reasons.push("promoted_event_not_recently_observed");
@@ -138,7 +151,7 @@ export function buildMetaMeasurementVerdict(
 
   let status: MetaMeasurementVerdict["status"];
   if (
-    !allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing || observedEventsOld ||
+    !allSourcesAvailable || hasIncompleteSource || hasUnknownFreshness || criticalRowsMissing || observedEventsOld ||
     mappingTruncated || incompleteSetCoverage || issueSampleMayBeTruncated
   ) status = "unknown";
   else if (!spendRows.length) status = "not_assessable";

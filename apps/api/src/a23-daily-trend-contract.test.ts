@@ -50,7 +50,7 @@ test("A23 inspects imported video thumbnails as stills and never fetches video b
   assert.match(runtime, /const preferredType = videoByAd\.get\(adId\) \? "video" : "image"/);
   assert.match(runtime, /\.slice\(0, 8\)/);
   assert.match(bank, /resolveMetaVisualRepresentation/);
-  assert.match(bank, /imported_representation: params\.assetType === "video" \? "static_thumbnail_only"/);
-  assert.match(ui, /El vídeo completo no se\s*importa:\s*solo la imagen fija/);
+  assert.match(bank, /imported_representation: params\.representationKind \?\? \(params\.assetType === "video" \? "static_thumbnail"/);
+  assert.match(ui, /Miniatura de vídeo importada; se analizará como imagen fija/);
   assert.match(ui, /miniatura de vídeo/i);
 });

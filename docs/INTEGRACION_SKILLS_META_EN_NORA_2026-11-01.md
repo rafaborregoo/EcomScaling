@@ -1,6 +1,6 @@
 # Encaje de las skills Meta en el código de E-NORA
 
-Fecha: 01/11/2026. Estado: mapa y propuesta de implementación sobre código inspeccionado; no cambia todavía prompts, contratos ni comportamiento en producción.
+Fecha: 01/11/2026. Estado: integración aplicada en código y principios activados en TEST. Comparación de los seis modelos pendiente de la auditoría A11. No se ha desplegado la aplicación en producción.
 
 ## Decisión de diseño
 
@@ -88,4 +88,26 @@ Incorporar investigación de competencia y los principios válidos del analista 
 
 Una tienda/empresa de prueba, producto y assets verificados; mismos inputs para seis modelos. Contexto desconocido no se transforma en cero, referencia externa no demuestra ventas y ejemplo de plantilla no se presenta como dato de producto. La pieza elegida se revisa desde cliente/consultor en el Estudio. Mantener costes por etapa y evitar llamadas duplicadas al abrir ambas vistas.
 
-Este documento completa el primer paso de encaje solicitado. La implementación y la comparación de modelos siguen pendientes; no se ha activado el pack ni modificado ningún agente durante esta revisión.
+## Implementación aplicada
+
+Los apartados anteriores conservan el mapa y la motivación de la intervención. Su estado actual es el siguiente:
+
+- **A11, entrada de generación:** `marketing-creative-context.ts` precarga organización y tienda exactas, perfil de marca con herencia, catálogo real (hasta doce productos o seis seleccionados), fotos/enlaces/precios, cinco piezas anteriores y conclusiones recientes aprobadas de especialistas de la misma tienda. Un error de consulta detiene la generación; ausencia de inventario se declara desconocida. Sin tienda no se consulta un catálogo agregado.
+- **Método versionado:** `marketing-creative-method.ts` adapta copywriter, multiplicadora y criterios de diseño a crear, variar y adaptar. Solicitar variantes/adaptación por API requiere una pieza origen de la misma tienda; se conserva su ID y versión. No cambia el modelo asignado ni lanza agentes adicionales.
+- **Referencias:** trece estrategias abstractas `published` derivadas de las trece referencias; los trece ejemplos originales siguen siendo borradores privados. Recuperación de hasta cuatro principios pertinentes, con origen/derechos comprobados, sin HTML, fotos, nombres o IDs privados. Original sigue siendo el modo por defecto.
+- **UI del Estudio:** «Dirección creativa» permite crear desde cero o inspirarse en referencias internas. «Producto del catálogo» permite seleccionar un producto verificado. Está en Marketing → Estudio → creación mediante brief; cliente y consultor utilizan el mismo componente con sus permisos existentes.
+- **Editor:** conserva su contrato de operaciones, validación de enlaces/assets/productos, deshacer y autoguardado. Usa todos los campos del perfil de marca y el método correspondiente al mensaje. Recupera principios solo si el encargo los solicita. Corregida la omisión de imágenes privadas cuyo acceso ya se había resuelto mediante URL firmada.
+- **Visuales y render:** la generación transmite al canal visual imágenes del producto verificadas en el CDN de Shopify y adjuntos autorizados, con un límite total de seis. Email conserva el HTML y el diseño del borrador; social conserva copy/dirección visual. Se reutilizan editor y render existentes. Esto no introduce un productor nuevo de fotografía, PNG o vídeo, ni convierte automáticamente un brief social en una pieza terminada.
+- **Trazabilidad y coste:** snapshot obligatorio con versión de contexto, fecha, recursos transmitidos y avisos; metadatos del método en el borrador; selección creativa forma parte de la idempotencia. Presupuesto, medición de tokens/costes, finalización atómica y revisión existentes siguen en vigor. No hay cron nuevo ni coste fijo adicional por instalar métodos; el contexto consume tokens en la llamada existente.
+- **A14/A23/A24/A25:** guía común de interpretación sobre datos desconocidos, monedas, atribución, ventanas y cambios. Se conservan cálculos y veredictos deterministas existentes. No se ha copiado el analista Python ni sus umbrales automáticos.
+- **Competencia:** se pueden aportar hasta cuatro observaciones HTTPS con fecha/fuente. Se identifican como observaciones, sin descargar URLs ni inferir rentabilidad. No se ha añadido un scraper ni una conexión nueva a Meta Ad Library.
+
+## Verificación y uso
+
+Pruebas focalizadas de contexto, aislamiento, fuente de otra tienda, producto ausente, fallos de datos, referencias, idempotencia, operaciones del editor y medición: 44 pruebas correctas en la primera batería; además, tres pruebas del perfil de marca correctas. Typecheck API/web. Comprobación real TEST: marca recuperada, doce productos, selección por `product_id` correcta, principios pertinentes y repetición del activador sin duplicar estrategias. Recibos en `.e-nora-test-lab/skills-meta-ads/activation-receipt.json` y `integration-context.json`. El activador no invoca modelos ni publica campañas.
+
+Arranque local y HTTP comprobados para API, Marketing y biblioteca interna. No hay comprobación visual autenticada del nuevo selector: el host de navegación y el pipe nativo no están disponibles en esta sesión. Un HTTP 200 no sustituye esa revisión.
+
+Para reactivar/verificar en TEST: `npx dotenv -o -e .env.local -- tsx scripts/activate-marketing-design-principles.mts`. El script exige la base TEST, utiliza un administrador real y las funciones de curación/auditoría existentes. No aplica migraciones: esta integración utiliza tablas y RPC existentes.
+
+La integración de métodos queda aplicada. La próxima auditoría de A11 deberá comparar Haiku, Sonnet, Opus, Luna, Sol y Terra sobre el mismo contexto y recursos visuales, renderizar las piezas y escoger modelo/fallback con calidad y coste medidos. No se ha ejecutado esa comparación ni proclamado ganador con estos cambios.

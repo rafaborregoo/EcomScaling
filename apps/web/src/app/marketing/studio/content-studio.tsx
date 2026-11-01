@@ -208,6 +208,8 @@ export function ContentStudio({
   const [localRecovery, setLocalRecovery] = useState<LocalRecovery | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [brief, setBrief] = useState({ channel: "email_klaviyo", objective: "launch", tone: "warm", offer: "", audience: "", instructions: "" });
+  const [creativeMode, setCreativeMode] = useState("original");
+  const [creativeProductId, setCreativeProductId] = useState("");
   const generationIdentity = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // Copias síncronas del estado: el autoguardado corre fuera del render y
@@ -933,6 +935,8 @@ export function ContentStudio({
       const generationRequest = {
         content_type: "campaign",
         channel: brief.channel,
+        creative_mode: creativeMode,
+        product_ids: bestProducts.some((product) => product.id === creativeProductId) ? [creativeProductId] : [],
         store_id: connectionId,
         ...(campaignTarget ? { campaign_item_id: campaignTarget.id } : {}),
         brief: buildMarketingBrief({ channel: brief.channel, objective: brief.objective, audience: brief.audience, offer: brief.offer, tone: brief.tone, cta: "", instructions: brief.instructions }),
@@ -1583,6 +1587,15 @@ export function ContentStudio({
                                 Canal
                               </label>
                               <Select id="st-brief-channel" value={brief.channel} onChange={(value) => setBrief({ ...brief, channel: value })} options={[{ value: "email_klaviyo", label: "Email" }, { value: "meta_ads", label: "Anuncio de Meta" }, { value: "instagram_organic", label: "Instagram" }]} />
+                            </div>
+                            <div className={s.f}>
+                              <label className={s.lbl} htmlFor="st-creative-mode">Dirección creativa</label>
+                              <Select id="st-creative-mode" value={creativeMode} onChange={setCreativeMode} options={[{ value: "original", label: "Crear desde cero" }, { value: "guided", label: "Inspirarse en referencias internas" }]} />
+                              <span className={s.note}>Usa tu marca y catálogo. Las referencias orientan la estructura y el diseño.</span>
+                            </div>
+                            <div className={s.f}>
+                              <label className={s.lbl} htmlFor="st-creative-product">Producto del catálogo</label>
+                              <Select id="st-creative-product" value={bestProducts.some((product) => product.id === creativeProductId) ? creativeProductId : ""} onChange={setCreativeProductId} options={[{ value: "", label: "Según el encargo y el catálogo" }, ...bestProducts.map((product) => ({ value: product.id, label: product.title }))]} />
                             </div>
                             <div className={s.f}>
                               <label className={s.lbl} htmlFor="st-brief-objective">

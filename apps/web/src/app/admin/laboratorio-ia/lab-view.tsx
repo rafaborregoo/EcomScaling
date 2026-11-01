@@ -19,6 +19,7 @@ import {
   Button,
   ButtonLink,
   DataTable,
+  EmptyState,
   ErrorBlock,
   Field,
   Link,
@@ -368,9 +369,7 @@ function ResultPanel({
               {result.normalized.summary}
             </div>
           ) : (
-            <p className="text-sm text-muted">
-              Todavía no hay una respuesta disponible.
-            </p>
+            <EmptyState size="sm" title="Todavía no hay una respuesta disponible." />
           )}
           {(
             [

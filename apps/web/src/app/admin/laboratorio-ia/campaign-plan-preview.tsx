@@ -1,4 +1,5 @@
 import type { AiModelLabResult } from "@e-nora/contracts";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -180,12 +181,14 @@ export function CampaignPlanPreview({ result }: { result: AiModelLabResult }) {
         </div>
       )}
       {warnings.length ? (
-        <details className="rounded-lg border border-line bg-background p-4">
-          <summary className="cursor-pointer font-semibold">Hitos, condiciones y alertas ({warnings.length})</summary>
+        <Collapsible className="rounded-lg border border-line bg-background p-4">
+          <CollapsibleTrigger className="w-full justify-between font-semibold">Hitos, condiciones y alertas ({warnings.length})<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+          <CollapsibleContent>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-sm">
             {warnings.map((warning, index) => <li key={index} className="whitespace-pre-wrap">{warning}</li>)}
           </ul>
-        </details>
+          </CollapsibleContent>
+        </Collapsible>
       ) : null}
     </section>
   );

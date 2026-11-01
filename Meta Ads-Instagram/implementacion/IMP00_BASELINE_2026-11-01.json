@@ -1,0 +1,2028 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-11-01",
+  "timezone": "Europe/Madrid",
+  "scope": "Read-only database metadata and local source inventory; no customer records or credentials.",
+  "project": {
+    "name": "E-NORA",
+    "ref": "cthjwpeygpzwdmjkxeqa",
+    "selection_evidence": "supabase/.temp/project-ref matched connected Supabase project",
+    "application_deployment_revision": "NOT_VERIFIED"
+  },
+  "git": {
+    "starting_head": "04c26ec1dd1a2dd40e428ed2d5f43d628cc30a9d",
+    "observed_head_during_work": "00ed3dfad43fafc7bf6419483244acd75e7cf582",
+    "starting_branch": "main",
+    "starting_dirty_entries": 936,
+    "note": "HEAD changed during the work through external concurrent activity; no commit performed by this implementation."
+  },
+  "database_inventory": {
+    "agents": [
+      {
+        "code": "a01_analista_llamadas",
+        "model": "claude-sonnet-5",
+        "version": "v8",
+        "checksum": "0b447ff1f34a69a4ba8d9d7b0bc8ec9f84fe454ff6084a47a0bcbfee00ffa7a9",
+        "tool_count": 1,
+        "prompt_code": "a01_analista_llamadas_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v7",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a02_monitor_negocio",
+        "model": "gpt-6.1-terra",
+        "version": "v13",
+        "checksum": "81d51d3ae231116116aa89e9e09481ac05127c57288766927fb75f333a514a3a",
+        "tool_count": 1,
+        "prompt_code": "a02_monitor_negocio_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v12",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a04_generador_tareas",
+        "model": "gpt-6-luna",
+        "version": "v13",
+        "checksum": "e33b91013f4755e8fcf9216707919e11a565fc6ed575ea282c77750ff41758ef",
+        "tool_count": 2,
+        "prompt_code": "a04_generador_tareas_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v13",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "sql_select",
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a05_estrategia_campanas",
+        "model": "claude-sonnet-5",
+        "version": "v5",
+        "checksum": "3b93298af325019a20a6b0ef5b01828ec903246f158a346f7a88fe627783a53d",
+        "tool_count": 10,
+        "prompt_code": "a05_estrategia_campanas_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v5",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "get_brand_profile",
+          "get_email_campaign_pipeline",
+          "get_organization_profile",
+          "get_shopify_product_catalog",
+          "klaviyo_deliverability_health",
+          "klaviyo_email_content",
+          "klaviyo_entity_performance",
+          "klaviyo_measurement_health",
+          "klaviyo_performance_summary",
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a06_planificador_stock",
+        "model": "claude-sonnet-5",
+        "version": "v10",
+        "checksum": "825b2e381da437ad44a9ae9738fb2890472eb0c9be9be4c34d3070950774f7aa",
+        "tool_count": 2,
+        "prompt_code": "a06_planificador_stock_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v9",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "sql_select",
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a08_gestor_conocimiento",
+        "model": "claude-sonnet-5",
+        "version": "v8",
+        "checksum": "9d947b9c097de85ef96034eaa1a2204a70e42c0b3357e7f73c29b1a425cf694a",
+        "tool_count": 1,
+        "prompt_code": "a08_gestor_conocimiento_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v7",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a09_copiloto_consultor",
+        "model": "claude-sonnet-5",
+        "version": "v23",
+        "checksum": "e5fbaafa9eb359ae98a27acf77f8594184de315ba9948eca7954cc300906ddc3",
+        "tool_count": 43,
+        "prompt_code": "a09_copiloto_consultor_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v9",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "data_coverage",
+          "describe_schema",
+          "generate_report",
+          "get_brand_profile",
+          "get_call_detail",
+          "get_call_history",
+          "get_campaign_calendar",
+          "get_campaign_item_detail",
+          "get_consultant_workbench",
+          "get_current_milestone",
+          "get_financial_settings",
+          "get_knowledge_document",
+          "get_marketing_draft_detail",
+          "get_organization_profile",
+          "get_shopify_product_catalog",
+          "get_specialist_run_detail",
+          "get_strategic_plan",
+          "get_strategic_plan_version",
+          "get_task_detail",
+          "get_task_history",
+          "klaviyo_deliverability_health",
+          "klaviyo_email_content",
+          "klaviyo_entity_performance",
+          "klaviyo_measurement_health",
+          "klaviyo_performance_summary",
+          "list_open_alerts",
+          "list_open_tasks",
+          "meta_change_log",
+          "meta_creative_diagnostics",
+          "meta_creative_health",
+          "meta_delivery_health",
+          "meta_spend_detail",
+          "search_knowledge",
+          "shopify_customer_health",
+          "shopify_delivery_diagnostics",
+          "shopify_demand_sources",
+          "shopify_fulfillment_health",
+          "shopify_funnel_health",
+          "shopify_margin_health",
+          "shopify_open_delivery_exceptions",
+          "shopify_product_repurchase_health",
+          "shopify_return_delay_comparison",
+          "sql_select"
+        ]
+      },
+      {
+        "code": "a11_generador_marketing",
+        "model": "claude-sonnet-5",
+        "version": "v11",
+        "checksum": "66457ef2d0e5dfc607c364e449145930bad5806285dde7343cb49eda793d9e72",
+        "tool_count": 12,
+        "prompt_code": "a11_generador_marketing_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v11",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "data_coverage",
+          "search_knowledge",
+          "get_organization_profile",
+          "get_brand_profile",
+          "get_strategic_plan",
+          "list_open_tasks",
+          "list_open_alerts",
+          "get_call_history",
+          "get_financial_settings",
+          "klaviyo_email_content",
+          "get_shopify_product_catalog",
+          "search_internal_email_design_playbook"
+        ]
+      },
+      {
+        "code": "a12_analista_email",
+        "model": "claude-sonnet-5",
+        "version": "v4",
+        "checksum": "9e6351fe59a9b1cd68b1659ea1348a31d296f0c806e3a29c5b38a33ff36c5117",
+        "tool_count": 4,
+        "prompt_code": "a12_analista_email_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v4",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "klaviyo_performance_summary",
+          "klaviyo_entity_performance",
+          "klaviyo_deliverability_health"
+        ]
+      },
+      {
+        "code": "a13_operativa_shopify",
+        "model": "claude-sonnet-5",
+        "version": "v2",
+        "checksum": "4b17784dd872f3f2ab8b8099ef54fef3f12db7f64bbe667e3afe7ab930d57e6b",
+        "tool_count": 2,
+        "prompt_code": "a13_operativa_shopify_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v2",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "sql_select"
+        ]
+      },
+      {
+        "code": "a14_operativa_meta",
+        "model": "claude-sonnet-5",
+        "version": "v3",
+        "checksum": "330f30407ec3c56004914a600217171d8c69e7a4f729ba775b24b61c515866b1",
+        "tool_count": 5,
+        "prompt_code": "a14_operativa_meta_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v3",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "meta_spend_detail",
+          "meta_delivery_health",
+          "meta_change_log",
+          "meta_creative_health"
+        ]
+      },
+      {
+        "code": "a15_analista_imagenes",
+        "model": "claude-sonnet-5",
+        "version": "v3",
+        "checksum": "26ccf44d129338cdd0d3ace09f44f96bdfabd50b8fb4d940bdec28348bec0e94",
+        "tool_count": 0,
+        "prompt_code": "a15_analista_imagenes_system",
+        "prompt_found": true,
+        "approval_mode": "none",
+        "prompt_version": "v3",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": []
+      },
+      {
+        "code": "a16_texto_sobre_imagen",
+        "model": "claude-sonnet-5",
+        "version": "v4",
+        "checksum": "c0d88ebca23d7f687823aa2d00a871561e9eb5a24d341f447012507098e27553",
+        "tool_count": 0,
+        "prompt_code": "a16_texto_sobre_imagen_system",
+        "prompt_found": true,
+        "approval_mode": "none",
+        "prompt_version": "v4",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": []
+      },
+      {
+        "code": "a17_plan_semanal",
+        "model": "gpt-6-luna",
+        "version": "v9",
+        "checksum": "d16a66c5c2a6c7bd2931e6fb4d97f528a3f34f72727d83bd8d023810694ff4f0",
+        "tool_count": 2,
+        "prompt_code": "a17_plan_semanal_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v9",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "sql_select"
+        ]
+      },
+      {
+        "code": "a18_plan_mensual",
+        "model": "claude-sonnet-5",
+        "version": "v8",
+        "checksum": "efea76b08672d1ba0b64d9276af6e1a29f4fcc2b0a567c8431bd3f3474ac1e08",
+        "tool_count": 2,
+        "prompt_code": "a18_plan_mensual_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v8",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "sql_select"
+        ]
+      },
+      {
+        "code": "a19_arquitecto_camino",
+        "model": "gpt-6-sol",
+        "version": "v17",
+        "checksum": "06aeba8a7ff42eabc1d4b23d58253f2a1b3fe80ad59996d04cf9cf60a3df9964",
+        "tool_count": 9,
+        "prompt_code": "a19_arquitecto_camino_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v17",
+        "definition_active": true,
+        "output_schema_version": "v3",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "data_coverage",
+          "describe_schema",
+          "sql_select",
+          "search_knowledge",
+          "get_organization_profile",
+          "get_financial_settings",
+          "get_strategic_plan",
+          "list_open_alerts",
+          "list_open_tasks"
+        ]
+      },
+      {
+        "code": "a19_revision_camino",
+        "model": "claude-opus-4-8",
+        "version": "v5",
+        "checksum": "8c53c0a1bebc3622eef4b7c0dfea71d93c453d1eea4d77844e0415159ba3b780",
+        "tool_count": 0,
+        "prompt_code": "a19_revision_camino_system",
+        "prompt_found": true,
+        "approval_mode": "none",
+        "prompt_version": "v5",
+        "definition_active": true,
+        "output_schema_version": "v3",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": []
+      },
+      {
+        "code": "a20_retencion_clientes",
+        "model": "claude-sonnet-5",
+        "version": "v4",
+        "checksum": "db26669ff7994bfd21d0661b0b09059c488c9d5acb5c0553b7c8636048de75ed",
+        "tool_count": 4,
+        "prompt_code": "a20_retencion_clientes_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v4",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "shopify_customer_health",
+          "shopify_product_repurchase_health",
+          "klaviyo_measurement_health",
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a21_adquisicion_shopify",
+        "model": "claude-sonnet-5",
+        "version": "v7",
+        "checksum": "0478cf7aa45e9ddf6e72e2d1612084f7603199420bb5cac1b9abee285e65cb27",
+        "tool_count": 4,
+        "prompt_code": "a21_adquisicion_shopify_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v7",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "shopify_funnel_health",
+          "shopify_margin_health",
+          "klaviyo_measurement_health"
+        ]
+      },
+      {
+        "code": "a22_postventa_shopify",
+        "model": "claude-sonnet-5",
+        "version": "v8",
+        "checksum": "f1a402add680282a10fc199b8ee1f2368aee3197de1e90bf0f46186846173bc7",
+        "tool_count": 5,
+        "prompt_code": "a22_postventa_shopify_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v8",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "shopify_delivery_diagnostics",
+          "shopify_fulfillment_health",
+          "shopify_open_delivery_exceptions",
+          "shopify_return_delay_comparison"
+        ]
+      },
+      {
+        "code": "a23_creatividad_meta",
+        "model": "claude-sonnet-5",
+        "version": "v10",
+        "checksum": "fc31c41de9993c6acf0ed566fe206d8a2cce66b65b153f762668c487117c6fcf",
+        "tool_count": 2,
+        "prompt_code": "a23_creatividad_meta_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v10",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "meta_creative_diagnostics"
+        ]
+      },
+      {
+        "code": "a24_medicion_meta",
+        "model": "claude-sonnet-5",
+        "version": "v10",
+        "checksum": "21866bbc16259b1b4c02fccd927735e4a1db4b1447e90d0eb527dc00ae4aa98c",
+        "tool_count": 2,
+        "prompt_code": "a24_medicion_meta_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v10",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "meta_delivery_health"
+        ]
+      },
+      {
+        "code": "a25_cambios_meta",
+        "model": "claude-sonnet-5",
+        "version": "v5",
+        "checksum": "6d9a0c5245fcf4180c89c295ab134ce6887c6af61d7eb0fe085032699beba538",
+        "tool_count": 2,
+        "prompt_code": "a25_cambios_meta_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v5",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "meta_change_log"
+        ]
+      },
+      {
+        "code": "a26_contenido_email",
+        "model": "claude-sonnet-5",
+        "version": "v8",
+        "checksum": "d9b1000dfefc406bb52f8c7cf6651fb3cd215f174ec75fa0b358c8218108749a",
+        "tool_count": 2,
+        "prompt_code": "a26_contenido_email_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v8",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge",
+          "klaviyo_email_content"
+        ]
+      },
+      {
+        "code": "a27_planificador_mailing",
+        "model": "claude-sonnet-5",
+        "version": "v5",
+        "checksum": "f620805c36a9e858dc5a4b7b4d56ecb90225cc5c292bf88f74be338f60e41653",
+        "tool_count": 12,
+        "prompt_code": "a27_planificador_mailing_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v5",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "data_coverage",
+          "search_knowledge",
+          "get_organization_profile",
+          "get_financial_settings",
+          "get_strategic_plan",
+          "get_current_milestone",
+          "list_open_alerts",
+          "list_open_tasks",
+          "get_task_history",
+          "get_call_history",
+          "klaviyo_email_content",
+          "klaviyo_measurement_health"
+        ]
+      },
+      {
+        "code": "a28_arquitecto_flujos",
+        "model": "claude-sonnet-5",
+        "version": "v3",
+        "checksum": "697a1486c6eb9296b797158cfad06e921fc75a8661580f078688dba2ba60782c",
+        "tool_count": 1,
+        "prompt_code": "a28_arquitecto_flujos_system",
+        "prompt_found": true,
+        "approval_mode": "required_before_publish",
+        "prompt_version": "v3",
+        "definition_active": true,
+        "output_schema_version": "v3",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge"
+        ]
+      },
+      {
+        "code": "a29_analista_metrica",
+        "model": "claude-sonnet-5",
+        "version": "v5",
+        "checksum": "ab146d759c5dd9b80f1cb20f190dac9f0a1112cb250f8eb875bc92b26148d516",
+        "tool_count": 1,
+        "prompt_code": "a29_analista_metrica_system",
+        "prompt_found": true,
+        "approval_mode": "none",
+        "prompt_version": "v5",
+        "definition_active": true,
+        "output_schema_version": "v1",
+        "model_semantics": "declared_in_agent_versions_not_verified_runtime_routing",
+        "allowed_tools": [
+          "search_knowledge"
+        ]
+      }
+    ],
+    "migrations": {
+      "count": 703,
+      "latest": [
+        {
+          "name": "a02_panel_kpi_coverage",
+          "version": "20270115110000"
+        },
+        {
+          "name": "a02_metric_figure_keys",
+          "version": "20270115100000"
+        },
+        {
+          "name": "alertas_copy_normalizado",
+          "version": "20270113100000"
+        },
+        {
+          "name": "shopify_financial_daily",
+          "version": "20270112100000"
+        },
+        {
+          "name": "shopify_inventory_summary",
+          "version": "20270111100000"
+        },
+        {
+          "name": "a29_metric_singleflight_contract_v6",
+          "version": "20270110121200"
+        },
+        {
+          "name": "a29_metric_feedback",
+          "version": "20270110121100"
+        },
+        {
+          "name": "a29_contract_and_active_v5",
+          "version": "20270110121000"
+        }
+      ],
+      "latest_version": "20270115110000"
+    },
+    "ai_settings": {
+      "disabled_groups_present": 0,
+      "configured_organizations": 0
+    },
+    "connections": [
+      {
+        "count": 2,
+        "status": "error",
+        "provider": "meta_ads"
+      },
+      {
+        "count": 1,
+        "status": "error",
+        "provider": "shopify"
+      }
+    ],
+    "measurement_cache": null
+  },
+  "migration_comparison": {
+    "remote_count": 703,
+    "local_count": 626,
+    "local_not_recorded": [
+      "20261026080914",
+      "20261029074726",
+      "20261029080642",
+      "20261029085000",
+      "20261029093918",
+      "20261031071751",
+      "20261031081043",
+      "20270113100001",
+      "20270113100002",
+      "20270114100000"
+    ],
+    "remote_without_local": [
+      "20260916222320",
+      "20261005104608",
+      "20261005115352",
+      "20261006080501",
+      "20261008121621",
+      "20261008121625",
+      "20261008121629",
+      "20261008121635",
+      "20261010065843",
+      "20261010071257",
+      "20261010071446",
+      "20261010072158",
+      "20261010075537",
+      "20261010080723",
+      "20261010081210",
+      "20261010082039",
+      "20261010082856",
+      "20261010083620",
+      "20261010084213",
+      "20261010084641",
+      "20261010085800",
+      "20261010085957",
+      "20261010091643",
+      "20261010105122",
+      "20261012085508",
+      "20261012095206",
+      "20261012095215",
+      "20261013101916",
+      "20261017114554",
+      "20261017114628",
+      "20261017212228",
+      "20261017221439",
+      "20261017221909",
+      "20261017232826",
+      "20261018080218",
+      "20261018080309",
+      "20261018080644",
+      "20261018081543",
+      "20261018081949",
+      "20261018082205",
+      "20261018082550",
+      "20261018183537",
+      "20261018224615",
+      "20261018224901",
+      "20261018230132",
+      "20261018230346",
+      "20261018231125",
+      "20261018231217",
+      "20261019065552",
+      "20261019065757",
+      "20261019070018",
+      "20261019070200",
+      "20261019070830",
+      "20261019071029",
+      "20261019071152",
+      "20261019084712",
+      "20261019085808",
+      "20261019093852",
+      "20261019094847",
+      "20261019162105",
+      "20261019162109",
+      "20261020082555",
+      "20261020120153",
+      "20261020120159",
+      "20261020120542",
+      "20261020131038",
+      "20261020144040",
+      "20261020175038",
+      "20261020202854",
+      "20261020202856",
+      "20261020202858",
+      "20261020202859",
+      "20261020202901",
+      "20261020202903",
+      "20261020203114",
+      "20261021072614",
+      "20261021080321",
+      "20261021080422",
+      "20261021085510",
+      "20261021090307",
+      "20261021090531",
+      "20261021094657",
+      "20261021101538",
+      "20261030080947",
+      "20261030095326",
+      "20261031071955",
+      "20261031081228"
+    ],
+    "local_without_matching_version": [
+      {
+        "version": "20261026080914",
+        "name": "integration_event_delivery",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20261029074726",
+        "name": "a06_stock_event_pilot",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20261029080642",
+        "name": "a06_stock_event_scoped_claim",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20261029085000",
+        "name": "a06_haiku_model_and_sol_fallback",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20261029093918",
+        "name": "copilot_cost_weighted_credits",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20261031071751",
+        "name": "a05_email_pipeline_tools",
+        "same_name_remote_versions": [
+          "20261031071955"
+        ]
+      },
+      {
+        "version": "20261031081043",
+        "name": "a08_authorized_methodology_audit",
+        "same_name_remote_versions": [
+          "20261031081228"
+        ]
+      },
+      {
+        "version": "20270113100001",
+        "name": "consultant_launch_readiness",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20270113100002",
+        "name": "consultant_report_branding",
+        "same_name_remote_versions": []
+      },
+      {
+        "version": "20270114100000",
+        "name": "camino_consolidation",
+        "same_name_remote_versions": []
+      }
+    ],
+    "remote_without_matching_local_version": [
+      {
+        "name": "factura_email_delivery",
+        "version": "20260916222320"
+      },
+      {
+        "name": "a19_monthly_growth_knowledge_loop",
+        "version": "20261005104608"
+      },
+      {
+        "name": "ai_31_copilot_report_pdf",
+        "version": "20261005115352"
+      },
+      {
+        "name": "klaviyo_revenue_currency_confirmation",
+        "version": "20261006080501"
+      },
+      {
+        "name": "a02_klaviyo_evidence_contract",
+        "version": "20261008121621"
+      },
+      {
+        "name": "a02_dashboard_scopes",
+        "version": "20261008121625"
+      },
+      {
+        "name": "a05_contextual_campaign_calendar",
+        "version": "20261008121629"
+      },
+      {
+        "name": "a05_evidence_required",
+        "version": "20261008121635"
+      },
+      {
+        "name": "agent_judge_durable_queue",
+        "version": "20261010065843"
+      },
+      {
+        "name": "agent_judge_feedback",
+        "version": "20261010071257"
+      },
+      {
+        "name": "agent_judgment_feedback_append_only",
+        "version": "20261010071446"
+      },
+      {
+        "name": "agent_version_release_gate",
+        "version": "20261010072158"
+      },
+      {
+        "name": "agent_release_manifest_fingerprint",
+        "version": "20261010075537"
+      },
+      {
+        "name": "agent_judgment_feedback_corrections",
+        "version": "20261010080723"
+      },
+      {
+        "name": "agent_judgment_feedback_rpc_compat",
+        "version": "20261010081210"
+      },
+      {
+        "name": "agent_judge_blind_dataset",
+        "version": "20261010082039"
+      },
+      {
+        "name": "agent_judge_calibration_runs",
+        "version": "20261010082856"
+      },
+      {
+        "name": "agent_judge_holdout_freeze_release_gate",
+        "version": "20261010083620"
+      },
+      {
+        "name": "agent_judge_holdout_single_use",
+        "version": "20261010084213"
+      },
+      {
+        "name": "agent_judge_calibration_split_release_gate",
+        "version": "20261010084641"
+      },
+      {
+        "name": "agent_release_requires_executed_candidate_pin",
+        "version": "20261010085800"
+      },
+      {
+        "name": "agent_release_verify_candidate_cases",
+        "version": "20261010085957"
+      },
+      {
+        "name": "agent_judge_calibration_sample_floor",
+        "version": "20261010091643"
+      },
+      {
+        "name": "agent_release_eval_holdout_claims",
+        "version": "20261010105122"
+      },
+      {
+        "name": "agent_release_visual_fixture_size",
+        "version": "20261012085508"
+      },
+      {
+        "name": "agent_release_visual_fixture_size",
+        "version": "20261012095206"
+      },
+      {
+        "name": "configuracion_permisos",
+        "version": "20261012095215"
+      },
+      {
+        "name": "agent_judge_rubric_v3_release_gate",
+        "version": "20261013101916"
+      },
+      {
+        "name": "a04_atomic_approval_and_quota",
+        "version": "20261017114554"
+      },
+      {
+        "name": "a04_decision_claim_org_index",
+        "version": "20261017114628"
+      },
+      {
+        "name": "a05_atomic_campaign_decisions",
+        "version": "20261017212228"
+      },
+      {
+        "name": "a06_risk_sample_atomic_restock",
+        "version": "20261017221439"
+      },
+      {
+        "name": "a06_oldest_inventory_freshness",
+        "version": "20261017221909"
+      },
+      {
+        "name": "a08_privacy_digest_atomic_index",
+        "version": "20261017232826"
+      },
+      {
+        "name": "a09_atomic_chat_and_tools",
+        "version": "20261018080218"
+      },
+      {
+        "name": "a09_richer_read_tools",
+        "version": "20261018080309"
+      },
+      {
+        "name": "a09_proposal_notes",
+        "version": "20261018080644"
+      },
+      {
+        "name": "a09_entity_and_calendar_reads",
+        "version": "20261018081543"
+      },
+      {
+        "name": "a09_consultant_workbench",
+        "version": "20261018081949"
+      },
+      {
+        "name": "a09_output_note_visibility",
+        "version": "20261018082205"
+      },
+      {
+        "name": "a09_latest_specialist_per_code",
+        "version": "20261018082550"
+      },
+      {
+        "name": "a09_persistent_escalations",
+        "version": "20261018183537"
+      },
+      {
+        "name": "a09_exact_knowledge_document",
+        "version": "20261018224615"
+      },
+      {
+        "name": "a09_specialist_run_detail",
+        "version": "20261018224901"
+      },
+      {
+        "name": "a09_campaign_item_detail",
+        "version": "20261018230132"
+      },
+      {
+        "name": "a09_marketing_draft_detail",
+        "version": "20261018230346"
+      },
+      {
+        "name": "a09_strategic_plan_version",
+        "version": "20261018231125"
+      },
+      {
+        "name": "a09_strategic_plan_version",
+        "version": "20261018231217"
+      },
+      {
+        "name": "a11_generation_export_integrity",
+        "version": "20261019065552"
+      },
+      {
+        "name": "a11_atomic_generation_finalize",
+        "version": "20261019065757"
+      },
+      {
+        "name": "a11_prompt_v11",
+        "version": "20261019070018"
+      },
+      {
+        "name": "a11_atomic_approval",
+        "version": "20261019070200"
+      },
+      {
+        "name": "a11_studio_chat_reservations",
+        "version": "20261019070830"
+      },
+      {
+        "name": "a11_atomic_submit",
+        "version": "20261019071029"
+      },
+      {
+        "name": "a11_atomic_studio_save",
+        "version": "20261019071152"
+      },
+      {
+        "name": "a11_remaining_integrity",
+        "version": "20261019084712"
+      },
+      {
+        "name": "a11_terminal_generation_progress",
+        "version": "20261019085808"
+      },
+      {
+        "name": "a12_email_analyst_integrity",
+        "version": "20261019093852"
+      },
+      {
+        "name": "a12_email_activity_digest",
+        "version": "20261019094847"
+      },
+      {
+        "name": "a14_operational_integrity",
+        "version": "20261019162105"
+      },
+      {
+        "name": "shopify_inventory_variant_page",
+        "version": "20261019162109"
+      },
+      {
+        "name": "a29_prompt_v2_lenguaje_cliente",
+        "version": "20261020082555"
+      },
+      {
+        "name": "a16_overlay_integrity",
+        "version": "20261020120153"
+      },
+      {
+        "name": "a16_idempotent_outputs",
+        "version": "20261020120159"
+      },
+      {
+        "name": "a16_sequence_and_variants",
+        "version": "20261020120542"
+      },
+      {
+        "name": "a17_weekly_plan_integrity",
+        "version": "20261020131038"
+      },
+      {
+        "name": "a18_monthly_integrity",
+        "version": "20261020144040"
+      },
+      {
+        "name": "20270104210000_a19_camino_integrity",
+        "version": "20261020175038"
+      },
+      {
+        "name": "a20_retention_ecosystem",
+        "version": "20261020202854"
+      },
+      {
+        "name": "a20_retention_lifecycle",
+        "version": "20261020202856"
+      },
+      {
+        "name": "a20_retention_receipt_actor",
+        "version": "20261020202858"
+      },
+      {
+        "name": "a20_retention_milestone_status",
+        "version": "20261020202859"
+      },
+      {
+        "name": "a20_retention_task_priority",
+        "version": "20261020202901"
+      },
+      {
+        "name": "a20_retention_measurement_interval",
+        "version": "20261020202903"
+      },
+      {
+        "name": "a20_retention_atomic_output",
+        "version": "20261020203114"
+      },
+      {
+        "name": "shopify_discount_proposals",
+        "version": "20261021072614"
+      },
+      {
+        "name": "a21_acquisition_ecosystem",
+        "version": "20261021080321"
+      },
+      {
+        "name": "a21_generation_advisor_hardening",
+        "version": "20261021080422"
+      },
+      {
+        "name": "a22_postventa_evidence_coordination",
+        "version": "20261021085510"
+      },
+      {
+        "name": "a22_delivery_rpc_privileges",
+        "version": "20261021090307"
+      },
+      {
+        "name": "a22_delivery_rpc_search_path",
+        "version": "20261021090531"
+      },
+      {
+        "name": "a23_creative_full_evidence_and_coordination",
+        "version": "20261021094657"
+      },
+      {
+        "name": "a23_creative_full_evidence_and_coordination",
+        "version": "20261021101538"
+      },
+      {
+        "name": "a02_metric_figure_keys",
+        "version": "20261030080947"
+      },
+      {
+        "name": "a02_panel_kpi_coverage",
+        "version": "20261030095326"
+      },
+      {
+        "name": "a05_email_pipeline_tools",
+        "version": "20261031071955"
+      },
+      {
+        "name": "a08_authorized_methodology_audit",
+        "version": "20261031081228"
+      }
+    ],
+    "comparison_semantics": "Version identifiers and exact migration names only. Differences do not prove unapplied schema changes."
+  },
+  "rpc_metadata": [
+    {
+      "name": "meta_creative_diagnostics",
+      "arguments": "target_organization_id uuid, target_ad_id uuid, period_start date, period_end date, target_store_id uuid",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "meta_creative_performance_a23",
+      "arguments": "target_organization_id uuid, period_start date, period_end date, target_store_id uuid, min_impressions bigint, target_campaign_id uuid",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "meta_learning_phase_status",
+      "arguments": "target_organization_id uuid, period_start date, period_end date, target_store_id uuid, target_campaign_id uuid",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": true
+    },
+    {
+      "name": "meta_measurement_event_page",
+      "arguments": "target_organization_id uuid, period_start date, period_end date, target_store_id uuid, after_ad_set_id uuid, page_size integer",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "meta_measurement_issue_page",
+      "arguments": "target_organization_id uuid, period_start date, period_end date, target_store_id uuid, after_issue_id uuid, page_size integer",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "meta_pixel_health",
+      "arguments": "target_organization_id uuid, period_start date, period_end date, target_store_id uuid",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": true
+    },
+    {
+      "name": "meta_record_measurement_assessment",
+      "arguments": "target_organization_id uuid, target_store_id uuid, assessment jsonb",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "meta_review_issue_coverage",
+      "arguments": "target_organization_id uuid, target_store_id uuid",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "meta_save_measurement_verdict",
+      "arguments": "p_verdict jsonb",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": false
+    },
+    {
+      "name": "promote_agent_version",
+      "arguments": "p_agent_version_id uuid",
+      "anon_execute": false,
+      "service_execute": true,
+      "security_definer": true,
+      "authenticated_execute": false
+    },
+    {
+      "name": "shopify_financial_summary",
+      "arguments": "target_organization_id uuid, period_start timestamp with time zone, period_end timestamp with time zone, target_store_id uuid",
+      "anon_execute": true,
+      "service_execute": true,
+      "security_definer": false,
+      "authenticated_execute": true
+    }
+  ],
+  "local_tool_registry": {
+    "always_granted": [
+      "propose_capability"
+    ],
+    "tools": [
+      {
+        "name": "sql_query",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_metric",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "compare_periods",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_timeseries",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "detect_anomaly",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_cohort",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "describe_schema",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "sample_rows",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "data_coverage",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_organization_profile",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_brand_profile",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_strategic_plan",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_strategic_plan_version",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_current_milestone",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "list_open_tasks",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "list_open_alerts",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_task_history",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_task_detail",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_call_history",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_call_detail",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_knowledge_document",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_specialist_run_detail",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_campaign_item_detail",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_marketing_draft_detail",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_campaign_calendar",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_email_campaign_pipeline",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_consultant_workbench",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_financial_settings",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "generate_report",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "create_artifact",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_read_ad_accounts",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_read_campaign_insights",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "instagram_read_media",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "instagram",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "instagram_read_insights",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "instagram",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "knowledge_search",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "memory_recall",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_playbook",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "cite_source",
+        "status": "planned",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_budget_status",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "report_confidence",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "sql_select",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "search_knowledge",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_customer_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_product_repurchase_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_demand_sources",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_fulfillment_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_delivery_diagnostics",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_open_delivery_exceptions",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_return_delay_comparison",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_funnel_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "shopify_margin_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "get_shopify_product_catalog",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "shopify",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_creative_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_creative_diagnostics",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_delivery_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_change_log",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "meta_spend_detail",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "meta",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "klaviyo_email_content",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "klaviyo",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "klaviyo_measurement_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "klaviyo",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "klaviyo_performance_summary",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "klaviyo",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "klaviyo_entity_performance",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "klaviyo",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "klaviyo_deliverability_health",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "klaviyo",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "search_internal_email_design_playbook",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": null,
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_capability",
+        "status": "implemented_partial",
+        "permission": "read",
+        "effect": "read",
+        "connector": "core",
+        "requires_approval": false,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_task",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_milestone",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_phase",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_alert_rule",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_budget_change",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_content",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "klaviyo",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "propose_experiment",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "dry_run_write",
+        "status": "implemented_partial",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "escalate_to_human",
+        "status": "implemented_partial",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "request_missing_data",
+        "status": "implemented_partial",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "handoff_to_agent",
+        "status": "planned",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "flag_data_quality_issue",
+        "status": "implemented_partial",
+        "permission": "propose",
+        "effect": "propose",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": false
+      },
+      {
+        "name": "memory_write",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "shopify_update_product",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "shopify",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "shopify_update_inventory",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "shopify",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "meta_pause_ad",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "meta",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "meta_adjust_budget",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "meta",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "meta_duplicate_adset",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "meta",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "klaviyo_create_flow",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "klaviyo",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "klaviyo_send_campaign",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "klaviyo",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "instagram_schedule_post",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "instagram",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "log_reasoning_step",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      },
+      {
+        "name": "record_outcome",
+        "status": "planned",
+        "permission": "write",
+        "effect": "write",
+        "connector": "core",
+        "requires_approval": true,
+        "requires_idempotency_key": true
+      }
+    ]
+  },
+  "configured_tool_comparison": {
+    "configured_unique": 45,
+    "missing": [],
+    "planned": []
+  },
+  "writes_to_connected_services": 0,
+  "personal_records_read": 0
+}

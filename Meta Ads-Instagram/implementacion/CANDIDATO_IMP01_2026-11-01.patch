@@ -1,0 +1,913 @@
+diff --git a/apps/api/src/a24-meta-scope.test.ts b/apps/api/src/a24-meta-scope.test.ts
+index 9e7f5b9..10ca27c 100644
+--- a/apps/api/src/a24-meta-scope.test.ts
++++ b/apps/api/src/a24-meta-scope.test.ts
+@@ -124,11 +124,12 @@ test("A24 and A25 GET, manual run, cache, and cron carry the selected connection
+ test("A24 persists one versioned store-window gate and A14/A23/A25 fail closed when it is absent", async () => {
+   const runtime = await readFile(new URL("./ai-runtime.ts", import.meta.url), "utf8");
+   const verdict = await readFile(new URL("./meta-measurement-verdict.ts", import.meta.url), "utf8");
++  const cache = await readFile(new URL("./meta-measurement-cache.ts", import.meta.url), "utf8");
+   const migration = await readFile(new URL("../../../supabase/migrations/20270107120000_a24_measurement_integrity.sql", import.meta.url), "utf8");
+   assert.match(runtime, /buildMetaMeasurementVerdict\(/);
+   assert.match(runtime, /rpc\("meta_save_measurement_verdict"/);
+   assert.match(runtime, /loadMetaMeasurementVerdict\(supabase, organizationId, storeId, start, new Date\(endExclusive\.getTime\(\) - 24 \* 60 \* 60 \* 1000\)\)/);
+-  assert.match(runtime, /from\("meta_measurement_verdict_cache"\)/);
++  assert.match(cache, /from\("meta_measurement_verdict_cache"\)/);
+   const orchestrationStart = runtime.indexOf("const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES");
+   const orchestrationEnd = runtime.indexOf("] as const", orchestrationStart);
+   const orchestration = runtime.slice(orchestrationStart, orchestrationEnd);
+diff --git a/apps/api/src/ai-diagnostic-activity-gate.test.ts b/apps/api/src/ai-diagnostic-activity-gate.test.ts
+index 377c4fc..920af88 100644
+--- a/apps/api/src/ai-diagnostic-activity-gate.test.ts
++++ b/apps/api/src/ai-diagnostic-activity-gate.test.ts
+@@ -290,12 +290,12 @@ test("cada horizonte de plan tiene su propia antiguedad minima", () => {
+   assert.ok(month >= 27 * DAY_MS, "el mensual no se regenera a media mes");
+ });
+ 
+-test("la revision A19 solo vence cada tres dias y no depende del digest", () => {
++test("la revision A19 solo vence cada siete dias y no depende del digest", () => {
+   const now = Date.now();
+   const cadence = orchestratorMinRunAgeFor("a19_revision_camino");
+-  assert.equal(cadence, 3 * DAY_MS);
++  assert.equal(cadence, 7 * DAY_MS);
+   const notYetDue = decideOrchestratorAction({
+-    lastRunAt: now - 2 * DAY_MS,
++    lastRunAt: now - 6 * DAY_MS,
+     storedDigest: null,
+     currentDigest: "changed",
+     hasUnreviewedPending: false,
+@@ -315,10 +315,10 @@ test("la revision A19 solo vence cada tres dias y no depende del digest", () =>
+   assert.equal(due.run, true);
+ });
+ 
+-test("A19 espera tres dias desde la activacion para la primera revision", () => {
++test("A19 espera siete dias desde la activacion para la primera revision", () => {
+   const now = Date.parse("2026-09-27T12:00:00.000Z");
+-  assert.equal(isCaminoReviewDue("2026-09-25T12:00:00.000Z", now), false);
+-  assert.equal(isCaminoReviewDue("2026-09-24T12:00:00.000Z", now), true);
++  assert.equal(isCaminoReviewDue("2026-09-21T12:00:00.000Z", now), false);
++  assert.equal(isCaminoReviewDue("2026-09-20T12:00:00.000Z", now), true);
+   assert.equal(isCaminoReviewDue(null, now), false);
+   assert.equal(isCaminoReviewDue("invalid", now), false);
+ });
+diff --git a/apps/api/src/integrations-configuration.test.ts b/apps/api/src/integrations-configuration.test.ts
+index f3c3322..be9e6cb 100644
+--- a/apps/api/src/integrations-configuration.test.ts
++++ b/apps/api/src/integrations-configuration.test.ts
+@@ -76,19 +76,34 @@ test("la readiness API respeta las capacidades webhook-only de Fathom", () => {
+ test("la recuperación se verifica sólo tras fallo/partial seguido de éxito", () => {
+   assert.equal(
+     hasRecoveredSync("connection-1", [
+-      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z" },
+-      { connection_id: "connection-1", status: "failed", created_at: "2026-08-26T11:00:00Z" },
+-    ]),
++      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z", finished_at: "2026-08-26T12:05:00Z" },
++      { connection_id: "connection-1", status: "failed", created_at: "2026-08-26T11:00:00Z", finished_at: "2026-08-26T11:05:00Z" },
++    ], null),
+     true,
+   );
+   assert.equal(
+     hasRecoveredSync("connection-1", [
+-      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z" },
+-    ]),
++      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z", finished_at: "2026-08-26T12:05:00Z" },
++    ], null),
+     false,
+   );
+ });
+ 
++test("la recuperación exige un éxito finalizado después del último error de la conexión", () => {
++  const success = { connection_id: "connection-1", status: "succeeded", created_at: "2026-09-22T00:00:00Z", finished_at: "2026-09-22T00:05:00Z" };
++  const failure = { connection_id: "connection-1", status: "failed", created_at: "2026-09-21T00:00:00Z", finished_at: "2026-09-21T00:05:00Z" };
++  const runs = [success, failure];
++
++  assert.equal(hasRecoveredSync("connection-1", runs, "2026-11-01T01:00:00Z"), false);
++  assert.equal(hasRecoveredSync("connection-1", runs, "2026-09-22T00:03:00Z"), true);
++  assert.equal(hasRecoveredSync("connection-1", runs, success.finished_at), false);
++  assert.equal(hasRecoveredSync("connection-1", runs, "invalid-date"), false);
++  assert.equal(hasRecoveredSync("connection-1", [{ ...success, finished_at: null }, failure], null), false);
++  assert.equal(hasRecoveredSync("connection-1", [{ ...success, finished_at: "invalid-date" }, failure], null), false);
++  assert.equal(hasRecoveredSync("connection-1", [{ ...success, connection_id: "connection-2" }, failure], null), false);
++  assert.equal(hasRecoveredSync("connection-1", [{ ...success, status: "partial" }, failure], null), false);
++});
++
+ test("Meta puede cerrar readiness cuando existe recuperación operacional", () => {
+   const meta = INTEGRATION_CATALOG.find((provider) => provider.id === "meta_ads");
+   assert.ok(meta);
+diff --git a/apps/api/src/integrations.ts b/apps/api/src/integrations.ts
+index b2396ba..106d0a4 100644
+--- a/apps/api/src/integrations.ts
++++ b/apps/api/src/integrations.ts
+@@ -168,18 +168,26 @@ export function deriveIntegrationActivation(
+ 
+ /**
+  * A successful run after a failed/partial run is durable evidence that the
+- * connector recovered. It is deliberately scoped to one connection and uses
++ * connector recovered only if it also finished after the last connection error.
++ * It is deliberately scoped to one connection and uses
+  * only run metadata, never provider payloads or credentials.
+  */
+ export function hasRecoveredSync(
+   connectionId: string,
+-  runs: readonly Pick<SyncRunRow, "connection_id" | "status" | "created_at">[],
++  runs: readonly Pick<SyncRunRow, "connection_id" | "status" | "created_at" | "finished_at">[],
++  lastErrorAt: string | null,
+ ): boolean {
+   const connectionRuns = runs
+     .filter((run) => run.connection_id === connectionId)
+     .sort((left, right) => right.created_at.localeCompare(left.created_at));
+   const latest = connectionRuns[0];
+-  if (!latest || latest.status !== "succeeded") return false;
++  if (!latest || latest.status !== "succeeded" || !latest.finished_at) return false;
++  const recoveredAt = Date.parse(latest.finished_at);
++  if (!Number.isFinite(recoveredAt)) return false;
++  if (lastErrorAt !== null) {
++    const errorAt = Date.parse(lastErrorAt);
++    if (!Number.isFinite(errorAt) || recoveredAt <= errorAt) return false;
++  }
+   return connectionRuns
+     .slice(1)
+     .some((run) => run.status === "failed" || run.status === "partial");
+@@ -552,7 +560,7 @@ export async function listIntegrations(
+                 connection,
+                 latestSync,
+                 health,
+-                hasRecoveredSync(connection.id, runs),
++                hasRecoveredSync(connection.id, runs, connection.last_error_at),
+               ),
+             };
+           })
+diff --git a/apps/api/src/meta-measurement-evidence.test.ts b/apps/api/src/meta-measurement-evidence.test.ts
+index 12aca63..a46ef7f 100644
+--- a/apps/api/src/meta-measurement-evidence.test.ts
++++ b/apps/api/src/meta-measurement-evidence.test.ts
+@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
+ import test from "node:test";
+ import type { SupabaseClient } from "@supabase/supabase-js";
+ import { compactMetaMeasurementContext, loadMetaMeasurementPages, metaMeasurementEvidenceDetails } from "./meta-measurement-evidence.js";
++import type { MetaMeasurementEvidence } from "./meta-measurement-verdict.js";
+ 
+ const window = { target_organization_id: "org-a", target_store_id: "store-a", period_start: "2026-10-01", period_end: "2026-10-20" };
+ test("A24 collects all mapping pages and preserves the scope on each request", async () => {
+@@ -53,3 +54,36 @@ test("A24 shares observed coverage with the measurement engine and never certifi
+   assert.equal(detail.measurement_engine.quality_state, "UNKNOWN");
+   assert.equal(detail.capability_matrix.find((row) => row.capability === "event_deduplication")?.state, "requires_external_verification");
+ });
++
++test("A24 delivery coverage requires a complete issue page and a nonempty available snapshot", async (t) => {
++  const source = (rows: Array<Record<string, unknown>> = []) => ({ available: true, rows });
++  const complete: MetaMeasurementEvidence = {
++    pixels: source(),
++    learning: source(),
++    eventMapping: source(),
++    issues: { ...source(), complete: true },
++    issueSnapshot: source([{ complete: true }]),
++  };
++  assert.equal(metaMeasurementEvidenceDetails(complete).planes.delivery.coverage_complete, true);
++
++  await t.test("snapshot missing", () => {
++    const withoutSnapshot = { ...complete };
++    delete withoutSnapshot.issueSnapshot;
++    assert.equal(metaMeasurementEvidenceDetails(withoutSnapshot).planes.delivery.coverage_complete, false);
++  });
++
++  const cases: Array<[string, Partial<MetaMeasurementEvidence>]> = [
++    ["snapshot empty", { issueSnapshot: source() }],
++    ["snapshot unavailable", { issueSnapshot: { available: false, rows: [{ complete: true }] } }],
++    ["snapshot source incomplete", { issueSnapshot: { ...source([{ complete: true }]), complete: false } }],
++    ["snapshot row incomplete", { issueSnapshot: source([{ complete: false }]) }],
++    ["issue page incomplete", { issues: { ...source(), complete: false } }],
++    ["issue completeness unknown", { issues: source() }],
++    ["issue page unavailable", { issues: { available: false, rows: [], complete: true } }],
++  ];
++  for (const [name, overrides] of cases) {
++    await t.test(name, () => {
++      assert.equal(metaMeasurementEvidenceDetails({ ...complete, ...overrides }).planes.delivery.coverage_complete, false);
++    });
++  }
++});
+diff --git a/apps/api/src/meta-measurement-evidence.ts b/apps/api/src/meta-measurement-evidence.ts
+index aa2cd2b..9aa79b3 100644
+--- a/apps/api/src/meta-measurement-evidence.ts
++++ b/apps/api/src/meta-measurement-evidence.ts
+@@ -89,7 +89,9 @@ export function metaMeasurementEvidenceDetails(evidence: MetaMeasurementEvidence
+     planes: {
+       measurement: buildMetaMeasurementVerdict({ ...evidence, issues: { ...evidence.issues, rows: [] } }, evaluatedAt),
+       delivery: {
+-        coverage_complete: evidence.issues.available && evidence.issueSnapshot?.rows.every((item) => item.complete === true) === true,
++        coverage_complete: evidence.issues.available && evidence.issues.complete === true &&
++          evidence.issueSnapshot?.available === true && evidence.issueSnapshot.complete !== false &&
++          evidence.issueSnapshot.rows.length > 0 && evidence.issueSnapshot.rows.every((item) => item.complete === true),
+         rejected_ad_ids: evidence.issues.rows.filter((item) => item.review_category === "rejected" && item.freshness === "fresh").map((item) => item.ad_id).filter(Boolean),
+       },
+       learning: { source: "meta_reported_learning_status", entity_count: evidence.learning.rows.length, reset_inferred_from_activity: false },
+diff --git a/apps/api/src/meta-measurement-verdict.test.ts b/apps/api/src/meta-measurement-verdict.test.ts
+index 5f28798..c906b61 100644
+--- a/apps/api/src/meta-measurement-verdict.test.ts
++++ b/apps/api/src/meta-measurement-verdict.test.ts
+@@ -1,7 +1,7 @@
+ import assert from "node:assert/strict";
+ import { readFileSync } from "node:fs";
+ import test from "node:test";
+-import { buildMetaMeasurementVerdict, metaMeasurementStatusFromContext, unknownMetaMeasurementVerdict } from "./meta-measurement-verdict.js";
++import { buildMetaMeasurementVerdict, metaMeasurementStatusFromContext, unknownMetaMeasurementVerdict, type MetaMeasurementEvidence } from "./meta-measurement-verdict.js";
+ 
+ const source = (rows: Array<Record<string, unknown>> = []) => ({ available: true, rows });
+ const evaluatedAt = new Date("2026-09-29T12:00:00.000Z");
+@@ -137,3 +137,23 @@ test("A24 final migration keeps the v9 prompt and cache writer guard", () => {
+   assert.match(migration, /source_fingerprint/);
+   assert.match(migration, /where public\.meta_measurement_verdict_cache\.evaluated_at <= excluded\.evaluated_at/);
+ });
++
++test("A24 never declares an explicitly incomplete source usable, even below the row cap", async (t) => {
++  for (const key of ["pixels", "learning", "issues", "eventMapping", "issueSnapshot"] as const) {
++    await t.test(key, () => {
++      const evidence: MetaMeasurementEvidence = {
++        pixels: source([{ is_unavailable: false }]),
++        learning: source([freshLearning]),
++        issues: { ...source(), complete: true },
++        eventMapping: { ...source([freshMapping]), complete: true },
++        issueSnapshot: source([{ complete: true }]),
++      };
++      evidence[key] = { ...evidence[key]!, complete: false };
++
++      const verdict = buildMetaMeasurementVerdict(evidence, evaluatedAt);
++
++      assert.equal(verdict.status, "unknown");
++      assert.ok(verdict.reason_codes.includes("source_incomplete"));
++    });
++  }
++});
+diff --git a/apps/api/src/meta-measurement-verdict.ts b/apps/api/src/meta-measurement-verdict.ts
+index b50ca3e..9d6042e 100644
+--- a/apps/api/src/meta-measurement-verdict.ts
++++ b/apps/api/src/meta-measurement-verdict.ts
+@@ -1,4 +1,5 @@
+-export const META_MEASUREMENT_VERDICT_VERSION = "a24-measurement-v4";
++export const META_MEASUREMENT_VERDICT_VERSION = "a24-measurement-v5";
++export const META_MEASUREMENT_SOURCE_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+ 
+ export type MetaMeasurementSource = {
+   available: boolean;
+@@ -34,6 +35,10 @@ const META_MEASUREMENT_STATUSES = new Set<MetaMeasurementVerdict["status"]>([
+   "unknown",
+ ]);
+ 
++export function isMetaMeasurementStatus(value: unknown): value is MetaMeasurementVerdict["status"] {
++  return typeof value === "string" && META_MEASUREMENT_STATUSES.has(value as MetaMeasurementVerdict["status"]);
++}
++
+ /** Reads only the server-owned A24 context block; absent or malformed evidence stays fail-closed. */
+ export function metaMeasurementStatusFromContext(blocks: unknown): MetaMeasurementVerdict["status"] {
+   if (!Array.isArray(blocks)) return "unknown";
+@@ -44,7 +49,7 @@ export function metaMeasurementStatusFromContext(blocks: unknown): MetaMeasureme
+   ) as { data?: unknown } | undefined;
+   if (!block?.data || typeof block.data !== "object") return "unknown";
+   const status = (block.data as { status?: unknown }).status;
+-  return typeof status === "string" && META_MEASUREMENT_STATUSES.has(status as MetaMeasurementVerdict["status"])
++  return isMetaMeasurementStatus(status)
+     ? status as MetaMeasurementVerdict["status"]
+     : "unknown";
+ }
+@@ -59,8 +64,15 @@ export function buildMetaMeasurementVerdict(
+   evidence: MetaMeasurementEvidence,
+   evaluatedAt = new Date(),
+ ): MetaMeasurementVerdict {
+-  const sources = Object.values(evidence);
++  const sources = [
++    evidence.pixels,
++    evidence.learning,
++    evidence.issues,
++    evidence.eventMapping,
++    ...(evidence.issueSnapshot ? [evidence.issueSnapshot] : []),
++  ];
+   const allSourcesAvailable = sources.every((source) => source.available);
++  const hasIncompleteSource = sources.some((source) => source.complete === false);
+   const mappingRows = evidence.eventMapping.rows;
+   const eligibleRows = mappingRows.filter((row) => asNumber(row.eligible_ad_set_count ?? 1) > 0);
+   const spendRows = eligibleRows.filter((row) => asNumber(row.spend_in_period) > 0);
+@@ -87,7 +99,7 @@ export function buildMetaMeasurementVerdict(
+     if (typeof value !== "string") return false;
+     const timestamp = Date.parse(value);
+     const ageMs = evaluatedAt.getTime() - timestamp;
+-    return Number.isFinite(timestamp) && ageMs >= 0 && ageMs <= 48 * 60 * 60 * 1000;
++    return Number.isFinite(timestamp) && ageMs >= 0 && ageMs <= META_MEASUREMENT_SOURCE_MAX_AGE_MS;
+   };
+   const pixelSyncedRows = spendRows.filter((row) =>
+     ["mapped_event_observed", "mapped_event_not_observed_in_synced_window", "pixel_reported_unavailable"]
+@@ -123,6 +135,7 @@ export function buildMetaMeasurementVerdict(
+   const reasons: string[] = [];
+ 
+   if (!allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing) reasons.push("source_missing_or_stale");
++  if (hasIncompleteSource) reasons.push("source_incomplete");
+   if (pixelSyncUnknown) reasons.push("pixel_sync_stale_or_unknown");
+   if (accountSyncUnknown) reasons.push("account_sync_stale_or_unknown");
+   if (observedEventsOld) reasons.push("promoted_event_not_recently_observed");
+@@ -138,7 +151,7 @@ export function buildMetaMeasurementVerdict(
+ 
+   let status: MetaMeasurementVerdict["status"];
+   if (
+-    !allSourcesAvailable || hasUnknownFreshness || criticalRowsMissing || observedEventsOld ||
++    !allSourcesAvailable || hasIncompleteSource || hasUnknownFreshness || criticalRowsMissing || observedEventsOld ||
+     mappingTruncated || incompleteSetCoverage || issueSampleMayBeTruncated
+   ) status = "unknown";
+   else if (!spendRows.length) status = "not_assessable";
+diff --git a/packages/ai/src/agent-canonical-prompts.test.ts b/packages/ai/src/agent-canonical-prompts.test.ts
+index 813479f..06aa262 100644
+--- a/packages/ai/src/agent-canonical-prompts.test.ts
++++ b/packages/ai/src/agent-canonical-prompts.test.ts
+@@ -358,7 +358,12 @@ test("A12 v4 habilita lecturas de rendimiento con fechas, tienda y granularidad
+     runtime,
+     /parseKlaviyoPerformanceWindow\([\s\S]{0,100}input\.period_start[\s\S]{0,100}input\.period_end/,
+   );
+-  assert.match(runtime, /no_disponible_por_tienda/);
++  // Scope is resolved before execution; an obsolete placeholder cannot prove isolation.
++  const a12 = runtime.slice(runtime.indexOf("export async function runEmailAnalystAgent("), runtime.indexOf("export async function getEmailAnalystDiagnostic("));
++  assert.match(a12, /requireMembership\(context, organizationId\)/);
++  assert.match(a12, /resolveMarketingDiagnosticStoreScope\(/);
++  assert.match(a12, /if \(storeScope.ok === false\) return storeScope/);
++  assert.match(a12, /target_store_id: storeId/);
+ });
+ 
+ test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
+@@ -372,7 +377,11 @@ test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
+   assert.match(migration, /Las alertas actuales son organizativas/);
+   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
+   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
+-  assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
++  const a13 = runtime.slice(runtime.indexOf("export async function runOperativaShopifyAgent("), runtime.indexOf("export async function runOperativaMetaAgent("));
++  assert.match(a13, /\.from\("alerts"\)[\s\S]{0,160}\.eq\("organization_id", organizationId\)/);
++  assert.ok(a13.includes('.or(storeId ? `store_id.is.null,store_id.eq.${storeId}` : "store_id.is.null")'));
++  assert.match(a13, /scope: alert.store_id === storeId && storeId \? "selected_store" : "organization_unattributed"/);
++  assert.match(a13, /reason: "organization_alert_query_failed"/);
+   assert.match(runtime, /runOperativaShopifyAgent[\s\S]{0,500}resolveStrictStoreScope/);
+   assert.match(runtime, /operationalMetricValue\(sales\.data, sales\.error\)/);
+   assert.match(runtime, /operationalMetricValue\(prevSales\.data, prevSales\.error\)/);
+@@ -394,7 +403,11 @@ test("A14 v2 mantiene ROAS, plan, tareas y alertas dentro del alcance correcto",
+   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
+   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
+   assert.match(runtime, /meta_spend_query_failed/);
+-  assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
++  const a14 = runtime.slice(runtime.indexOf("export async function runOperativaMetaAgent("), runtime.indexOf("export async function runCreatividadMetaAgent("));
++  assert.match(a14, /\.from\("alerts"\)[\s\S]{0,200}\.eq\("organization_id", organizationId\)/);
++  assert.ok(a14.includes('.or(`store_id.eq.${storeId},store_id.is.null`)'));
++  assert.match(a14, /attribution: alert.store_id === storeId \? "selected_store" : "organization_unattributed"/);
++  assert.match(a14, /reason: "organization_alert_query_failed"/);
+ });
+ 
+ test("las migraciones de agentes usan la columna checksum del esquema prompt_versions", () => {
+diff --git a/packages/ai/src/agent-mock-turn.test.ts b/packages/ai/src/agent-mock-turn.test.ts
+index 20bb0c1..49339f6 100644
+--- a/packages/ai/src/agent-mock-turn.test.ts
++++ b/packages/ai/src/agent-mock-turn.test.ts
+@@ -14,7 +14,12 @@ test("A23 recorre tools y valida su output con proveedor simulado y sin API key"
+     confidence: "low",
+     warnings: ["fixture: el gasto no permite atribuir una compra"],
+     creative_decisions: [{
++      decision_ref: "a23-1",
+       action: "observe",
++      store_id: null,
++      account_id: null,
++      ad_id: null,
++      creative_id: null,
+       signal: "La muestra no permite atribuir el resultado a esta creatividad.",
+       window: "2026-09-01 a 2026-09-28",
+       spend_implicated: null,
+@@ -22,6 +27,11 @@ test("A23 recorre tools y valida su output con proveedor simulado y sin API key"
+       uncertainty: "No hay suficiente evidencia de compras atribuibles.",
+       hypothesis: "Confirmar medición antes de proponer cambios de presupuesto.",
+       success_criterion: "Disponer de una ventana madura y una fuente de compras fiable.",
++      primary_metric: "Compras atribuidas",
++      metric_denominator: "Creatividad observada durante la ventana",
++      comparator: "Sin comparador fiable disponible",
++      evaluation_window_days: 28,
++      maturity_days: null,
+       measurement_verdict: "unknown",
+     }],
+   };
+diff --git a/packages/ai/src/tool-layer.ts b/packages/ai/src/tool-layer.ts
+index 30cd4e8..7ab35e7 100644
+--- a/packages/ai/src/tool-layer.ts
++++ b/packages/ai/src/tool-layer.ts
+@@ -294,7 +294,7 @@ export const TOOL_DESCRIPTIONS = {
+   shopify_margin_health: "Que se come el margen: margen bruto del periodo, productos que mas venden y coste por codigo de descuento. items_without_cost cuenta lineas sin coste cargado. lines_with_exact_metrics cuenta importes/unidades exactos de Shopify posteriores a los descuentos y sin unidades reembolsadas o retiradas; lines_with_estimated_metrics cuenta aproximaciones derivadas de webhooks REST; lines_without_metrics son líneas históricas aún sin cobertura. revenue, COGS y productos pueden ser parciales si lines_without_metrics > 0: informa de la cobertura antes de presentar cifras como totales y no completes filas desconocidas usando importes brutos. La serie diaria de ventas viene para distinguir una caída de margen de una caída de volumen.",
+   meta_creative_health: "Rendimiento por creatividad de Meta y reparto del gasto por veredicto de subasta. spend_currency identifica la divisa de cada cuenta/anuncio. El reparto de gasto se normaliza solo dentro de cada moneda; nunca compares ni sumes importes de monedas distintas ni conviertas divisas sin una fuente explícita. Si currency_code es null, el gasto y su porcentaje quedan sin agregar. hook_rate y hold_rate en null con has_video false significan que el anuncio NO es un video, no que el video sea malo. enough_volume false significa que no hay impresiones suficientes para publicar tasas. UNKNOWN o SIN_VEREDICTO significa que Meta no proporciona un ranking utilizable; no es un suspenso y no permite inferir por qué falta.",
+   meta_creative_diagnostics: "Inspecciona un anuncio Meta concreto por ID y periodo (máximo 90 días): devuelve identidad, copies/CTA sincronizados, variantes y activos de texto disponibles, rendimiento agregado solo a nivel anuncio y serie temporal diaria. Solo atribuye el periodo a una creatividad cuando una asignación temporal cubre el periodo entero; nunca atribuye métricas a cada activo. La serie elige una fila canónica por día; reach y frequency son observaciones diarias y nunca deben sumarse entre fechas. La ventana de atribución de compras puede diferir de otros informes y la tendencia no prueba fatiga ni causalidad. Esta tool no devuelve URLs ni binarios; el runner puede adjuntar como evidencia visual una imagen estática que ya esté importada al banco privado, si se valida el scope y el MIME. El ID debe venir del rendimiento sincronizado; la tienda la fija el backend.",
+-  meta_delivery_health: "Si las cifras de Meta se pueden creer: salud del pixel por evento, objetivo/evento promocionado realmente configurado por conjunto, estado de aprendizaje reportado por Meta y contexto de actividad Shopify/frescura si hay tienda seleccionada. El último evento del registro no confirma un reset de aprendizaje; la ausencia con log stale/failed/unknown tampoco prueba que no hubiera cambios. Distingue mapeo ausente, evento no observado, cero actividad con fuentes frescas y cobertura desconocida; permisos/sync antiguos invalidan los ceros. La conciliación Meta-Shopify no prueba causalidad ni exige equivalencia 1:1. No deduzcas Purchase desde un objetivo genérico ni conviertas una consulta fallida en cero.",
++  meta_delivery_health: "Lee la medición y entrega de la tienda seleccionada durante los mismos días completos UTC de A24. measurement_verdict es el veredicto determinista vigente y compartido con A14/A23/A25: si es unknown o no está disponible, no certifiques compras/ROAS aunque otras filas parezcan sanas. Incluye salud del pixel por evento, objetivo/evento promocionado realmente configurado por conjunto, aprendizaje reportado por Meta y cobertura Shopify. Las páginas de detalle no certifican cobertura completa. El último evento no confirma un reset de aprendizaje; su ausencia con log stale/failed/unknown tampoco prueba que no hubiera cambios. Distingue mapeo ausente, evento no observado, cero confirmado y cobertura desconocida. La conciliación Meta-Shopify no prueba causalidad ni equivalencia 1:1; observar un evento tampoco certifica CAPI, deduplicación, valor/divisa o dominio. No deduzcas Purchase desde un objetivo genérico ni conviertas errores en cero.",
+   meta_spend_detail: "En que campanas de Meta se va el dinero y como evoluciona el gasto dia a dia. Las compras y el valor de compra que acompanan al gasto son los que **Meta se atribuye** con su modelo (7 dias click / 1 dia view por defecto): NO son facturacion, no se suman a la de Klaviyo ni sustituyen a la de Shopify. Al hablar de ellos di 'atribuido por Meta'. Para saber cuanto cuesta de verdad traer un cliente usa cac_blended del resumen financiero, que divide el gasto entre los clientes nuevos reales de la tienda.",
+   meta_change_log: "Investiga cambios de Meta en un intervalo elegido por ti (period_start y period_end, maximo 31 dias y ultimos 90 dias). Usa este drill-down solo cuando el resumen revele una anomalia material, cambios concurrentes o cobertura dudosa. El backend fija organizacion/tienda; cada fila informa comparabilidad, cobertura y maduracion. Siete dias por lado excluyen el dia del cambio. Aun completo es coincidencia, NO causalidad.",
+   klaviyo_email_content: "Contenido observado de emails de la tienda seleccionada. Permite investigar un mensaje y cuenta exactos, paginando el texto con offset. La posicion numerica no demuestra el recorrido real del flow. UTM false no implica ausencia de toda medicion; null significa desconocido. Las plantillas observadas no prueban personalizacion ni entrega real.",
+diff --git a/apps/api/src/ai-runtime.ts b/apps/api/src/ai-runtime.ts
+index d52cb3a..7f4a561 100644
+--- a/apps/api/src/ai-runtime.ts
++++ b/apps/api/src/ai-runtime.ts
+@@ -53,6 +53,7 @@ import {
+   metaMeasurementStatusFromContext,
+   unknownMetaMeasurementVerdict,
+ } from "./meta-measurement-verdict.js";
++import { loadMetaMeasurementVerdict, META_MEASUREMENT_CACHE_TTL_MS } from "./meta-measurement-cache.js";
+ import {
+   A23_MAX_VISION_ADS,
+   A23_MAX_VISION_IMAGES,
+@@ -3132,9 +3135,10 @@ export function buildAgentTools(
+     "meta_delivery_health",
+     TOOL_DESCRIPTIONS.meta_delivery_health,
+     async (client, input) => {
+-      const window = metaWindow();
++      if (!storeId) return { data: null, error: { message: "meta_store_selection_required" } };
++      const { window, periodStart, periodEnd } = metaSpecialistWindow(organizationId, storeId);
+       const pageSize = Math.max(1, Math.min(Number(input.page_size ?? 40), 100));
+-      return combineMetricRpcs({
++      const [metrics, measurementVerdict] = await Promise.all([combineMetricRpcs({
+         pixel: client.rpc("meta_pixel_health", window),
+         aprendizaje: client.rpc("meta_learning_phase_status", window),
+         alineacion_objetivo_evento: (client as SupabaseClient<any>).rpc("meta_measurement_event_page", {
+@@ -3148,7 +3152,15 @@ export function buildAgentTools(
+         }).then((result) => ({ ...result, data: result.error ? null : {
+           rows: result.data ?? [], next_issue_id: result.data?.length === pageSize ? result.data.at(-1)?.issue_id ?? null : null,
+         } })),
+-      });
++      }), loadMetaMeasurementVerdict(client, organizationId, storeId, periodStart, periodEnd)]);
++      return {
++        data: {
++          ...metrics.data,
++          measurement_verdict: measurementVerdict,
++          window: { start: window.period_start, end: window.period_end, timezone: "UTC", complete_days: true },
++        },
++        error: metrics.error,
++      };
+     },
+   );
+ 
+@@ -16648,62 +16661,6 @@ function metaMeasurementVerdictBlock(verdict: unknown) {
+   };
+ }
+ 
+-async function loadMetaMeasurementVerdict(
+-  supabase: SupabaseClient,
+-  organizationId: string,
+-  storeId: string | null,
+-  periodStart: Date,
+-  periodEnd: Date,
+-) {
+-  if (!storeId) return unknownMetaMeasurementVerdict("store_scope_missing");
+-  const db = supabase as SupabaseClient<any>;
+-  const { data, error } = await db
+-    .from("meta_measurement_verdict_cache")
+-    .select("verdict, verdict_status, verdict_version, evaluated_at, expires_at, source_fingerprint")
+-    .eq("organization_id", organizationId)
+-    .eq("store_id", storeId)
+-    .eq("period_start", periodStart.toISOString().slice(0, 10))
+-    .eq("period_end", periodEnd.toISOString().slice(0, 10))
+-    .eq("verdict_version", META_MEASUREMENT_VERDICT_VERSION)
+-    .gt("expires_at", new Date().toISOString())
+-    .lte("evaluated_at", new Date().toISOString())
+-    .maybeSingle();
+-  if (error || !data?.verdict || !data.source_fingerprint || Date.parse(data.expires_at) - Date.parse(data.evaluated_at) > 60 * 60 * 1000)
+-    return unknownMetaMeasurementVerdict("fresh_verdict_unavailable");
+-  const verdict = data.verdict && typeof data.verdict === "object"
+-    ? data.verdict as Record<string, unknown>
+-    : {};
+-  const status = data.verdict_status;
+-  const currentAccounts = await db.from("meta_ad_accounts").select("id")
+-    .eq("organization_id", organizationId).eq("store_id", storeId)
+-    .eq("is_active", true).eq("is_selected", true).order("id");
+-  const cachedScope = verdict.scope && typeof verdict.scope === "object" ? verdict.scope as Record<string, unknown> : {};
+-  const cachedAccountIds = Array.isArray(cachedScope.account_ids)
+-    ? cachedScope.account_ids.filter((id): id is string => typeof id === "string").sort()
+-    : [];
+-  const selectedAccountIds = (currentAccounts.data ?? []).map((row) => row.id).sort();
+-  if (
+-    currentAccounts.error || !["usable_with_attribution_limits", "restricted", "not_assessable", "unknown"].includes(String(status)) ||
+-    verdict.status !== status || !Array.isArray(cachedScope.account_ids) ||
+-    JSON.stringify(cachedAccountIds) !== JSON.stringify(selectedAccountIds) || cachedScope.store_id !== storeId
+-  ) return unknownMetaMeasurementVerdict("scope_or_payload_changed");
+-  return {
+-    ...verdict,
+-    status,
+-    provenance: {
+-      source: "meta_measurement_verdict_cache",
+-      evaluated_at: data.evaluated_at,
+-      expires_at: data.expires_at,
+-      verdict_version: data.verdict_version,
+-      source_fingerprint: data.source_fingerprint,
+-      store_id: storeId,
+-      period_start: periodStart.toISOString().slice(0, 10),
+-      period_end: periodEnd.toISOString().slice(0, 10),
+-      fresh: true,
+-    },
+-  };
+-}
+-
+ async function saveMetaMeasurementVerdict(
+   supabase: SupabaseClient,
+   organizationId: string,
+@@ -16729,7 +16686,7 @@ async function saveMetaMeasurementVerdict(
+       verdict,
+       source_fingerprint: sourceFingerprint,
+       evaluated_at: evaluatedAt.toISOString(),
+-      expires_at: new Date(evaluatedAt.getTime() + 60 * 60 * 1000).toISOString(),
++      expires_at: new Date(evaluatedAt.getTime() + META_MEASUREMENT_CACHE_TTL_MS).toISOString(),
+     },
+   });
+   return !error;
+@@ -17902,6 +17859,7 @@ export async function runMedicionMetaAgent(
+         eventMapping: {
+           available: !optimizationEventHealth.error,
+           rows: optimizationEventHealth.data ?? [],
++          complete: optimizationEventHealth.complete,
+         },
+         issueSnapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? [] },
+       };
+@@ -17912,17 +17870,18 @@ export async function runMedicionMetaAgent(
+         scope: { organization_id: organizationId, store_id: storeId, account_ids: metaEligibility.account_ids ?? [] },
+         window: { start: window.period_start, end: window.period_end, timezone: "UTC", complete_days: true },
+         evaluated_at: now.toISOString(),
+-        expires_at: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
++        expires_at: new Date(now.getTime() + META_MEASUREMENT_CACHE_TTL_MS).toISOString(),
+         sources: {
+           pixel: { available: !pixels.error, rows: pixels.data?.length ?? null },
+           learning: { available: !learning.error, rows: learning.data?.length ?? null },
+-          review_issues: { available: !issues.error, rows: issues.data?.length ?? null },
++          review_issues: { available: !issues.error, rows: issues.data?.length ?? null, complete: issues.complete },
+           issue_snapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? null },
+-          promoted_events: { available: !optimizationEventHealth.error, rows: optimizationEventHealth.data?.length ?? null },
++          promoted_events: { available: !optimizationEventHealth.error, rows: optimizationEventHealth.data?.length ?? null, complete: optimizationEventHealth.complete },
+         },
+         source_fingerprint: crypto.createHash("sha256").update(JSON.stringify({
+           account_ids: metaEligibility.account_ids ?? [], pixels: pixels.data ?? [], learning: learning.data ?? [],
+           issues: issues.data ?? [], event_mapping: optimizationEventHealth.data ?? [], issue_snapshot: issueSnapshot.data ?? [],
++          coverage: { issues_complete: issues.complete, event_mapping_complete: optimizationEventHealth.complete },
+         })).digest("hex"),
+       };
+       const verdictCached = await saveMetaMeasurementVerdict(
+@@ -18032,11 +17991,11 @@ export async function getMedicionMetaDiagnostic(
+     pixels: { available: !pixels.error, rows: pixels.data ?? [] },
+     learning: { available: !learning.error, rows: learning.data ?? [] },
+     issues: { available: !issues.error, rows: issues.data ?? [], complete: issues.complete },
+-    eventMapping: { available: !eventMapping.error, rows: eventMapping.data ?? [] },
++    eventMapping: { available: !eventMapping.error, rows: eventMapping.data ?? [], complete: eventMapping.complete },
+     issueSnapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? [] },
+   };
+   const verdict = buildMetaMeasurementVerdict(measurementEvidence, now);
+-  const evaluationTtl = 60 * 60 * 1000;
++  const evaluationTtl = META_MEASUREMENT_CACHE_TTL_MS;
+   const assessment = {
+     ...verdict,
+     ...metaMeasurementEvidenceDetails(measurementEvidence, now),
+@@ -18048,13 +18007,14 @@ export async function getMedicionMetaDiagnostic(
+     sources: {
+       pixel: { available: !pixels.error, rows: pixels.data?.length ?? null },
+       learning: { available: !learning.error, rows: learning.data?.length ?? null },
+-      review_issues: { available: !issues.error, rows: issues.data?.length ?? null },
++      review_issues: { available: !issues.error, rows: issues.data?.length ?? null, complete: issues.complete },
+       issue_snapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? null },
+-      promoted_events: { available: !eventMapping.error, rows: eventMapping.data?.length ?? null },
++      promoted_events: { available: !eventMapping.error, rows: eventMapping.data?.length ?? null, complete: eventMapping.complete },
+     },
+     source_fingerprint: crypto.createHash("sha256").update(JSON.stringify({
+       account_ids: eligibility.account_ids ?? [], pixels: pixels.data ?? [], learning: learning.data ?? [],
+       issues: issues.data ?? [], event_mapping: eventMapping.data ?? [], issue_snapshot: issueSnapshot.data ?? [],
++      coverage: { issues_complete: issues.complete, event_mapping_complete: eventMapping.complete },
+     })).digest("hex"),
+   };
+   await saveMetaMeasurementVerdict(
+@@ -18083,7 +18043,7 @@ export async function getMedicionMetaDiagnostic(
+       ...data,
+       output: { ...existing, measurement_assessment: assessment },
+       measurement_assessment: assessment,
+-      source_coverage: { status: sourcesAvailable && eligibility.status === "ready" ? "complete" : "partial_or_unknown", evaluated_at: now.toISOString(), window: assessment.window },
++      source_coverage: { status: sourcesAvailable && issues.complete && eventMapping.complete && assessment.planes.delivery.coverage_complete && eligibility.status === "ready" ? "complete" : "partial_or_unknown", evaluated_at: now.toISOString(), window: assessment.window },
+     },
+   };
+ }
+diff --git a/apps/api/package.json b/apps/api/package.json
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -447,7 +447,7 @@
+     "test:a28-flow-architect": "tsx --test --test-force-exit src/klaviyo-flow-architect-context.test.ts src/klaviyo-flow-definition-summary.test.ts src/klaviyo-flow-event-volume.test.ts src/a28-flow-architect-contract.test.ts src/klaviyo-email-report-summary.test.ts src/marketing-peer-history.test.ts",
+     "test:a26-html": "tsx --test --test-force-exit src/email-body-text.test.ts src/email-html-analysis.test.ts src/email-render-queue.test.ts src/klaviyo-email-template-scope.test.ts src/klaviyo-template-history.test.ts src/klaviyo-report-groupings.test.ts src/klaviyo-variation-report.test.ts src/klaviyo-variation-content.test.ts src/marketing-peer-history.test.ts src/marketing-store-scope.test.ts",
+     "test:remote": "dotenv -e ../../.env.local -- node ../../scripts/run-remote-tests.mjs --test --test-force-exit src/agent-judge-dataset-auth.test.ts src/sql-gateway.test.ts src/rls-tenant-isolation.test.ts src/db-00-private-schema-permissions.test.ts src/db-01-enum-drift.test.ts src/db-04-webhook-idempotency.test.ts src/db-04-token-refresh-claim.test.ts src/be-01-cross-tenant-route-manipulation.test.ts src/ai-01-call-summary-decision-status.test.ts src/db-02-metrics-rpc-tenant-isolation.test.ts src/db-08-purge-cascade.test.ts src/db-11-knowledge-search-isolation.test.ts src/be-07-sql-gateway-tenant-isolation.test.ts src/integration-adapters.test.ts src/integration-feature-flag-routes.test.ts src/ai-runtime-envelope.test.ts src/ai-orchestration-task-dedup.test.ts src/ai-activity-feed.test.ts src/ai-observability-trace.test.ts src/auth-context-access-source.test.ts src/be-01-consultant-cross-tenant-write.test.ts src/be-01-cross-tenant-write-endpoints.test.ts src/ai-09-organization-daily-budget.test.ts src/be-00-graceful-shutdown.test.ts src/fe-02-period-comparison.test.ts src/db-03-financial-engine-golden.test.ts src/fe-04-mi-camino-tree.test.ts src/db-01-notifications-lifecycle.test.ts src/sqo-04-platform-admin-privilege-escalation.test.ts src/knowledge-search-rpc.test.ts src/observability-metrics-endpoint.test.ts src/meta-identity.test.ts src/meta-asset-selection.test.ts src/ai-agent-approval-guards.test.ts",
+-    "test:a24-contracts": "tsx --test --test-force-exit src/meta-measurement-verdict.test.ts src/meta-measurement-evidence.test.ts src/a24-final-sql-contract.test.ts src/a24-meta-scope.test.ts src/meta-sync-blocks.test.ts src/measurement-experimentation-engine.test.ts",
++    "test:a24-contracts": "tsx --test --test-force-exit src/meta-measurement-verdict.test.ts src/meta-measurement-evidence.test.ts src/meta-measurement-cache.test.ts src/a24-final-sql-contract.test.ts src/a24-meta-scope.test.ts src/meta-sync-blocks.test.ts src/measurement-experimentation-engine.test.ts",
+     "test:a26-contracts": "tsx --test --test-force-exit src/a26-content-evidence.test.ts src/a26-final-contract.test.ts"
+   },
+   "engines": {
+diff --git a/apps/api/src/meta-measurement-cache.ts b/apps/api/src/meta-measurement-cache.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/api/src/meta-measurement-cache.ts
+@@ -0,0 +1,103 @@
++import type { SupabaseClient } from "@supabase/supabase-js";
++import {
++  isMetaMeasurementStatus,
++  META_MEASUREMENT_VERDICT_VERSION,
++  META_MEASUREMENT_SOURCE_MAX_AGE_MS,
++  unknownMetaMeasurementVerdict,
++} from "./meta-measurement-verdict.js";
++
++export const META_MEASUREMENT_CACHE_TTL_MS = 60 * 60 * 1000;
++
++/** Read the same scoped, versioned gate for specialists and consultant tools. */
++export async function loadMetaMeasurementVerdict(
++  supabase: SupabaseClient,
++  organizationId: string,
++  storeId: string | null,
++  periodStart: Date,
++  periodEnd: Date,
++  now = new Date(),
++) {
++  if (!storeId) return unknownMetaMeasurementVerdict("store_scope_missing");
++  if (![periodStart, periodEnd, now].every((date) => Number.isFinite(date.getTime())) || periodStart > periodEnd)
++    return unknownMetaMeasurementVerdict("invalid_measurement_window");
++  const start = periodStart.toISOString().slice(0, 10);
++  const end = periodEnd.toISOString().slice(0, 10);
++  const db = supabase as SupabaseClient<any>;
++  const { data, error } = await db
++    .from("meta_measurement_verdict_cache")
++    .select("verdict, verdict_status, verdict_version, evaluated_at, expires_at, source_fingerprint")
++    .eq("organization_id", organizationId)
++    .eq("store_id", storeId)
++    .eq("period_start", start)
++    .eq("period_end", end)
++    .eq("verdict_version", META_MEASUREMENT_VERDICT_VERSION)
++    .gt("expires_at", now.toISOString())
++    .lte("evaluated_at", now.toISOString())
++    .maybeSingle();
++  const evaluatedAt = typeof data?.evaluated_at === "string" ? Date.parse(data.evaluated_at) : NaN;
++  const expiresAt = typeof data?.expires_at === "string" ? Date.parse(data.expires_at) : NaN;
++  if (
++    error || !data || data.verdict_version !== META_MEASUREMENT_VERDICT_VERSION ||
++    typeof data.source_fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(data.source_fingerprint) ||
++    !Number.isFinite(evaluatedAt) || !Number.isFinite(expiresAt) ||
++    evaluatedAt > now.getTime() || expiresAt <= now.getTime() || expiresAt <= evaluatedAt ||
++    expiresAt - evaluatedAt > META_MEASUREMENT_CACHE_TTL_MS ||
++    !data.verdict || typeof data.verdict !== "object" || Array.isArray(data.verdict)
++  ) return unknownMetaMeasurementVerdict("fresh_verdict_unavailable");
++
++  const verdict = data.verdict as Record<string, unknown>;
++  const status = data.verdict_status;
++  const currentAccounts = await db.from("meta_ad_accounts").select("id, connection_id, last_synced_at")
++    .eq("organization_id", organizationId).eq("store_id", storeId)
++    .eq("is_active", true).eq("is_selected", true).order("id");
++  const scope = verdict.scope && typeof verdict.scope === "object" && !Array.isArray(verdict.scope)
++    ? verdict.scope as Record<string, unknown> : {};
++  const window = verdict.window && typeof verdict.window === "object" && !Array.isArray(verdict.window)
++    ? verdict.window as Record<string, unknown> : {};
++  const cachedIds = Array.isArray(scope.account_ids) ? scope.account_ids : [];
++  const selectedIds = (currentAccounts.data ?? []).map((row: { id: string }) => row.id).sort();
++  if (
++    currentAccounts.error || !isMetaMeasurementStatus(status) || verdict.status !== status ||
++    scope.organization_id !== organizationId || scope.store_id !== storeId ||
++    !cachedIds.length || cachedIds.some((id) => typeof id !== "string" || !id) ||
++    new Set(cachedIds).size !== cachedIds.length || !selectedIds.length ||
++    JSON.stringify([...cachedIds].sort()) !== JSON.stringify(selectedIds) ||
++    window.start !== start || window.end !== end || window.timezone !== "UTC" || window.complete_days !== true
++  ) return unknownMetaMeasurementVerdict("scope_or_payload_changed");
++
++  const sourceIsUnchangedAndFresh = (value: unknown) => {
++    const syncedAt = typeof value === "string" ? Date.parse(value) : NaN;
++    return Number.isFinite(syncedAt) && syncedAt <= evaluatedAt &&
++      now.getTime() - syncedAt <= META_MEASUREMENT_SOURCE_MAX_AGE_MS;
++  };
++  const accounts = currentAccounts.data as Array<{ connection_id: string | null; last_synced_at: string | null }>;
++  if (accounts.some((account) => !account.connection_id || !sourceIsUnchangedAndFresh(account.last_synced_at)))
++    return unknownMetaMeasurementVerdict("sources_changed_or_unavailable");
++  const connectionIds = [...new Set(accounts.map((account) => account.connection_id))];
++  const connections = await db.from("integration_connections")
++    .select("id, provider, status, last_sync_at, last_error_at")
++    .eq("organization_id", organizationId).in("id", connectionIds).order("id");
++  if (
++    connections.error || connections.data?.length !== connectionIds.length ||
++    connections.data.some((connection: { provider: string; status: string; last_sync_at: string | null; last_error_at: string | null }) => {
++      const errorAt = connection.last_error_at === null ? null : Date.parse(connection.last_error_at);
++      return connection.provider !== "meta_ads" || connection.status !== "connected" || !sourceIsUnchangedAndFresh(connection.last_sync_at) ||
++        (errorAt !== null && (!Number.isFinite(errorAt) || errorAt > evaluatedAt));
++    })
++  ) return unknownMetaMeasurementVerdict("sources_changed_or_unavailable");
++  return {
++    ...verdict,
++    status,
++    provenance: {
++      source: "meta_measurement_verdict_cache",
++      evaluated_at: data.evaluated_at,
++      expires_at: data.expires_at,
++      verdict_version: data.verdict_version,
++      source_fingerprint: data.source_fingerprint,
++      store_id: storeId,
++      period_start: start,
++      period_end: end,
++      fresh: true,
++    },
++  };
++}
+diff --git a/apps/api/src/meta-measurement-cache.test.ts b/apps/api/src/meta-measurement-cache.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/api/src/meta-measurement-cache.test.ts
+@@ -0,0 +1,204 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import type { SupabaseClient } from "@supabase/supabase-js";
++import { buildAgentTools } from "./ai-runtime.js";
++import { loadMetaMeasurementVerdict } from "./meta-measurement-cache.js";
++import { META_MEASUREMENT_VERDICT_VERSION } from "./meta-measurement-verdict.js";
++
++const org = "00000000-0000-4000-8000-000000000001";
++const store = "00000000-0000-4000-8000-000000000002";
++const now = new Date("2026-11-01T12:30:00Z");
++const start = new Date("2026-10-02T00:00:00Z");
++const end = new Date("2026-10-31T23:59:59.999Z");
++
++function cachedVerdict() {
++  return {
++    verdict_version: META_MEASUREMENT_VERDICT_VERSION,
++    verdict_status: "restricted",
++    source_fingerprint: "a".repeat(64),
++    evaluated_at: "2026-11-01T12:00:00Z",
++    expires_at: "2026-11-01T13:00:00Z",
++    verdict: {
++      status: "restricted",
++      scope: { organization_id: org, store_id: store, account_ids: ["account-b", "account-a"] },
++      window: { start: "2026-10-02", end: "2026-10-31", timezone: "UTC", complete_days: true },
++    },
++  };
++}
++
++function fakeClient(options: {
++  cache?: unknown;
++  accounts?: Array<{ id: string; connection_id?: string | null; last_synced_at?: string | null }>;
++  connections?: Array<{ id: string; provider: string; status: string; last_sync_at: string | null; last_error_at: string | null }>;
++  cacheError?: boolean;
++  accountError?: boolean;
++  connectionError?: boolean;
++  rpcError?: boolean;
++} = {}) {
++  const filters: Array<{ table: string; key: string; value: unknown }> = [];
++  const rpcs: Array<{ name: string; args: Record<string, unknown> }> = [];
++  const client = {
++    from(table: string) {
++      const query = {
++        select() { return query; },
++        eq(key: string, value: unknown) { filters.push({ table, key, value }); return query; },
++        in(key: string, value: unknown) { filters.push({ table, key, value }); return query; },
++        gt(key: string, value: unknown) { filters.push({ table, key: `gt:${key}`, value }); return query; },
++        lte(key: string, value: unknown) { filters.push({ table, key: `lte:${key}`, value }); return query; },
++        async maybeSingle() { return { data: options.cache ?? null, error: options.cacheError ? { message: "unavailable" } : null }; },
++        async order() {
++          if (table === "integration_connections") return {
++            data: options.connections ?? [{ id: "connection-a", provider: "meta_ads", status: "connected", last_sync_at: "2026-11-01T11:59:00Z", last_error_at: null }],
++            error: options.connectionError ? { message: "unavailable" } : null,
++          };
++          return { data: options.accounts ?? ["account-a", "account-b"].map((id) => ({ id, connection_id: "connection-a", last_synced_at: "2026-11-01T11:59:00Z" })), error: options.accountError ? { message: "unavailable" } : null };
++        },
++        async insert() { return { error: null }; },
++      };
++      return query;
++    },
++    async rpc(name: string, args: Record<string, unknown>) {
++      rpcs.push({ name, args });
++      return { data: options.rpcError ? null : [], error: options.rpcError ? { message: "unavailable" } : null };
++    },
++  };
++  return { client: client as unknown as SupabaseClient, filters, rpcs };
++}
++
++test("the shared A24 gate preserves its status and binds tenant, store, dates and version", async () => {
++  const { client, filters } = fakeClient({ cache: cachedVerdict() });
++  const result = await loadMetaMeasurementVerdict(client, org, store, start, end, now);
++  assert.equal(result.status, "restricted");
++  assert.ok("provenance" in result);
++  for (const table of ["meta_measurement_verdict_cache", "meta_ad_accounts"]) {
++    assert.ok(filters.some((f) => f.table === table && f.key === "organization_id" && f.value === org));
++    assert.ok(filters.some((f) => f.table === table && f.key === "store_id" && f.value === store));
++  }
++  assert.ok(filters.some((f) => f.key === "verdict_version" && f.value === META_MEASUREMENT_VERDICT_VERSION));
++  assert.ok(filters.some((f) => f.key === "period_start" && f.value === "2026-10-02"));
++  assert.ok(filters.some((f) => f.key === "period_end" && f.value === "2026-10-31"));
++  for (const status of ["usable_with_attribution_limits", "restricted", "not_assessable", "unknown"]) {
++    const cache = cachedVerdict();
++    cache.verdict_status = status;
++    cache.verdict.status = status;
++    const selected = fakeClient({ cache });
++    assert.equal((await loadMetaMeasurementVerdict(selected.client, org, store, start, end, now)).status, status);
++  }
++});
++
++test("the shared A24 gate rejects expired, future, malformed and incompatible cache records", async (t) => {
++  const cases = [
++    { expires_at: now.toISOString() },
++    { evaluated_at: "2026-11-01T12:40:00Z" },
++    { expires_at: "2026-11-01T14:00:00Z" },
++    { expires_at: "2026-11-01T11:00:00Z" },
++    { evaluated_at: "invalid-date" },
++    { expires_at: "invalid-date" },
++    { source_fingerprint: "unverified" },
++    { verdict_version: "a24-measurement-v4" },
++    { verdict: [] },
++  ];
++  for (const [index, patch] of cases.entries()) {
++    await t.test(String(index), async () => {
++      const { client } = fakeClient({ cache: { ...cachedVerdict(), ...patch } });
++      assert.equal((await loadMetaMeasurementVerdict(client, org, store, start, end, now)).status, "unknown");
++    });
++  }
++});
++
++test("the shared A24 gate rejects another organization, store, window or account selection", async (t) => {
++  const base = cachedVerdict();
++  const cases = [
++    { scope: { ...base.verdict.scope, organization_id: "other-org" } },
++    { scope: { ...base.verdict.scope, store_id: "other-store" } },
++    { scope: { ...base.verdict.scope, account_ids: ["other-account"] } },
++    { scope: { ...base.verdict.scope, account_ids: ["account-a", "account-a"] } },
++    { scope: { ...base.verdict.scope, account_ids: ["account-a", 1] } },
++    { window: { ...base.verdict.window, end: "2026-11-01" } },
++    { window: { ...base.verdict.window, timezone: "Europe/Madrid" } },
++    { window: { ...base.verdict.window, complete_days: false } },
++    { status: "usable_with_attribution_limits" },
++  ];
++  for (const [index, patch] of cases.entries()) {
++    await t.test(String(index), async () => {
++      const { client } = fakeClient({ cache: { ...base, verdict: { ...base.verdict, ...patch } } });
++      const result = await loadMetaMeasurementVerdict(client, org, store, start, end, now);
++      assert.equal(result.status, "unknown");
++      assert.ok("reason_codes" in result);
++      assert.deepEqual(result.reason_codes, ["scope_or_payload_changed"]);
++    });
++  }
++});
++
++test("the shared gate stays unknown for missing data, read failures and empty selected accounts", async () => {
++  for (const options of [{}, { cache: cachedVerdict(), cacheError: true }, { cache: cachedVerdict(), accountError: true }, { cache: cachedVerdict(), accounts: [] }]) {
++    const { client } = fakeClient(options);
++    assert.equal((await loadMetaMeasurementVerdict(client, org, store, start, end, now)).status, "unknown");
++  }
++  const { client, filters } = fakeClient({ cache: cachedVerdict() });
++  assert.equal((await loadMetaMeasurementVerdict(client, org, null, start, end, now)).status, "unknown");
++  assert.equal((await loadMetaMeasurementVerdict(client, org, store, end, start, now)).status, "unknown");
++  assert.equal((await loadMetaMeasurementVerdict(client, org, store, new Date(NaN), end, now)).status, "unknown");
++  assert.equal(filters.length, 0);
++});
++
++test("A09 receives the same scoped gate on complete UTC days even if detail rows are empty", async () => {
++  const today = new Date();
++  const utcToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
++  const first = new Date(utcToday - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
++  const last = new Date(utcToday - 1).toISOString().slice(0, 10);
++  const cache = cachedVerdict();
++  cache.evaluated_at = new Date(today.getTime() - 1000).toISOString();
++  cache.expires_at = new Date(today.getTime() + 60_000).toISOString();
++  cache.verdict.window = { start: first, end: last, timezone: "UTC", complete_days: true };
++  const sourceTime = new Date(today.getTime() - 2000).toISOString();
++  const { client, rpcs } = fakeClient({ cache,
++    accounts: ["account-a", "account-b"].map((id) => ({ id, connection_id: "connection-a", last_synced_at: sourceTime })),
++    connections: [{ id: "connection-a", provider: "meta_ads", status: "connected", last_sync_at: sourceTime, last_error_at: null }],
++  });
++  const { tools } = buildAgentTools({} as never, client, org, org, ["meta_delivery_health"], "", store, ["meta"], ["client_visible"], { actorUserId: org, approvalMode: "required_before_publish" });
++  const tool = tools.find((entry) => entry.name === "meta_delivery_health");
++  assert.ok(tool);
++  const output = await tool.execute({}) as { data: { measurement_verdict: { status: string }; window: { start: string; end: string } } };
++  assert.equal(output.data.measurement_verdict.status, "restricted");
++  assert.deepEqual([output.data.window.start, output.data.window.end], [first, last]);
++  assert.ok(rpcs.every((rpc) => rpc.args.target_organization_id === org && rpc.args.target_store_id === store));
++  assert.ok(rpcs.every((rpc) => rpc.args.period_start === first && rpc.args.period_end === last));
++});
++
++test("A09 cannot query Meta health without a selected store or convert failed reads into healthy data", async () => {
++  const { client, rpcs } = fakeClient({ rpcError: true });
++  const build = (storeId: string | null) => buildAgentTools({} as never, client, org, org, ["meta_delivery_health"], "", storeId, ["meta"], ["client_visible"], { actorUserId: org, approvalMode: "required_before_publish" });
++  for (const storeId of [null, store]) {
++    const tool = build(storeId).tools.find((entry) => entry.name === "meta_delivery_health");
++    assert.ok(tool);
++    const result = await tool.execute({});
++    assert.match(JSON.stringify(result), /meta_delivery_health_unavailable/);
++    assert.doesNotMatch(JSON.stringify(result), /usable_with_attribution_limits/);
++    if (storeId === null) assert.equal(rpcs.length, 0);
++  }
++});
++
++test("a cached gate is invalidated by newer syncs, revoked connections and missing source coverage", async () => {
++  const connection = { id: "connection-a", provider: "meta_ads", status: "connected", last_sync_at: "2026-11-01T11:59:00Z", last_error_at: null as string | null };
++  const cases = [
++    { connectionError: true },
++    { connections: [] },
++    { connections: [{ ...connection, status: "revoked" }] },
++    { connections: [{ ...connection, provider: "shopify" }] },
++    { connections: [{ ...connection, status: "error" }] },
++    { connections: [{ ...connection, last_sync_at: "2026-11-01T12:10:00Z" }] },
++    { connections: [{ ...connection, last_sync_at: "2026-10-29T12:00:00Z" }] },
++    { connections: [{ ...connection, last_error_at: "2026-11-01T12:10:00Z" }] },
++    { connections: [{ ...connection, last_error_at: "invalid-date" }] },
++    { accounts: ["account-a", "account-b"].map((id) => ({ id, connection_id: null, last_synced_at: "2026-11-01T11:59:00Z" })) },
++    { accounts: ["account-a", "account-b"].map((id) => ({ id, connection_id: "connection-a", last_synced_at: "2026-11-01T12:10:00Z" })) },
++  ];
++  for (const options of cases) {
++    const { client } = fakeClient({ cache: cachedVerdict(), ...options });
++    const result = await loadMetaMeasurementVerdict(client, org, store, start, end, now);
++    assert.equal(result.status, "unknown");
++    assert.ok("reason_codes" in result);
++    assert.deepEqual(result.reason_codes, ["sources_changed_or_unavailable"]);
++  }
++});

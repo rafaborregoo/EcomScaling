@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { compactMetaMeasurementContext, loadMetaMeasurementPages, metaMeasurementEvidenceDetails } from "./meta-measurement-evidence.js";
+import type { MetaMeasurementEvidence } from "./meta-measurement-verdict.js";
 
 const window = { target_organization_id: "org-a", target_store_id: "store-a", period_start: "2026-10-01", period_end: "2026-10-20" };
 test("A24 collects all mapping pages and preserves the scope on each request", async () => {
@@ -52,4 +53,37 @@ test("A24 shares observed coverage with the measurement engine and never certifi
   assert.notEqual(detail.measurement_engine.facts["measurement.sessions.observed"], "TRUE");
   assert.equal(detail.measurement_engine.quality_state, "UNKNOWN");
   assert.equal(detail.capability_matrix.find((row) => row.capability === "event_deduplication")?.state, "requires_external_verification");
+});
+
+test("A24 delivery coverage requires a complete issue page and a nonempty available snapshot", async (t) => {
+  const source = (rows: Array<Record<string, unknown>> = []) => ({ available: true, rows });
+  const complete: MetaMeasurementEvidence = {
+    pixels: source(),
+    learning: source(),
+    eventMapping: source(),
+    issues: { ...source(), complete: true },
+    issueSnapshot: source([{ complete: true }]),
+  };
+  assert.equal(metaMeasurementEvidenceDetails(complete).planes.delivery.coverage_complete, true);
+
+  await t.test("snapshot missing", () => {
+    const withoutSnapshot = { ...complete };
+    delete withoutSnapshot.issueSnapshot;
+    assert.equal(metaMeasurementEvidenceDetails(withoutSnapshot).planes.delivery.coverage_complete, false);
+  });
+
+  const cases: Array<[string, Partial<MetaMeasurementEvidence>]> = [
+    ["snapshot empty", { issueSnapshot: source() }],
+    ["snapshot unavailable", { issueSnapshot: { available: false, rows: [{ complete: true }] } }],
+    ["snapshot source incomplete", { issueSnapshot: { ...source([{ complete: true }]), complete: false } }],
+    ["snapshot row incomplete", { issueSnapshot: source([{ complete: false }]) }],
+    ["issue page incomplete", { issues: { ...source(), complete: false } }],
+    ["issue completeness unknown", { issues: source() }],
+    ["issue page unavailable", { issues: { available: false, rows: [], complete: true } }],
+  ];
+  for (const [name, overrides] of cases) {
+    await t.test(name, () => {
+      assert.equal(metaMeasurementEvidenceDetails({ ...complete, ...overrides }).planes.delivery.coverage_complete, false);
+    });
+  }
 });

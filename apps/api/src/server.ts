@@ -10938,6 +10938,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     Body: {
       content_type?: string;
       channel?: string;
+      creative_mode?: "original" | "guided";
+      creative_task?: "create" | "hooks" | "adapt";
+      variant_count?: number;
+      product_ids?: string[];
+      source_draft_id?: string;
+      research_references?: Array<{ url: string; observed_at: string; observation: string }>;
       brief?: string;
       idempotency_key?: string;
       camino_task_id?: string;

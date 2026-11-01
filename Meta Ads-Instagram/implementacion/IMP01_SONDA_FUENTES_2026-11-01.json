@@ -1,0 +1,36 @@
+{
+  "captured_at": "2026-11-01T08:56:06.563242+00:00",
+  "scope": "selected_scope_1",
+  "identifiers": "replaced_with_local_aliases",
+  "evidence": {
+    "pixels": {
+      "available": true,
+      "rows": [],
+      "complete": true
+    },
+    "learning": {
+      "available": true,
+      "rows": [],
+      "complete": true
+    },
+    "issues": {
+      "available": true,
+      "rows": [],
+      "complete": true
+    },
+    "eventMapping": {
+      "available": true,
+      "rows": [],
+      "complete": true
+    },
+    "issueSnapshot": {
+      "available": true,
+      "rows": [
+        {
+          "complete": false
+        }
+      ],
+      "complete": true
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "created_on": "2026-11-01",
+  "base_commit": "9fba21e7de628c98f49b2123db103d66918b74ef",
+  "candidate_tree": "f29e8393d65543a50a89d4422ae9d1b98b4bb54d",
+  "patch_file": "CANDIDATO_IMP01_2026-11-01.patch",
+  "patch_sha256": "63a755276a501c1004238326b411b5e5553bfd94932108368118244104beb1dd",
+  "files": [
+    "apps/api/package.json",
+    "apps/api/src/a24-meta-scope.test.ts",
+    "apps/api/src/ai-diagnostic-activity-gate.test.ts",
+    "apps/api/src/ai-runtime.ts",
+    "apps/api/src/integrations-configuration.test.ts",
+    "apps/api/src/integrations.ts",
+    "apps/api/src/meta-measurement-cache.test.ts",
+    "apps/api/src/meta-measurement-cache.ts",
+    "apps/api/src/meta-measurement-evidence.test.ts",
+    "apps/api/src/meta-measurement-evidence.ts",
+    "apps/api/src/meta-measurement-verdict.test.ts",
+    "apps/api/src/meta-measurement-verdict.ts",
+    "packages/ai/src/agent-canonical-prompts.test.ts",
+    "packages/ai/src/agent-mock-turn.test.ts",
+    "packages/ai/src/tool-layer.ts"
+  ],
+  "selected_runtime_hunks": 10,
+  "verification": "Patch applied to a separate Git index at base_commit and an isolated worktree; all 15 source blobs match candidate_tree. The isolated candidate passes the same 71 A24, 291 AI and 76 control tests. Workspace dependencies reuse installed third-party packages; internal @e-nora packages resolve to the isolated worktree and were rebuilt there.",
+  "excludes": [
+    "Concurrent creative/marketing runtime changes",
+    "Concurrent test:unit script changes",
+    "Remote historical SQL archives",
+    "Production activation"
+  ],
+  "validation": {
+    "source_blobs_matched": 15,
+    "isolated_worktree": "tmp/imp-closeout-2026-11-01/release-candidate",
+    "test_runs": [
+      {
+        "command": "npm run test:a24-contracts --workspace @e-nora/api",
+        "passed": 71,
+        "failed": 0
+      },
+      {
+        "command": "npm test --workspace @e-nora/ai",
+        "passed": 291,
+        "failed": 0
+      },
+      {
+        "command": "Eight targeted API control suites listed in closeout report",
+        "passed": 76,
+        "failed": 0
+      }
+    ],
+    "shared_workspace_guards_passed": 19,
+    "production_deployed": false,
+    "live_meta_success_verified": false,
+    "full_product_end_to_end_verified": false
+  }
+}

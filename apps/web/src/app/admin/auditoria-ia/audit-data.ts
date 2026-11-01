@@ -122,16 +122,6 @@ export const AGENT_REVIEWS: AgentReview[] = [
     validation: "28 respuestas válidas en cuatro casos; 16 campos revisados por dos modelos candidatos. Stock y plazos de proveedor necesitan prueba API real y revisión humana.",
   },
   {
-    code: "a06_planificador_stock",
-    job: "Proponer reposición y anticipar roturas",
-    reads: "Inventario, demanda, previsiones y plazos",
-    candidate: economical,
-    reason:
-      "Las cantidades deben calcularse en código; el modelo explica y prioriza.",
-    validation:
-      "Sin inventar stock, plazos o compras; contrastar estacionalidad y unidades.",
-  },
-  {
     code: "a08_gestor_conocimiento",
     job: "Auditar cobertura, índice y posibles brechas de conocimiento",
     reads: "Catálogo global y de organización, telemetría de búsqueda y candidatos semánticos",

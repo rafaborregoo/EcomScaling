@@ -170,18 +170,26 @@ export function deriveIntegrationActivation(
 
 /**
  * A successful run after a failed/partial run is durable evidence that the
- * connector recovered. It is deliberately scoped to one connection and uses
+ * connector recovered only if it also finished after the last connection error.
+ * It is deliberately scoped to one connection and uses
  * only run metadata, never provider payloads or credentials.
  */
 export function hasRecoveredSync(
   connectionId: string,
-  runs: readonly Pick<SyncRunRow, "connection_id" | "status" | "created_at">[],
+  runs: readonly Pick<SyncRunRow, "connection_id" | "status" | "created_at" | "finished_at">[],
+  lastErrorAt: string | null,
 ): boolean {
   const connectionRuns = runs
     .filter((run) => run.connection_id === connectionId)
     .sort((left, right) => right.created_at.localeCompare(left.created_at));
   const latest = connectionRuns[0];
-  if (!latest || latest.status !== "succeeded") return false;
+  if (!latest || latest.status !== "succeeded" || !latest.finished_at) return false;
+  const recoveredAt = Date.parse(latest.finished_at);
+  if (!Number.isFinite(recoveredAt)) return false;
+  if (lastErrorAt !== null) {
+    const errorAt = Date.parse(lastErrorAt);
+    if (!Number.isFinite(errorAt) || recoveredAt <= errorAt) return false;
+  }
   return connectionRuns
     .slice(1)
     .some((run) => run.status === "failed" || run.status === "partial");
@@ -555,7 +563,7 @@ export async function listIntegrations(
                 connection,
                 latestSync,
                 health,
-                hasRecoveredSync(connection.id, runs),
+                hasRecoveredSync(connection.id, runs, connection.last_error_at),
               ),
             };
           })

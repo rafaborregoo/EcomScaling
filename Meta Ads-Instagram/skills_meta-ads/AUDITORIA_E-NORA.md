@@ -179,3 +179,7 @@ No hay `LICENSE`, historial de versiones o lockfile de dependencias dentro del p
 **Después:** corregir investigación de competencia y cualquier cálculo que se quiera reutilizar. No usar las recomendaciones de inversión ni el renderer como servicios de producción hasta cerrar sus problemas de datos, validación y contexto.
 
 Esta auditoría no instala las skills ni cambia la configuración de agentes. La comparación de modelos continúa pendiente.
+
+## Actualización de implementación · 01/11/2026
+
+Los métodos útiles se han integrado en A11 y en su editor, con contexto verificado por tienda, modos original/guiado y trece principios internos publicados en TEST. A14/A23/A24/A25 incorporan las cautelas analíticas revisadas. Se reutilizan contratos, permisos, costes y render existentes; no se ejecutan los Python/HTML del pack como servicios del SaaS. Detalle y límites en [Integración aplicada](../../docs/INTEGRACION_SKILLS_META_EN_NORA_2026-11-01.md). Comparación de seis modelos pendiente de la auditoría de A11.

@@ -358,7 +358,12 @@ test("A12 v4 habilita lecturas de rendimiento con fechas, tienda y granularidad 
     runtime,
     /parseKlaviyoPerformanceWindow\([\s\S]{0,100}input\.period_start[\s\S]{0,100}input\.period_end/,
   );
-  assert.match(runtime, /no_disponible_por_tienda/);
+  // Scope is resolved before execution; an obsolete placeholder cannot prove isolation.
+  const a12 = runtime.slice(runtime.indexOf("export async function runEmailAnalystAgent("), runtime.indexOf("export async function getEmailAnalystDiagnostic("));
+  assert.match(a12, /requireMembership\(context, organizationId\)/);
+  assert.match(a12, /resolveMarketingDiagnosticStoreScope\(/);
+  assert.match(a12, /if \(storeScope.ok === false\) return storeScope/);
+  assert.match(a12, /target_store_id: storeId/);
 });
 
 test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
@@ -372,7 +377,11 @@ test("A13 v2 separa tareas, fases y alertas sin atribución de tienda", () => {
   assert.match(migration, /Las alertas actuales son organizativas/);
   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
-  assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
+  const a13 = runtime.slice(runtime.indexOf("export async function runOperativaShopifyAgent("), runtime.indexOf("export async function runOperativaMetaAgent("));
+  assert.match(a13, /\.from\("alerts"\)[\s\S]{0,160}\.eq\("organization_id", organizationId\)/);
+  assert.ok(a13.includes('.or(storeId ? `store_id.is.null,store_id.eq.${storeId}` : "store_id.is.null")'));
+  assert.match(a13, /scope: alert.store_id === storeId && storeId \? "selected_store" : "organization_unattributed"/);
+  assert.match(a13, /reason: "organization_alert_query_failed"/);
   assert.match(runtime, /runOperativaShopifyAgent[\s\S]{0,500}resolveStrictStoreScope/);
   assert.match(runtime, /operationalMetricValue\(sales\.data, sales\.error\)/);
   assert.match(runtime, /operationalMetricValue\(prevSales\.data, prevSales\.error\)/);
@@ -394,7 +403,11 @@ test("A14 v2 mantiene ROAS, plan, tareas y alertas dentro del alcance correcto",
   assert.match(runtime, /loadOpenTasksBlock\(supabase, organizationId, storeId, true\)/);
   assert.match(runtime, /loadPlanPhasesBlock\(supabase, organizationId, storeId\)/);
   assert.match(runtime, /meta_spend_query_failed/);
-  assert.match(runtime, /labelOrganizationAlertsForStore\(alerts\.data \?\? \[\], storeId\)/);
+  const a14 = runtime.slice(runtime.indexOf("export async function runOperativaMetaAgent("), runtime.indexOf("export async function runCreatividadMetaAgent("));
+  assert.match(a14, /\.from\("alerts"\)[\s\S]{0,200}\.eq\("organization_id", organizationId\)/);
+  assert.ok(a14.includes('.or(`store_id.eq.${storeId},store_id.is.null`)'));
+  assert.match(a14, /attribution: alert.store_id === storeId \? "selected_store" : "organization_unattributed"/);
+  assert.match(a14, /reason: "organization_alert_query_failed"/);
 });
 
 test("las migraciones de agentes usan la columna checksum del esquema prompt_versions", () => {

@@ -1,4 +1,4 @@
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, EmptyState, IconChevronDown } from "@/components/ui";
 import type { CampaignPlanSummary } from "./campaign-rows";
 
 export function CampaignPlanAccountCard({
@@ -33,7 +33,7 @@ export function CampaignPlanAccountCard({
     return (
       <section className="mb-5 rounded-2xl border border-line bg-surface p-5" aria-live="polite">
         <Badge tone="neutral">A05 · Sin resultado</Badge>
-        <p className="mt-2 text-sm text-muted">Todavía no hay una planificación de campañas guardada para esta tienda.</p>
+        <EmptyState size="sm" className="mt-2" title="Todavía no hay una planificación de campañas guardada para esta tienda." />
       </section>
     );
   }
@@ -113,12 +113,14 @@ export function CampaignPlanAccountCard({
       )}
 
       {warnings.length ? (
-        <details className="rounded-xl border border-line bg-surface p-4">
-          <summary className="cursor-pointer font-medium">Ver hitos, condiciones y alertas ({warnings.length})</summary>
+        <Collapsible className="rounded-xl border border-line bg-surface p-4">
+          <CollapsibleTrigger className="w-full justify-between font-medium">Ver hitos, condiciones y alertas ({warnings.length})<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+          <CollapsibleContent>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-sm">
             {warnings.map((warning, index) => <li key={index} className="whitespace-pre-wrap">{warning}</li>)}
           </ul>
-        </details>
+          </CollapsibleContent>
+        </Collapsible>
       ) : null}
       <p className="text-xs text-muted">
         Esta planificación es informativa. No crea borradores de email/anuncios ni envía o programa campañas.

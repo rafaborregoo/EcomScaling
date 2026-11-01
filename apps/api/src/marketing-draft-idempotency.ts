@@ -20,6 +20,7 @@ export type MarketingDraftIdempotencyInput = {
   caminoTaskContext?: Record<string, unknown>;
   campaignSource?: Record<string, unknown>;
   mailingSequenceContext?: Record<string, unknown>;
+  creativeRequest?: Record<string, unknown>;
 };
 
 function stableValue(value: unknown): unknown {
@@ -55,6 +56,7 @@ export function fingerprintMarketingDraftRequest(
     contentImageUrls: input.contentImageUrls,
     brandColors: input.brandColors,
     verbatimTexts: input.verbatimTexts,
+    ...(input.creativeRequest ? { creativeRequest: input.creativeRequest } : {}),
     ...(input.caminoTaskContext
       ? { caminoTaskContext: input.caminoTaskContext }
       : {}),

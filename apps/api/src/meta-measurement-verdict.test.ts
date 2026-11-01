@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildMetaMeasurementVerdict, metaMeasurementStatusFromContext, unknownMetaMeasurementVerdict } from "./meta-measurement-verdict.js";
+import { buildMetaMeasurementVerdict, metaMeasurementStatusFromContext, unknownMetaMeasurementVerdict, type MetaMeasurementEvidence } from "./meta-measurement-verdict.js";
 
 const source = (rows: Array<Record<string, unknown>> = []) => ({ available: true, rows });
 const evaluatedAt = new Date("2026-09-29T12:00:00.000Z");
@@ -136,4 +136,24 @@ test("A24 final migration keeps the v9 prompt and cache writer guard", () => {
   assert.match(migration, /meta_save_measurement_verdict/);
   assert.match(migration, /source_fingerprint/);
   assert.match(migration, /where public\.meta_measurement_verdict_cache\.evaluated_at <= excluded\.evaluated_at/);
+});
+
+test("A24 never declares an explicitly incomplete source usable, even below the row cap", async (t) => {
+  for (const key of ["pixels", "learning", "issues", "eventMapping", "issueSnapshot"] as const) {
+    await t.test(key, () => {
+      const evidence: MetaMeasurementEvidence = {
+        pixels: source([{ is_unavailable: false }]),
+        learning: source([freshLearning]),
+        issues: { ...source(), complete: true },
+        eventMapping: { ...source([freshMapping]), complete: true },
+        issueSnapshot: source([{ complete: true }]),
+      };
+      evidence[key] = { ...evidence[key]!, complete: false };
+
+      const verdict = buildMetaMeasurementVerdict(evidence, evaluatedAt);
+
+      assert.equal(verdict.status, "unknown");
+      assert.ok(verdict.reason_codes.includes("source_incomplete"));
+    });
+  }
 });

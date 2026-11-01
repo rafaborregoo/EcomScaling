@@ -1,10 +1,12 @@
 # Plan maestro de implementación controlada — e-NORA
 
 **Fecha:** 31 de octubre de 2026, Europe/Madrid.  
-**Versión del documento:** 1.0.  
-**Estado:** propuesta de implementación basada en la revisión local; pendiente de validar el entorno desplegado.  
+**Versión del documento:** 1.3; actualización de ejecución: 1 de noviembre de 2026.
+
+**Estado:** inventario técnico IMP-00 contrastado y entrega local IMP-01 preparada con controles iniciales IMP-10. Revisiones desplegadas identificadas y diferencias de historial documentadas. Activación, piloto conectado y ensayo de reversión pendientes; IMP-10 continúa como requisito transversal.
+
 **Responsable de decisión:** dirección de producto/CTO; cada fase requiere un responsable técnico y un consultor revisor designados.  
-**Alcance de esta entrega:** documentación del plan. Crear este archivo no activa agentes, modifica sus prompts, ingiere conocimiento, ejecuta migraciones ni cambia campañas.
+**Seguimiento más reciente:** [entrega técnica, candidato y condiciones de activación](implementacion/CIERRE_TECNICO_IMP00_IMP01_IMP10_2026-11-01.md). Históricos: [conciliación](implementacion/SEGUNDO_AVANCE_CONCILIACION_Y_CONEXIONES_2026-11-01.md) y [primer avance](implementacion/ESTADO_IMPLEMENTACION_2026-11-01.md). Los registros distinguen implementación local, comprobación del entorno y activación. Las observaciones de la revisión original del 31/10 se mantienen como históricas.
 
 ## 1. Resultado que queremos conseguir
 
@@ -596,8 +598,8 @@ Este archivo será el plan de referencia de esta propuesta. Los prompts de audit
 | Entregable | Estado al crear este archivo | Evidencia necesaria para cerrarlo |
 |---|---|---|
 | Plan y encaje V1–V3 con agentes | DOCUMENTADO | Este archivo y revisión del usuario/CTO |
-| Inventario de producción y fuentes por organización | PENDIENTE, IMP-00 | Versiones/migraciones/configuración contrastadas y ámbito definido |
-| Controles P0 y línea base de evaluación | PENDIENTE de validación, aunque hay componentes en código | Resultados de casos, responsables y configuraciones efectivas |
+| Inventario de producción y fuentes por organización | IMP-00 técnico contrastado: revisiones web/API/worker identificadas; 86 fuentes remotas archivadas y una entrada sin original conservado | Conservar excepciones documentadas y actualizar baseline al activar una entrega |
+| Controles P0 y línea base de evaluación | IMP-01 implementado localmente: medición compartida, caché y recuperación de conexiones; preparación inicial IMP-10 | Validar candidato aislado, revisar y desplegar; comprobar fuentes reconectadas y piloto. Economía y otros controles siguen en IMP-02/03 |
 | Curación e ingestión V1–V3 | PENDIENTE, IMP-04 | Decisiones por módulo, aprobaciones e inventario RAG actualizado |
 | Política de poca señal, briefs y experimentos | PROPUESTO | Implementación compatible, evaluación y consumidor real |
 | Piloto consultivo y cuadro de mando | PENDIENTE | Baseline, límites, cohortes elegibles y resultados revisados |

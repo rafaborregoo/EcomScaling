@@ -95,7 +95,9 @@ test("A13 preserves the reviewed Camino identity and never guesses a current mil
   const a13Json = buildA13OperationalOutputContract().jsonSchema as unknown as { properties: { proposed_writes: { items: { required: readonly string[] } } } };
   const genericWrites = genericJson.properties.proposed_writes.items;
   const a13Writes = a13Json.properties.proposed_writes.items;
-  assert.equal(genericWrites.required.includes("plan_id"), false);
+  // El genérico ya exige plan_id (nullable, modo estricto); lo propio de A13 es alignment_rationale.
+  assert.equal(genericWrites.required.includes("alignment_rationale"), false);
+  assert.equal(a13Writes.required.includes("alignment_rationale"), true);
   assert.equal(a13Writes.required.includes("phase"), true);
   assert.equal(a13Writes.required.includes("plan_version"), true);
 });

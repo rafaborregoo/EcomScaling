@@ -124,11 +124,12 @@ test("A24 and A25 GET, manual run, cache, and cron carry the selected connection
 test("A24 persists one versioned store-window gate and A14/A23/A25 fail closed when it is absent", async () => {
   const runtime = await readFile(new URL("./ai-runtime.ts", import.meta.url), "utf8");
   const verdict = await readFile(new URL("./meta-measurement-verdict.ts", import.meta.url), "utf8");
+  const cache = await readFile(new URL("./meta-measurement-cache.ts", import.meta.url), "utf8");
   const migration = await readFile(new URL("../../../supabase/migrations/20270107120000_a24_measurement_integrity.sql", import.meta.url), "utf8");
   assert.match(runtime, /buildMetaMeasurementVerdict\(/);
   assert.match(runtime, /rpc\("meta_save_measurement_verdict"/);
   assert.match(runtime, /loadMetaMeasurementVerdict\(supabase, organizationId, storeId, start, new Date\(endExclusive\.getTime\(\) - 24 \* 60 \* 60 \* 1000\)\)/);
-  assert.match(runtime, /from\("meta_measurement_verdict_cache"\)/);
+  assert.match(cache, /from\("meta_measurement_verdict_cache"\)/);
   const orchestrationStart = runtime.indexOf("const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES");
   const orchestrationEnd = runtime.indexOf("] as const", orchestrationStart);
   const orchestration = runtime.slice(orchestrationStart, orchestrationEnd);

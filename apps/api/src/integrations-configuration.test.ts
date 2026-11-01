@@ -76,17 +76,32 @@ test("la readiness API respeta las capacidades webhook-only de Fathom", () => {
 test("la recuperación se verifica sólo tras fallo/partial seguido de éxito", () => {
   assert.equal(
     hasRecoveredSync("connection-1", [
-      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z" },
-      { connection_id: "connection-1", status: "failed", created_at: "2026-08-26T11:00:00Z" },
-    ]),
+      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z", finished_at: "2026-08-26T12:05:00Z" },
+      { connection_id: "connection-1", status: "failed", created_at: "2026-08-26T11:00:00Z", finished_at: "2026-08-26T11:05:00Z" },
+    ], null),
     true,
   );
   assert.equal(
     hasRecoveredSync("connection-1", [
-      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z" },
-    ]),
+      { connection_id: "connection-1", status: "succeeded", created_at: "2026-08-26T12:00:00Z", finished_at: "2026-08-26T12:05:00Z" },
+    ], null),
     false,
   );
+});
+
+test("la recuperación exige un éxito finalizado después del último error de la conexión", () => {
+  const success = { connection_id: "connection-1", status: "succeeded", created_at: "2026-09-22T00:00:00Z", finished_at: "2026-09-22T00:05:00Z" };
+  const failure = { connection_id: "connection-1", status: "failed", created_at: "2026-09-21T00:00:00Z", finished_at: "2026-09-21T00:05:00Z" };
+  const runs = [success, failure];
+
+  assert.equal(hasRecoveredSync("connection-1", runs, "2026-11-01T01:00:00Z"), false);
+  assert.equal(hasRecoveredSync("connection-1", runs, "2026-09-22T00:03:00Z"), true);
+  assert.equal(hasRecoveredSync("connection-1", runs, success.finished_at), false);
+  assert.equal(hasRecoveredSync("connection-1", runs, "invalid-date"), false);
+  assert.equal(hasRecoveredSync("connection-1", [{ ...success, finished_at: null }, failure], null), false);
+  assert.equal(hasRecoveredSync("connection-1", [{ ...success, finished_at: "invalid-date" }, failure], null), false);
+  assert.equal(hasRecoveredSync("connection-1", [{ ...success, connection_id: "connection-2" }, failure], null), false);
+  assert.equal(hasRecoveredSync("connection-1", [{ ...success, status: "partial" }, failure], null), false);
 });
 
 test("Meta puede cerrar readiness cuando existe recuperación operacional", () => {

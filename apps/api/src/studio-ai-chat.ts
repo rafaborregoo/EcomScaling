@@ -22,7 +22,9 @@ import { requireOperationalOrganization, type AuthContext } from "./auth-context
 import { runCampaignEditorAgent } from "./ai-runtime.js";
 import { canUpgradePlan, loadCopilotBalance } from "./copilot-saldo.js";
 import { resolveCopilotModel } from "./copilot-tokens.js";
-import { resolveMarketingBrandProfile } from "./marketing-brand-profile.js";
+import { MARKETING_BRAND_PROFILE_FIELDS, resolveMarketingBrandProfile } from "./marketing-brand-profile.js";
+import { loadMarketingDesignPrinciples } from "./marketing-creative-context.js";
+import { inferMarketingCreativeTask, marketingCreativeGuidance } from "./marketing-creative-method.js";
 import { listStudioProducts, studioAccess } from "./marketing-studio.js";
 import { resolveVisualBankPreviewUrls } from "./instagram-image-bank.js";
 
@@ -362,7 +364,7 @@ export async function chatStudioEdit(
   const [orgProfile, storeProfile, best, news, searched] = await Promise.all([
     cachedOrgProfile !== undefined ? Promise.resolve({ data: cachedOrgProfile, error: null }) : supabase
       .from("marketing_brand_profiles")
-      .select("brand_name, tone_guidelines, preferred_vocabulary, avoided_vocabulary, required_texts, claim_restrictions, legal_footer")
+      .select(MARKETING_BRAND_PROFILE_FIELDS.join(","))
       .eq("organization_id", organizationId)
       .is("store_id", null)
       .maybeSingle(),
@@ -373,6 +375,7 @@ export async function chatStudioEdit(
     wantsProductContext ? listStudioProducts(env, authorization, context, organizationId, { source: "new", ...(input.connection_id ? { connection_id: input.connection_id } : {}) }) : Promise.resolve({ ok: true as const, data: { products: [] } }),
     wantsProductContext && productQuery ? listStudioProducts(env, authorization, context, organizationId, { source: "search", q: productQuery, ...(input.connection_id ? { connection_id: input.connection_id } : {}) }) : Promise.resolve({ ok: true as const, data: { products: [] } }),
   ]);
+  if (orgProfile.error) return { ok: false, statusCode: 503, error: "studio_brand_unavailable", message: "No se pudo cargar la guía de marca." };
   if (cachedOrgProfile === undefined && !orgProfile.error) cacheBrandProfile(orgProfileCacheKey, orgProfile.data as Record<string, unknown> | null);
   if (input.connection_id && (!storeProfile.data || storeProfile.error)) return { ok: false, statusCode: 409, error: "studio_store_invalid", message: "La tienda seleccionada ya no está disponible. Recarga el estudio." };
   if (storeProfile.data?.id) {
@@ -396,7 +399,7 @@ export async function chatStudioEdit(
   const storeBrand = storeProfile.data?.id
     ? cachedStoreBrand !== undefined
       ? { data: cachedStoreBrand, error: null }
-      : await supabase.from("marketing_brand_profiles").select("brand_name, tone_guidelines, preferred_vocabulary, avoided_vocabulary, required_texts, claim_restrictions, legal_footer").eq("organization_id", organizationId).eq("store_id", storeProfile.data.id).maybeSingle()
+      : await supabase.from("marketing_brand_profiles").select(MARKETING_BRAND_PROFILE_FIELDS.join(",")).eq("organization_id", organizationId).eq("store_id", storeProfile.data.id).maybeSingle()
     : { data: null, error: null };
   if (storeBrandCacheKey && cachedStoreBrand === undefined && !storeBrand.error) cacheBrandProfile(storeBrandCacheKey, storeBrand.data as Record<string, unknown> | null);
   if (storeBrand.error) return { ok: false, statusCode: 503, error: "studio_brand_unavailable", message: "No se pudo cargar la guía de marca de esa tienda." };
@@ -445,7 +448,7 @@ export async function chatStudioEdit(
   const logoUrl = input.brand.logoUrl;
   if (typeof logoUrl === "string" && logoUrl) images.add(logoUrl);
 
-  const contextBlocks = [
+  const contextBlocks: Array<{ label: string; data: unknown }> = [
     {
       label: "Email actual",
       data: { asunto: input.subject, preheader: input.preheader, bloques: input.blocks },
@@ -455,7 +458,7 @@ export async function chatStudioEdit(
     {
       label: "Banco de imágenes (consultado solo cuando el mensaje requiere activos visuales)",
       data: wantsImageContext && bank.length
-        ? bank.filter((row) => row.public_url).map((row) => ({ url: row.public_url, descripcion: describeImage({ original_filename: typeof row.original_filename === "string" ? row.original_filename : null, analysis: row.analysis, markdown: typeof row.markdown === "string" ? row.markdown : null }) }))
+        ? bank.filter((row) => signedBank.urls.has(String(row.id))).map((row) => ({ url: signedBank.urls.get(String(row.id)), descripcion: describeImage({ original_filename: typeof row.original_filename === "string" ? row.original_filename : null, analysis: row.analysis, markdown: typeof row.markdown === "string" ? row.markdown : null }) }))
         : wantsImageContext ? "El banco está vacío: solo hay imágenes de productos o las que ya tiene el email." : "No consultado: el mensaje no solicita activos visuales.",
     },
     {
@@ -465,6 +468,13 @@ export async function chatStudioEdit(
     { label: "Conversación", data: input.history.slice(-12) },
     { label: "Mensaje", data: input.message },
   ];
+  if (/plantilla|referencia|inspiraci[oó]n|estructura|dise[nñ]o/i.test(input.message)) {
+    try {
+      contextBlocks.push({ label: "Principios internos de composición autorizados", data: await loadMarketingDesignPrinciples(supabase, input.message) });
+    } catch {
+      return { ok: false, statusCode: 503, error: "studio_principles_unavailable", message: "No se pudieron consultar las referencias de diseño. Vuelve a intentarlo." };
+    }
+  }
 
   const fingerprint = createHash("sha256").update(JSON.stringify({
     draft_id: input.draft_id ?? null, draft_version: input.draft_version ?? null,
@@ -495,7 +505,7 @@ export async function chatStudioEdit(
     storeId: typeof storeProfile.data?.id === "string" ? storeProfile.data.id : null,
     objective: `${OBJECTIVE_PREFIX} ${input.message}`.slice(0, 1800),
     contextBlocks,
-    guidance: STUDIO_CHAT_GUIDANCE,
+    guidance: `${STUDIO_CHAT_GUIDANCE}\n\n${marketingCreativeGuidance(inferMarketingCreativeTask(input.message), "editor_email")}`,
     contract: studioChatContract(),
     agentCode: "a11_generador_marketing",
     trigger: "chat",

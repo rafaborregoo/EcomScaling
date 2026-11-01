@@ -89,7 +89,9 @@ export function metaMeasurementEvidenceDetails(evidence: MetaMeasurementEvidence
     planes: {
       measurement: buildMetaMeasurementVerdict({ ...evidence, issues: { ...evidence.issues, rows: [] } }, evaluatedAt),
       delivery: {
-        coverage_complete: evidence.issues.available && evidence.issueSnapshot?.rows.every((item) => item.complete === true) === true,
+        coverage_complete: evidence.issues.available && evidence.issues.complete === true &&
+          evidence.issueSnapshot?.available === true && evidence.issueSnapshot.complete !== false &&
+          evidence.issueSnapshot.rows.length > 0 && evidence.issueSnapshot.rows.every((item) => item.complete === true),
         rejected_ad_ids: evidence.issues.rows.filter((item) => item.review_category === "rejected" && item.freshness === "fresh").map((item) => item.ad_id).filter(Boolean),
       },
       learning: { source: "meta_reported_learning_status", entity_count: evidence.learning.rows.length, reset_inferred_from_activity: false },

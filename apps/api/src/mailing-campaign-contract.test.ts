@@ -65,7 +65,7 @@ test("ADR-0025: migracion, API, runtime y pantalla estan conectados", async () =
   // Pantalla: componentes nativos y el estado por email.
   assert.match(planner, /\/run`/);
   assert.match(planner, /<MailingCampaignPanel/);
-  assert.match(panel, /<Table\b/);
+  assert.match(panel, /<DataTable\b/);
   assert.match(panel, /<Badge\b/);
   assert.match(panel, /<Card\b/);
   assert.doesNotMatch(panel, /bg-surface|border-edge/);

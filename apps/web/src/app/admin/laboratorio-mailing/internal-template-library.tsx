@@ -5,7 +5,7 @@ import Image from "next/image";
 import { internalEmailTemplateSchema, renderInternalEmailTemplate, type InternalEmailTemplate } from "@e-nora/contracts";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Button, Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, ErrorBlock, Field, IconChevronDown, Textarea, toast } from "@/components/ui";
+import { Badge, Button, Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, ErrorBlock, Field, IconChevronDown, ScrollArea, Textarea, toast, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui";
 
 export type InternalTemplateSummary = { id: string; entry_key: string; title: string; version: number; status: string; template_key?: string | null; template_description?: string | null };
 type Entry = { id: string; entry_key: string; title: string; version: number; kind: string; objective: string; audience_tags: string[]; lifecycle_tags: string[]; content: Record<string, unknown> & { raw_html?: string }; evidence: Record<string, unknown>; source: Record<string, unknown> };
@@ -17,6 +17,7 @@ export function InternalTemplateLibrary({ entries, onChanged }: { entries: Inter
   const [error, setError] = useState<string | null>(null);
   const [width, setWidth] = useState(600);
   const [dirty, setDirty] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState<InternalTemplateSummary | null>(null);
   const unique = new Map<string, InternalTemplateSummary>();
   for (const entry of entries) if (entry.template_key && entry.status !== "retired" && (!unique.has(entry.entry_key) || unique.get(entry.entry_key)!.version < entry.version)) unique.set(entry.entry_key, entry);
   const templates = [...unique.values()].sort((a, b) => a.title.localeCompare(b.title, "es"));
@@ -27,8 +28,8 @@ export function InternalTemplateLibrary({ entries, onChanged }: { entries: Inter
     try { html = renderInternalEmailTemplate(selected.entry.content.raw_html ?? "", selected.template, values); }
     catch (cause) { validationError = cause instanceof Error ? `Revisa el campo: ${cause.message.split(":").at(-1)}` : "Revisa los campos de la plantilla."; }
   }
-  async function open(entry: InternalTemplateSummary) {
-    if (dirty && !window.confirm("Hay cambios sin guardar. ¿Quieres abrir otra plantilla y descartarlos?")) return;
+  async function open(entry: InternalTemplateSummary, discard = false) {
+    if (dirty && !discard) { setPendingOpen(entry); return; }
     setBusy(true); setError(null);
     try {
       const response = await apiFetch(`/v1/admin/marketing-playbook/${entry.id}`);
@@ -79,9 +80,21 @@ export function InternalTemplateLibrary({ entries, onChanged }: { entries: Inter
       </Collapsible>
       <p className="text-xs text-muted">Los cambios actualizan la vista previa. Guardar crea una versión, sin publicar ni enviar. Los enlaces example.com y la imagen ficticia son de demostración: sustitúyelos antes de usar la pieza.</p>
       {validationError && <ErrorBlock>{validationError}</ErrorBlock>}
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(16rem,0.65fr)_minmax(0,1.35fr)]"><div className="grid max-h-[900px] gap-3 overflow-y-auto pr-2">{selected.template.variables.map((field) => <Field key={field.key} label={field.label}><Textarea rows={field.kind === "text" && (values[field.key]?.length ?? 0) > 80 ? 3 : 1} value={values[field.key] ?? ""} disabled={busy} spellCheck={field.kind === "text"} onChange={(event) => { setValues((current) => ({ ...current, [field.key]: event.target.value })); setDirty(true); }} /><span className="text-xs text-muted">{`{{${field.key}}}`} · {field.kind === "color" ? "Color hexadecimal" : field.kind === "url" || field.kind === "image" ? "URL HTTPS" : "Texto"}</span></Field>)}</div>
-        <div className="min-w-0 overflow-x-auto rounded-lg bg-surface-secondary p-2"><iframe title={`Vista previa ${selected.entry.title}`} sandbox="" referrerPolicy="no-referrer" srcDoc={html} style={{ width, maxWidth: "100%", height: 1000, border: 0, display: "block", margin: "0 auto", background: "white" }} /></div>
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(16rem,0.65fr)_minmax(0,1.35fr)]"><ScrollArea className="grid max-h-[900px] gap-3 pr-2">{selected.template.variables.map((field) => <Field key={field.key} label={field.label}><Textarea rows={field.kind === "text" && (values[field.key]?.length ?? 0) > 80 ? 3 : 1} value={values[field.key] ?? ""} disabled={busy} spellCheck={field.kind === "text"} onChange={(event) => { setValues((current) => ({ ...current, [field.key]: event.target.value })); setDirty(true); }} /><span className="text-xs text-muted">{`{{${field.key}}}`} · {field.kind === "color" ? "Color hexadecimal" : field.kind === "url" || field.kind === "image" ? "URL HTTPS" : "Texto"}</span></Field>)}</ScrollArea>
+        <ScrollArea className="min-w-0 rounded-lg bg-surface-secondary p-2"><iframe title={`Vista previa ${selected.entry.title}`} sandbox="" referrerPolicy="no-referrer" srcDoc={html} style={{ width, maxWidth: "100%", height: 1000, border: 0, display: "block", margin: "0 auto", background: "white" }} /></ScrollArea>
       </div>
     </div>}
+    <AlertDialog open={pendingOpen !== null} onOpenChange={(next) => !next && setPendingOpen(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Descartar los cambios sin guardar?</AlertDialogTitle>
+          <AlertDialogDescription>Si abres otra plantilla, se pierden los cambios de esta.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Seguir editando</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => { const entry = pendingOpen; setPendingOpen(null); if (entry) void open(entry, true); }}>Descartar y abrir</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </section>;
 }

@@ -132,7 +132,7 @@ test("A05 reutiliza el plan aprobado de A27 como brief compacto del mismo scope"
       agent_runs: { ...(base.agent_runs as object), store_id: "store-2" },
       output: { strategy_decision: "Otra tienda" },
     },
-  ], "store-1", 12);
+  ], "store-1", 12, { now: new Date("2026-10-01T12:00:00Z") });
 
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.code, "a27_planificador_mailing");

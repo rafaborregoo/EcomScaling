@@ -53,6 +53,7 @@ import {
   metaMeasurementStatusFromContext,
   unknownMetaMeasurementVerdict,
 } from "./meta-measurement-verdict.js";
+import { loadMetaMeasurementVerdict, META_MEASUREMENT_CACHE_TTL_MS } from "./meta-measurement-cache.js";
 import {
   A23_MAX_VISION_ADS,
   A23_MAX_VISION_IMAGES,
@@ -125,6 +126,8 @@ import {
   fingerprintMarketingDraftRequest,
   readMarketingDraftIdempotencyKey,
 } from "./marketing-draft-idempotency.js";
+import { loadMarketingCreativeContext } from "./marketing-creative-context.js";
+import { marketingCreativeRequestSchema, marketingCreativeGuidance, marketingProductVisionImages, MARKETING_CREATIVE_METHOD_VERSION, META_REVIEW_METHOD_GUIDANCE } from "./marketing-creative-method.js";
 import {
   summarizeCampaignMailingLearnings,
   summarizeMailingReportObservations,
@@ -3132,9 +3135,10 @@ export function buildAgentTools(
     "meta_delivery_health",
     TOOL_DESCRIPTIONS.meta_delivery_health,
     async (client, input) => {
-      const window = metaWindow();
+      if (!storeId) return { data: null, error: { message: "meta_store_selection_required" } };
+      const { window, periodStart, periodEnd } = metaSpecialistWindow(organizationId, storeId);
       const pageSize = Math.max(1, Math.min(Number(input.page_size ?? 40), 100));
-      return combineMetricRpcs({
+      const [metrics, measurementVerdict] = await Promise.all([combineMetricRpcs({
         pixel: client.rpc("meta_pixel_health", window),
         aprendizaje: client.rpc("meta_learning_phase_status", window),
         alineacion_objetivo_evento: (client as SupabaseClient<any>).rpc("meta_measurement_event_page", {
@@ -3148,7 +3152,15 @@ export function buildAgentTools(
         }).then((result) => ({ ...result, data: result.error ? null : {
           rows: result.data ?? [], next_issue_id: result.data?.length === pageSize ? result.data.at(-1)?.issue_id ?? null : null,
         } })),
-      });
+      }), loadMetaMeasurementVerdict(client, organizationId, storeId, periodStart, periodEnd)]);
+      return {
+        data: {
+          ...metrics.data,
+          measurement_verdict: measurementVerdict,
+          window: { start: window.period_start, end: window.period_end, timezone: "UTC", complete_days: true },
+        },
+        error: metrics.error,
+      };
     },
   );
 
@@ -5407,10 +5419,10 @@ export function consultantAssignmentContext(
   };
 }
 
-const CONSULTANT_ASSIGNMENT_PROMPT =
+export const CONSULTANT_ASSIGNMENT_PROMPT =
   "Usa el bloque 'Asignacion de consultor y decision de propuestas' para explicar quien revisa una propuesta. No presupongas que siempre hay un consultor humano. Si has_consultant es false, indica que el cliente puede decidir en Tareas. Si es true, di que queda pendiente del consultor. Si es null, no atribuyas la decision a nadie. Esto prevalece sobre frases generales del prompt acerca del consultor.";
 
-async function loadConsultantAssignmentBlock(
+export async function loadConsultantAssignmentBlock(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<{ label: string; data: ConsultantAssignmentContext }> {
@@ -6545,7 +6557,8 @@ async function runGenericDiagnosticAgent(
     const stockForecastGuidance = agentCode === "a06_planificador_stock"
       ? "\n\nPREVISION DE DEMANDA A06: demand_forecast es una linea base reciente de hasta doce semanas completas, no incluye campañas ni estacionalidad. weekly_units_last_12 solo aparece si la cobertura de esas doce semanas es completa; si weekly_demand_coverage es incomplete o unavailable, abstente de cuantificar la demanda futura. Las semanas ausentes son desconocidas, no cero. product_count es el total elegible y truncated indica que solo se muestra la muestra priorizada; no afirmes que cubre todo el catalogo. Los SKU agregados ayudan a identificar el producto, pero no demuestran riesgo de una variante o ubicacion concreta. Usa fechas y mercados solo cuando vengan de la configuracion de tienda; separa eventos de referencia de campañas confirmadas. Sin ventas comparables disponibles, el efecto de campaña no se puede cuantificar y no inventes unidades. Usa cobertura solo con inventario completo, reciente y cantidad disponible. Las señales de riesgo priorizan una revision, no garantizan fechas de rotura. No inventes plazos de proveedor, stock de seguridad, pedidos en transito ni cantidades de compra. Propón tareas solo con evidencia suficiente y un producto vinculado."
       : "";
-    const turnSystemPrompt = `${systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}${imageReviewGuidance}${currencyCoverageGuidance}${klaviyoCurrencyGuidance}${monitorScopeGuidance}${monitorMetricReviewGuidance}${stockForecastGuidance}${extraSystemGuidance ?? ""}`;
+    const metaMethodGuidance = ["a14_operativa_meta", "a23_creatividad_meta", "a24_medicion_meta", "a25_cambios_meta"].includes(agentCode) ? `\n\n${META_REVIEW_METHOD_GUIDANCE}` : "";
+    const turnSystemPrompt = `${systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}${imageReviewGuidance}${currencyCoverageGuidance}${klaviyoCurrencyGuidance}${monitorScopeGuidance}${monitorMetricReviewGuidance}${stockForecastGuidance}${metaMethodGuidance}${extraSystemGuidance ?? ""}`;
     await runOptions.beforeModel?.({ runId, systemPrompt: turnSystemPrompt, input, contextBlocks, tools });
     const turn = await runAgentTurnWithFallback(
       env,
@@ -16648,62 +16661,6 @@ function metaMeasurementVerdictBlock(verdict: unknown) {
   };
 }
 
-async function loadMetaMeasurementVerdict(
-  supabase: SupabaseClient,
-  organizationId: string,
-  storeId: string | null,
-  periodStart: Date,
-  periodEnd: Date,
-) {
-  if (!storeId) return unknownMetaMeasurementVerdict("store_scope_missing");
-  const db = supabase as SupabaseClient<any>;
-  const { data, error } = await db
-    .from("meta_measurement_verdict_cache")
-    .select("verdict, verdict_status, verdict_version, evaluated_at, expires_at, source_fingerprint")
-    .eq("organization_id", organizationId)
-    .eq("store_id", storeId)
-    .eq("period_start", periodStart.toISOString().slice(0, 10))
-    .eq("period_end", periodEnd.toISOString().slice(0, 10))
-    .eq("verdict_version", META_MEASUREMENT_VERDICT_VERSION)
-    .gt("expires_at", new Date().toISOString())
-    .lte("evaluated_at", new Date().toISOString())
-    .maybeSingle();
-  if (error || !data?.verdict || !data.source_fingerprint || Date.parse(data.expires_at) - Date.parse(data.evaluated_at) > 60 * 60 * 1000)
-    return unknownMetaMeasurementVerdict("fresh_verdict_unavailable");
-  const verdict = data.verdict && typeof data.verdict === "object"
-    ? data.verdict as Record<string, unknown>
-    : {};
-  const status = data.verdict_status;
-  const currentAccounts = await db.from("meta_ad_accounts").select("id")
-    .eq("organization_id", organizationId).eq("store_id", storeId)
-    .eq("is_active", true).eq("is_selected", true).order("id");
-  const cachedScope = verdict.scope && typeof verdict.scope === "object" ? verdict.scope as Record<string, unknown> : {};
-  const cachedAccountIds = Array.isArray(cachedScope.account_ids)
-    ? cachedScope.account_ids.filter((id): id is string => typeof id === "string").sort()
-    : [];
-  const selectedAccountIds = (currentAccounts.data ?? []).map((row) => row.id).sort();
-  if (
-    currentAccounts.error || !["usable_with_attribution_limits", "restricted", "not_assessable", "unknown"].includes(String(status)) ||
-    verdict.status !== status || !Array.isArray(cachedScope.account_ids) ||
-    JSON.stringify(cachedAccountIds) !== JSON.stringify(selectedAccountIds) || cachedScope.store_id !== storeId
-  ) return unknownMetaMeasurementVerdict("scope_or_payload_changed");
-  return {
-    ...verdict,
-    status,
-    provenance: {
-      source: "meta_measurement_verdict_cache",
-      evaluated_at: data.evaluated_at,
-      expires_at: data.expires_at,
-      verdict_version: data.verdict_version,
-      source_fingerprint: data.source_fingerprint,
-      store_id: storeId,
-      period_start: periodStart.toISOString().slice(0, 10),
-      period_end: periodEnd.toISOString().slice(0, 10),
-      fresh: true,
-    },
-  };
-}
-
 async function saveMetaMeasurementVerdict(
   supabase: SupabaseClient,
   organizationId: string,
@@ -16729,7 +16686,7 @@ async function saveMetaMeasurementVerdict(
       verdict,
       source_fingerprint: sourceFingerprint,
       evaluated_at: evaluatedAt.toISOString(),
-      expires_at: new Date(evaluatedAt.getTime() + 60 * 60 * 1000).toISOString(),
+      expires_at: new Date(evaluatedAt.getTime() + META_MEASUREMENT_CACHE_TTL_MS).toISOString(),
     },
   });
   return !error;
@@ -17902,6 +17859,7 @@ export async function runMedicionMetaAgent(
         eventMapping: {
           available: !optimizationEventHealth.error,
           rows: optimizationEventHealth.data ?? [],
+          complete: optimizationEventHealth.complete,
         },
         issueSnapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? [] },
       };
@@ -17912,17 +17870,18 @@ export async function runMedicionMetaAgent(
         scope: { organization_id: organizationId, store_id: storeId, account_ids: metaEligibility.account_ids ?? [] },
         window: { start: window.period_start, end: window.period_end, timezone: "UTC", complete_days: true },
         evaluated_at: now.toISOString(),
-        expires_at: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(now.getTime() + META_MEASUREMENT_CACHE_TTL_MS).toISOString(),
         sources: {
           pixel: { available: !pixels.error, rows: pixels.data?.length ?? null },
           learning: { available: !learning.error, rows: learning.data?.length ?? null },
-          review_issues: { available: !issues.error, rows: issues.data?.length ?? null },
+          review_issues: { available: !issues.error, rows: issues.data?.length ?? null, complete: issues.complete },
           issue_snapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? null },
-          promoted_events: { available: !optimizationEventHealth.error, rows: optimizationEventHealth.data?.length ?? null },
+          promoted_events: { available: !optimizationEventHealth.error, rows: optimizationEventHealth.data?.length ?? null, complete: optimizationEventHealth.complete },
         },
         source_fingerprint: crypto.createHash("sha256").update(JSON.stringify({
           account_ids: metaEligibility.account_ids ?? [], pixels: pixels.data ?? [], learning: learning.data ?? [],
           issues: issues.data ?? [], event_mapping: optimizationEventHealth.data ?? [], issue_snapshot: issueSnapshot.data ?? [],
+          coverage: { issues_complete: issues.complete, event_mapping_complete: optimizationEventHealth.complete },
         })).digest("hex"),
       };
       const verdictCached = await saveMetaMeasurementVerdict(
@@ -18032,11 +17991,11 @@ export async function getMedicionMetaDiagnostic(
     pixels: { available: !pixels.error, rows: pixels.data ?? [] },
     learning: { available: !learning.error, rows: learning.data ?? [] },
     issues: { available: !issues.error, rows: issues.data ?? [], complete: issues.complete },
-    eventMapping: { available: !eventMapping.error, rows: eventMapping.data ?? [] },
+    eventMapping: { available: !eventMapping.error, rows: eventMapping.data ?? [], complete: eventMapping.complete },
     issueSnapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? [] },
   };
   const verdict = buildMetaMeasurementVerdict(measurementEvidence, now);
-  const evaluationTtl = 60 * 60 * 1000;
+  const evaluationTtl = META_MEASUREMENT_CACHE_TTL_MS;
   const assessment = {
     ...verdict,
     ...metaMeasurementEvidenceDetails(measurementEvidence, now),
@@ -18048,13 +18007,14 @@ export async function getMedicionMetaDiagnostic(
     sources: {
       pixel: { available: !pixels.error, rows: pixels.data?.length ?? null },
       learning: { available: !learning.error, rows: learning.data?.length ?? null },
-      review_issues: { available: !issues.error, rows: issues.data?.length ?? null },
+      review_issues: { available: !issues.error, rows: issues.data?.length ?? null, complete: issues.complete },
       issue_snapshot: { available: !issueSnapshot.error, rows: issueSnapshot.data ?? null },
-      promoted_events: { available: !eventMapping.error, rows: eventMapping.data?.length ?? null },
+      promoted_events: { available: !eventMapping.error, rows: eventMapping.data?.length ?? null, complete: eventMapping.complete },
     },
     source_fingerprint: crypto.createHash("sha256").update(JSON.stringify({
       account_ids: eligibility.account_ids ?? [], pixels: pixels.data ?? [], learning: learning.data ?? [],
       issues: issues.data ?? [], event_mapping: eventMapping.data ?? [], issue_snapshot: issueSnapshot.data ?? [],
+      coverage: { issues_complete: issues.complete, event_mapping_complete: eventMapping.complete },
     })).digest("hex"),
   };
   await saveMetaMeasurementVerdict(
@@ -18083,7 +18043,7 @@ export async function getMedicionMetaDiagnostic(
       ...data,
       output: { ...existing, measurement_assessment: assessment },
       measurement_assessment: assessment,
-      source_coverage: { status: sourcesAvailable && eligibility.status === "ready" ? "complete" : "partial_or_unknown", evaluated_at: now.toISOString(), window: assessment.window },
+      source_coverage: { status: sourcesAvailable && issues.complete && eventMapping.complete && assessment.planes.delivery.coverage_complete && eligibility.status === "ready" ? "complete" : "partial_or_unknown", evaluated_at: now.toISOString(), window: assessment.window },
     },
   };
 }
@@ -21127,6 +21087,9 @@ export async function runMarketingContentDraft(
 
   const contentType =
     typeof payload.content_type === "string" ? payload.content_type : "";
+  const creativeParsed = marketingCreativeRequestSchema.safeParse(payload);
+  if (!creativeParsed.success) return { ok: false as const, statusCode: 400, error: "marketing_creative_request_invalid", detail: creativeParsed.error.message };
+  const creativeRequest = creativeParsed.data;
   const channel = typeof payload.channel === "string" ? payload.channel : "";
   const briefBase =
     typeof payload.brief === "string" ? payload.brief.trim() : "";
@@ -21591,6 +21554,7 @@ export async function runMarketingContentDraft(
         contentImageUrls: mailingPacket?.ok ? (mailingPacket.imageFingerprint ? [mailingPacket.imageFingerprint] : []) : contentImageUrls,
         brandColors,
         verbatimTexts,
+        ...(["creative_task", "creative_mode", "variant_count", "product_ids", "source_draft_id", "research_references"].some((key) => payload[key] !== undefined) ? { creativeRequest } : {}),
         ...(caminoTaskContext
           ? { caminoTaskContext }
           : {}),
@@ -21771,7 +21735,7 @@ export async function runMarketingContentDraft(
     supabase,
     runId,
     organizationId,
-    agentVersion.allowed_tools,
+    agentVersion.allowed_tools.filter((name: string) => creativeRequest.creative_mode === "guided" || name !== "search_internal_email_design_playbook"),
     prompt.content,
     marketingStoreId,
     connectedConnectors,
@@ -21838,6 +21802,7 @@ export async function runMarketingContentDraft(
   try {
     const request = {
       content_type: contentType,
+      creative_method: { version: MARKETING_CREATIVE_METHOD_VERSION, ...creativeRequest },
       channel,
       brief,
       ...(a26Source ? { a26_source: a26Source } : {}),
@@ -21855,19 +21820,27 @@ export async function runMarketingContentDraft(
           }
         : {}),
     };
+    const creativeContext = await loadMarketingCreativeContext(supabase, organizationId, marketingStoreId, briefBase, creativeRequest);
+    const visionImages = marketingProductVisionImages(creativeContext.products, attachedImages, creativeRequest.product_ids.length > 0);
+    attachedImages.splice(0, attachedImages.length, ...visionImages);
     const marketingContextBlocks = [
       { label: "Brief del consultor", data: request },
+      ...creativeContext.blocks,
       ...(approvedEmailSpecialistContext.length > 0
         ? [{ label: "Contexto aprobado de A26/A28 para esta misma tienda", data: approvedEmailSpecialistContext }]
         : []),
       await loadConsultantAssignmentBlock(supabase, organizationId),
     ];
-    await supabase.from("agent_context_snapshots").insert({
+    const { error: creativeSnapshotError } = await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: organizationId,
       context_level: "C1",
       snapshot: {
         request,
+        creative_context_version: creativeContext.version,
+        captured_at: creativeContext.captured_at,
+        transmitted_images: attachedImages,
+        context_warnings: creativeContext.warnings,
         ...(marketingStoreId
           ? {
               runtime_store_scope: {
@@ -21883,6 +21856,7 @@ export async function runMarketingContentDraft(
         blocks: marketingContextBlocks,
       },
     });
+    if (creativeSnapshotError) throw new Error("marketing_context_snapshot_failed");
     await recordStep(
       supabase,
       runId,
@@ -21907,7 +21881,7 @@ export async function runMarketingContentDraft(
       env,
       {
         model: agentVersion.model,
-        systemPrompt: `${systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}`,
+        systemPrompt: `${systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}\n\n${marketingCreativeGuidance(creativeRequest.creative_task, channel, creativeRequest.variant_count)}`,
         input,
         contextBlocks: marketingContextBlocks,
         ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
@@ -22094,6 +22068,7 @@ export async function runMarketingContentDraft(
 
     const draftRequest = {
           ...request,
+          creative_context: { version: creativeContext.version, captured_at: creativeContext.captured_at, product_ids: creativeContext.products.map((product) => product.id), transmitted_image_count: attachedImages.length, warnings: creativeContext.warnings },
           ...(!isMetaAds && !isInstagram ? {
             document_schema: "marketing-email-html-v2",
             design: { version: 2, blocks: [{ id: `generated-email-${runId}`, type: "html", props: { html: draftFields.html } }] },
@@ -22136,7 +22111,7 @@ export async function runMarketingContentDraft(
         compliance_notes: draftFields.complianceNotes,
         sources: draftFields.sources,
         confidence: draftFields.confidence,
-        warnings: [...draftFields.warnings, ...storageFields.warnings],
+        warnings: [...draftFields.warnings, ...storageFields.warnings, ...creativeContext.warnings],
       };
     await setGenerationStage("saving");
     if (mailingPacket?.ok) {

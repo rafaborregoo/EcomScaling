@@ -23,6 +23,14 @@ const base = {
   verbatimTexts: ["Oferta válida hasta el domingo"],
 };
 
+test("fingerprint separa modo, producto, tarea y referencia de una petición creativa", () => {
+  const original = { creative_mode: "original", product_ids: ["product-a"], creative_task: "create" };
+  const hash = fingerprintMarketingDraftRequest({ ...base, creativeRequest: original });
+  for (const change of [{ creative_mode: "guided" }, { product_ids: ["product-b"] }, { creative_task: "hooks" }, { source_draft_id: "draft-b" }]) {
+    assert.notEqual(hash, fingerprintMarketingDraftRequest({ ...base, creativeRequest: { ...original, ...change } }));
+  }
+});
+
 test("solo acepta claves UUID de secuencia con número de email acotado", () => {
   const key = "550e8400-e29b-41d4-a716-446655440000:3";
   assert.equal(readMarketingDraftIdempotencyKey(key), key);
