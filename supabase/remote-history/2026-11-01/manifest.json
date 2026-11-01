@@ -1,0 +1,704 @@
+{
+  "captured_on": "2026-11-01",
+  "project_ref": "cthjwpeygpzwdmjkxeqa",
+  "purpose": "Historical evidence only; not an executable migration chain.",
+  "source_format": "Remote statements joined with LF, line endings normalized; two archive-only comment lines added.",
+  "entries": [
+    {
+      "version": "20260916222320",
+      "name": "factura_email_delivery",
+      "source": "remote_statements_archived",
+      "file": "20260916222320.sql",
+      "sha256_file": "21600606e8e3b2f7dc4de1fe205809d084d2a31fc415a7096adf7bbc3eafd05b",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261005104608",
+      "name": "a19_monthly_growth_knowledge_loop",
+      "source": "remote_statements_archived",
+      "file": "20261005104608.sql",
+      "sha256_file": "4d7e3344773c76af79d851fa5d365e2c5fea6f5628598fd723e26da61ba7f6b9",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261005115352",
+      "name": "ai_31_copilot_report_pdf",
+      "source": "remote_statements_archived",
+      "file": "20261005115352.sql",
+      "sha256_file": "f8b7e372bdcdc04931694c9ec1406217a32086ebd7d09e15228430d00a8ec7ad",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261006080501",
+      "name": "klaviyo_revenue_currency_confirmation",
+      "source": "remote_statements_archived",
+      "file": "20261006080501.sql",
+      "sha256_file": "487438d81b29100be2e55f790374e598802b73cb51341c62dc7a54f3f2e1106b",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261008121621",
+      "name": "a02_klaviyo_evidence_contract",
+      "source": "remote_statements_archived",
+      "file": "20261008121621.sql",
+      "sha256_file": "1d4f2b503172a3d6d9484224cb5988ef5a6ccd420539ea1bb206ad86ff23357a",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261008121625",
+      "name": "a02_dashboard_scopes",
+      "source": "remote_statements_archived",
+      "file": "20261008121625.sql",
+      "sha256_file": "a7282a0463072e7f5e293d1c184dc01f0d1f23466644e77a73dccbb4f0cac298",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261008121629",
+      "name": "a05_contextual_campaign_calendar",
+      "source": "remote_statements_archived",
+      "file": "20261008121629.sql",
+      "sha256_file": "c31da3f447bd212282dc26c508d23ac26e6a33537c053a4d140be85407ac283d",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261008121635",
+      "name": "a05_evidence_required",
+      "source": "remote_statements_archived",
+      "file": "20261008121635.sql",
+      "sha256_file": "0fcd9db9e3208d35d7ce0a8b9fbe7113da25703411783d522ba079deda1f2829",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010065843",
+      "name": "agent_judge_durable_queue",
+      "source": "remote_statements_archived",
+      "file": "20261010065843.sql",
+      "sha256_file": "8bdac696770515f2e552ef74e09e808d07a6d4d8f41dfc97e2203c856a9d2d28",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010071257",
+      "name": "agent_judge_feedback",
+      "source": "remote_statements_archived",
+      "file": "20261010071257.sql",
+      "sha256_file": "503999861abf18ca30a80e439389eb9f4be8d8dc256418ce8306e0ef0cea76aa",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010071446",
+      "name": "agent_judgment_feedback_append_only",
+      "source": "remote_statements_archived",
+      "file": "20261010071446.sql",
+      "sha256_file": "a29c684f58f9bb539b2b2695452eec8d0cd68ea38cd49680c9ec9f00606d9deb",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010072158",
+      "name": "agent_version_release_gate",
+      "source": "remote_statements_archived",
+      "file": "20261010072158.sql",
+      "sha256_file": "44922df22ec99af6191f9a23acacbab68262a152d92818295d0ee61fb7746274",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010075537",
+      "name": "agent_release_manifest_fingerprint",
+      "source": "remote_statements_archived",
+      "file": "20261010075537.sql",
+      "sha256_file": "0798a6899f19d3038e49c71300b08d34a74df931720cd9ea9b64a2f8d7134f37",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010080723",
+      "name": "agent_judgment_feedback_corrections",
+      "source": "remote_statements_archived",
+      "file": "20261010080723.sql",
+      "sha256_file": "40dbe9fa0d2e7a27258c7dcffe88108af1c0e44aa7b86f1fda8dc0a94e4cfe56",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010081210",
+      "name": "agent_judgment_feedback_rpc_compat",
+      "source": "remote_statements_archived",
+      "file": "20261010081210.sql",
+      "sha256_file": "3ba94d3601d804e861494c59f3dbb5632e59560e173c9b6d9406171ba95db783",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010082039",
+      "name": "agent_judge_blind_dataset",
+      "source": "remote_statements_archived",
+      "file": "20261010082039.sql",
+      "sha256_file": "b9cd89a8eadafa27451b9eef6d4ad5673b97df8456f951cae2a797b5302a65ed",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010082856",
+      "name": "agent_judge_calibration_runs",
+      "source": "remote_statements_archived",
+      "file": "20261010082856.sql",
+      "sha256_file": "16fb9dec67229508bc98369a5756193e05376cc7dba5c50b17f257db92acb35f",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010083620",
+      "name": "agent_judge_holdout_freeze_release_gate",
+      "source": "remote_statements_archived",
+      "file": "20261010083620.sql",
+      "sha256_file": "558495f3acdb5bdfd5582edc0a14b9dddcbc5863269de944c6c24bd19287a4ed",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010084213",
+      "name": "agent_judge_holdout_single_use",
+      "source": "remote_statements_archived",
+      "file": "20261010084213.sql",
+      "sha256_file": "865aa6be0a75b32f0d3f3cb418078e304baf514252d9b0e29f54f58b96cd8842",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010084641",
+      "name": "agent_judge_calibration_split_release_gate",
+      "source": "remote_statements_archived",
+      "file": "20261010084641.sql",
+      "sha256_file": "df4d03fa7635dd95b0c1f90b0bf2405ac7d766dc198e839e6bbffc9d32344ad5",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010085800",
+      "name": "agent_release_requires_executed_candidate_pin",
+      "source": "remote_statements_archived",
+      "file": "20261010085800.sql",
+      "sha256_file": "0ad9f195700279bd5cb3dc8318230fb128c69f06bb7156014998c6a3f8f100e5",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010085957",
+      "name": "agent_release_verify_candidate_cases",
+      "source": "remote_statements_archived",
+      "file": "20261010085957.sql",
+      "sha256_file": "ca0005270222f70497bfa14a98554c0c34ab0c0b344a30db7cce36f2c1683851",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010091643",
+      "name": "agent_judge_calibration_sample_floor",
+      "source": "remote_statements_archived",
+      "file": "20261010091643.sql",
+      "sha256_file": "f98de481089f6765a14283c3f7a55fb1f04823c25ca309f6431a2ab4110de89c",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261010105122",
+      "name": "agent_release_eval_holdout_claims",
+      "source": "remote_statements_archived",
+      "file": "20261010105122.sql",
+      "sha256_file": "1e4938a031d8c12372cf769d19a37cd57dccca47a097ee4554eab496b3f84f03",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261012085508",
+      "name": "agent_release_visual_fixture_size",
+      "source": "remote_statements_archived",
+      "file": "20261012085508.sql",
+      "sha256_file": "f4f3e18548489c38c16c0509fc9cd9158ef926def3f4bcefd9217fead9d08b56",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261012095206",
+      "name": "agent_release_visual_fixture_size",
+      "source": "remote_statements_archived",
+      "file": "20261012095206.sql",
+      "sha256_file": "24d70c2e2a1aedc4d741221f647008729119bbac86ff78de26adfba500627680",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261012095215",
+      "name": "configuracion_permisos",
+      "source": "remote_statements_archived",
+      "file": "20261012095215.sql",
+      "sha256_file": "8f83ad5c29062ec6f3e00cae19e56ff08c9941944299e1f1a6901067857f7f8a",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261013101916",
+      "name": "agent_judge_rubric_v3_release_gate",
+      "source": "remote_statements_archived",
+      "file": "20261013101916.sql",
+      "sha256_file": "274f9ae071d5cd2bf403def63f482a34297609fc9c08c30a2b5737ca3bc85faa",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261017114554",
+      "name": "a04_atomic_approval_and_quota",
+      "source": "remote_statements_archived",
+      "file": "20261017114554.sql",
+      "sha256_file": "540e7f70954b5ac4f960b0f2528d43c2cc4823b401c7c75fb762f95f8adf5500",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261017114628",
+      "name": "a04_decision_claim_org_index",
+      "source": "remote_statements_archived",
+      "file": "20261017114628.sql",
+      "sha256_file": "567fca78df96f840356e9f1043db5a94ef06e73f2c67dad97ad283ff1c829ec9",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261017212228",
+      "name": "a05_atomic_campaign_decisions",
+      "source": "remote_statements_archived",
+      "file": "20261017212228.sql",
+      "sha256_file": "786476989cc8a355624b2a82abdc59a16f3c258d4c85b3a78460558daaaaf4f3",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261017221439",
+      "name": "a06_risk_sample_atomic_restock",
+      "source": "remote_statements_archived",
+      "file": "20261017221439.sql",
+      "sha256_file": "140deedefac7edb62fe3cc6aff03639adb7332f07f3564fd25ddc86a3f435ea0",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261017221909",
+      "name": "a06_oldest_inventory_freshness",
+      "source": "remote_statements_archived",
+      "file": "20261017221909.sql",
+      "sha256_file": "5f3a8aa52caee43676cb46468c6366bf1a624d7526cb77cdc5a6527b186cac3a",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261017232826",
+      "name": "a08_privacy_digest_atomic_index",
+      "source": "remote_statements_archived",
+      "file": "20261017232826.sql",
+      "sha256_file": "931b0b4f61db09c26fcc87498be7cb3509168743b8b6fd107738189176cd552a",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018080218",
+      "name": "a09_atomic_chat_and_tools",
+      "source": "remote_statements_archived",
+      "file": "20261018080218.sql",
+      "sha256_file": "5e0aa6a61f08b9e2e63375fa634bba88c42eff5fc57e6772f151c2c8c8750b2a",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018080309",
+      "name": "a09_richer_read_tools",
+      "source": "remote_statements_archived",
+      "file": "20261018080309.sql",
+      "sha256_file": "d2bd1feb60506d90b0082bbead64837752a7ec86c8b8fc3dd7319fe74d43f800",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018080644",
+      "name": "a09_proposal_notes",
+      "source": "remote_statements_archived",
+      "file": "20261018080644.sql",
+      "sha256_file": "a337f1645c5aed8c8392970d3268d51bbbf0b49578ba5b77945688647e5b82b3",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018081543",
+      "name": "a09_entity_and_calendar_reads",
+      "source": "remote_statements_archived",
+      "file": "20261018081543.sql",
+      "sha256_file": "e1b4e71e2b337381f0081ff9ec1d1648d912e97ba4070a2d53139df49d815005",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018081949",
+      "name": "a09_consultant_workbench",
+      "source": "remote_statements_archived",
+      "file": "20261018081949.sql",
+      "sha256_file": "06243d7fae0cb38650f432e97a2b89560a3269bf972eee3d3d9f1e1574f56087",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018082205",
+      "name": "a09_output_note_visibility",
+      "source": "remote_statements_archived",
+      "file": "20261018082205.sql",
+      "sha256_file": "88eb226262f0c08c45d7432fd8b38a53c571a2e3425a0aaf687d2fca68c27304",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018082550",
+      "name": "a09_latest_specialist_per_code",
+      "source": "remote_statements_archived",
+      "file": "20261018082550.sql",
+      "sha256_file": "79e065774c7e950a2e2a84e6bcec1a37a603eb15d37f0d7597a25d74dbc3348a",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018183537",
+      "name": "a09_persistent_escalations",
+      "source": "remote_statements_archived",
+      "file": "20261018183537.sql",
+      "sha256_file": "c21dd2f66ca9a8b9d24065312fbdac0328cb2306853894a00439b8c7ca3a236b",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018224615",
+      "name": "a09_exact_knowledge_document",
+      "source": "remote_statements_archived",
+      "file": "20261018224615.sql",
+      "sha256_file": "2018652918d5058c86f7601a0247421ae76fe3fdfa33fa472928ac8e775c8615",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018224901",
+      "name": "a09_specialist_run_detail",
+      "source": "remote_statements_archived",
+      "file": "20261018224901.sql",
+      "sha256_file": "ab61de3528541b9135516c90b02d87404667e51233304932d49c577ce0f1e70f",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018230132",
+      "name": "a09_campaign_item_detail",
+      "source": "remote_statements_archived",
+      "file": "20261018230132.sql",
+      "sha256_file": "62553449de0a46f9190a679730e04feee6786081e8241bac30d90db31ecbf976",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018230346",
+      "name": "a09_marketing_draft_detail",
+      "source": "remote_statements_archived",
+      "file": "20261018230346.sql",
+      "sha256_file": "6cb231d3a53ab84eebb8e18a47bac2e4da03a33dd9d90c1550c056ab96461096",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018231125",
+      "name": "a09_strategic_plan_version",
+      "source": "remote_statements_archived",
+      "file": "20261018231125.sql",
+      "sha256_file": "719145267357d252ff4078cab049e02c62c17400de2dac4285ff596eaea8d2c3",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261018231217",
+      "name": "a09_strategic_plan_version",
+      "source": "remote_statements_archived",
+      "file": "20261018231217.sql",
+      "sha256_file": "719145267357d252ff4078cab049e02c62c17400de2dac4285ff596eaea8d2c3",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019065552",
+      "name": "a11_generation_export_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261019065552.sql",
+      "sha256_file": "f12a285950a79013641a1a9050b74712449f3cf898d849fc60694f0f94410f4b",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019065757",
+      "name": "a11_atomic_generation_finalize",
+      "source": "remote_statements_archived",
+      "file": "20261019065757.sql",
+      "sha256_file": "aa7b9dd405a4a07f6deb0d1ba0dd0bea1e21fdd020d8d0c968297e6d2ad58095",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019070018",
+      "name": "a11_prompt_v11",
+      "source": "remote_statements_archived",
+      "file": "20261019070018.sql",
+      "sha256_file": "2a7316a5eee75770d2bbd91b090b09a5b0af36d3c30e80c51e0796146595ce76",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019070200",
+      "name": "a11_atomic_approval",
+      "source": "remote_statements_archived",
+      "file": "20261019070200.sql",
+      "sha256_file": "a4160b69eea4c2ccb783cf952ad67f14c97d5e08adc19c237816c2c488b308a1",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019070830",
+      "name": "a11_studio_chat_reservations",
+      "source": "remote_statements_archived",
+      "file": "20261019070830.sql",
+      "sha256_file": "48130d60cd7855da8fe1b51c8ee118731bb5247a4c1c6e01f5e591d4799c0aee",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019071029",
+      "name": "a11_atomic_submit",
+      "source": "remote_statements_archived",
+      "file": "20261019071029.sql",
+      "sha256_file": "9b1d04d42b69e70d516f8b19cc346562ecc410f96a2a468cb3b8fcca1542ad2c",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019071152",
+      "name": "a11_atomic_studio_save",
+      "source": "remote_statements_archived",
+      "file": "20261019071152.sql",
+      "sha256_file": "4db5dde1397e562c20020c9a0df0efa7b8d8b934431cf48fdb5b11259d1703b4",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019084712",
+      "name": "a11_remaining_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261019084712.sql",
+      "sha256_file": "85000c27762f5f3f5b1eb857fc822263677355222ad0ce8587831310b6152dee",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019085808",
+      "name": "a11_terminal_generation_progress",
+      "source": "remote_statements_archived",
+      "file": "20261019085808.sql",
+      "sha256_file": "6828958edfaaf30f40e49d6a1d135ac70c8743bb85e261e95b22bb6bd1e57af0",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019093852",
+      "name": "a12_email_analyst_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261019093852.sql",
+      "sha256_file": "7b52e33684c8648d5dce5c71ca66cda451dd5b74c312274d5a33fa9b8e0243af",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019094847",
+      "name": "a12_email_activity_digest",
+      "source": "remote_statements_archived",
+      "file": "20261019094847.sql",
+      "sha256_file": "889fd9deec1143ed421a67e2388ae5b0c7c5b878ec293bef75bcae977e2233bc",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019162105",
+      "name": "a14_operational_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261019162105.sql",
+      "sha256_file": "e93593467ad7592d10c75601fb285ad2b0ab2d80ac13f63e57fa55e8b246f0d5",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261019162109",
+      "name": "shopify_inventory_variant_page",
+      "source": "remote_statements_archived",
+      "file": "20261019162109.sql",
+      "sha256_file": "d10c7c985a3453fd6a6219c1c7604f4c0dcb78f1f1bb3c0e683743af687f8290",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020082555",
+      "name": "a29_prompt_v2_lenguaje_cliente",
+      "source": "remote_statements_archived",
+      "file": "20261020082555.sql",
+      "sha256_file": "424abd1d964a0f14f06a9753d861e1e4201386319d1c832bd451edf69d97503b",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020120153",
+      "name": "a16_overlay_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261020120153.sql",
+      "sha256_file": "ada6ff5e29c5186a8f661780ff30e50c3d06b49ead0f322327ec2a269e8486a4",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020120159",
+      "name": "a16_idempotent_outputs",
+      "source": "remote_statements_archived",
+      "file": "20261020120159.sql",
+      "sha256_file": "41b0fe15630974b7c599c7c409fea2c5ecad04363c98fdc58df25c6e8bd636cd",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020120542",
+      "name": "a16_sequence_and_variants",
+      "source": "remote_statements_archived",
+      "file": "20261020120542.sql",
+      "sha256_file": "c1f0bd091450b2d93f731024141846896be40627ed2f67f5ca3e9e3ce12ce9f1",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020131038",
+      "name": "a17_weekly_plan_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261020131038.sql",
+      "sha256_file": "00d9d9d2c601971a6345da986e2931a666f4d8a67a63f20e491dfb04942aeb02",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020144040",
+      "name": "a18_monthly_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261020144040.sql",
+      "sha256_file": "a4048010444b1cc50e6edf29cbc1d84b2e6610945f03d98dd2b8afdcdfd667a1",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020175038",
+      "name": "20270104210000_a19_camino_integrity",
+      "source": "remote_statements_archived",
+      "file": "20261020175038.sql",
+      "sha256_file": "6f6afff17bfee995add880ba69ff69962484ca6fa42b1507647af191becc538f",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020202854",
+      "name": "a20_retention_ecosystem",
+      "source": "remote_statements_archived",
+      "file": "20261020202854.sql",
+      "sha256_file": "d64094e22e5155835d3323e7ae6409f4abc643c51a8a0fe71a98469ddb41fa69",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020202856",
+      "name": "a20_retention_lifecycle",
+      "source": "remote_statements_archived",
+      "file": "20261020202856.sql",
+      "sha256_file": "159884ad721064e461eb6c4a182ed5bf3a894cb25bafdfeb924413020a7ef893",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020202858",
+      "name": "a20_retention_receipt_actor",
+      "source": "remote_statements_archived",
+      "file": "20261020202858.sql",
+      "sha256_file": "ce8214ed0b34259232f3ca48c77c9c775f097ad4b0e41ebd96b243421eac7979",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020202859",
+      "name": "a20_retention_milestone_status",
+      "source": "remote_statements_archived",
+      "file": "20261020202859.sql",
+      "sha256_file": "35da0a32055f31318e260712f7db0b19330b3a0fe2752e890aa4144130aaf063",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020202901",
+      "name": "a20_retention_task_priority",
+      "source": "remote_statements_archived",
+      "file": "20261020202901.sql",
+      "sha256_file": "8af2d029d48a9cfe0df2551719653429bf0c4e0fb4796946c884ace806b0fd2d",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020202903",
+      "name": "a20_retention_measurement_interval",
+      "source": "remote_statements_archived",
+      "file": "20261020202903.sql",
+      "sha256_file": "771616e2db3fb88812c968cfced9497ff7ab542e1cc5fd4c01d4287fe4a3cd8c",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261020203114",
+      "name": "a20_retention_atomic_output",
+      "source": "remote_statements_archived",
+      "file": "20261020203114.sql",
+      "sha256_file": "c3901caa8cf13fb40f422521028fe9c42c6ed27da99fb6ac7fde0db548fe2e29",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021072614",
+      "name": "shopify_discount_proposals",
+      "source": "remote_statements_archived",
+      "file": "20261021072614.sql",
+      "sha256_file": "99eccedadcb61aa4ab8e1a22eccaf9354c7e4cab683b2d56ae6331222eb13dd7",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021080321",
+      "name": "a21_acquisition_ecosystem",
+      "source": "remote_statements_archived",
+      "file": "20261021080321.sql",
+      "sha256_file": "3b63c549ec79cefc6e5d8aaff78beb53d4c592a04abc03ab6019b8095f088b00",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021080422",
+      "name": "a21_generation_advisor_hardening",
+      "source": "remote_statements_archived",
+      "file": "20261021080422.sql",
+      "sha256_file": "696498277019cd83530059c2a4bac85d976a0b6e5e8268671e1efe5cb150084b",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021085510",
+      "name": "a22_postventa_evidence_coordination",
+      "source": "remote_statements_archived",
+      "file": "20261021085510.sql",
+      "sha256_file": "cf92f27ae2c5b26aee97ae9abc0a308eb7792fd681e2536403100c31ac9d7563",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021090307",
+      "name": "a22_delivery_rpc_privileges",
+      "source": "remote_statements_archived",
+      "file": "20261021090307.sql",
+      "sha256_file": "9a3f3f843832d5b2c659dd10b7dc4c14e3897bf36d5b89caa8bc62119dac9217",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021090531",
+      "name": "a22_delivery_rpc_search_path",
+      "source": "remote_statements_archived",
+      "file": "20261021090531.sql",
+      "sha256_file": "ee3071a26c49fc3f119c1b16b1fbfe1a38190f18f84e23d2048a3dda2ce52ce4",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261021094657",
+      "name": "a23_creative_full_evidence_and_coordination",
+      "source": "not_recorded_in_remote_history",
+      "file": null,
+      "sha256_file": null,
+      "related_local_migration": "../../migrations/20270106110000_a23_creative_full_evidence_and_coordination.sql"
+    },
+    {
+      "version": "20261021101538",
+      "name": "a23_creative_full_evidence_and_coordination",
+      "source": "remote_statements_archived",
+      "file": "20261021101538.sql",
+      "sha256_file": "b4bfd9ac8ae1363332aff56fbbd1927ce8600a7a148f0a7192469cabf2718f99",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261030080947",
+      "name": "a02_metric_figure_keys",
+      "source": "remote_statements_archived",
+      "file": "20261030080947.sql",
+      "sha256_file": "e1a2998815eb9c3460a05fae2314d398ece22ab1168a24841d7709292255ec8e",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261030095326",
+      "name": "a02_panel_kpi_coverage",
+      "source": "remote_statements_archived",
+      "file": "20261030095326.sql",
+      "sha256_file": "39a02a9d82a74277f38327d6b7c8ef1fb861260ccc3d82c793fa4f99681741e3",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261031071955",
+      "name": "a05_email_pipeline_tools",
+      "source": "remote_statements_archived",
+      "file": "20261031071955.sql",
+      "sha256_file": "7320a898cf2dcd2f17a46ebf60a4a975978ffc1ec3476195d852f2dae8709894",
+      "related_local_migration": null
+    },
+    {
+      "version": "20261031081228",
+      "name": "a08_authorized_methodology_audit",
+      "source": "remote_statements_archived",
+      "file": "20261031081228.sql",
+      "sha256_file": "9814fa233eb0b03a0d9fbefce91a9fea3013606b870c020ac0353b7db475c867",
+      "related_local_migration": null
+    }
+  ]
+}
