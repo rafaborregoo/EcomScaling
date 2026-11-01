@@ -120,6 +120,8 @@ export function ResizablePanelGroup({
   const specs = useRef(new Map<string, PanelSpec>());
   const [layout, setLayout] = useState<Layout>({ ids: [], sizes: [] });
   const layoutRef = useRef(layout);
+  // Espejo del estado para leerlo en handlers sin re-suscribir.
+  // eslint-disable-next-line react-hooks/refs
   layoutRef.current = layout;
   const [version, setVersion] = useState(0);
 
