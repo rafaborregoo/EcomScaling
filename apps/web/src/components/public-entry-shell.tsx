@@ -5,20 +5,23 @@ import { LegalFooterLinks } from "@/components/legal-page";
 import { PublicCompactNav } from "./public-compact-nav";
 import styles from "./public-entry.module.css";
 
-export function PublicEntryShell({ active, children }: { active: "login" | "platform"; children: ReactNode }) {
+export function PublicEntryShell({ active, children }: { active: "login" | "platform" | "consultants"; children: ReactNode }) {
+  // Las páginas con vídeo (clientes y consultores) comparten la cabecera de «platform»
+  const entry = active === "login" ? "login" : "platform";
   return (
-    <div className={styles.shell} data-entry={active}>
+    <div className={styles.shell} data-entry={entry}>
       <a className={styles.skip} href="#public-content">Saltar al contenido</a>
       <header className={styles.header}>
-        <Link href="/conoce-e-nora" aria-label="E-NORA, conoce la plataforma" className={styles.logo}>
+        <Link href="/como-funciona" aria-label="E-NORA, conoce la plataforma" className={styles.logo}>
           <BrandLogo />
         </Link>
         <nav aria-label="Navegación pública" className={styles.nav}>
-          <Link href="/conoce-e-nora" aria-current={active === "platform" ? "page" : undefined}>Conoce E-NORA</Link>
+          <Link href="/como-funciona" aria-current={active === "platform" ? "page" : undefined}>Conoce E-NORA</Link>
+          <Link href="/consultores" aria-current={active === "consultants" ? "page" : undefined}>Consultores</Link>
           <Link href="/login" aria-current={active === "login" ? "page" : undefined}>Ingresar</Link>
         </nav>
       </header>
-      {active === "platform" && <PublicCompactNav />}
+      {entry === "platform" && <PublicCompactNav />}
       {children}
       <footer className={styles.footer}>
         <span>E-NORA · Tu negocio, con perspectiva.</span>

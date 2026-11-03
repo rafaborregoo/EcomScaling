@@ -1,18 +1,6 @@
-import type { Metadata } from "next";
-import { PublicEntryShell } from "@/components/public-entry-shell";
-import { ProcessStory } from "@/components/marketing/process-story";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Cómo funciona E-NORA · Tu ecommerce, claro y en un solo sitio",
-  description: "Une Shopify, Meta y Klaviyo, entiende qué vende y qué solo gasta, recibe avisos cuando algo se tuerce y decide el siguiente paso con tu equipo.",
-};
-
+// La página pública pasó a /como-funciona; los enlaces viejos siguen llegando.
 export default function PlatformPage() {
-  return (
-    <PublicEntryShell active="platform">
-      <main id="public-content" className="enoraMarketingPage">
-        <ProcessStory />
-      </main>
-    </PublicEntryShell>
-  );
+  permanentRedirect("/como-funciona");
 }
