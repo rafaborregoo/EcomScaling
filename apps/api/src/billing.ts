@@ -745,6 +745,7 @@ export type GrantInput = {
   plan_code?: string | undefined;
   store_limit?: number | string | null | undefined;
   member_limit?: number | string | null | undefined;
+  client_slots?: number | string | null | undefined;
   ends_at?: string | null | undefined;
 };
 
@@ -753,6 +754,7 @@ export type GrantPatch = {
   plan_code: string;
   store_limit: number | null;
   member_limit: number | null;
+  contracted_client_slots?: number;
   status: "active";
   starts_at: string;
   ends_at: string | null;
@@ -845,6 +847,24 @@ export function buildGrantPatch(
     memberLimit = parsed;
   }
 
+  // Plazas de cartera: solo tiene sentido en la consultora. Ausente = no se
+  // escribe y la fila se queda con el default de la columna.
+  let clientSlots: number | undefined;
+  if (input.client_slots !== null && input.client_slots !== undefined) {
+    const parsed =
+      typeof input.client_slots === "number"
+        ? input.client_slots
+        : Number.parseInt(input.client_slots, 10);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+      return {
+        ok: false,
+        error: "client_slots_invalid",
+        message: "Los clientes en cartera tienen que ser un entero de 0 en adelante.",
+      };
+    }
+    clientSlots = parsed;
+  }
+
   if (input.ends_at) {
     const parsed = new Date(input.ends_at);
     if (Number.isNaN(parsed.getTime())) {
@@ -874,6 +894,7 @@ export function buildGrantPatch(
       plan_code: planCode,
       store_limit: storeLimit,
       member_limit: memberLimit,
+      ...(clientSlots !== undefined ? { contracted_client_slots: clientSlots } : {}),
       status: "active",
       starts_at: now.toISOString(),
       ends_at: endsAt,
@@ -1206,11 +1227,14 @@ export async function grantSubscription(
       status: patch.status,
       store_limit: patch.store_limit,
       member_limit: patch.member_limit,
+      ...(patch.contracted_client_slots !== undefined
+        ? { contracted_client_slots: patch.contracted_client_slots }
+        : {}),
       starts_at: patch.starts_at,
       ends_at: patch.ends_at,
       metadata: { granted_by: context.user.id, granted_at: patch.starts_at },
     })
-    .select("id, plan_code, status, store_limit, member_limit, starts_at, ends_at")
+    .select("id, plan_code, status, store_limit, member_limit, contracted_client_slots, starts_at, ends_at")
     .maybeSingle();
   if (insertError || !creada) {
     return {

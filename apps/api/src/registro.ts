@@ -4,7 +4,7 @@ import { createLogger } from "@e-nora/observability";
 import { recordAuditLog } from "./audit-log.js";
 import type { AuthContext } from "./auth-context.js";
 import { assignPartnersToOrganization } from "./consultant-partners.js";
-import { resolveInvite } from "./consultant.js";
+import { REGISTRO_CERRADO, resolveInvite } from "./consultant.js";
 import { attachReferral } from "./referidos.js";
 import { notify } from "./notify.js";
 import { applyClientDefaults } from "./consultora-settings.js";
@@ -128,6 +128,19 @@ export async function ensureOwnOrganization(
       },
     };
   }
+  // Registro cerrado: quien llega aqui sin organizacion se ha creado la cuenta
+  // por fuera (signUp directo con la clave publica). Sin organizacion no ve
+  // nada, asi que basta con no darsela.
+  if (REGISTRO_CERRADO) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "registro_cerrado",
+      message:
+        "El registro está cerrado. Pide acceso en /solicitar y te escribiremos cuando tengas tu cuenta.",
+    };
+  }
+
   const displayName = nombreDeOrganizacion({
     businessName: body.business_name ?? null,
     fullName: context.profile.full_name,

@@ -96,6 +96,7 @@ export type NotificationData = {
   client_linked: { store: string };
   client_settings: { store: string; changes: Array<{ key: string; label: string; granted: boolean }> };
   client_decided_ai_output: { outputId: string; store: string; approved: boolean; titles: string[]; reason: string | null };
+  access_request: { requestId: string; kind: "client" | "consultant" | "consultant_client"; name: string; consultant: string | null; count: number };
 };
 
 export type RenderedNotification = {
@@ -402,6 +403,24 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
         url: `/propuestas/${data.outputId}?organizationId=${organizationId}`,
         entityType: "agent_output",
         entityId: data.outputId,
+      };
+    },
+  },
+
+  access_request: {
+    render: (data) => {
+      const declared = data.count > 0 ? ` Declara ${plural(data.count, "cliente", "clientes")}.` : "";
+      return {
+        title:
+          data.kind === "consultant"
+            ? `Solicitud de consultor: ${data.name}`
+            : data.kind === "consultant_client"
+              ? `${data.consultant ?? "Un consultor"} declara un cliente: ${data.name}`
+              : `Solicitud de cliente: ${data.name}`,
+        message: `Revísala en Solicitudes: respuestas, comprobación de la tienda y plazas libres.${declared}`,
+        url: `/admin/solicitudes?focus=${data.requestId}`,
+        entityType: "access_request",
+        entityId: data.requestId,
       };
     },
   },

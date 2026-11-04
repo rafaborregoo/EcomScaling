@@ -140,6 +140,12 @@ export const NOTIFICATION_TYPES = {
     explanation: "El cliente ha aprobado o descartado tareas que propuso la IA. Abre la propuesta con el detalle y su motivo.",
     audience: "consultor",
   },
+  access_request: {
+    category: "client",
+    label: "Solicitud de acceso",
+    explanation: "Alguien ha pedido acceso a E-NORA o un consultor ha declarado un cliente. Solo le llega a la dirección.",
+    audience: "consultor",
+  },
 } as const satisfies Record<string, NotificationTypeInfo>;
 
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;

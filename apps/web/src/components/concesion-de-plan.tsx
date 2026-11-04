@@ -28,6 +28,7 @@ export function ConcesionDePlan({
   etiquetaSinPlan,
   avisoSinPlan,
   soloEdicion = false,
+  cartera = false,
 }: {
   value: ConcesionDePlanValue;
   onChange: (valor: ConcesionDePlanValue) => void;
@@ -37,6 +38,8 @@ export function ConcesionDePlan({
   /** Editando un plan que ya existe: sin el selector de "concedo o no", los
    *  campos van directos -- aqui siempre hay un plan que ajustar. */
   soloEdicion?: boolean;
+  /** Es el plan de una consultora: pide cuántos clientes puede llevar. */
+  cartera?: boolean;
 }) {
   return (
     <div className="grid gap-4">
@@ -89,6 +92,18 @@ export function ConcesionDePlan({
                 inputMode="numeric"
               />
             </Field>
+            {cartera ? (
+              <Field label="Clientes en cartera">
+                <Input
+                  value={value.clientSlots}
+                  onChange={(event) =>
+                    onChange({ ...value, clientSlots: event.target.value })
+                  }
+                  placeholder="2"
+                  inputMode="numeric"
+                />
+              </Field>
+            ) : null}
             <Field label="Caduca (opcional)">
               <DatePicker
                 value={value.endsAt}
@@ -135,11 +150,14 @@ export function PlanEditor({
   subjectId,
   plan,
   onSaved,
+  cartera = false,
 }: {
   subjectType: "user" | "organization";
   subjectId: string;
-  plan: { plan_code: string; store_limit: number | null; member_limit?: number | null; ends_at: string | null } | null;
+  plan: { plan_code: string; store_limit: number | null; member_limit?: number | null; contracted_client_slots?: number | null; ends_at: string | null } | null;
   onSaved: (message: string) => void;
+  /** Plan de una consultora: incluye sus plazas de cartera. */
+  cartera?: boolean;
 }) {
   const [value, setValue] = useState(() =>
     plan ? concesionDesde(plan) : concesionInicial("", true),
@@ -157,7 +175,7 @@ export function PlanEditor({
         body: JSON.stringify({
           subject_type: subjectType,
           subject_id: subjectId,
-          ...grantPlanBody(value),
+          ...grantPlanBody(value, cartera),
         }),
       });
       if (!response.ok) {
@@ -178,11 +196,11 @@ export function PlanEditor({
         Plan {plan ? `actual: ${plan.plan_code}` : "(sin plan concedido todavía)"}
       </p>
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-      <ConcesionDePlan value={value} onChange={setValue} soloEdicion />
+      <ConcesionDePlan value={value} onChange={setValue} soloEdicion cartera={cartera} />
       <div>
         <Button
           size="sm"
-          disabled={busy || !concesionValida(value)}
+          disabled={busy || !concesionValida(value, cartera)}
           onClick={() => void guardar()}
         >
           {busy ? "Guardando..." : "Guardar plan"}

@@ -380,7 +380,7 @@ function ConsultantCreateSheet({
         body: JSON.stringify({
           email,
           full_name: fullName || undefined,
-          grant_plan: grantPlanBody(plan),
+          grant_plan: grantPlanBody(plan, true),
         }),
       });
       if (!response.ok) {
@@ -407,7 +407,7 @@ function ConsultantCreateSheet({
   }
 
   const canSubmit =
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && concesionValida(plan);
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && concesionValida(plan, true);
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange} busy={busy} dirty={Boolean(email.trim() || fullName.trim())}>
@@ -459,6 +459,7 @@ function ConsultantCreateSheet({
         <ConcesionDePlan
           value={plan}
           onChange={setPlan}
+          cartera
           etiquetaSinPlan="Lo paga él con tarjeta"
           avisoSinPlan="Hasta que pague no será consultor: entrará, pero sin cartera de clientes. El rol sale del plan, así que lo verá en /planes al entrar."
         />

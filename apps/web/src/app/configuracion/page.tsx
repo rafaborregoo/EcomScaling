@@ -20,7 +20,7 @@ import { OrganizationIdentity } from "./organization-identity";
 import { BusinessContextSection } from "./business-context-section";
 import { ProfileSection } from "./profile-section";
 import { ConsultoraSection, PortfolioSettingsMatrix } from "./consultant-settings";
-import { ConsultoraBrandSection, ConsultoraRolesCard, ConsultoraTeamSection, InviteCodesSection } from "./consultora-section";
+import { ConsultoraBrandSection, ConsultoraRolesCard, ConsultoraTeamSection, DeclaredClientsSection, InviteCodesSection } from "./consultora-section";
 import { CopilotAiSection } from "./copilot-ai-section";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -1252,6 +1252,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <ConsultoraRolesCard />
           {/* Reparto de responsabilidades entre consultores. */}
           <WorkSplitSection />
+          <DeclaredClientsSection />
           <InviteCodesSection />
         </div>
       ) : tab === "alertas" ? (

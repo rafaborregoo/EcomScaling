@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import { PublicEntryShell } from "@/components/public-entry-shell";
 import { HowItWorks, type HowItWorksStep } from "@/components/marketing/how-it-works";
-import { LEGAL_ENTITY } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "E-NORA para consultores",
   description: "Toda tu cartera en una pantalla: qué cliente te necesita, qué han visto los especialistas de NORA y qué te toca aprobar. En seis pasos.",
 };
 
-// Las cuentas de consultor no se abren solas desde /registro: se piden por correo.
-const CTA = { label: "Escríbenos", href: `mailto:${LEGAL_ENTITY.email}?subject=${encodeURIComponent("Quiero usar E-NORA como consultor")}` };
+// Las cuentas de consultor no se abren solas: se piden en /solicitar y las abre E-NORA.
+const CTA = { label: "Pedir acceso como consultor", href: "/solicitar?rol=consultor" };
 
 const STEPS: HowItWorksStep[] = [
   {

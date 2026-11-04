@@ -40,6 +40,7 @@ export type Plan = {
   plan_code: string;
   store_limit: number | null;
   member_limit: number | null;
+  contracted_client_slots?: number | null;
   status: string;
   ends_at: string | null;
 };
@@ -251,6 +252,7 @@ export function AssignmentEditor({
               subjectType="organization"
               subjectId={consultant.consulting_organization_id}
               plan={consultant.plan}
+              cartera
               onSaved={onChanged}
             />
           ) : null}

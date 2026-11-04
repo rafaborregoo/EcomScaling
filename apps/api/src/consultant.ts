@@ -3764,7 +3764,7 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
     consultingOrgIds.length > 0
       ? await supabase
           .from("service_subscriptions")
-          .select("organization_id, plan_code, store_limit, member_limit, status, ends_at")
+          .select("organization_id, plan_code, store_limit, member_limit, contracted_client_slots, status, ends_at")
           .in("status", ["trial", "active"])
           .in("organization_id", consultingOrgIds)
       : { data: [], error: null };
@@ -3780,6 +3780,7 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
         plan_code: s.plan_code as string,
         store_limit: s.store_limit as number | null,
         member_limit: s.member_limit as number | null,
+        contracted_client_slots: s.contracted_client_slots as number,
         status: s.status as string,
         ends_at: s.ends_at as string | null,
       },
@@ -5251,7 +5252,7 @@ function slugify(input: string): string {
  * miembro activo. Es donde vive su plan desde 20261018090000 -- antes era una
  * fila de service_subscriptions con user_id.
  */
-async function findConsultingOrganizationId(
+export async function findConsultingOrganizationId(
   supabase: ReturnType<typeof createServiceClient>,
   userId: string,
 ): Promise<string | null> {
@@ -5359,6 +5360,9 @@ async function createConsultingOrganization(
                 status: input.plan.status,
                 store_limit: input.plan.store_limit,
                 member_limit: input.plan.member_limit,
+                ...(input.plan.contracted_client_slots !== undefined
+                  ? { contracted_client_slots: input.plan.contracted_client_slots }
+                  : {}),
                 starts_at: input.plan.starts_at,
                 ends_at: input.plan.ends_at,
                 metadata: {
@@ -5539,6 +5543,7 @@ export async function inviteConsultant(
       plan_code?: string;
       store_limit?: number | string | null;
       member_limit?: number | string | null;
+      client_slots?: number | string | null;
       ends_at?: string | null;
     } | null;
   },
@@ -5965,12 +5970,21 @@ export async function createClientOrganization(
     };
   }
 
+  // Enlace generado aqui y enviado por nuestro SMTP, igual que al consultor:
+  // `inviteUserByEmail` tira del correo de Supabase Auth, que tiene un cupo
+  // por hora que una tanda de invitaciones (las solicitudes aprobadas el dia
+  // que se abre) agota a la tercera.
   const { data: invite, error: inviteError } =
-    await supabase.auth.admin.inviteUserByEmail(ownerEmail, {
-      redirectTo: onboardingRedirectTo(env),
-      ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
+    await supabase.auth.admin.generateLink({
+      type: "invite",
+      email: ownerEmail,
+      options: {
+        redirectTo: onboardingRedirectTo(env),
+        ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
+      },
     });
-  if (inviteError || !invite?.user) {
+  const inviteUrl = invite?.properties?.action_link ?? null;
+  if (inviteError || !invite?.user || !inviteUrl) {
     await supabase.from("organizations").delete().eq("id", organization.id);
     const already = /already/i.test(inviteError?.message ?? "");
     return {
@@ -6046,11 +6060,27 @@ export async function createClientOrganization(
     entityId: organization.id,
     newData: { organization, owner_email: ownerEmail },
   });
+
+  const sent = await sendInviteMail(env, {
+    to: ownerEmail,
+    recipientName: ownerFullName,
+    title: "Tu invitación a E-NORA",
+    intro: `Ya tienes tu cuenta de ${organization.display_name} en E-NORA. Crea tu contraseña y completa el onboarding para conectar tu tienda.`,
+    actionLabel: "Aceptar invitación",
+    actionUrl: inviteUrl,
+    senderName: context.profile.full_name,
+  });
+  if (!sent.sent) {
+    logger.info("client_invite_smtp_fallback", { reason: sent.reason });
+  }
+
   return {
     ok: true as const,
     data: {
       organization,
       owner: { user_id: invite.user.id, email: ownerEmail },
+      delivery: sent.sent ? ("email" as const) : ("manual_link" as const),
+      invite_url: inviteUrl,
     },
   };
 }
@@ -6061,6 +6091,15 @@ export async function createClientOrganization(
 // con el cliente. El cliente lo canjea en /acceso -> sesión -> onboarding.
 
 const INVITE_TTL_DAYS = 7;
+
+/**
+ * Mientras no haya precios, nadie se crea la cuenta solo: entra por
+ * /solicitar y la cuenta la abre E-NORA al aprobar (solicitudes.ts). Cierra el
+ * alta de organizacion en /v1/mi-organizacion y los codigos sueltos. Para
+ * reabrir el registro: `false` aqui y recuperar de git la pagina /registro
+ * (hoy solo redirige a /solicitar).
+ */
+export const REGISTRO_CERRADO = true;
 
 /**
  * Emitir un codigo exige la clave del HMAC. Sin ella la alternativa seria
@@ -6189,6 +6228,19 @@ export async function generateClientInviteCode(
       statusCode: 403,
       error: "consultant_access_required",
       message: "Solo el consultor puede dar de alta clientes.",
+    };
+  }
+
+  // Registro cerrado (solicitudes.ts): el codigo suelto llevaba al cliente a
+  // crearse la cuenta en /registro, y ahora las cuentas las abre E-NORA. El
+  // consultor declara al cliente y la direccion lo aprueba e invita.
+  if (REGISTRO_CERRADO) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "registro_cerrado",
+      message:
+        "Los clientes nuevos se declaran en Configuración › Accesos › Clientes declarados. E-NORA los revisa y les envía la invitación.",
     };
   }
 

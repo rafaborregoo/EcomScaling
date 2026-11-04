@@ -89,7 +89,7 @@ export default function HowItWorksPage() {
           video="/video/como-funciona"
           videoLabel="Vídeo: cómo funciona E-NORA en seis pasos, con una tienda de ejemplo"
           steps={STEPS}
-          cta={{ label: "Inicia tu prueba gratuita", href: "/registro" }}
+          cta={{ label: "Pedir acceso", href: "/solicitar" }}
         />
       </main>
     </PublicEntryShell>

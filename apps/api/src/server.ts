@@ -347,6 +347,19 @@ import {
 import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
 import { ensureOwnOrganization } from "./registro.js";
 import {
+  actualizarPlazas,
+  actualizarSolicitud,
+  aprobarSolicitud,
+  crearSolicitud,
+  declararCliente,
+  getPlazasPublicas,
+  invitarAprobadas,
+  invitarSolicitud,
+  listarDeclarados,
+  listarSolicitudes,
+  recomprobarTienda,
+} from "./solicitudes.js";
+import {
   createMyReferralCode,
   getMyReferralProgram,
   getPublicReferralCode,
@@ -2380,6 +2393,113 @@ export async function buildApp(): Promise<FastifyInstance> {
     inviteRedeemRateLimit,
     async (request, reply) => {
       const result = await redeemClientInvite(env, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Solicitudes de acceso (solicitudes.ts). Las dos primeras son publicas:
+  // /solicitar pinta las plazas libres y manda la solicitud sin sesion.
+  app.get("/v1/solicitudes/plazas", async (_request, reply) => {
+    const result = await getPlazasPublicas(env);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Sin sesion el cubo es la IP, y detras del proxy esa IP puede ser la misma
+  // para todos: 30/min deja pasar el pico de un anuncio sin abrir la puerta a
+  // un script.
+  const solicitudRateLimit = {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute", keyGenerator: (request: { ip: string }) => request.ip } },
+  };
+  app.post("/v1/solicitudes", solicitudRateLimit, async (request, reply) => {
+    const result = await crearSolicitud(env, request.body);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+
+  app.get("/v1/consultant/declared-clients", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await listarDeclarados(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post("/v1/consultant/declared-clients", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await declararCliente(env, auth.context, request.body);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+
+  app.get("/v1/admin/solicitudes", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await listarSolicitudes(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.put<{ Body: { client?: unknown; consultant?: unknown } }>(
+    "/v1/admin/solicitudes/plazas",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await actualizarPlazas(env, auth.context, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post("/v1/admin/solicitudes/invitar-aprobadas", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await invitarAprobadas(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.patch<{
+    Params: { requestId: string };
+    Body: { status?: unknown; admin_note?: unknown; client_slots?: unknown };
+  }>("/v1/admin/solicitudes/:requestId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await actualizarSolicitud(env, auth.context, request.params.requestId, request.body ?? {});
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Params: { requestId: string }; Body: { client_slots?: unknown } }>(
+    "/v1/admin/solicitudes/:requestId/aprobar",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await aprobarSolicitud(env, auth.context, request.params.requestId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { requestId: string } }>(
+    "/v1/admin/solicitudes/:requestId/invitar",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await invitarSolicitud(env, auth.context, request.params.requestId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { requestId: string } }>(
+    "/v1/admin/solicitudes/:requestId/comprobar",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await recomprobarTienda(env, auth.context, request.params.requestId);
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },

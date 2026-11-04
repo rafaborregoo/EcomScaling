@@ -13,6 +13,7 @@ import {
   FileText,
   FlaskConical,
   Gift,
+  Inbox,
   LayoutDashboard,
   Menu,
   ScrollText,
@@ -35,6 +36,7 @@ const navigation = [
   {
     label: "Plataforma",
     items: [
+      { href: "/admin/solicitudes", label: "Solicitudes", icon: Inbox },
       { href: "/admin/clientes", label: "Clientes", icon: Users },
       { href: "/admin/consultores", label: "Consultores", icon: Users },
       { href: "/admin/programa-consultores", label: "Referidos", icon: Gift },
@@ -77,6 +79,7 @@ const pageContext: Record<string, { area: string; description: string }> = {
   "Laboratorio de IA": { area: "Operaciones", description: "Una página por agente para comparar seis modelos y seguir los fallos y sus correcciones." },
   "Auditoría de IA": { area: "Operaciones", description: "Estado de modelos y costes, problemas detectados y propuesta de evaluación por agente." },
   "Onboarding de prueba": { area: "Plataforma", description: "Recorre el alta de un cliente o consultor en un entorno aislado." },
+  Solicitudes: { area: "Plataforma", description: "Quién pide acceso, plazas libres e invitaciones." },
   Clientes: { area: "Plataforma", description: "Organizaciones, accesos y asignación de consultores." },
   Consultores: { area: "Plataforma", description: "Equipo, cartera de clientes y actividad de IA." },
   "Programa de consultores": { area: "Plataforma", description: "Códigos de referido y rendimiento del programa." },

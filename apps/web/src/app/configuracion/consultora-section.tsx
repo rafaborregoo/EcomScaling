@@ -247,32 +247,11 @@ const CODE_STATE: Record<string, { label: string; tone: Tone }> = {
 export function InviteCodesSection() {
   const path = "/v1/consultant/invite-codes";
   const codes = useCachedQuery<{ can_manage: boolean; codes: InviteCode[] }>(path);
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [lastLink, setLastLink] = useState<string | null>(null);
 
   const refresh = () => {
     invalidateCachedQueries(path);
     codes.reload();
   };
-
-  async function generate(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const result = (await send("/v1/consultant/clients", "POST", email.trim() ? { email: email.trim() } : {})) as {
-        invite?: { access_url: string; delivery: string };
-      } | null;
-      setLastLink(result?.invite?.delivery === "email" ? null : (result?.invite?.access_url ?? null));
-      toast.success(result?.invite?.delivery === "email" ? "Código enviado por correo" : "Código creado");
-      setEmail("");
-      refresh();
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "No se pudo crear el código.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function revoke(id: string) {
     try {
@@ -286,42 +265,18 @@ export function InviteCodesSection() {
 
   if (codes.error) return <ErrorBlock>No se pudieron cargar los códigos.</ErrorBlock>;
   if (!codes.data) return <LoadingBlock label="Cargando códigos…" />;
+  // Ya no se generan códigos (registro cerrado, ver DeclaredClientsSection):
+  // la tarjeta queda solo para revocar los que siguen pendientes.
+  if (codes.data.codes.length === 0) return null;
   type Row = InviteCode;
   return (
     <Card id="codigos">
       <CardHeader>
         <CardTitle>Códigos de vinculación</CardTitle>
-        <CardDescription>Un código por cliente nuevo, de un solo uso. Mientras está pendiente ocupa una plaza de cartera.</CardDescription>
+        <CardDescription>Los que generaste antes de cerrar el registro. Mientras está pendiente, un código ocupa una plaza de cartera.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="mb-6 flex flex-wrap items-end gap-3" onSubmit={generate}>
-          <Field label="Correo del cliente (opcional)">
-            <Input className="w-72" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="cliente@sutienda.com" />
-          </Field>
-          <Button type="submit" disabled={busy}>
-            {busy ? "Creando…" : "Generar código"}
-          </Button>
-        </form>
-        {lastLink ? (
-          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-surface p-4">
-            <p className="min-w-0 flex-1 break-all text-sm">{lastLink}</p>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                void navigator.clipboard
-                  .writeText(lastLink)
-                  .then(() => toast.success("Enlace copiado"))
-                  .catch(() => toast.danger("No se pudo copiar."))
-              }
-            >
-              Copiar enlace
-            </Button>
-          </div>
-        ) : null}
-        {codes.data.codes.length === 0 ? (
-          <EmptyState title="Sin códigos todavía" hint="Genera uno y compártelo con el cliente." />
-        ) : (
+        {(
           <DataTable<Row>
             ariaLabel="Códigos de vinculación"
             rows={codes.data.codes}
@@ -362,6 +317,127 @@ export function InviteCodesSection() {
                       Revocar
                     </Button>
                   ) : null,
+              },
+            ]}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type DeclaredClient = {
+  id: string;
+  business_name: string | null;
+  email: string;
+  store_domain: string | null;
+  status: "pending" | "approved" | "waitlisted" | "rejected" | "invited";
+  created_at: string;
+};
+
+const DECLARED_STATE: Record<DeclaredClient["status"], { label: string; tone: Tone }> = {
+  pending: { label: "En revisión", tone: "warn" },
+  approved: { label: "Aprobado", tone: "brand" },
+  invited: { label: "Invitado", tone: "success" },
+  waitlisted: { label: "En espera", tone: "neutral" },
+  rejected: { label: "No aprobado", tone: "neutral" },
+};
+
+/**
+ * Clientes nuevos del consultor: los declara aquí y E-NORA los revisa, les
+ * abre la cuenta y les manda la invitación (apps/api/src/solicitudes.ts).
+ * Sustituye a generar un código suelto, que llevaba a un registro que ya no
+ * está abierto.
+ */
+export function DeclaredClientsSection() {
+  const path = "/v1/consultant/declared-clients";
+  const query = useCachedQuery<{
+    capacidad: { contracted: number; occupied: number; available: number } | null;
+    clients: DeclaredClient[];
+  }>(path);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [storeUrl, setStoreUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function declare(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await send(path, "POST", { name: name.trim(), email: email.trim(), store_url: storeUrl.trim() });
+      toast.success("Cliente enviado a revisión");
+      setName("");
+      setEmail("");
+      setStoreUrl("");
+      invalidateCachedQueries(path);
+      query.reload();
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "No se pudo declarar el cliente.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (query.error) return <ErrorBlock>No se pudieron cargar tus clientes declarados.</ErrorBlock>;
+  if (!query.data) return <LoadingBlock label="Cargando clientes declarados…" />;
+  const { capacidad, clients } = query.data;
+
+  return (
+    <Card id="clientes-declarados">
+      <CardHeader>
+        <CardTitle>Clientes declarados</CardTitle>
+        <CardDescription>
+          Declara la tienda Shopify de un cliente. La revisamos, le abrimos la cuenta y le llega la invitación ya
+          vinculada a tu cartera.
+          {capacidad ? ` Tienes ${capacidad.available} de ${capacidad.contracted} plazas de cartera libres.` : ""}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-6">
+        <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end" onSubmit={declare}>
+          <Field label="Tienda">
+            <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required />
+          </Field>
+          <Field label="Email del cliente">
+            <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required />
+          </Field>
+          <Field label="Web">
+            <Input value={storeUrl} onChange={(event) => setStoreUrl(event.target.value)} placeholder="sutienda.com" inputMode="url" maxLength={500} required />
+          </Field>
+          <Button type="submit" disabled={busy || !name.trim() || !email.trim() || !storeUrl.trim()}>
+            {busy ? "Enviando…" : "Declarar"}
+          </Button>
+        </form>
+        {clients.length === 0 ? (
+          <EmptyState size="sm" title="Sin clientes declarados" />
+        ) : (
+          <DataTable<DeclaredClient>
+            ariaLabel="Clientes declarados"
+            rows={clients}
+            columns={[
+              {
+                key: "business_name",
+                label: "Cliente",
+                render: (client) => (
+                  <div>
+                    <p className="text-sm font-medium">{client.business_name ?? client.email}</p>
+                    <p className="text-xs text-muted">
+                      {client.email}
+                      {client.store_domain ? ` · ${client.store_domain}` : ""}
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                key: "status",
+                label: "Estado",
+                value: (client) => DECLARED_STATE[client.status].label,
+                render: (client) => <Badge tone={DECLARED_STATE[client.status].tone}>{DECLARED_STATE[client.status].label}</Badge>,
+              },
+              {
+                key: "created_at",
+                label: "Declarado",
+                value: (client) => client.created_at,
+                render: (client) => new Date(client.created_at).toLocaleDateString("es-ES"),
               },
             ]}
           />
