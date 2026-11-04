@@ -198,8 +198,9 @@ export default function PrivacyPolicyPage() {
           .
         </p>
         <p>
-          Si desconectas la integración con Meta desde el panel de integraciones, revocamos el token de acceso asociado
-          y dejamos de sincronizar datos nuevos de esa cuenta publicitaria.
+          Si desconectas la integración con Meta desde el panel de integraciones, retiramos el permiso en Meta (salvo que
+          el mismo usuario de Facebook lo use en otra conexión tuya) y dejamos de sincronizar datos nuevos de esa cuenta
+          publicitaria.
         </p>
       </LegalSection>
 

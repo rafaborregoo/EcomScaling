@@ -47,9 +47,12 @@ export default function DataDeletionPage() {
             <li>
               <strong>Desde la plataforma.</strong> Entra en la sección{" "}
               <span className="font-medium">Integraciones</span>, abre la tienda y
-              desconecta la integración que quieras. Al desconectarla revocamos el
-              token de acceso y dejamos de sincronizar datos nuevos de esa cuenta.
-              Para eliminar la cuenta entera, ve a Configuración › Privacidad.
+              desconecta o elimina la integración que quieras. En Meta y Klaviyo
+              retiramos además el permiso en su plataforma cuando es posible, y
+              en todas dejamos de sincronizar datos nuevos de esa cuenta. En
+              Shopify, la app sigue instalada en tu tienda hasta que la
+              desinstales desde el panel de Shopify. Para eliminar la cuenta
+              entera, ve a Configuración › Privacidad.
             </li>
             <li>
               <strong>Por correo.</strong> Escribe a{" "}
@@ -72,8 +75,13 @@ export default function DataDeletionPage() {
         <CardContent>
           <ul className="list-disc space-y-1 pl-5">
             <li>
-              Los tokens y credenciales de acceso a Shopify, Meta Ads y Klaviyo,
-              que además quedan revocados en la plataforma de origen.
+              Los tokens y credenciales de acceso a Shopify, Meta Ads y Klaviyo
+              guardados en E-NORA. En Meta y Klaviyo también retiramos el
+              permiso en su plataforma, salvo que no sea posible (por ejemplo,
+              una clave privada de Klaviyo, que se borra desde Klaviyo, o un
+              usuario de Facebook que usas en otra conexión). En Shopify,
+              desinstala la app desde tu panel de Shopify para retirar el
+              permiso allí.
             </li>
             <li>
               Los datos importados de esas plataformas: pedidos, productos,
