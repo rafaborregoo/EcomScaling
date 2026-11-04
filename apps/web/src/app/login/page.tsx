@@ -164,7 +164,7 @@ function LoginPageContent() {
               {error ? <div role="alert"><ErrorBlock>{error}</ErrorBlock></div> : null}
               <Button className={styles.submit} type="submit" disabled={isSubmitting}>{isSubmitting ? "Iniciando sesión…" : "Iniciar sesión"}</Button>
             </form>
-            <p className={styles.invitation}>El acceso está disponible para cuentas invitadas. Si ya has recibido una invitación, utiliza el correo asociado a tu cuenta.</p>
+            <p className={styles.invitation}>El acceso está disponible para cuentas invitadas. Si ya has recibido una invitación, utiliza el correo asociado a tu cuenta. ¿Aún no tienes cuenta? Las plazas son limitadas, pero puedes <Link href="/solicitar">solicitar acceso</Link>.</p>
             </>
             )}
           </div>

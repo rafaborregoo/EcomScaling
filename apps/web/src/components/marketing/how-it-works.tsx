@@ -11,6 +11,8 @@ import styles from "./how-it-works.module.css";
 // vídeo (video/GUION_LANDING.md y video/GUION_CONSULTORES.md); si cambian allí,
 // se cambian aquí. `at` es el segundo del vídeo en que empieza cada paso.
 
+const PLAZAS = "Plazas limitadas. Cualquiera puede solicitar acceso.";
+
 export type HowItWorksStep = { label: string; at: number; title: string; body: string; points: string[] };
 
 export function HowItWorks({ id, title, lead, video: src, videoLabel, steps, cta }: {
@@ -54,6 +56,7 @@ export function HowItWorks({ id, title, lead, video: src, videoLabel, steps, cta
         <div className={styles.actions}>
           <Link className={buttonVariants({ size: "lg" })} href={cta.href}>{cta.label}</Link>
         </div>
+        <p className={styles.note}>{PLAZAS}</p>
       </section>
 
       <ol className={styles.steps} aria-label="Los seis pasos">
@@ -79,6 +82,7 @@ export function HowItWorks({ id, title, lead, video: src, videoLabel, steps, cta
       <section className={styles.close} aria-label="Empieza">
         <p>Tu propia línea, no hay competición.</p>
         <Link className={buttonVariants({ size: "lg" })} href={cta.href}>{cta.label}</Link>
+        <p className={styles.note}>{PLAZAS}</p>
       </section>
     </>
   );

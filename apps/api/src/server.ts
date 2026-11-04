@@ -352,7 +352,6 @@ import {
   aprobarSolicitud,
   crearSolicitud,
   declararCliente,
-  getPlazasPublicas,
   invitarAprobadas,
   invitarSolicitud,
   listarDeclarados,
@@ -2398,13 +2397,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  // Solicitudes de acceso (solicitudes.ts). Las dos primeras son publicas:
-  // /solicitar pinta las plazas libres y manda la solicitud sin sesion.
-  app.get("/v1/solicitudes/plazas", async (_request, reply) => {
-    const result = await getPlazasPublicas(env);
-    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
-    return result.data;
-  });
+  // Solicitudes de acceso (solicitudes.ts). Enviarla es publico: /solicitar no
+  // tiene sesion y no dice cuantas plazas quedan.
 
   // Sin sesion el cubo es la IP, y detras del proxy esa IP puede ser la misma
   // para todos: 30/min deja pasar el pico de un anuncio sin abrir la puerta a

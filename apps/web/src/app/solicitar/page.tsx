@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, Suspense, useEffect, useState } from "react";
+import { type FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PublicEntryShell } from "@/components/public-entry-shell";
@@ -38,7 +38,6 @@ import {
  */
 
 type Kind = "client" | "consultant";
-type Plazas = Record<Kind, { limit: number; available: number }>;
 type Answers = Record<string, string | string[]>;
 type DeclaredClient = { name: string; email: string; store_url: string };
 
@@ -119,7 +118,6 @@ function Preguntas({
 function SolicitarContent() {
   const params = useSearchParams();
   const [kind, setKind] = useState<Kind>(params.get("rol") === "consultor" ? "consultant" : "client");
-  const [plazas, setPlazas] = useState<Plazas | null>(null);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -132,13 +130,6 @@ function SolicitarContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-
-  useEffect(() => {
-    fetch(`${apiUrl}/v1/solicitudes/plazas`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: Plazas | null) => setPlazas(data))
-      .catch(() => setPlazas(null));
-  }, []);
 
   const preguntas = kind === "client" ? PREGUNTAS_CLIENTE : PREGUNTAS_CONSULTOR;
   const declared = clients.filter((client) => client.name.trim() || client.email.trim() || client.store_url.trim());
@@ -188,8 +179,6 @@ function SolicitarContent() {
     }
   }
 
-  const seats = plazas?.[kind];
-
   if (sent) {
     return (
       <div className="mx-auto w-full max-w-xl px-4 py-16">
@@ -216,31 +205,16 @@ function SolicitarContent() {
       <div className="grid gap-3">
         <Heading level={1}>Pide acceso a E-NORA</Heading>
         <p className="text-base text-muted">
-          Abrimos con pocas plazas y revisamos cada solicitud. No creas cuenta ahora: te la abrimos nosotros y te llega
-          un correo para empezar.
+          Las plazas son limitadas, pero cualquiera puede solicitar acceso. Revisamos cada solicitud y, cuando tu cuenta
+          esté lista, te llega un correo para empezar.
         </p>
       </div>
 
       <form className="grid gap-6" onSubmit={submit}>
         <RadioGroup<Kind> value={kind} onValueChange={setKind} className="grid gap-3 sm:grid-cols-2">
-          <RadioCard
-            value="client"
-            title="Tengo una tienda"
-            description={plazas ? `${plazas.client.available} de ${plazas.client.limit} plazas libres` : undefined}
-          />
-          <RadioCard
-            value="consultant"
-            title="Soy consultor"
-            description={plazas ? `${plazas.consultant.available} de ${plazas.consultant.limit} plazas libres` : undefined}
-          />
+          <RadioCard value="client" title="Tengo una tienda" />
+          <RadioCard value="consultant" title="Soy consultor" />
         </RadioGroup>
-
-        {seats && seats.available === 0 ? (
-          <Banner tone="info">
-            Las plazas de {kind === "client" ? "tiendas" : "consultores"} están cubiertas. Tu solicitud entra en lista de
-            espera y te avisamos en cuanto se abra una.
-          </Banner>
-        ) : null}
 
         <Card>
           <CardHeader>

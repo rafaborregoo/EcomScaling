@@ -189,9 +189,10 @@ export function validarSolicitud(
     return { ok: false, error: "privacy_required", message: "Tienes que aceptar la política de privacidad." };
   }
 
-  const storeUrl = texto(body.store_url, 500) || null;
-  const storeDomain = dominioDeTienda(storeUrl);
   const platform = texto(body.platform, 50) || null;
+  // Sin tienda no hay web: lo que llegue en este campo no se guarda.
+  const storeUrl = kind === "client" && platform === "sin_tienda" ? null : texto(body.store_url, 500) || null;
+  const storeDomain = dominioDeTienda(storeUrl);
   if (kind === "client") {
     if (!platform || !PLATAFORMAS.has(platform)) {
       return { ok: false, error: "invalid_platform", message: "Dinos en qué plataforma está tu tienda." };
@@ -386,22 +387,6 @@ async function cargarPlazas(supabase: Db): Promise<Plazas> {
     return { limit, occupied: used, available: Math.max(0, limit - used) };
   };
   return { client: build("client", client.data), consultant: build("consultant", consultant.data) };
-}
-
-/** Lo que ve /solicitar: cuantas plazas quedan de cada clase. */
-export async function getPlazasPublicas(env: SolicitudesEnv) {
-  try {
-    const plazas = await cargarPlazas(createServiceClient(env));
-    return {
-      ok: true as const,
-      data: {
-        client: { limit: plazas.client.limit, available: plazas.client.available },
-        consultant: { limit: plazas.consultant.limit, available: plazas.consultant.available },
-      },
-    };
-  } catch (error) {
-    return { ...fail(500, "seats_load_failed"), detail: error instanceof Error ? error.message : String(error) };
-  }
 }
 
 async function adminIds(supabase: Db): Promise<string[]> {
@@ -841,8 +826,10 @@ async function invitarUna(env: SolicitudesEnv, context: AuthContext, supabase: D
   if (!result.ok) return { id: row.id, ok: false, message: failureMessage(result) };
   const organizationId = result.data.organization.id as string;
 
-  if (row.store_url) {
-    await supabase.from("organizations").update({ ecommerce_url: row.store_url }).eq("id", organizationId);
+  // Solo el dominio validado: ecommerce_url llega a los agentes, y la ruta de la
+  // URL es texto libre de quien rellena el formulario.
+  if (row.store_domain) {
+    await supabase.from("organizations").update({ ecommerce_url: `https://${row.store_domain}` }).eq("id", organizationId);
   }
 
   if (row.kind === "consultant_client") {
