@@ -16,6 +16,7 @@ import { runMetaSync } from "@e-nora/api/meta-sync";
 import { runKlaviyoSync } from "@e-nora/api/klaviyo-sync";
 import { processQueuedKlaviyoWebhooks } from "@e-nora/api/klaviyo-webhooks";
 import { runIntegrationHealthMonitor } from "@e-nora/api/ops-health-check";
+import { purgeExpiredDeletions } from "@e-nora/api/consultant";
 import {
   SHOPIFY_SYNC_QUEUE_NAME,
 } from "@e-nora/api/shopify-sync-queue";
@@ -45,6 +46,8 @@ import {
   NOTIFICATION_DAILY_TZ,
   NOTIFICATION_OUTBOX_CRON,
   NOTIFICATION_OUTBOX_TZ,
+  PURGE_EXPIRED_DELETIONS_CRON,
+  PURGE_EXPIRED_DELETIONS_TZ,
   isStaleIntegrationRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
@@ -351,6 +354,15 @@ await queue.add(
   },
 );
 logger.info("Scheduled Meta reconciliation every 10 minutes and Klaviyo every 15 minutes (UTC)");
+// No depende de INTERNAL_API_SECRET: llama a la base directamente, no a la API.
+await queue.add(
+  "purge-expired-deletions",
+  {},
+  {
+    repeat: { pattern: PURGE_EXPIRED_DELETIONS_CRON, tz: PURGE_EXPIRED_DELETIONS_TZ },
+    jobId: "purge-expired-deletions-repeat",
+  },
+);
 
 const staleRepeatables = await queue.getRepeatableJobs();
 for (const repeatable of staleRepeatables) {
@@ -494,6 +506,17 @@ const worker = new Worker(
       const result = await reconcileAllKlaviyoConnections(loadApiEnv(process.env));
       logger.info("Klaviyo reconciliation completed", workerJobMeta(context, result));
       return result;
+    }
+    if (job.name === "purge-expired-deletions") {
+      const result = await purgeExpiredDeletions(loadApiEnv(process.env));
+      if (result.ok === false) throw new Error(result.error);
+      const { failedOrganizationIds, failedConnectionIds, failedStaleAttemptIds, failedUserIds } = result.data;
+      // Un fallo parcial tiene que verse como job fallido, no como "ok" en el log.
+      if (failedOrganizationIds.length + failedConnectionIds.length + failedStaleAttemptIds.length + failedUserIds.length > 0) {
+        throw new Error(`purge_partial_failure:${JSON.stringify(result.data)}`);
+      }
+      logger.info("Purge of expired soft-deletions completed", workerJobMeta(context, result.data));
+      return result.data;
     }
     if (job.name === "fathom-webhook-processing") {
       return runFathomWebhookProcessing(context);

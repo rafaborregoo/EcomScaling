@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { IntegrationConnection } from "./shared";
 import type { StoreView } from "./store-view-model";
-import { buildFixQueue, klaviyoReceivesStore, latestBlocks, permissionRows, runHistory } from "./hub-model";
+import { buildFixQueue, isOldConnection, klaviyoReceivesStore, latestBlocks, oldConnectionLabel, permissionRows, runHistory } from "./hub-model";
 
 function connection(partial: Partial<IntegrationConnection> & { id: string }): IntegrationConnection {
   return {
@@ -83,4 +83,22 @@ test("permisos de Klaviyo dicen cuáles faltan", () => {
   const rows = permissionRows("klaviyo", ["metrics:read", "flows:read"]);
   assert.equal(rows.find((row) => row.scope === "flows:write")?.granted, false);
   assert.equal(rows.find((row) => row.scope === "metrics:read")?.granted, true);
+});
+
+test("son antiguas las retiradas y los intentos fallidos, no las que tienen un error con datos", () => {
+  assert.equal(isOldConnection(connection({ id: "a", status: "pending_deletion" })), true);
+  assert.equal(isOldConnection(connection({ id: "b", status: "disconnected" })), true);
+  assert.equal(isOldConnection(connection({ id: "c", status: "error", connected_at: null, last_sync_at: null })), true);
+  assert.equal(isOldConnection(connection({ id: "d", status: "error", last_sync_at: "2026-10-01T00:00:00Z" })), false);
+  assert.equal(isOldConnection(connection({ id: "e", status: "connected" })), false);
+});
+
+test("un intento no enseña su pending:uuid como nombre", () => {
+  const row = (account: string) => ({
+    provider: "klaviyo",
+    name: "Klaviyo",
+    connection: connection({ id: "a", provider_account_id: account }),
+  });
+  assert.equal(oldConnectionLabel(row("pending:eebc8c76")), "Klaviyo");
+  assert.equal(oldConnectionLabel(row("WjvTcC")), "WjvTcC");
 });

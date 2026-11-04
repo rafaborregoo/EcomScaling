@@ -49,8 +49,7 @@ export default function DataDeletionPage() {
               <span className="font-medium">Integraciones</span>, abre la tienda y
               desconecta la integración que quieras. Al desconectarla revocamos el
               token de acceso y dejamos de sincronizar datos nuevos de esa cuenta.
-              Para eliminar la cuenta entera, pídelo por correo como se indica
-              abajo.
+              Para eliminar la cuenta entera, ve a Configuración › Privacidad.
             </li>
             <li>
               <strong>Por correo.</strong> Escribe a{" "}
@@ -111,8 +110,9 @@ export default function DataDeletionPage() {
             deshacer una desconexión accidental.
           </p>
           <p>
-            Si prefieres el <strong>borrado inmediato</strong>, dilo en el correo y
-            lo hacemos sin esperar esos 30 días.
+            Si prefieres el <strong>borrado inmediato</strong>, usa «Eliminar ya» en
+            la plataforma o dilo en el correo, y lo hacemos sin esperar esos 30
+            días.
           </p>
           <p>
             Podemos conservar durante más tiempo lo que la ley nos obliga a

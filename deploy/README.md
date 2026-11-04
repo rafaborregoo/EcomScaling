@@ -28,7 +28,7 @@ en `/opt/e-nora/logs/<job>.log`. **22 jobs**:
 
 | Bloque | Jobs | Cuando (UTC) |
 |---|---|---|
-| Integraciones y mantenimiento | `purge-expired-deletions`, `ai-pricing-sync` (tarifa de modelos desde LiteLLM) | 3:07 / 0:40 |
+| Integraciones y mantenimiento | `ai-pricing-sync` (tarifa de modelos desde LiteLLM); `purge-expired-deletions` corre en BullMQ dentro del worker | 0:40 |
 | Cadena nocturna F3 -> F7 | `nightly-chain`: los 57 motores de diagnostico, playbooks y recomendacion, en orden y en serie ([nightly-chain-once.ts](../apps/worker/src/nightly-chain-once.ts)) | 1:00 |
 | Benchmarks por dimension | `conversion-cro`, `offer-pricing`, `retention-crm`, `unit-economics`, `operations-cx`, `product-inventory`, `scalability` | 3:35 -> 4:50 |
 | Lectura transversal | `anomalies-red-flags`, `benchmark-confidence` | 5:05, 5:20 |

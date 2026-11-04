@@ -7,12 +7,24 @@
 // La configuración fina de cada conector sigue en /integraciones/<slug>.
 
 import { useEffect, useState } from "react";
+import { Trash2Icon } from "lucide-react";
 import type { BootstrapResponse } from "@/lib/bootstrap";
 import { timeAgo } from "@/lib/elapsed";
+import { scheduledDeletionLabel } from "@/lib/scheduled-deletion";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { useModuleSummary } from "@/components/module-summary";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogConfirmPhrase,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
   ScrollArea,
   Separator,
   AsyncState,
@@ -88,12 +100,17 @@ import {
 import {
   blockLabel,
   buildFixQueue,
+  isOldConnection,
   klaviyoReceivesStore,
   latestBlocks,
+  oldConnectionLabel,
+  oldConnections,
   permissionRows,
   runHistory,
   runMark,
+  withoutScheduledAccounts,
   type FixItem,
+  type OldConnection,
   type RunMark,
 } from "./hub-model";
 
@@ -371,20 +388,18 @@ function LooseAccounts({
   scope,
   integrations,
   canDiscard,
-  pendingStores,
 }: {
   payload: IntegrationsResponse;
   scope: ReturnType<typeof useStoreScope>["scope"];
   integrations: Integrations;
   canDiscard: boolean;
-  pendingStores: StoreView[];
 }) {
-  const loose = unassignedConnections(payload, scope);
-  if (loose.length === 0 && pendingStores.length === 0) return null;
+  const loose = unassignedConnections(payload, scope).filter(({ connection }) => !isOldConnection(connection));
+  if (loose.length === 0) return null;
   const { actions, pending } = integrations;
   return (
     <section aria-labelledby="loose-title">
-      <SectionTitle id="loose-title" title="Sueltas" hint="Cuentas sin tienda y tiendas que se van a borrar" />
+      <SectionTitle id="loose-title" title="Sueltas" hint="Cuentas sin tienda" />
       <Card>
         <CardContent>
           <List as="ul">
@@ -426,25 +441,92 @@ function LooseAccounts({
                 </Item>
               );
             })}
-            {pendingStores.map((store) => (
-              <Item key={store.connectionId} render={<li />}>
+          </List>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function oldConnectionDetail({ provider, connection }: OldConnection): string {
+  if (connection.status === "pending_deletion") {
+    const when = scheduledDeletionLabel(connection.scheduled_purge_at);
+    return provider === "shopify" ? `${when}. Hasta entonces se puede restaurar.` : `${when}. El permiso ya está retirado.`;
+  }
+  if (connection.status === "error") return "No se llegó a conectar. No tiene datos.";
+  return "Desconectada. Los datos importados siguen guardados.";
+}
+
+function OldConnections({ rows, integrations, canManage }: { rows: OldConnection[]; integrations: Integrations; canManage: boolean }) {
+  const [erasing, setErasing] = useState<OldConnection | null>(null);
+  const { actions, pending } = integrations;
+  if (rows.length === 0) return null;
+
+  async function restore(row: OldConnection) {
+    if (!(await actions.restoreStoreRemoval(row.connection.id))) return;
+    toast.success(row.provider === "shopify" ? "La tienda vuelve a estar activa." : "Restaurada. Reconéctala para volver a leer datos.");
+  }
+
+  async function erase() {
+    if (erasing && (await actions.eraseConnection(erasing.connection.id))) {
+      toast.success(`${oldConnectionLabel(erasing)} eliminada definitivamente.`);
+      setErasing(null);
+    }
+    return false;
+  }
+
+  return (
+    <section aria-labelledby="old-title">
+      <SectionTitle id="old-title" title="Conexiones antiguas" hint="Ya no traen datos" />
+      <Card>
+        <CardContent>
+          <List as="ul">
+            {rows.map((row) => (
+              <Item key={row.connection.id} data-focus-id={row.connection.id} render={<li />}>
                 <ItemMedia>
-                  <Logo provider="shopify" small />
+                  <Logo provider={row.provider} small />
                 </ItemMedia>
                 <ItemContent>
-                  <ItemTitle className="font-semibold">{store.name}</ItemTitle>
-                  <ItemDescription>Borrado programado: se puede restaurar durante 30 días.</ItemDescription>
+                  <ItemTitle className="font-semibold">{oldConnectionLabel(row)}</ItemTitle>
+                  <ItemDescription>{oldConnectionDetail(row)}</ItemDescription>
                 </ItemContent>
-                <ItemActions>
-                  <ButtonLink size="sm" variant="secondary" href={`/integraciones/tienda/${store.connectionId}`}>
-                    Restaurar
-                  </ButtonLink>
-                </ItemActions>
+                {canManage ? (
+                  <ItemActions>
+                    {row.connection.status === "pending_deletion" ? (
+                      <Button size="sm" variant="secondary" disabled={pending === `restore-${row.connection.id}`} onClick={() => void restore(row)}>
+                        {pending === `restore-${row.connection.id}` ? "Restaurando…" : "Restaurar"}
+                      </Button>
+                    ) : null}
+                    <Button size="sm" variant="ghost" onClick={() => setErasing(row)}>
+                      Eliminar ya
+                    </Button>
+                  </ItemActions>
+                ) : null}
               </Item>
             ))}
           </List>
         </CardContent>
       </Card>
+
+      {/* `erase` cierra el diálogo al acabar bien; si falla, sigue abierto. */}
+      <AlertDialog open={Boolean(erasing)} onOpenChange={(open) => !open && setErasing(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-danger/10 text-danger">
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Eliminar {erasing ? oldConnectionLabel(erasing) : ""} definitivamente?</AlertDialogTitle>
+            <AlertDialogDescription>Borra al momento la conexión y todos sus datos importados. No hay vuelta atrás.</AlertDialogDescription>
+          </AlertDialogHeader>
+          {erasing ? <AlertDialogConfirmPhrase phrase={oldConnectionLabel(erasing)} /> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" busyLabel="Eliminando…" onClick={() => erase()}>
+              Eliminar definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -507,6 +589,7 @@ function ConnectionDrawer({
   onConnect: (provider: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const isDesktop = useIsDesktop();
   const store = selection?.storeId ? (stores.find((item) => item.connectionId === selection.storeId) ?? null) : null;
   const provider = payload.providers.find((item) => item.id === selection?.provider) ?? null;
@@ -527,6 +610,8 @@ function ConnectionDrawer({
     Boolean(connection) &&
     connection?.status !== "disconnected" &&
     (selection?.provider === "meta_ads" || selection?.provider === "klaviyo");
+  // Una tienda de Shopify se elimina desde su ficha, que explica qué arrastra.
+  const removable = canManage && Boolean(connection) && selection?.provider !== "shopify";
   const sharedStores =
     selection?.provider === "meta_ads" && connection
       ? stores
@@ -547,6 +632,16 @@ function ConnectionDrawer({
     else if (result.reason === "shared_meta_user")
       toast.warning("Desconectada aquí. El permiso de Meta sigue vivo porque tu usuario de Facebook lo usa en otra conexión.");
     else toast.warning("Desconectada. No pudimos retirar el permiso en el proveedor; puedes quitarlo desde su panel.");
+  }
+
+  async function remove() {
+    if (!connection) return false;
+    const result = await actions.scheduleStoreRemoval(connection.id);
+    if (!result) return false;
+    setRemoving(false);
+    onClose();
+    toast.success(result === "deleted" ? "Conexión eliminada." : "Se borrará en 30 días. Puedes restaurarla en Conexiones antiguas.");
+    return false;
   }
 
   return (
@@ -757,10 +852,34 @@ function ConnectionDrawer({
                 Desconectar
               </Button>
             ) : null}
+            {removable ? (
+              <Button variant="ghost" onClick={() => setRemoving(true)}>
+                Eliminar
+              </Button>
+            ) : null}
           </>
         )}
       </DrawerFooter>
       </DrawerContent>
+      <AlertDialog open={removing} onOpenChange={setRemoving}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-danger/10 text-danger">
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Eliminar {connection?.provider_account_name ?? provider?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Retiramos el permiso ahora y dejamos de leer datos. Lo importado se conserva 30 días por si quieres restaurarlo; después se borra. Si la conexión no tiene datos, se va al momento.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" busyLabel="Eliminando…" onClick={() => remove()}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Drawer>
   );
 }
@@ -1102,15 +1221,15 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
     return <AsyncState status="empty" emptyTitle="No hay integraciones para mostrar" emptyHint="Selecciona una organización activa y vuelve a intentarlo." />;
   }
 
-  const allStores = buildStoreViews(payload, scope);
+  const old = oldConnections(payload.providers);
+  const livePayload = withoutScheduledAccounts(payload);
   const pendingRemoval = new Set(
     (payload.providers.find((provider) => provider.id === "shopify")?.connections ?? [])
       .filter((connection) => connection.status === "pending_deletion")
       .map((connection) => connection.id),
   );
-  const stores = allStores.filter((store) => !pendingRemoval.has(store.connectionId));
-  const pendingStores = allStores.filter((store) => pendingRemoval.has(store.connectionId));
-  const accountProviders = ACCOUNT_PROVIDERS.map((id) => payload.providers.find((provider) => provider.id === id)).filter(
+  const stores = buildStoreViews(livePayload, scope).filter((store) => !pendingRemoval.has(store.connectionId));
+  const accountProviders = ACCOUNT_PROVIDERS.map((id) => livePayload.providers.find((provider) => provider.id === id)).filter(
     (provider): provider is IntegrationProvider => Boolean(provider),
   );
   const klaviyoStore = hasKlaviyo ? klaviyoReceivesStore(metrics.data?.metrics ?? null) : null;
@@ -1206,12 +1325,13 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
         </Card>
       )}
       <AccountRow providers={accountProviders} onSelect={setSelection} />
-      <LooseAccounts payload={payload} scope={scope} integrations={integrations} canDiscard={canDiscard} pendingStores={pendingStores} />
+      <LooseAccounts payload={livePayload} scope={scope} integrations={integrations} canDiscard={canDiscard} />
+      <OldConnections rows={old} integrations={integrations} canManage={canDiscard} />
 
       <ConnectionDrawer
         selection={selection}
         stores={stores}
-        payload={payload}
+        payload={livePayload}
         klaviyoStore={klaviyoStore}
         integrations={integrations}
         canManage={canDiscard}

@@ -49,6 +49,7 @@ import {
   classifyAuthorizationAttempt,
   connectionNeedsReconnect,
   isPurgeableAuthorizationAttempt,
+  isPurgeableFailedAttempt,
   observeMaturity,
   type MaturityDeclaration, DEFAULT_SEVERITY_THRESHOLDS, type SeverityThresholds,
   type InterventionEffectMetric,
@@ -57,6 +58,8 @@ import { leerHechos } from "./maturity-engine.js";
 import { createLogger } from "@e-nora/observability";
 import { sendInviteMail } from "./invite-mailer.js";
 import { loadStoreNames } from "./operations.js";
+import { revokeAndForgetCredentials } from "./integration-disconnect.js";
+import type { LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("consultant");
 
@@ -109,6 +112,7 @@ type OrganizationRow = {
   status: string;
   timezone: string;
   currency_code: string;
+  scheduled_purge_at?: string | null;
 };
 
 type SubscriptionRow = {
@@ -135,7 +139,7 @@ async function loadOrganizations(
 ) {
   let query = supabase
     .from("organizations")
-    .select("id, display_name, slug, status, timezone, currency_code")
+    .select("id, display_name, slug, status, timezone, currency_code, scheduled_purge_at")
     .order("display_name", { ascending: true });
 
   if (organizationIds) {
@@ -3987,7 +3991,7 @@ export async function listOrganizationStores(
   const { data, error } = await supabase
     .from("integration_connections")
     .select(
-      "id, provider_account_name, provider_account_id, status, connected_at, last_sync_at",
+      "id, provider_account_name, provider_account_id, status, connected_at, last_sync_at, scheduled_purge_at",
     )
     .eq("organization_id", organizationId)
     .eq("provider", "shopify")
@@ -4042,7 +4046,7 @@ function canDiscardAuthorizationAttempt(
 }
 
 export async function deleteOrganizationStore(
-  env: ApiEnv,
+  env: LoadedApiEnv,
   context: AuthContext,
   organizationId: string,
   connectionId: string,
@@ -4063,7 +4067,7 @@ export async function deleteOrganizationStore(
   const { data: connection, error: loadError } = await supabase
     .from("integration_connections")
     .select(
-      "id, organization_id, provider, status, connected_at, last_sync_at, created_at, updated_at",
+      "id, organization_id, provider, provider_account_id, status, connected_at, last_sync_at, created_at, updated_at",
     )
     .eq("id", connectionId)
     .maybeSingle();
@@ -4077,11 +4081,9 @@ export async function deleteOrganizationStore(
     };
   }
 
-  if (
-    !connection ||
-    connection.organization_id !== organizationId ||
-    connection.provider !== "shopify"
-  ) {
+  // Antes solo valia para Shopify, y "Descartar" en un intento de Meta o Klaviyo
+  // devolvia un 404: el boton estaba, pero la fila no se podia quitar.
+  if (!connection || connection.organization_id !== organizationId) {
     return {
       ok: false as const,
       statusCode: 404,
@@ -4205,6 +4207,22 @@ export async function deleteOrganizationStore(
     };
   }
 
+  // Meta y Klaviyo: mismas reglas que desconectar (el permiso es del cliente, no
+  // del consultor). El permiso se retira ya, no a los 30 dias: durante la gracia
+  // se conservan los datos, no el acceso. Por eso restaurar la deja desconectada.
+  if (connection.provider !== "shopify") {
+    if (!puedeDescartar) {
+      return {
+        ok: false as const,
+        statusCode: 403,
+        error: "organization_manage_denied",
+        message: "Solo el propietario o un gestor pueden eliminar esta cuenta.",
+      };
+    }
+    const retired = await revokeAndForgetCredentials(env, supabase, connection);
+    if (retired.ok === false) return retired;
+  }
+
   // Una tienda con historial se desactiva ahora y se purga al acabar el
   // periodo de gracia. La misma autoridad que puede retirar una conexión
   // equivocada también puede solicitar la baja de su propia tienda.
@@ -4291,7 +4309,7 @@ export async function restoreOrganizationStore(
 
   const { data: connection, error: loadError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, status")
+    .select("id, organization_id, provider, status")
     .eq("id", connectionId)
     .maybeSingle();
 
@@ -4320,10 +4338,15 @@ export async function restoreOrganizationStore(
     };
   }
 
+  // Meta y Klaviyo perdieron el permiso al pedir el borrado: vuelven sin token, y
+  // decir "connected" seria mentira hasta que alguien reconecte.
+  const restoredStatus =
+    connection.provider === "shopify" ? "connected" : "disconnected";
+
   const { error: updateError } = await supabase
     .from("integration_connections")
     .update({
-      status: "connected",
+      status: restoredStatus,
       deletion_requested_at: null,
       deletion_requested_by: null,
       scheduled_purge_at: null,
@@ -4348,12 +4371,88 @@ export async function restoreOrganizationStore(
     entityType: "integration_connection",
     entityId: connectionId,
     oldData: connection,
-    newData: { status: "connected" },
+    newData: { status: restoredStatus },
   });
 
   return {
     ok: true as const,
-    data: { connection_id: connectionId, status: "connected" },
+    data: { connection_id: connectionId, status: restoredStatus },
+  };
+}
+
+/**
+ * Borra una conexion ahora, sin esperar a la gracia: datos importados y
+ * credenciales caen en cascada. Sirve tanto para adelantar una purga programada
+ * como para quitar una integracion antigua. Solo propietario, gestor o platform
+ * admin: saltarse los 30 dias no es una decision del consultor.
+ */
+export async function hardDeleteOrganizationStore(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  connectionId: string,
+) {
+  if (!canDiscardAuthorizationAttempt(context, organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_manage_denied",
+      message: "Solo el propietario o un gestor pueden borrar esto definitivamente.",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: connection, error: loadError } = await supabase
+    .from("integration_connections")
+    .select("id, organization_id, provider, provider_account_id, status")
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (loadError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "connection_load_failed",
+      detail: loadError.message,
+    };
+  }
+  if (!connection || connection.organization_id !== organizationId) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "connection_not_found",
+    };
+  }
+
+  if (connection.provider !== "shopify") {
+    const retired = await revokeAndForgetCredentials(env, supabase, connection);
+    if (retired.ok === false) return retired;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("integration_connections")
+    .delete()
+    .eq("id", connectionId);
+  if (deleteError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "connection_hard_delete_failed",
+      detail: deleteError.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "consultant.hard_delete_organization_store",
+    entityType: "integration_connection",
+    entityId: connectionId,
+    oldData: connection,
+  });
+
+  return {
+    ok: true as const,
+    data: { connection_id: connectionId, deleted: true as const },
   };
 }
 
@@ -4627,7 +4726,9 @@ export async function restoreOrganization(
   context: AuthContext,
   organizationId: string,
 ) {
-  const access = requirePlatformAdmin(context);
+  // Quien pide la baja tiene que poder deshacerla: la pantalla prometia 30 dias
+  // para recuperarla, pero solo un platform admin podia hacerlo.
+  const access = requirePlatformAdminOrStoreOwner(context, organizationId);
   if (access.ok === false) {
     return access;
   }
@@ -4968,17 +5069,91 @@ export async function unlinkConsultantClient(
   };
 }
 
+/**
+ * Borra una organizacion y lo que deja colgando: retira los permisos de Meta y
+ * Klaviyo antes de que la cascada se lleve las credenciales, y despues borra las
+ * cuentas de usuario que solo pertenecian a ella. Sin esto ultimo, "eliminar la
+ * cuenta" dejaba el acceso y el email en Auth, contra lo que promete
+ * /eliminacion-de-datos. Un solo camino para la purga y el borrado inmediato.
+ */
+async function eraseOrganization(
+  env: LoadedApiEnv,
+  supabase: ReturnType<typeof createServiceClient>,
+  organizationId: string,
+) {
+  const [{ data: members }, { data: accounts }] = await Promise.all([
+    supabase
+      .from("organization_members")
+      .select("user_id")
+      .eq("organization_id", organizationId),
+    supabase
+      .from("integration_connections")
+      .select("id, provider, provider_account_id")
+      .eq("organization_id", organizationId)
+      .in("provider", ["meta_ads", "klaviyo"]),
+  ]);
+
+  for (const account of accounts ?? []) {
+    const retired = await revokeAndForgetCredentials(env, supabase, account);
+    if (retired.ok === false) {
+      // No frena el borrado: las credenciales caen igual con la cascada.
+      logger.error("Failed to retire provider access on organization erase", {
+        connection_id: account.id,
+        error: retired.error,
+      });
+    }
+  }
+
+  const { error } = await supabase
+    .from("organizations")
+    .delete()
+    .eq("id", organizationId);
+  if (error) {
+    return { error: error.message, deletedUsers: 0, failedUserIds: [] as string[] };
+  }
+
+  const failedUserIds: string[] = [];
+  let deletedUsers = 0;
+  const memberIds = [...new Set((members ?? []).map((row) => row.user_id as string))];
+  for (const userId of memberIds) {
+    const [{ data: profile }, { count }] = await Promise.all([
+      supabase.from("profiles").select("platform_role").eq("id", userId).maybeSingle(),
+      supabase
+        .from("organization_members")
+        .select("user_id", { count: "exact", head: true })
+        .eq("user_id", userId),
+    ]);
+    // Solo clientes sin ninguna otra tienda. Consultores y admins viven aparte.
+    if (profile?.platform_role !== "user" || count !== 0) continue;
+
+    const { error: authError } = await supabase.auth.admin.deleteUser(userId);
+    if (authError) {
+      // ponytail: no se reintenta (la organizacion ya no esta). Si aparece, se
+      // borra a mano; un reintento exigiria una cola de usuarios pendientes.
+      logger.error("Failed to delete orphaned user", {
+        user_id: userId,
+        error: authError.message,
+      });
+      failedUserIds.push(userId);
+      continue;
+    }
+    deletedUsers += 1;
+  }
+
+  return { error: null, deletedUsers, failedUserIds };
+}
+
 /** Borrado inmediato y definitivo de un cliente. Un solo `DELETE FROM
  *  organizations` dispara la cascada de FK de la base de datos (~85 tablas:
  *  datos Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros,
- *  suscripción...). No hay periodo de gracia ni vuelta atrás; solo
- *  platform_admin. Para el borrado diferido usar `deleteOrganization`. */
+ *  suscripción...). No hay vuelta atrás. El platform_admin puede hacerlo siempre;
+ *  el propietario, solo si ya pidió la baja: es adelantar lo que ya decidió. */
 export async function hardDeleteOrganization(
-  env: ApiEnv,
+  env: LoadedApiEnv,
   context: AuthContext,
   organizationId: string,
 ) {
-  const access = requirePlatformAdmin(context);
+  const access = requirePlatformAdminOrStoreOwner(context, organizationId);
   if (access.ok === false) return access;
 
   const supabase = createServiceClient(env);
@@ -5000,6 +5175,16 @@ export async function hardDeleteOrganization(
       statusCode: 404,
       error: "organization_not_found",
     };
+  if (
+    context.profile.platform_role !== "platform_admin" &&
+    org.status !== "pending_deletion"
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "organization_not_pending_deletion",
+    };
+  }
 
   // El audit log va antes del delete: `audit_logs.organization_id` es SET NULL,
   // así que la fila sobrevive al borrado con el id ya nulo.
@@ -5012,16 +5197,13 @@ export async function hardDeleteOrganization(
     oldData: org,
   });
 
-  const { error: delError } = await supabase
-    .from("organizations")
-    .delete()
-    .eq("id", organizationId);
-  if (delError)
+  const erased = await eraseOrganization(env, supabase, organizationId);
+  if (erased.error)
     return {
       ok: false as const,
       statusCode: 500,
       error: "organization_hard_delete_failed",
-      detail: delError.message,
+      detail: erased.error,
     };
 
   return {
@@ -5036,7 +5218,7 @@ export async function hardDeleteOrganization(
  * service role -- no pasa por requirePlatformAdmin porque no hay un usuario
  * humano actuando, es el sistema cumpliendo el estado ya decidido. Ver R-008.
  */
-export async function purgeExpiredDeletions(env: ApiEnv) {
+export async function purgeExpiredDeletions(env: LoadedApiEnv) {
   const supabase = createServiceClient(env);
   const nowIso = new Date().toISOString();
 
@@ -5056,12 +5238,14 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
   }
 
   let purgedOrganizations = 0;
+  let deletedUsers = 0;
   const failedOrganizationIds: string[] = [];
+  const failedUserIds: string[] = [];
   for (const organization of organizations ?? []) {
-    const { error: deleteError } = await supabase
-      .from("organizations")
-      .delete()
-      .eq("id", organization.id);
+    const erased = await eraseOrganization(env, supabase, organization.id);
+    const deleteError = erased.error ? { message: erased.error } : null;
+    deletedUsers += erased.deletedUsers;
+    failedUserIds.push(...erased.failedUserIds);
     if (deleteError) {
       // R-008 (bug real encontrado 2026-07-22): antes este error se tragaba
       // en silencio -- una organizacion con datos que rompieran el borrado
@@ -5195,15 +5379,71 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
     });
   }
 
+  // Intentos que acabaron en error antes de autorizarse: la misma basura que los
+  // de arriba, pero `status = 'pending'` no los alcanza.
+  const { data: failedAttempts, error: failedAttemptsLoadError } = await supabase
+    .from("integration_connections")
+    .select(
+      "id, organization_id, provider, provider_account_id, status, connected_at, last_sync_at, created_at, updated_at",
+    )
+    .eq("status", "error")
+    .is("connected_at", null)
+    .is("last_sync_at", null)
+    .lt("updated_at", authorizationPurgeCutoff(new Date(nowIso)));
+
+  if (failedAttemptsLoadError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "failed_attempts_purge_lookup_failed",
+      detail: failedAttemptsLoadError.message,
+      partial: { purgedOrganizations, purgedConnections, purgedStaleAttempts },
+    };
+  }
+
+  for (const attempt of failedAttempts ?? []) {
+    if (!isPurgeableFailedAttempt(attempt, new Date(nowIso))) continue;
+
+    const { error: deleteError } = await supabase
+      .from("integration_connections")
+      .delete()
+      .eq("id", attempt.id)
+      .eq("status", "error")
+      .is("connected_at", null)
+      .is("last_sync_at", null);
+
+    if (deleteError) {
+      logger.error("Failed to purge failed authorization attempt", {
+        connection_id: attempt.id,
+        organization_id: attempt.organization_id,
+        error: deleteError.message,
+      });
+      failedStaleAttemptIds.push(attempt.id);
+      continue;
+    }
+
+    purgedStaleAttempts += 1;
+    await recordAuditLog(supabase, {
+      organizationId: attempt.organization_id,
+      actorUserId: null,
+      action: "integrations.purge_abandoned_authorization",
+      entityType: "integration_connection",
+      entityId: attempt.id,
+      oldData: attempt,
+    });
+  }
+
   return {
     ok: true as const,
     data: {
       purgedOrganizations,
       purgedConnections,
       purgedStaleAttempts,
+      deletedUsers,
       failedOrganizationIds,
       failedConnectionIds,
       failedStaleAttemptIds,
+      failedUserIds,
     },
   };
 }
@@ -6693,7 +6933,7 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
     supabase
       .from("organizations")
       .select(
-        "id, display_name, slug, status, timezone, currency_code, created_at",
+        "id, display_name, slug, status, timezone, currency_code, created_at, scheduled_purge_at",
       )
       // Sin este filtro tambien salian las organizaciones consultoras (kind
       // 'consulting'): esta lista es de CLIENTES, y una consultora mezclada

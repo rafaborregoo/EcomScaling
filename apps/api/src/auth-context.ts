@@ -81,6 +81,8 @@ type Organization = {
   kind: string;
   /** El propietario exige 2FA al equipo (20261219100000). */
   require_mfa?: boolean;
+  /** Cuando se borra de verdad, si esta en `pending_deletion`. */
+  scheduled_purge_at?: string | null;
 };
 
 type Subscription = {
@@ -567,7 +569,7 @@ async function resolveAuthContextUncached(
   ] = await Promise.all([
     supabase
       .from("organizations")
-      .select("id, display_name, slug, status, timezone, currency_code, kind, require_mfa")
+      .select("id, display_name, slug, status, timezone, currency_code, kind, require_mfa, scheduled_purge_at")
       .in("id", organizationIds),
     supabase
       .from("service_subscriptions")

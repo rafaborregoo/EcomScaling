@@ -2,6 +2,7 @@
 
 
 import { StoreIcon, UnlinkIcon } from "lucide-react";
+import { scheduledDeletionLabel } from "@/lib/scheduled-deletion";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
@@ -363,6 +364,13 @@ function StoreDetail({
     if (restored) toast.success("La tienda vuelve a estar activa.");
   }
 
+  async function eraseStore() {
+    if (!(await actions.eraseConnection(connectionId))) return;
+    toast.success("Tienda eliminada definitivamente.");
+    setConnectionId("");
+    router.replace("/integraciones");
+  }
+
   async function unlinkProviderFromStore(providerId: string) {
     if (!organization || !currentStore.storeId) return;
     const metaAccounts =
@@ -479,7 +487,42 @@ function StoreDetail({
                   {pending === `restore-${connectionId}` ? "Restaurando…" : "Restaurar tienda"}
                 </Button>
               ) : null}
+              {canManageStoreScope && removalPending ? (
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button type="button" variant="destructive" size="sm" disabled={pending === `erase-${connectionId}`}>
+                        <TrashIcon aria-hidden className="size-4" />
+                        Eliminar ya
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogMedia className="bg-danger/10 text-danger">
+                        <StoreIcon />
+                      </AlertDialogMedia>
+                      <AlertDialogTitle>¿Eliminar esta tienda definitivamente?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Borra al momento la tienda y todos sus datos importados, sin esperar a la fecha programada. No hay vuelta atrás.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogConfirmPhrase phrase={store.name} />
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" busyLabel="Eliminando…" onClick={() => eraseStore()}>
+                        Eliminar definitivamente
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : null}
             </div>
+            {removalPending ? (
+              <Banner tone="warn" title="Tienda programada para borrar">
+                {scheduledDeletionLabel(shopifyConnection?.scheduled_purge_at)}. Hasta entonces se puede restaurar.
+              </Banner>
+            ) : null}
           <p className="max-w-prose text-sm leading-6 text-muted">
             {store.status === "syncing"
               ? "Shopify está trayendo datos ahora. La sincronización todavía no ha terminado."

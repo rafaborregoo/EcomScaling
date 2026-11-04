@@ -15,9 +15,9 @@ PATH=/usr/local/bin:/usr/bin:/bin
 MAILTO=""
 
 # --- Integraciones y mantenimiento ---------------------------------------
-# Meta y Klaviyo se reconcilian desde BullMQ en el worker (tambien en local),
-# para no mantener una programacion distinta entre desarrollo y produccion.
-7 3 * * * /opt/e-nora/run-worker-job.sh purge-expired-deletions
+# Meta, Klaviyo y la purga de borrados vencidos van por BullMQ en el worker
+# (tambien en local), para no mantener una programacion distinta entre desarrollo
+# y produccion.
 # Tarifa de modelos de IA (LiteLLM -> ai_model_prices) y coste de las ejecuciones sin el.
 40 0 * * * /opt/e-nora/run-worker-job.sh ai-pricing-sync
 # Informes mensuales programados (Informes › Envío mensual). Diario e idempotente:

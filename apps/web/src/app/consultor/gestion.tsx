@@ -2,6 +2,7 @@
 
 
 import { StoreIcon, Trash2Icon, UserMinusIcon } from "lucide-react";
+import { scheduledDeletionLabel } from "@/lib/scheduled-deletion";
 import {
   type FormEvent,
   useCallback,
@@ -101,6 +102,7 @@ export type ConsultantOrganization = {
   status: string;
   timezone: string;
   currency_code: string;
+  scheduled_purge_at?: string | null;
   consultant_count: number;
   is_own_store: boolean;
   store_count: number;
@@ -126,6 +128,7 @@ type OrganizationStore = {
   status: string;
   connected_at: string | null;
   last_sync_at: string | null;
+  scheduled_purge_at?: string | null;
 };
 
 type AccessProfile = {
@@ -605,6 +608,26 @@ export function StoresPanel({
   const [restoringStoreId, setRestoringStoreId] = useState<string | null>(null);
   const [confirmDeleteStore, setConfirmDeleteStore] =
     useState<OrganizationStore | null>(null);
+  const [confirmEraseStore, setConfirmEraseStore] =
+    useState<OrganizationStore | null>(null);
+
+  async function eraseStore() {
+    if (!confirmEraseStore) return;
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/stores/${confirmEraseStore.id}/hard-delete`,
+        { method: "POST" },
+      );
+      if (response.ok) {
+        reloadStores();
+        setConfirmEraseStore(null);
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError("No se pudo eliminar la tienda. Revisa la conexión e inténtalo de nuevo.");
+    }
+  }
 
   async function confirmStoreDeletion() {
     if (!confirmDeleteStore) {
@@ -694,7 +717,7 @@ export function StoresPanel({
                   }
                 >
                   {store.status === "pending_deletion"
-                    ? "Borrado en 30 días"
+                    ? scheduledDeletionLabel(store.scheduled_purge_at)
                     : displayValue(store.status)}
                 </Badge>
               </span>
@@ -705,16 +728,27 @@ export function StoresPanel({
               </span>
               {canManageStores ? (
                 store.status === "pending_deletion" ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={restoringStoreId === store.id}
-                    onClick={() => void restoreStore(store.id)}
-                  >
-                    {restoringStoreId === store.id
-                      ? "Restaurando..."
-                      : "Restaurar tienda"}
-                  </Button>
+                  <span className="flex flex-wrap gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={restoringStoreId === store.id}
+                      onClick={() => void restoreStore(store.id)}
+                    >
+                      {restoringStoreId === store.id
+                        ? "Restaurando..."
+                        : "Restaurar tienda"}
+                    </Button>
+                    {isPlatformAdmin ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfirmEraseStore(store)}
+                      >
+                        Eliminar ya
+                      </Button>
+                    ) : null}
+                  </span>
                 ) : (
                   <Button
                     size="sm"
@@ -771,6 +805,39 @@ export function StoresPanel({
                 }}
               >
                 Borrar tienda
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
+
+      {confirmEraseStore ? (
+        <AlertDialog open onOpenChange={(open) => !open && setConfirmEraseStore(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogMedia className="bg-danger/10 text-danger">
+                <StoreIcon />
+              </AlertDialogMedia>
+              <AlertDialogTitle>¿Eliminar la tienda definitivamente?</AlertDialogTitle>
+              <AlertDialogDescription>Borra al momento la tienda y sus datos, sin esperar a la fecha programada. No hay vuelta atrás.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogConfirmPhrase
+              phrase={
+                confirmEraseStore.provider_account_id ??
+                confirmEraseStore.provider_account_name ??
+                confirmEraseStore.id
+              }
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={async () => {
+                  await eraseStore();
+                  return false;
+                }}
+              >
+                Eliminar definitivamente
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -923,7 +990,7 @@ function ClientActionsMenu({
             </AlertDialogMedia>
             <AlertDialogTitle>¿Eliminar «{organization.display_name}» para siempre?</AlertDialogTitle>
             <AlertDialogDescription>
-              Elimina de forma permanente los datos de Shopify, Meta y Klaviyo, además de tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás.
+              Elimina de forma permanente los datos de Shopify, Meta y Klaviyo, además de tareas, planes, agentes, miembros y suscripción, y los usuarios que no tengan otra tienda. No hay periodo de gracia ni vuelta atrás.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogConfirmPhrase phrase={organization.display_name} />
@@ -1187,7 +1254,7 @@ export function PortfolioManagement({
                           <span className="mt-1 block text-xs font-normal text-muted">
                             {row.slug} ·{" "}
                             {row.status === "pending_deletion"
-                              ? "Borrado en 30 días"
+                              ? scheduledDeletionLabel(row.scheduled_purge_at)
                               : (ORGANIZATION_STATUS_LABELS[row.status] ??
                                 row.status)}
                           </span>

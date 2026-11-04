@@ -16,6 +16,7 @@ import {
   authorizationPurgeCutoff,
   classifyAuthorizationAttempt,
   isPurgeableAuthorizationAttempt,
+  isPurgeableFailedAttempt,
 } from "./authorization-attempt.js";
 
 const AHORA = new Date("2026-09-14T21:00:00.000Z");
@@ -131,4 +132,16 @@ test("el corte de la purga es justo el plazo hacia atras", () => {
     authorizationPurgeCutoff(AHORA),
     new Date(AHORA.getTime() - AUTHORIZATION_ABANDONED_PURGE_MS).toISOString(),
   );
+});
+
+test("un intento fallido se purga solo si nunca se conecto ni trajo datos", () => {
+  const viejo = new Date(AHORA.getTime() - 2 * 60 * 60 * 1000).toISOString();
+  const reciente = new Date(AHORA.getTime() - 60 * 1000).toISOString();
+  const fallido = { status: "error", connected_at: null, last_sync_at: null, updated_at: viejo };
+
+  assert.equal(isPurgeableFailedAttempt(fallido, AHORA), true);
+  assert.equal(isPurgeableFailedAttempt({ ...fallido, updated_at: reciente }, AHORA), false);
+  assert.equal(isPurgeableFailedAttempt({ ...fallido, connected_at: viejo }, AHORA), false);
+  assert.equal(isPurgeableFailedAttempt({ ...fallido, last_sync_at: viejo }, AHORA), false);
+  assert.equal(isPurgeableFailedAttempt({ ...fallido, status: "disconnected" }, AHORA), false);
 });

@@ -107,6 +107,70 @@ async function revokeKlaviyo(
   return { revoked: true, reason: "revoked" };
 }
 
+/**
+ * Retira el permiso en el proveedor (sin bloquear si falla) y borra las
+ * credenciales guardadas. Lo comparten desconectar, retirar una conexion y la
+ * purga final: sin esto, borrar una organizacion dejaba el permiso vivo en
+ * Meta/Klaviyo. Shopify no pasa por aqui: su baja no toca la instalacion de la
+ * app, y las credenciales caen en cascada con la conexion.
+ */
+export async function revokeAndForgetCredentials(
+  env: LoadedApiEnv,
+  supabase: ReturnType<typeof serviceClient>,
+  connection: { id: string; provider: string; provider_account_id: string },
+): Promise<
+  | { ok: true; revoke: RevokeOutcome }
+  | { ok: false; statusCode: number; error: string; detail?: string }
+> {
+  const { data: credentials, error: credentialsError } = await supabase
+    .schema("private")
+    .from("integration_credentials")
+    .select("credential_kind, encrypted_payload")
+    .eq("connection_id", connection.id);
+  if (credentialsError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "credential_load_failed",
+      detail: credentialsError.message,
+    };
+  }
+
+  let revoke: RevokeOutcome;
+  try {
+    revoke =
+      connection.provider === "meta_ads"
+        ? await revokeMeta(env, supabase, connection, credentials ?? [])
+        : await revokeKlaviyo(env, connection.id, credentials ?? []);
+  } catch (error) {
+    // Que el proveedor no conteste no puede dejar al usuario sin poder
+    // desconectar: se borra el token de nuestro lado igualmente y se avisa.
+    const detail = error instanceof Error ? error.message : "unknown_error";
+    logger.info("provider_revoke_failed", {
+      connection_id: connection.id,
+      provider: connection.provider,
+      detail,
+    });
+    revoke = { revoked: false, reason: "provider_error" };
+  }
+
+  const { error: deleteError } = await supabase
+    .schema("private")
+    .from("integration_credentials")
+    .delete()
+    .eq("connection_id", connection.id);
+  if (deleteError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "credential_delete_failed",
+      detail: deleteError.message,
+    };
+  }
+
+  return { ok: true, revoke };
+}
+
 export async function disconnectIntegration(
   env: LoadedApiEnv,
   context: AuthContext,
@@ -152,47 +216,9 @@ export async function disconnectIntegration(
     return { ok: true, data: { connection_id: connectionId, status: "disconnected", already: true } };
   }
 
-  const { data: credentials, error: credentialsError } = await supabase
-    .schema("private")
-    .from("integration_credentials")
-    .select("credential_kind, encrypted_payload")
-    .eq("connection_id", connectionId);
-  if (credentialsError) {
-    return {
-      ok: false,
-      statusCode: 500,
-      error: "credential_load_failed",
-      detail: credentialsError.message,
-    };
-  }
-
-  let revoke: RevokeOutcome;
-  try {
-    revoke =
-      provider === "meta_ads"
-        ? await revokeMeta(env, supabase, connection, credentials ?? [])
-        : await revokeKlaviyo(env, connectionId, credentials ?? []);
-  } catch (error) {
-    // Que el proveedor no conteste no puede dejar al usuario sin poder
-    // desconectar: se borra el token de nuestro lado igualmente y se avisa.
-    const detail = error instanceof Error ? error.message : "unknown_error";
-    logger.info("provider_revoke_failed", { connection_id: connectionId, provider, detail });
-    revoke = { revoked: false, reason: "provider_error" };
-  }
-
-  const { error: deleteError } = await supabase
-    .schema("private")
-    .from("integration_credentials")
-    .delete()
-    .eq("connection_id", connectionId);
-  if (deleteError) {
-    return {
-      ok: false,
-      statusCode: 500,
-      error: "credential_delete_failed",
-      detail: deleteError.message,
-    };
-  }
+  const retired = await revokeAndForgetCredentials(env, supabase, connection);
+  if (retired.ok === false) return retired;
+  const { revoke } = retired;
 
   const now = new Date().toISOString();
   const { error: updateError } = await supabase

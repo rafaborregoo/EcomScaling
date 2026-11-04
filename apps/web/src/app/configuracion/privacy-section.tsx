@@ -4,6 +4,7 @@ import { Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { scheduledDeletionLabel } from "@/lib/scheduled-deletion";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   Badge,
@@ -70,7 +71,12 @@ export function PrivacySection({
   organization,
 }: {
   bootstrap: BootstrapResponse;
-  organization: { id: string; display_name: string; status?: string };
+  organization: {
+    id: string;
+    display_name: string;
+    status?: string;
+    scheduled_purge_at?: string | null;
+  };
 }) {
   const isOwner = bootstrap.memberships.some(
     (membership) =>
@@ -83,8 +89,9 @@ export function PrivacySection({
   );
   const [exporting, setExporting] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleted, setDeleted] = useState(false);
+  const [erasing, setErasing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const pendingDeletion = organization.status === "pending_deletion";
 
   async function download() {
     setExporting(true);
@@ -109,8 +116,9 @@ export function PrivacySection({
     }
   }
 
+  // Recarga tras cada paso: el estado de la cuenta manda en todo el portal y sale
+  // del arranque, no de esta pantalla.
   async function remove() {
-    setDeleting(true);
     try {
       const response = await apiFetch(
         `/v1/consultant/organizations/${organization.id}`,
@@ -120,12 +128,45 @@ export function PrivacySection({
         toast.danger(await readApiError(response));
         return;
       }
-      setConfirming(false);
-      setDeleted(true);
+      window.location.reload();
     } catch {
       toast.danger("No se pudo eliminar la cuenta por un error de red. Reintenta.");
-    } finally {
-      setDeleting(false);
+    }
+  }
+
+  async function restore() {
+    setRestoring(true);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/restore`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        setRestoring(false);
+        return;
+      }
+      window.location.reload();
+    } catch {
+      toast.danger("No se pudo recuperar la cuenta por un error de red. Reintenta.");
+      setRestoring(false);
+    }
+  }
+
+  async function eraseNow() {
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/hard-delete`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        toast.danger(await readApiError(response));
+        return;
+      }
+      // Si era tu única tienda el usuario ya no existe: el arranque manda al login.
+      window.location.assign("/");
+    } catch {
+      toast.danger("No se pudo eliminar la cuenta por un error de red. Reintenta.");
     }
   }
 
@@ -133,10 +174,9 @@ export function PrivacySection({
 
   return (
     <div className="space-y-4">
-      {deleted ? (
-        <Banner tone="warn">
-          Hemos marcado {organization.display_name} para eliminar. Se borrará a
-          los 30 días; si fue un error, escribe a tu consultor antes de esa fecha.
+      {pendingDeletion ? (
+        <Banner tone="warn" title={`${organization.display_name} está marcada para eliminar`}>
+          {scheduledDeletionLabel(organization.scheduled_purge_at)}. Hasta entonces se puede recuperar.
         </Banner>
       ) : null}
 
@@ -200,16 +240,23 @@ export function PrivacySection({
         <Card className="border-danger">
           <CardHeader>
             <CardTitle>Eliminar la cuenta</CardTitle>
-            <CardDescription>{`Desconecta las integraciones y borra los datos de ${organization.display_name} a los 30 días. Hasta entonces se puede recuperar.`}</CardDescription>
+            <CardDescription>{`Borra los datos de ${organization.display_name} a los 30 días, y tu usuario si no tienes otras tiendas. Hasta entonces se puede recuperar.`}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              variant="destructive"
-              onClick={() => setConfirming(true)}
-              disabled={deleted}
-            >
-              Eliminar cuenta
-            </Button>
+            {pendingDeletion ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => void restore()} disabled={restoring}>
+                  {restoring ? "Recuperando…" : "Recuperar cuenta"}
+                </Button>
+                <Button variant="destructive" onClick={() => setErasing(true)}>
+                  Eliminar ya
+                </Button>
+              </div>
+            ) : (
+              <Button variant="destructive" onClick={() => setConfirming(true)}>
+                Eliminar cuenta
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -243,6 +290,34 @@ export function PrivacySection({
               }}
             >
               Eliminar cuenta
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={erasing} onOpenChange={setErasing}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-danger/10 text-danger">
+              <Trash2Icon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>¿Eliminar la cuenta definitivamente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Borra todo al momento, sin esperar a la fecha programada. No hay vuelta atrás.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogConfirmPhrase phrase={organization.display_name} />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              busyLabel="Eliminando…"
+              onClick={async () => {
+                await eraseNow();
+                return false;
+              }}
+            >
+              Eliminar definitivamente
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

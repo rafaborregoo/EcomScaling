@@ -33,12 +33,16 @@ async function main() {
   // se tragaba en silencio sin marcar el job como fallido en ningun sitio.
   if (
     result.data.failedOrganizationIds.length > 0 ||
-    result.data.failedConnectionIds.length > 0
+    result.data.failedConnectionIds.length > 0 ||
+    result.data.failedStaleAttemptIds.length > 0 ||
+    result.data.failedUserIds.length > 0
   ) {
     logger.error("Some purges failed, see individual error logs above", {
       ...workerJobMeta(jobContext),
       failedOrganizationIds: result.data.failedOrganizationIds,
       failedConnectionIds: result.data.failedConnectionIds,
+      failedStaleAttemptIds: result.data.failedStaleAttemptIds,
+      failedUserIds: result.data.failedUserIds,
     });
     process.exitCode = 1;
   }

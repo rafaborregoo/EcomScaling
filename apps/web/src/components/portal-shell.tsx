@@ -103,6 +103,7 @@ import { InsightsProvider } from "@/components/insights-context";
 import { SettingsNavStatus } from "@/app/configuracion/settings-status";
 import { IntegrationLiveUpdates } from "@/components/integration-live-updates";
 import { MfaRequiredBanner } from "@/components/mfa-required-banner";
+import { scheduledDeletionLabel } from "@/lib/scheduled-deletion";
 import {
   getActivePortalModule,
   getPortalNavigation,
@@ -202,13 +203,38 @@ const PLAN_STATE_TEXT: Record<string, string> = {
 
 function AccountStateBanner({
   organizationStatus,
+  scheduledPurgeAt,
   subscriptionStatus,
   isConsultant,
 }: {
   organizationStatus: string;
+  scheduledPurgeAt?: string | null;
   subscriptionStatus: string | null;
   isConsultant: boolean;
 }) {
+  // A diferencia de la pausa, aquí sí avisa también al consultor: quien lo pide
+  // es el propietario, y el consultor puede no saberlo.
+  if (organizationStatus === "pending_deletion") {
+    return (
+      <Banner
+        tone="danger"
+        className="rounded-none border-x-0 border-t-0 px-6 py-3 lg:px-10"
+        title={isConsultant ? "Este cliente se va a eliminar" : "Tu cuenta se va a eliminar"}
+        action={
+          <Link
+            className="inline-flex items-center gap-1 whitespace-nowrap"
+            href={isConsultant ? "/consultor" : "/configuracion?section=privacidad"}
+          >
+            {isConsultant ? "Gestionar cliente" : "Recuperar cuenta"}
+            <IconChevronRight aria-hidden />
+          </Link>
+        }
+      >
+        {scheduledDeletionLabel(scheduledPurgeAt)}. Hasta entonces se puede recuperar.
+      </Banner>
+    );
+  }
+
   // El consultor/admin es quien pausa a un cliente (status 'suspended'), a
   // propósito y desde /consultor -- no necesita que se lo recuerden en cada
   // página. El aviso es solo para el cliente, que sí queda bloqueado.
@@ -1936,6 +1962,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               {activeOrganization ? (
                 <AccountStateBanner
                   organizationStatus={activeOrganization.status}
+                  scheduledPurgeAt={activeOrganization.scheduled_purge_at}
                   subscriptionStatus={activeSubscription?.status ?? null}
                   isConsultant={isConsultant}
                 />

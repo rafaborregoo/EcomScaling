@@ -202,6 +202,7 @@ import {
   createOwnStore,
   listOrganizationStores,
   hardDeleteOrganization,
+  hardDeleteOrganizationStore,
   listOwnStoresOverview,
   pauseConsultantClient,
   previewClientInvite,
@@ -6385,6 +6386,23 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendServiceFailure(reply, result);
       }
 
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string; connectionId: string } }>(
+    "/v1/consultant/organizations/:organizationId/stores/:connectionId/hard-delete",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await hardDeleteOrganizationStore(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
   );

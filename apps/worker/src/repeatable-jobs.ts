@@ -10,6 +10,10 @@ export const FATHOM_WEBHOOK_CRON = "* * * * *";
 export const FATHOM_WEBHOOK_TZ = "Europe/Madrid";
 export const WEBHOOK_RETENTION_CRON = "30 3 * * *";
 export const WEBHOOK_RETENTION_TZ = "Europe/Madrid";
+// En BullMQ y no en el crontab del VPS: alli solo corria contra produccion, y en
+// TEST los borrados vencidos se quedaban para siempre.
+export const PURGE_EXPIRED_DELETIONS_CRON = "7 3 * * *";
+export const PURGE_EXPIRED_DELETIONS_TZ = "Europe/Madrid";
 export const AI_CONTEXT_RETENTION_CRON = "45 3 * * *";
 export const AI_CONTEXT_RETENTION_TZ = "Europe/Madrid";
 

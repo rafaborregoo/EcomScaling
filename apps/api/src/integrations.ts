@@ -85,6 +85,8 @@ type ConnectionRow = {
   // siguen encajando. Lo que lo consume (classifyAuthorizationAttempt) ya cae
   // a created_at cuando falta.
   updated_at?: string | null;
+  /** Cuando se borra de verdad, si esta en `pending_deletion`. */
+  scheduled_purge_at?: string | null;
   metadata?: Record<string, unknown> | null;
   app_mode?: "public" | "custom" | null;
 };
@@ -296,6 +298,7 @@ async function loadConnections(
         // la ultima vez que alguien lo intento, y es lo que distingue "en
         // curso" de "abandonado" (classifyAuthorizationAttempt).
         "updated_at",
+        "scheduled_purge_at",
         "metadata",
       ].join(", "),
     )

@@ -90,6 +90,26 @@ export function isPurgeableAuthorizationAttempt(
   return now.getTime() - started >= AUTHORIZATION_ABANDONED_PURGE_MS;
 }
 
+/**
+ * Un intento que acabo en `error` antes de autorizarse (Klaviyo deja asi el
+ * `state` caducado). No es una tienda rota: nunca se conecto ni trajo un dato, y
+ * sin esta regla se quedaba para siempre, porque la purga de arriba solo mira
+ * `pending`.
+ */
+export function isPurgeableFailedAttempt(
+  connection: AuthorizationAttemptInput & { last_sync_at?: string | null },
+  now: Date = new Date(),
+): boolean {
+  if (connection.status !== "error") return false;
+  if (connection.connected_at || connection.last_sync_at) return false;
+
+  const startedAt = connection.updated_at ?? connection.created_at ?? null;
+  const started = startedAt ? Date.parse(startedAt) : Number.NaN;
+  if (Number.isNaN(started)) return false;
+
+  return now.getTime() - started >= AUTHORIZATION_ABANDONED_PURGE_MS;
+}
+
 /** La frontera que usa la consulta de purga, para no traerse a Node filas que
  * ni siquiera son candidatas. */
 export function authorizationPurgeCutoff(now: Date = new Date()): string {

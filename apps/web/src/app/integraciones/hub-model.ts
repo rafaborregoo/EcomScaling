@@ -4,7 +4,7 @@
 // la interfaz (hub-model.test.ts).
 
 import { SHOPIFY_SCOPES_USED } from "@e-nora/contracts";
-import type { IntegrationConnection, IntegrationProvider, IntegrationSyncRun } from "./shared";
+import type { IntegrationConnection, IntegrationProvider, IntegrationSyncRun, IntegrationsResponse } from "./shared";
 import {
   explainError,
   explainHealth,
@@ -12,6 +12,46 @@ import {
   type Explanation,
   type StoreView,
 } from "./store-view-model";
+
+// --- Conexiones antiguas ----------------------------------------------------
+
+export type OldConnection = { provider: string; name: string; connection: IntegrationConnection };
+
+/** Lo que ya no trae datos: programado para borrar, desconectado, o un intento
+ *  que falló antes de autorizarse. Es lo que se puede limpiar a mano. */
+export function isOldConnection(connection: IntegrationConnection): boolean {
+  if (["pending_deletion", "disconnected", "revoked"].includes(connection.status)) return true;
+  return connection.status === "error" && !connection.connected_at && !connection.last_sync_at;
+}
+
+export function oldConnections(providers: IntegrationProvider[]): OldConnection[] {
+  return providers.flatMap((provider) =>
+    provider.connections
+      .filter(isOldConnection)
+      .map((connection) => ({ provider: provider.id, name: provider.name, connection })),
+  );
+}
+
+/** El nombre de una fila antigua. Un intento guarda `pending:<uuid>` como cuenta,
+ *  y eso no es algo que enseñar ni pedir que se teclee. */
+export function oldConnectionLabel({ name, connection }: OldConnection): string {
+  const account = connection.provider_account_name ?? connection.provider_account_id;
+  return !account || account.startsWith("pending:") ? name : account;
+}
+
+/** Quita las cuentas de Meta y Klaviyo programadas para borrar de las vistas
+ *  vivas: ya no tienen permiso. Las tiendas de Shopify se apartan aparte porque
+ *  la tienda sigue en el alcance hasta que se purga. */
+export function withoutScheduledAccounts(payload: IntegrationsResponse): IntegrationsResponse {
+  return {
+    ...payload,
+    providers: payload.providers.map((provider) =>
+      provider.id === "shopify"
+        ? provider
+        : { ...provider, connections: provider.connections.filter((item) => item.status !== "pending_deletion") },
+    ),
+  };
+}
 
 // --- Cola de arreglos -----------------------------------------------------
 

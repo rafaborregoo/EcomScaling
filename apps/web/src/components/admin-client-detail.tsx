@@ -74,6 +74,7 @@ export type Client = {
   timezone: string;
   currency_code: string;
   created_at: string;
+  scheduled_purge_at?: string | null;
   member_count: number;
   consultants: Array<{ user_id: string; full_name: string | null; avatar_url?: string | null; is_primary: boolean }>;
   plan: { plan_code: string; store_limit: number | null; member_limit: number | null; status: string; ends_at: string | null } | null;

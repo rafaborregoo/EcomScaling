@@ -82,6 +82,8 @@ export type IntegrationConnection = {
   // (classifyAuthorizationAttempt, en @e-nora/contracts).
   created_at?: string | null;
   updated_at?: string | null;
+  /** Cuándo se borra de verdad, si está en `pending_deletion`. */
+  scheduled_purge_at?: string | null;
   last_sync_at: string | null;
   last_error_message: string | null;
   latest_sync: IntegrationSyncRun | null;
@@ -443,10 +445,9 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         notifyIntegrationStatusChanged();
       }),
     // Descartar un intento de OAuth que nadie termino. Reusa el endpoint de
-    // borrado de tienda: el backend distingue el intento (borrado inmediato,
-    // no hay nada que recuperar) de una tienda con datos (borrado programado a
-    // 30 dias). Solo lo ofrece la interfaz a consultor/platform_admin, que es
-    // quien ese endpoint autoriza.
+    // borrado de conexion: el backend distingue el intento (borrado inmediato,
+    // no hay nada que recuperar) de una conexion con datos (borrado programado
+    // a 30 dias).
     discardAuthorizationAttempt: (connectionId: string) =>
       withPending(`discard-${connectionId}`, async () => {
         const response = await apiFetch(
@@ -458,9 +459,12 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           return;
         }
         reload();
+        notifyIntegrationStatusChanged();
       }),
-    scheduleStoreRemoval: async (connectionId: string) => {
-      if (!organizationId) return false;
+    // Dice qué ha pasado: sin datos que conservar la fila se va al momento
+    // ("deleted"); con datos queda programada ("scheduled"). Null si falla.
+    scheduleStoreRemoval: async (connectionId: string): Promise<"scheduled" | "deleted" | null> => {
+      if (!organizationId) return null;
       setPending(`remove-${connectionId}`);
       setActionError(null);
       try {
@@ -470,13 +474,39 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         );
         if (!response.ok) {
           setActionError(await readErr(response));
+          return null;
+        }
+        const data = (await response.json()) as { discarded?: boolean };
+        await reload();
+        notifyIntegrationStatusChanged();
+        return data.discarded ? "deleted" : "scheduled";
+      } catch {
+        setActionError("No se pudo retirar la conexión. Reintenta.");
+        return null;
+      } finally {
+        setPending(null);
+      }
+    },
+    // Borra ya, sin periodo de gracia: una integración antigua o una purga
+    // programada que no se quiere esperar.
+    eraseConnection: async (connectionId: string) => {
+      if (!organizationId) return false;
+      setPending(`erase-${connectionId}`);
+      setActionError(null);
+      try {
+        const response = await apiFetch(
+          `/v1/consultant/organizations/${organizationId}/stores/${connectionId}/hard-delete`,
+          { method: "POST" },
+        );
+        if (!response.ok) {
+          setActionError(await readErr(response));
           return false;
         }
         await reload();
         notifyIntegrationStatusChanged();
         return true;
       } catch {
-        setActionError("No se pudo retirar la tienda. Reintenta.");
+        setActionError("No se pudo eliminar la conexión. Reintenta.");
         return false;
       } finally {
         setPending(null);
@@ -499,7 +529,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
         notifyIntegrationStatusChanged();
         return true;
       } catch {
-        setActionError("No se pudo restaurar la tienda. Reintenta.");
+        setActionError("No se pudo restaurar la conexión. Reintenta.");
         return false;
       } finally {
         setPending(null);

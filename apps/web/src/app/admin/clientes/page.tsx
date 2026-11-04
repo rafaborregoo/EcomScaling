@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue, organizationStatusTone } from "@/lib/display-labels";
+import { scheduledDeletionLabel } from "@/lib/scheduled-deletion";
 import {
   CLIENT_STATUS_OPTIONS,
   CreateClientSheet,
@@ -98,7 +99,7 @@ function ClientsPanel() {
           {row.display_name}
           {row.status === "pending_deletion" ? (
             <Badge tone="danger" className="ml-2">
-              borrado pendiente
+              {scheduledDeletionLabel(row.scheduled_purge_at)}
             </Badge>
           ) : null}
         </span>
@@ -192,7 +193,7 @@ function ClientsPanel() {
                 </AlertDialogMedia>
                 <AlertDialogTitle>¿Eliminar {row.display_name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Borra todo al instante: datos de Shopify, Meta y Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay vuelta atrás.
+                  Borra todo al instante: datos de Shopify, Meta y Klaviyo, tareas, planes, agentes, miembros, suscripción y los usuarios que no tengan otra tienda. No hay vuelta atrás.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogConfirmPhrase phrase={row.display_name} />

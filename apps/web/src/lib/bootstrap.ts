@@ -39,6 +39,8 @@ export type BootstrapResponse = {
       currency_code: string;
       /** El propietario exige 2FA al equipo. */
       require_mfa?: boolean;
+      /** Cuándo se borra de verdad, si está en `pending_deletion`. */
+      scheduled_purge_at?: string | null;
     } | null;
   }>;
   subscriptions: Array<{
