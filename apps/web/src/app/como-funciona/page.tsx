@@ -3,8 +3,9 @@ import { PublicEntryShell } from "@/components/public-entry-shell";
 import { HowItWorks, type HowItWorksStep } from "@/components/marketing/how-it-works";
 
 export const metadata: Metadata = {
-  title: "Cómo funciona E-NORA",
-  description: "Conecta Shopify, Meta y Klaviyo, deja que NORA te diga qué hacer cada día y decide tú, con tu consultor si trabajas con uno. En seis pasos.",
+  title: "Cómo analizar el beneficio real de tu tienda Shopify con IA",
+  description: "Conecta Shopify, Meta Ads y Klaviyo y NORA te dice cada mañana qué hacer, con las fuentes a la vista. Cada plataforma con su cifra, sin sumar atribuciones. En seis pasos.",
+  alternates: { canonical: "/como-funciona" },
 };
 
 const STEPS: HowItWorksStep[] = [

@@ -34,8 +34,10 @@ const plexSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "E-NORA IA",
+  metadataBase: new URL("https://ecom.noraapp.es"),
+  title: { default: "E-NORA IA", template: "%s | E-NORA" },
   description: "Portal operativo para clientes y consultores de E-NORA.",
+  openGraph: { type: "website", locale: "es_ES", siteName: "E-NORA", images: ["/logos/e-nora-login.svg"] },
   icons: {
     icon: [{ url: "/logos/e-nora-simple.svg", type: "image/svg+xml" }],
   },

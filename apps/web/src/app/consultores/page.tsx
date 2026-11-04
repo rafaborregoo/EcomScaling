@@ -3,8 +3,9 @@ import { PublicEntryShell } from "@/components/public-entry-shell";
 import { HowItWorks, type HowItWorksStep } from "@/components/marketing/how-it-works";
 
 export const metadata: Metadata = {
-  title: "E-NORA para consultores",
-  description: "Toda tu cartera en una pantalla: qué cliente te necesita, qué han visto los especialistas de NORA y qué te toca aprobar. En seis pasos.",
+  title: "Software para consultores de ecommerce: toda tu cartera Shopify en una pantalla",
+  description: "Ve qué cliente te necesita, qué han detectado los especialistas de NORA y qué te toca aprobar. Informes con tu marca. Plazas limitadas para consultores.",
+  alternates: { canonical: "/consultores" },
 };
 
 // Las cuentas de consultor no se abren solas: se piden en /solicitar y las abre E-NORA.
