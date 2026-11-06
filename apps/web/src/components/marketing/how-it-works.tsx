@@ -7,9 +7,8 @@ import styles from "./how-it-works.module.css";
 
 // Páginas públicas con vídeo explicativo (/como-funciona para clientes,
 // /consultores para consultores): el vídeo y, debajo, los mismos seis pasos que
-// cuenta, con lo que hace la app en cada uno. Los titulares y frases son los del
-// vídeo (video/GUION_LANDING.md y video/GUION_CONSULTORES.md); si cambian allí,
-// se cambian aquí. `at` es el segundo del vídeo en que empieza cada paso.
+// cuenta, con lo que hace la app en cada uno. El copy resume cada paso del vídeo;
+// `at` es el segundo del vídeo en que empieza ese paso.
 
 const PLAZAS = "Plazas limitadas. Cualquiera puede solicitar acceso.";
 
@@ -80,7 +79,7 @@ export function HowItWorks({ id, title, lead, video: src, videoLabel, steps, cta
       </ol>
 
       <section className={styles.close} aria-label="Empieza">
-        <p>Tu propia línea, no hay competición.</p>
+        <p>Da el siguiente paso con E-NORA.</p>
         <Link className={buttonVariants({ size: "lg" })} href={cta.href}>{cta.label}</Link>
         <p className={styles.note}>{PLAZAS}</p>
       </section>

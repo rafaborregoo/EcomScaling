@@ -3,8 +3,8 @@ import { PublicEntryShell } from "@/components/public-entry-shell";
 import { HowItWorks, type HowItWorksStep } from "@/components/marketing/how-it-works";
 
 export const metadata: Metadata = {
-  title: "Cómo analizar el beneficio real de tu tienda Shopify con IA",
-  description: "Conecta Shopify, Meta Ads y Klaviyo y NORA te dice cada mañana qué hacer, con las fuentes a la vista. Cada plataforma con su cifra, sin sumar atribuciones. En seis pasos.",
+  title: "Cómo funciona la plataforma de ecommerce con IA",
+  description: "Descubre cómo E-NORA conecta Shopify, Meta Ads y Klaviyo para analizar tus ventas, conocer tu beneficio y preparar campañas con IA. Tu ecommerce, en seis pasos.",
   alternates: { canonical: "/como-funciona" },
 };
 
@@ -12,8 +12,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Conectar",
     at: 5,
-    title: "Conecta Shopify, Meta y Klaviyo",
-    body: "E-NORA importa tus pedidos, tu stock, tus anuncios y tus emails. Para empezar basta con Shopify.",
+    title: "Los datos de tu negocio, conectados",
+    body: "Reúne tus pedidos, productos, anuncios y emails en E-NORA. Empieza conectando Shopify y añade Meta Ads y Klaviyo para ampliar la visión de tu ecommerce.",
     points: [
       "Shopify: pedidos, productos, stock por ubicación, clientes y descuentos.",
       "Meta Ads: campañas, anuncios, inversión y resultados que atribuye Meta.",
@@ -24,8 +24,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Medir",
     at: 15,
-    title: "NORA revisa tus números cada mañana",
-    body: "Ventas, pedidos, beneficio y conversión de los últimos 30 días, frente al mes anterior. Y te enseña de dónde sale cada cifra.",
+    title: "Tu rentabilidad, a la vista",
+    body: "Conoce cuánto vendes y qué beneficio te queda después de los costes que hayas configurado. Compara los últimos 30 días con el periodo anterior y consulta el origen de cada cifra.",
     points: [
       "Un titular con lo más importante del día, escrito por NORA.",
       "El beneficio desglosado: producto, envíos, comisiones, publicidad y gastos fijos.",
@@ -35,8 +35,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Decidir",
     at: 27,
-    title: "Te propone qué hacer, y por qué",
-    body: "Cada propuesta trae los datos que la justifican. Si la aceptas, pasa a tus tareas. Si no te encaja, la descartas.",
+    title: "Cada decisión, con datos detrás",
+    body: "La IA de NORA detecta qué necesita atención y te propone acciones con sus fuentes. Revisa cada propuesta y convierte en tarea las que encajen con tu negocio.",
     points: [
       "Propuestas de stock, anuncios y emails con su porqué y sus fuentes.",
       "Aceptarla la convierte en una tarea tuya; descartarla no cambia nada.",
@@ -46,8 +46,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Planificar",
     at: 40,
-    title: "Tu consultor, en la misma pantalla",
-    body: "Si trabajas con un consultor, ve tus datos y tus tareas, te deja notas y prepara contigo un plan con meta de ventas.",
+    title: "Un plan compartido con tu consultor",
+    body: "Trabaja con tu consultor sobre los mismos datos, objetivos y tareas. Define un plan por fases, reparte responsabilidades y sigue los avances desde tu tienda.",
     points: [
       "Un plan por fases, con hitos, fechas y una meta de ventas.",
       "Tareas con dueño: tú, tu consultor o los dos.",
@@ -57,8 +57,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Ejecutar",
     at: 51,
-    title: "Creas la campaña sin salir de aquí",
-    body: "Escribes la idea en una frase. NORA prepara el email, tu consultor lo revisa y se programa en tu Klaviyo.",
+    title: "De tu idea a una campaña lista para revisar",
+    body: "Describe qué quieres comunicar y NORA prepara un borrador de email con tus productos y tu marca. Ajústalo con tu consultor y prográmalo en tu cuenta de Klaviyo.",
     points: [
       "NORA escribe el primer borrador del email a partir de tu idea.",
       "Lo ajustas en un editor de bloques con tus productos y tu marca.",
@@ -69,8 +69,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Comprobar",
     at: 65,
-    title: "Pregunta qué ha funcionado",
-    body: "NORA responde con tus datos y te dice de dónde salen. Cada plataforma con su cifra, sin sumarlas.",
+    title: "Tus resultados, con contexto",
+    body: "Pregunta a NORA qué ha cambiado en tu negocio y consulta los datos que explican su respuesta. Revisa las ventas de Shopify y las atribuciones de Meta y Klaviyo por separado.",
     points: [
       "Preguntas con tus palabras; respuestas con las fuentes a la vista.",
       "Lo que atribuye Meta, lo que atribuye Klaviyo y lo que ve tu tienda, por separado.",
@@ -85,8 +85,8 @@ export default function HowItWorksPage() {
       <main id="public-content">
         <HowItWorks
           id="como-funciona-title"
-          title="Así funciona E-NORA"
-          lead="Conecta tu tienda, deja que NORA te diga qué hacer cada día y decide tú, con tu consultor si trabajas con uno. En seis pasos."
+          title="De los datos de tu tienda a un plan de acción"
+          lead="Con E-NORA conectas tus herramientas, entiendes tus resultados y organizas el trabajo de tu ecommerce. La IA te ayuda a analizar y preparar acciones; tú y tu consultor decidís el siguiente paso."
           video="/video/como-funciona"
           videoLabel="Vídeo: cómo funciona E-NORA en seis pasos, con una tienda de ejemplo"
           steps={STEPS}

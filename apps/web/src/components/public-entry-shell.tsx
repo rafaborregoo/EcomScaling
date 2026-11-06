@@ -12,7 +12,7 @@ export function PublicEntryShell({ active, children }: { active: "login" | "plat
     <div className={styles.shell} data-entry={entry}>
       <a className={styles.skip} href="#public-content">Saltar al contenido</a>
       <header className={styles.header}>
-        <Link href="/como-funciona" aria-label="E-NORA, conoce la plataforma" className={styles.logo}>
+        <Link href="/" aria-label="E-NORA, inicio" className={styles.logo}>
           <BrandLogo />
         </Link>
         <nav aria-label="Navegación pública" className={styles.nav}>
@@ -25,7 +25,7 @@ export function PublicEntryShell({ active, children }: { active: "login" | "plat
       {entry === "platform" && <PublicCompactNav />}
       {children}
       <footer className={styles.footer}>
-        <span>E-NORA · Tu negocio, con perspectiva.</span>
+        <span>E-NORA · Software de ecommerce con IA para tiendas y consultores.</span>
         <LegalFooterLinks />
       </footer>
     </div>

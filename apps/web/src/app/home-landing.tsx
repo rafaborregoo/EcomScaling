@@ -11,8 +11,8 @@ const PLAZAS = "Plazas limitadas. Cualquiera puede solicitar acceso.";
 const PILARES = [
   {
     label: "Para tu tienda",
-    title: "Cada mañana sabes qué hacer, y por qué",
-    body: "NORA lee tus pedidos, tu stock, tus anuncios y tus emails, y te propone el siguiente paso con las fuentes a la vista. Si lo aceptas, pasa a tus tareas; si no, no cambia nada.",
+    title: "Tu tienda bajo control, cada día",
+    body: "Consulta tus ventas, conoce tu beneficio y detecta qué necesita atención. La IA de E-NORA analiza los datos de tu tienda y te propone acciones para que puedas decidir con información clara.",
     points: [
       "Ventas, pedidos, beneficio y conversión frente al mes anterior.",
       "El beneficio desglosado: producto, envíos, comisiones, publicidad y gastos fijos.",
@@ -23,8 +23,8 @@ const PILARES = [
   },
   {
     label: "Para consultores",
-    title: "Toda tu cartera de clientes en una pantalla",
-    body: "Ves qué cliente te necesita y por qué, qué han detectado los especialistas de NORA y qué te toca aprobar. Preparas el plan con el cliente y le envías el informe con tu marca.",
+    title: "Cada cliente, con un plan claro",
+    body: "Gestiona tu cartera de ecommerce desde un mismo lugar. Identifica qué tiendas necesitan atención, prepara sus planes de crecimiento y revisa campañas e informes con tu marca.",
     points: [
       "Clientes ordenados por urgencia, con el motivo.",
       "Planes por fases con meta de ventas, y campañas que revisas antes de programar.",
@@ -41,9 +41,9 @@ export function HomeLanding() {
       <HomeRedirect />
       <main id="public-content">
         <section className={styles.hero} aria-labelledby="home-title">
-          <h1 id="home-title">Shopify, Meta Ads y Klaviyo en una sola pantalla.</h1>
+          <h1 id="home-title">Todo tu ecommerce en una misma plataforma</h1>
           <p className={styles.lead}>
-            NORA revisa tus números cada mañana y te dice qué hacer. Cada plataforma con su cifra, sin sumar atribuciones. Tú decides.
+            E-NORA es el software de ecommerce con IA que reúne tus ventas, stock, publicidad y email marketing. Conecta Shopify, Meta Ads y Klaviyo para entender tu negocio, planificar tus acciones y trabajar con tu consultor desde un mismo lugar.
           </p>
           {/* Aquí irá el vídeo de la home cuando esté grabado. */}
           <div className={styles.actions}>
@@ -72,7 +72,7 @@ export function HomeLanding() {
         </ol>
 
         <section className={styles.close} aria-label="Empieza">
-          <p>Tu propia línea, no hay competición.</p>
+          <p>Empieza a gestionar tu ecommerce con una visión completa.</p>
           <Link className={buttonVariants({ size: "lg" })} href="/solicitar">Pedir acceso</Link>
           <p className={styles.note}>{PLAZAS}</p>
         </section>
